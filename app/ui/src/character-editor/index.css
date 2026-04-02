@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #38bdf8;
+  --color-secondary: #818cf8;
+  --color-bg-deep: #0f172a;
+  --color-bg-card: #1e293b;
+  --color-border: #334155;
+  --color-app-accent: var(--app-accent);
+  --color-app-bg: var(--app-bg);
+  --color-app-text: var(--app-text);
+  
+  --animate-breathing: breathing 5s ease-in-out infinite;
+  @keyframes breathing {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-3px) scale(1.02); }
+  }
+}
+
+@keyframes startle-shake {
+  0% { transform: scale(1) translateY(0); }
+  5% { transform: scale(1.3) translateY(-25px); }
+  10% { transform: scale(1.2) translateY(-15px); }
+  15%, 25%, 35%, 45%, 55%, 65%, 75%, 85%, 95% { transform: scale(1.2) translateY(-15px) translateX(-5px) rotate(-1deg); }
+  20%, 30%, 40%, 50%, 60%, 70%, 80%, 90% { transform: scale(1.2) translateY(-15px) translateX(5px) rotate(1deg); }
+  100% { transform: scale(1) translateY(0) translateX(0) rotate(0deg); }
+}
+
+.behavior-startled {
+  animation: startle-shake 0.8s cubic-bezier(0.36, 0.07, 0.19, 0.97) both !important;
+}
+
+/* Global Rig: Head Separation */
+#ld-head, .ld-head-part, [id*="Head" i], [id*="Ear" i], [id*="Skin" i], [id*="Face" i], [id*="Top" i], [id*="Hair" i], [id*="Eyebrow" i] {
+  transform-origin: 50% 63%; /* Precise pivot at the top of the neck joint (around 177 in 280 viewBox) */
+  /* transition: transform 1.5s ease-in-out; -- Removed to allow for JS-driven incremental drift */
+  transform: rotate(var(--ld-head-rotate, 0deg));
+}
+
+/* Apply behavioral animations ONLY to the head-related groups */
+
+.animate-head-jitter {
+  /* Legacy class kept for compatibility, but moving logic to behavior classes */
+}
+
+.animate-thinking-tilt {
+  /* Legacy class kept for compatibility, but moving logic to behavior classes */
+}
+
+:root {
+  font-family: var(--app-font-family);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--app-text);
+  background-color: var(--app-bg);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+}
+
+/* Custom shadow animations for premium feel */
+.shadow-glow {
+  box-shadow: 0 0 15px -3px rgba(56, 189, 248, 0.4);
+}
+
+/* Character Specific Viseme Overrides (Phase 3) */
+/* We toggle these classes on #ld-mouth path children */
+.character-talking #ld-mouth .v-neutral { display: none; }
+.character-talking #ld-mouth .v-open { display: block; }
+/* ... more in Step 3 ... */

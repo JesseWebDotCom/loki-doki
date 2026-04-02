@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "core_memory",
+  "title": "Core Memory",
+  "domain": "system",
+  "description": "Store long-term facts about the user and household.",
+  "version": "1.0.0",
+  "load_type": "eager",
+  "account_mode": "single",
+  "system": true,
+  "enabled_by_default": true,
+  "required_context": [],
+  "optional_context": [],
+  "permissions": {
+    "default": "all_users"
+  },
+  "shared_context_fields": [],
+  "account_context_fields": [],
+  "runtime_dependencies": [],
+  "skill_dependencies": {
+    "required": [],
+    "optional": []
+  },
+  "actions": {
+    "save_fact": {
+      "title": "Save Fact",
+      "description": "Extract and save a true fact about the user or household.",
+      "enabled": true,
+      "required_context": [],
+      "optional_context": [],
+      "timeout_ms": 5000,
+      "cache_ttl_sec": 0,
+      "phrases": ["remember that", "my name is", "i like", "we have a"],
+      "keywords": ["remember", "save", "keep in mind", "note"],
+      "negative_keywords": [],
+      "example_utterances": [
+        "remember that my sister is named sarah",
+        "save the fact that we have a golden retriever"
+      ],
+      "required_entities": ["key", "value", "category", "confidence"],
+      "optional_entities": []
+    }
+  }
+}

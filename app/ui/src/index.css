@@ -1,0 +1,270 @@
+@import "tailwindcss";
+
+:root {
+  --background: #07111f;
+  --foreground: #e6f1ff;
+  --muted-foreground: #8aa0bc;
+  --line: rgba(148, 163, 184, 0.18);
+  --panel:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(10, 20, 35, 0.98), rgba(5, 11, 21, 1));
+  --panel-strong: rgba(10, 20, 35, 0.92);
+  --accent: #38bdf8;
+  --accent-strong: #0ea5e9;
+  --accent-foreground: #03111d;
+  --card: rgba(15, 23, 42, 0.82);
+  --input: rgba(2, 8, 23, 0.94);
+  --assistant-bubble: rgba(20, 35, 58, 0.95);
+  color-scheme: dark;
+}
+
+[data-theme="dark"] {
+  --background: #07111f;
+  --foreground: #e6f1ff;
+  --muted-foreground: #8aa0bc;
+  --line: rgba(148, 163, 184, 0.18);
+  --panel:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(10, 20, 35, 0.98), rgba(5, 11, 21, 1));
+  --panel-strong: rgba(10, 20, 35, 0.92);
+  --accent: #38bdf8;
+  --accent-strong: #0ea5e9;
+  --accent-foreground: #03111d;
+  --card: rgba(15, 23, 42, 0.82);
+  --input: rgba(2, 8, 23, 0.94);
+  --assistant-bubble: rgba(20, 35, 58, 0.95);
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --background: #eef3fb;
+  --foreground: #172033;
+  --muted-foreground: #637089;
+  --line: rgba(106, 128, 168, 0.22);
+  --panel: radial-gradient(circle at top, rgba(96, 147, 255, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(250, 252, 255, 0.95), rgba(238, 243, 251, 0.98));
+  --panel-strong: rgba(255, 255, 255, 0.86);
+  --accent: #dd6b20;
+  --accent-strong: #c05621;
+  --accent-foreground: #ffffff;
+  --card: rgba(255, 255, 255, 0.84);
+  --input: rgba(255, 255, 255, 0.9);
+  color-scheme: light;
+}
+
+[data-theme="warm"] {
+  --background: #22120e;
+  --foreground: #fff7ed;
+  --muted-foreground: #dec4b5;
+  --line: rgba(255, 170, 110, 0.18);
+  --panel: radial-gradient(circle at top, rgba(255, 157, 84, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(39, 22, 18, 0.97), rgba(26, 15, 12, 1));
+  --panel-strong: rgba(35, 20, 16, 0.96);
+  --accent: #f97316;
+  --accent-strong: #fb923c;
+  --accent-foreground: #ffffff;
+  --card: rgba(54, 31, 23, 0.82);
+  --input: rgba(64, 37, 28, 0.9);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--foreground);
+  background: var(--background);
+  background-image:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.08), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.06), transparent 24%),
+    linear-gradient(180deg, #08111f 0%, #050c16 100%);
+  font-family: "Geist Variable", "Geist", "Avenir Next", "SF Pro Text", "Segoe UI", ui-sans-serif, sans-serif;
+  overflow: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(circle at center, black 30%, transparent 85%);
+  opacity: 0.18;
+}
+
+.app-frame {
+  box-sizing: border-box;
+  padding: 0;
+}
+
+.app-sidebar {
+  border-right: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 18%),
+    rgba(8, 16, 30, 0.78);
+  backdrop-filter: blur(24px);
+}
+
+.chat-scroll-region {
+  background: transparent;
+}
+
+.chat-empty-state {
+  padding: 2rem;
+  background: transparent;
+  box-shadow: none;
+}
+
+.chat-suggestion-card {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-user-bubble {
+  border-radius: 20px;
+  padding: 0.8rem 1.1rem;
+  background: var(--assistant-bubble);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+.chat-assistant-bubble {
+  border-radius: 16px;
+}
+
+.chat-composer-card {
+  background: transparent;
+  box-shadow: none;
+}
+
+.chat-send-button.is-processing {
+  animation: chat-send-processing 1s ease-in-out infinite;
+}
+
+.typing-dot {
+  animation: typing-dot-bounce 1.2s ease-in-out infinite;
+}
+
+.workspace-shell {
+  background: transparent;
+}
+
+.workspace-nav {
+  border-right: 1px solid var(--line);
+  background: rgba(12, 12, 14, 0.56);
+}
+
+.workspace-content {
+  background: transparent;
+}
+
+.chat-message-actions > button,
+.chat-message-actions > span,
+.chat-message-actions > div {
+  transform: scale(0.96);
+}
+
+.chat-message-actions {
+  pointer-events: none;
+}
+
+.chat-message-actions button {
+  pointer-events: auto;
+}
+
+.chat-file-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 280px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.5rem;
+}
+
+.chat-file-preview-thumb {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted-foreground);
+}
+
+.chat-file-preview-text {
+  display: -webkit-box;
+  overflow: hidden;
+  padding: 0.2rem;
+  font-size: 9px;
+  line-height: 1.1;
+  color: var(--muted-foreground);
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.chat-file-preview-remove {
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.audio-visualizer-shell {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+@keyframes typing-dot-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+.chat-avatar-pulsing {
+  animation: chat-avatar-pulse 2.2s ease-in-out infinite;
+  filter: grayscale(100%);
+}
+
+@keyframes chat-avatar-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.1;
+  }
+  50% {
+    transform: scale(0.92);
+    opacity: 0.5;
+  }
+}
+
+@keyframes chat-send-processing {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.05);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.08);
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "id": "wikipedia",
+  "title": "Wikipedia",
+  "domain": "knowledge",
+  "description": "Fetch Wikipedia article summaries and infobox details.",
+  "version": "1.0.0",
+  "load_type": "lazy",
+  "account_mode": "none",
+  "system": true,
+  "enabled_by_default": true,
+  "required_context": [],
+  "optional_context": [],
+  "permissions": {
+    "default": "all_users"
+  },
+  "shared_context_fields": [],
+  "account_context_fields": [],
+  "runtime_dependencies": [
+    { "package": "httpx", "version": ">=0.27.0" },
+    { "package": "beautifulsoup4", "version": ">=4.12.0" }
+  ],
+  "skill_dependencies": {
+    "required": [],
+    "optional": [
+      { "id": "web_search", "reason": "Fallback when Wikipedia has no exact match" }
+    ]
+  },
+  "actions": {
+    "lookup_article": {
+      "title": "Lookup Article",
+      "description": "Get a Wikipedia summary and infobox details for a topic.",
+      "enabled": true,
+      "required_context": [],
+      "optional_context": [],
+      "timeout_ms": 8000,
+      "cache_ttl_sec": 3600,
+      "phrases": [
+        "who is",
+        "who was",
+        "what is",
+        "what was",
+        "tell me about",
+        "details about",
+        "family of",
+        "timeline of",
+        "stats for",
+        "give me the details on",
+        "deep dive on"
+      ],
+      "keywords": [
+        "wikipedia",
+        "wiki",
+        "who",
+        "what",
+        "details",
+        "family",
+        "stats",
+        "timeline",
+        "infobox"
+      ],
+      "negative_keywords": [
+        "latest",
+        "recent",
+        "current",
+        "today",
+        "tonight",
+        "tomorrow",
+        "president",
+        "news"
+      ],
+      "example_utterances": [
+        "who is abraham lincoln",
+        "tell me about marie curie",
+        "give me the details on nikola tesla"
+      ],
+      "required_entities": ["query"],
+      "optional_entities": []
+    }
+  }
+}

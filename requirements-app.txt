@@ -1,0 +1,20 @@
+accelerate==1.4.0
+diffusers==0.32.2
+fastapi==0.116.1
+ddgs==9.6.1
+faster-whisper==1.2.1
+huggingface_hub==0.29.1
+numpy==2.0.2; python_version < "3.11"
+numpy==2.3.3; python_version >= "3.11"
+onnx>=1.19.1,<1.21
+opencv-python-headless>=4.10,<4.12
+openwakeword==0.6.0; python_version < "3.13"
+Pillow==11.3.0
+piper-tts==1.4.1
+PyJWT==2.10.1
+torch==2.8.0
+torchvision==0.23.0
+peft==0.14.0
+transformers==4.49.0
+uvicorn[standard]==0.35.0
+python-dotenv==1.0.1

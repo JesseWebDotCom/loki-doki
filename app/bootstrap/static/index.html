@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <title>LokiDoki Installer</title>
+    <link rel="stylesheet" href="/setup/style.css?v=5" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="main-card">
+        <div class="page-header">
+          <div class="brand-block">
+            <img class="brand-logo" src="/setup/assets/lokidoki-logo.svg" alt="LokiDoki logo" />
+            <div>
+              <div class="eyebrow">LokiDoki</div>
+              <h1>Bootstrap Installer</h1>
+              <p id="summary">Preparing installer…</p>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <div id="status-pill" class="pill muted">Idle</div>
+            <button id="header-view-app-btn" class="primary-btn small" style="display: none;">Open Application</button>
+          </div>
+        </div>
+
+        <div class="wizard-layout">
+          <!-- Main Setup Focus Area -->
+          <div class="wizard-focus">
+            
+            <div id="ready-card" class="ready-card hidden">
+              <div class="ready-content">
+                <div class="ready-icon">✓</div>
+                <h3 id="ready-text">LokiDoki is ready!</h3>
+                <p id="ready-subtext">All dependencies and neural engines are successfully loaded.</p>
+              </div>
+              <div class="actions-row center">
+                <button id="view-app-btn" class="primary-btn large" disabled>Open Application</button>
+              </div>
+            </div>
+
+            <!-- Progress Tracker -->
+            <div class="progress-section">
+              <div class="progress-header">
+                <span id="progress-step-text">Awaiting start...</span>
+                <span id="progress-percentage">0%</span>
+              </div>
+              <div class="progress-track">
+                <div id="progress-fill" class="progress-fill"></div>
+              </div>
+            </div>
+            
+            <!-- Health & Ready State -->
+            <div id="health-cards" class="health-cards"></div>
+            
+            <div id="config-summary-card" class="config-card hidden">
+              <h3>Saved configuration</h3>
+              <dl id="config-summary" class="config-summary"></dl>
+            </div>
+
+            <!-- Steps Details (Compact/Timeline style) -->
+            <div class="steps-scroller" id="steps-scroller">
+              <div id="steps" class="steps-timeline"></div>
+            </div>
+
+          </div>
+
+          <!-- Wizard Footer Actions & Expandable Logs -->
+          <div class="wizard-footer">
+            <div class="footer-actions">
+              <button id="install-btn" class="primary-btn pulse hidden">Start Install</button>
+              <button id="toggle-logs-btn" class="ghost-btn">Show Details</button>
+            </div>
+            
+            <div id="logs-wrapper" class="logs-wrapper hidden">
+              <div class="logs-header">
+                <span>Terminal Output</span>
+                <button id="copy-logs-btn" class="ghost-btn small">Copy Logs</button>
+              </div>
+              <pre id="logs" class="logs">Waiting for installer output…</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="setup-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop"></div>
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>First-time app setup</h2>
+          <p>Confirm the local profile and save the first user for this install.</p>
+        </div>
+        <form id="setup-form" class="setup-form">
+          <div class="field-grid two-col">
+            <label>
+              <span>App name</span>
+              <input name="app_name" value="LokiDoki" required />
+            </label>
+            <label>
+              <span>Platform profile</span>
+              <select id="profile-input" name="profile" required>
+                <option value="mac">mac</option>
+                <option value="pi_cpu">pi_cpu</option>
+                <option value="pi_hailo">pi_hailo</option>
+              </select>
+            </label>
+            <label>
+              <span>Admin username</span>
+              <input name="admin_username" required />
+            </label>
+            <label>
+              <span>Admin password</span>
+              <input name="admin_password" type="password" minlength="8" required />
+            </label>
+          </div>
+
+          <label class="checkbox-row">
+            <input type="checkbox" name="allow_signup" />
+            <span>Enable self-signup</span>
+          </label>
+
+          <details class="advanced-box">
+            <summary>Advanced model defaults</summary>
+            <div class="field-grid two-col">
+              <label><span>Fast LLM</span><input name="llm_fast" id="llm_fast" /></label>
+              <label><span>Thinking LLM</span><input name="llm_thinking" id="llm_thinking" /></label>
+              <label><span>Function model</span><input name="function_model" id="function_model" /></label>
+              <label><span>Vision model</span><input name="vision_model" id="vision_model" /></label>
+              <label><span>STT model</span><input name="stt_model" id="stt_model" /></label>
+              <label><span>TTS voice</span><input name="tts_voice" id="tts_voice" /></label>
+              <label><span>Wake word engine</span><input name="wake_word" id="wake_word" /></label>
+            </div>
+          </details>
+
+          <p id="setup-error" class="error-text"></p>
+          <div class="actions-row right">
+            <button type="submit" class="primary-btn">Save and continue</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="/setup/installer.js?v=5"></script>
+  </body>
+</html>

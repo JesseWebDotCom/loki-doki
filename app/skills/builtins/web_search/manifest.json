@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "id": "web_search",
+  "title": "Web Search",
+  "domain": "search",
+  "description": "Search the web and return structured results.",
+  "logo_path": "logo-web-search.svg",
+  "version": "1.0.0",
+  "load_type": "lazy",
+  "account_mode": "single",
+  "system": true,
+  "enabled_by_default": true,
+  "required_context": [],
+  "optional_context": [],
+  "permissions": {
+    "default": "all_users"
+  },
+  "shared_context_fields": [],
+  "account_context_fields": [],
+  "runtime_dependencies": [],
+  "skill_dependencies": {
+    "required": [],
+    "optional": []
+  },
+  "actions": {
+    "search": {
+      "title": "Search",
+      "description": "Search the web and return structured results.",
+      "enabled": true,
+      "required_context": [],
+      "optional_context": [],
+      "timeout_ms": 5000,
+      "cache_ttl_sec": 300,
+      "phrases": ["search for", "look up", "find", "google", "search the web"],
+      "keywords": ["search", "find", "look", "google", "web"],
+      "negative_keywords": ["weather", "forecast", "lights", "calendar"],
+      "example_utterances": [
+        "search for raspberry pi 5 cooling tips",
+        "look up the population of milford ct"
+      ],
+      "required_entities": ["query"],
+      "optional_entities": ["num_results"]
+    }
+  }
+}
