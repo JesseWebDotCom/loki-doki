@@ -59,6 +59,11 @@ If you cannot apply the change directly, state why — do not substitute advice 
 - Do not say something "may be in another file" unless you traced evidence.
 - If multiple obvious edits are required, make all of them.
 - Show modified files, not advice.
+- Treat secret exposure as a release-blocking bug.
+- Never commit real usernames, passwords, tokens, JWT secrets, private keys, or device-specific bootstrap config.
+- Use placeholders in tracked examples such as `.env.example` and `.pi.env.example`.
+- Keep real bootstrap credentials only in ignored local files or interactive setup flows, never in tracked JSON or source files.
+- Before finishing security-sensitive work, inspect staged changes for secrets and blocked files such as `app_config.json`, `.env`, `.pi.env`, `.lokidoki/`, and `data/`.
 
 ## Codebase Behavior
 

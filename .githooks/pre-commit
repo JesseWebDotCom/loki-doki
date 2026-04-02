@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+[ -z "$staged_files" ] && exit 0
+
+blocked_paths='^(app_config\.json|\.env$|\.env\.[^/]+$|\.pi\.env$|\.lokidoki/|data/)'
+secret_pattern='BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|LOKIDOKI_ADMIN_PASSWORD\s*=\s*(?!your-|example|changeme|placeholder)|["'"'"']?(admin_)?password(?:_hash)?["'"'"']?\s*[:=]\s*["'"'"'](?!your-|example|changeme|placeholder|sample|dummy|hashed-|test)[^"'"'"'\n]{8,}|["'"'"']?(api[_-]?key|access[_-]?token|refresh[_-]?token|jwt[_-]?secret|authorization)["'"'"']?\s*[:=]\s*["'"'"']?[A-Za-z0-9_\-]{16,}'
+
+blocked_matches="$(printf '%s\n' "$staged_files" | perl -ne 'print if m{'"$blocked_paths"'}')"
+if [ -n "$blocked_matches" ]; then
+  echo "Blocked commit: staged file matches a protected local-only path:" >&2
+  printf '%s\n' "$blocked_matches" >&2
+  echo "Move secrets to ignored local files before committing." >&2
+  exit 1
+fi
+
+for file in $staged_files; do
+  if git show ":$file" 2>/dev/null | perl -0ne 'exit 1 if /'"$secret_pattern"'/i'; then
+    continue
+  fi
+  echo "Blocked commit: secret-like content detected in $file" >&2
+  echo "Replace real credentials with placeholders before committing." >&2
+  exit 1
+done
+
+exit 0
