@@ -8,7 +8,7 @@ from typing import Any
 from app.providers.types import ProviderSpec
 from app.subsystems.memory.context import get_l1_context, get_session_context
 from app.subsystems.memory.embed import generate_embedding
-from app.subsystems.memory.extract import promote_person_facts
+from app.subsystems.memory.extract import promote_person_facts, extract_person_facts_llm
 from app.subsystems.memory.records import (
     delete_household_memory,
     delete_memory,
@@ -166,6 +166,7 @@ def search_archival(
     if not embedding or len(embedding) != 768:
         return []
     vector_bytes = struct.pack(f"{len(embedding)}f", *embedding)
+    now = datetime.now()
 
     # Scoping constraints
     where_clauses = []
@@ -202,8 +203,17 @@ def search_archival(
                 c.id, c.user_id, c.character_id, c.source, c.content, c.importance, c.confidence, c.timestamp,
                 COALESCE(v.distance, 1.0) AS distance,
                 COALESCE(k.keyword_rank, 0.0) AS keyword_rank,
-                -- Combined score: lower is better. 0.7 weight on vector, 0.3 on keywords.
-                (0.7 * COALESCE(v.distance, 1.0)) + (0.3 * (1.0 / (1.0 + ABS(COALESCE(k.keyword_rank, 0.0))))) AS combined_score
+                -- Recency score: exp(-0.005 * hours_since_creation)
+                -- 0.005 factor means ~10% decay per day (24h)
+                EXP(-0.005 * (JULIANDAY('now') - JULIANDAY(c.timestamp)) * 24.0) AS recency_score,
+                -- Combined score: lower is better. 
+                -- We want lower distance, lower keyword_rank (higher rank literal), higher recency, higher importance.
+                -- Formula: (0.5 * distance) + (0.2 * 1/(1+abs(rank))) - (0.2 * recency) - (0.1 * importance/10)
+                (0.5 * COALESCE(v.distance, 1.0)) 
+                + (0.2 * (1.0 / (1.0 + ABS(COALESCE(k.keyword_rank, 0.0))))) 
+                - (0.2 * EXP(-0.005 * (JULIANDAY('now') - JULIANDAY(c.timestamp)) * 24.0))
+                - (0.1 * (c.importance / 10.0))
+                AS combined_score
             FROM mem_archival_content c
             LEFT JOIN vector_matches v ON v.id = c.id
             LEFT JOIN keyword_matches k ON k.id = c.id

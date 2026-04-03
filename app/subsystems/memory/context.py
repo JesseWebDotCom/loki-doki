@@ -5,7 +5,10 @@ from __future__ import annotations
 import sqlite3
 
 
-L1_MAX_WORDS = 600
+from app.subsystems.memory.ambient import get_ambient_context
+
+
+L1_MAX_WORDS = 800
 SESSION_MAX_WORDS = 240
 
 
@@ -13,9 +16,15 @@ def get_l1_context(
     conn: sqlite3.Connection,
     user_id: str,
     character_id: str | None = None,
+    location: Optional[str] = None,
 ) -> str:
     """Return bounded long-term memory context for prompt injection."""
     sections: list[tuple[str, list[str]]] = []
+    
+    # 0. Ambient Context (Time, Date, Weather, History)
+    ambient = get_ambient_context(conn, user_id, character_id, location=location)
+    
+    # 1. Household/Memory Facts
     household_lines = _household_lines(conn)
     if household_lines:
         sections.append(("Household Facts", household_lines))
@@ -26,7 +35,17 @@ def get_l1_context(
         evolution_lines = _evolution_lines(conn, user_id, character_id)
         if evolution_lines:
             sections.append(("Relationship State", evolution_lines))
-    return _render_block("memory_context", sections, L1_MAX_WORDS)
+            
+    # 2. Reflection Insights (L5)
+    reflection_lines = _reflection_lines(conn, user_id, character_id)
+    if reflection_lines:
+        sections.append(("Insights", reflection_lines))
+
+    # Render long-term block
+    l1_block = _render_block("memory_context", sections, L1_MAX_WORDS)
+    
+    # Prepend ambient block
+    return (ambient + "\n\n" + l1_block).strip()
 
 
 def get_session_context(conn: sqlite3.Connection, chat_id: str) -> str:
@@ -121,6 +140,26 @@ def _render_block(
             used_words += entry_words
     lines.append(f"</{block_name}>")
     return "\n".join(lines) if len(lines) > 2 else ""
+
+
+def _reflection_lines(
+    conn: sqlite3.Connection,
+    user_id: str,
+    character_id: str | None,
+) -> list[str]:
+    """Fetch high-level character insights for this user."""
+    if not character_id:
+        return []
+    rows = conn.execute(
+        """
+        SELECT insight FROM mem_reflection_cache
+        WHERE user_id = ? AND character_id = ?
+        ORDER BY importance_score DESC, created_at DESC
+        LIMIT 5
+        """,
+        (user_id, character_id)
+    ).fetchall()
+    return [str(row["insight"]) for row in rows]
 
 
 def _word_count(value: str) -> int:

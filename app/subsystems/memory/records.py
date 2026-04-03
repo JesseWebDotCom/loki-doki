@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from typing import Any
 
 
 WRITE_THRESHOLD = 0.85
+PROMOTION_COUNT_THRESHOLD = 3
 SQL_NOW = "STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')"
 
 
@@ -40,6 +42,8 @@ def write_memory(
     source: str = "extracted",
     category: str | None = None,
     confidence: float = 1.0,
+    importance: int = 1,
+    expires_at: str | None = None,
 ) -> bool:
     """Persist one memory row when it passes scope-specific validation."""
     normalized = _normalize_scope(scope or category or "person")
@@ -47,8 +51,12 @@ def write_memory(
     cleaned_value = value.strip()
     if not cleaned_key or not cleaned_value:
         return False
-    if normalized != "session" and confidence < WRITE_THRESHOLD:
+
+    if normalized == "person" and confidence < WRITE_THRESHOLD:
+        # Instead of failing, add to the importance queue
+        _write_importance_candidate(conn, user_id, _require_character_id(character_id), cleaned_value, confidence)
         return False
+
     if normalized == "session":
         _write_session_memory(conn, _require_chat_id(chat_id), cleaned_key, cleaned_value)
         return True
@@ -61,6 +69,8 @@ def write_memory(
             cleaned_value,
             confidence,
             source,
+            importance=importance,
+            expires_at=expires_at,
         )
         return True
     _write_household_memory(conn, cleaned_key, cleaned_value, user_id, source)
@@ -241,20 +251,24 @@ def _write_person_memory(
     value: str,
     confidence: float,
     source: str,
+    importance: int = 1,
+    expires_at: str | None = None,
 ) -> None:
     conn.execute(
         f"""
         INSERT INTO mem_char_user_memory (
-            character_id, user_id, key, value, confidence, source, updated_at
+            character_id, user_id, key, value, confidence, importance, source, updated_at, expires_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, {SQL_NOW})
+        VALUES (?, ?, ?, ?, ?, ?, ?, {SQL_NOW}, ?)
         ON CONFLICT(character_id, user_id, key) DO UPDATE SET
             value = excluded.value,
             confidence = MAX(mem_char_user_memory.confidence, excluded.confidence),
+            importance = MAX(mem_char_user_memory.importance, excluded.importance),
             source = excluded.source,
-            updated_at = {SQL_NOW}
+            updated_at = {SQL_NOW},
+            expires_at = excluded.expires_at
         """,
-        (character_id, user_id, key, value, confidence, source),
+        (character_id, user_id, key, value, confidence, importance, source, expires_at),
     )
     _enqueue_sync(
         conn,
@@ -342,3 +356,86 @@ def _require_character_id(character_id: str | None) -> str:
     if not cleaned:
         raise ValueError("character_id is required for person memory.")
     return cleaned
+
+
+def prune_memory(conn: sqlite3.Connection) -> int:
+    """Remove expired memories and cleanup orphaned queue entries."""
+    count = 0
+    # 1. Expired emotional/person context
+    res = conn.execute(
+        f"DELETE FROM mem_char_user_memory WHERE expires_at IS NOT NULL AND expires_at < {SQL_NOW}"
+    )
+    count += res.rowcount
+    
+    # 2. Expired emotional context
+    res = conn.execute(
+        f"DELETE FROM mem_emotional_context WHERE expires_at IS NOT NULL AND expires_at < {SQL_NOW}"
+    )
+    count += res.rowcount
+    
+    # 3. Queue cleanup (old candidates never promoted)
+    res = conn.execute(
+        "DELETE FROM memory_importance_queue WHERE JULIANDAY('now') - JULIANDAY(last_seen) > 30"
+    )
+    count += res.rowcount
+    
+    conn.commit()
+    return count
+
+
+def _write_importance_candidate(
+    conn: sqlite3.Connection,
+    user_id: str,
+    character_id: str,
+    text: str,
+    confidence: float,
+) -> None:
+    """Store or update a memory candidate in the importance queue."""
+    # Check for existing similar candidate (simple text match for now)
+    row = conn.execute(
+        "SELECT id, surface_count, confidence FROM memory_importance_queue WHERE user_id = ? AND character_id = ? AND candidate_text = ?",
+        (user_id, character_id, text)
+    ).fetchone()
+    
+    if row:
+        new_count = row["surface_count"] + 1
+        new_conf = max(row["confidence"], confidence)
+        conn.execute(
+            f"UPDATE memory_importance_queue SET surface_count = ?, confidence = ?, last_seen = {SQL_NOW} WHERE id = ?",
+            (new_count, new_conf, row["id"])
+        )
+        if new_count >= PROMOTION_COUNT_THRESHOLD:
+            _promote_candidate(conn, row["id"])
+    else:
+        conn.execute(
+            f"INSERT INTO memory_importance_queue (id, candidate_text, user_id, character_id, confidence, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, {SQL_NOW}, {SQL_NOW})",
+            (str(uuid.uuid4()), text, user_id, character_id, confidence)
+        )
+    conn.commit()
+
+
+def _promote_candidate(conn: sqlite3.Connection, candidate_id: str) -> None:
+    """Promote a candidate from the queue to real person memory."""
+    row = conn.execute(
+        "SELECT * FROM memory_importance_queue WHERE id = ?",
+        (candidate_id,)
+    ).fetchone()
+    if not row:
+        return
+        
+    # Heuristic: use a slug of the first two words as the key
+    words = row["candidate_text"].split()[:2]
+    key = "_".join(w.lower().strip(" ,.!?;:") for w in words) or "fact"
+    
+    _write_person_memory(
+        conn,
+        row["user_id"],
+        row["character_id"],
+        key,
+        row["candidate_text"],
+        row["confidence"],
+        source="promoted",
+        importance=2, # Promoted facts start slightly higher
+    )
+    
+    conn.execute("DELETE FROM memory_importance_queue WHERE id = ?", (candidate_id,))

@@ -1,8 +1,23 @@
 # LokiDoki — Current Phase
 
-**Active Phase: 8 — Memory Subsystem**
+**Active Phase: 9 — Persona System**
 
 Update this file when a phase gate passes. Agents read only this file for phase context — not the full phase list.
+
+---
+
+## Phase 8 Gate Result
+
+Phase 8 passed on April 3, 2026.
+
+- [x] Session-scoped memory persists for the active conversation only
+- [x] Person-scoped memory stores and retrieves cross-session facts for the correct linked person/user
+- [x] Family/shared memory stores and retrieves household context independently of person memory
+- [x] Memory reads and writes are exposed through the application API with clear scope selection
+- [x] Memory data does not bleed across session, person, and family scopes
+- [x] Memory persistence remains SQLite-first and prepares writes for async replication via `memory_sync_queue`
+- [x] **Advanced:** Implemented Hybrid Search (Vector Similarity + FTS5 BM25) for high-precision retrieval
+- [x] **Advanced:** Implemented "Intelligence Queue" (Purgatory) for LLM-driven fact extraction and auto-promotion
 
 ---
 
@@ -112,8 +127,8 @@ Do not advance to Phase 9 until every item passes.
 | 5 | Voice subsystem |
 | 6 | Object detection (`mac`: YOLO11s, `pi_cpu`: YOLO11n, `pi_hailo`: YOLO11s HEF with YOLO11n fallback) |
 | 7 | Face detection + people identity (`mac`: `yolov5s_personface.onnx`, `pi_cpu`: SCRFD-500M, `pi_hailo`: `yolov5s_personface.hef`, ArcFace-compatible embeddings on all profiles) |
-| **8** | **Memory subsystem** ← current |
-| 9 | Persona system |
+| 8 | Memory subsystem |
+| **9** | **Persona system** ← current |
 | 10 | Plugin system + master/client node |
 | 11 | Home Assistant + presence automation |
 | 12 | Pi hardening + services + polish |

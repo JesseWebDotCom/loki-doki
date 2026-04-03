@@ -417,6 +417,17 @@ def generate_chat_assistant_message(
     if promoted_facts:
         assistant_message["meta"]["memory_debug"]["promoted_facts"] = promoted_facts
     assistant_message["meta"]["skill_route"] = skill_route
+
+    # Background intelligence gathering for the Queue
+    if rendering_context and rendering_context.active_character_id:
+        memory_store.extract_person_facts_llm(
+            connection,
+            active_providers["llm_fast"],
+            current_user["id"],
+            rendering_context.active_character_id,
+            resolved_message
+        )
+
     return assistant_message
 
 

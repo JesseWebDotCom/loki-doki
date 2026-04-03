@@ -409,9 +409,96 @@ def maintenance_api(
 
     def run_maintenance():
         with connection_scope() as conn:
+            # 1. Prune expired entries
+            from app.subsystems.memory.records import prune_memory
+            pruned_count = prune_memory(conn)
+            
+            # 2. Consolidate archival memories
             memory_store.consolidate_archival_memory(
                 conn, provider, user_id=current_user["id"]
             )
+            # Log results or store in a maintenance log if needed
 
     background_tasks.add_task(run_maintenance)
     return {"ok": True, "message": "Memory maintenance started."}
+
+
+@router.get("/queue")
+def list_memory_queue_api(
+    character_id: Optional[str] = Query(default=None),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return candidates waiting in the importance queue."""
+    with connection_scope() as connection:
+        where = "WHERE user_id = ?"
+        params = [current_user["id"]]
+        if character_id:
+            where += " AND character_id = ?"
+            params.append(character_id)
+            
+        rows = connection.execute(
+            f"SELECT * FROM memory_importance_queue {where} ORDER BY last_seen DESC",
+            tuple(params)
+        ).fetchall()
+        return {"ok": True, "candidates": [dict(row) for row in rows]}
+
+
+@router.post("/queue/promote/{candidate_id}")
+def promote_candidate_api(
+    candidate_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Manually promote a candidate from the queue to real memory."""
+    with connection_scope() as connection:
+        # Security: verify ownership
+        row = connection.execute(
+            "SELECT user_id FROM memory_importance_queue WHERE id = ?",
+            (candidate_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Candidate not found.")
+        if row["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden.")
+            
+        from app.subsystems.memory.records import _promote_candidate
+        _promote_candidate(connection, candidate_id)
+        connection.commit()
+        return {"ok": True}
+
+
+@router.delete("/queue/{candidate_id}")
+def delete_candidate_api(
+    candidate_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Delete a memory candidate from the queue."""
+    with connection_scope() as connection:
+        # Security: verify ownership
+        res = connection.execute(
+            "DELETE FROM memory_importance_queue WHERE id = ? AND user_id = ?",
+            (candidate_id, current_user["id"])
+        )
+        if res.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Candidate not found.")
+        connection.commit()
+        return {"ok": True}
+
+
+@router.get("/reflections")
+def list_reflections_api(
+    character_id: Optional[str] = Query(default=None),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return L5 high-level character insights/reflections."""
+    with connection_scope() as connection:
+        where = "WHERE user_id = ?"
+        params = [current_user["id"]]
+        if character_id:
+            where += " AND character_id = ?"
+            params.append(character_id)
+            
+        rows = connection.execute(
+            f"SELECT * FROM mem_reflection_cache {where} ORDER BY importance_score DESC",
+            tuple(params)
+        ).fetchall()
+        return {"ok": True, "reflections": [dict(row) for row in rows]}

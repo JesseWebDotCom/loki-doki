@@ -92,9 +92,11 @@ def initialize_memory_tables(conn: sqlite3.Connection) -> None:
             key TEXT NOT NULL,
             value TEXT NOT NULL,
             confidence REAL NOT NULL DEFAULT 1.0,
+            importance INTEGER NOT NULL DEFAULT 1,
             source TEXT NOT NULL DEFAULT 'extracted',
             node_id TEXT NOT NULL DEFAULT 'master',
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at TEXT,
             PRIMARY KEY (character_id, user_id, key)
         );
 
@@ -144,6 +146,29 @@ def initialize_memory_tables(conn: sqlite3.Connection) -> None:
             content='mem_archival_content'
         );
 
+        -- L5 Reflection Layer
+        CREATE TABLE IF NOT EXISTS mem_reflection_cache (
+            id TEXT PRIMARY KEY,
+            character_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            insight TEXT NOT NULL,
+            basis_memory_ids TEXT NOT NULL, -- Comma-separated list of IDs
+            importance_score INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Memory Importance Queue (Compounding Confidence)
+        CREATE TABLE IF NOT EXISTS memory_importance_queue (
+            id TEXT PRIMARY KEY,
+            candidate_text TEXT NOT NULL,
+            character_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 0.0,
+            surface_count INTEGER NOT NULL DEFAULT 1,
+            first_seen TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_seen TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Triggers to keep FTS in sync with mem_archival_content
         CREATE TRIGGER IF NOT EXISTS trg_archival_ai AFTER INSERT ON mem_archival_content BEGIN
             INSERT INTO mem_archival_fts(id, content) VALUES (new.id, new.content);
@@ -181,6 +206,19 @@ def initialize_memory_tables(conn: sqlite3.Connection) -> None:
         ON memory_sync_queue(timestamp DESC, id DESC);
         """
     )
+    _ensure_column(conn, "mem_char_user_memory", "importance", "INTEGER NOT NULL DEFAULT 1")
+    _ensure_column(conn, "mem_char_user_memory", "expires_at", "TEXT")
+
+
+def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, ddl: str) -> None:
+    """Add one column to one table if it is missing."""
+    columns = {
+        str(row["name"])
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name in columns:
+        return
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}")
 
     # Virtual Vector Table for Semantic Search (768 dims for nomic-embed-text)
     try:
