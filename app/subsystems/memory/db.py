@@ -125,13 +125,36 @@ def initialize_memory_tables(conn: sqlite3.Connection) -> None:
         );
 
         -- L3 Archival Block (Master Node Only)
-        -- Assumes sqlite-vec extension is loaded by the core app connections.
+        -- Assumed to be loaded by the core app connections.
         CREATE TABLE IF NOT EXISTS mem_archival_content (
             id TEXT PRIMARY KEY,
+            user_id TEXT DEFAULT 'system',
+            character_id TEXT DEFAULT 'system',
             source TEXT NOT NULL,
             content TEXT NOT NULL,
+            importance INTEGER NOT NULL DEFAULT 1,
+            confidence REAL NOT NULL DEFAULT 1.0,
             timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+
+        -- FTS5 Keyword Search for Archival Content
+        CREATE VIRTUAL TABLE IF NOT EXISTS mem_archival_fts USING fts5(
+            id UNINDEXED,
+            content,
+            content='mem_archival_content'
+        );
+
+        -- Triggers to keep FTS in sync with mem_archival_content
+        CREATE TRIGGER IF NOT EXISTS trg_archival_ai AFTER INSERT ON mem_archival_content BEGIN
+            INSERT INTO mem_archival_fts(id, content) VALUES (new.id, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_archival_ad AFTER DELETE ON mem_archival_content BEGIN
+            INSERT INTO mem_archival_fts(mem_archival_fts, id, content) VALUES('delete', old.id, old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_archival_au AFTER UPDATE ON mem_archival_content BEGIN
+            INSERT INTO mem_archival_fts(mem_archival_fts, id, content) VALUES('delete', old.id, old.content);
+            INSERT INTO mem_archival_fts(id, content) VALUES (new.id, new.content);
+        END;
 
         -- Session Memory (Short-term conversation facts)
         CREATE TABLE IF NOT EXISTS mem_session_context (

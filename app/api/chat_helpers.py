@@ -24,25 +24,48 @@ from app.skills.rendering import skill_render_context, skill_should_skip_charact
 def build_memory_context(
     connection: sqlite3.Connection,
     user_id: str,
+    query: str,
+    history: list[dict[str, str]],
+    fast_provider: Any,
     *,
     character_id: Optional[str] = None,
     chat_id: Optional[str] = None,
 ) -> str:
-    """Return the combined session and long-term memory context for one chat."""
+    """Return the combined session, long-term, and augmented episodic memory for one chat."""
     blocks: list[str] = []
+    
+    # 1. Session Context (Short-term)
     if chat_id:
         session_context = memory_store.get_session_context(connection, chat_id)
         if session_context:
             blocks.append(session_context)
+            
+    # 2. L1 Long-term Context (Facts/Evolution)
     l1_context = memory_store.get_l1_context(connection, user_id, character_id)
     if l1_context:
         blocks.append(l1_context)
+        
+    # 3. Augmented Episodic Context (Hybrid retrieval + Reranking)
+    augmented_context = memory_store.get_augmented_context(
+        connection,
+        query,
+        history,
+        fast_provider,
+        user_id=user_id,
+        character_id=character_id,
+    )
+    if augmented_context:
+        blocks.append(augmented_context)
+
     return "\n\n".join(blocks)
 
 
 def memory_debug_payload(
     connection: sqlite3.Connection,
     user_id: str,
+    query: str,
+    history: list[dict[str, str]],
+    fast_provider: Any,
     *,
     character_id: Optional[str] = None,
     chat_id: Optional[str] = None,
@@ -50,12 +73,17 @@ def memory_debug_payload(
     """Return compact metadata describing how memory was applied."""
     session_context = memory_store.get_session_context(connection, chat_id) if chat_id else ""
     long_term_context = memory_store.get_l1_context(connection, user_id, character_id)
+    augmented_context = memory_store.get_augmented_context(
+        connection, query, history, fast_provider, user_id=user_id, character_id=character_id
+    )
     return {
-        "used": bool(session_context or long_term_context),
+        "used": bool(session_context or long_term_context or augmented_context),
         "session_applied": bool(session_context),
         "long_term_applied": bool(long_term_context),
+        "augmented_applied": bool(augmented_context),
         "session_preview": _context_preview(session_context),
         "long_term_preview": _context_preview(long_term_context),
+        "augmented_preview": _context_preview(augmented_context),
     }
 
 
@@ -345,12 +373,18 @@ def generate_chat_assistant_message(
         dynamic_context = build_memory_context(
             connection,
             current_user["id"],
+            resolved_message,
+            history,
+            active_providers["llm_fast"],
             character_id=rendering_context.active_character_id if rendering_context else None,
             chat_id=chat_id,
         )
         memory_debug = memory_debug_payload(
             connection,
             current_user["id"],
+            resolved_message,
+            history,
+            active_providers["llm_fast"],
             character_id=rendering_context.active_character_id if rendering_context else None,
             chat_id=chat_id,
         )

@@ -36,8 +36,8 @@ def build_messages(
     messages: list[dict[str, str]] = [
         {"role": "system", "content": context.base_prompt},
     ]
-    # Recent history
-    for item in history[-12:]:
+    # Recent history (slumped window, deep retrieval handles the rest)
+    for item in history[-6:]:
         messages.append(item)
     messages.append({"role": "user", "content": dynamic_prompt})
     

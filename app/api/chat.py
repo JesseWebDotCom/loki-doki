@@ -148,6 +148,9 @@ def chat_message_stream_api(
         dynamic_context = build_memory_context(
             connection,
             current_user["id"],
+            payload.message.strip(),
+            history,
+            active_providers["llm_fast"],
             character_id=rendering_context.active_character_id if rendering_context else None,
             chat_id=str(chat["id"]),
         )

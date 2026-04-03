@@ -60,3 +60,13 @@ class MemoryDeleteRequest(BaseModel):
     def validate_scope(cls, value: str) -> str:
         """Normalize supported memory scope aliases."""
         return _normalize_scope(value)
+
+
+class MemoryIndexRequest(BaseModel):
+    """Payload for indexing a document into long-term archival memory."""
+
+    content: str = Field(min_length=1)
+    source: str = Field(default="user_upload")
+    character_id: Optional[str] = "system"
+    chunk_size: int = 500
+    overlap: int = 150
