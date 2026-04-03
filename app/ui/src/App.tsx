@@ -360,6 +360,7 @@ type CharacterEditorBundle = {
     phonetic_spelling?: string
     behavior_style?: string
     voice_model?: string
+    preferred_response_style?: string
     wakeword_model?: string
   }
   editor_state?: {
@@ -371,6 +372,7 @@ type CharacterEditorBundle = {
     style?: string
     seed?: string
     persona_prompt?: string
+    preferred_response_style?: string
     voice_model?: string
     default_voice_source_name?: string
     default_voice_config_source_name?: string
@@ -531,15 +533,6 @@ function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEdi
   }
 }
 
-const CHARACTER_RESPONSE_STYLE_OPTIONS = [
-  { value: "brief", label: "Brief" },
-  { value: "balanced", label: "Balanced" },
-  { value: "detailed", label: "Detailed" },
-] as const
-
-function characterResponseStyleLabel(style: string | undefined) {
-  return CHARACTER_RESPONSE_STYLE_OPTIONS.find((option) => option.value === style)?.label || "Balanced"
-}
 
 function characterEditorStyle(character: Pick<CharacterDefinition, "character_editor" | "domain">) {
   const editorState = asRecord(asRecord(character.character_editor)?.editor_state)
@@ -7995,9 +7988,6 @@ export default function App() {
                                           {draft?.default_voice ? (
                                             <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">Voice: {draft.default_voice}</div>
                                           ) : null}
-                                          <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">
-                                            Reply mode: {characterResponseStyleLabel(draft?.preferred_response_style || character.preferred_response_style)}
-                                          </div>
                                           {draft?.wakeword_model_id ? (
                                             <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">Wakeword: {draft.wakeword_model_id}</div>
                                           ) : null}
@@ -8009,30 +7999,6 @@ export default function App() {
                                     </div>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                                    {character.installed ? (
-                                      <div className="flex items-center gap-2 rounded-full border border-white/8 bg-black/20 px-3 py-1.5">
-                                        <span className="text-[11px] uppercase tracking-[0.12em] text-zinc-500">Reply mode</span>
-                                        <Select
-                                          className="h-8 min-w-[8.5rem] border-white/10 bg-zinc-950/80 text-xs"
-                                          onChange={(event) => updateCharacterDraft(character.id, { preferred_response_style: event.target.value })}
-                                          value={draft?.preferred_response_style || character.preferred_response_style || "balanced"}
-                                        >
-                                          {CHARACTER_RESPONSE_STYLE_OPTIONS.map((option) => (
-                                            <option key={option.value} value={option.value}>
-                                              {option.label}
-                                            </option>
-                                          ))}
-                                        </Select>
-                                        <Button
-                                          className="h-8 rounded-full px-3 text-xs"
-                                          onClick={() => void persistAdminCharacterDraft(character.id)}
-                                          type="button"
-                                          variant="outline"
-                                        >
-                                          Save
-                                        </Button>
-                                      </div>
-                                    ) : null}
                                     <Button className="h-8 rounded-full px-3 text-xs" onClick={() => openCharacterEditor(character.id)} type="button">
                                       <Sparkles className="mr-2 h-3.5 w-3.5" />
                                       Open Editor
