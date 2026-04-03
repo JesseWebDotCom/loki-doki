@@ -195,7 +195,7 @@ export function ChatMessageList({
               </div>
             ) : (
               <div className="flex w-full max-w-[85%] gap-4">
-                <div className="flex flex-none pt-1">
+                <div className="flex flex-none pt-3">
                   <AssistantAvatar character={assistantCharacter} />
                 </div>
                 <div className="chat-assistant-bubble min-w-0 flex-1">
@@ -219,7 +219,7 @@ export function ChatMessageList({
         ))}
         {messages.some((message) => message.role === "assistant" && message.pending && !message.content) ? (
           <div className="flex w-full max-w-[85%] gap-4">
-            <div className="flex flex-none pt-1">
+            <div className="flex flex-none pt-3">
               <div className="chat-avatar-pulsing">
                 <AssistantAvatar character={assistantCharacter} />
               </div>
