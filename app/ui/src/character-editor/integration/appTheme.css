@@ -1,37 +1,143 @@
-@import "@fontsource-variable/geist";
-
 :root {
+  --app-font-family: var(--font-sans, "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  --app-font-family-display: var(--app-font-family);
+  --app-bg: var(--background, #0d1117);
+  --app-bg-elevated: color-mix(in srgb, var(--panel, rgba(22, 27, 34, 0.8)) 92%, transparent);
+  --app-bg-panel: color-mix(in srgb, var(--card, rgba(22, 27, 34, 0.88)) 96%, transparent);
+  --app-bg-panel-strong: color-mix(in srgb, var(--panel-strong, rgba(17, 24, 39, 0.94)) 98%, transparent);
+  --app-stage-bg: linear-gradient(180deg, color-mix(in srgb, var(--background, #0d1117) 96%, transparent), color-mix(in srgb, var(--panel-strong, rgba(17, 24, 39, 0.94)) 100%, transparent));
+  --app-text: var(--foreground, #f3f4f6);
+  --app-text-muted: var(--muted-foreground, #9ca3af);
+  --app-border: var(--line, rgba(148, 163, 184, 0.2));
+  --app-border-strong: color-mix(in srgb, var(--accent, #10a37f) 26%, var(--line, rgba(148, 163, 184, 0.2)));
+  --app-accent: var(--accent, #10a37f);
+  --app-accent-strong: var(--accent-strong, #12b98f);
+  --app-accent-soft: color-mix(in srgb, var(--accent, #10a37f) 14%, transparent);
+  --app-accent-warm: #f59e0b;
+  --app-success: #10b981;
+  --app-danger: #f43f5e;
+  --app-icon-primary: var(--app-accent);
+  --app-icon-muted: var(--app-text-muted);
+  --app-icon-warm: var(--app-accent-warm);
+  --app-icon-success: var(--app-success);
+  --app-icon-danger: var(--app-danger);
+  --app-icon-violet: #a78bfa;
+  --app-icon-indigo: #818cf8;
+  --app-icon-pink: #f472b6;
+  --app-shadow-soft: var(--shadow-soft, 0 18px 60px rgba(2, 8, 23, 0.34));
+  --app-shadow-glow: 0 0 0 1px color-mix(in srgb, var(--accent, #10a37f) 12%, transparent), 0 22px 70px color-mix(in srgb, var(--accent, #10a37f) 14%, transparent);
+  --app-display-size: 1.5rem;
+  --app-title-size: 0.875rem;
+  --app-body-size: 0.875rem;
+  --app-label-size: 0.625rem;
+  --app-micro-size: 0.5rem;
+  --app-control-size: 0.625rem;
+  --app-heading-weight: 800;
+  --app-title-weight: 800;
+  --app-body-weight: 500;
+  --app-label-weight: 800;
+  --app-heading-transform: uppercase;
+  --app-label-transform: uppercase;
+  --app-micro-transform: uppercase;
+  --app-heading-letter-spacing: 0.02em;
+  --app-label-letter-spacing: 0.22em;
+  --app-micro-letter-spacing: 0.3em;
+}
+
+html[data-theme-preset="studio"][data-theme-mode="dark"] {
   --app-font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-font-family-display: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --app-bg: #07111f;
   --app-bg-elevated: rgba(10, 20, 35, 0.82);
   --app-bg-panel: rgba(15, 23, 42, 0.92);
   --app-bg-panel-strong: rgba(2, 8, 23, 0.94);
+  --app-stage-bg: radial-gradient(circle at top, rgba(56, 189, 248, 0.08), transparent 28%), radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.08), transparent 24%), linear-gradient(180deg, #08111f 0%, #050c16 100%);
   --app-text: #e6f1ff;
   --app-text-muted: #8aa0bc;
   --app-border: rgba(148, 163, 184, 0.18);
   --app-border-strong: rgba(56, 189, 248, 0.24);
   --app-accent: #38bdf8;
   --app-accent-strong: #0ea5e9;
+  --app-accent-soft: rgba(56, 189, 248, 0.1);
   --app-accent-warm: #f59e0b;
   --app-success: #10b981;
+  --app-danger: #f43f5e;
   --app-shadow-soft: 0 18px 60px rgba(2, 8, 23, 0.34);
   --app-shadow-glow: 0 0 0 1px rgba(56, 189, 248, 0.08), 0 22px 70px rgba(14, 165, 233, 0.12);
 }
 
+html[data-theme-preset="studio"][data-theme-mode="light"] {
+  --app-font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-font-family-display: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-bg: #edf4ff;
+  --app-bg-elevated: rgba(255, 255, 255, 0.88);
+  --app-bg-panel: rgba(255, 255, 255, 0.94);
+  --app-bg-panel-strong: rgba(244, 248, 255, 0.98);
+  --app-stage-bg: radial-gradient(circle at top, rgba(14, 165, 233, 0.12), transparent 30%), linear-gradient(180deg, #eef5ff 0%, #e7eef9 100%);
+  --app-text: #0f172a;
+  --app-text-muted: #52607a;
+  --app-border: rgba(96, 110, 138, 0.22);
+  --app-border-strong: rgba(14, 165, 233, 0.22);
+  --app-accent: #0ea5e9;
+  --app-accent-strong: #0284c7;
+  --app-accent-soft: rgba(14, 165, 233, 0.1);
+  --app-accent-warm: #d97706;
+  --app-success: #059669;
+  --app-danger: #e11d48;
+  --app-shadow-soft: 0 20px 60px rgba(15, 23, 42, 0.14);
+  --app-shadow-glow: 0 0 0 1px rgba(14, 165, 233, 0.08), 0 20px 56px rgba(14, 165, 233, 0.12);
+}
+
+.ce-display {
+  font-family: var(--app-font-family-display);
+  font-size: var(--app-display-size);
+  font-weight: var(--app-heading-weight);
+  letter-spacing: var(--app-heading-letter-spacing);
+  text-transform: var(--app-heading-transform);
+}
+
+.ce-title {
+  font-family: var(--app-font-family-display);
+  font-size: var(--app-title-size);
+  font-weight: var(--app-title-weight);
+  letter-spacing: var(--app-label-letter-spacing);
+  text-transform: var(--app-label-transform);
+}
+
+.ce-label {
+  font-size: var(--app-label-size);
+  font-weight: var(--app-label-weight);
+  letter-spacing: var(--app-label-letter-spacing);
+  text-transform: var(--app-label-transform);
+}
+
+.ce-micro {
+  font-size: var(--app-micro-size);
+  font-weight: var(--app-label-weight);
+  letter-spacing: var(--app-micro-letter-spacing);
+  text-transform: var(--app-micro-transform);
+}
+
+.ce-body {
+  font-size: var(--app-body-size);
+  font-weight: var(--app-body-weight);
+}
+
+.ce-control {
+  font-size: var(--app-control-size);
+  font-weight: var(--app-label-weight);
+  letter-spacing: var(--app-label-letter-spacing);
+  text-transform: var(--app-label-transform);
+}
+
 html {
-  background:
-    radial-gradient(circle at top, rgba(56, 189, 248, 0.14), transparent 32%),
-    radial-gradient(circle at 20% 20%, rgba(14, 165, 233, 0.08), transparent 28%),
-    linear-gradient(180deg, #0a1324 0%, #07111f 48%, #050b15 100%);
+  background: var(--background-image, var(--app-stage-bg));
 }
 
 body {
   font-family: var(--app-font-family);
   color: var(--app-text);
-  background:
-    radial-gradient(circle at top, rgba(56, 189, 248, 0.08), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.08), transparent 24%),
-    linear-gradient(180deg, #08111f 0%, #050c16 100%);
+  background: var(--background-image, var(--app-stage-bg));
 }
 
 body::before {
@@ -49,7 +155,7 @@ body::before {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(56, 189, 248, 0.35) rgba(15, 23, 42, 0.5);
+  scrollbar-color: color-mix(in srgb, var(--app-accent) 40%, transparent) color-mix(in srgb, var(--app-bg-panel) 75%, transparent);
 }
 
 *::-webkit-scrollbar {
@@ -58,18 +164,18 @@ body::before {
 }
 
 *::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.55);
+  background: color-mix(in srgb, var(--app-bg-panel) 72%, transparent);
 }
 
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.5), rgba(14, 165, 233, 0.35));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-accent) 72%, white 8%), color-mix(in srgb, var(--app-accent-strong) 55%, transparent));
   border-radius: 999px;
-  border: 2px solid rgba(15, 23, 42, 0.65);
+  border: 2px solid color-mix(in srgb, var(--app-bg-panel) 84%, transparent);
 }
 
 ::selection {
-  background: rgba(56, 189, 248, 0.24);
-  color: #f8fbff;
+  background: color-mix(in srgb, var(--app-accent) 24%, transparent);
+  color: var(--app-text);
 }
 
 #root {

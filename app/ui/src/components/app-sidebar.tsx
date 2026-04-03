@@ -103,6 +103,7 @@ export function AppSidebar({
               className="hidden h-9 w-9 border border-[var(--line)] bg-white/[0.03] text-[var(--foreground)] md:flex"
               onClick={onToggleSidebarCollapsed}
               size="icon"
+              tooltip={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               type="button"
               variant="ghost"
             >
@@ -114,8 +115,9 @@ export function AppSidebar({
           <Button
             className={`h-11 rounded-[18px] border border-[var(--line)] ${
               isSidebarCollapsed ? "w-11 p-0" : "w-full justify-start gap-2 px-4"
-            } bg-[var(--input)] text-sm font-medium text-[var(--foreground)] hover:bg-white/[0.05]`}
+            } sidebar-hover-surface bg-[var(--input)] text-sm font-medium text-[var(--foreground)]`}
             onClick={onCreateChat}
+            tooltip={isSidebarCollapsed ? "New chat" : undefined}
             type="button"
           >
             <MessageSquarePlus className="h-4 w-4" />
@@ -131,6 +133,7 @@ export function AppSidebar({
                 onSetActiveView("assistant")
                 onCloseMobileSidebar()
               }}
+              title="Search chats"
               type="button"
             >
               <Search className="h-4 w-4 shrink-0" />
@@ -138,7 +141,7 @@ export function AppSidebar({
           ) : (
             <div className="space-y-3">
               <button
-                className="flex w-full items-center gap-3 rounded-[18px] px-3 py-3 text-left text-[var(--foreground)] transition hover:bg-white/[0.04]"
+                className="sidebar-hover-ghost flex w-full items-center gap-3 rounded-[18px] px-3 py-3 text-left text-[var(--foreground)]"
                 onClick={() => {
                   onSetActiveView("assistant")
                   onCloseMobileSidebar()
@@ -164,7 +167,7 @@ export function AppSidebar({
                     <div
                       key={chat.id}
                       className={`group relative rounded-[18px] px-3 py-2.5 text-left transition ${
-                        isActive ? "bg-white/[0.08] text-[var(--foreground)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]" : "text-[var(--muted-foreground)] hover:bg-white/[0.04] hover:text-[var(--foreground)]"
+                        isActive ? "bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] text-[var(--foreground)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]" : "text-[var(--muted-foreground)] hover:bg-[color-mix(in_srgb,var(--accent)_8%,var(--panel))] hover:text-[var(--foreground)]"
                       }`}
                     >
                       {isRenaming ? (
@@ -193,13 +196,14 @@ export function AppSidebar({
                         </button>
                       )}
                       <button
-                        className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--panel-strong)]/95 text-[var(--muted-foreground)] transition hover:bg-white/[0.08] hover:text-[var(--foreground)] ${
+                        className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--panel-strong)]/95 text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] hover:text-[var(--foreground)] ${
                           isActive || isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
                         }`}
                         onClick={(event) => {
                           event.stopPropagation()
                           onOpenChatMenu(chat.id, "sidebar")
                         }}
+                        title={`Chat actions for ${chat.title}`}
                         type="button"
                       >
                         <Ellipsis className="h-4 w-4" />
@@ -209,7 +213,7 @@ export function AppSidebar({
                           className="absolute right-2 top-[calc(100%+6px)] z-40 w-48 rounded-[22px] border border-[var(--line)] bg-[var(--panel-strong)]/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
                           onPointerDown={(event) => event.stopPropagation()}
                         >
-                          <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-[var(--foreground)] hover:bg-white/[0.05]" onClick={() => onBeginRenamingChat(chat)} type="button">
+                          <button className="sidebar-menu-item sidebar-hover-ghost flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[var(--foreground)]" onClick={() => onBeginRenamingChat(chat)} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
                             <Pencil className="h-4 w-4 text-[var(--muted-foreground)]" />
                             Rename chat
                           </button>
@@ -242,33 +246,33 @@ export function AppSidebar({
               {!isSidebarCollapsed ? (
                 <>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-[var(--foreground)]">{user?.display_name || "Guest"}</div>
-                    <div className="truncate text-xs text-[var(--muted-foreground)]">@{user?.username || "not-signed-in"}</div>
+                    <div className="sidebar-profile-name truncate text-[var(--foreground)]">{user?.display_name || "Guest"}</div>
+                    <div className="sidebar-profile-meta truncate text-[var(--muted-foreground)]">@{user?.username || "not-signed-in"}</div>
                   </div>
-                  <ChevronDown className="h-4 w-4 text-[var(--muted-foreground)]" />
+                  <ChevronDown className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
                 </>
               ) : null}
             </button>
             {isProfileMenuOpen ? (
-              <div className={`absolute bottom-[calc(100%+10px)] z-50 rounded-[24px] border border-[var(--line)] bg-[var(--panel-strong)]/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)] ${isSidebarCollapsed ? "left-0 w-56" : "left-0 right-0"}`}>
-                <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-[var(--foreground)] transition hover:bg-white/[0.06]" onClick={() => onSetActiveView("settings")} type="button">
-                  <Settings className="h-4 w-4 text-[var(--muted-foreground)]" />
+              <div className={`sidebar-menu-shell quick-switcher-shell absolute bottom-[calc(100%+10px)] z-50 rounded-[24px] p-2 ${isSidebarCollapsed ? "left-0 w-56" : "left-0 right-0"}`}>
+                <button className="sidebar-menu-item quick-switcher-item flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={() => onSetActiveView("settings")} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
+                  <Settings className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
                   Settings
                 </button>
                 {user?.is_admin ? (
-                  <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-[var(--foreground)] transition hover:bg-white/[0.06]" onClick={() => onSetActiveView("admin")} type="button">
-                    <Shield className="h-4 w-4 text-[var(--muted-foreground)]" />
+                  <button className="sidebar-menu-item quick-switcher-item flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={() => onSetActiveView("admin")} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
+                    <Shield className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
                     Administration
                   </button>
                 ) : null}
                 {user?.is_admin ? (
-                  <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-[var(--foreground)] transition hover:bg-white/[0.06]" onClick={onToggleDebugMode} type="button">
-                    <Bug className="h-4 w-4 text-[var(--muted-foreground)]" />
+                  <button className="sidebar-menu-item quick-switcher-item flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={onToggleDebugMode} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
+                    <Bug className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
                     Debug mode: {debugMode ? "On" : "Off"}
                   </button>
                 ) : null}
-                <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-[var(--foreground)] transition hover:bg-white/[0.06]" onClick={onSignOut} type="button">
-                  <LogOut className="h-4 w-4 text-[var(--muted-foreground)]" />
+                <button className="sidebar-menu-item quick-switcher-item flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={onSignOut} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
+                  <LogOut className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
                   Sign out
                 </button>
               </div>

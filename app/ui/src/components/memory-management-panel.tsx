@@ -506,7 +506,7 @@ export function MemoryManagementPanel({
   }
 
   return (
-    <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
+    <Card className="border-[var(--line)] bg-[var(--card)] text-[var(--foreground)] shadow-[var(--shadow-strong)]">
       <CardHeader className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -514,20 +514,20 @@ export function MemoryManagementPanel({
               <Brain className="h-5 w-5 text-primary" />
               Memory
             </CardTitle>
-            <div className="mt-1 text-sm text-zinc-500">
+            <div className="mt-1 text-sm text-[var(--muted-foreground)]">
               Inspect what LokiDoki stored for this chat, for you, and for the household.
             </div>
             {effectiveChatId ? (
-              <div className="mt-2 text-xs text-zinc-500">
+              <div className="mt-2 text-xs text-[var(--muted-foreground)]">
                 Inspecting session memory for {resolvedChatTitle ? `"${resolvedChatTitle}"` : effectiveChatId}.
               </div>
             ) : null}
             <div className="mt-3 max-w-md">
-              <label className="mb-1 block text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
                 Session Memory Chat
               </label>
               <select
-                className="flex h-10 w-full rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="flex h-10 w-full rounded-xl border border-[var(--line)] bg-[var(--input)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 disabled={visibleChatOptions.length === 0}
                 onChange={(event) => {
                   setSelectedChatId(event.target.value)
@@ -553,16 +553,16 @@ export function MemoryManagementPanel({
             Refresh
           </Button>
         </div>
-        <div className="flex max-w-xl rounded-xl bg-white/[0.04] p-1">
+        <div className="flex max-w-xl rounded-xl border border-[var(--line)] bg-[var(--panel)] p-1">
           <button
-            className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "session" ? "bg-white/[0.09] text-zinc-100" : "text-zinc-400 hover:text-zinc-100"}`}
+            className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "session" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
             onClick={() => setActiveTab("session")}
             type="button"
           >
             Chat Sessions
           </button>
           <button
-            className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "user" ? "bg-white/[0.09] text-zinc-100" : "text-zinc-400 hover:text-zinc-100"}`}
+            className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "user" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
             onClick={() => setActiveTab("user")}
             type="button"
           >
@@ -570,7 +570,7 @@ export function MemoryManagementPanel({
           </button>
           {isAdmin ? (
             <button
-              className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "household" ? "bg-white/[0.09] text-zinc-100" : "text-zinc-400 hover:text-zinc-100"}`}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "household" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
               onClick={() => setActiveTab("household")}
               type="button"
             >
@@ -583,28 +583,28 @@ export function MemoryManagementPanel({
       <CardContent className="space-y-4 p-5 sm:p-6">
         {memoryContext ? (
           <div className="grid gap-3 lg:grid-cols-5">
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Session entries</div>
-              <div className="mt-2 text-2xl font-semibold text-zinc-100">{memoryContext.stats.session_count}</div>
-              <div className="mt-1 text-xs text-zinc-500">{memoryContext.stats.session_applied ? "Injected into active chat" : "Not injected right now"}</div>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Session entries</div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{memoryContext.stats.session_count}</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">{memoryContext.stats.session_applied ? "Injected into active chat" : "Not injected right now"}</div>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Personal entries</div>
-              <div className="mt-2 text-2xl font-semibold text-zinc-100">{memoryContext.stats.person_count}</div>
-              <div className="mt-1 text-xs text-zinc-500">{memoryContext.stats.long_term_applied ? "Available to prompt injection" : "No long-term memory active"}</div>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Personal entries</div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{memoryContext.stats.person_count}</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">{memoryContext.stats.long_term_applied ? "Available to prompt injection" : "No long-term memory active"}</div>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Household entries</div>
-              <div className="mt-2 text-2xl font-semibold text-zinc-100">{memoryContext.stats.household_count}</div>
-              <div className="mt-1 text-xs text-zinc-500">Shared across the local environment</div>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Household entries</div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{memoryContext.stats.household_count}</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">Shared across the local environment</div>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 lg:col-span-2">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Current injection status</div>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4 lg:col-span-2">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Current injection status</div>
               <div className="mt-2 flex flex-wrap gap-2">
-                <span className={`rounded-full px-3 py-1 text-xs ${memoryContext.stats.session_applied ? "bg-cyan-500/15 text-cyan-200" : "bg-white/[0.05] text-zinc-500"}`}>
+                <span className={`rounded-full px-3 py-1 text-xs ${memoryContext.stats.session_applied ? "bg-cyan-500/15 text-cyan-200" : "border border-[var(--line)] bg-[var(--panel)] text-[var(--muted-foreground)]"}`}>
                   Session {memoryContext.stats.session_applied ? "applied" : "idle"}
                 </span>
-                <span className={`rounded-full px-3 py-1 text-xs ${memoryContext.stats.long_term_applied ? "bg-cyan-500/15 text-cyan-200" : "bg-white/[0.05] text-zinc-500"}`}>
+                <span className={`rounded-full px-3 py-1 text-xs ${memoryContext.stats.long_term_applied ? "bg-cyan-500/15 text-cyan-200" : "border border-[var(--line)] bg-[var(--panel)] text-[var(--muted-foreground)]"}`}>
                   Long-term {memoryContext.stats.long_term_applied ? "applied" : "idle"}
                 </span>
               </div>
@@ -614,25 +614,25 @@ export function MemoryManagementPanel({
 
         {memoryContext ? (
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 lg:col-span-2">
-              <div className="text-sm font-medium text-zinc-100">Recent Memory Activity</div>
-              <div className="mt-1 text-xs text-zinc-500">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4 lg:col-span-2">
+              <div className="text-sm font-medium text-[var(--foreground)]">Recent Memory Activity</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">
                 Latest durable-memory writes and deletes recorded through the local sync queue.
               </div>
               {memoryContext.recent_activity.length === 0 ? (
-                <div className="mt-3 rounded-xl border border-white/8 bg-zinc-950/80 p-3 text-xs text-zinc-500">
+                <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 text-xs text-[var(--muted-foreground)]">
                   No recent durable-memory activity yet.
                 </div>
               ) : (
                 <div className="mt-3 grid gap-2">
                   {memoryContext.recent_activity.map((item, index) => (
-                    <div key={`${item.key}-${item.timestamp}-${index}`} className="rounded-xl border border-white/8 bg-zinc-950/80 p-3 text-xs text-zinc-300">
+                    <div key={`${item.key}-${item.timestamp}-${index}`} className="rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 text-xs text-[var(--foreground)]">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-zinc-100">{item.key}</span>
-                        <span className="rounded-md bg-white/[0.06] px-2 py-0.5 uppercase tracking-[0.12em] text-zinc-400">
+                        <span className="font-semibold text-[var(--foreground)]">{item.key}</span>
+                        <span className="rounded-md border border-[var(--line)] bg-[var(--input)] px-2 py-0.5 uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
                           {item.scope}
                         </span>
-                        <span className="rounded-md bg-white/[0.06] px-2 py-0.5 uppercase tracking-[0.12em] text-zinc-400">
+                        <span className="rounded-md border border-[var(--line)] bg-[var(--input)] px-2 py-0.5 uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
                           {item.operation}
                         </span>
                         {item.source ? (
@@ -642,27 +642,27 @@ export function MemoryManagementPanel({
                         ) : null}
                       </div>
                       {item.value ? <div className="mt-1 whitespace-pre-wrap break-words">{item.value}</div> : null}
-                      <div className="mt-1 text-zinc-500">{formatMemoryTimestamp(item.timestamp)}</div>
+                      <div className="mt-1 text-[var(--muted-foreground)]">{formatMemoryTimestamp(item.timestamp)}</div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 lg:col-span-2">
-              <div className="text-sm font-medium text-zinc-100">Recent Promoted Facts</div>
-              <div className="mt-1 text-xs text-zinc-500">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4 lg:col-span-2">
+              <div className="text-sm font-medium text-[var(--foreground)]">Recent Promoted Facts</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">
                 These are the latest durable facts automatically promoted from the selected chat into personal memory.
               </div>
               {memoryContext.recent_promoted_facts.length === 0 ? (
-                <div className="mt-3 rounded-xl border border-white/8 bg-zinc-950/80 p-3 text-xs text-zinc-500">
+                <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 text-xs text-[var(--muted-foreground)]">
                   No facts were recently promoted from this chat.
                 </div>
               ) : (
                 <div className="mt-3 grid gap-2">
                   {memoryContext.recent_promoted_facts.map((fact, index) => (
-                    <div key={`${fact.key}-${index}`} className="rounded-xl border border-white/8 bg-zinc-950/80 p-3 text-xs text-zinc-300">
+                    <div key={`${fact.key}-${index}`} className="rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 text-xs text-[var(--foreground)]">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-zinc-100">{fact.key}</span>
+                        <span className="font-semibold text-[var(--foreground)]">{fact.key}</span>
                         <span className="rounded-md bg-cyan-500/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan-200">
                           {Math.round(Number(fact.confidence || 0) * 100)}%
                         </span>
@@ -673,24 +673,24 @@ export function MemoryManagementPanel({
                 </div>
               )}
             </div>
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <div className="text-sm font-medium text-zinc-100">Exact Session Block</div>
-              <div className="mt-1 text-xs text-zinc-500">This is the active chat memory block available to the next reply.</div>
-              <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-zinc-950/80 p-3 text-xs text-zinc-300">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+              <div className="text-sm font-medium text-[var(--foreground)]">Exact Session Block</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">This is the active chat memory block available to the next reply.</div>
+              <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 text-xs text-[var(--foreground)]">
                 {memoryContext.context.session || "No session block for the active chat."}
               </pre>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <div className="text-sm font-medium text-zinc-100">Exact Long-Term Block</div>
-              <div className="mt-1 text-xs text-zinc-500">This is the personal and household memory block available to the next reply.</div>
-              <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-zinc-950/80 p-3 text-xs text-zinc-300">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+              <div className="text-sm font-medium text-[var(--foreground)]">Exact Long-Term Block</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">This is the personal and household memory block available to the next reply.</div>
+              <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 text-xs text-[var(--foreground)]">
                 {memoryContext.context.long_term || "No long-term memory block for the active selection."}
               </pre>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 lg:col-span-2">
-              <div className="text-sm font-medium text-zinc-100">Combined Injected Context</div>
-              <div className="mt-1 text-xs text-zinc-500">This is the exact combined memory payload the chat helpers can append to the next prompt.</div>
-              <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-zinc-950/80 p-3 text-xs text-zinc-300">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4 lg:col-span-2">
+              <div className="text-sm font-medium text-[var(--foreground)]">Combined Injected Context</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">This is the exact combined memory payload the chat helpers can append to the next prompt.</div>
+              <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 text-xs text-[var(--foreground)]">
                 {memoryContext.context.combined || "No combined memory context is currently available."}
               </pre>
             </div>
@@ -698,18 +698,18 @@ export function MemoryManagementPanel({
         ) : null}
 
         {loading ? (
-          <div className="flex h-32 items-center justify-center text-zinc-500">Loading memories...</div>
+          <div className="flex h-32 items-center justify-center text-[var(--muted-foreground)]">Loading memories...</div>
         ) : null}
 
         {!loading && activeTab === "session" ? (
           <div className="grid gap-3">
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <div className="text-sm font-medium text-zinc-100">Choose Chat</div>
-              <div className="mt-1 text-xs text-zinc-500">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+              <div className="text-sm font-medium text-[var(--foreground)]">Choose Chat</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">
                 Pick any saved chat to inspect its session memory and injected context.
               </div>
               <select
-                className="mt-3 flex h-10 w-full rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="mt-3 flex h-10 w-full rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 disabled={visibleChatOptions.length === 0}
                 onChange={(event) => setSelectedChatId(event.target.value)}
                 value={effectiveChatId}
@@ -726,15 +726,15 @@ export function MemoryManagementPanel({
                 ))}
               </select>
             </div>
-            <form className="flex gap-2 rounded-2xl border border-white/8 bg-white/[0.03] p-3" onSubmit={addSessionMemory}>
+            <form className="flex gap-2 rounded-2xl border border-[var(--line)] bg-[var(--input)] p-3" onSubmit={addSessionMemory}>
               <input
-                className="flex h-10 flex-1 rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="flex h-10 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 onChange={(event) => setNewSessionKey(event.target.value)}
                 placeholder="e.g. topic_focus"
                 value={newSessionKey}
               />
               <input
-                className="flex h-10 flex-1 rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="flex h-10 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 onChange={(event) => setNewSessionValue(event.target.value)}
                 placeholder="e.g. Everybody Loves Raymond"
                 value={newSessionValue}
@@ -750,28 +750,28 @@ export function MemoryManagementPanel({
               </Button>
             </form>
             {!effectiveChatId ? (
-              <p className="rounded-xl border border-white/8 bg-white/[0.03] p-4 text-center text-sm italic text-zinc-500">
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--input)] p-4 text-center text-sm italic text-[var(--muted-foreground)]">
                 Open a chat first to inspect session memory.
               </p>
             ) : sessionMemories.length === 0 ? (
-              <p className="rounded-xl border border-white/8 bg-white/[0.03] p-4 text-center text-sm italic text-zinc-500">
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--input)] p-4 text-center text-sm italic text-[var(--muted-foreground)]">
                 No session memory has been stored for this chat yet.
               </p>
             ) : (
               sessionMemories.map((memory) => (
-                <div key={`${memory.chat_id}-${memory.key}`} className="flex items-start justify-between rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                <div key={`${memory.chat_id}-${memory.key}`} className="flex items-start justify-between rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
                   <div className="min-w-0 flex-1 space-y-2 pr-6">
                     <div className="flex items-center gap-2">
                       <MessageSquareText className="h-4 w-4 text-cyan-300" />
-                      <span className="text-sm font-medium text-zinc-100">{sessionMemoryLabel(memory.key)}</span>
-                      <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-zinc-400">
+                      <span className="text-sm font-medium text-[var(--foreground)]">{sessionMemoryLabel(memory.key)}</span>
+                      <span className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
                         {sessionMemoryBadge(memory.key)}
                       </span>
                     </div>
                     {editingMemory?.scope === "session" && editingMemory.key === memory.key ? (
                       <div className="space-y-2">
                         <textarea
-                          className="flex min-h-[96px] w-full rounded-xl border border-white/8 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 shadow-sm outline-none"
+                          className="flex min-h-[96px] w-full rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm outline-none"
                           onChange={(event) => setEditingMemory({ ...editingMemory, value: event.target.value })}
                           value={editingMemory.value}
                         />
@@ -785,7 +785,7 @@ export function MemoryManagementPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="whitespace-pre-wrap break-words text-sm text-zinc-300">{memory.value}</div>
+                      <div className="whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">{memory.value}</div>
                     )}
                   </div>
                   <div className="flex shrink-0 gap-1">
@@ -832,13 +832,13 @@ export function MemoryManagementPanel({
 
         {!loading && activeTab === "user" ? (
           <div className="grid gap-3">
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <div className="text-sm font-medium text-zinc-100">Filter Character</div>
-              <div className="mt-1 text-xs text-zinc-500">
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+              <div className="text-sm font-medium text-[var(--foreground)]">Filter Character</div>
+              <div className="mt-1 text-xs text-[var(--muted-foreground)]">
                 Narrow personal memory to one character or inspect all extracted facts together.
               </div>
               <select
-                className="mt-3 flex h-10 w-full rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="mt-3 flex h-10 w-full rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 onChange={(event) => setSelectedCharacterFilter(event.target.value)}
                 value={selectedCharacterFilter}
               >
@@ -850,15 +850,15 @@ export function MemoryManagementPanel({
                 ))}
               </select>
             </div>
-            <form className="flex gap-2 rounded-2xl border border-white/8 bg-white/[0.03] p-3" onSubmit={addPersonMemory}>
+            <form className="flex gap-2 rounded-2xl border border-[var(--line)] bg-[var(--input)] p-3" onSubmit={addPersonMemory}>
               <input
-                className="flex h-10 flex-1 rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="flex h-10 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 onChange={(event) => setNewPersonKey(event.target.value)}
                 placeholder="e.g. favorite_show"
                 value={newPersonKey}
               />
               <input
-                className="flex h-10 flex-1 rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="flex h-10 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 onChange={(event) => setNewPersonValue(event.target.value)}
                 placeholder="e.g. Everybody Loves Raymond"
                 value={newPersonValue}
@@ -874,29 +874,29 @@ export function MemoryManagementPanel({
               </Button>
             </form>
             {filteredUserMemories.length === 0 ? (
-              <p className="rounded-xl border border-white/8 bg-white/[0.03] p-4 text-center text-sm italic text-zinc-500">
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--input)] p-4 text-center text-sm italic text-[var(--muted-foreground)]">
                 No personal memories have been stored yet.
               </p>
             ) : (
               filteredUserMemories.map((memory) => (
-                <div key={`${memory.character_id}-${memory.key}`} className="flex items-start justify-between rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                <div key={`${memory.character_id}-${memory.key}`} className="flex items-start justify-between rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
                   <div className="min-w-0 flex-1 space-y-2 pr-6">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-cyan-300">{memory.character_name} remembers</span>
-                      <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-zinc-400">
+                      <span className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
                         {Math.round(memory.confidence * 100)}%
                       </span>
-                      <span className={`rounded-md px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] ${memory.source === "extracted" ? "bg-cyan-500/15 text-cyan-200" : "bg-white/[0.06] text-zinc-400"}`}>
+                      <span className={`rounded-md px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] ${memory.source === "extracted" ? "bg-cyan-500/15 text-cyan-200" : "border border-[var(--line)] bg-[var(--panel)] text-[var(--muted-foreground)]"}`}>
                         {personMemorySourceLabel(memory.source)}
                       </span>
                     </div>
                     {editingMemory?.scope === "person" && editingMemory.key === memory.key && editingMemory.characterId === memory.character_id ? (
                       <div className="space-y-2">
-                        <div className="text-sm text-zinc-300">
-                          <span className="font-semibold text-zinc-100">{memory.key}</span>
+                        <div className="text-sm text-[var(--foreground)]">
+                          <span className="font-semibold text-[var(--foreground)]">{memory.key}</span>
                         </div>
                         <textarea
-                          className="flex min-h-[96px] w-full rounded-xl border border-white/8 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 shadow-sm outline-none"
+                          className="flex min-h-[96px] w-full rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--foreground)] shadow-sm outline-none"
                           onChange={(event) => setEditingMemory({ ...editingMemory, value: event.target.value })}
                           value={editingMemory.value}
                         />
@@ -910,11 +910,11 @@ export function MemoryManagementPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm text-zinc-300">
-                        <span className="font-semibold text-zinc-100">{memory.key}</span> = {memory.value}
+                      <div className="text-sm text-[var(--foreground)]">
+                        <span className="font-semibold text-[var(--foreground)]">{memory.key}</span> = {memory.value}
                       </div>
                     )}
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-[var(--muted-foreground)]">
                       Saved {formatMemoryTimestamp(memory.updated_at)}
                     </div>
                   </div>
@@ -953,15 +953,15 @@ export function MemoryManagementPanel({
               Household memory is shared across the local environment.
             </div>
 
-            <form className="flex gap-2 rounded-2xl border border-white/8 bg-white/[0.03] p-3" onSubmit={addHouseholdMemory}>
+            <form className="flex gap-2 rounded-2xl border border-[var(--line)] bg-[var(--input)] p-3" onSubmit={addHouseholdMemory}>
               <input
-                className="flex h-10 flex-1 rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="flex h-10 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 onChange={(event) => setNewHouseholdKey(event.target.value)}
                 placeholder="e.g. pizza_night"
                 value={newHouseholdKey}
               />
               <input
-                className="flex h-10 flex-1 rounded-xl border border-white/8 bg-zinc-950 px-3 text-sm text-zinc-100 shadow-sm outline-none"
+                className="flex h-10 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 text-sm text-[var(--foreground)] shadow-sm outline-none"
                 onChange={(event) => setNewHouseholdValue(event.target.value)}
                 placeholder="e.g. Tuesday"
                 value={newHouseholdValue}
@@ -973,16 +973,16 @@ export function MemoryManagementPanel({
             </form>
 
             {householdMemories.length === 0 ? (
-              <p className="rounded-xl border border-white/8 bg-white/[0.03] p-4 text-center text-sm italic text-zinc-500">
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--input)] p-4 text-center text-sm italic text-[var(--muted-foreground)]">
                 No household memories have been stored yet.
               </p>
             ) : (
               householdMemories.map((memory) => (
-                <div key={memory.key} className="flex items-start justify-between rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                <div key={memory.key} className="flex items-start justify-between rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
                   <div className="min-w-0 flex-1 space-y-1 pr-6">
                     <div className="text-sm font-medium text-cyan-300">Shared household memory</div>
-                    <div className="text-sm text-zinc-300">
-                      <span className="font-semibold text-zinc-100">{memory.key}</span> = {memory.value}
+                    <div className="text-sm text-[var(--foreground)]">
+                      <span className="font-semibold text-[var(--foreground)]">{memory.key}</span> = {memory.value}
                     </div>
                   </div>
                   <Button

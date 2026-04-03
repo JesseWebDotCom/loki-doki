@@ -28,7 +28,7 @@ export const RiggingSection: React.FC<RiggingSectionProps> = ({ options, updateO
   return (
     <section id="rigging" className="space-y-4 pt-2">
       <div className="flex items-center justify-between px-1">
-        <h3 className="text-[9px] font-black text-sky-500 uppercase tracking-[0.2em] flex items-center gap-2">
+        <h3 className="ce-title flex items-center gap-2 text-[var(--app-icon-primary)]">
           <Palette className="w-2.5 h-2.5" /> Full Rigging Suite
         </h3>
         <Button variant="ghost" size="sm" onClick={() => resetToSeed(options.seed)} className="h-6 px-2 text-[9px]">
@@ -36,17 +36,17 @@ export const RiggingSection: React.FC<RiggingSectionProps> = ({ options, updateO
         </Button>
       </div>
       
-      <div className="bg-slate-950/40 p-4 rounded-2xl border border-white/5 shadow-inner space-y-5">
+      <div className="space-y-5 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] p-4 shadow-[var(--app-shadow-soft)]">
         {/* HAIR */}
         <div className="space-y-2.5">
-          <label className="text-[8px] font-black text-slate-500 uppercase px-1 flex items-center gap-1.5"><Scissors className="w-2.5 h-2.5 text-sky-500" /> Style & Hair</label>
+          <label className="ce-micro flex items-center gap-1.5 px-1 text-[var(--app-text-muted)]"><Scissors className="w-2.5 h-2.5 text-[var(--app-icon-primary)]" /> Style & Hair</label>
           <div className="flex gap-2">
             <div className="flex-1">
               <Select value={options.top?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('top', v)}>
-                <SelectTrigger className="bg-slate-900 border-none h-10 text-[10px] rounded-xl text-sky-300">
+                <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[10px] text-[var(--app-icon-primary)]">
                   <SelectValue placeholder="Hair: Seed" />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-white/10 text-slate-200 uppercase text-[9px] font-bold">
+                <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
                   {['none', 'bob', 'curly', 'curvy', 'dreads', 'frida', 'frizzle', 'shaggy', 'shortCurly', 'shortFlat', 'shortRound', 'shortWaved', 'sides', 'theCaesar', 'turban', 'winterHat01', 'bigHair', 'hat'].sort().map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -58,45 +58,45 @@ export const RiggingSection: React.FC<RiggingSectionProps> = ({ options, updateO
         </div>
         
         {/* CLOTHING */}
-        <div className="space-y-2.5 border-t border-white/5 pt-4">
-          <label className="text-[8px] font-black text-slate-500 uppercase px-1 flex items-center gap-1.5"><Shirt className="w-2.5 h-2.5 text-indigo-400" /> Apparel & Skin</label>
+        <div className="space-y-2.5 border-t border-[color:var(--app-border)] pt-4">
+          <label className="ce-micro flex items-center gap-1.5 px-1 text-[var(--app-text-muted)]"><Shirt className="w-2.5 h-2.5 text-[var(--app-icon-indigo)]" /> Apparel & Skin</label>
           <div className="grid grid-cols-2 gap-2">
             <Select value={options.clothing?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('clothing', v)}>
-              <SelectTrigger className="bg-slate-900 border-none h-10 text-[10px] rounded-xl text-sky-300">
+              <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[10px] text-[var(--app-icon-primary)]">
                 <SelectValue placeholder="Outfit" />
               </SelectTrigger>
-              <SelectContent className="bg-slate-900 border-white/10 text-slate-200 text-[9px] font-bold uppercase">
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
                 {['graphicShirt', 'blazerAndShirt', 'blazerAndSweater', 'hoodie', 'overall', 'shirtCrewNeck', 'shirtScoopNeck', 'shirtVNeck'].sort().map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={options.skinColor?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('skinColor', v)}>
-              <SelectTrigger className="bg-slate-900 border-none h-10 rounded-xl">
+              <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)]">
                 <SelectValue placeholder="Skin" />
               </SelectTrigger>
-              <SelectContent className="bg-slate-900 border-white/10 p-2 grid grid-cols-3 gap-2">
-                 {skinTones.map(c => <SelectItem key={c} value={c} className="!p-0 h-8 w-8 rounded-full flex justify-center !text-[0px]"><div className="w-6 h-6 rounded-full border border-white/10" style={{ backgroundColor: `#${c}` }} /></SelectItem>)}
+              <SelectContent className="grid grid-cols-3 gap-2 border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] p-2">
+                 {skinTones.map(c => <SelectItem key={c} value={c} className="!p-0 h-8 w-8 rounded-full flex justify-center !text-[0px]"><div className="w-6 h-6 rounded-full border border-[color:var(--app-border)]" style={{ backgroundColor: `#${c}` }} /></SelectItem>)}
               </SelectContent>
             </Select>
           </div>
         </div>
 
         {/* EYES/MOUTH */}
-        <div className="space-y-2.5 border-t border-white/5 pt-4">
-          <label className="text-[8px] font-black text-slate-500 uppercase px-1 flex items-center gap-1.5"><Eye className="w-2.5 h-2.5 text-pink-500" /> Expression</label>
+        <div className="space-y-2.5 border-t border-[color:var(--app-border)] pt-4">
+          <label className="ce-micro flex items-center gap-1.5 px-1 text-[var(--app-text-muted)]"><Eye className="w-2.5 h-2.5 text-[var(--app-icon-pink)]" /> Expression</label>
           <div className="grid grid-cols-3 gap-2">
             <Select value={options.eyes?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('eyes', v)}>
-              <SelectTrigger className="bg-slate-900 border-none h-9 text-[9px] rounded-xl text-sky-400 font-bold">
+              <SelectTrigger className="h-9 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[9px] font-bold text-[var(--app-icon-primary)]">
                 <SelectValue placeholder="Eyes" />
               </SelectTrigger>
-              <SelectContent className="bg-slate-900 border-white/10 text-slate-200">
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
                 {['default', 'closed', 'happy', 'surprised', 'wink', 'eyeRoll'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={options.mouth?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('mouth', v)}>
-              <SelectTrigger className="bg-slate-900 border-none h-9 text-[9px] rounded-xl text-sky-400 font-bold">
+              <SelectTrigger className="h-9 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[9px] font-bold text-[var(--app-icon-primary)]">
                 <SelectValue placeholder="Mouth" />
               </SelectTrigger>
-              <SelectContent className="bg-slate-900 border-white/10 text-slate-200">
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
                 {['default', 'smile', 'serious', 'screamOpen', 'disbelief', 'tongue'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
               </SelectContent>
             </Select>

@@ -6,10 +6,10 @@ export const ExportTab: React.FC<{ options: any; onSave: () => void; onExport: (
   return (
     <div className="space-y-6">
        <div className="grid grid-cols-2 gap-4">
-         <Button onClick={onSave} className="bg-sky-600 hover:bg-sky-500 h-12 text-white font-black text-xs uppercase flex items-center gap-2">
+         <Button onClick={onSave} className="flex h-12 items-center gap-2 border-none bg-[var(--app-accent)] text-xs font-black uppercase text-white hover:bg-[var(--app-accent-strong)]">
             <Save className="w-4 h-4" /> Save Local
          </Button>
-         <Button onClick={onExport} variant="outline" className="border-sky-500/30 text-sky-400 h-12 text-xs uppercase font-black flex items-center gap-2">
+         <Button onClick={onExport} variant="outline" className="flex h-12 items-center gap-2 border-[color:var(--app-border-strong)] text-xs font-black uppercase text-[var(--app-accent)] hover:bg-[color:var(--app-accent-soft)]">
             <Download className="w-4 h-4" /> Export JSON
          </Button>
        </div>

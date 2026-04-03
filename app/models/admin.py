@@ -51,3 +51,10 @@ class AdminPromptLabCompileRequest(BaseModel):
     user_id: str = Field(min_length=1)
     enabled_layers: dict[str, bool] = Field(default_factory=dict)
     layer_overrides: dict[str, str] = Field(default_factory=dict)
+
+
+class AdminUserThemeOverrideRequest(BaseModel):
+    """Admin-managed per-user theme override payload."""
+    theme_admin_override_enabled: bool
+    theme_admin_override_preset_id: Optional[str] = None
+    theme_admin_override_mode: Optional[str] = None

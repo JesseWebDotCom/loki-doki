@@ -26,15 +26,15 @@ const HeaderControls: React.FC<{ onVisibilityToggle?: (visible: boolean) => void
   const renderCharacterIcon = (styleId: string) => {
     switch (styleId) {
       case 'avataaars':
-        return <UserCircle2 className="w-4 h-4 text-sky-400" />;
+        return <UserCircle2 className="w-4 h-4 text-[var(--app-icon-primary)]" />;
       case 'micah':
-        return <UserCircle2 className="w-4 h-4 text-emerald-400" />;
+        return <UserCircle2 className="w-4 h-4 text-[var(--app-icon-success)]" />;
       case 'notionists':
-        return <UserCircle2 className="w-4 h-4 text-amber-400" />;
+        return <UserCircle2 className="w-4 h-4 text-[var(--app-icon-warm)]" />;
       case 'adventurerNeutral':
-        return <UserCircle2 className="w-4 h-4 text-rose-400" />;
+        return <UserCircle2 className="w-4 h-4 text-[var(--app-icon-danger)]" />;
       default:
-        return <Sparkles className="w-4 h-4 text-amber-400" />;
+        return <Sparkles className="w-4 h-4 text-[var(--app-icon-warm)]" />;
     }
   };
 
@@ -51,27 +51,27 @@ const HeaderControls: React.FC<{ onVisibilityToggle?: (visible: boolean) => void
   };
 
   return (
-    <div className="flex items-center gap-4 px-2 w-full select-none">
-      <div className="flex items-center gap-3 text-slate-100">
+    <div className="flex w-full select-none items-center gap-4 px-2">
+      <div className="flex items-center gap-3 text-[var(--app-text)]">
         <Select value={selectedCharId} onValueChange={(val) => val && updateOption('style', val)}>
-          <SelectTrigger className="w-[240px] bg-slate-900 border-slate-700 hover:border-sky-500/50 transition-colors focus:ring-sky-500/10 data-[state=open]:border-sky-500/50">
+          <SelectTrigger className="w-[240px] border-[color:var(--app-border)] bg-[var(--app-bg-panel)] text-[var(--app-text)] transition-colors hover:border-[color:var(--app-border-strong)] focus:ring-[color:var(--app-accent-soft)] data-[state=open]:border-[color:var(--app-border-strong)]">
             <div className="flex items-center gap-3 overflow-hidden">
                {renderCharacterIcon(selectedChar.id)}
                <SelectValue placeholder="Select character" />
             </div>
           </SelectTrigger>
-          <SelectContent className="bg-slate-900 border-slate-700 text-slate-200">
+          <SelectContent className="border-[color:var(--app-border)] bg-[var(--app-bg-panel)] text-[var(--app-text)]">
             {FEATURED_CHARACTERS.map((char) => (
               <SelectItem 
                 key={char.id} 
                 value={char.id} 
-                className="focus:bg-slate-800 transition-colors cursor-pointer py-2.5"
+                className="cursor-pointer py-2.5 transition-colors focus:bg-[var(--app-bg-panel-strong)]"
               >
                 <div className="flex items-center gap-3">
                   {renderCharacterIcon(char.id)}
                   <div className="flex flex-col items-start leading-tight">
-                    <span className="font-semibold text-sm">{char.primary_name}</span>
-                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{char.domain}</span>
+                    <span className="ce-body font-semibold">{char.primary_name}</span>
+                    <span className="ce-micro text-[var(--app-text-muted)]">{char.domain}</span>
                   </div>
                 </div>
               </SelectItem>
@@ -80,13 +80,13 @@ const HeaderControls: React.FC<{ onVisibilityToggle?: (visible: boolean) => void
               <SelectItem 
                 key={selectedCharId} 
                 value={selectedCharId} 
-                className="focus:bg-slate-800 transition-colors cursor-pointer py-2.5"
+                className="cursor-pointer py-2.5 transition-colors focus:bg-[var(--app-bg-panel-strong)]"
               >
                 <div className="flex items-center gap-3">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <Sparkles className="w-4 h-4 text-[var(--app-icon-warm)]" />
                   <div className="flex flex-col items-start leading-tight">
-                    <span className="font-semibold text-sm">Other Style</span>
-                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{selectedCharId}</span>
+                    <span className="ce-body font-semibold">Other Style</span>
+                    <span className="ce-micro text-[var(--app-text-muted)]">{selectedCharId}</span>
                   </div>
                 </div>
               </SelectItem>
@@ -99,7 +99,7 @@ const HeaderControls: React.FC<{ onVisibilityToggle?: (visible: boolean) => void
             variant="outline"
             size="icon"
             onClick={toggleVisibility}
-            className={`transition-all ${isVisible ? 'bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/20 hover:text-sky-300' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'}`}
+            className={`transition-all ${isVisible ? 'border-[color:var(--app-border-strong)] bg-[color:var(--app-accent-soft)] text-[var(--app-accent)] hover:bg-[color:var(--app-accent-soft)]/80' : 'border-[color:var(--app-border)] bg-[var(--app-bg-panel)] text-[var(--app-text-muted)] hover:text-[var(--app-text)]'}`}
           >
             {isVisible ? <Eye className="w-4.5 h-4.5" /> : <EyeOff className="w-4.5 h-4.5" />}
           </Button>
@@ -108,7 +108,7 @@ const HeaderControls: React.FC<{ onVisibilityToggle?: (visible: boolean) => void
             variant="outline"
             size="icon"
             onClick={toggleMute}
-            className={`transition-all ${!isMuted ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300'}`}
+            className={`transition-all ${!isMuted ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300' : 'border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300'}`}
           >
             {!isMuted ? <Volume2 className="w-4.5 h-4.5" /> : <VolumeX className="w-4.5 h-4.5" />}
           </Button>

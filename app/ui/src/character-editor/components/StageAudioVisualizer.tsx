@@ -28,10 +28,10 @@ export default function StageAudioVisualizer() {
   }, [frequencyData, isListening, peakVolume, volume]);
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-slate-950/70 px-3 py-2">
+    <div className="rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] px-3 py-2">
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-[8px] font-black uppercase tracking-[0.24em] text-slate-500">Audio Visualizer</div>
-        <div className={`text-[8px] font-black uppercase tracking-[0.2em] ${isSpeaking ? 'text-emerald-400' : isListening ? 'text-sky-400' : 'text-slate-500'}`}>
+        <div className="text-[8px] font-black uppercase text-[var(--app-text-muted)]" style={{ letterSpacing: "var(--app-micro-letter-spacing)" }}>Audio Visualizer</div>
+        <div className={`text-[8px] font-black uppercase ${isSpeaking ? 'text-emerald-400' : isListening ? 'text-[var(--app-accent)]' : 'text-[var(--app-text-muted)]'}`} style={{ letterSpacing: "var(--app-label-letter-spacing)" }}>
           {isSpeaking ? 'Speech Active' : isListening ? 'Mic Monitoring' : 'Idle'}
         </div>
       </div>
@@ -39,14 +39,14 @@ export default function StageAudioVisualizer() {
         {bars.map((bar, index) => (
           <div
             key={index}
-            className="flex-1 rounded-full bg-slate-800/90 transition-all duration-100"
+            className="flex-1 rounded-full transition-all duration-100"
             style={{
               height: `${Math.max(10, bar * 100)}%`,
               background: isSpeaking
                 ? 'linear-gradient(180deg, rgba(16,185,129,0.95) 0%, rgba(14,165,233,0.85) 100%)'
                 : isListening
                   ? 'linear-gradient(180deg, rgba(56,189,248,0.95) 0%, rgba(59,130,246,0.8) 100%)'
-                  : 'linear-gradient(180deg, rgba(71,85,105,0.9) 0%, rgba(30,41,59,0.85) 100%)',
+                  : 'linear-gradient(180deg, color-mix(in srgb, var(--app-text-muted) 75%, transparent) 0%, color-mix(in srgb, var(--app-bg-panel-strong) 92%, black 8%) 100%)',
             }}
           />
         ))}

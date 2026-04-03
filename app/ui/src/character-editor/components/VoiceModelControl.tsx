@@ -136,11 +136,11 @@ export default function VoiceModelControl({
       <div className="flex items-center gap-2">
         <Select value={options.voice_model || ''} onValueChange={handleVoiceSelect}>
           <SelectTrigger
-            className={`bg-slate-900 border-white/10 ${compact ? 'h-8 text-[10px] rounded-lg' : 'h-10 text-sm rounded-xl'} text-sky-300 font-semibold`}
+            className={`border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] ${compact ? 'h-8 rounded-lg text-[10px]' : 'h-10 rounded-xl text-sm'} font-semibold text-[var(--app-accent)]`}
           >
             <SelectValue placeholder={status === 'loading' ? 'Loading voices...' : 'Select Voice Model'} />
           </SelectTrigger>
-          <SelectContent className="bg-slate-900 border-white/10 text-slate-200">
+          <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
             {voiceOptions.map((voice) => (
               <SelectItem key={voice.id} value={voice.id}>
                 <div className="flex items-center gap-2">
@@ -155,30 +155,30 @@ export default function VoiceModelControl({
           type="button"
           variant="outline"
           size="icon"
-          className={`${compact ? 'h-8 w-8' : 'h-10 w-10'} border-white/10 bg-slate-900 text-slate-300 hover:bg-slate-800`}
+          className={`${compact ? 'h-8 w-8' : 'h-10 w-10'} border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[var(--app-text-muted)] hover:bg-[color:var(--app-accent-soft)] hover:text-[var(--app-text)]`}
           onClick={() => void refreshVoices()}
         >
           {status === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
         </Button>
       </div>
 
-      <div className={`rounded-xl border border-white/10 bg-slate-900/60 ${compact ? 'p-2.5' : 'p-3'} space-y-3`}>
+      <div className={`space-y-3 rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] ${compact ? 'p-2.5' : 'p-3'}`}>
         <div className="grid gap-2 md:grid-cols-2">
-          <label className="space-y-1 text-xs text-slate-400">
-            <span className="block font-medium uppercase tracking-[0.14em] text-slate-500">Piper Model</span>
+          <label className="space-y-1 text-xs text-[var(--app-text-muted)]">
+            <span className="block font-medium uppercase text-[var(--app-text-muted)]" style={{ letterSpacing: "var(--app-label-letter-spacing)" }}>Piper Model</span>
             <Input
               type="file"
               accept=".onnx"
-              className="cursor-pointer border-white/10 bg-slate-950 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-sky-500 file:px-2 file:py-1 file:text-xs file:font-semibold file:text-slate-950"
+              className="cursor-pointer border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-xs text-[var(--app-text)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--app-accent)] file:px-2 file:py-1 file:text-xs file:font-semibold file:text-white"
               onChange={(event) => setModelFile(event.target.files?.[0] || null)}
             />
           </label>
-          <label className="space-y-1 text-xs text-slate-400">
-            <span className="block font-medium uppercase tracking-[0.14em] text-slate-500">Piper Config</span>
+          <label className="space-y-1 text-xs text-[var(--app-text-muted)]">
+            <span className="block font-medium uppercase text-[var(--app-text-muted)]" style={{ letterSpacing: "var(--app-label-letter-spacing)" }}>Piper Config</span>
             <Input
               type="file"
               accept=".json,.onnx.json"
-              className="cursor-pointer border-white/10 bg-slate-950 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-sky-500 file:px-2 file:py-1 file:text-xs file:font-semibold file:text-slate-950"
+              className="cursor-pointer border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-xs text-[var(--app-text)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--app-accent)] file:px-2 file:py-1 file:text-xs file:font-semibold file:text-white"
               onChange={(event) => setConfigFile(event.target.files?.[0] || null)}
             />
           </label>
@@ -189,18 +189,18 @@ export default function VoiceModelControl({
             type="button"
             onClick={() => void handleUpload()}
             disabled={uploading || !modelFile || !configFile}
-            className="bg-sky-500 text-slate-950 hover:bg-sky-400"
+            className="border-none bg-[var(--app-accent)] text-white hover:bg-[var(--app-accent-strong)]"
           >
             {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
             Upload Custom Voice
           </Button>
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-[var(--app-text-muted)]">
             Installed voices come from the voice server. Custom uploads are bundled with the character when you save.
           </div>
         </div>
 
         {message ? (
-          <div className={`text-xs ${message.toLowerCase().includes('failed') ? 'text-rose-300' : 'text-slate-400'}`}>
+          <div className={`text-xs ${message.toLowerCase().includes('failed') ? 'text-rose-300' : 'text-[var(--app-text-muted)]'}`}>
             {message}
           </div>
         ) : null}

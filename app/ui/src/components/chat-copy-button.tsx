@@ -30,6 +30,7 @@ export function ChatCopyButton({ content, className }: { content: string; classN
       className={cn("relative h-8 w-8 rounded-full", className)}
       onClick={handleCopy}
       size="icon"
+      tooltip={copied ? "Copied" : "Copy response"}
       type="button"
       variant="ghost"
     >

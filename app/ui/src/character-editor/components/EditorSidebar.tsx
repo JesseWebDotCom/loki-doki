@@ -15,13 +15,13 @@ import { RiggingSection } from './sidebar/sections/RiggingSection';
 import { QuantumRiggingSection } from './sidebar/sections/QuantumRiggingSection';
 
 const SECTION_MAP: Record<string, { id: string; label: string; icon: React.ReactNode; color: string; bgColor: string }> = {
-  identity: { id: 'identity', label: 'Identity Unit', icon: <Globe className="w-2.5 h-2.5" />, color: '#38bdf8', bgColor: 'rgba(56, 189, 248, 0.1)' },
-  brain: { id: 'brain', label: 'Bio-Brain Controller', icon: <BrainCircuit className="w-2.5 h-2.5" />, color: '#fbbf24', bgColor: 'rgba(251, 191, 36, 0.1)' },
-  voice: { id: 'voice', label: 'Neural Voice Unit', icon: <Mic className="w-2.5 h-2.5" />, color: '#38bdf8', bgColor: 'rgba(56, 189, 248, 0.1)' },
-  config: { id: 'config', label: 'Manifest Config', icon: <Settings2 className="w-2.5 h-2.5" />, color: '#38bdf8', bgColor: 'rgba(56, 189, 248, 0.1)' },
-  rigging: { id: 'rigging', label: 'Elite Rigging Suite', icon: <Palette className="w-2.5 h-2.5" />, color: '#f472b6', bgColor: 'rgba(244, 114, 182, 0.1)' },
-  shorthand: { id: 'shorthand', label: 'Quantum Rigging', icon: <SlidersHorizontal className="w-2.5 h-2.5" />, color: '#34d399', bgColor: 'rgba(52, 211, 153, 0.1)' },
-  stage: { id: 'stage', label: 'Stage Positioning', icon: <Settings2 className="w-2.5 h-2.5" />, color: '#38bdf8', bgColor: 'rgba(56, 189, 248, 0.1)' },
+  identity: { id: 'identity', label: 'Identity Unit', icon: <Globe className="w-2.5 h-2.5" />, color: 'var(--app-icon-primary)', bgColor: 'color-mix(in srgb, var(--app-icon-primary) 12%, transparent)' },
+  brain: { id: 'brain', label: 'Bio-Brain Controller', icon: <BrainCircuit className="w-2.5 h-2.5" />, color: 'var(--app-icon-warm)', bgColor: 'color-mix(in srgb, var(--app-icon-warm) 12%, transparent)' },
+  voice: { id: 'voice', label: 'Neural Voice Unit', icon: <Mic className="w-2.5 h-2.5" />, color: 'var(--app-icon-primary)', bgColor: 'color-mix(in srgb, var(--app-icon-primary) 12%, transparent)' },
+  config: { id: 'config', label: 'Manifest Config', icon: <Settings2 className="w-2.5 h-2.5" />, color: 'var(--app-icon-primary)', bgColor: 'color-mix(in srgb, var(--app-icon-primary) 12%, transparent)' },
+  rigging: { id: 'rigging', label: 'Elite Rigging Suite', icon: <Palette className="w-2.5 h-2.5" />, color: 'var(--app-icon-pink)', bgColor: 'color-mix(in srgb, var(--app-icon-pink) 12%, transparent)' },
+  shorthand: { id: 'shorthand', label: 'Quantum Rigging', icon: <SlidersHorizontal className="w-2.5 h-2.5" />, color: 'var(--app-icon-success)', bgColor: 'color-mix(in srgb, var(--app-icon-success) 12%, transparent)' },
+  stage: { id: 'stage', label: 'Stage Positioning', icon: <Settings2 className="w-2.5 h-2.5" />, color: 'var(--app-icon-primary)', bgColor: 'color-mix(in srgb, var(--app-icon-primary) 12%, transparent)' },
 };
 
 const EditorSidebar: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
@@ -42,15 +42,15 @@ const EditorSidebar: React.FC<{ embedded?: boolean }> = ({ embedded = false }) =
   const bodyState = typeof brain.value === 'string' ? brain.value : 'body' in brain.value ? String(brain.value.body) : 'active';
 
   return (
-    <div className={`flex flex-col h-full overflow-hidden relative ${embedded ? 'bg-transparent border-none' : 'bg-slate-900 border-l border-white/5'}`}>
+    <div className={`relative flex h-full flex-col overflow-hidden ${embedded ? 'bg-transparent border-none' : 'border-l border-[color:var(--app-border)] bg-[var(--app-bg-panel)]'}`}>
       {/* PINNED HEADER */}
-      <div className={`absolute top-0 inset-x-0 h-14 backdrop-blur-3xl border-b border-white/10 z-50 flex items-center justify-between px-4 ${embedded ? 'bg-slate-950/85' : 'bg-slate-900/90'}`}>
+      <div className={`absolute inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-[color:var(--app-border)] px-4 backdrop-blur-3xl ${embedded ? 'bg-[color:var(--app-bg-panel-strong)]/85' : 'bg-[color:var(--app-bg-panel)]/92'}`}>
          <div className="flex items-center gap-3">
             <div className="p-1.5 rounded-lg" style={{ backgroundColor: activeSection.bgColor, color: activeSection.color }}>{activeSection.icon}</div>
-            <span className="text-[13px] font-black uppercase" style={{ color: activeSection.color }}>{activeSection.label}</span>
+            <span className="ce-title" style={{ color: activeSection.color }}>{activeSection.label}</span>
          </div>
-         <Button onClick={handleSave} disabled={saveStatus === 'saving'} className="h-9 w-9 rounded-xl border bg-slate-800 text-slate-400">
-           {saveStatus === 'saving' ? <RotateCcw className="animate-spin w-4 h-4" /> : saveStatus === 'saved' ? <ShieldCheck className="w-4 h-4 text-emerald-400" /> : <Save className="w-4 h-4" />}
+         <Button onClick={handleSave} disabled={saveStatus === 'saving'} className="h-9 w-9 rounded-xl border border-[color:var(--app-border)] bg-[var(--app-bg-panel-strong)] text-[var(--app-text-muted)]">
+           {saveStatus === 'saving' ? <RotateCcw className="animate-spin w-4 h-4" /> : saveStatus === 'saved' ? <ShieldCheck className="w-4 h-4 text-[var(--app-icon-success)]" /> : <Save className="w-4 h-4" />}
          </Button>
       </div>
 
@@ -69,16 +69,16 @@ const EditorSidebar: React.FC<{ embedded?: boolean }> = ({ embedded = false }) =
 
           {/* STAGE POSITIONING */}
           <section id="stage" className="space-y-3 pb-12">
-            <h3 className="text-[9px] font-black text-sky-500 uppercase tracking-[0.2em] flex items-center gap-2 px-1">
+            <h3 className="ce-title flex items-center gap-2 px-1 text-[var(--app-icon-primary)]">
                <Settings2 className="w-2.5 h-2.5" /> Stage Positioning
             </h3>
-            <div className="grid grid-cols-2 gap-3 bg-slate-950/40 p-4 rounded-2xl border border-white/5 shadow-inner">
+            <div className="grid grid-cols-2 gap-3 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] p-4 shadow-inner">
                <div className="space-y-2">
                   <div className="flex justify-between px-1">
-                    <label className="text-[9px] font-bold text-slate-600 uppercase">Scale</label>
-                    <span className="text-[9px] font-mono text-sky-500 font-bold">{options.scale}%</span>
+                    <label className="ce-label text-[var(--app-text-muted)]">Scale</label>
+                    <span className="text-[9px] font-mono font-bold text-[var(--app-accent)]">{options.scale}%</span>
                   </div>
-                  <Input type="range" min="50" max="240" value={options.scale} onChange={(e) => updateOption('scale', parseInt(e.target.value))} className="h-1 accent-sky-500 bg-slate-800 border-none" />
+                  <Input type="range" min="50" max="240" value={options.scale} onChange={(e) => updateOption('scale', parseInt(e.target.value))} className="h-1 border-none bg-[var(--app-bg-panel)] accent-[var(--app-accent)]" />
                </div>
             </div>
           </section>

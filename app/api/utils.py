@@ -11,6 +11,7 @@ from starlette.responses import Response
 from app import db
 from app.debug import is_admin_user
 from app.deps import APP_CONFIG
+from app.settings import theme as theme_settings
 from app.subsystems.character import character_service
 from app.subsystems.live_video.face_recognition import registration_is_complete
 
@@ -79,6 +80,7 @@ def admin_user_summary(conn: sqlite3.Connection, user: dict[str, Any]) -> dict[s
     """Return one admin-management payload for the UI."""
     enriched = {**user, "is_admin": db.get_user_admin_flag(conn, user["id"])}
     character_settings = character_service.get_user_settings(conn, enriched["id"])
+    theme_payload = theme_settings.get_effective_theme_settings(conn, enriched["id"])
     return {
         "id": enriched["id"],
         "username": enriched["username"],
@@ -93,4 +95,12 @@ def admin_user_summary(conn: sqlite3.Connection, user: dict[str, Any]) -> dict[s
         "blocked_topics": character_settings["blocked_topics"],
         "compiled_base_prompt": character_settings["compiled_base_prompt"],
         "compiled_prompt_hash": character_settings["compiled_prompt_hash"],
+        "theme_preset_id": theme_payload["theme_preset_id"],
+        "theme_mode": theme_payload["theme_mode"],
+        "theme_admin_override_enabled": theme_payload["theme_admin_override_enabled"],
+        "theme_admin_override_preset_id": theme_payload["theme_admin_override_preset_id"],
+        "theme_admin_override_mode": theme_payload["theme_admin_override_mode"],
+        "effective_theme_preset_id": theme_payload["effective_theme_preset_id"],
+        "effective_theme_mode": theme_payload["effective_theme_mode"],
+        "theme_locked": theme_payload["theme_locked"],
     }

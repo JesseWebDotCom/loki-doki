@@ -103,18 +103,18 @@ export function LiveCameraPreview({ token }: { token?: string }) {
   }, [enabled])
 
   return (
-    <Card className="border-zinc-800 bg-zinc-900/75 text-zinc-100 shadow-sm">
+    <Card className="border-[var(--line)] bg-[var(--card)] text-[var(--foreground)] shadow-[var(--shadow-soft)]">
       <CardContent className="space-y-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-zinc-100">Live Camera Preview</div>
-            <div className="mt-1 text-sm text-zinc-400">
+            <div className="text-sm font-semibold text-[var(--foreground)]">Live Camera Preview</div>
+            <div className="mt-1 text-sm text-[var(--muted-foreground)]">
               Browser-native camera preview for quick framing checks in the web UI.
             </div>
           </div>
           <div className="flex gap-2">
             <Button
-              className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 hover:bg-zinc-800"
+              className="rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--foreground)] hover:bg-[var(--input)]"
               disabled={!enabled || isLoading || isDetecting || !token}
               onClick={() => void detectCurrentFrame(videoRef.current, token || "", setIsDetecting, setDetections, setDetectorSummary, setDetectionError)}
               type="button"
@@ -124,7 +124,7 @@ export function LiveCameraPreview({ token }: { token?: string }) {
               Detect
             </Button>
             <Button
-              className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 hover:bg-zinc-800"
+              className="rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--foreground)] hover:bg-[var(--input)]"
               disabled={!enabled || isLoading || isDetecting || !token}
               onClick={() => void detectCurrentFaces(videoRef.current, token || "", setIsDetecting, setFaceDetections, setFaceSummary, setFaceError)}
               type="button"
@@ -134,7 +134,7 @@ export function LiveCameraPreview({ token }: { token?: string }) {
               Faces
             </Button>
             <Button
-              className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 hover:bg-zinc-800"
+              className="rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--foreground)] hover:bg-[var(--input)]"
               onClick={() => setEnabled((current) => !current)}
               type="button"
               variant="ghost"
@@ -144,11 +144,11 @@ export function LiveCameraPreview({ token }: { token?: string }) {
             </Button>
           </div>
         </div>
-        <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-black/60">
+        <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
           {enabled ? (
             <video ref={videoRef} autoPlay className="aspect-video w-full object-cover" muted playsInline />
           ) : (
-            <div className="grid aspect-video place-items-center text-sm text-zinc-500">Camera preview is off.</div>
+            <div className="grid aspect-video place-items-center text-sm text-[var(--muted-foreground)]">Camera preview is off.</div>
           )}
           {enabled ? (
             <div className="pointer-events-none absolute inset-0">
@@ -200,16 +200,16 @@ export function LiveCameraPreview({ token }: { token?: string }) {
           ) : null}
         </div>
         {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
             <LoaderCircle className="h-4 w-4 animate-spin" />
             Waiting for camera permission...
           </div>
         ) : null}
-        {!token ? <div className="text-sm text-zinc-500">Sign in to run object detection from the camera preview.</div> : null}
-        {detectorSummary ? <div className="text-sm text-zinc-400">{detectorSummary}</div> : null}
-        {faceSummary ? <div className="text-sm text-zinc-400">{faceSummary}</div> : null}
+        {!token ? <div className="text-sm text-[var(--muted-foreground)]">Sign in to run object detection from the camera preview.</div> : null}
+        {detectorSummary ? <div className="text-sm text-[var(--muted-foreground)]">{detectorSummary}</div> : null}
+        {faceSummary ? <div className="text-sm text-[var(--muted-foreground)]">{faceSummary}</div> : null}
         {enabled && faceDetections.length > 0 ? (
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-3 text-sm text-zinc-300">
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3 text-sm text-[var(--foreground)]">
             {faceDetections.map((face, index) => (
               <div key={`face-summary-${index}`}>
                 {face.identity || "Unknown face"} • detector {Math.round(face.confidence * 100)}%
@@ -219,7 +219,7 @@ export function LiveCameraPreview({ token }: { token?: string }) {
           </div>
         ) : null}
         {enabled && detections.length > 0 ? (
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-3 text-sm text-zinc-300">
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3 text-sm text-[var(--foreground)]">
             {detections.map((detection, index) => (
               <div key={`${detection.label}-summary-${index}`}>
                 {detection.label} • {Math.round(detection.confidence * 100)}%

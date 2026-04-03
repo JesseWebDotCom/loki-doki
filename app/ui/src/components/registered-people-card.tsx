@@ -20,14 +20,14 @@ export function RegisteredPeopleCard({
         </div>
         <div className="space-y-2">
           {people.length === 0 ? (
-            <div className="rounded-2xl border border-[var(--line)] bg-white/[0.03] p-4 text-sm text-[var(--muted-foreground)]">No one has been registered yet.</div>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4 text-sm text-[var(--muted-foreground)]">No one has been registered yet.</div>
           ) : people.map((person) => (
-            <div key={person.name} className="flex items-center justify-between rounded-[24px] border border-[var(--line)] bg-white/[0.03] px-4 py-3">
+            <div key={person.name} className="flex items-center justify-between rounded-[24px] border border-[var(--line)] bg-[var(--input)] px-4 py-3">
               <div>
                 <div className="text-sm text-[var(--foreground)]">{person.name}</div>
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-                  <span className={`rounded-full border px-2 py-1 ${person.modes.includes("close_up") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-white/8 bg-white/[0.03]"}`}>close-up {person.modes.includes("close_up") ? "done" : "pending"}</span>
-                  <span className={`rounded-full border px-2 py-1 ${person.modes.includes("far") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-white/8 bg-white/[0.03]"}`}>far {person.modes.includes("far") ? "done" : "pending"}</span>
+                  <span className={`rounded-full border px-2 py-1 ${person.modes.includes("close_up") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-[var(--line)] bg-[var(--panel)] text-[var(--muted-foreground)]"}`}>close-up {person.modes.includes("close_up") ? "done" : "pending"}</span>
+                  <span className={`rounded-full border px-2 py-1 ${person.modes.includes("far") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-[var(--line)] bg-[var(--panel)] text-[var(--muted-foreground)]"}`}>far {person.modes.includes("far") ? "done" : "pending"}</span>
                   <span className={`rounded-full border px-2 py-1 ${person.is_complete ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>{person.is_complete ? "ready" : "incomplete"}</span>
                 </div>
               </div>

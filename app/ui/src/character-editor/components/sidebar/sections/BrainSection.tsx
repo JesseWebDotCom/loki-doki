@@ -36,26 +36,28 @@ export const BrainSection: React.FC<BrainSectionProps> = ({
     status === 'requesting' ? 'Waiting' : 
     status === 'error' ? 'Retry' : 'Enable';
 
+  const controlBaseClass = "h-9 rounded-lg border text-[9px] font-black uppercase transition-all";
+
   return (
     <section id="brain" className="space-y-3">
-      <h3 className="text-[9px] font-black text-amber-500 uppercase tracking-[0.2em] flex items-center gap-2 px-1">
+      <h3 className="flex items-center gap-2 px-1 text-[9px] font-black uppercase text-[var(--app-accent-warm)]" style={{ letterSpacing: "var(--app-label-letter-spacing)" }}>
         <BrainCircuit className="w-2.5 h-2.5" /> Bio-Brain Controller v2.3
       </h3>
-      <div className="bg-slate-950/40 p-4 rounded-2xl border border-amber-500/10 shadow-inner space-y-4">
-        <div className="relative overflow-hidden rounded-xl bg-slate-900/50 p-3 border border-white/5 transition-all duration-300">
+      <div className="space-y-4 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] p-4 shadow-[var(--app-shadow-soft)]">
+        <div className="relative overflow-hidden rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] p-3 transition-all duration-300">
           <div className="relative flex items-center justify-between gap-4">
             <div className="flex flex-col gap-0.5">
-              <span className="text-[10px] font-bold text-slate-200 uppercase flex items-center gap-1.5">
-                {isListening ? <Mic className="w-3 h-3 text-emerald-400" /> : <MicOff className="w-3 h-3 text-slate-500" />}
+              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-[var(--app-text)]">
+                {isListening ? <Mic className="w-3 h-3 text-emerald-400" /> : <MicOff className="w-3 h-3 text-[var(--app-text-muted)]" />}
                 Audio Engine
               </span>
-              <span className="text-[8px] text-slate-500 font-bold uppercase tracking-tighter shrink-0">Hearing: {audioEngineLabel}</span>
+              <span className="shrink-0 text-[8px] font-bold uppercase text-[var(--app-text-muted)]" style={{ letterSpacing: "var(--app-micro-letter-spacing)" }}>Hearing: {audioEngineLabel}</span>
             </div>
             <Button 
               variant={isListening ? "default" : "secondary"}
               size="sm"
               className={`h-7 px-3 text-[9px] font-black uppercase rounded-lg shadow-lg relative z-10
-                 ${isListening ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-none' : status === 'error' ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border border-white/5'}
+                 ${isListening ? 'border-none bg-emerald-600 text-white hover:bg-emerald-700' : status === 'error' ? 'border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20' : 'border border-[color:var(--app-border)] bg-[color:var(--app-bg)] text-[var(--app-text-muted)] hover:bg-[color:var(--app-accent-soft)] hover:text-[var(--app-text)]'}
               `}
               disabled={status === 'requesting'}
               onClick={isListening ? stopListening : startListening}
@@ -70,21 +72,21 @@ export const BrainSection: React.FC<BrainSectionProps> = ({
           )}
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Button onClick={() => sendToBrain({ type: 'RESET_IDLE' })} className="h-9 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 text-[9px] font-black uppercase rounded-lg border border-emerald-500/20">
+          <Button onClick={() => sendToBrain({ type: 'RESET_IDLE' })} className={`${controlBaseClass} border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/18`}>
             Wake Unit
           </Button>
-          <Button onClick={() => sendToBrain({ type: 'FORCE_SICK' })} className={`h-9 text-[9px] font-black uppercase rounded-lg border transition-all ${bodyState === 'sick' ? 'bg-orange-600 text-white border-none' : 'bg-slate-900 hover:bg-slate-800 text-orange-400 border-white/5'}`}>
+          <Button onClick={() => sendToBrain({ type: 'FORCE_SICK' })} className={`${controlBaseClass} ${bodyState === 'sick' ? 'border-none bg-orange-600 text-white' : 'border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-orange-400 hover:bg-orange-500/12'}`}>
             <Thermometer className="w-3 h-3 mr-1" /> Sick
           </Button>
         </div>
         <div className="grid grid-cols-3 gap-2">
-           <Button onClick={() => sendToBrain({ type: 'FORCE_THINKING' })} className={`h-9 text-[9px] font-black uppercase rounded-lg border transition-all ${bodyState === 'thinking' ? 'bg-sky-600 text-white border-none' : 'bg-slate-900 hover:bg-slate-800 text-sky-400 border-white/5'}`}>
+           <Button onClick={() => sendToBrain({ type: 'FORCE_THINKING' })} className={`${controlBaseClass} ${bodyState === 'thinking' ? 'border-none bg-[var(--app-accent)] text-white' : 'border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[var(--app-accent)] hover:bg-[color:var(--app-accent-soft)]'}`}>
              Think
            </Button>
-           <Button onClick={() => sendToBrain({ type: 'FORCE_DOZING' })} className={`h-9 text-[9px] font-black uppercase rounded-lg border transition-all ${bodyState === 'dozing' ? 'bg-violet-600 text-white border-none' : 'bg-slate-900 hover:bg-slate-800 text-violet-400 border-white/5'}`}>
+           <Button onClick={() => sendToBrain({ type: 'FORCE_DOZING' })} className={`${controlBaseClass} ${bodyState === 'dozing' ? 'border-none bg-violet-600 text-white' : 'border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-violet-300 hover:bg-violet-500/12'}`}>
              Dozing
            </Button>
-           <Button onClick={() => sendToBrain({ type: 'FORCE_SLEEP' })} className={`h-9 text-[9px] font-black uppercase rounded-lg border transition-all ${bodyState === 'sleep' ? 'bg-indigo-700 text-white border-none' : 'bg-slate-900 hover:bg-slate-800 text-indigo-400 border-white/5'}`}>
+           <Button onClick={() => sendToBrain({ type: 'FORCE_SLEEP' })} className={`${controlBaseClass} ${bodyState === 'sleep' ? 'border-none bg-indigo-700 text-white' : 'border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-indigo-300 hover:bg-indigo-500/12'}`}>
              Sleep
            </Button>
         </div>

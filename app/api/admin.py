@@ -14,7 +14,9 @@ from app.models.admin import (
     AccountSettingsRequest,
     PromptPolicyRequest,
     UserPromptOverrideRequest,
+    AdminUserThemeOverrideRequest,
 )
+from app.settings import theme as theme_settings
 from app.models.character import CharacterSettingsRequest
 from app.security import hash_password
 from app.subsystems.character import character_service
@@ -93,6 +95,28 @@ def update_admin_user_password(
             raise HTTPException(status_code=404, detail="User not found.")
         db.update_user_password(connection, user_id, hash_password(payload.password))
     return {"ok": True}
+
+
+@router.put("/users/{user_id}/theme")
+def update_admin_user_theme(
+    user_id: str,
+    payload: AdminUserThemeOverrideRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Persist admin-managed theme overrides for one user."""
+    enforce_admin(current_user)
+    with connection_scope() as connection:
+        user = db.get_user_by_id(connection, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+        theme_settings.save_admin_theme_override(
+            connection,
+            user_id,
+            enabled=payload.theme_admin_override_enabled,
+            theme_preset_id=payload.theme_admin_override_preset_id,
+            theme_mode=payload.theme_admin_override_mode,
+        )
+        return {"ok": True, "users": _admin_users_payload(connection)}
 
 
 @router.delete("/users/{user_id}")

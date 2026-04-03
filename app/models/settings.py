@@ -9,6 +9,8 @@ from pydantic import BaseModel
 class SettingsRequest(BaseModel):
     """General settings payload."""
     theme: Optional[str] = None
+    theme_preset_id: Optional[str] = None
+    theme_mode: Optional[str] = None
     debug_mode: Optional[bool] = None
     voice_reply_enabled: Optional[bool] = None
     voice_source: Optional[str] = None
