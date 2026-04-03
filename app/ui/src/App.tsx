@@ -1523,6 +1523,7 @@ function AdminModal({
 
 export default function App() {
   const [activeView, setActiveView] = useState<"assistant" | "settings" | "admin">("assistant")
+  const [assistantTab, setAssistantTab] = useState<"chat" | "talk">("chat")
   const [bootstrap, setBootstrap] = useState<BootstrapDetails | null>(null)
   const [health, setHealth] = useState<HealthPayload | null>(null)
   const [isHealthOpen, setIsHealthOpen] = useState(false)
@@ -1932,6 +1933,7 @@ export default function App() {
     setRenamingChatId("")
     setIsMobileSidebarOpen(false)
     setActiveView("assistant")
+    setAssistantTab("chat")
   }
 
   async function selectChat(chatId: string, activeToken: string) {
@@ -1954,6 +1956,7 @@ export default function App() {
     setRenamingChatId("")
     setIsMobileSidebarOpen(false)
     setActiveView("assistant")
+    setAssistantTab("chat")
   }
 
   async function renameChat(chatId: string, title: string, activeToken: string) {
@@ -6062,7 +6065,28 @@ export default function App() {
                 </span>
               </button>
             </div>
+
+            {activeView === "assistant" ? (
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                <TabsList className="h-9">
+                  <TabsTrigger
+                    active={assistantTab === "chat"}
+                    onClick={() => setAssistantTab("chat")}
+                  >
+                    Chat
+                  </TabsTrigger>
+                  <TabsTrigger
+                    active={assistantTab === "talk"}
+                    onClick={() => setAssistantTab("talk")}
+                  >
+                    Talk
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+            ) : null}
+
             <div className="relative flex items-center gap-1 text-[var(--foreground)] sm:gap-2" onPointerDown={(event) => event.stopPropagation()}>
+
               {user?.is_admin && debugMode ? (
                 <Button
                   className="h-9 gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-soft)] hover:bg-[var(--input)]"
@@ -6263,28 +6287,42 @@ export default function App() {
           ) : null}
 
           {activeView === "assistant" ? (
-            <div
-              ref={messageViewportRef}
-              className="chat-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain"
-              onScroll={handleMessageScroll}
-            >
-              <ChatMessageList
-                assistantCharacter={selectedCharacter}
-                debugMode={debugMode}
-                debugNow={debugNow}
-                getMessageKey={speechMessageKey}
-                messages={messages}
-                onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
-                onRetrySmart={(assistantIndex) => void retryAssistantWithSmartModel(assistantIndex)}
-                onSuggestionSelect={setPrompt}
-                overviewRows={overviewRows}
-                pendingSpeechMessageKey={pendingSpeechMessageKey}
-                retryingAssistantIndex={retryingAssistantIndex}
-                speakingMessageKey={speakingMessageKey}
-                suggestions={suggestions}
-                userDisplayName={user?.display_name}
-              />
-            </div>
+            assistantTab === "chat" ? (
+              <div
+                ref={messageViewportRef}
+                className="chat-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                onScroll={handleMessageScroll}
+              >
+                <ChatMessageList
+                  assistantCharacter={selectedCharacter}
+                  debugMode={debugMode}
+                  debugNow={debugNow}
+                  getMessageKey={speechMessageKey}
+                  messages={messages}
+                  onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
+                  onRetrySmart={(assistantIndex) => void retryAssistantWithSmartModel(assistantIndex)}
+                  onSuggestionSelect={setPrompt}
+                  overviewRows={overviewRows}
+                  pendingSpeechMessageKey={pendingSpeechMessageKey}
+                  retryingAssistantIndex={retryingAssistantIndex}
+                  speakingMessageKey={speakingMessageKey}
+                  suggestions={suggestions}
+                  userDisplayName={user?.display_name}
+                />
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                <div className="max-w-md space-y-4">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                    <Mic className="h-8 w-8" />
+                  </div>
+                  <h2 className="text-xl font-semibold text-[var(--foreground)]">Talk Tab Coming Soon</h2>
+                  <p className="text-[var(--muted-foreground)]">
+                    A hands-free, voice-first experience is being prepared for this space.
+                  </p>
+                </div>
+              </div>
+            )
           ) : activeView === "settings" ? (
             <div className="workspace-shell min-h-0 flex-1 overflow-hidden" ref={rightPaneScrollRef}>
               <div className="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1">
@@ -8918,7 +8956,7 @@ export default function App() {
             </div>
           ) : null}
 
-          {activeView === "assistant" ? (
+          {activeView === "assistant" && assistantTab === "chat" ? (
             <>
               <JumpToLatest onClick={jumpToLatest} visible={!isPinnedToBottom && messages.length > 0} />
               <ChatComposer
