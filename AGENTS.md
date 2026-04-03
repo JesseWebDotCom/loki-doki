@@ -128,16 +128,102 @@ input → classifier → route → subsystem / plugin / provider → response
 
 ---
 
+## Security Rules
+
+- Treat secret exposure as a release-blocking bug
+- Never commit real usernames, passwords, tokens, JWT secrets, private keys, or device-specific bootstrap config
+- Use placeholders in tracked examples: `.env.example` and `.pi.env.example`
+- Keep real bootstrap credentials only in ignored local files or interactive setup flows — never in tracked JSON or source files
+- Before finishing any security-sensitive work, inspect staged changes for secrets and blocked files: `app_config.json`, `.env`, `.pi.env`, `.lokidoki/`, and `data/`
+
+---
+
 ## Agent Behavior Rules
 
 - Operate as if in agent mode — apply fixes immediately, do not describe them
 - Make all required edits across all required files in the same response
-- Do not output "next steps," do not ask "Would you like me to…"
+- Do not output "next steps," do not ask "Would you like me to…", do not say "Would you like me to update that too?"
 - Treat the repository as the source of truth
-- When fixing a bug: find the actual cause, compare to nearby working code, follow the existing pattern
+- Learn how the application works from the code before making claims
+- Trace behavior across files, imports, components, handlers, state, templates, routes, and APIs
+- Never debug code in isolation when similar working code exists nearby
+- Do not invent new APIs, globals, wrappers, or architecture unless the repo already uses them
+- Do not say something "may be in another file" unless you traced evidence
 - Make the smallest change that fully solves the problem
 - Include all required imports, registrations, and wiring
-- State exactly what changed, in which files, and how to verify
+- If multiple obvious edits are required, make all of them
+
+---
+
+## Debugging Approach
+
+- Do not inspect broken code in isolation first
+- Find a similar working implementation in the same subsystem
+- Derive the current project pattern from the repository
+- Make the broken code conform to that pattern
+- If a dropdown, toolbar item, modal, button, command, or editor action fails, compare its event flow, state wiring, command path, and rendering path against working controls nearby
+- Do not wait for the user to point out which similar feature works — find comparable implementations yourself
+
+---
+
+## Editor Rules
+
+The editor has both modern Lexical-based code and older legacy code. Do not assume new editor functionality should follow the legacy path.
+
+When making editor changes:
+- First identify whether the affected behavior belongs to the Lexical editor flow or the legacy DOM/JS flow
+- If a similar editor control already works, use that working control as the primary reference
+- Prefer the existing Lexical command/update/plugin/state pattern over direct DOM manipulation
+- Do not introduce new window-level editor APIs unless that pattern already exists in the repository
+- If a new dropdown, toolbar item, or insert action is broken, compare it directly to other working editor controls and make it follow the same command and update path
+- Avoid mixing legacy DOM mutation code into Lexical-driven behavior unless the repository already does so intentionally
+
+## Editor Build & Cache Busting
+
+After every change to editor frontend code, also update the editor asset version in `app/main.py` so the latest JS and CSS are loaded:
+- If `frontend/editor/main.tsx` or related editor frontend assets change, bump the asset version for `editor2.js` and `editor2.css` in `app/main.py`
+- Do not leave editor asset versions unchanged after editor frontend edits
+- Treat cache busting as part of the implementation, not an optional follow-up step
+
+---
+
+## Output Format
+
+Every response must follow this structure:
+
+1. Exact file(s) changed
+2. Root cause (one sentence)
+3. The applied change or diff
+4. Verification method (specific, not generic)
+
+**Bad response:**
+- "Next steps: apply the patch, rebuild, reload."
+- "Would you like me to update that too?"
+- "This may be in another file or legacy code."
+- "Here's the fix you can apply…" — apply it, don't present it
+
+**Good response:**
+- "Updated `frontend/editor/...` and `app/main.py`."
+- "The broken dropdown was using a different pattern than nearby working Lexical controls."
+- "Changed it to follow the same command/update flow as the working controls."
+- "Bumped editor asset versions so the new bundle is loaded."
+
+---
+
+## Push & Deployment
+
+Whenever the user says "push" or "push our changes":
+
+1. **Do not push directly to `main`** — it is protected by status checks (e.g. `gitleaks`)
+2. Automate the full PR flow:
+   - Create a new feature branch: `feature/push-[timestamp]`
+   - Push the branch to `origin`
+   - Create a Pull Request: `gh pr create`
+   - Approve the Pull Request: `gh pr approve`
+   - Merge the Pull Request: `gh pr merge --merge --delete-branch`
+   - Switch back to `main` and run `git pull origin main`
+3. Perform this entire sequence automatically without asking for permission
+4. If any step fails (e.g. required checks haven't passed), inform the user and provide the PR link
 
 ---
 
