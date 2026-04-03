@@ -104,7 +104,7 @@ def initialize_database(conn: sqlite3.Connection) -> None:
             tone TEXT NOT NULL DEFAULT '',
             vocabulary TEXT NOT NULL DEFAULT 'standard',
             sentence_length TEXT NOT NULL DEFAULT 'medium',
-            response_style TEXT NOT NULL DEFAULT 'chat_balanced',
+            response_style TEXT NOT NULL DEFAULT 'balanced',
             blocked_topics_json TEXT NOT NULL DEFAULT '[]',
             safe_messaging INTEGER NOT NULL DEFAULT 1,
             max_response_tokens INTEGER NOT NULL DEFAULT 160,
@@ -119,6 +119,13 @@ def initialize_database(conn: sqlite3.Connection) -> None:
             version TEXT NOT NULL,
             source TEXT NOT NULL,
             system_prompt TEXT NOT NULL,
+            teaser TEXT NOT NULL DEFAULT '',
+            phonetic_spelling TEXT NOT NULL DEFAULT '',
+            identity_key TEXT NOT NULL DEFAULT '',
+            domain TEXT NOT NULL DEFAULT '',
+            behavior_style TEXT NOT NULL DEFAULT '',
+            preferred_response_style TEXT NOT NULL DEFAULT 'balanced',
+            voice_model TEXT NOT NULL DEFAULT '',
             default_voice TEXT NOT NULL DEFAULT '',
             default_voice_download_url TEXT NOT NULL DEFAULT '',
             default_voice_config_download_url TEXT NOT NULL DEFAULT '',
@@ -128,6 +135,7 @@ def initialize_database(conn: sqlite3.Connection) -> None:
             wakeword_download_url TEXT NOT NULL DEFAULT '',
             wakeword_source_name TEXT NOT NULL DEFAULT '',
             capabilities_json TEXT NOT NULL DEFAULT '{}',
+            character_editor_json TEXT NOT NULL DEFAULT '{}',
             logo TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 1,
             builtin INTEGER NOT NULL DEFAULT 0,
@@ -174,6 +182,13 @@ def initialize_database(conn: sqlite3.Connection) -> None:
     _ensure_character_settings_column(conn, "assigned_character_id", "TEXT")
     _ensure_character_settings_column(conn, "can_select_character", "INTEGER NOT NULL DEFAULT 1")
     _ensure_character_catalog_column(conn, "logo", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "teaser", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "phonetic_spelling", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "identity_key", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "domain", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "behavior_style", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "preferred_response_style", "TEXT NOT NULL DEFAULT 'balanced'")
+    _ensure_character_catalog_column(conn, "voice_model", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "default_voice_download_url", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "default_voice_config_download_url", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "default_voice_source_name", "TEXT NOT NULL DEFAULT ''")
@@ -181,8 +196,9 @@ def initialize_database(conn: sqlite3.Connection) -> None:
     _ensure_character_catalog_column(conn, "wakeword_model_id", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "wakeword_download_url", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "wakeword_source_name", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "character_editor_json", "TEXT NOT NULL DEFAULT '{}'")
     _ensure_settings_column(conn, "auto_update_skills", "INTEGER NOT NULL DEFAULT 0")
-    _ensure_care_profiles_column(conn, "response_style", "TEXT NOT NULL DEFAULT 'chat_balanced'")
+    _ensure_care_profiles_column(conn, "response_style", "TEXT NOT NULL DEFAULT 'balanced'")
     _ensure_default_account(conn)
     _ensure_users_have_account(conn)
     _ensure_account_prompt_policy(conn)
@@ -303,7 +319,7 @@ def _ensure_builtin_care_profiles(conn: sqlite3.Connection) -> None:
             "warm, playful, encouraging",
             "simple",
             "short",
-            "chat_balanced",
+            "balanced",
             json.dumps(["violence", "adult_content", "politics"]),
             1,
             150,
@@ -314,7 +330,7 @@ def _ensure_builtin_care_profiles(conn: sqlite3.Connection) -> None:
             "friendly, direct, encouraging",
             "standard",
             "medium",
-            "chat_balanced",
+            "balanced",
             json.dumps(["adult_content"]),
             1,
             180,
@@ -325,7 +341,7 @@ def _ensure_builtin_care_profiles(conn: sqlite3.Connection) -> None:
             "helpful, balanced, clear",
             "standard",
             "medium",
-            "chat_balanced",
+            "balanced",
             json.dumps([]),
             1,
             220,
@@ -336,7 +352,7 @@ def _ensure_builtin_care_profiles(conn: sqlite3.Connection) -> None:
             "precise, calm, neutral",
             "advanced",
             "medium",
-            "chat_detailed",
+            "detailed",
             json.dumps([]),
             1,
             180,
@@ -347,7 +363,7 @@ def _ensure_builtin_care_profiles(conn: sqlite3.Connection) -> None:
             "concise, technical, confident",
             "advanced",
             "short",
-            "chat_balanced",
+            "balanced",
             json.dumps([]),
             0,
             220,

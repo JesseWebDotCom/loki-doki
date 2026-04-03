@@ -1,4 +1,5 @@
 accelerate==1.4.0
+beautifulsoup4==4.13.4
 diffusers==0.32.2
 fastapi==0.116.1
 ddgs==9.6.1

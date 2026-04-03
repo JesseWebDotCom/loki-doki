@@ -26,22 +26,22 @@ const Layout: React.FC<LayoutProps> = ({
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--app-bg)] text-[var(--app-text)] font-sans">
       {showReservedNav ? (
-        <aside className="w-64 border-r border-slate-800 bg-slate-950 flex flex-col hidden md:flex shrink-0">
-          <div className="p-4 border-b border-slate-800 h-14 flex items-center shrink-0">
-            <div className="font-bold text-lg tracking-tight">Main Menu</div>
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-[color:var(--app-border)] bg-[var(--app-bg-panel)] md:flex">
+          <div className="flex h-14 shrink-0 items-center border-b border-[color:var(--app-border)] p-4">
+            <div className="text-lg font-bold tracking-tight">Main Menu</div>
           </div>
           <ScrollArea className="flex-1 p-4 opacity-50 space-y-4">
-            <div className="h-8 bg-slate-800 rounded w-full animate-pulse mb-3" />
-            <div className="h-8 bg-slate-800 rounded w-4/5 animate-pulse mb-3" />
-            <div className="h-8 bg-slate-800 rounded w-6/7 animate-pulse mb-3" />
-            <div className="h-8 bg-slate-800 rounded w-full animate-pulse mb-3" />
+            <div className="mb-3 h-8 w-full animate-pulse rounded bg-[var(--app-bg-panel-strong)]" />
+            <div className="mb-3 h-8 w-4/5 animate-pulse rounded bg-[var(--app-bg-panel-strong)]" />
+            <div className="mb-3 h-8 w-6/7 animate-pulse rounded bg-[var(--app-bg-panel-strong)]" />
+            <div className="mb-3 h-8 w-full animate-pulse rounded bg-[var(--app-bg-panel-strong)]" />
           </ScrollArea>
         </aside>
       ) : null}
 
       <div className="flex flex-col flex-1 min-w-0 h-full relative">
         {showHeader ? (
-          <header className="h-14 border-b border-slate-800 flex items-center px-6 shrink-0 bg-slate-950/40 backdrop-blur-md sticky top-0 z-50">
+          <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center border-b border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)]/80 px-6 backdrop-blur-md">
             <div className="flex-1 flex items-center justify-between">
               {headerControls}
             </div>
@@ -49,7 +49,7 @@ const Layout: React.FC<LayoutProps> = ({
         ) : null}
 
         <div className="flex flex-1 overflow-hidden">
-          <main className={`flex flex-1 min-w-0 bg-slate-900 relative overflow-hidden ${sidebar ? 'border-r border-slate-800' : ''}`}>
+          <main className={`relative flex min-w-0 flex-1 overflow-hidden bg-[var(--app-bg-elevated)] ${sidebar ? 'border-r border-[color:var(--app-border)]' : ''}`}>
             <div className="flex flex-1 overflow-hidden relative">
               <ScrollArea className="flex-1 p-6">
                 <div className="space-y-6">
@@ -57,16 +57,16 @@ const Layout: React.FC<LayoutProps> = ({
                 </div>
               </ScrollArea>
               
-              <Separator orientation="vertical" className="bg-slate-800 h-full w-px" />
+              <Separator orientation="vertical" className="h-full w-px bg-[color:var(--app-border)]" />
               
-              <div className="w-[420px] shrink-0 bg-slate-950/20 relative shadow-[inset_0_0_50px_rgba(0,0,0,0.5)]">
+              <div className="relative w-[420px] shrink-0 bg-[var(--app-stage-bg)] shadow-[inset_0_0_50px_rgba(0,0,0,0.35)]">
                 {puppetStage}
               </div>
             </div>
           </main>
 
           {sidebar ? (
-            <aside className="w-[420px] bg-slate-900 flex flex-col h-full shrink-0 shadow-2xl relative z-10">
+            <aside className="relative z-10 flex h-full w-[420px] shrink-0 flex-col bg-[var(--app-bg-elevated)] shadow-2xl">
               {sidebar}
             </aside>
           ) : null}

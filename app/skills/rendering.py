@@ -42,7 +42,7 @@ def skill_render_context(
         return skill_result, _wikipedia_render_context(render_payload)
 
     # Generic skill result
-    response_style = str(render_payload.get("response_style") or "chat_balanced")
+    response_style = str(render_payload.get("response_style") or "balanced")
     rules = (
         "PRESENTATION RULES (STRICT):\n"
         f"1. The required response style is {response_style}.\n"
@@ -72,7 +72,7 @@ def _wikipedia_render_context(render_payload: dict[str, Any]) -> str:
 
     voice_summary = str(render_payload.get("voice_summary") or "").strip()
     source_metadata = list(render_payload.get("source_metadata") or [])
-    response_style = str(render_payload.get("response_style") or "chat_detailed")
+    response_style = str(render_payload.get("response_style") or "detailed")
 
     # Build a structured context block — the LLM decides the prose
     context_lines = ["## Wikipedia Article Data"]

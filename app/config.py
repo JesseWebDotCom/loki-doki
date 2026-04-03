@@ -9,9 +9,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional convenience dependency
+    def load_dotenv() -> bool:
+        """Fallback no-op when python-dotenv is unavailable."""
+        return False
 
-load_dotenv() # Load from .env if present
+
+load_dotenv()  # Load from .env if present
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent

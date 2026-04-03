@@ -24,7 +24,7 @@ export function WakewordSignalVisualizer({
 
   return (
     <div className="space-y-2">
-      <div className={`flex items-end gap-1 rounded-2xl border border-white/8 bg-black/20 px-3 py-3 ${barHeight}`}>
+      <div className={`flex items-end gap-1 rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3 ${barHeight}`}>
         {Array.from({ length: BAR_COUNT }, (_, index) => {
           const progress = (index + 1) / BAR_COUNT
           const baseActive = normalizedLevel >= progress
@@ -36,7 +36,7 @@ export function WakewordSignalVisualizer({
               ? "rgba(96, 165, 250, 0.9)"
               : baseActive
                 ? "rgba(250, 204, 21, 0.85)"
-                : "rgba(255, 255, 255, 0.08)"
+                : "rgba(127, 138, 157, 0.18)"
           const heightScale = wakewordActive ? 1 : speechActive ? 0.9 : baseActive ? 0.75 : 0.3
           return (
             <span
@@ -54,7 +54,7 @@ export function WakewordSignalVisualizer({
         })}
       </div>
       {showLegend ? (
-        <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+        <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
           <LegendSwatch color="rgba(250, 204, 21, 0.9)" label="Sound" />
           <LegendSwatch color="rgba(96, 165, 250, 0.9)" label="Speech" />
           <LegendSwatch color="rgba(74, 222, 128, 0.95)" label="Wakeword" />

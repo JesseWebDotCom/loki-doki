@@ -21,7 +21,7 @@ export const QuantumRiggingSection: React.FC<QuantumRiggingSectionProps> = ({ op
   return (
     <section id="shorthand" className="space-y-3">
       <div className="flex items-center justify-between px-1">
-        <h3 className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.2em] flex items-center gap-2">
+        <h3 className="ce-title flex items-center gap-2 text-[var(--app-icon-success)]">
           <SlidersHorizontal className="w-2.5 h-2.5" /> Quantum Rigging Suite
         </h3>
         <Button variant="ghost" size="sm" onClick={() => updateOption('kyle_tuning', {})} className="h-6 px-2 text-[9px]">
@@ -29,19 +29,19 @@ export const QuantumRiggingSection: React.FC<QuantumRiggingSectionProps> = ({ op
         </Button>
       </div>
 
-      <div className="bg-slate-950/40 p-4 rounded-2xl border border-emerald-500/10 shadow-inner space-y-5">
+      <div className="space-y-5 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] p-4 shadow-[var(--app-shadow-soft)]">
         {/* STATE TESTING */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-[8px] font-black text-slate-500 uppercase px-0.5">Eye State</label>
+            <label className="ce-micro px-0.5 text-[var(--app-text-muted)]">Eye State</label>
             <Select 
               value={options.kyle_tuning?.eyeStateOverride || 'auto'} 
               onValueChange={(v) => updateOption('kyle_tuning', { ...options.kyle_tuning, eyeStateOverride: v === 'auto' ? undefined : v })}
             >
-              <SelectTrigger className="h-8 text-[9px] bg-slate-900 border-none rounded-lg text-emerald-400">
+              <SelectTrigger className="h-8 rounded-lg border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[9px] text-[var(--app-icon-success)]">
                 <SelectValue placeholder="Auto (Live)" />
               </SelectTrigger>
-              <SelectContent className="bg-slate-900 border-white/5 text-slate-200">
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
                 <SelectItem value="auto">Auto (Live)</SelectItem>
                 <SelectItem value="default">Default</SelectItem>
                 <SelectItem value="closed">Blink</SelectItem>
@@ -53,14 +53,14 @@ export const QuantumRiggingSection: React.FC<QuantumRiggingSectionProps> = ({ op
 
         {/* CHASSIS */}
         <div className="space-y-4">
-          <label className="text-[8px] font-black text-slate-500 uppercase flex items-center gap-1.5"><Eye className="w-3 h-3 text-emerald-500" /> Ocular Chassis</label>
+          <label className="ce-micro flex items-center gap-1.5 text-[var(--app-text-muted)]"><Eye className="w-3 h-3 text-[var(--app-icon-success)]" /> Ocular Chassis</label>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex justify-between px-0.5">
-                <label className="text-[8px] font-black text-slate-500 uppercase">Size</label>
-                <span className="text-[8px] font-mono text-emerald-500 font-bold">{options.kyle_tuning?.eyeSize || 162}</span>
+                <label className="ce-micro text-[var(--app-text-muted)]">Size</label>
+                <span className="text-[8px] font-mono font-bold text-[var(--app-icon-success)]">{options.kyle_tuning?.eyeSize || 162}</span>
               </div>
-              <Input type="range" min="50" max="250" value={options.kyle_tuning?.eyeSize || 162} onChange={(e) => updateOption('kyle_tuning', { ...options.kyle_tuning, eyeSize: parseInt(e.target.value) })} className="h-1 accent-emerald-500 bg-slate-900 border-none" />
+              <Input type="range" min="50" max="250" value={options.kyle_tuning?.eyeSize || 162} onChange={(e) => updateOption('kyle_tuning', { ...options.kyle_tuning, eyeSize: parseInt(e.target.value) })} className="h-1 border-none bg-[color:var(--app-bg-panel-strong)] accent-[var(--app-icon-success)]" />
             </div>
           </div>
         </div>

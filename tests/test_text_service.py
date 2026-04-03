@@ -65,7 +65,7 @@ class TextServiceTests(unittest.TestCase):
         self.assertEqual(result.provider.model, "fast-model")
         args = mock_chat_completion.call_args.args
         self.assertEqual(args[0].model, "fast-model")
-        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 48)
+        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 128)
 
     def test_simple_query_uses_canned_reply(self) -> None:
         result = generate_text_reply(
@@ -133,10 +133,39 @@ class TextServiceTests(unittest.TestCase):
         self.assertIsNotNone(result.debug)
         assert result.debug is not None
         self.assertTrue(result.debug["llm_used"])
-        self.assertEqual(len(result.debug["llm_messages"]), 2)
+        self.assertEqual(len(result.debug["llm_messages"]), 3)
         self.assertEqual(result.debug["llm_messages"][0]["role"], "system")
         self.assertIn("Base prompt", result.debug["llm_messages"][0]["content"])
         self.assertIsNone(result.parsed)
+
+    @patch("app.subsystems.text.service.chat_completion", return_value="Detailed reply")
+    def test_character_preferred_response_style_drives_default_render_instruction(self, _mock_chat_completion) -> None:
+        detailed_context = CharacterRenderingContext(
+            user_id="user-1",
+            account_id="default-account",
+            display_name="Jesse",
+            profile="mac",
+            base_prompt="Base prompt",
+            base_prompt_hash="hash-123",
+            active_character_id="tano",
+            character_enabled=True,
+            character_preferred_response_style="detailed",
+            blocked_topics=(),
+            max_response_tokens=160,
+            debug={},
+        )
+        result = generate_text_reply(
+            "Tell me about this topic",
+            "Jesse",
+            "mac",
+            [],
+            self.providers,
+            Classification("text_chat", "fast_qwen", "short prompt"),
+            rendering_context=detailed_context,
+            include_prompt_debug=True,
+        )
+        assert result.debug is not None
+        self.assertIn("Provide a detailed but natural response", result.debug["llm_messages"][-1]["content"])
 
     @patch("app.subsystems.text.service.chat_completion", return_value="Today in Milford, CT, it will be partly cloudy")
     def test_character_render_returns_plain_text(self, _mock_chat_completion) -> None:
@@ -184,8 +213,8 @@ class TextServiceTests(unittest.TestCase):
         self.assertEqual(result.provider.model, "fast-model")
         args = mock_chat_completion.call_args.args
         self.assertEqual(args[0].model, "fast-model")
-        self.assertIn("LIVE WEB CONTEXT", args[1][1]["content"])
-        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 160)
+        self.assertIn("User request: What happened in the news today?", args[1][1]["content"])
+        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 768)
 
     @patch("app.subsystems.text.service.search_web")
     def test_weather_query_returns_deterministic_filled_values(self, mock_search_web) -> None:
@@ -365,7 +394,7 @@ class TextServiceTests(unittest.TestCase):
         args = mock_chat_completion.call_args.args
         self.assertEqual(args[0].model, "thinking-model")
         self.assertEqual(args[1][-1]["content"], "Compare these plans and explain the tradeoffs")
-        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 192)
+        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 512)
         self.assertIn("Never claim to be fictional", args[1][0]["content"])
 
     def test_tool_call_uses_function_provider_placeholder(self) -> None:
@@ -405,7 +434,7 @@ class TextServiceTests(unittest.TestCase):
             Classification("text_chat", "fast_qwen", "short prompt"),
         )
         chunks = list(result.chunks)
-        self.assertEqual(chunks, ["Fast ", "reply"])
+        self.assertEqual(chunks, ["Fast reply"])
         self.assertEqual(result.provider.model, "fast-model")
         args = mock_stream_chat_completion.call_args.args
         self.assertEqual(args[0].model, "fast-model")

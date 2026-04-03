@@ -1,9 +1,6 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react"
 import { createAvatar } from "@dicebear/core"
-import * as adventurerNeutralStyle from "@dicebear/adventurer-neutral"
-import * as avataaarsStyle from "@dicebear/avataaars"
-import * as micahStyle from "@dicebear/micah"
-import * as notionistsStyle from "@dicebear/notionists"
+import * as dicebearCollections from "@dicebear/collection"
 import {
   ArrowUpDown,
   ArrowUp,
@@ -71,6 +68,8 @@ import {
   supportsPushToTalkRecording,
 } from "@/voice"
 import { VoicePipeline } from "@/services/voice-pipeline"
+import { cn } from "@/lib/utils"
+import { applyThemeAttributes, fallbackThemePresets, resolveThemeMode, type ThemeMode, type ThemePresetId, type ThemePresetSummary } from "@/theme"
 
 type VoiceTelemetry = {
   pipelineStatus: "idle" | "connecting" | "streaming" | "speaking" | "error"
@@ -235,7 +234,15 @@ type HealthPayload = {
 }
 
 type SettingsPayload = {
-  theme: string
+  theme_preset_id: ThemePresetId
+  theme_mode: ThemeMode
+  effective_theme_preset_id: ThemePresetId
+  effective_theme_mode: ThemeMode
+  theme_locked: boolean
+  theme_admin_override_enabled: boolean
+  theme_admin_override_preset_id: ThemePresetId
+  theme_admin_override_mode: ThemeMode
+  available_themes: ThemePresetSummary[]
   debug_mode: boolean
   is_admin: boolean
   chats: ChatSummary[]
@@ -297,9 +304,12 @@ type CharacterDefinition = {
   meta_url?: string
   logo: string
   description: string
+  teaser?: string
+  phonetic_spelling?: string
   identity_key?: string
   domain?: string
   behavior_style?: string
+  preferred_response_style?: string
   voice_model?: string
   character_editor?: Record<string, unknown>
   installed: boolean
@@ -310,11 +320,14 @@ type CharacterDefinition = {
 type CharacterEditorDraft = {
   name: string
   description: string
+  teaser: string
+  phonetic_spelling: string
   logo: string
   system_prompt: string
   identity_key: string
   domain: string
   behavior_style: string
+  preferred_response_style: string
   voice_model: string
   character_editor: Record<string, unknown>
   default_voice: string
@@ -336,18 +349,25 @@ type CharacterPackage = {
 }
 
 type CharacterEditorBundle = {
+  character_id?: string
   identity_key: string
   logo_data_url?: string
   manifest?: {
     primary_name?: string
     domain?: string
     identity_key?: string
+    teaser?: string
+    phonetic_spelling?: string
     behavior_style?: string
     voice_model?: string
+    wakeword_model?: string
   }
   editor_state?: {
+    character_id?: string
     name?: string
     description?: string
+    teaser?: string
+    phonetic_spelling?: string
     style?: string
     seed?: string
     persona_prompt?: string
@@ -356,6 +376,10 @@ type CharacterEditorBundle = {
     default_voice_config_source_name?: string
     default_voice_upload_data_url?: string
     default_voice_config_upload_data_url?: string
+    wakeword_model_id?: string
+    wakeword_source_name?: string
+    wakeword_upload_data_url?: string
+    [key: string]: unknown
   }
 }
 
@@ -364,6 +388,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return null
   }
   return value as Record<string, unknown>
+}
+
+function slugifyCharacterId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -383,11 +415,10 @@ function buildCharacterEditorLogo(characterEditor: Record<string, unknown>, fall
   const styleId = typeof editorState.style === "string" && editorState.style.trim() ? editorState.style : fallbackStyle || "avataaars"
   const selectedCollection =
     ({
-      avataaars: avataaarsStyle,
-      micah: micahStyle,
-      notionists: notionistsStyle,
-      adventurerNeutral: adventurerNeutralStyle,
-    } as Record<string, Parameters<typeof createAvatar>[0]>)[styleId] || avataaarsStyle
+      avataaars: dicebearCollections.avataaars,
+      bottts: dicebearCollections.bottts,
+      toonHead: dicebearCollections.toonHead,
+    } as Record<string, Parameters<typeof createAvatar>[0]>)[styleId] || dicebearCollections.avataaars
 
   const avatarOptions: Record<string, unknown> = {
     seed:
@@ -431,31 +462,59 @@ function buildCharacterEditorLogo(characterEditor: Record<string, unknown>, fall
 
 function buildPersistedCharacterEditorMetadata(draft: CharacterEditorDraft) {
   const nextCharacterEditor = { ...(draft.character_editor || {}) }
-  const existingEditorState = asRecord(nextCharacterEditor.editor_state) || {}
-  const nextStyle = draft.domain || (typeof existingEditorState.style === "string" ? existingEditorState.style : "avataaars")
+  const existingEditorState = sanitizeCharacterEditorState(asRecord(nextCharacterEditor.editor_state) || {})
+  const nextStyle = typeof existingEditorState.style === "string" && existingEditorState.style.trim()
+    ? existingEditorState.style
+    : "avataaars"
 
   nextCharacterEditor.editor_state = {
     ...existingEditorState,
-    name: draft.name.trim(),
-    description: draft.description,
-    identity_key: draft.identity_key,
-    persona_prompt: draft.behavior_style || draft.system_prompt,
-    voice_model: draft.voice_model || draft.default_voice,
+    preferred_response_style: draft.preferred_response_style || "balanced",
+    wakeword_model_id: draft.wakeword_model_id || "",
     style: nextStyle,
   }
 
   return nextCharacterEditor
 }
 
+function buildCharacterEditorLaunchState(character: CharacterDefinition, draft: CharacterEditorDraft | null) {
+  const existingEditorState = asRecord(character.character_editor)?.editor_state as Record<string, unknown> | undefined
+  const resolvedName = draft?.name || character.name || "Character"
+  const resolvedStyle =
+    (typeof existingEditorState?.style === "string" && existingEditorState.style.trim()) ||
+    characterEditorStyle(character)
+
+  return {
+    ...(existingEditorState || {}),
+    character_id: character.id,
+    name: resolvedName,
+    identity_key: draft?.identity_key || character.identity_key || character.id,
+    description: draft?.description || character.description || "",
+    teaser: draft?.teaser || character.teaser || "",
+    phonetic_spelling: draft?.phonetic_spelling || character.phonetic_spelling || "",
+    persona_prompt: draft?.system_prompt || character.behavior_style || character.system_prompt || "",
+    preferred_response_style: draft?.preferred_response_style || character.preferred_response_style || "balanced",
+    voice_model: draft?.default_voice || character.voice_model || character.default_voice || "en-us-lessac-medium.onnx",
+    wakeword_model_id: draft?.wakeword_model_id || character.wakeword_model_id || "",
+    style: resolvedStyle,
+    seed:
+      (typeof existingEditorState?.seed === "string" && existingEditorState.seed.trim()) ||
+      resolvedName,
+  }
+}
+
 function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEditorDraft {
   return {
     name: character.name,
     description: character.description,
+    teaser: character.teaser || "",
+    phonetic_spelling: character.phonetic_spelling || "",
     logo: character.logo || "",
     system_prompt: character.system_prompt || "",
-    identity_key: character.identity_key || character.id,
+    identity_key: character.identity_key || "",
     domain: character.domain || "",
     behavior_style: character.behavior_style || character.system_prompt || "",
+    preferred_response_style: character.preferred_response_style || "balanced",
     voice_model: character.voice_model || character.default_voice || "",
     character_editor: { ...(character.character_editor || {}) },
     default_voice: character.default_voice || "",
@@ -472,11 +531,72 @@ function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEdi
   }
 }
 
+const CHARACTER_RESPONSE_STYLE_OPTIONS = [
+  { value: "brief", label: "Brief" },
+  { value: "balanced", label: "Balanced" },
+  { value: "detailed", label: "Detailed" },
+] as const
+
+function characterResponseStyleLabel(style: string | undefined) {
+  return CHARACTER_RESPONSE_STYLE_OPTIONS.find((option) => option.value === style)?.label || "Balanced"
+}
+
+function characterEditorStyle(character: Pick<CharacterDefinition, "character_editor" | "domain">) {
+  const editorState = asRecord(asRecord(character.character_editor)?.editor_state)
+  const style = typeof editorState?.style === "string" ? editorState.style.trim() : ""
+  return style || "avataaars"
+}
+
 function getCharacterEditorBaseUrl() {
   if (typeof window !== "undefined") {
     return `${window.location.origin}/character-editor/editor`
   }
   return "/character-editor/editor"
+}
+
+function buildCharacterEditorUrl(
+  params: URLSearchParams,
+  themePresetId: ThemePresetId,
+  themeMode: ThemeMode
+): string {
+  params.set("theme_preset", themePresetId)
+  params.set("theme_mode", themeMode)
+  return `${getCharacterEditorBaseUrl()}${params.toString() ? `?${params.toString()}` : ""}`
+}
+
+const REDUNDANT_CHARACTER_EDITOR_STATE_KEYS = new Set([
+  "character_id",
+  "name",
+  "identity_key",
+  "description",
+  "teaser",
+  "phonetic_spelling",
+  "persona_prompt",
+  "voice_model",
+])
+
+function sanitizeCharacterEditorState(editorState: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!editorState) {
+    return {}
+  }
+  return Object.fromEntries(
+    Object.entries(editorState).filter(([key]) => (
+      !key.endsWith("_upload_data_url")
+      && !REDUNDANT_CHARACTER_EDITOR_STATE_KEYS.has(key)
+    ))
+  )
+}
+
+function serializeEditorState(editorState: Record<string, unknown> | null | undefined): string {
+  const sanitized = sanitizeCharacterEditorState(editorState)
+  if (!Object.keys(sanitized).length) {
+    return ""
+  }
+  try {
+    return JSON.stringify(sanitized)
+  } catch {
+    return ""
+  }
 }
 
 type AdminAccountPayload = {
@@ -598,6 +718,14 @@ type AdminUserRecord = {
   blocked_topics: string[]
   compiled_base_prompt: string
   compiled_prompt_hash: string
+  theme_preset_id: ThemePresetId
+  theme_mode: ThemeMode
+  theme_admin_override_enabled: boolean
+  theme_admin_override_preset_id: ThemePresetId
+  theme_admin_override_mode: ThemeMode
+  effective_theme_preset_id: ThemePresetId
+  effective_theme_mode: ThemeMode
+  theme_locked: boolean
 }
 
 type AdminUsersPayload = {
@@ -1127,7 +1255,7 @@ async function runPushToTalkChat(
     "/api/voice/chat",
     {
       method: "POST",
-      body: JSON.stringify({ audio_base64: audioBase64, mime_type: mimeType, chat_id: chatId, response_style: "voice_concise" }),
+      body: JSON.stringify({ audio_base64: audioBase64, mime_type: mimeType, chat_id: chatId, response_style: "brief" }),
     },
     token
   )
@@ -1158,54 +1286,56 @@ function AuthPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onToggle: () => void
 }) {
+  const passwordAutocomplete = authMode === "login" ? "current-" + "password" : "new-" + "password"
+
   return (
     <div className="absolute inset-0 z-20 grid place-items-center bg-black/45 backdrop-blur-sm">
-      <Card className="w-[min(460px,calc(100vw-24px))] border-zinc-800 bg-zinc-900/95 p-6 shadow-2xl">
+      <Card className="w-[min(460px,calc(100vw-24px))] border-[var(--line)] bg-[var(--card)]/96 p-6 text-[var(--foreground)] shadow-[var(--shadow-strong)]">
         <div className="mb-5 flex items-center justify-between">
           <div className="flex items-start gap-3">
-            <img alt="LokiDoki logo" className="h-11 w-11 rounded-2xl bg-zinc-950 p-1.5" src="/lokidoki-logo.svg" />
+            <img alt="LokiDoki logo" className="h-11 w-11 rounded-2xl bg-[var(--panel)] p-1.5" src="/lokidoki-logo.svg" />
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">LokiDoki</p>
-              <h2 className="mt-2 text-2xl font-semibold text-zinc-100">
+              <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">LokiDoki</p>
+              <h2 className="mt-2 text-2xl font-semibold text-[var(--foreground)]">
                 {authMode === "login" ? "Sign in" : "Create account"}
               </h2>
             </div>
           </div>
-          <div className="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-400">
+          <div className="rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-1 text-xs text-[var(--muted-foreground)]">
             Local auth
           </div>
         </div>
         <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
           <div className="grid gap-2">
-            <label className="text-sm text-zinc-400">Username</label>
-            <Input autoComplete="username" className="border-zinc-800 bg-zinc-950 text-zinc-100" name="username" required />
+            <label className="text-sm text-[var(--muted-foreground)]">Username</label>
+            <Input autoComplete="username" className="border-[var(--line)] bg-[var(--input)] text-[var(--foreground)]" name="username" required />
           </div>
           {authMode === "register" ? (
             <div className="grid gap-2">
-              <label className="text-sm text-zinc-400">Display name</label>
-              <Input autoComplete="nickname" className="border-zinc-800 bg-zinc-950 text-zinc-100" name="display_name" required />
+              <label className="text-sm text-[var(--muted-foreground)]">Display name</label>
+              <Input autoComplete="nickname" className="border-[var(--line)] bg-[var(--input)] text-[var(--foreground)]" name="display_name" required />
             </div>
           ) : null}
           <div className="grid gap-2">
-            <label className="text-sm text-zinc-400">Password</label>
+            <label className="text-sm text-[var(--muted-foreground)]">Password</label>
             <Input
-              autoComplete={authMode === "login" ? "current-password" : "new-password"}
-              className="border-zinc-800 bg-zinc-950 text-zinc-100"
+              autoComplete={passwordAutocomplete}
+              className="border-[var(--line)] bg-[var(--input)] text-[var(--foreground)]"
               name="password"
               type="password"
               required
             />
           </div>
           {authError ? <p className="text-sm text-rose-300">{authError}</p> : null}
-          <Button className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-black hover:bg-zinc-200" type="submit">
+          <Button className="w-full rounded-2xl px-4 py-3 text-sm font-semibold" type="submit">
             {authMode === "login" ? "Sign in" : "Create account"}
           </Button>
           {allowSignup ? (
-            <Button className="h-auto justify-start px-0 text-sm text-zinc-400 hover:bg-transparent hover:text-zinc-200" onClick={onToggle} type="button" variant="ghost">
+            <Button className="h-auto justify-start px-0 text-sm text-[var(--muted-foreground)] hover:bg-transparent hover:text-[var(--foreground)]" onClick={onToggle} type="button" variant="ghost">
               {authMode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}
             </Button>
           ) : (
-            <p className="text-sm text-zinc-500">Self-signup is disabled for this install.</p>
+            <p className="text-sm text-[var(--muted-foreground)]">Self-signup is disabled for this install.</p>
           )}
         </form>
       </Card>
@@ -1235,12 +1365,24 @@ function CatalogLogo({
     .map((part) => part[0]?.toUpperCase() || "")
     .join("") || "LK"
   return src ? (
-    <img alt={`${label} logo`} className="h-11 w-11 rounded-2xl border border-white/10 bg-black/20 object-cover" src={src} />
+    <img alt={`${label} logo`} className="h-11 w-11 rounded-2xl border border-[var(--line)] bg-[var(--panel)] object-cover" src={src} />
   ) : (
-    <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+    <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--line)] bg-[var(--panel)] text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
       {initials}
     </div>
   )
+}
+
+function fallbackCharacterTeaser(character: Pick<CharacterDefinition, "teaser" | "description" | "name">) {
+  const teaser = String(character.teaser || "").trim()
+  if (teaser) {
+    return teaser
+  }
+  const description = String(character.description || "").trim()
+  if (description) {
+    return description
+  }
+  return `${character.name} character`
 }
 
 function CatalogTabs({
@@ -1370,11 +1512,11 @@ function AdminModal({
   }
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[28px] border border-white/10 bg-zinc-950/98 shadow-[0_30px_80px_rgba(0,0,0,0.45)]" onClick={(event) => event.stopPropagation()}>
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-white/8 bg-zinc-950/95 px-5 py-4 backdrop-blur">
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-[28px] border border-[var(--line)] bg-[var(--card)]/98 shadow-[0_30px_80px_rgba(0,0,0,0.45)]" onClick={(event) => event.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--line)] bg-[var(--card)]/95 px-5 py-4 backdrop-blur">
           <div>
-            <div className="text-xl font-semibold text-zinc-100">{title}</div>
-            <div className="mt-1 text-sm text-zinc-500">{description}</div>
+            <div className="text-xl font-semibold text-[var(--foreground)]">{title}</div>
+            <div className="mt-1 text-sm text-[var(--muted-foreground)]">{description}</div>
           </div>
           <Button className="h-9 w-9 rounded-full p-0" onClick={onClose} type="button" variant="outline">
             <X className="h-4 w-4" />
@@ -1404,7 +1546,12 @@ export default function App() {
   const [authError, setAuthError] = useState("")
   const [chatError, setChatError] = useState("")
   const [chatSearch, setChatSearch] = useState("")
-  const [theme, setTheme] = useState("system")
+  const [themePresetId, setThemePresetId] = useState<ThemePresetId>("familiar")
+  const [themeMode, setThemeMode] = useState<ThemeMode>("dark")
+  const [effectiveThemePresetId, setEffectiveThemePresetId] = useState<ThemePresetId>("familiar")
+  const [effectiveThemeMode, setEffectiveThemeMode] = useState<ThemeMode>("dark")
+  const [themeLocked, setThemeLocked] = useState(false)
+  const [availableThemes, setAvailableThemes] = useState<ThemePresetSummary[]>(fallbackThemePresets)
   const [debugMode, setDebugMode] = useState(false)
   const [isDebugOpen, setIsDebugOpen] = useState(false)
   const [debugLogs, setDebugLogs] = useState<DebugLogsPayload | null>(null)
@@ -1504,7 +1651,7 @@ export default function App() {
     tone: "",
     vocabulary: "standard",
     sentence_length: "medium",
-    response_style: "chat_balanced",
+    response_style: "balanced",
     blocked_topics: [],
     safe_messaging: true,
     max_response_tokens: 160,
@@ -1530,6 +1677,7 @@ export default function App() {
   const [newPasswordDraft, setNewPasswordDraft] = useState("")
   const [profileStatus, setProfileStatus] = useState("")
   const [adminUserCharacterDrafts, setAdminUserCharacterDrafts] = useState<Record<string, { care_profile_id: string; character_enabled: boolean; assigned_character_id: string; can_select_character: boolean; admin_prompt: string }>>({})
+  const [adminUserThemeDrafts, setAdminUserThemeDrafts] = useState<Record<string, { theme_admin_override_enabled: boolean; theme_admin_override_preset_id: ThemePresetId; theme_admin_override_mode: ThemeMode }>>({})
   const [settingsRecognitionTab, setSettingsRecognitionTab] = useState<"facial" | "vocal">("facial")
   const [activeSettingsSection, setActiveSettingsSection] = useState<"general" | "recognition" | "appearance" | "voice" | "wakeword" | "memory">("general")
   const [activeAdminSection, setActiveAdminSection] = useState<"dashboard" | "general" | "users" | "care_profiles" | "prompt_lab" | "voices" | "skills" | "characters">("dashboard")
@@ -1646,16 +1794,48 @@ export default function App() {
       if (!allowedOrigins.has(event.origin)) {
         return
       }
-      const payload = event.data as { source?: string; type?: string; bundle?: CharacterEditorBundle } | null
-      if (!payload || payload.source !== "loki-doki-character-editor" || payload.type !== "character-editor-bundle" || !payload.bundle) {
+      const payload = event.data as { source?: string; type?: string; action?: "save" | "publish"; bundle?: CharacterEditorBundle } | null
+      if (!payload || payload.source !== "loki-doki-character-editor" || payload.type !== "character-editor-action" || !payload.bundle) {
         return
       }
-      void importCharacterEditorBundle(payload.bundle)
+      void importCharacterEditorBundle(payload.bundle, payload.action === "publish")
     }
 
     window.addEventListener("message", handleCharacterEditorMessage)
     return () => window.removeEventListener("message", handleCharacterEditorMessage)
   }, [token, user, characters, adminCharacterDrafts])
+
+  useEffect(() => {
+    applyThemeAttributes(effectiveThemePresetId, effectiveThemeMode)
+  }, [effectiveThemeMode, effectiveThemePresetId])
+
+  useEffect(() => {
+    if (effectiveThemeMode !== "auto") {
+      return
+    }
+    const media = window.matchMedia("(prefers-color-scheme: dark)")
+    const syncSystemTheme = () => applyThemeAttributes(effectiveThemePresetId, "auto")
+    syncSystemTheme()
+    media.addEventListener("change", syncSystemTheme)
+    return () => media.removeEventListener("change", syncSystemTheme)
+  }, [effectiveThemeMode, effectiveThemePresetId])
+
+  useEffect(() => {
+    if (!isCharacterEditorOpen) {
+      return
+    }
+    try {
+      const url = new URL(characterEditorUrl, typeof window !== "undefined" ? window.location.origin : "http://localhost")
+      url.searchParams.set("theme_preset", effectiveThemePresetId)
+      url.searchParams.set("theme_mode", effectiveThemeMode)
+      const nextUrl = `${url.pathname}${url.search}`
+      if (nextUrl !== characterEditorUrl) {
+        setCharacterEditorUrl(nextUrl)
+      }
+    } catch {
+      // Ignore malformed interim editor URLs and keep the current value.
+    }
+  }, [characterEditorUrl, effectiveThemeMode, effectiveThemePresetId, isCharacterEditorOpen])
 
   const suggestions = [
     "Build a Raspberry Pi assistant",
@@ -1918,6 +2098,17 @@ export default function App() {
           assigned_character_id: item.assigned_character_id || "",
           can_select_character: item.can_select_character,
           admin_prompt: item.admin_prompt || "",
+        }
+      }
+      return next
+    })
+    setAdminUserThemeDrafts((current) => {
+      const next = { ...current }
+      for (const item of payload.users) {
+        next[item.id] = {
+          theme_admin_override_enabled: item.theme_admin_override_enabled,
+          theme_admin_override_preset_id: item.theme_admin_override_preset_id,
+          theme_admin_override_mode: item.theme_admin_override_mode,
         }
       }
       return next
@@ -2470,7 +2661,12 @@ export default function App() {
         setAuthError("")
         setIsProfileMenuOpen(false)
         setOpenChatMenuId("")
-        setTheme(settings.theme)
+        setThemePresetId(settings.theme_preset_id)
+        setThemeMode(settings.theme_mode)
+        setEffectiveThemePresetId(settings.effective_theme_preset_id)
+        setEffectiveThemeMode(settings.effective_theme_mode)
+        setThemeLocked(settings.theme_locked)
+        setAvailableThemes(settings.available_themes?.length ? settings.available_themes : fallbackThemePresets)
         setDebugMode(settings.debug_mode)
         forceScrollRef.current = true
         setChats(settings.chats)
@@ -3376,7 +3572,8 @@ export default function App() {
       {
         method: "PUT",
         body: JSON.stringify({
-          theme,
+          theme_preset_id: themePresetId,
+          theme_mode: themeMode,
           voice_reply_enabled: nextReplyEnabled,
           voice_source: nextVoiceSource,
           browser_voice_uri: nextBrowserVoiceURI,
@@ -3386,7 +3583,12 @@ export default function App() {
       },
       token
     )
-    setTheme(payload.theme)
+    setThemePresetId(payload.theme_preset_id)
+    setThemeMode(payload.theme_mode)
+    setEffectiveThemePresetId(payload.effective_theme_preset_id)
+    setEffectiveThemeMode(payload.effective_theme_mode)
+    setThemeLocked(payload.theme_locked)
+    setAvailableThemes(payload.available_themes?.length ? payload.available_themes : fallbackThemePresets)
     setVoiceReplyEnabled(payload.voice_reply_enabled)
     setVoiceSource(payload.voice_source)
     setSelectedVoiceURI(payload.browser_voice_uri)
@@ -3995,8 +4197,13 @@ export default function App() {
     }
   }
 
-  async function persistTheme(nextTheme: string) {
-    setTheme(nextTheme)
+  async function persistTheme(next: { presetId?: ThemePresetId; mode?: ThemeMode }) {
+    const nextPresetId = next.presetId ?? themePresetId
+    const nextMode = next.mode ?? themeMode
+    setThemePresetId(nextPresetId)
+    setThemeMode(nextMode)
+    setEffectiveThemePresetId(nextPresetId)
+    setEffectiveThemeMode(nextMode)
     if (!token) {
       return
     }
@@ -4005,7 +4212,8 @@ export default function App() {
       {
         method: "PUT",
         body: JSON.stringify({
-          theme: nextTheme,
+          theme_preset_id: nextPresetId,
+          theme_mode: nextMode,
           voice_reply_enabled: voiceReplyEnabled,
           voice_source: voiceSource,
           browser_voice_uri: selectedVoiceURI,
@@ -4015,7 +4223,12 @@ export default function App() {
       },
       token
     )
-    setTheme(payload.theme)
+    setThemePresetId(payload.theme_preset_id)
+    setThemeMode(payload.theme_mode)
+    setEffectiveThemePresetId(payload.effective_theme_preset_id)
+    setEffectiveThemeMode(payload.effective_theme_mode)
+    setThemeLocked(payload.theme_locked)
+    setAvailableThemes(payload.available_themes?.length ? payload.available_themes : fallbackThemePresets)
   }
 
   async function persistCharacterSettings(partial?: Partial<SettingsPayload>): Promise<SettingsPayload | null> {
@@ -4162,6 +4375,41 @@ export default function App() {
     }
   }
 
+  async function persistAdminUserThemeSettings(userId: string) {
+    if (!token) {
+      return
+    }
+    const draft = adminUserThemeDrafts[userId]
+    if (!draft) {
+      return
+    }
+    try {
+      const payload = await fetchJson<AdminUsersPayload>(
+        `/api/admin/users/${userId}/theme`,
+        {
+          method: "PUT",
+          body: JSON.stringify(draft),
+        },
+        token
+      )
+      setAdminUsers(payload.users)
+      setAdminUserThemeDrafts((current) => {
+        const next = { ...current }
+        for (const item of payload.users) {
+          next[item.id] = {
+            theme_admin_override_enabled: item.theme_admin_override_enabled,
+            theme_admin_override_preset_id: item.theme_admin_override_preset_id,
+            theme_admin_override_mode: item.theme_admin_override_mode,
+          }
+        }
+        return next
+      })
+      setAdminNotice("Theme override saved.")
+    } catch (error) {
+      setAdminNotice(error instanceof Error ? error.message : "Theme override save failed.")
+    }
+  }
+
   async function recompileAdminUserPrompt(userId: string) {
     if (!token) {
       return
@@ -4242,8 +4490,16 @@ export default function App() {
       [characterId]: {
         name: current[characterId]?.name || "",
         description: current[characterId]?.description || "",
+        teaser: current[characterId]?.teaser || "",
+        phonetic_spelling: current[characterId]?.phonetic_spelling || "",
         logo: current[characterId]?.logo || "",
         system_prompt: current[characterId]?.system_prompt || "",
+        identity_key: current[characterId]?.identity_key || "",
+        domain: current[characterId]?.domain || "",
+        behavior_style: current[characterId]?.behavior_style || "",
+        preferred_response_style: current[characterId]?.preferred_response_style || "balanced",
+        voice_model: current[characterId]?.voice_model || "",
+        character_editor: current[characterId]?.character_editor || {},
         default_voice: current[characterId]?.default_voice || "",
         default_voice_download_url: current[characterId]?.default_voice_download_url || "",
         default_voice_config_download_url: current[characterId]?.default_voice_config_download_url || "",
@@ -4258,6 +4514,68 @@ export default function App() {
         ...updates,
       },
     }))
+  }
+
+  async function persistAdminCharacterDraft(characterId: string) {
+    if (!token) {
+      return
+    }
+    const character = characters.find((entry) => entry.id === characterId)
+    const draft = adminCharacterDrafts[characterId]
+    if (!character || !draft || !character.installed) {
+      return
+    }
+    try {
+      const payload = await fetchJson<{ character: CharacterDefinition; installed: CharacterDefinition[]; available: CharacterDefinition[] }>(
+        `/api/characters/${characterId}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            name: draft.name,
+            description: draft.description,
+            teaser: draft.teaser,
+            phonetic_spelling: draft.phonetic_spelling,
+            logo: draft.logo,
+            system_prompt: draft.system_prompt,
+            identity_key: draft.identity_key,
+            domain: draft.domain,
+            behavior_style: draft.behavior_style,
+            preferred_response_style: draft.preferred_response_style,
+            voice_model: draft.voice_model,
+            default_voice: draft.default_voice,
+            default_voice_download_url: draft.default_voice_download_url,
+            default_voice_config_download_url: draft.default_voice_config_download_url,
+            default_voice_source_name: draft.default_voice_source_name,
+            default_voice_config_source_name: draft.default_voice_config_source_name,
+            default_voice_upload_data_url: draft.default_voice_upload_data_url,
+            default_voice_config_upload_data_url: draft.default_voice_config_upload_data_url,
+            wakeword_model_id: draft.wakeword_model_id,
+            wakeword_download_url: draft.wakeword_download_url,
+            wakeword_source_name: draft.wakeword_source_name,
+            wakeword_upload_data_url: draft.wakeword_upload_data_url,
+            character_editor: buildPersistedCharacterEditorMetadata(draft),
+          }),
+        },
+        token
+      )
+      setCharacters(payload.available)
+      setAdminCharacterDrafts(() => {
+        const next: Record<string, CharacterEditorDraft> = {}
+        for (const item of payload.available) {
+          next[item.id] = buildCharacterEditorDraft(item)
+        }
+        return next
+      })
+      await refreshCharacterSettings(token)
+      if (user?.is_admin) {
+        await refreshAdminCharacterData(token)
+        await refreshAdminUsers(token)
+        await refreshPromptLabAfterPromptChange()
+      }
+      setAdminNotice(`Character "${payload.character.name}" settings saved.`)
+    } catch (error) {
+      setAdminNotice(error instanceof Error ? error.message : "Character settings save failed.")
+    }
   }
 
   async function readLogoFile(file: File): Promise<string> {
@@ -4411,13 +4729,25 @@ export default function App() {
   }
 
   function buildCharacterImportPackage(bundle: CharacterEditorBundle): CharacterPackage {
-    const existingCharacter = characters.find((entry) => entry.id === bundle.identity_key) || null
+    const resolvedCharacterId = (bundle.character_id || "").trim()
+    const existingCharacter = characters.find((entry) => entry.id === resolvedCharacterId) || null
     const existingDraft = existingCharacter ? adminCharacterDrafts[existingCharacter.id] || null : null
     const uploadedVoiceModel = bundle.editor_state?.default_voice_upload_data_url?.trim() || ""
     const uploadedVoiceConfig = bundle.editor_state?.default_voice_config_upload_data_url?.trim() || ""
     const uploadedVoiceSourceName = bundle.editor_state?.default_voice_source_name?.trim() || ""
     const uploadedVoiceConfigSourceName = bundle.editor_state?.default_voice_config_source_name?.trim() || ""
-    const resolvedId = (bundle.identity_key || bundle.manifest?.identity_key || "").trim()
+    const resolvedId =
+      resolvedCharacterId ||
+      slugifyCharacterId(
+        [
+          bundle.editor_state?.name?.trim() ||
+          bundle.manifest?.primary_name?.trim() ||
+          "character",
+          bundle.manifest?.identity_key?.trim() ||
+          bundle.identity_key ||
+          "lokidoki",
+        ].join("_")
+      )
     const resolvedName =
       bundle.manifest?.primary_name?.trim() ||
       bundle.editor_state?.name?.trim() ||
@@ -4430,18 +4760,37 @@ export default function App() {
       existingDraft?.system_prompt?.trim() ||
       existingCharacter?.system_prompt ||
       "You are a LokiDoki character created in the character editor. Respond clearly, warmly, and stay in character."
+    const resolvedPreferredResponseStyle =
+      bundle.manifest?.preferred_response_style?.trim() ||
+      bundle.editor_state?.preferred_response_style?.trim() ||
+      existingDraft?.preferred_response_style?.trim() ||
+      existingCharacter?.preferred_response_style?.trim() ||
+      "balanced"
     const resolvedVoice =
       bundle.manifest?.voice_model?.trim() ||
       bundle.editor_state?.voice_model?.trim() ||
       existingDraft?.default_voice?.trim() ||
       existingCharacter?.default_voice ||
       ""
-    const resolvedDomain = bundle.manifest?.domain?.trim() || bundle.editor_state?.style?.trim() || "dicebear"
+    const resolvedDomain = bundle.manifest?.domain?.trim() || bundle.identity_key?.trim() || "lokidoki"
+    const resolvedStyle = bundle.editor_state?.style?.trim() || "avataaars"
     const resolvedDescription =
       bundle.editor_state?.description?.trim() ||
       existingDraft?.description?.trim() ||
       existingCharacter?.description ||
       `DiceBear-based LokiDoki character created in the character editor (${resolvedDomain}).`
+    const resolvedTeaser =
+      bundle.editor_state?.teaser?.trim() ||
+      bundle.manifest?.teaser?.trim() ||
+      existingDraft?.teaser?.trim() ||
+      existingCharacter?.teaser ||
+      ""
+    const resolvedPhoneticSpelling =
+      bundle.editor_state?.phonetic_spelling?.trim() ||
+      bundle.manifest?.phonetic_spelling?.trim() ||
+      existingDraft?.phonetic_spelling?.trim() ||
+      existingCharacter?.phonetic_spelling ||
+      ""
 
     return {
       format: "lokidoki-character-package",
@@ -4450,11 +4799,14 @@ export default function App() {
         name: resolvedName,
         version: existingCharacter?.version || "2.0.0",
         description: resolvedDescription,
+        teaser: resolvedTeaser,
+        phonetic_spelling: resolvedPhoneticSpelling,
         logo: bundle.logo_data_url || existingDraft?.logo || existingCharacter?.logo || "/lokidoki-logo.svg",
         system_prompt: resolvedPrompt,
-        identity_key: resolvedId,
+        identity_key: (bundle.manifest?.identity_key || bundle.identity_key || resolvedId).trim() || resolvedId,
         domain: resolvedDomain,
         behavior_style: resolvedPrompt,
+        preferred_response_style: resolvedPreferredResponseStyle,
         voice_model: resolvedVoice,
         default_voice: resolvedVoice,
         default_voice_download_url: existingDraft?.default_voice_download_url || existingCharacter?.default_voice_download_url || "",
@@ -4466,39 +4818,172 @@ export default function App() {
           uploadedVoiceConfigSourceName || existingDraft?.default_voice_config_source_name || existingCharacter?.default_voice_config_source_name || "",
         default_voice_upload_data_url: uploadedVoiceModel || existingDraft?.default_voice_upload_data_url || "",
         default_voice_config_upload_data_url: uploadedVoiceConfig || existingDraft?.default_voice_config_upload_data_url || "",
-        wakeword_model_id: existingDraft?.wakeword_model_id || existingCharacter?.wakeword_model_id || "",
+        wakeword_model_id:
+          bundle.editor_state?.wakeword_model_id?.trim() ||
+          bundle.manifest?.wakeword_model?.trim() ||
+          existingDraft?.wakeword_model_id ||
+          existingCharacter?.wakeword_model_id ||
+          "",
         wakeword_download_url: existingDraft?.wakeword_download_url || existingCharacter?.wakeword_download_url || "",
-        wakeword_source_name: existingDraft?.wakeword_source_name || existingCharacter?.wakeword_source_name || "",
+        wakeword_source_name:
+          bundle.editor_state?.wakeword_source_name?.trim() ||
+          existingDraft?.wakeword_source_name ||
+          existingCharacter?.wakeword_source_name ||
+          "",
+        wakeword_upload_data_url: bundle.editor_state?.wakeword_upload_data_url?.trim() || "",
         enabled: existingCharacter?.enabled ?? true,
         capabilities: {
           editor: "character_editor",
           renderer: "dicebear",
-          domain: resolvedDomain,
+          domain: resolvedStyle,
         },
         character_editor: {
           source: "loki-doki-character-editor",
           exported_at: new Date().toISOString(),
-          manifest: bundle.manifest || {},
           editor_state: bundle.editor_state || {},
         },
       },
     }
   }
 
-  async function importCharacterEditorBundle(bundle: CharacterEditorBundle) {
+  async function importCharacterEditorBundle(bundle: CharacterEditorBundle, publishAfterSave = false) {
     if (!token) {
       return
     }
-    const packagePayload = buildCharacterImportPackage(bundle)
     try {
-      const payload = await fetchJson<{ character: CharacterDefinition; installed: CharacterDefinition[]; available: CharacterDefinition[] }>(
-        "/api/characters/import",
-        {
-          method: "POST",
-          body: JSON.stringify({ package: packagePayload }),
-        },
-        token
-      )
+      const selectedVoiceId = String(
+        bundle.manifest?.voice_model?.trim() ||
+        bundle.editor_state?.voice_model?.trim() ||
+        ""
+      ).trim()
+      if (selectedVoiceId) {
+        let selectedVoice = adminVoices.find((voice) => voice.id === selectedVoiceId) || null
+        if (!selectedVoice && user?.is_admin) {
+          const voicePayload = await fetchJson<{ voices: AdminVoiceRecord[] }>("/api/admin/voices", {}, token)
+          setAdminVoices(voicePayload.voices)
+          selectedVoice = voicePayload.voices.find((voice) => voice.id === selectedVoiceId) || null
+        }
+        if (selectedVoice && !selectedVoice.installed) {
+          setAdminNotice(`Installing voice "${selectedVoice.label}" before save...`)
+          if (selectedVoice.custom) {
+            if (!selectedVoice.source_url.trim()) {
+              throw new Error(`Voice "${selectedVoice.label}" is not installed locally and cannot be auto-installed because it was uploaded from local files.`)
+            }
+            const voicePayload = await fetchJson<{ voices: AdminVoiceRecord[] }>(
+              `/api/admin/voices/${selectedVoice.id}/reinstall`,
+              { method: "POST" },
+              token
+            )
+            setAdminVoices(voicePayload.voices)
+          } else {
+            await fetchJson<{ ok: boolean; voice_id: string }>(
+              "/api/voices/piper/install",
+              {
+                method: "POST",
+                body: JSON.stringify({ voice_id: selectedVoice.id }),
+              },
+              token
+            )
+            if (user?.is_admin) {
+              const voicePayload = await fetchJson<{ voices: AdminVoiceRecord[] }>("/api/admin/voices", {}, token)
+              setAdminVoices(voicePayload.voices)
+            }
+          }
+          await refreshVoices(token)
+        }
+      }
+      const existingCharacterId = (bundle.character_id || "").trim()
+      const existingCharacter = existingCharacterId
+        ? characters.find((entry) => entry.id === existingCharacterId) || null
+        : null
+      const payload = existingCharacter
+        ? await fetchJson<{ character: CharacterDefinition; installed: CharacterDefinition[]; available: CharacterDefinition[] }>(
+            `/api/characters/${existingCharacter.id}`,
+            {
+              method: "PUT",
+              body: JSON.stringify({
+                name:
+                  bundle.editor_state?.name?.trim() ||
+                  bundle.manifest?.primary_name?.trim() ||
+                  existingCharacter.name,
+                description:
+                  bundle.editor_state?.description?.trim() ||
+                  existingCharacter.description ||
+                  "",
+                teaser:
+                  bundle.editor_state?.teaser?.trim() ||
+                  existingCharacter.teaser ||
+                  "",
+                phonetic_spelling:
+                  bundle.editor_state?.phonetic_spelling?.trim() ||
+                  bundle.manifest?.phonetic_spelling?.trim() ||
+                  existingCharacter.phonetic_spelling ||
+                  "",
+                logo: bundle.logo_data_url || existingCharacter.logo || "",
+                system_prompt:
+                  bundle.editor_state?.persona_prompt?.trim() ||
+                  existingCharacter.system_prompt ||
+                  "",
+                identity_key:
+                  bundle.manifest?.identity_key?.trim() ||
+                  existingCharacter.identity_key ||
+                  existingCharacter.id,
+                domain:
+                  bundle.manifest?.domain?.trim() ||
+                  bundle.identity_key?.trim() ||
+                  existingCharacter.domain ||
+                  "lokidoki",
+                behavior_style:
+                  bundle.manifest?.behavior_style?.trim() ||
+                  bundle.editor_state?.persona_prompt?.trim() ||
+                  existingCharacter.behavior_style ||
+                  existingCharacter.system_prompt ||
+                  "",
+                preferred_response_style:
+                  bundle.manifest?.preferred_response_style?.trim() ||
+                  bundle.editor_state?.preferred_response_style?.trim() ||
+                  adminCharacterDrafts[existingCharacter.id]?.preferred_response_style ||
+                  existingCharacter.preferred_response_style ||
+                  "balanced",
+                voice_model:
+                  bundle.manifest?.voice_model?.trim() ||
+                  bundle.editor_state?.voice_model?.trim() ||
+                  existingCharacter.voice_model ||
+                  existingCharacter.default_voice ||
+                  "",
+                default_voice:
+                  bundle.editor_state?.voice_model?.trim() ||
+                  existingCharacter.default_voice ||
+                  "",
+                wakeword_model_id:
+                  bundle.editor_state?.wakeword_model_id?.trim() ||
+                  existingCharacter.wakeword_model_id ||
+                  "",
+                wakeword_source_name:
+                  bundle.editor_state?.wakeword_source_name?.trim() ||
+                  existingCharacter.wakeword_source_name ||
+                  "",
+                wakeword_upload_data_url:
+                  bundle.editor_state?.wakeword_upload_data_url?.trim() ||
+                  "",
+                character_editor: {
+                  ...(existingCharacter.character_editor || {}),
+                  source: "loki-doki-character-editor",
+                  exported_at: new Date().toISOString(),
+                  editor_state: bundle.editor_state || {},
+                },
+              }),
+            },
+            token
+          )
+        : await fetchJson<{ character: CharacterDefinition; installed: CharacterDefinition[]; available: CharacterDefinition[] }>(
+            "/api/characters/import",
+            {
+              method: "POST",
+              body: JSON.stringify({ package: buildCharacterImportPackage(bundle) }),
+            },
+            token
+          )
       setCharacters(payload.available)
       setAdminCharacterDrafts(() => {
         const next: Record<string, CharacterEditorDraft> = {}
@@ -4517,15 +5002,27 @@ export default function App() {
       const nextDraft = buildCharacterEditorDraft(payload.character)
       const params = new URLSearchParams()
       params.set("embedded", "1")
+      params.set("character_id", payload.character.id)
       params.set("identity_key", payload.character.identity_key || payload.character.id)
-      params.set("style", payload.character.domain || "avataaars")
+      params.set("style", characterEditorStyle(payload.character))
       params.set("name", nextDraft.name || payload.character.name)
       params.set("description", nextDraft.description || payload.character.description || "")
+      params.set("teaser", nextDraft.teaser || payload.character.teaser || "")
+      params.set("phonetic_spelling", nextDraft.phonetic_spelling || payload.character.phonetic_spelling || "")
       params.set("persona_prompt", nextDraft.system_prompt || payload.character.behavior_style || payload.character.system_prompt || "")
+      params.set("preferred_response_style", nextDraft.preferred_response_style || payload.character.preferred_response_style || "balanced")
       params.set("voice_model", nextDraft.default_voice || payload.character.voice_model || payload.character.default_voice || "en-us-lessac-medium.onnx")
-      setCharacterEditorUrl(`${getCharacterEditorBaseUrl()}?${params.toString()}`)
+      const serializedEditorState = serializeEditorState(asRecord(payload.character.character_editor)?.editor_state as Record<string, unknown> | undefined)
+      if (serializedEditorState) {
+        params.set("editor_state", serializedEditorState)
+      }
+      setCharacterEditorUrl(buildCharacterEditorUrl(params, effectiveThemePresetId, effectiveThemeMode))
       setIsCharacterEditorOpen(true)
-      setAdminNotice(`Character "${payload.character.name}" saved.`)
+      if (publishAfterSave) {
+        await publishCharacter(payload.character)
+      } else {
+        setAdminNotice(`Character "${payload.character.name}" saved.`)
+      }
     } catch (error) {
       setAdminNotice(error instanceof Error ? error.message : "Character save failed.")
     }
@@ -4537,14 +5034,22 @@ export default function App() {
     const params = new URLSearchParams()
     params.set("embedded", "1")
     if (character) {
+      params.set("character_id", character.id)
       params.set("identity_key", character.identity_key || character.id)
-      params.set("style", character.domain || "avataaars")
+      params.set("style", characterEditorStyle(character))
       params.set("name", draft?.name || character.name)
       params.set("description", draft?.description || character.description || "")
+      params.set("teaser", draft?.teaser || character.teaser || "")
+      params.set("phonetic_spelling", draft?.phonetic_spelling || character.phonetic_spelling || "")
       params.set("persona_prompt", draft?.system_prompt || character.behavior_style || character.system_prompt || "")
+      params.set("preferred_response_style", draft?.preferred_response_style || character.preferred_response_style || "balanced")
       params.set("voice_model", draft?.default_voice || character.voice_model || character.default_voice || "en-us-lessac-medium.onnx")
+      const serializedEditorState = serializeEditorState(buildCharacterEditorLaunchState(character, draft))
+      if (serializedEditorState) {
+        params.set("editor_state", serializedEditorState)
+      }
     }
-    const url = `${getCharacterEditorBaseUrl()}${params.toString() ? `?${params.toString()}` : ""}`
+    const url = buildCharacterEditorUrl(params, effectiveThemePresetId, effectiveThemeMode)
     setActiveView("admin")
     setActiveAdminSection("characters")
     setCharacterEditorUrl(url)
@@ -4610,23 +5115,7 @@ export default function App() {
       setAdminCharacterDrafts(() => {
         const next: Record<string, CharacterEditorDraft> = {}
         for (const character of payload.available) {
-          next[character.id] = {
-            name: character.name,
-            description: character.description,
-            logo: character.logo || "",
-            system_prompt: character.system_prompt || "",
-            default_voice: character.default_voice || "",
-            default_voice_download_url: character.default_voice_download_url || "",
-            default_voice_config_download_url: character.default_voice_config_download_url || "",
-            default_voice_source_name: character.default_voice_source_name || "",
-            default_voice_config_source_name: character.default_voice_config_source_name || "",
-            default_voice_upload_data_url: "",
-            default_voice_config_upload_data_url: "",
-            wakeword_model_id: character.wakeword_model_id || "",
-            wakeword_download_url: character.wakeword_download_url || "",
-            wakeword_source_name: character.wakeword_source_name || "",
-            wakeword_upload_data_url: "",
-          }
+          next[character.id] = buildCharacterEditorDraft(character)
         }
         return next
       })
@@ -5075,7 +5564,8 @@ export default function App() {
       {
         method: "PUT",
         body: JSON.stringify({
-          theme,
+          theme_preset_id: themePresetId,
+          theme_mode: themeMode,
           debug_mode: nextDebugMode,
           voice_reply_enabled: voiceReplyEnabled,
           voice_source: voiceSource,
@@ -5183,10 +5673,46 @@ export default function App() {
   const primaryIssue = topIssues[0]
   const selectedPiperVoice = piperVoices.find((voice) => voice.id === selectedPiperVoiceId) || null
   const selectedCharacter = characters.find((item) => item.id === activeCharacterId) || null
-  const quickCharacterChoices = [
+  const themeCatalog = (availableThemes.length ? availableThemes : fallbackThemePresets).slice().sort((left, right) => {
+    const order: Record<ThemePresetId, number> = {
+      familiar: 0,
+      studio: 1,
+      minimal: 2,
+      amoled: 3,
+    }
+    return order[left.id] - order[right.id]
+  })
+  const resolvedEffectiveThemeMode = resolveThemeMode(effectiveThemeMode)
+  const selectedThemeSummary = themeCatalog.find((preset) => preset.id === themePresetId) ?? themeCatalog[0]
+  const modePreviewPalette =
+    selectedThemeSummary && resolveThemeMode(themeMode) === "light"
+      ? selectedThemeSummary.preview.light
+      : selectedThemeSummary.preview.dark
+  const isWorkspaceView = activeView === "settings" || activeView === "admin"
+  const shellSidebarWidth = isWorkspaceView ? "0px" : isSidebarCollapsed ? "64px" : "288px"
+  const settingsContentClass = cn(
+    "mx-auto w-full",
+    activeSettingsSection === "memory"
+      ? "max-w-[1200px]"
+      : activeSettingsSection === "appearance"
+        ? "max-w-[1320px]"
+        : "max-w-[880px]"
+  )
+  const adminContentClass = cn(
+    "mx-auto w-full",
+    activeAdminSection === "characters" && isCharacterEditorOpen
+      ? "max-w-full"
+      : activeAdminSection === "characters" || activeAdminSection === "skills" || activeAdminSection === "prompt_lab"
+      ? "max-w-[1380px]"
+      : activeAdminSection === "dashboard" || activeAdminSection === "users"
+        ? "max-w-[1240px]"
+        : "max-w-[980px]"
+  )
+  const sharedCharacterChoices = [
     ...(selectedCharacter ? [selectedCharacter] : []),
     ...characters.filter((item) => item.enabled && item.id !== activeCharacterId),
-  ].slice(0, 3)
+  ]
+  const settingsCharacterChoices = characters.filter((item) => item.enabled || item.id === activeCharacterId)
   const normalizedAdminUserSearch = adminUserSearch.trim().toLowerCase()
   const filteredAdminUsers = adminUsers.filter((item) =>
     !normalizedAdminUserSearch
@@ -5350,10 +5876,10 @@ export default function App() {
     return (
       <div className="app-frame grid min-h-dvh place-items-center bg-[var(--background)] text-[var(--foreground)]">
         <div className="flex flex-col items-center gap-4">
-          <img alt="LokiDoki logo" className="h-16 w-16 bg-black/20 p-2" src="/lokidoki-logo.svg" />
+          <img alt="LokiDoki logo" className="h-16 w-16 rounded-2xl bg-[var(--panel)] p-2" src="/lokidoki-logo.svg" />
           <div className="text-center">
-            <div className="text-lg font-medium text-zinc-100">{bootstrap?.app_name || "LokiDoki"}</div>
-            <div className="mt-1 text-sm text-zinc-500">Restoring your session…</div>
+            <div className="text-lg font-medium text-[var(--foreground)]">{bootstrap?.app_name || "LokiDoki"}</div>
+            <div className="mt-1 text-sm text-[var(--muted-foreground)]">Restoring your session…</div>
           </div>
         </div>
       </div>
@@ -5361,89 +5887,98 @@ export default function App() {
   }
 
   return (
-    <div className="app-frame min-h-dvh bg-[var(--background)] text-[var(--foreground)]" data-theme={theme}>
+    <div
+      className="app-frame min-h-dvh bg-[var(--background)] text-[var(--foreground)]"
+      data-theme-mode={resolvedEffectiveThemeMode}
+      data-theme-preset={effectiveThemePresetId}
+    >
       <div
-        className="grid h-dvh grid-cols-1 overflow-hidden bg-[var(--panel)] md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
-        style={{ ["--sidebar-width" as string]: isSidebarCollapsed ? "64px" : "288px" }}
+        className={cn(
+          "grid h-dvh overflow-hidden bg-[var(--panel)]",
+          isWorkspaceView ? "grid-cols-1" : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
+        )}
+        style={!isWorkspaceView ? { ["--sidebar-width" as string]: shellSidebarWidth } : undefined}
       >
-        <AppSidebar
-          activeChatId={activeChatId}
-          bootstrapAppName={bootstrap?.app_name || "LokiDoki"}
-          chatMenuAnchor={chatMenuAnchor}
-          debugMode={debugMode}
-          filteredChats={filteredChats}
-          isMobileSidebarOpen={isMobileSidebarOpen}
-          isProfileMenuOpen={isProfileMenuOpen}
-          isSidebarCollapsed={isSidebarCollapsed}
-          openChatMenuId={openChatMenuId}
-          renameChatTitle={renameChatTitle}
-          renamingChatId={renamingChatId}
-          user={user}
-          onBeginRenamingChat={beginRenamingChat}
-          onCloseMobileSidebar={() => setIsMobileSidebarOpen(false)}
-          onCreateChat={() => {
-            if (token) {
-              void createChat(token).catch((error) => {
-                setChatError(error instanceof Error ? error.message : "Chat could not be created.")
+        {!isWorkspaceView ? (
+          <AppSidebar
+            activeChatId={activeChatId}
+            bootstrapAppName={bootstrap?.app_name || "LokiDoki"}
+            chatMenuAnchor={chatMenuAnchor}
+            debugMode={debugMode}
+            filteredChats={filteredChats}
+            isMobileSidebarOpen={isMobileSidebarOpen}
+            isProfileMenuOpen={isProfileMenuOpen}
+            isSidebarCollapsed={isSidebarCollapsed}
+            openChatMenuId={openChatMenuId}
+            renameChatTitle={renameChatTitle}
+            renamingChatId={renamingChatId}
+            user={user}
+            onBeginRenamingChat={beginRenamingChat}
+            onCloseMobileSidebar={() => setIsMobileSidebarOpen(false)}
+            onCreateChat={() => {
+              if (token) {
+                void createChat(token).catch((error) => {
+                  setChatError(error instanceof Error ? error.message : "Chat could not be created.")
+                })
+              }
+            }}
+            onDeleteChat={(chat) => {
+              if (!token || !window.confirm(`Delete "${chat.title}"?`)) {
+                return
+              }
+              void deleteChat(chat.id, token).catch((error) => {
+                setChatError(error instanceof Error ? error.message : "Chat delete failed.")
               })
-            }
-          }}
-          onDeleteChat={(chat) => {
-            if (!token || !window.confirm(`Delete "${chat.title}"?`)) {
-              return
-            }
-            void deleteChat(chat.id, token).catch((error) => {
-              setChatError(error instanceof Error ? error.message : "Chat delete failed.")
-            })
-          }}
-          onOpenChatMenu={openChatMenu}
-          onRenameChatCancel={() => {
-            setRenamingChatId("")
-            setRenameChatTitle("")
-          }}
-          onRenameChatSubmit={(chatId) => {
-            if (!token) {
+            }}
+            onOpenChatMenu={openChatMenu}
+            onRenameChatCancel={() => {
               setRenamingChatId("")
-              return
-            }
-            void renameChat(chatId, renameChatTitle, token).catch((error) => {
-              setChatError(error instanceof Error ? error.message : "Chat rename failed.")
-            })
-          }}
-          onRenameChatTitleChange={setRenameChatTitle}
-          onSelectChat={(chatId) => {
-            if (token) {
-              void selectChat(chatId, token).catch((error) => {
-                setChatError(error instanceof Error ? error.message : "Chat could not be opened.")
+              setRenameChatTitle("")
+            }}
+            onRenameChatSubmit={(chatId) => {
+              if (!token) {
+                setRenamingChatId("")
+                return
+              }
+              void renameChat(chatId, renameChatTitle, token).catch((error) => {
+                setChatError(error instanceof Error ? error.message : "Chat rename failed.")
               })
-            }
-          }}
-          onSetActiveView={(view) => {
-            setActiveView(view)
-            if (view === "admin") {
-              setActiveAdminSection("dashboard")
-              setIsCharacterEditorOpen(false)
-            }
-            setIsMobileSidebarOpen(false)
-            setIsProfileMenuOpen(false)
-            setIsCharacterMenuOpen(false)
-          }}
-          onSignOut={() => {
-            localStorage.removeItem(tokenKey)
-            setUser(null)
-            setToken("")
-            setAuthError("")
-            setIsAuthHydrating(false)
-            setIsProfileMenuOpen(false)
-            setIsCharacterMenuOpen(false)
-          }}
-          onToggleDebugMode={() => {
-            void persistDebugMode(!debugMode)
-            setIsProfileMenuOpen(false)
-          }}
-          onToggleProfileMenu={() => setIsProfileMenuOpen((current) => !current)}
-          onToggleSidebarCollapsed={() => setIsSidebarCollapsed((current) => !current)}
-        />
+            }}
+            onRenameChatTitleChange={setRenameChatTitle}
+            onSelectChat={(chatId) => {
+              if (token) {
+                void selectChat(chatId, token).catch((error) => {
+                  setChatError(error instanceof Error ? error.message : "Chat could not be opened.")
+                })
+              }
+            }}
+            onSetActiveView={(view) => {
+              setActiveView(view)
+              if (view === "admin") {
+                setActiveAdminSection("dashboard")
+                setIsCharacterEditorOpen(false)
+              }
+              setIsMobileSidebarOpen(false)
+              setIsProfileMenuOpen(false)
+              setIsCharacterMenuOpen(false)
+            }}
+            onSignOut={() => {
+              localStorage.removeItem(tokenKey)
+              setUser(null)
+              setToken("")
+              setAuthError("")
+              setIsAuthHydrating(false)
+              setIsProfileMenuOpen(false)
+              setIsCharacterMenuOpen(false)
+            }}
+            onToggleDebugMode={() => {
+              void persistDebugMode(!debugMode)
+              setIsProfileMenuOpen(false)
+            }}
+            onToggleProfileMenu={() => setIsProfileMenuOpen((current) => !current)}
+            onToggleSidebarCollapsed={() => setIsSidebarCollapsed((current) => !current)}
+          />
+        ) : null}
 
         <main className="relative flex min-h-0 min-w-0 flex-col overflow-hidden">
           {!user ? (
@@ -5459,9 +5994,10 @@ export default function App() {
           <header className="relative flex h-16 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6">
             <div className="flex items-center gap-3">
               <Button
-                className="md:hidden"
+                className={cn("md:hidden", isWorkspaceView ? "hidden" : "")}
                 onClick={() => setIsMobileSidebarOpen(true)}
                 size="icon"
+                tooltip="Open navigation"
                 type="button"
                 variant="ghost"
               >
@@ -5470,10 +6006,16 @@ export default function App() {
               {activeView === "assistant" ? (
                 <CharacterQuickSwitcher
                   busy={isCharacterSyncPending}
-                  characters={quickCharacterChoices}
+                  characters={sharedCharacterChoices.map((character) => ({
+                    ...character,
+                    teaser: fallbackCharacterTeaser(character),
+                  }))}
                   open={isCharacterMenuOpen}
                   pendingCharacterName={pendingCharacterName}
-                  selectedCharacter={selectedCharacter}
+                  selectedCharacter={selectedCharacter ? {
+                    ...selectedCharacter,
+                    teaser: fallbackCharacterTeaser(selectedCharacter),
+                  } : null}
                   onOpenCharacterSettings={openCharacterSettingsPanel}
                   onSelectCharacter={(characterId) => void handleCharacterSwitch(characterId)}
                   onToggle={() => {
@@ -5483,24 +6025,24 @@ export default function App() {
                   }}
                 />
               ) : (
-                <Button className="h-auto gap-2 px-1 py-1 text-sm text-zinc-100 hover:bg-white/[0.05]" type="button" variant="ghost">
-                  <span className="max-w-[140px] truncate sm:max-w-none">
+                <div className="workspace-view-badge text-sm font-medium">
+                  <span className="max-w-[160px] truncate sm:max-w-none">
                     {activeView === "settings" ? "Settings" : "Administration"}
                   </span>
-                </Button>
+                </div>
               )}
               <button
                 aria-expanded={isHealthOpen}
                 aria-label="Open local service status"
                 className={`flex items-center gap-2 border px-2.5 py-1 text-xs ${
                   healthTone === "ok"
-                    ? "border-zinc-800 bg-zinc-900 text-zinc-300"
+                    ? "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--foreground)]"
                     : healthTone === "warn"
                       ? "border-amber-900/70 bg-amber-950/30 text-amber-200"
                       : healthTone === "error"
                         ? "border-rose-900/70 bg-rose-950/30 text-rose-200"
-                        : "border-zinc-800 bg-zinc-900 text-zinc-400"
-                } ${canOpenHealth ? "cursor-pointer hover:bg-zinc-800/80" : "cursor-default"}`}
+                        : "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--muted-foreground)]"
+                } ${canOpenHealth ? "cursor-pointer hover:bg-[var(--input)]" : "cursor-default"}`}
                 disabled={!canOpenHealth}
                 onClick={() => {
                   if (canOpenHealth) {
@@ -5527,34 +6069,42 @@ export default function App() {
                 </span>
               </button>
             </div>
-            <div className="relative flex items-center gap-1 text-zinc-300 sm:gap-2" onPointerDown={(event) => event.stopPropagation()}>
+            <div className="relative flex items-center gap-1 text-[var(--foreground)] sm:gap-2" onPointerDown={(event) => event.stopPropagation()}>
               {user?.is_admin && debugMode ? (
-                <Button className="h-auto gap-2 px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.05]" onClick={() => setIsDebugOpen((current) => !current)} type="button" variant="ghost">
+                <Button
+                  className="h-9 gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-soft)] hover:bg-[var(--input)]"
+                  onClick={() => setIsDebugOpen((current) => !current)}
+                  type="button"
+                  variant="ghost"
+                >
                   <Bug className="h-4 w-4" />
                   Logs
                 </Button>
               ) : null}
-              <Button
-                className="h-8 w-8 border border-white/8 bg-white/[0.03]"
-                disabled={!activeChat}
-                onClick={() => {
-                  if (activeChat) {
-                    openChatMenu(activeChat.id, "header")
-                  }
-                }}
-                size="icon"
-                type="button"
-                variant="ghost"
-              >
-                <Ellipsis className="h-4 w-4" />
-              </Button>
-              {openChatMenuId === activeChatId && chatMenuAnchor === "header" && activeChat ? (
+              {!isWorkspaceView ? (
+                <Button
+                  className="h-8 w-8 border border-[var(--line)] bg-[var(--panel)]"
+                  disabled={!activeChat}
+                  onClick={() => {
+                    if (activeChat) {
+                      openChatMenu(activeChat.id, "header")
+                    }
+                  }}
+                  size="icon"
+                  tooltip={activeChat ? "Chat actions" : "No active chat"}
+                  type="button"
+                  variant="ghost"
+                >
+                  <Ellipsis className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {!isWorkspaceView && openChatMenuId === activeChatId && chatMenuAnchor === "header" && activeChat ? (
                 <div
-                  className="absolute right-0 top-[calc(100%+8px)] z-30 w-44 border border-white/8 bg-zinc-950/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
+                  className="absolute right-0 top-[calc(100%+8px)] z-30 w-44 border border-[var(--line)] bg-[var(--panel-strong)]/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
                   onPointerDown={(event) => event.stopPropagation()}
                 >
-                  <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-zinc-200 hover:bg-white/[0.05]" onClick={() => beginRenamingChat(activeChat)} type="button">
-                    <Pencil className="h-4 w-4 text-zinc-400" />
+                  <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--input)]" onClick={() => beginRenamingChat(activeChat)} type="button">
+                    <Pencil className="h-4 w-4 text-[var(--muted-foreground)]" />
                     Rename chat
                   </button>
                   <button
@@ -5579,15 +6129,15 @@ export default function App() {
 
           {isHealthOpen && canOpenHealth ? (
             <div className="absolute left-4 right-4 top-18 z-10 md:left-auto md:right-6 md:w-[380px]">
-              <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
+              <Card className="border-[var(--line)] bg-[var(--panel-strong)]/96 text-[var(--foreground)] shadow-2xl">
                 <CardContent className="p-3">
                   <div className="mb-3 flex items-center justify-between">
                     <div>
-                      <div className="text-sm font-semibold text-zinc-100">Local Status</div>
-                      <div className="text-xs text-zinc-500">Profile {health?.profile || bootstrap?.profile || "mac"}</div>
+                      <div className="text-sm font-semibold text-[var(--foreground)]">Local Status</div>
+                      <div className="text-xs text-[var(--muted-foreground)]">Profile {health?.profile || bootstrap?.profile || "mac"}</div>
                     </div>
                     <Button
-                      className="h-8 rounded-lg px-2 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                      className="h-8 rounded-lg px-2 text-xs text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
                       onClick={() => void refreshHealth()}
                       type="button"
                       variant="ghost"
@@ -5595,7 +6145,7 @@ export default function App() {
                       Refresh
                     </Button>
                     <Button
-                      className="h-8 rounded-lg px-2 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                      className="h-8 rounded-lg px-2 text-xs text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
                       onClick={() => setIsHealthOpen(false)}
                       type="button"
                       variant="ghost"
@@ -5604,16 +6154,16 @@ export default function App() {
                     </Button>
                   </div>
                   {!health ? (
-                    <div className="flex items-center gap-2 rounded-xl bg-zinc-950/80 px-3 py-2 text-sm text-zinc-300">
+                    <div className="flex items-center gap-2 rounded-xl bg-[var(--input)] px-3 py-2 text-sm text-[var(--foreground)]">
                       <LoaderCircle className="h-4 w-4 animate-spin" />
                       Checking local services...
                     </div>
                   ) : (
                     <div className="space-y-2">
                       {topIssues.map((issue) => (
-                        <div key={issue.key} className="rounded-xl bg-zinc-950/80 px-3 py-2">
-                          <div className="text-sm font-medium text-zinc-100">{issue.label}</div>
-                          <div className="mt-1 text-sm leading-6 text-zinc-400">{issue.detail}</div>
+                        <div key={issue.key} className="rounded-xl bg-[var(--input)] px-3 py-2">
+                          <div className="text-sm font-medium text-[var(--foreground)]">{issue.label}</div>
+                          <div className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">{issue.detail}</div>
                         </div>
                       ))}
                     </div>
@@ -5626,16 +6176,16 @@ export default function App() {
 
           {user?.is_admin && debugMode && isDebugOpen ? (
             <div className="absolute bottom-28 right-4 top-16 z-10 w-[min(460px,calc(100vw-32px))]">
-              <Card className="flex h-full min-h-0 flex-col border-white/8 bg-zinc-900/98 text-zinc-100 shadow-2xl">
+              <Card className="flex h-full min-h-0 flex-col border-[var(--line)] bg-[var(--panel-strong)]/98 text-[var(--foreground)] shadow-2xl">
                 <CardContent className="flex min-h-0 flex-1 flex-col p-3">
                   <div className="mb-3 flex items-center justify-between">
                     <div>
-                      <div className="text-sm font-semibold text-zinc-100">Debug Console</div>
-                      <div className="text-xs text-zinc-500">Live timings and local logs</div>
+                      <div className="text-sm font-semibold text-[var(--foreground)]">Debug Console</div>
+                      <div className="text-xs text-[var(--muted-foreground)]">Live timings and local logs</div>
                     </div>
                     <div className="flex items-center gap-1">
                       <Button
-                        className="h-8 rounded-lg px-2 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                        className="h-8 rounded-lg px-2 text-xs text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
                         onClick={() => void copyAllDebugLogs()}
                         type="button"
                         variant="ghost"
@@ -5643,7 +6193,7 @@ export default function App() {
                         {copiedDebugTarget === "all" ? "Copied" : "Copy All"}
                       </Button>
                       <Button
-                        className="h-8 rounded-lg px-2 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                        className="h-8 rounded-lg px-2 text-xs text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
                         onClick={() => void refreshDebugLogs()}
                         type="button"
                         variant="ghost"
@@ -5651,7 +6201,7 @@ export default function App() {
                         Refresh
                       </Button>
                       <Button
-                        className="h-8 rounded-lg px-2 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                        className="h-8 rounded-lg px-2 text-xs text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
                         onClick={() => setIsDebugOpen(false)}
                         type="button"
                         variant="ghost"
@@ -5662,16 +6212,16 @@ export default function App() {
                   </div>
                   <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
                     {!debugLogs ? (
-                      <div className="rounded-xl bg-zinc-950/80 px-3 py-2 text-sm text-zinc-400">
+                      <div className="rounded-xl bg-[var(--input)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
                         Loading debug logs...
                       </div>
                     ) : (
                       debugLogs.sections.map((section) => (
-                        <div key={section.key} className="rounded-xl border border-zinc-800 bg-zinc-950/80">
-                          <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
-                            <div className="text-sm font-medium text-zinc-200">{section.label}</div>
+                        <div key={section.key} className="rounded-xl border border-[var(--line)] bg-[var(--input)]">
+                          <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-2">
+                            <div className="text-sm font-medium text-[var(--foreground)]">{section.label}</div>
                             <Button
-                              className="h-7 rounded-lg px-2 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                              className="h-7 rounded-lg px-2 text-[11px] text-[var(--muted-foreground)] hover:bg-[var(--panel)] hover:text-[var(--foreground)]"
                               onClick={() => void copyDebugSection(section)}
                               type="button"
                               variant="ghost"
@@ -5679,10 +6229,10 @@ export default function App() {
                               {copiedDebugTarget === section.key ? "Copied" : "Copy"}
                             </Button>
                           </div>
-                          <div className="border-b border-zinc-800/80 px-3 py-1 font-mono text-[10px] text-zinc-500">
+                          <div className="border-b border-[var(--line)] px-3 py-1 font-mono text-[10px] text-[var(--muted-foreground)]">
                             {section.path}
                           </div>
-                          <div className="max-h-56 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-5 text-zinc-400">
+                          <div className="max-h-56 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-5 text-[var(--muted-foreground)]">
                             {section.exists && section.lines.length > 0 ? (
                               section.lines.map((line, index) => <div key={`${section.key}-${index}`}>{line}</div>)
                             ) : (
@@ -5701,12 +6251,12 @@ export default function App() {
           {isCameraPreviewOpen ? (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
               <div className="w-full max-w-2xl">
-                <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
+                <Card className="border-[var(--line)] bg-[var(--card)]/96 text-[var(--foreground)] shadow-[var(--shadow-strong)]">
                   <CardContent className="space-y-4 p-4">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-sm font-semibold">Live Camera Test</div>
-                        <div className="text-xs text-zinc-500">Quick browser camera preview for framing and permissions</div>
+                        <div className="text-xs text-[var(--muted-foreground)]">Quick browser camera preview for framing and permissions</div>
                       </div>
                       <Button className="h-8 rounded-lg px-2 text-xs" onClick={() => setIsCameraPreviewOpen(false)} type="button" variant="ghost">
                         Close
@@ -5744,86 +6294,246 @@ export default function App() {
             </div>
           ) : activeView === "settings" ? (
             <div className="workspace-shell min-h-0 flex-1 overflow-hidden" ref={rightPaneScrollRef}>
-              <div className="grid h-full w-full gap-0 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
-                <div className="workspace-nav h-full space-y-2 px-6 py-6">
+              <div className="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1">
+                <div className="workspace-nav h-auto space-y-3 overflow-x-auto px-3 py-3 lg:h-full lg:px-4 lg:py-4">
+                  <div className="workspace-rail-card p-3">
+                    <Button className="w-full justify-start gap-2 rounded-2xl px-3 text-sm" onClick={() => setActiveView("assistant")} type="button" variant="ghost">
+                      <ArrowUpDown className="h-4 w-4 rotate-90" />
+                      Back to chats
+                    </Button>
+                  </div>
                   <div className="px-3 py-2">
-                    <div className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Settings</div>
-                    <div className="mt-1 text-sm text-[var(--muted-foreground)]">Theme, voice, wakeword, skills, and local runtime controls</div>
+                    <div className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">Settings</div>
+                    <div className="mt-1 text-sm text-[var(--muted-foreground)]">Personal preferences, appearance, voice, wakeword, and memory.</div>
                   </div>
                   {settingsSections.map((section) => (
                     <button
                       key={section.id}
-                      className={`w-full rounded-[24px] px-3 py-3 text-left transition ${
-                        activeSettingsSection === section.id ? "bg-white/[0.08] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:bg-white/[0.04] hover:text-[var(--foreground)]"
-                      }`}
+                      className={cn("workspace-section-button", activeSettingsSection === section.id ? "is-active" : "")}
                       onClick={() => setActiveSettingsSection(section.id)}
                       type="button"
                     >
                       <div className="text-sm font-medium">{section.label}</div>
-                      <div className="mt-1 text-xs text-zinc-500">{section.detail}</div>
+                      <div className="workspace-section-detail mt-1 text-xs">{section.detail}</div>
                     </button>
                   ))}
                 </div>
 
-                <div className="workspace-content min-h-0 space-y-6 overflow-y-auto px-9 py-6">
+                <div className="workspace-content min-h-0 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10 lg:py-8 xl:px-12">
+                  <div className={cn(settingsContentClass, "space-y-6")}>
                   {activeSettingsSection === "appearance" ? (
-                    <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
-                      <CardContent className="space-y-4 p-5 sm:p-6">
+                    <Card className="workspace-panel text-[var(--foreground)]">
+                      <CardContent className="space-y-6 p-5 sm:p-6">
                         <div>
                           <div className="text-xl font-semibold">Appearance</div>
-                          <div className="mt-1 text-sm text-zinc-500">Core app appearance and developer-facing controls</div>
+                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">Choose a full visual preset and a separate light, dark, or automatic mode.</div>
                         </div>
-                        <div className="space-y-2">
-                          <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Theme</div>
-                          <Select onChange={(event) => void persistTheme(event.target.value)} value={theme}>
-                            <option value="system">System</option>
-                            <option value="dark">Dark</option>
-                            <option value="light">Light</option>
-                            <option value="warm">Warm</option>
-                          </Select>
+                        <div className="workspace-inline-panel p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="workspace-label">Theme Mode</div>
+                              <div className="mt-1 text-sm text-[var(--foreground)]">
+                                {themeLocked ? "An administrator is currently forcing your appearance." : "Mode applies across every theme preset."}
+                              </div>
+                            </div>
+                            <div
+                              className="inline-flex flex-wrap gap-2 rounded-full border p-1"
+                              style={{
+                                borderColor: `${modePreviewPalette.accent}33`,
+                                background: `linear-gradient(180deg, ${modePreviewPalette.panel}, ${modePreviewPalette.background})`,
+                                boxShadow: `inset 0 0 0 1px ${modePreviewPalette.accent}12`,
+                              }}
+                            >
+                              {(["light", "dark", "auto"] as ThemeMode[]).map((mode) => (
+                                <button
+                                  key={mode}
+                                  className="h-10 rounded-full px-4 text-xs capitalize transition-all"
+                                  disabled={themeLocked}
+                                  onClick={() => void persistTheme({ mode })}
+                                  type="button"
+                                  style={
+                                    themeMode === mode
+                                      ? {
+                                          background: modePreviewPalette.accent,
+                                          color: modePreviewPalette.text,
+                                          border: `1px solid ${modePreviewPalette.accent}`,
+                                          boxShadow: `0 10px 24px ${modePreviewPalette.accent}2f`,
+                                        }
+                                      : {
+                                          background: "transparent",
+                                          color: `${modePreviewPalette.text}bf`,
+                                          border: `1px solid ${modePreviewPalette.accent}1f`,
+                                        }
+                                  }
+                                >
+                                  {mode}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+                          {themeCatalog.map((preset) => {
+                            const isActive = themePresetId === preset.id
+                            const activePreview = resolvedEffectiveThemeMode === "light" ? preset.preview.light : preset.preview.dark
+                            const previewFontFamily =
+                              preset.id === "studio"
+                                ? '"Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif'
+                                : 'var(--font-sans)'
+                            const previewRadius =
+                              preset.radius_label === "Instrument"
+                                ? "22px"
+                                : preset.radius_label === "Crisp"
+                                  ? "14px"
+                                  : preset.radius_label === "Clean"
+                                    ? "16px"
+                                    : "26px"
+                            return (
+                              <button
+                                key={preset.id}
+                                className={`theme-preview-card text-left ${isActive ? "is-active" : ""}`}
+                                disabled={themeLocked}
+                                onClick={() => void persistTheme({ presetId: preset.id })}
+                                type="button"
+                                style={{
+                                  borderRadius: previewRadius,
+                                  background: `linear-gradient(180deg, ${activePreview.background}, ${activePreview.panel})`,
+                                  borderColor: isActive ? activePreview.accent : "color-mix(in srgb, var(--line) 92%, transparent)",
+                                  color: activePreview.text,
+                                  boxShadow: isActive
+                                    ? `0 0 0 1px ${activePreview.accent}, 0 18px 40px rgba(0,0,0,0.28)`
+                                    : "0 18px 40px rgba(0,0,0,0.2)",
+                                }}
+                              >
+                                <div className="flex min-h-[4.5rem] items-start justify-between gap-3">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-base font-semibold">{preset.name}</div>
+                                    <div className="mt-1 text-sm" style={{ color: `${activePreview.text}bf` }}>{preset.description}</div>
+                                  </div>
+                                </div>
+                                <div
+                                  className="mt-3 min-h-[13rem] overflow-hidden border"
+                                  style={{
+                                    borderRadius: previewRadius,
+                                    borderColor: `${activePreview.accent}44`,
+                                    background: `linear-gradient(180deg, ${activePreview.background}, ${activePreview.panel})`,
+                                    fontFamily: previewFontFamily,
+                                  }}
+                                >
+                                  <div
+                                    className="flex h-[13rem] min-w-0 flex-col"
+                                    style={{
+                                      color: activePreview.text,
+                                    }}
+                                  >
+                                    <div
+                                      className="flex items-center justify-between border-b px-3 py-2"
+                                      style={{
+                                        borderColor: `${activePreview.accent}22`,
+                                        background: `${activePreview.panel}ee`,
+                                      }}
+                                    >
+                                      <div className="text-[11px] font-semibold">LokiDoki</div>
+                                      <div className="text-[10px] uppercase tracking-[0.16em]" style={{ color: `${activePreview.text}88` }}>{preset.font_label}</div>
+                                    </div>
+                                    <div className="flex min-w-0 flex-1 flex-col px-3 py-3">
+                                      <div
+                                        className="text-[15px] font-semibold"
+                                      >
+                                        How can I help?
+                                      </div>
+                                      <div className="mt-2 flex-1 space-y-2">
+                                        <div
+                                          className="ml-auto max-w-[68%] rounded-[16px] px-3 py-2 text-[11px]"
+                                          style={{
+                                            borderRadius: previewRadius,
+                                            background: `${activePreview.accent}22`,
+                                            border: `1px solid ${activePreview.accent}40`,
+                                          }}
+                                        >
+                                          New chat
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span
+                                            className="inline-flex h-7 items-center rounded-full px-3 text-[11px] font-medium"
+                                            style={{
+                                              borderRadius: previewRadius,
+                                              background: activePreview.accent,
+                                              color: activePreview.background,
+                                            }}
+                                          >
+                                            Button
+                                          </span>
+                                          <span
+                                            className="inline-flex h-7 items-center rounded-full border px-3 text-[11px]"
+                                            style={{
+                                              borderRadius: previewRadius,
+                                              borderColor: `${activePreview.accent}40`,
+                                              color: `${activePreview.text}cc`,
+                                              background: `${activePreview.panel}f0`,
+                                            }}
+                                          >
+                                            Input
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="mt-2 border px-3 py-2 text-[11px]" style={{
+                                        borderRadius: previewRadius,
+                                        borderColor: `${activePreview.accent}2c`,
+                                        background: `${activePreview.background}b8`,
+                                        color: `${activePreview.text}aa`,
+                                      }}>
+                                        Message LokiDoki...
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            )
+                          })}
                         </div>
                         {user?.is_admin ? (
-                          <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                          <div className="workspace-inline-panel flex items-center justify-between gap-3 px-4 py-4">
                             <div>
-                              <div className="text-sm font-medium text-zinc-100">Debug Mode</div>
-                              <div className="mt-1 text-sm text-zinc-500">Timings, route metadata, and local log viewer</div>
+                              <div className="text-sm font-medium text-[var(--foreground)]">Debug Mode</div>
+                              <div className="mt-1 text-sm text-[var(--muted-foreground)]">Timings, route metadata, and local log viewer</div>
                             </div>
                             <Button className="h-9 rounded-full px-3 text-xs" onClick={() => void persistDebugMode(!debugMode)} type="button" variant="outline">
                               {debugMode ? "On" : "Off"}
                             </Button>
                           </div>
                         ) : null}
-                        {voiceStatus ? <div className="text-sm text-zinc-500">{voiceStatus}</div> : null}
+                        {voiceStatus ? <div className="workspace-muted text-sm">{voiceStatus}</div> : null}
                         {user?.is_admin && debugMode ? (
-                          <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4 text-sm text-zinc-300">
-                            <div className="mb-3 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Voice Telemetry</div>
+                          <div className="workspace-inline-panel px-4 py-4 text-sm text-[var(--foreground)]">
+                            <div className="workspace-label mb-3">Voice Telemetry</div>
                             <div className="grid gap-2 md:grid-cols-2">
-                              <div>Pipeline: <span className="text-zinc-100">{voiceTelemetry.pipelineStatus}</span></div>
-                              <div>Viseme: <span className="text-zinc-100">{voiceTelemetry.currentViseme}</span></div>
+                              <div>Pipeline: <span className="text-[var(--foreground)]">{voiceTelemetry.pipelineStatus}</span></div>
+                              <div>Viseme: <span className="text-[var(--foreground)]">{voiceTelemetry.currentViseme}</span></div>
                               <div>
                                 First chunk:
-                                <span className="text-zinc-100">
+                                <span className="text-[var(--foreground)]">
                                   {formatVoiceLatency(voiceTelemetry.requestedAtMs, voiceTelemetry.firstChunkAtMs)}
                                 </span>
                               </div>
                               <div>
                                 Playback start:
-                                <span className="text-zinc-100">
+                                <span className="text-[var(--foreground)]">
                                   {formatVoiceLatency(voiceTelemetry.requestedAtMs, voiceTelemetry.playbackStartAtMs)}
                                 </span>
                               </div>
                               <div>
                                 Total reply:
-                                <span className="text-zinc-100">
+                                <span className="text-[var(--foreground)]">
                                   {formatVoiceLatency(voiceTelemetry.requestedAtMs, voiceTelemetry.completedAtMs)}
                                 </span>
                               </div>
-                              <div>VAD speaking: <span className="text-zinc-100">{vadTelemetry.isSpeaking ? "yes" : "no"}</span></div>
-                              <div>VAD peak: <span className="text-zinc-100">{vadTelemetry.peak.toFixed(3)}</span></div>
-                              <div>VAD rms: <span className="text-zinc-100">{vadTelemetry.rms.toFixed(3)}</span></div>
-                              <div>Speech frames: <span className="text-zinc-100">{vadTelemetry.speechFrames}</span></div>
-                              <div>Silence frames: <span className="text-zinc-100">{vadTelemetry.silenceFrames}</span></div>
-                              <div>Capturing: <span className="text-zinc-100">{vadTelemetry.capturing ? "yes" : "no"}</span></div>
+                              <div>VAD speaking: <span className="text-[var(--foreground)]">{vadTelemetry.isSpeaking ? "yes" : "no"}</span></div>
+                              <div>VAD peak: <span className="text-[var(--foreground)]">{vadTelemetry.peak.toFixed(3)}</span></div>
+                              <div>VAD rms: <span className="text-[var(--foreground)]">{vadTelemetry.rms.toFixed(3)}</span></div>
+                              <div>Speech frames: <span className="text-[var(--foreground)]">{vadTelemetry.speechFrames}</span></div>
+                              <div>Silence frames: <span className="text-[var(--foreground)]">{vadTelemetry.silenceFrames}</span></div>
+                              <div>Capturing: <span className="text-[var(--foreground)]">{vadTelemetry.capturing ? "yes" : "no"}</span></div>
                             </div>
                           </div>
                         ) : null}
@@ -5832,36 +6542,36 @@ export default function App() {
                   ) : null}
 
                   {activeSettingsSection === "general" ? (
-                    <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
+                    <Card className="workspace-panel text-[var(--foreground)]">
                       <CardContent className="space-y-4 p-5 sm:p-6">
                         <div>
                           <div className="text-xl font-semibold">General</div>
-                          <div className="mt-1 text-sm text-zinc-500">Profile details, password, and your default response behavior.</div>
+                          <div className="workspace-muted mt-1 text-sm">Profile details, password, and your default response behavior.</div>
                         </div>
                         <div className="grid gap-4 lg:grid-cols-2">
                           <div className="space-y-2">
-                            <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Username</div>
+                            <div className="workspace-label">Username</div>
                             <Input disabled value={user?.username || ""} />
                           </div>
                           <div className="space-y-2">
-                            <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Display Name</div>
+                            <div className="workspace-label">Display Name</div>
                             <Input onChange={(event) => setProfileDisplayNameDraft(event.target.value)} value={profileDisplayNameDraft} />
                           </div>
                         </div>
                         <div className="grid gap-4 lg:grid-cols-2">
                           <div className="space-y-2">
-                            <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Current Password</div>
+                            <div className="workspace-label">Current Password</div>
                             <Input onChange={(event) => setCurrentPasswordDraft(event.target.value)} type="password" value={currentPasswordDraft} />
                           </div>
                           <div className="space-y-2">
-                            <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">New Password</div>
+                            <div className="workspace-label">New Password</div>
                             <Input onChange={(event) => setNewPasswordDraft(event.target.value)} type="password" value={newPasswordDraft} />
                           </div>
                         </div>
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="workspace-inline-panel flex items-center justify-between gap-3 px-4 py-4">
                           <div>
-                            <div className="text-sm font-medium text-zinc-100">Character Mode</div>
-                            <div className="mt-1 text-sm text-zinc-500">Turn character voice on or fall back to neutral LokiDoki responses.</div>
+                            <div className="text-sm font-medium text-[var(--foreground)]">Character Mode</div>
+                            <div className="workspace-muted mt-1 text-sm">Turn character voice on or fall back to neutral LokiDoki responses.</div>
                           </div>
                           <Button
                             className="h-9 rounded-full px-3 text-xs"
@@ -5877,41 +6587,57 @@ export default function App() {
                           </Button>
                         </div>
                         <div className="space-y-2">
-                          <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Active Character</div>
-                          <Select
-                            disabled={Boolean(assignedCharacterId && !canSelectCharacter)}
-                            onChange={(event) => {
-                              const nextCharacterId = event.target.value
-                              setActiveCharacterId(nextCharacterId)
-                              void persistCharacterSettings({ active_character_id: nextCharacterId } as Partial<SettingsPayload>)
+                          <div className="workspace-label">Active Character</div>
+                          <CharacterQuickSwitcher
+                            busy={isCharacterSyncPending}
+                            characters={settingsCharacterChoices.map((character) => ({
+                              ...character,
+                              teaser: fallbackCharacterTeaser(character),
+                            }))}
+                            selectedCharacter={selectedCharacter ? {
+                              ...selectedCharacter,
+                              teaser: fallbackCharacterTeaser(selectedCharacter),
+                            } : null}
+                            open={isCharacterMenuOpen}
+                            onToggle={() => {
+                              if (!isCharacterSyncPending && !(assignedCharacterId && !canSelectCharacter)) {
+                                setIsCharacterMenuOpen((current) => !current)
+                              }
                             }}
-                            value={activeCharacterId}
-                          >
-                            {characters.map((character) => (
-                              <option key={character.id} value={character.id}>
-                                {character.name} {character.enabled ? "" : "(disabled)"}
-                              </option>
-                            ))}
-                          </Select>
+                            onSelectCharacter={(characterId) => {
+                              if (assignedCharacterId && !canSelectCharacter) {
+                                return
+                              }
+                              setIsCharacterMenuOpen(false)
+                              void handleCharacterSwitch(characterId)
+                            }}
+                            onOpenCharacterSettings={() => {
+                              setIsCharacterMenuOpen(false)
+                            }}
+                            hideFooter
+                            footerLabel=""
+                            footerSubtitle=""
+                            pendingCharacterName={pendingCharacterName}
+                          />
                           {assignedCharacterId && !canSelectCharacter ? (
-                            <div className="text-xs text-zinc-600">This character is assigned by an administrator and selection is locked.</div>
+                            <div className="workspace-muted text-xs">This character is assigned by an administrator and selection is locked.</div>
                           ) : null}
-                          {selectedCharacter ? <div className="text-sm text-zinc-500">{selectedCharacter.description || `${selectedCharacter.name} character`}</div> : null}
+                          {selectedCharacter ? <div className="workspace-muted text-sm">{selectedCharacter.description || `${selectedCharacter.name} character`}</div> : null}
                         </div>
                         <div className="space-y-2">
-                          <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Global User Prompt</div>
-                          <div className="text-sm text-zinc-500">Applied across all responses, whether character mode is on or off.</div>
+                          <div className="workspace-label">Global User Prompt</div>
+                          <div className="workspace-muted text-sm">Applied across all responses, whether character mode is on or off.</div>
                           <Textarea
                             onChange={(event) => setUserPromptText(event.target.value)}
                             placeholder={PROMPT_EXAMPLES.userPrompt}
                             rows={3}
                             value={userPromptText}
                           />
-                          <div className="text-xs text-zinc-600">{PROMPT_EXAMPLES.userPrompt}</div>
+                          <div className="workspace-muted text-xs">{PROMPT_EXAMPLES.userPrompt}</div>
                         </div>
                         <div className="space-y-2">
-                          <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Character Custom Prompt</div>
-                          <div className="text-sm text-zinc-500">Only applies when this character is active and character mode is on.</div>
+                          <div className="workspace-label">Character Custom Prompt</div>
+                          <div className="workspace-muted text-sm">Only applies when this character is active and character mode is on.</div>
                           <Textarea
                             onChange={(event) =>
                               setCharacterCustomizations((current) => ({
@@ -5923,11 +6649,11 @@ export default function App() {
                             rows={4}
                             value={characterCustomizations[activeCharacterId] || ""}
                           />
-                          <div className="text-xs text-zinc-600">{PROMPT_EXAMPLES.characterCustom}</div>
+                          <div className="workspace-muted text-xs">{PROMPT_EXAMPLES.characterCustom}</div>
                         </div>
-                        <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
-                          <div className="text-sm font-medium text-zinc-100">Care Profile</div>
-                          <div className="mt-1 text-sm text-zinc-400">
+                        <div className="workspace-inline-panel px-4 py-4">
+                          <div className="text-sm font-medium text-[var(--foreground)]">Care Profile</div>
+                          <div className="workspace-muted mt-1 text-sm">
                             {careProfiles.find((profile) => profile.id === careProfileId)?.label || careProfileId}
                           </div>
                         </div>
@@ -5935,8 +6661,8 @@ export default function App() {
                           <Button className="h-9 rounded-full px-3 text-xs" onClick={() => void persistGeneralSettings()} type="button" variant="outline">
                             Save General Settings
                           </Button>
-                          {characterStatus ? <div className="text-sm text-zinc-500">{characterStatus}</div> : null}
-                          {profileStatus ? <div className="text-sm text-zinc-500">{profileStatus}</div> : null}
+                          {characterStatus ? <div className="workspace-muted text-sm">{characterStatus}</div> : null}
+                          {profileStatus ? <div className="workspace-muted text-sm">{profileStatus}</div> : null}
                         </div>
                       </CardContent>
                     </Card>
@@ -5952,11 +6678,11 @@ export default function App() {
                   ) : null}
 
                   {activeSettingsSection === "recognition" ? (
-                    <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
+                    <Card className="border-[var(--line)] bg-[var(--card)] text-[var(--foreground)] shadow-2xl">
                       <CardContent className="space-y-4 p-5 sm:p-6">
                         <div>
                           <div className="text-xl font-semibold">Recognition</div>
-                          <div className="mt-1 text-sm text-zinc-500">Each user manages their own recognition enrollment here.</div>
+                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">Each user manages their own recognition enrollment here.</div>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <Button
@@ -5985,7 +6711,7 @@ export default function App() {
                             token={token}
                           />
                         ) : (
-                          <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 text-sm text-zinc-500">
+                          <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4 text-sm text-[var(--muted-foreground)]">
                             Vocal recognition is coming soon.
                           </div>
                         )}
@@ -5994,25 +6720,25 @@ export default function App() {
                   ) : null}
 
                   {activeSettingsSection === "voice" ? (
-                    <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
+                    <Card className="border-[var(--line)] bg-[var(--card)] text-[var(--foreground)] shadow-2xl">
                       <CardContent className="space-y-4 p-5 sm:p-6">
                         <div>
                           <div className="text-xl font-semibold">Voice</div>
-                          <div className="mt-1 text-sm text-zinc-500">Browser voices or local Piper output for spoken replies. This only applies when character mode is off.</div>
+                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">Browser voices or local Piper output for spoken replies. This only applies when character mode is off.</div>
                         </div>
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--input)] px-4 py-4">
                           <div>
-                            <div className="text-sm font-medium text-zinc-100">Voice Reply</div>
-                            <div className="mt-1 text-sm text-zinc-500">Choose browser voices or local Piper output</div>
+                            <div className="text-sm font-medium text-[var(--foreground)]">Voice Reply</div>
+                            <div className="mt-1 text-sm text-[var(--muted-foreground)]">Choose browser voices or local Piper output</div>
                           </div>
                           <Button className="h-9 rounded-full px-3 text-xs" onClick={toggleVoiceReply} type="button" variant="outline">
                             {voiceReplyEnabled ? "On" : "Off"}
                           </Button>
                         </div>
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--input)] px-4 py-4">
                           <div>
-                            <div className="text-sm font-medium text-zinc-100">Barge-In</div>
-                            <div className="mt-1 text-sm text-zinc-500">Let you interrupt spoken replies with your voice. Off by default.</div>
+                            <div className="text-sm font-medium text-[var(--foreground)]">Barge-In</div>
+                            <div className="mt-1 text-sm text-[var(--muted-foreground)]">Let you interrupt spoken replies with your voice. Off by default.</div>
                           </div>
                           <Button
                             className="h-9 rounded-full px-3 text-xs"
@@ -6066,7 +6792,7 @@ export default function App() {
                                   {isInstallingVoice ? "Installing..." : "Install"}
                                 </Button>
                               ) : null}
-                              {isInstallingVoice ? <div className="text-sm text-zinc-500">Installing voice…</div> : null}
+                              {isInstallingVoice ? <div className="text-sm text-[var(--muted-foreground)]">Installing voice…</div> : null}
                             </div>
                           </div>
                         ) : null}
@@ -6075,16 +6801,16 @@ export default function App() {
                   ) : null}
 
                   {activeSettingsSection === "wakeword" ? (
-                    <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
+                    <Card className="border-[var(--line)] bg-[var(--card)] text-[var(--foreground)] shadow-2xl">
                       <CardContent className="space-y-4 p-5 sm:p-6">
                         <div>
                           <div className="text-xl font-semibold">Wakeword</div>
-                          <div className="mt-1 text-sm text-zinc-500">Hands-free local wakeword monitoring and model selection. This only applies when character mode is off.</div>
+                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">Hands-free local wakeword monitoring and model selection. This only applies when character mode is off.</div>
                         </div>
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--input)] px-4 py-4">
                           <div>
-                            <div className="text-sm font-medium text-zinc-100">Wakeword</div>
-                            <div className="mt-1 text-sm text-zinc-500">Hands-free LokiDoki trigger using the local wakeword model</div>
+                            <div className="text-sm font-medium text-[var(--foreground)]">Wakeword</div>
+                            <div className="mt-1 text-sm text-[var(--muted-foreground)]">Hands-free LokiDoki trigger using the local wakeword model</div>
                           </div>
                           <Button
                             className="h-9 rounded-full px-3 text-xs"
@@ -6107,16 +6833,16 @@ export default function App() {
                             </option>
                           ))}
                         </Select>
-                        <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] px-4 py-4">
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <div className="text-sm font-medium text-zinc-100">Detection threshold</div>
-                              <div className="mt-1 text-sm text-zinc-500">Lower values trigger more easily. If scores stay near zero, this helps us separate calibration issues from audio-capture issues.</div>
+                              <div className="text-sm font-medium text-[var(--foreground)]">Detection threshold</div>
+                              <div className="mt-1 text-sm text-[var(--muted-foreground)]">Lower values trigger more easily. If scores stay near zero, this helps us separate calibration issues from audio-capture issues.</div>
                             </div>
-                            <div className="text-sm font-medium text-zinc-100">{wakewordThreshold.toFixed(2)}</div>
+                            <div className="text-sm font-medium text-[var(--foreground)]">{wakewordThreshold.toFixed(2)}</div>
                           </div>
                           <input
-                            className="mt-4 w-full accent-white"
+                            className="mt-4 w-full accent-[var(--accent)]"
                             max={0.99}
                             min={0.05}
                             onChange={(event) => {
@@ -6135,19 +6861,19 @@ export default function App() {
                             type="range"
                             value={wakewordThreshold}
                           />
-                          <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
+                          <div className="mt-2 flex items-center justify-between text-xs text-[var(--muted-foreground)]">
                             <span>0.05 sensitive</span>
                             <span>0.99 strict</span>
                           </div>
                         </div>
-                        <div className="text-sm text-zinc-500">
+                        <div className="text-sm text-[var(--muted-foreground)]">
                           {wakewordRuntime?.detail || "Wakeword status unavailable."}
                         </div>
-                        <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                        <div className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <div className="text-sm font-medium text-zinc-100">Debug / Test</div>
-                              <div className="mt-1 text-sm text-zinc-500">Run a 5 second manual test and inspect live wakeword scores.</div>
+                              <div className="text-sm font-medium text-[var(--foreground)]">Debug / Test</div>
+                              <div className="mt-1 text-sm text-[var(--muted-foreground)]">Run a 5 second manual test and inspect live wakeword scores.</div>
                             </div>
                             <Button
                               className="h-9 rounded-full px-3 text-xs"
@@ -6160,29 +6886,29 @@ export default function App() {
                             </Button>
                           </div>
                           <div className="mt-4 grid gap-3 md:grid-cols-3">
-                            <label className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-zinc-300">
+                            <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-sm text-[var(--foreground)]">
                               <span>Echo cancellation</span>
                               <input
                                 checked={wakewordEchoCancellationEnabled}
-                                className="h-4 w-4 accent-white"
+                                className="h-4 w-4 accent-[var(--accent)]"
                                 onChange={(event) => setWakewordEchoCancellationEnabled(event.target.checked)}
                                 type="checkbox"
                               />
                             </label>
-                            <label className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-zinc-300">
+                            <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-sm text-[var(--foreground)]">
                               <span>Noise suppression</span>
                               <input
                                 checked={wakewordNoiseSuppressionEnabled}
-                                className="h-4 w-4 accent-white"
+                                className="h-4 w-4 accent-[var(--accent)]"
                                 onChange={(event) => setWakewordNoiseSuppressionEnabled(event.target.checked)}
                                 type="checkbox"
                               />
                             </label>
-                            <label className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-zinc-300">
+                            <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-sm text-[var(--foreground)]">
                               <span>Auto gain control</span>
                               <input
                                 checked={wakewordAutoGainControlEnabled}
-                                className="h-4 w-4 accent-white"
+                                className="h-4 w-4 accent-[var(--accent)]"
                                 onChange={(event) => setWakewordAutoGainControlEnabled(event.target.checked)}
                                 type="checkbox"
                               />
@@ -6198,37 +6924,37 @@ export default function App() {
                             />
                           </div>
                           <div className="mt-4 grid gap-3 md:grid-cols-3">
-                            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-3">
-                              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Status</div>
-                              <div className="mt-1 text-sm text-zinc-100">{wakewordDebugResult.status}</div>
+                            <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Status</div>
+                              <div className="mt-1 text-sm text-[var(--foreground)]">{wakewordDebugResult.status}</div>
                             </div>
-                            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-3">
-                              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Peak Score</div>
-                              <div className="mt-1 text-sm text-zinc-100">{wakewordDebugResult.score.toFixed(3)}</div>
+                            <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Peak Score</div>
+                              <div className="mt-1 text-sm text-[var(--foreground)]">{wakewordDebugResult.score.toFixed(3)}</div>
                             </div>
-                            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-3">
-                              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Phrase</div>
-                              <div className="mt-1 text-sm text-zinc-100">{wakewordRuntime?.source?.phrases?.join(", ") || "Not available"}</div>
+                            <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Phrase</div>
+                              <div className="mt-1 text-sm text-[var(--foreground)]">{wakewordRuntime?.source?.phrases?.join(", ") || "Not available"}</div>
                             </div>
-                            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-3">
-                              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Threshold</div>
-                              <div className="mt-1 text-sm text-zinc-100">{wakewordThreshold.toFixed(2)}</div>
+                            <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Threshold</div>
+                              <div className="mt-1 text-sm text-[var(--foreground)]">{wakewordThreshold.toFixed(2)}</div>
                             </div>
-                            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-3">
-                              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Signal</div>
-                              <div className="mt-1 text-sm text-zinc-100">{Math.max(wakewordTelemetry.peak, wakewordTelemetry.rms * 2.5).toFixed(3)}</div>
+                            <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Signal</div>
+                              <div className="mt-1 text-sm text-[var(--foreground)]">{Math.max(wakewordTelemetry.peak, wakewordTelemetry.rms * 2.5).toFixed(3)}</div>
                             </div>
-                            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-3">
-                              <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Speech</div>
-                              <div className="mt-1 text-sm text-zinc-100">{wakewordTelemetry.speechLevel.toFixed(3)}</div>
+                            <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Speech</div>
+                              <div className="mt-1 text-sm text-[var(--foreground)]">{wakewordTelemetry.speechLevel.toFixed(3)}</div>
                             </div>
                           </div>
-                          <div className="mt-3 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-zinc-300">
+                          <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-sm text-[var(--foreground)]">
                             {wakewordDebugResult.detail}
                           </div>
-                          <div className="mt-3 rounded-xl border border-white/8 bg-black/20 px-3 py-3">
-                            <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">Recent Events</div>
-                            <div className="mt-2 space-y-1 text-sm text-zinc-400">
+                          <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3">
+                            <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Recent Events</div>
+                            <div className="mt-2 space-y-1 text-sm text-[var(--muted-foreground)]">
                               {wakewordDebugEvents.length === 0 ? (
                                 <div>No events yet.</div>
                               ) : (
@@ -6240,57 +6966,63 @@ export default function App() {
                       </CardContent>
                     </Card>
                   ) : null}
-
+                  </div>
                 </div>
               </div>
             </div>
           ) : activeView === "admin" ? (
             <div className="workspace-shell min-h-0 flex-1 overflow-hidden" ref={rightPaneScrollRef}>
-              {activeAdminSection === "characters" && isCharacterEditorOpen ? (
-                <div className="flex h-full min-h-0 flex-col overflow-hidden px-6 py-6">
-                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Character Editor</div>
-                      <div className="mt-1 text-sm text-[var(--muted-foreground)]">
-                        Edit the active character in the full admin workspace, then save from the editor to update the catalog.
-                      </div>
+              <div className="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1">
+                  <div className="workspace-nav h-auto space-y-3 overflow-x-auto px-3 py-3 lg:h-full lg:px-4 lg:py-4">
+                    <div className="workspace-rail-card p-3">
+                      <Button className="w-full justify-start gap-2 rounded-2xl px-3 text-sm" onClick={() => setActiveView("assistant")} type="button" variant="ghost">
+                        <ArrowUpDown className="h-4 w-4 rotate-90" />
+                        Exit admin
+                      </Button>
                     </div>
-                    <Button className="h-9 rounded-full px-3 text-xs" onClick={() => setIsCharacterEditorOpen(false)} type="button" variant="outline">
-                      Back To Characters
-                    </Button>
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-zinc-950/96 shadow-2xl">
-                    <iframe
-                      allow="microphone"
-                      className="h-full w-full bg-transparent"
-                      src={characterEditorUrl}
-                      title="Character Editor Full Admin Workspace"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="grid h-full w-full gap-0 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
-                  <div className="workspace-nav h-full space-y-2 px-6 py-6">
                     <div className="px-3 py-2">
-                      <div className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Administration</div>
-                      <div className="mt-1 text-sm text-[var(--muted-foreground)]">Users, character policy, skill installs, and system-level tools</div>
+                      <div className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">Administration</div>
+                      <div className="mt-1 text-sm text-[var(--muted-foreground)]">Users, policies, skills, voices, characters, and system controls.</div>
                     </div>
                     {adminSections.map((section) => (
                       <button
                         key={section.id}
-                        className={`w-full rounded-[24px] px-3 py-3 text-left transition ${
-                          activeAdminSection === section.id ? "bg-white/[0.08] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:bg-white/[0.04] hover:text-[var(--foreground)]"
-                        }`}
+                        className={cn("workspace-section-button", activeAdminSection === section.id ? "is-active" : "")}
                         onClick={() => setActiveAdminSection(section.id)}
                         type="button"
                       >
                         <div className="text-sm font-medium">{section.label}</div>
-                        <div className="mt-1 text-xs text-zinc-500">{section.detail}</div>
+                        <div className="workspace-section-detail mt-1 text-xs">{section.detail}</div>
                       </button>
                     ))}
                   </div>
 
-                  <div className="workspace-content min-h-0 space-y-6 overflow-y-auto px-9 py-6">
+                  <div className="workspace-content min-h-0 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10 lg:py-8 xl:px-12">
+                  <div className={cn(adminContentClass, "space-y-6")}>
+
+                  {activeAdminSection === "characters" && isCharacterEditorOpen ? (
+                    <div className="flex min-h-[calc(100dvh-10rem)] flex-col gap-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Character Editor</div>
+                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">
+                            Edit the active character in the admin workspace while keeping navigation and character catalog context in view.
+                          </div>
+                        </div>
+                        <Button className="h-9 rounded-full px-3 text-xs" onClick={() => setIsCharacterEditorOpen(false)} type="button" variant="outline">
+                          Back To Characters
+                        </Button>
+                      </div>
+                      <div className="min-h-0 flex-1 overflow-hidden rounded-[28px] border border-[var(--line)] bg-[var(--card)]/95 shadow-[var(--shadow-strong)]">
+                        <iframe
+                          allow="microphone"
+                          className="h-full min-h-[calc(100dvh-17rem)] w-full bg-transparent"
+                          src={characterEditorUrl}
+                          title="Character Editor Full Admin Workspace"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
 
                   {activeAdminSection === "dashboard" ? (
                     <div className="space-y-4">
@@ -6677,6 +7409,88 @@ export default function App() {
                                     <Button className="h-9 rounded-full px-3 text-xs" onClick={() => void persistAdminUserCharacterSettings(item.id)} type="button" variant="outline">
                                       Save User Settings
                                     </Button>
+                                    <div className="space-y-3 rounded-[24px] border border-[var(--line)] bg-[var(--panel-strong)]/65 p-4">
+                                      <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                          <div className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Theme Override</div>
+                                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">
+                                            Force a complete appearance preset and mode for this user.
+                                          </div>
+                                        </div>
+                                        <Button
+                                          className="h-8 rounded-full px-3 text-xs"
+                                          onClick={() =>
+                                            setAdminUserThemeDrafts((current) => ({
+                                              ...current,
+                                              [item.id]: {
+                                                ...(current[item.id] || {
+                                                  theme_admin_override_enabled: false,
+                                                  theme_admin_override_preset_id: item.theme_admin_override_preset_id,
+                                                  theme_admin_override_mode: item.theme_admin_override_mode,
+                                                }),
+                                                theme_admin_override_enabled: !(current[item.id]?.theme_admin_override_enabled ?? item.theme_admin_override_enabled),
+                                              },
+                                            }))
+                                          }
+                                          type="button"
+                                          variant="outline"
+                                        >
+                                          {(adminUserThemeDrafts[item.id]?.theme_admin_override_enabled ?? item.theme_admin_override_enabled) ? "Forced" : "Use User Choice"}
+                                        </Button>
+                                      </div>
+                                      <div className="grid gap-3 sm:grid-cols-2">
+                                        <Select
+                                          disabled={!(adminUserThemeDrafts[item.id]?.theme_admin_override_enabled ?? item.theme_admin_override_enabled)}
+                                          onChange={(event) =>
+                                            setAdminUserThemeDrafts((current) => ({
+                                              ...current,
+                                              [item.id]: {
+                                                ...(current[item.id] || {
+                                                  theme_admin_override_enabled: item.theme_admin_override_enabled,
+                                                  theme_admin_override_preset_id: item.theme_admin_override_preset_id,
+                                                  theme_admin_override_mode: item.theme_admin_override_mode,
+                                                }),
+                                                theme_admin_override_preset_id: event.target.value as ThemePresetId,
+                                              },
+                                            }))
+                                          }
+                                          value={adminUserThemeDrafts[item.id]?.theme_admin_override_preset_id || item.theme_admin_override_preset_id}
+                                        >
+                                          {themeCatalog.map((preset) => (
+                                            <option key={preset.id} value={preset.id}>
+                                              {preset.name}
+                                            </option>
+                                          ))}
+                                        </Select>
+                                        <Select
+                                          disabled={!(adminUserThemeDrafts[item.id]?.theme_admin_override_enabled ?? item.theme_admin_override_enabled)}
+                                          onChange={(event) =>
+                                            setAdminUserThemeDrafts((current) => ({
+                                              ...current,
+                                              [item.id]: {
+                                                ...(current[item.id] || {
+                                                  theme_admin_override_enabled: item.theme_admin_override_enabled,
+                                                  theme_admin_override_preset_id: item.theme_admin_override_preset_id,
+                                                  theme_admin_override_mode: item.theme_admin_override_mode,
+                                                }),
+                                                theme_admin_override_mode: event.target.value as ThemeMode,
+                                              },
+                                            }))
+                                          }
+                                          value={adminUserThemeDrafts[item.id]?.theme_admin_override_mode || item.theme_admin_override_mode}
+                                        >
+                                          <option value="light">Light</option>
+                                          <option value="dark">Dark</option>
+                                          <option value="auto">Auto</option>
+                                        </Select>
+                                      </div>
+                                      <div className="text-xs text-[var(--muted-foreground)]">
+                                        Effective appearance: {item.effective_theme_preset_id} / {item.effective_theme_mode}
+                                      </div>
+                                      <Button className="h-9 rounded-full px-3 text-xs" onClick={() => void persistAdminUserThemeSettings(item.id)} type="button" variant="outline">
+                                        Save Theme Override
+                                      </Button>
+                                    </div>
                                     <div className="space-y-2 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
                                       <div className="flex items-center justify-between gap-3">
                                         <div>
@@ -6730,7 +7544,7 @@ export default function App() {
                             >
                               <div className="text-sm font-medium text-zinc-100">{profile.label}</div>
                               <div className="mt-1 text-sm text-zinc-500">
-                                {profile.tone || "No tone set"} · {profile.vocabulary} vocabulary · {profile.sentence_length} sentences · {profile.response_style.replace("chat_", "")} replies
+                                {profile.tone || "No tone set"} · {profile.vocabulary} vocabulary · {profile.sentence_length} sentences · {profile.response_style} replies
                               </div>
                               <div className="mt-1 text-xs text-zinc-600">
                                 Blocked topics: {profile.blocked_topics.length > 0 ? profile.blocked_topics.join(", ") : "none"}
@@ -6772,8 +7586,9 @@ export default function App() {
                           <div className="space-y-2">
                             <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Default Response Style</div>
                             <Select onChange={(event) => setCareProfileDraft({ ...careProfileDraft, response_style: event.target.value })} value={careProfileDraft.response_style}>
-                              <option value="chat_balanced">Balanced</option>
-                              <option value="chat_detailed">Detailed</option>
+                              <option value="brief">Brief</option>
+                              <option value="balanced">Balanced</option>
+                              <option value="detailed">Detailed</option>
                             </Select>
                           </div>
                           <div className="space-y-2">
@@ -7092,7 +7907,7 @@ export default function App() {
                     </Card>
                   ) : null}
 
-                  {activeAdminSection === "characters" ? (
+                  {activeAdminSection === "characters" && !isCharacterEditorOpen ? (
                     <div className="space-y-4">
                       <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                         <CardContent className="flex max-h-[calc(100dvh-13rem)] min-h-[28rem] flex-col gap-4 p-5 sm:p-6">
@@ -7155,6 +7970,7 @@ export default function App() {
                               const draft = adminCharacterDrafts[character.id]
                               const title = draft?.name || character.name
                               const description = draft?.description || character.description || "No description yet."
+                              const phoneticSpelling = draft?.phonetic_spelling || character.phonetic_spelling || ""
                               return (
                                 <div key={character.id} className="flex flex-col gap-4 rounded-[26px] border border-white/8 bg-white/[0.03] px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
                                   <div className="min-w-0 flex-1">
@@ -7171,11 +7987,17 @@ export default function App() {
                                           </div>
                                         </div>
                                         <div className="mt-1 text-xs text-zinc-500">{character.id} · {character.version}</div>
+                                        {phoneticSpelling ? (
+                                          <div className="mt-1 text-xs text-cyan-300">Pronounced: {phoneticSpelling}</div>
+                                        ) : null}
                                         <div className="mt-2 line-clamp-2 text-sm text-zinc-400">{description}</div>
                                         <div className="mt-3 flex flex-wrap gap-2">
                                           {draft?.default_voice ? (
                                             <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">Voice: {draft.default_voice}</div>
                                           ) : null}
+                                          <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">
+                                            Reply mode: {characterResponseStyleLabel(draft?.preferred_response_style || character.preferred_response_style)}
+                                          </div>
                                           {draft?.wakeword_model_id ? (
                                             <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">Wakeword: {draft.wakeword_model_id}</div>
                                           ) : null}
@@ -7187,6 +8009,30 @@ export default function App() {
                                     </div>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                                    {character.installed ? (
+                                      <div className="flex items-center gap-2 rounded-full border border-white/8 bg-black/20 px-3 py-1.5">
+                                        <span className="text-[11px] uppercase tracking-[0.12em] text-zinc-500">Reply mode</span>
+                                        <Select
+                                          className="h-8 min-w-[8.5rem] border-white/10 bg-zinc-950/80 text-xs"
+                                          onChange={(event) => updateCharacterDraft(character.id, { preferred_response_style: event.target.value })}
+                                          value={draft?.preferred_response_style || character.preferred_response_style || "balanced"}
+                                        >
+                                          {CHARACTER_RESPONSE_STYLE_OPTIONS.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                              {option.label}
+                                            </option>
+                                          ))}
+                                        </Select>
+                                        <Button
+                                          className="h-8 rounded-full px-3 text-xs"
+                                          onClick={() => void persistAdminCharacterDraft(character.id)}
+                                          type="button"
+                                          variant="outline"
+                                        >
+                                          Save
+                                        </Button>
+                                      </div>
+                                    ) : null}
                                     <Button className="h-8 rounded-full px-3 text-xs" onClick={() => openCharacterEditor(character.id)} type="button">
                                       <Sparkles className="mr-2 h-3.5 w-3.5" />
                                       Open Editor
@@ -8102,7 +8948,7 @@ export default function App() {
                   ) : null}
                 </div>
                 </div>
-              )}
+                </div>
             </div>
           ) : null}
 

@@ -14,7 +14,7 @@ def build_messages(
     message: str,
     history: list[dict[str, str]],
     dynamic_context: str = "",
-    response_style: str = "chat_balanced",
+    response_style: str = "balanced",
 ) -> list[dict[str, str]]:
     """Build the final chat message list for the model."""
     if classification == "character_render" and dynamic_context.strip():
@@ -23,8 +23,7 @@ def build_messages(
             f"{message.strip()}\n\n"
             "RESEARCH:\n"
             f"{dynamic_context.strip()}\n\n"
-            "Write a custom response to the user following these rules:\n"
-            f"{context.base_prompt}\n"
+            "Use the research as source-of-truth context. Follow the system prompt and answer the user naturally.\n"
         )
     else:
         dynamic_prompt = ""
@@ -53,13 +52,13 @@ def build_messages(
 
 def _response_style_instruction(response_style: str, classification: str) -> str:
     """Return the final style instruction for one rendered response."""
-    if response_style == "voice_concise":
+    if response_style == "brief":
         return (
             "Instruction: Answer in one or two short natural sentences. "
             "Do not use Markdown headings or bullet lists. "
             "Do not ask a follow-up question. Stay in character."
         )
-    if response_style == "chat_detailed":
+    if response_style == "detailed":
         allow_followup = classification in ("web_query", "wikipedia_summary", "character_render", "skill_call")
         if allow_followup:
             return (
@@ -91,13 +90,7 @@ def parse_model_response(raw_text: str) -> ParsedModelResponse | None:
     try:
         payload = json.loads(cleaned)
     except json.JSONDecodeError:
-        # Fallback extraction or just return as final_text
-        return ParsedModelResponse(
-            summary=cleaned[:140],
-            metadata={},
-            final_text=cleaned,
-            raw_text=raw_text,
-        )
+        return None
     final_text = str(payload.get("final_text") or "").strip()
     if not final_text:
         return ParsedModelResponse(

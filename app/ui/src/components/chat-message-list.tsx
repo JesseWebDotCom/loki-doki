@@ -129,12 +129,12 @@ export function ChatMessageList({
   }
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 py-6 sm:px-6 sm:py-8 xl:px-10">
       {messages.length === 0 ? (
         <div className="flex min-h-full flex-1 items-center justify-center py-8">
           <div className="chat-empty-state w-full max-w-4xl">
             <div className="mx-auto max-w-2xl text-center">
-              <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-white/6 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--muted-foreground)]">
+              <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--muted-foreground)]">
                 <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />
                 AI Assistant
               </div>
@@ -169,7 +169,7 @@ export function ChatMessageList({
         </div>
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 pb-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-10">
         {messages.map((message, index) => (
           message.role === "assistant" && message.pending && !message.content ? null : (
           <div
@@ -189,7 +189,7 @@ export function ChatMessageList({
                 <div className="mt-1 flex min-h-[32px] items-center justify-end gap-2 px-1">
                   <div className="flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
                     <span className="text-[11px] text-[var(--muted-foreground)]">{formatMessageTime(message)}</span>
-                    <ChatCopyButton className="h-8 w-8 rounded-xl border border-[var(--line)] bg-transparent text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-white/[0.04]" content={message.content} />
+                    <ChatCopyButton className="h-8 w-8 rounded-xl border border-[var(--line)] bg-transparent text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--panel)]" content={message.content} />
                   </div>
                 </div>
               </div>
@@ -246,7 +246,7 @@ export function JumpToLatest({ visible, onClick }: JumpToLatestProps) {
   return (
     <div className="pointer-events-none absolute inset-x-0 -top-12 flex justify-center">
       <Button
-        className="pointer-events-auto rounded-full border border-[var(--line)] bg-[var(--panel-strong)]/95 px-4 py-2 text-xs text-[var(--foreground)] shadow-lg hover:bg-white/[0.08]"
+        className="pointer-events-auto rounded-full border border-[var(--line)] bg-[var(--panel-strong)]/95 px-4 py-2 text-xs text-[var(--foreground)] shadow-lg hover:bg-[var(--input)]"
         onClick={onClick}
         type="button"
         variant="ghost"

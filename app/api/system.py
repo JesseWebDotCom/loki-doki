@@ -10,6 +10,7 @@ from app.deps import APP_CONFIG, connection_scope, get_current_user
 from app.models.settings import SettingsRequest, ProfileRequest
 from app.runtime import runtime_context, health_payload, bootstrap_payload, hailo_payload, update_runtime_profile
 from app.settings import store as settings_store
+from app.settings import theme as theme_settings
 from app.debug import DEBUG_MODE_KEY, debug_logs_payload, is_admin_user
 from app.api.chat_helpers import chat_state_payload
 from app.api.utils import sanitize_user
@@ -55,7 +56,7 @@ def get_settings(current_user: dict[str, Any] = Depends(get_current_user)) -> di
     """Return current user settings and chat state."""
     from app.subsystems.character import character_service # Avoid circularity
     with connection_scope() as connection:
-        theme = db.get_user_setting(connection, current_user["id"], "theme", "system")
+        theme_payload = theme_settings.get_effective_theme_settings(connection, current_user["id"])
         debug_mode = bool(db.get_user_setting(connection, current_user["id"], DEBUG_MODE_KEY, False))
         chat_state = chat_state_payload(connection, current_user["id"])
         voice_preferences = settings_store.load_voice_preferences(connection, current_user["id"])
@@ -77,7 +78,7 @@ def get_settings(current_user: dict[str, Any] = Depends(get_current_user)) -> di
         }
         is_admin = is_admin_user(current_user, APP_CONFIG)
     return {
-        "theme": theme,
+        **theme_payload,
         "debug_mode": debug_mode if is_admin else False,
         "is_admin": is_admin,
         **chat_state,
@@ -108,8 +109,21 @@ def update_settings(
 ) -> dict[str, Any]:
     """Persist user-level preferences."""
     with connection_scope() as connection:
-        if payload.theme is not None:
-             db.set_user_setting(connection, current_user["id"], "theme", payload.theme)
+        if payload.theme is not None and payload.theme_preset_id is None and payload.theme_mode is None:
+            legacy_preset, legacy_mode = theme_settings.migrate_legacy_theme(payload.theme)
+            theme_settings.save_user_theme_preferences(
+                connection,
+                current_user["id"],
+                theme_preset_id=legacy_preset,
+                theme_mode=legacy_mode,
+            )
+        if payload.theme_preset_id is not None or payload.theme_mode is not None:
+            theme_settings.save_user_theme_preferences(
+                connection,
+                current_user["id"],
+                theme_preset_id=payload.theme_preset_id,
+                theme_mode=payload.theme_mode,
+            )
         if payload.debug_mode is not None:
              db.set_user_setting(connection, current_user["id"], DEBUG_MODE_KEY, payload.debug_mode)
         

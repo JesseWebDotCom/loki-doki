@@ -8,15 +8,22 @@ import { buildDefaultDescription, buildDefaultPersonaPrompt, DEFAULT_VOICE_MODEL
 import { deriveIdentityKey } from '@/character-editor/integration/packageManifest';
 
 export type CharacterOptions = {
+  character_id?: string;
   name?: string;
   identity_key?: string;
   description?: string;
+  teaser?: string;
+  phonetic_spelling?: string;
   persona_prompt?: string;
+  preferred_response_style?: string;
   voice_model?: string;
   default_voice_source_name?: string;
   default_voice_config_source_name?: string;
   default_voice_upload_data_url?: string;
   default_voice_config_upload_data_url?: string;
+  wakeword_model_id?: string;
+  wakeword_source_name?: string;
+  wakeword_upload_data_url?: string;
   style: string;
   seed: string;
   flip: boolean;
@@ -85,15 +92,22 @@ type CharacterContextType = {
 };
 
 const defaultOptions: CharacterOptions = {
+  character_id: '',
   name: 'Avery',
-  identity_key: 'avery_avataaars',
+  identity_key: 'lokidoki',
   description: buildDefaultDescription('Avery', 'avataaars'),
+  teaser: 'Friendly local helper voice',
+  phonetic_spelling: '',
   persona_prompt: buildDefaultPersonaPrompt('Avery', 'avataaars'),
+  preferred_response_style: 'balanced',
   voice_model: DEFAULT_VOICE_MODEL,
   default_voice_source_name: '',
   default_voice_config_source_name: '',
   default_voice_upload_data_url: '',
   default_voice_config_upload_data_url: '',
+  wakeword_model_id: '',
+  wakeword_source_name: '',
+  wakeword_upload_data_url: '',
   style: 'avataaars',
   seed: 'Avery',
   flip: false,
@@ -189,6 +203,7 @@ export const CharacterProvider: React.FC<{ children: ReactNode }> = ({ children 
         style: options.style,
         seed,
         name: nextName,
+        identity_key: options.identity_key || defaultOptions.identity_key,
       }),
     });
     send({ type: 'RESET_IDLE' });

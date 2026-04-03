@@ -47,7 +47,10 @@ export interface CharacterPackageManifest {
   primary_name: string;
   domain: string;
   identity_key: string;
+  teaser?: string;
+  phonetic_spelling?: string;
   behavior_style: string;
+  preferred_response_style?: string;
   svg_file: string;
   voice_model?: string;
   wakeword_model?: string;
@@ -55,6 +58,16 @@ export interface CharacterPackageManifest {
     x: number;
     y: number;
   };
+}
+
+export interface CharacterEditorBundle {
+  character_id?: string;
+  identity_key: string;
+  logo_data_url?: string;
+  manifest?: CharacterPackageManifest;
+  editor_state?: Record<string, unknown>;
+  exported_at?: string;
+  validation?: Record<string, unknown>;
 }
 
 export const LOKI_DOKI_EVENT_TO_CHARACTER_EVENT: Record<string, CharacterEvent['type']> = {

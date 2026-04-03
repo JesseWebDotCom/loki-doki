@@ -308,7 +308,7 @@ export function PersonRegistrationPanel({
             <h1 className="mt-2 text-3xl font-semibold text-[var(--foreground)]">{personalizedTitle}</h1>
           </div>
           {!embedded ? (
-            <Button className="h-9 rounded-full border border-[var(--line)] bg-white/[0.03] px-3 text-[var(--foreground)] hover:bg-white/[0.08]" onClick={onClose} type="button" variant="ghost">
+            <Button className="h-9 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-[var(--foreground)] hover:bg-[var(--input)]" onClick={onClose} type="button" variant="ghost">
               <X className="mr-2 h-4 w-4" />
               Close
             </Button>
@@ -326,9 +326,9 @@ export function PersonRegistrationPanel({
           <CardContent className="space-y-4 p-4">
             <div className={`grid gap-3 ${embedded ? "md:grid-cols-[minmax(0,1fr)_auto]" : "md:grid-cols-[1.2fr_0.8fr_auto]"}`}>
               {!embedded ? (
-                <Input className="border-[var(--line)] bg-white/[0.03]" onChange={(event) => setName(event.target.value)} placeholder="Person name" value={name} />
+                <Input className="border-[var(--line)] bg-[var(--input)]" onChange={(event) => setName(event.target.value)} placeholder="Person name" value={name} />
               ) : (
-                <div className="rounded-[24px] border border-[var(--line)] bg-white/[0.03] px-4 py-3">
+                <div className="rounded-[24px] border border-[var(--line)] bg-[var(--input)] px-4 py-3">
                   <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Recognition Name</div>
                   <div className="mt-1 text-sm text-[var(--foreground)]">{name || "Your account name"}</div>
                 </div>
@@ -348,12 +348,12 @@ export function PersonRegistrationPanel({
             </div>
             {name.trim() ? (
               <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-                <span className={`rounded-full border px-3 py-1 ${currentPerson?.modes.includes("close_up") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-white/8 bg-white/[0.03]"}`}>close-up {currentPerson?.modes.includes("close_up") ? "done" : "pending"}</span>
-                <span className={`rounded-full border px-3 py-1 ${currentPerson?.modes.includes("far") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-white/8 bg-white/[0.03]"}`}>far {currentPerson?.modes.includes("far") ? "done" : "pending"}</span>
+                <span className={`rounded-full border px-3 py-1 ${currentPerson?.modes.includes("close_up") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-[var(--line)] bg-[var(--input)] text-[var(--muted-foreground)]"}`}>close-up {currentPerson?.modes.includes("close_up") ? "done" : "pending"}</span>
+                <span className={`rounded-full border px-3 py-1 ${currentPerson?.modes.includes("far") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-[var(--line)] bg-[var(--input)] text-[var(--muted-foreground)]"}`}>far {currentPerson?.modes.includes("far") ? "done" : "pending"}</span>
                 <span className={`rounded-full border px-3 py-1 ${currentPerson?.is_complete ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>{currentPerson?.is_complete ? "ready" : "finish setup"}</span>
               </div>
             ) : null}
-            <div className="relative overflow-hidden rounded-[28px] border border-[var(--line)] bg-black/60">
+            <div className="relative overflow-hidden rounded-[28px] border border-[var(--line)] bg-[var(--panel)]">
               {enabled ? (
                 <video ref={videoRef} autoPlay className="aspect-video w-full object-cover" muted playsInline />
               ) : (
@@ -376,7 +376,7 @@ export function PersonRegistrationPanel({
                 </div>
               ) : null}
             </div>
-            <div className="rounded-[24px] border border-[var(--line)] bg-white/[0.03] p-4">
+            <div className="rounded-[24px] border border-[var(--line)] bg-[var(--input)] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-sm font-medium text-[var(--foreground)]">{progressLabel}</div>
                 {(isAnalyzing || isSaving) ? <LoaderCircle className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" /> : null}

@@ -182,5 +182,5 @@ def _response_style(result: dict[str, Any]) -> str:
     """Return the preferred chat response style for one skill result."""
     presentation = str(dict(result.get("presentation") or {}).get("type") or "")
     if presentation in {"search_results", "wikipedia_summary"}:
-        return "chat_detailed"
-    return "chat_balanced"
+        return "detailed"
+    return "balanced"

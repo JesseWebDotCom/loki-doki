@@ -198,8 +198,8 @@ export function ChatComposer({
   const showWakewordStrip = Boolean(wakewordEnabled || isWakewordMonitoring || wakewordSignalLevel > 0.01 || wakewordScore > 0.01)
 
   return (
-    <div className="relative bg-[var(--panel)] px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-6">
-      <Card className="chat-composer-card mx-auto max-w-3xl border-[var(--line)] bg-transparent">
+    <div className="relative bg-[var(--panel)] px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-6 xl:px-10">
+      <Card className="chat-composer-card mx-auto max-w-5xl border-[var(--line)] bg-transparent">
         <form className="p-0" onSubmit={onSubmit}>
           <input
             ref={imageInputRef}
@@ -349,9 +349,9 @@ export function ChatComposer({
                   disabled={!userReady || isSubmitting || isCharacterSyncPending}
                   onClick={onTogglePushToTalk}
                   size="icon"
+                  tooltip="Push to talk"
                   type="button"
                   variant="ghost"
-                  title="Push to talk"
                 >
                   {isVoiceListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                 </Button>
@@ -359,6 +359,7 @@ export function ChatComposer({
                   className={`chat-send-button h-11 w-11 rounded-full bg-white text-black shadow-none hover:bg-white/90 ${isSubmitting ? "is-processing" : ""}`}
                   disabled={!userReady || isSubmitting || isCharacterSyncPending || (!prompt.trim() && !selectedImage && !selectedVideo && !selectedDocument)}
                   size="icon"
+                  tooltip={isSubmitting ? "Stop response" : "Send message"}
                   type="submit"
                 >
                   {isSubmitting ? <Square className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
