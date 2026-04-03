@@ -195,7 +195,7 @@ export function ChatMessageList({
               </div>
             ) : (
               <div className="flex w-full max-w-[85%] gap-4">
-                <div className="flex flex-none">
+                <div className="flex flex-none pt-1">
                   <AssistantAvatar character={assistantCharacter} />
                 </div>
                 <div className="chat-assistant-bubble min-w-0 flex-1">
