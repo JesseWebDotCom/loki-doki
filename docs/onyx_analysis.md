@@ -27,7 +27,7 @@ The following recommendations from this memo have already been started in the co
 - Shifted TTS playback to prefer `voice_summary` over rendered chat body content
 - Reduced Markdown-heavy rendering guidance in the skill rendering layer
 - Moved Wikipedia into the main built-in skill runtime and removed the legacy subsystem Wikipedia path
-- Added explicit `voice_concise`, `chat_balanced`, and `chat_detailed` response styles through chat, voice, rendering, and retry flows
+- Added explicit `brief`, `balanced`, and `detailed` response styles through chat, voice, rendering, and retry flows
 
 ## What Onyx Does Well
 
@@ -237,7 +237,7 @@ Adopt a future presentation contract shaped like:
   "voice_summary": "short spoken answer",
   "screen_content": {},
   "source_metadata": [],
-  "response_style": "voice_concise",
+  "response_style": "brief",
   "turn_id": "uuid"
 }
 ```
@@ -257,20 +257,20 @@ What Onyx does:
 Onyx exposes richer answer structure and request-scoped context, which gives it more room to shape output intentionally.
 
 What LokiDoki does now:
-LokiDoki now supports explicit `voice_concise`, `chat_balanced`, and `chat_detailed` values through chat, voice, retry, and render flows. The normal chat composer no longer exposes a user-facing selector, and typed chat can now default from care-profile policy. The remaining opportunity is to push more of that decision into character and profile design rather than leaving it as a mostly backend concern.
+LokiDoki now supports explicit `brief`, `balanced`, and `detailed` values through chat, voice, retry, and render flows. The normal chat composer no longer exposes a user-facing selector, and typed chat can now default from care-profile policy. The remaining opportunity is to push more of that decision into character and profile design rather than leaving it as a mostly backend concern.
 
 Recommended LokiDoki change:
 Introduce explicit response styles:
 
-- `voice_concise`
-- `chat_balanced`
-- `chat_detailed`
+- `brief`
+- `balanced`
+- `detailed`
 
 The renderer should honor the style instead of always defaulting to formatted, multi-section responses.
 
 Product direction note:
 
-- Voice interactions should default to `voice_concise`
+- Voice interactions should default to `brief`
 - Typed chat should default from character and care/profile configuration
 - Users should not be shown a response-style selector in the normal product UX
 

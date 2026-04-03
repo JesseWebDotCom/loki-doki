@@ -309,6 +309,7 @@ type CharacterDefinition = {
   identity_key?: string
   domain?: string
   behavior_style?: string
+  preferred_response_style?: string
   voice_model?: string
   character_editor?: Record<string, unknown>
   installed: boolean
@@ -326,6 +327,7 @@ type CharacterEditorDraft = {
   identity_key: string
   domain: string
   behavior_style: string
+  preferred_response_style: string
   voice_model: string
   character_editor: Record<string, unknown>
   default_voice: string
@@ -472,12 +474,39 @@ function buildPersistedCharacterEditorMetadata(draft: CharacterEditorDraft) {
     teaser: draft.teaser,
     identity_key: draft.identity_key,
     persona_prompt: draft.behavior_style || draft.system_prompt,
+    preferred_response_style: draft.preferred_response_style || "balanced",
     voice_model: draft.voice_model || draft.default_voice,
     wakeword_model_id: draft.wakeword_model_id || "",
     style: nextStyle,
   }
 
   return nextCharacterEditor
+}
+
+function buildCharacterEditorLaunchState(character: CharacterDefinition, draft: CharacterEditorDraft | null) {
+  const existingEditorState = asRecord(character.character_editor)?.editor_state as Record<string, unknown> | undefined
+  const resolvedName = draft?.name || character.name || "Character"
+  const resolvedStyle =
+    (typeof existingEditorState?.style === "string" && existingEditorState.style.trim()) ||
+    characterEditorStyle(character)
+
+  return {
+    ...(existingEditorState || {}),
+    character_id: character.id,
+    name: resolvedName,
+    identity_key: draft?.identity_key || character.identity_key || character.id,
+    description: draft?.description || character.description || "",
+    teaser: draft?.teaser || character.teaser || "",
+    phonetic_spelling: draft?.phonetic_spelling || character.phonetic_spelling || "",
+    persona_prompt: draft?.system_prompt || character.behavior_style || character.system_prompt || "",
+    preferred_response_style: draft?.preferred_response_style || character.preferred_response_style || "balanced",
+    voice_model: draft?.default_voice || character.voice_model || character.default_voice || "en-us-lessac-medium.onnx",
+    wakeword_model_id: draft?.wakeword_model_id || character.wakeword_model_id || "",
+    style: resolvedStyle,
+    seed:
+      (typeof existingEditorState?.seed === "string" && existingEditorState.seed.trim()) ||
+      resolvedName,
+  }
 }
 
 function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEditorDraft {
@@ -491,6 +520,7 @@ function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEdi
     identity_key: character.identity_key || "",
     domain: character.domain || "",
     behavior_style: character.behavior_style || character.system_prompt || "",
+    preferred_response_style: character.preferred_response_style || "balanced",
     voice_model: character.voice_model || character.default_voice || "",
     character_editor: { ...(character.character_editor || {}) },
     default_voice: character.default_voice || "",
@@ -505,6 +535,16 @@ function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEdi
     wakeword_source_name: character.wakeword_source_name || "",
     wakeword_upload_data_url: "",
   }
+}
+
+const CHARACTER_RESPONSE_STYLE_OPTIONS = [
+  { value: "brief", label: "Brief" },
+  { value: "balanced", label: "Balanced" },
+  { value: "detailed", label: "Detailed" },
+] as const
+
+function characterResponseStyleLabel(style: string | undefined) {
+  return CHARACTER_RESPONSE_STYLE_OPTIONS.find((option) => option.value === style)?.label || "Balanced"
 }
 
 function characterEditorStyle(character: Pick<CharacterDefinition, "character_editor" | "domain">) {
@@ -1200,7 +1240,7 @@ async function runPushToTalkChat(
     "/api/voice/chat",
     {
       method: "POST",
-      body: JSON.stringify({ audio_base64: audioBase64, mime_type: mimeType, chat_id: chatId, response_style: "voice_concise" }),
+      body: JSON.stringify({ audio_base64: audioBase64, mime_type: mimeType, chat_id: chatId, response_style: "brief" }),
     },
     token
   )
@@ -1596,7 +1636,7 @@ export default function App() {
     tone: "",
     vocabulary: "standard",
     sentence_length: "medium",
-    response_style: "chat_balanced",
+    response_style: "balanced",
     blocked_topics: [],
     safe_messaging: true,
     max_response_tokens: 160,
@@ -4442,6 +4482,7 @@ export default function App() {
         identity_key: current[characterId]?.identity_key || "",
         domain: current[characterId]?.domain || "",
         behavior_style: current[characterId]?.behavior_style || "",
+        preferred_response_style: current[characterId]?.preferred_response_style || "balanced",
         voice_model: current[characterId]?.voice_model || "",
         character_editor: current[characterId]?.character_editor || {},
         default_voice: current[characterId]?.default_voice || "",
@@ -4458,6 +4499,68 @@ export default function App() {
         ...updates,
       },
     }))
+  }
+
+  async function persistAdminCharacterDraft(characterId: string) {
+    if (!token) {
+      return
+    }
+    const character = characters.find((entry) => entry.id === characterId)
+    const draft = adminCharacterDrafts[characterId]
+    if (!character || !draft || !character.installed) {
+      return
+    }
+    try {
+      const payload = await fetchJson<{ character: CharacterDefinition; installed: CharacterDefinition[]; available: CharacterDefinition[] }>(
+        `/api/characters/${characterId}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            name: draft.name,
+            description: draft.description,
+            teaser: draft.teaser,
+            phonetic_spelling: draft.phonetic_spelling,
+            logo: draft.logo,
+            system_prompt: draft.system_prompt,
+            identity_key: draft.identity_key,
+            domain: draft.domain,
+            behavior_style: draft.behavior_style,
+            preferred_response_style: draft.preferred_response_style,
+            voice_model: draft.voice_model,
+            default_voice: draft.default_voice,
+            default_voice_download_url: draft.default_voice_download_url,
+            default_voice_config_download_url: draft.default_voice_config_download_url,
+            default_voice_source_name: draft.default_voice_source_name,
+            default_voice_config_source_name: draft.default_voice_config_source_name,
+            default_voice_upload_data_url: draft.default_voice_upload_data_url,
+            default_voice_config_upload_data_url: draft.default_voice_config_upload_data_url,
+            wakeword_model_id: draft.wakeword_model_id,
+            wakeword_download_url: draft.wakeword_download_url,
+            wakeword_source_name: draft.wakeword_source_name,
+            wakeword_upload_data_url: draft.wakeword_upload_data_url,
+            character_editor: buildPersistedCharacterEditorMetadata(draft),
+          }),
+        },
+        token
+      )
+      setCharacters(payload.available)
+      setAdminCharacterDrafts(() => {
+        const next: Record<string, CharacterEditorDraft> = {}
+        for (const item of payload.available) {
+          next[item.id] = buildCharacterEditorDraft(item)
+        }
+        return next
+      })
+      await refreshCharacterSettings(token)
+      if (user?.is_admin) {
+        await refreshAdminCharacterData(token)
+        await refreshAdminUsers(token)
+        await refreshPromptLabAfterPromptChange()
+      }
+      setAdminNotice(`Character "${payload.character.name}" settings saved.`)
+    } catch (error) {
+      setAdminNotice(error instanceof Error ? error.message : "Character settings save failed.")
+    }
   }
 
   async function readLogoFile(file: File): Promise<string> {
@@ -4642,6 +4745,12 @@ export default function App() {
       existingDraft?.system_prompt?.trim() ||
       existingCharacter?.system_prompt ||
       "You are a LokiDoki character created in the character editor. Respond clearly, warmly, and stay in character."
+    const resolvedPreferredResponseStyle =
+      bundle.manifest?.preferred_response_style?.trim() ||
+      bundle.editor_state?.preferred_response_style?.trim() ||
+      existingDraft?.preferred_response_style?.trim() ||
+      existingCharacter?.preferred_response_style?.trim() ||
+      "balanced"
     const resolvedVoice =
       bundle.manifest?.voice_model?.trim() ||
       bundle.editor_state?.voice_model?.trim() ||
@@ -4682,6 +4791,7 @@ export default function App() {
         identity_key: (bundle.manifest?.identity_key || bundle.identity_key || resolvedId).trim() || resolvedId,
         domain: resolvedDomain,
         behavior_style: resolvedPrompt,
+        preferred_response_style: resolvedPreferredResponseStyle,
         voice_model: resolvedVoice,
         default_voice: resolvedVoice,
         default_voice_download_url: existingDraft?.default_voice_download_url || existingCharacter?.default_voice_download_url || "",
@@ -4815,6 +4925,12 @@ export default function App() {
                   existingCharacter.behavior_style ||
                   existingCharacter.system_prompt ||
                   "",
+                preferred_response_style:
+                  bundle.manifest?.preferred_response_style?.trim() ||
+                  bundle.editor_state?.preferred_response_style?.trim() ||
+                  adminCharacterDrafts[existingCharacter.id]?.preferred_response_style ||
+                  existingCharacter.preferred_response_style ||
+                  "balanced",
                 voice_model:
                   bundle.manifest?.voice_model?.trim() ||
                   bundle.editor_state?.voice_model?.trim() ||
@@ -4912,7 +5028,7 @@ export default function App() {
       params.set("phonetic_spelling", draft?.phonetic_spelling || character.phonetic_spelling || "")
       params.set("persona_prompt", draft?.system_prompt || character.behavior_style || character.system_prompt || "")
       params.set("voice_model", draft?.default_voice || character.voice_model || character.default_voice || "en-us-lessac-medium.onnx")
-      const serializedEditorState = serializeEditorState(asRecord(character.character_editor)?.editor_state as Record<string, unknown> | undefined)
+      const serializedEditorState = serializeEditorState(buildCharacterEditorLaunchState(character, draft))
       if (serializedEditorState) {
         params.set("editor_state", serializedEditorState)
       }
@@ -7412,7 +7528,7 @@ export default function App() {
                             >
                               <div className="text-sm font-medium text-zinc-100">{profile.label}</div>
                               <div className="mt-1 text-sm text-zinc-500">
-                                {profile.tone || "No tone set"} · {profile.vocabulary} vocabulary · {profile.sentence_length} sentences · {profile.response_style.replace("chat_", "")} replies
+                                {profile.tone || "No tone set"} · {profile.vocabulary} vocabulary · {profile.sentence_length} sentences · {profile.response_style} replies
                               </div>
                               <div className="mt-1 text-xs text-zinc-600">
                                 Blocked topics: {profile.blocked_topics.length > 0 ? profile.blocked_topics.join(", ") : "none"}
@@ -7454,8 +7570,9 @@ export default function App() {
                           <div className="space-y-2">
                             <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Default Response Style</div>
                             <Select onChange={(event) => setCareProfileDraft({ ...careProfileDraft, response_style: event.target.value })} value={careProfileDraft.response_style}>
-                              <option value="chat_balanced">Balanced</option>
-                              <option value="chat_detailed">Detailed</option>
+                              <option value="brief">Brief</option>
+                              <option value="balanced">Balanced</option>
+                              <option value="detailed">Detailed</option>
                             </Select>
                           </div>
                           <div className="space-y-2">
@@ -7862,6 +7979,9 @@ export default function App() {
                                           {draft?.default_voice ? (
                                             <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">Voice: {draft.default_voice}</div>
                                           ) : null}
+                                          <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">
+                                            Reply mode: {characterResponseStyleLabel(draft?.preferred_response_style || character.preferred_response_style)}
+                                          </div>
                                           {draft?.wakeword_model_id ? (
                                             <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">Wakeword: {draft.wakeword_model_id}</div>
                                           ) : null}
@@ -7873,6 +7993,30 @@ export default function App() {
                                     </div>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                                    {character.installed ? (
+                                      <div className="flex items-center gap-2 rounded-full border border-white/8 bg-black/20 px-3 py-1.5">
+                                        <span className="text-[11px] uppercase tracking-[0.12em] text-zinc-500">Reply mode</span>
+                                        <Select
+                                          className="h-8 min-w-[8.5rem] border-white/10 bg-zinc-950/80 text-xs"
+                                          onChange={(event) => updateCharacterDraft(character.id, { preferred_response_style: event.target.value })}
+                                          value={draft?.preferred_response_style || character.preferred_response_style || "balanced"}
+                                        >
+                                          {CHARACTER_RESPONSE_STYLE_OPTIONS.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                              {option.label}
+                                            </option>
+                                          ))}
+                                        </Select>
+                                        <Button
+                                          className="h-8 rounded-full px-3 text-xs"
+                                          onClick={() => void persistAdminCharacterDraft(character.id)}
+                                          type="button"
+                                          variant="outline"
+                                        >
+                                          Save
+                                        </Button>
+                                      </div>
+                                    ) : null}
                                     <Button className="h-8 rounded-full px-3 text-xs" onClick={() => openCharacterEditor(character.id)} type="button">
                                       <Sparkles className="mr-2 h-3.5 w-3.5" />
                                       Open Editor

@@ -15,6 +15,7 @@ export type CharacterOptions = {
   teaser?: string;
   phonetic_spelling?: string;
   persona_prompt?: string;
+  preferred_response_style?: string;
   voice_model?: string;
   default_voice_source_name?: string;
   default_voice_config_source_name?: string;
@@ -98,6 +99,7 @@ const defaultOptions: CharacterOptions = {
   teaser: 'Friendly local helper voice',
   phonetic_spelling: '',
   persona_prompt: buildDefaultPersonaPrompt('Avery', 'avataaars'),
+  preferred_response_style: 'balanced',
   voice_model: DEFAULT_VOICE_MODEL,
   default_voice_source_name: '',
   default_voice_config_source_name: '',

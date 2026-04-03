@@ -7,6 +7,31 @@ import VoiceModelControl from '@/character-editor/components/VoiceModelControl';
 import WakewordModelControl from '@/character-editor/components/WakewordModelControl';
 import { deriveCharacterId } from '@/character-editor/integration/packageManifest';
 import { API_BASE_URL, buildAuthHeaders } from '@/character-editor/config';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/character-editor/components/ui/select";
+
+const RESPONSE_STYLE_OPTIONS = [
+  {
+    value: 'brief',
+    label: 'Brief',
+    detail: 'One or two short sentences.',
+  },
+  {
+    value: 'balanced',
+    label: 'Balanced',
+    detail: 'Normal conversational length.',
+  },
+  {
+    value: 'detailed',
+    label: 'Detailed',
+    detail: 'Longer and more explanatory.',
+  },
+] as const;
 
 type AuthMePayload = {
   user?: {
@@ -150,6 +175,27 @@ export const GeneralTab: React.FC<{ options: any; updateOption: (k: any, v: any)
              placeholder="Character system prompt"
              className="min-h-40 w-full resize-y rounded-xl border border-[color:var(--app-border)] bg-[var(--app-bg-panel-strong)] p-3 text-sm text-[var(--app-text)] outline-none"
            />
+        </div>
+        <div className="space-y-2 md:col-span-2">
+           <label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--app-text-muted)]" style={{ letterSpacing: "var(--app-label-letter-spacing)" }}>
+             <MessageSquareQuote className="h-3.5 w-3.5" /> Reply Mode
+             <CircleHelp className="h-3.5 w-3.5 text-[var(--app-text-muted)]" title="Sets this character's default response length when the user does not ask for a specific level of detail." />
+           </label>
+           <Select value={options.preferred_response_style || 'balanced'} onValueChange={(value) => value && updateOption('preferred_response_style', value)}>
+             <SelectTrigger className="h-10 w-full border-[color:var(--app-border)] bg-[var(--app-bg-panel-strong)] text-[var(--app-text)]">
+               <SelectValue placeholder="Select a reply mode" />
+             </SelectTrigger>
+             <SelectContent className="border-[color:var(--app-border)] bg-[var(--app-bg-panel)] text-[var(--app-text)]">
+               {RESPONSE_STYLE_OPTIONS.map((option) => (
+                 <SelectItem key={option.value} value={option.value}>
+                   <span className="flex flex-col items-start gap-0.5">
+                     <span>{option.label}</span>
+                     <span className="text-xs text-[var(--app-text-muted)]">{option.detail}</span>
+                   </span>
+                 </SelectItem>
+               ))}
+             </SelectContent>
+           </Select>
         </div>
         <div className="space-y-2 md:col-span-2">
            <div className="flex items-center justify-between gap-3">

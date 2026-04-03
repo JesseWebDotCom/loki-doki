@@ -42,6 +42,7 @@ class CharacterUpdateRequest(BaseModel):
     identity_key: str = ""
     domain: str = ""
     behavior_style: str = ""
+    preferred_response_style: str = "balanced"
     voice_model: str = ""
     character_editor: dict[str, Any] = Field(default_factory=dict)
 
@@ -67,7 +68,7 @@ class CareProfileRequest(BaseModel):
     tone: str = ""
     vocabulary: str = "standard"
     sentence_length: str = "medium"
-    response_style: str = "chat_balanced"
+    response_style: str = "balanced"
     blocked_topics: list[str] = Field(default_factory=list)
     safe_messaging: bool = True
     max_response_tokens: int = Field(default=160, ge=32, le=512)

@@ -143,38 +143,42 @@ def resolve_response_style_policy(
             },
         }
 
-    scores: dict[str, float] = {"chat_balanced": 0.35, "chat_detailed": 0.30}
+    scores: dict[str, float] = {"brief": 0.22, "balanced": 0.35, "detailed": 0.30}
     factors: list[dict[str, Any]] = []
 
     if classification.request_type in {"web_query", "document_analysis"}:
-        _style_weight(scores, factors, "request_type", "chat_detailed", 0.42, classification.request_type)
+        _style_weight(scores, factors, "request_type", "detailed", 0.42, classification.request_type)
     elif classification.request_type in {"tool_call", "command_call"}:
-        _style_weight(scores, factors, "request_type", "chat_balanced", 0.14, classification.request_type)
+        _style_weight(scores, factors, "request_type", "balanced", 0.14, classification.request_type)
 
     if rendering_context is not None:
         care_style = str(getattr(rendering_context, "care_profile_response_style", "") or "").strip()
         if care_style in scores:
             _style_weight(scores, factors, "care_profile", care_style, 0.34, getattr(rendering_context, "care_profile_id", "profile"))
+        character_style = str(getattr(rendering_context, "character_preferred_response_style", "") or "").strip()
+        if character_style in scores:
+            _style_weight(scores, factors, "character_preference", character_style, 0.38, getattr(rendering_context, "active_character_id", "character"))
         sentence_length = str(getattr(rendering_context, "care_profile_sentence_length", "") or "").strip().lower()
         if sentence_length == "short":
-            _style_weight(scores, factors, "care_profile_sentence_length", "chat_balanced", 0.18, sentence_length)
+            _style_weight(scores, factors, "care_profile_sentence_length", "balanced", 0.18, sentence_length)
         elif sentence_length in {"long", "any"}:
-            _style_weight(scores, factors, "care_profile_sentence_length", "chat_detailed", 0.18, sentence_length)
+            _style_weight(scores, factors, "care_profile_sentence_length", "detailed", 0.18, sentence_length)
 
         behavior_style = str(getattr(rendering_context, "character_behavior_style", "") or "").strip().lower()
         if behavior_style:
             if re.search(r"\b(simple|brief|plain|minimal|concise|direct)\b", behavior_style):
-                _style_weight(scores, factors, "character_behavior", "chat_balanced", 0.16, behavior_style[:80])
+                _style_weight(scores, factors, "character_behavior", "balanced", 0.16, behavior_style[:80])
             if re.search(r"\b(detailed|scholarly|verbose|thorough|explanatory|teacher|storyteller)\b", behavior_style):
-                _style_weight(scores, factors, "character_behavior", "chat_detailed", 0.16, behavior_style[:80])
+                _style_weight(scores, factors, "character_behavior", "detailed", 0.16, behavior_style[:80])
 
     lowered_message = message.lower()
-    if re.search(r"\b(briefly|short version|quick answer|quickly|keep it short|tldr|tl;dr|one sentence|summarize)\b", lowered_message):
-        _style_weight(scores, factors, "user_request", "chat_balanced", 0.48, "asked_for_briefness")
+    if re.search(r"\b(brief|briefly|short version|quick answer|quickly|keep it short|tldr|tl;dr|one sentence|summarize)\b", lowered_message):
+        _style_weight(scores, factors, "user_request", "brief", 0.52, "asked_for_brevity")
+        _style_weight(scores, factors, "user_request", "balanced", 0.24, "asked_for_briefness")
     if re.search(r"\b(explain|why|how does|walk me through|step by step|in detail|more detail|go deeper|analyze|compare)\b", lowered_message):
-        _style_weight(scores, factors, "user_request", "chat_detailed", 0.48, "asked_for_depth")
+        _style_weight(scores, factors, "user_request", "detailed", 0.48, "asked_for_depth")
     if re.search(r"\b(confused|don't understand|unclear|what do you mean|help me understand)\b", lowered_message):
-        _style_weight(scores, factors, "user_state", "chat_detailed", 0.22, "needs_clarity")
+        _style_weight(scores, factors, "user_state", "detailed", 0.22, "needs_clarity")
 
     recent_assistant_messages = [
         str(item.get("content") or "")
@@ -184,16 +188,16 @@ def resolve_response_style_policy(
     if recent_assistant_messages:
         average_length = sum(len(item) for item in recent_assistant_messages) / len(recent_assistant_messages)
         if average_length < 180:
-            _style_weight(scores, factors, "conversation_state", "chat_detailed", 0.08, "recent_replies_short")
+            _style_weight(scores, factors, "conversation_state", "detailed", 0.08, "recent_replies_short")
         elif average_length > 520:
-            _style_weight(scores, factors, "conversation_state", "chat_balanced", 0.08, "recent_replies_long")
+            _style_weight(scores, factors, "conversation_state", "balanced", 0.08, "recent_replies_long")
 
     variation_style = _variation_style(turn_id or message or classification.request_type)
-    score_gap = abs(scores["chat_balanced"] - scores["chat_detailed"])
+    score_gap = abs(scores["balanced"] - scores["detailed"])
     if score_gap <= 0.14:
         _style_weight(scores, factors, "variety", variation_style, 0.06, f"gap={score_gap:.2f}")
 
-    selected_style = "chat_balanced" if scores["chat_balanced"] >= scores["chat_detailed"] else "chat_detailed"
+    selected_style = max(scores, key=scores.get)
     return {
         "style": selected_style,
         "debug": {
@@ -229,7 +233,7 @@ def _style_weight(
 def _variation_style(seed: str) -> str:
     """Return a bounded style variation choice for one seed."""
     digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()
-    return "chat_balanced" if int(digest[:2], 16) % 2 == 0 else "chat_detailed"
+    return "balanced" if int(digest[:2], 16) % 2 == 0 else "detailed"
 
 
 def generate_chat_assistant_message(
@@ -518,7 +522,7 @@ def render_skill_message(
     selected_response_style = str(
         dict(skill_message.get("meta", {})).get("render_payload", {}).get("response_style")
         or response_style
-        or "chat_balanced"
+        or "balanced"
     )
     if skill_should_skip_character_render(skill_message):
         skill_meta = dict(skill_message.get("meta", {}))

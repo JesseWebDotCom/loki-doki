@@ -49,6 +49,7 @@ def load_definitions(directory: Path, source: str, *, builtin: bool = False) -> 
                     identity_key=str(manifest.get("identity_key") or "").strip(),
                     domain=str(manifest.get("domain") or "").strip(),
                     behavior_style=str(manifest.get("behavior_style") or "").strip(),
+                    preferred_response_style=str(manifest.get("preferred_response_style") or "balanced").strip() or "balanced",
                     voice_model=str(manifest.get("voice_model") or "").strip(),
                     character_editor=dict(manifest.get("character_editor") or {}),
                     enabled=True,
@@ -73,13 +74,13 @@ def initialize_catalog(conn: sqlite3.Connection, config: AppConfig) -> None:
             """
             INSERT INTO character_catalog (
                 character_id, name, version, source, system_prompt, teaser, phonetic_spelling, identity_key, domain,
-                behavior_style, voice_model, default_voice, default_voice_download_url,
+                behavior_style, preferred_response_style, voice_model, default_voice, default_voice_download_url,
                 default_voice_config_download_url, default_voice_source_name,
                 default_voice_config_source_name, wakeword_model_id, wakeword_download_url,
                 wakeword_source_name, capabilities_json, character_editor_json, logo,
                 enabled, builtin, path, description
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(character_id) DO UPDATE SET
                 name = excluded.name,
                 version = excluded.version,
@@ -90,6 +91,7 @@ def initialize_catalog(conn: sqlite3.Connection, config: AppConfig) -> None:
                 identity_key = excluded.identity_key,
                 domain = excluded.domain,
                 behavior_style = excluded.behavior_style,
+                preferred_response_style = excluded.preferred_response_style,
                 voice_model = excluded.voice_model,
                 default_voice = excluded.default_voice,
                 default_voice_download_url = excluded.default_voice_download_url,
@@ -118,6 +120,7 @@ def initialize_catalog(conn: sqlite3.Connection, config: AppConfig) -> None:
                 definition.identity_key,
                 definition.domain,
                 definition.behavior_style,
+                definition.preferred_response_style,
                 definition.voice_model,
                 definition.default_voice,
                 definition.default_voice_download_url,
@@ -145,7 +148,7 @@ def list_characters(conn: sqlite3.Connection, config: AppConfig) -> dict[str, li
     rows = conn.execute(
         """
         SELECT character_id, name, version, source, system_prompt, teaser, phonetic_spelling, identity_key, domain,
-               behavior_style, voice_model, default_voice, default_voice_download_url,
+               behavior_style, preferred_response_style, voice_model, default_voice, default_voice_download_url,
                default_voice_config_download_url, default_voice_source_name,
                default_voice_config_source_name, wakeword_model_id, wakeword_download_url,
                wakeword_source_name, capabilities_json, character_editor_json, logo,

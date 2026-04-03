@@ -50,6 +50,7 @@ export interface CharacterPackageManifest {
   teaser?: string;
   phonetic_spelling?: string;
   behavior_style: string;
+  preferred_response_style?: string;
   svg_file: string;
   voice_model?: string;
   wakeword_model?: string;

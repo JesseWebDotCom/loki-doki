@@ -65,6 +65,7 @@ class CharacterDefinition:
     identity_key: str = ""
     domain: str = ""
     behavior_style: str = ""
+    preferred_response_style: str = "balanced"
     voice_model: str = ""
     character_editor: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
@@ -101,9 +102,10 @@ class CharacterRenderingContext:
     active_character_id: Optional[str]
     active_character_name: str = "LokiDoki"
     character_behavior_style: str = ""
+    character_preferred_response_style: str = "balanced"
     care_profile_id: str = "standard"
     care_profile_sentence_length: str = "medium"
-    care_profile_response_style: str = "chat_balanced"
+    care_profile_response_style: str = "balanced"
     character_enabled: bool = True
     proactive_chatter_enabled: bool = False
     blocked_topics: tuple[str, ...] = ()

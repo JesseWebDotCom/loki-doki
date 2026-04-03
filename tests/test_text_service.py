@@ -133,10 +133,39 @@ class TextServiceTests(unittest.TestCase):
         self.assertIsNotNone(result.debug)
         assert result.debug is not None
         self.assertTrue(result.debug["llm_used"])
-        self.assertEqual(len(result.debug["llm_messages"]), 2)
+        self.assertEqual(len(result.debug["llm_messages"]), 3)
         self.assertEqual(result.debug["llm_messages"][0]["role"], "system")
         self.assertIn("Base prompt", result.debug["llm_messages"][0]["content"])
         self.assertIsNone(result.parsed)
+
+    @patch("app.subsystems.text.service.chat_completion", return_value="Detailed reply")
+    def test_character_preferred_response_style_drives_default_render_instruction(self, _mock_chat_completion) -> None:
+        detailed_context = CharacterRenderingContext(
+            user_id="user-1",
+            account_id="default-account",
+            display_name="Jesse",
+            profile="mac",
+            base_prompt="Base prompt",
+            base_prompt_hash="hash-123",
+            active_character_id="tano",
+            character_enabled=True,
+            character_preferred_response_style="detailed",
+            blocked_topics=(),
+            max_response_tokens=160,
+            debug={},
+        )
+        result = generate_text_reply(
+            "Tell me about this topic",
+            "Jesse",
+            "mac",
+            [],
+            self.providers,
+            Classification("text_chat", "fast_qwen", "short prompt"),
+            rendering_context=detailed_context,
+            include_prompt_debug=True,
+        )
+        assert result.debug is not None
+        self.assertIn("Provide a detailed but natural response", result.debug["llm_messages"][-1]["content"])
 
     @patch("app.subsystems.text.service.chat_completion", return_value="Today in Milford, CT, it will be partly cloudy")
     def test_character_render_returns_plain_text(self, _mock_chat_completion) -> None:

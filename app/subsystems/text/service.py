@@ -299,6 +299,7 @@ def _render_deterministic_reply(
         render_classification,
         rendering_context,
         _deterministic_render_context(render_facts, reply),
+        "balanced",
     )
     try:
         rendered = _complete_render_reply(render_provider, messages, WEB_GENERATION_OPTIONS, profile, rendering_context)
@@ -637,7 +638,7 @@ def _generate_web_reply(
             Classification("web_query", "web_search", "Matched a live-information web query."),
             rendering_context,
             f"Live web context:\n{search_result.context}",
-            response_style or "chat_detailed",
+            response_style or "detailed",
         )
     else:
         messages = _web_summary_messages(message, username, profile, search_result.context)
@@ -769,7 +770,7 @@ def generate_text_reply(
             source_notes="Tool-route placeholder rendered through character orchestration.",
         )
     provider = _select_provider(classification, providers)
-    chosen_response_style = response_style or _default_response_style(classification)
+    chosen_response_style = response_style or resolve_default_response_style(classification, rendering_context)
     messages = (
         _chat_messages(message, username, profile, history, classification)
         if rendering_context is None
@@ -901,5 +902,19 @@ def _is_short_greeting(cleaned: str) -> bool:
 def _default_response_style(classification: Classification) -> str:
     """Return the default response style for one request class."""
     if classification.request_type in {"web_query", "document_analysis"}:
-        return "chat_detailed"
-    return "chat_balanced"
+        return "detailed"
+    return "balanced"
+
+
+def resolve_default_response_style(
+    classification: Classification,
+    rendering_context: Optional[CharacterRenderingContext],
+) -> str:
+    """Return the default response style with character preference applied."""
+    default_style = _default_response_style(classification)
+    if rendering_context is None:
+        return default_style
+    preferred_style = str(getattr(rendering_context, "character_preferred_response_style", "") or "").strip()
+    if preferred_style in {"brief", "balanced", "detailed"}:
+        return preferred_style
+    return default_style

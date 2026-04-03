@@ -38,6 +38,7 @@ export function buildCharacterPackageManifest(
     behavior_style:
       options.persona_prompt?.trim() ||
       `You are ${primaryName}, a DiceBear-based assistant with a ${options.style} visual style.`,
+    preferred_response_style: options.preferred_response_style?.trim() || 'balanced',
     svg_file: `${characterId}.svg`,
     voice_model: options.voice_model,
     wakeword_model: options.wakeword_model_id,

@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import re
-from typing import Any, Iterable
 
 from app.providers.types import ProviderSpec
 from app.subsystems.character import utils
 from app.subsystems.character.models import (
+    PROFANITY_PATTERN,
     PROMPT_LAYER_ORDER,
     PROMPT_COMPILER_VERSION,
-    PROMPT_COMPILER_OPTIONS,
-    PROMPT_STAGE_GROUPS,
-    PROFANITY_PATTERN,
 )
 
 
@@ -36,10 +31,9 @@ def get_prompt_compiler_messages(non_empty_layers: dict[str, str]) -> list[dict[
         {
             "role": "system",
             "content": (
-                "You are a prompt compiler. Apply prompt layers in strict priority order. "
-                "Each lower-priority layer may operate only within the space allowed by higher-priority layers. "
-                "A lower-priority layer cannot weaken, override, reframe, reset, or contradict a higher-priority layer. "
-                "Output only the final compiled prompt as a single coherent paragraph."
+                "You are a prompt compiler. Produce a compact system prompt that preserves each layer's intent "
+                "and priority. Keep higher-priority rules authoritative, do not paraphrase away critical identity "
+                "or safety clauses, and do not rewrite the result into character-roleplay prose."
             ),
         },
         {
@@ -65,53 +59,64 @@ def compile_base_prompt(
     compiler_provider: ProviderSpec | None,
 ) -> str:
     """Compile the layers into one compact prompt."""
-    if compiler_provider is not None:
-        # Simplified for now, or use fallback if it fails
-        try:
-             compiled = _compile_with_llm(non_empty_layers, compiler_provider)
-             if compiled:
-                 return compiled
-        except Exception:
-             pass
-    return _compact_fallback(non_empty_layers)
+    del compiler_provider
+    return _structured_fallback(non_empty_layers)
 
 
-def _compile_with_llm(non_empty_layers: dict[str, str], provider: ProviderSpec) -> str:
-    """Call the LLM to compile the layers."""
-    from app.subsystems.text.client import chat_completion
-    messages = get_prompt_compiler_messages(non_empty_layers)
-    try:
-        compiled = chat_completion(
-            provider,
-            messages,
-            options=PROMPT_COMPILER_OPTIONS,
-            timeout=30.0,
-        ).strip()
-        return _sanitize_compiled(compiled)
-    except Exception:
-        return ""
-
-
-def _sanitize_compiled(compiled: str) -> str:
-    """Clean up the model response."""
-    cleaned = compiled.strip().strip("`").strip()
-    if cleaned.lower().startswith("text"):
-        cleaned = cleaned[4:].strip()
-    return utils.normalize_instruction_text(cleaned)
-
-
-def _compact_fallback(non_empty_layers: dict[str, str]) -> str:
-    """Deterministic fallback for when LLM compilation is unavailable or fails."""
-    # Simplified logic from service.py
-    parts = []
+def _structured_fallback(non_empty_layers: dict[str, str]) -> str:
+    """Return a deterministic system prompt that preserves layer boundaries."""
+    sections = [
+        "Follow these instruction layers in strict priority order. Higher-priority layers always win if any instruction conflicts.",
+    ]
+    seen_values: set[str] = set()
+    profanity_blocked = False
     for key in PROMPT_LAYER_ORDER:
-        if key in non_empty_layers:
-            parts.append(non_empty_layers[key])
-    return " ".join(parts).strip()
+        value = utils.normalize_instruction_text(non_empty_layers.get(key, ""))
+        if not value:
+            continue
+        if profanity_blocked:
+            value = _strip_disallowed_profanity(value)
+        normalized_value = value.lower()
+        if normalized_value in seen_values:
+            continue
+        seen_values.add(normalized_value)
+        sections.append(f"{_label_for_layer(key)}: {value}")
+        if key == "account_policy_prompt" and _blocks_profanity(value):
+            profanity_blocked = True
+    return "\n\n".join(sections).strip()
+
+
+def _label_for_layer(key: str) -> str:
+    """Return a readable label for one prompt layer."""
+    return {
+        "core_safety_prompt": "Core safety and identity",
+        "account_policy_prompt": "Account policy",
+        "admin_prompt": "Admin guidance",
+        "care_profile_prompt": "Care profile",
+        "character_prompt": "Character behavior",
+        "character_custom_prompt": "Character customization",
+        "user_prompt": "User preference",
+    }.get(key, key.replace("_", " ").title())
+
+
+def _blocks_profanity(text: str) -> bool:
+    """Return True when a higher-priority layer forbids profanity."""
+    lowered = text.lower()
+    return "no swearing" in lowered or "never use profanity" in lowered or "no profanity" in lowered
+
+
+def _strip_disallowed_profanity(text: str) -> str:
+    """Remove profanity requests from lower-priority layers when a higher layer forbids them."""
+    cleaned = PROFANITY_PATTERN.sub("", text)
+    cleaned = cleaned.replace("swear all the time", "")
+    cleaned = cleaned.replace("And swear!!!!", "")
+    cleaned = cleaned.replace("And swear!", "")
+    cleaned = cleaned.replace("And swear.", "")
+    cleaned = cleaned.replace("swear", "")
+    return utils.normalize_instruction_text(cleaned)
 
 
 def is_valid_compiled_prompt(text: str) -> bool:
     """Return True when the text looks like a valid prompt paragraph."""
     cleaned = str(text or "").strip()
-    # Basic heuristic
     return len(cleaned) > 20 and " " in cleaned

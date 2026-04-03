@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
-VoiceResponseStyle = Literal["voice_concise"]
+VoiceResponseStyle = Literal["brief"]
 
 
 class WakewordSettingsRequest(BaseModel):
@@ -78,7 +78,7 @@ class VoiceChatRequest(BaseModel):
     audio_base64: str = Field(min_length=1)
     mime_type: str = Field(min_length=1)
     chat_id: Optional[str] = None
-    response_style: VoiceResponseStyle = "voice_concise"
+    response_style: VoiceResponseStyle = "brief"
 
 
 class WakewordDetectRequest(BaseModel):

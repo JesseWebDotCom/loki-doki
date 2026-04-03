@@ -42,6 +42,7 @@ def row_to_definition(row: Union[dict[str, Any], sqlite3.Row]) -> CharacterDefin
         identity_key=str(data.get("identity_key") or ""),
         domain=str(data.get("domain") or ""),
         behavior_style=str(data.get("behavior_style") or ""),
+        preferred_response_style=str(data.get("preferred_response_style") or "balanced"),
         voice_model=str(data.get("voice_model") or ""),
         default_voice=str(data["default_voice"]),
         default_voice_download_url=str(data["default_voice_download_url"] or ""),

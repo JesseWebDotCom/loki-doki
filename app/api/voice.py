@@ -333,7 +333,7 @@ def voice_chat_api(
             context["providers"],
             transcript,
             chat_id=str(chat["id"]),
-            response_style=payload.response_style or "voice_concise",
+            response_style=payload.response_style or "brief",
         )
         chat_store.append_chat_message(connection, current_user["id"], str(chat["id"]), assistant_message)
         chats = chat_store.list_chat_summaries(connection, current_user["id"])

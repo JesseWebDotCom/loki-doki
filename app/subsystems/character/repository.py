@@ -31,6 +31,7 @@ class CharacterRepositoryEntry:
     identity_key: str = ""
     domain: str = ""
     behavior_style: str = ""
+    preferred_response_style: str = "balanced"
     voice_model: str = ""
     character_editor: dict[str, Any] | None = None
 
@@ -54,6 +55,7 @@ class CharacterRepositoryEntry:
             "identity_key": self.identity_key or self.character_id,
             "domain": self.domain,
             "behavior_style": self.behavior_style,
+            "preferred_response_style": self.preferred_response_style,
             "voice_model": self.voice_model,
             "character_editor": dict(self.character_editor or {}),
             "download_url": self.download_url,
@@ -168,6 +170,7 @@ class CharacterRepository:
                     identity_key=str(payload.get("identity_key") or payload.get("id") or manifest_path.parent.name).strip(),
                     domain=str(payload.get("domain") or "").strip(),
                     behavior_style=str(payload.get("behavior_style") or "").strip(),
+                    preferred_response_style=str(payload.get("preferred_response_style") or "balanced").strip() or "balanced",
                     voice_model=str(payload.get("voice_model") or "").strip(),
                     character_editor=dict(payload.get("character_editor") or {}),
                 )
@@ -193,6 +196,7 @@ class CharacterRepository:
             identity_key=str(payload.get("identity_key") or payload.get("id") or "").strip(),
             domain=str(payload.get("domain") or "").strip(),
             behavior_style=str(payload.get("behavior_style") or "").strip(),
+            preferred_response_style=str(payload.get("preferred_response_style") or "balanced").strip() or "balanced",
             voice_model=str(payload.get("voice_model") or "").strip(),
             character_editor=dict(payload.get("character_editor") or {}),
         )

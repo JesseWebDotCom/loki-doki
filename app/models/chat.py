@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
-ChatResponseStyle = Literal["chat_balanced", "chat_detailed"]
+ChatResponseStyle = Literal["brief", "balanced", "detailed"]
 
 
 class ChatRequest(BaseModel):

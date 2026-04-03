@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 from app.config import AppConfig, get_app_config
+from app.providers.piper_service import install_voice, install_voice_from_url, installed_voice_ids
 from app.providers.types import ProviderSpec
 from app.subsystems.character.models import (
     CharacterDefinition,
@@ -39,6 +40,7 @@ class CharacterService:
         character = self._resolve_character(conn, character_id)
         if character is None:
             raise ValueError(f"Character {character_id!r} is not installed.")
+        self._ensure_character_voice_installed(character)
         return character.to_dict()
 
     def set_catalog_enabled(self, conn: sqlite3.Connection, character_id: str, enabled: bool) -> dict[str, Any]:
@@ -77,6 +79,12 @@ class CharacterService:
         manifest["identity_key"] = str(values.get("identity_key", manifest.get("identity_key") or character.identity_key or character.character_id)).strip() or character.character_id
         manifest["domain"] = str(values.get("domain", manifest.get("domain") or character.domain)).strip()
         manifest["behavior_style"] = str(values.get("behavior_style", manifest.get("behavior_style") or character.behavior_style or manifest["system_prompt"])).strip()
+        manifest["preferred_response_style"] = str(
+            values.get(
+                "preferred_response_style",
+                manifest.get("preferred_response_style") or character.preferred_response_style or "balanced",
+            )
+        ).strip() or "balanced"
         manifest["voice_model"] = str(values.get("voice_model", manifest.get("voice_model") or character.voice_model or character.default_voice)).strip()
         manifest["default_voice"] = str(values.get("default_voice", manifest.get("default_voice") or character.default_voice)).strip()
         manifest["default_voice_download_url"] = str(values.get("default_voice_download_url", manifest.get("default_voice_download_url") or character.default_voice_download_url)).strip()
@@ -212,7 +220,12 @@ class CharacterService:
 
     def update_user_settings(self, conn: sqlite3.Connection, user_id: str, values: dict[str, Any]) -> dict[str, Any]:
         """Persist user-controlled character settings."""
-        return user_settings.update_user_settings(conn, user_id, values)
+        updated = user_settings.update_user_settings(conn, user_id, values)
+        if bool(updated.get("character_enabled")):
+            character = self._resolve_character(conn, str(updated.get("active_character_id") or ""))
+            if character is not None:
+                self._ensure_character_voice_installed(character)
+        return updated
 
     def update_user_overrides(self, conn: sqlite3.Connection, user_id: str, values: dict[str, Any]) -> dict[str, Any]:
         """Persist admin-controlled prompt overrides for one user."""
@@ -252,14 +265,20 @@ class CharacterService:
             active_character_id=state["active_character_id"],
             active_character_name=state["active_character_name"],
             character_behavior_style=str(state.get("active_character_behavior_style") or ""),
+            character_preferred_response_style=str(state.get("active_character_preferred_response_style") or "balanced"),
             care_profile_id=str(state["care_profile"]["id"]),
             care_profile_sentence_length=str(state["care_profile"]["sentence_length"]),
-            care_profile_response_style=str(state["care_profile"].get("response_style") or "chat_balanced"),
+            care_profile_response_style=str(state["care_profile"].get("response_style") or "balanced"),
             character_enabled=state["character_enabled"],
             proactive_chatter_enabled=bool(state["account"].get("proactive_chatter_enabled", False)),
             blocked_topics=state["blocked_topics"],
             max_response_tokens=int(state["care_profile"]["max_response_tokens"]),
-            debug={"prompt_hash": compiled_hash, "character_id": state["active_character_id"]},
+            debug={
+                "prompt_hash": compiled_hash,
+                "character_id": state["active_character_id"],
+                "enabled_layers": dict(state.get("enabled_layers") or {}),
+                "layer_overrides": dict(layer_overrides or {}),
+            },
         )
 
     def resolve_prompt_state(
@@ -273,35 +292,71 @@ class CharacterService:
         settings = self.get_user_settings(conn, current_user["id"])
         account = self.get_account(conn, str(current_user.get("account_id") or "default-account"))
         care_prof = care.get_care_profile_by_id(conn, settings["care_profile_id"])
-        
+
         selected_character_id = settings["active_character_id"] or account["default_character_id"]
         char = self._resolve_character(conn, selected_character_id)
         if char is None and selected_character_id != "lokidoki":
             char = self._resolve_character(conn, "lokidoki")
             selected_character_id = "lokidoki" if char else selected_character_id
-        
+
+        character_enabled = bool(settings["character_enabled"] and char)
+        active_character_id = selected_character_id if character_enabled else None
+        active_character_name = char.name if character_enabled and char else ""
+        active_character_behavior_style = char.behavior_style if character_enabled and char else ""
+        active_character_preferred_response_style = (
+            char.preferred_response_style if character_enabled and char and char.preferred_response_style else "balanced"
+        )
+        character_custom_prompt = ""
+        if character_enabled and char:
+            character_custom_prompt = str(settings["character_customizations"].get(selected_character_id) or "").strip()
+
         blocked = tuple(dict.fromkeys([*care_prof["blocked_topics"], *settings["blocked_topics"]]))
         layers = {
             "core_safety_prompt": account["core_safety_prompt"] or "You are LokiDoki.",
             "account_policy_prompt": account["account_policy_prompt"],
             "admin_prompt": settings["admin_prompt"],
-            "care_profile_prompt": f"Tone: {care_prof['tone']}",
+            "care_profile_prompt": self._care_profile_prompt(care_prof),
             "user_prompt": settings["user_prompt"],
-            "character_prompt": char.system_prompt if char else "",
+            "character_prompt": char.system_prompt if character_enabled and char else "",
+            "character_custom_prompt": character_custom_prompt,
         }
+        if layer_overrides:
+            for key, value in layer_overrides.items():
+                if key in layers:
+                    layers[key] = str(value or "").strip()
+        if enabled_layers:
+            for key, enabled in enabled_layers.items():
+                if key in layers and not enabled:
+                    layers[key] = ""
         return {
             "prompt_layers": layers,
             "non_empty_layers": utils.non_empty_layers(layers),
             "user_settings": settings,
             "account": account,
             "care_profile": care_prof,
-            "active_character_id": selected_character_id if char else None,
-            "active_character_name": char.name if char else "",
-            "active_character_behavior_style": char.behavior_style if char else "",
-            "character_enabled": bool(char),
+            "active_character_id": active_character_id,
+            "active_character_name": active_character_name,
+            "active_character_behavior_style": active_character_behavior_style,
+            "active_character_preferred_response_style": active_character_preferred_response_style,
+            "character_enabled": character_enabled,
             "blocked_topics": blocked,
             "enabled_layers": enabled_layers or {},
         }
+
+    def _care_profile_prompt(self, care_profile: dict[str, Any]) -> str:
+        """Return one compact care-profile instruction block."""
+        parts = []
+        tone = str(care_profile.get("tone") or "").strip()
+        vocabulary = str(care_profile.get("vocabulary") or "").strip()
+        sentence_length = str(care_profile.get("sentence_length") or "").strip()
+        if tone:
+            article = "an" if tone[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
+            parts.append(f"Use {article} {tone} tone.")
+        if vocabulary and vocabulary != "standard":
+            parts.append(f"Use {vocabulary} vocabulary.")
+        if sentence_length:
+            parts.append(f"Prefer {sentence_length} sentences.")
+        return " ".join(parts).strip()
 
     def prompt_compiler_messages(self, non_empty_layers: dict[str, str]) -> list[dict[str, str]]:
         """Return the exact compiler messages used for one prompt compile."""
@@ -314,7 +369,7 @@ class CharacterService:
         message: str,
         history: list[dict[str, str]],
         dynamic_context: str = "",
-        response_style: str = "chat_balanced",
+        response_style: str = "balanced",
     ) -> list[dict[str, str]]:
         """Build the final chat message list for the model."""
         return render.build_messages(context, classification, message, history, dynamic_context, response_style)
@@ -337,6 +392,25 @@ class CharacterService:
         ).fetchone()
         return utils.row_to_definition(row) if row else None
 
+    def _ensure_character_voice_installed(self, character: CharacterDefinition) -> None:
+        """Install the character's default Piper voice when needed."""
+        voice_id = str(character.default_voice or "").strip()
+        if not voice_id:
+            return
+        if voice_id in installed_voice_ids():
+            return
+        model_url = str(character.default_voice_download_url or "").strip()
+        if model_url:
+            install_voice_from_url(
+                voice_id,
+                model_url,
+                config_url=str(character.default_voice_config_download_url or "").strip(),
+                label=str(character.default_voice_source_name or character.name or voice_id).strip(),
+                description=f"Auto-installed for character {character.name}.",
+            )
+            return
+        install_voice(voice_id)
+
     def _manifest_from_payload(self, character_id: str, payload: dict[str, Any], target_dir: Path) -> dict[str, Any]:
         """Normalize one imported package payload into a manifest."""
         system_prompt = str(payload.get("system_prompt") or payload.get("behavior_style") or "").strip()
@@ -353,6 +427,7 @@ class CharacterService:
             "description": str(payload.get("description") or "").strip(),
             "teaser": str(payload.get("teaser") or "").strip(),
             "behavior_style": str(payload.get("behavior_style") or system_prompt).strip(),
+            "preferred_response_style": str(payload.get("preferred_response_style") or "balanced").strip() or "balanced",
             "voice_model": str(payload.get("voice_model") or payload.get("default_voice") or "").strip(),
             "default_voice": str(payload.get("default_voice") or payload.get("voice_model") or "").strip(),
             "default_voice_download_url": str(payload.get("default_voice_download_url") or "").strip(),
