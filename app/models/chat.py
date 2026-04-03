@@ -26,6 +26,7 @@ class SmartRetryRequest(BaseModel):
 class ChatCreateRequest(BaseModel):
     """Create one chat."""
     title: str = ""
+    character_id: Optional[str] = None
 
 
 class ChatRenameRequest(BaseModel):

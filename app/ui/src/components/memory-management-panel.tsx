@@ -10,8 +10,10 @@ export interface UserMemoryFact {
   key: string
   value: string
   confidence: number
+  importance: number
   source: string
   updated_at: string
+  expires_at?: string
 }
 
 export interface HouseholdMemoryFact {
@@ -27,6 +29,22 @@ export interface SessionMemoryFact {
   key: string
   value: string
   updated_at: string
+}
+
+export interface MemoryCandidate {
+  id: string
+  candidate_text: string
+  character_id: string
+  confidence: number
+  surface_count: number
+  last_seen: string
+}
+
+export interface Reflection {
+  id: string
+  insight: string
+  importance_score: number
+  created_at: string
 }
 
 interface MemoryContextPayload {
@@ -162,7 +180,7 @@ export function MemoryManagementPanel({
   activeCharacterId = "",
   token = "",
 }: MemoryManagementPanelProps) {
-  const [activeTab, setActiveTab] = useState<"session" | "user" | "household">(activeChatId ? "session" : "user")
+  const [activeTab, setActiveTab] = useState<"session" | "user" | "household" | "queue" | "reflections">(activeChatId ? "session" : "user")
   const [chatOptions, setChatOptions] = useState<ChatOption[]>([])
   const [selectedChatId, setSelectedChatId] = useState("")
   const [selectedCharacterFilter, setSelectedCharacterFilter] = useState("all")
@@ -171,8 +189,11 @@ export function MemoryManagementPanel({
   const [userMemories, setUserMemories] = useState<UserMemoryFact[]>([])
   const [householdMemories, setHouseholdMemories] = useState<HouseholdMemoryFact[]>([])
   const [sessionMemories, setSessionMemories] = useState<SessionMemoryFact[]>([])
+  const [candidates, setCandidates] = useState<MemoryCandidate[]>([])
+  const [reflections, setReflections] = useState<Reflection[]>([])
   const [memoryContext, setMemoryContext] = useState<MemoryContextPayload | null>(null)
   const [loading, setLoading] = useState(true)
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false)
   const [chatOptionsLoading, setChatOptionsLoading] = useState(true)
   const [newSessionKey, setNewSessionKey] = useState("")
   const [newSessionValue, setNewSessionValue] = useState("")
@@ -201,7 +222,7 @@ export function MemoryManagementPanel({
     ? userMemories
     : userMemories.filter((memory) => memory.character_id === selectedCharacterFilter)
 
-  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
+  const authHeaders: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {}
 
   const resolveActiveChat = async (): Promise<{ chatId: string; chatTitle: string }> => {
     setChatOptionsLoading(true)
@@ -302,6 +323,62 @@ export function MemoryManagementPanel({
     }
   }
 
+  const fetchQueue = async () => {
+    try {
+      const res = await fetch("/api/memory/queue", { headers: authHeaders })
+      const result = await res.json()
+      if (result.ok) {
+        setCandidates(result.candidates)
+      }
+    } catch (err) {
+      console.error("Failed to load memory queue", err)
+    }
+  }
+
+  const fetchReflections = async () => {
+    try {
+      const res = await fetch("/api/memory/reflections", { headers: authHeaders })
+      const result = await res.json()
+      if (result.ok) {
+        setReflections(result.reflections)
+      }
+    } catch (err) {
+      console.error("Failed to load reflections", err)
+    }
+  }
+
+  const runMaintenance = async () => {
+    setMaintenanceLoading(true)
+    try {
+      await fetch("/api/memory/maintenance", { method: "POST", headers: authHeaders })
+      // Give it a moment then refresh
+      setTimeout(() => void refreshMemories(), 1000)
+    } catch (err) {
+      console.error("Maintenance failed", err)
+    } finally {
+      setMaintenanceLoading(false)
+    }
+  }
+
+  const promoteCandidate = async (id: string) => {
+    try {
+      await fetch(`/api/memory/queue/promote/${id}`, { method: "POST", headers: authHeaders })
+      void fetchQueue()
+      void fetchUserMemories()
+    } catch (err) {
+      console.error("Promotion failed", err)
+    }
+  }
+
+  const deleteCandidate = async (id: string) => {
+    try {
+      await fetch(`/api/memory/queue/${id}`, { method: "DELETE", headers: authHeaders })
+      void fetchQueue()
+    } catch (err) {
+      console.error("Delete failed", err)
+    }
+  }
+
   const refreshMemories = async () => {
     setLoading(true)
     const { chatId: nextChatId } = await resolveActiveChat()
@@ -309,6 +386,8 @@ export function MemoryManagementPanel({
       fetchSessionMemories(nextChatId),
       fetchUserMemories(),
       fetchMemoryContext(nextChatId),
+      fetchQueue(),
+      fetchReflections(),
       isAdmin ? fetchHouseholdMemories() : Promise.resolve(),
     ])
     setLoading(false)
@@ -548,29 +627,55 @@ export function MemoryManagementPanel({
               </select>
             </div>
           </div>
-          <Button className="h-9 rounded-full px-3 text-xs" onClick={() => void refreshMemories()} type="button" variant="outline">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              className="h-9 rounded-full px-3 text-xs" 
+              onClick={() => void runMaintenance()} 
+              type="button" 
+              variant="outline"
+              disabled={maintenanceLoading}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${maintenanceLoading ? 'animate-spin' : ''}`} />
+              {maintenanceLoading ? 'Running...' : 'Run Maintenance'}
+            </Button>
+            <Button className="h-9 rounded-full px-3 text-xs" onClick={() => void refreshMemories()} type="button" variant="outline">
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
-        <div className="flex max-w-xl rounded-xl border border-[var(--line)] bg-[var(--panel)] p-1">
+        <div className="flex max-w-2xl rounded-xl border border-[var(--line)] bg-[var(--panel)] p-1 overflow-x-auto">
           <button
-            className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "session" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+            className={`whitespace-nowrap px-3 py-2 text-sm transition rounded-lg ${activeTab === "session" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
             onClick={() => setActiveTab("session")}
             type="button"
           >
             Chat Sessions
           </button>
           <button
-            className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "user" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+            className={`whitespace-nowrap px-3 py-2 text-sm transition rounded-lg ${activeTab === "user" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
             onClick={() => setActiveTab("user")}
             type="button"
           >
             My Memory
           </button>
+          <button
+            className={`whitespace-nowrap px-3 py-2 text-sm transition rounded-lg ${activeTab === "queue" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+            onClick={() => setActiveTab("queue")}
+            type="button"
+          >
+            Intelligence Queue
+          </button>
+          <button
+            className={`whitespace-nowrap px-3 py-2 text-sm transition rounded-lg ${activeTab === "reflections" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+            onClick={() => setActiveTab("reflections")}
+            type="button"
+          >
+            Reflections
+          </button>
           {isAdmin ? (
             <button
-              className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${activeTab === "household" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+              className={`whitespace-nowrap px-3 py-2 text-sm transition rounded-lg ${activeTab === "household" ? "bg-[var(--input)] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
               onClick={() => setActiveTab("household")}
               type="button"
             >
@@ -883,8 +988,11 @@ export function MemoryManagementPanel({
                   <div className="min-w-0 flex-1 space-y-2 pr-6">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-cyan-300">{memory.character_name} remembers</span>
-                      <span className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
-                        {Math.round(memory.confidence * 100)}%
+                      <span className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]" title="Confidence">
+                        {Math.round(memory.confidence * 100)}% C
+                      </span>
+                      <span className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-200" title="Importance">
+                        {Math.round(memory.importance * 100)}% I
                       </span>
                       <span className={`rounded-md px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] ${memory.source === "extracted" ? "bg-cyan-500/15 text-cyan-200" : "border border-[var(--line)] bg-[var(--panel)] text-[var(--muted-foreground)]"}`}>
                         {personMemorySourceLabel(memory.source)}
@@ -914,8 +1022,11 @@ export function MemoryManagementPanel({
                         <span className="font-semibold text-[var(--foreground)]">{memory.key}</span> = {memory.value}
                       </div>
                     )}
-                    <div className="text-xs text-[var(--muted-foreground)]">
-                      Saved {formatMemoryTimestamp(memory.updated_at)}
+                    <div className="text-xs text-[var(--muted-foreground)] flex items-center gap-2">
+                      <span>Saved {formatMemoryTimestamp(memory.updated_at)}</span>
+                      {memory.expires_at ? (
+                        <span className="text-rose-300 font-medium">Expires {formatMemoryTimestamp(memory.expires_at)}</span>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-1">
@@ -995,6 +1106,87 @@ export function MemoryManagementPanel({
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
+
+        {!loading && activeTab === "queue" ? (
+          <div className="grid gap-3">
+             <div className="text-sm text-[var(--muted-foreground)] mb-2 p-2 rounded-xl border border-[var(--line)]">
+              Facts below 85% confidence are held here. They are automatically promoted after being seen 3 times.
+            </div>
+            {candidates.length === 0 ? (
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--input)] p-4 text-center text-sm italic text-[var(--muted-foreground)]">
+                The intelligence queue is currently empty.
+              </p>
+            ) : (
+              candidates.map((cand) => (
+                <div key={cand.id} className="flex items-start justify-between rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+                  <div className="min-w-0 flex-1 space-y-1 pr-6">
+                    <div className="flex items-center gap-2">
+                       <span className="text-sm font-medium text-emerald-300">{cand.character_id} Candidate</span>
+                       <span className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+                        {Math.round(cand.confidence * 100)}% Confidence
+                      </span>
+                       <span className="rounded-md bg-cyan-500/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan-200">
+                        Seen {cand.surface_count}x
+                      </span>
+                    </div>
+                    <div className="text-sm text-[var(--foreground)] mt-1">{cand.candidate_text}</div>
+                    <div className="text-[10px] text-[var(--muted-foreground)] mt-1">Last seen {formatMemoryTimestamp(cand.last_seen)}</div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <Button
+                      className="h-8 w-8 rounded-full text-emerald-300 hover:bg-emerald-500/10"
+                      onClick={() => promoteCandidate(cand.id)}
+                      size="icon"
+                      title="Promote to permanent memory"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      className="h-8 w-8 rounded-full text-rose-300 hover:bg-rose-500/10"
+                      onClick={() => deleteCandidate(cand.id)}
+                      size="icon"
+                      title="Discard candidate"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
+
+        {!loading && activeTab === "reflections" ? (
+          <div className="grid gap-3">
+             <div className="text-sm text-[var(--muted-foreground)] mb-2 p-2 rounded-xl border border-[var(--line)]">
+              High-level insights synthesized from multiple interactions (L5 Layer).
+            </div>
+            {reflections.length === 0 ? (
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--input)] p-4 text-center text-sm italic text-[var(--muted-foreground)]">
+                No high-level reflections have been synthesized yet.
+              </p>
+            ) : (
+              reflections.map((refl) => (
+                <div key={refl.id} className="rounded-2xl border border-[var(--line)] bg-[var(--input)] p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">Synthesis Layer</span>
+                    <span className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-0.5 text-[10px] font-mono text-cyan-200">
+                      Importance: {refl.importance_score}
+                    </span>
+                  </div>
+                  <div className="text-sm text-[var(--foreground)] font-medium leading-relaxed italic">
+                    "{refl.insight}"
+                  </div>
+                  <div className="text-[10px] text-[var(--muted-foreground)] mt-3">Reflected on {formatMemoryTimestamp(refl.created_at)}</div>
                 </div>
               ))
             )}

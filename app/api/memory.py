@@ -12,8 +12,10 @@ from app.models.memory import (
     MemoryAddRequest,
     MemorySyncRequest,
     MemoryWriteRequest,
+    MemoryIndexRequest,
 )
 from app.subsystems.memory import store as memory_store
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -71,15 +73,35 @@ def _memory_context_response(
         if character_id
         else memory_store.list_user_memory(connection, user_id)
     )
-    household_memories = memory_store.list_household_memory(connection)
-    combined = "\n\n".join(block for block in (session_context, long_term_context) if block.strip())
+    # Phase 2: Augmented Context (Retrieve -> Rerank)
+    augmented_context = ""
+    # We use the thinking/high-quality provider for context assembly if available
+    from app.providers.manager import get_provider_for_subsystem
+    fast_provider = get_provider_for_subsystem("text_chat", "fast")
+    if chat_id and fast_provider:
+        history = chat_store.load_chat_history(connection, user_id, chat_id)
+        # Use the latest user message as the query if available
+        query = ""
+        for msg in reversed(history):
+            if msg["role"] == "user":
+                query = msg["content"]
+                break
+        if query:
+            augmented_context = memory_store.get_augmented_context(
+                connection, query, history, fast_provider, 
+                user_id=user_id, character_id=character_id
+            )
+
+    combined = "\n\n".join(block for block in (session_context, long_term_context, augmented_context) if block.strip())
     promoted_facts = _recent_promoted_facts(connection, user_id, chat_id)
     recent_activity = _recent_memory_activity(connection, user_id, character_id)
+    
     return {
         "ok": True,
         "context": {
             "session": session_context,
             "long_term": long_term_context,
+            "augmented": augmented_context,
             "combined": combined,
         },
         "recent_promoted_facts": promoted_facts,
@@ -90,6 +112,7 @@ def _memory_context_response(
             "household_count": len(household_memories),
             "session_applied": bool(session_context),
             "long_term_applied": bool(long_term_context),
+            "augmented_applied": bool(augmented_context),
         },
     }
 
@@ -347,3 +370,135 @@ def delete_household_memory_api(
     with connection_scope() as connection:
         memory_store.delete_household_memory(connection, key, user_id=current_user["id"])
         return {"ok": True, "memories": memory_store.list_household_memory(connection)}
+@router.post("/index")
+def index_content_api(
+    payload: MemoryIndexRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Index a document into long-term archival memory in the background."""
+    from app.providers.manager import get_provider_for_subsystem
+    provider = get_provider_for_subsystem("memory", "fast")
+    if not provider:
+        raise HTTPException(status_code=503, detail="Memory provider not configured.")
+
+    def run_indexing():
+        with connection_scope() as conn:
+            memory_store.index_archival_document(
+                conn, provider, payload.content, payload.source,
+                user_id=current_user["id"],
+                character_id=payload.character_id,
+                chunk_size=payload.chunk_size,
+                overlap=payload.overlap
+            )
+
+    background_tasks.add_task(run_indexing)
+    return {"ok": True, "message": "Indexing started in the background."}
+
+
+@router.post("/maintenance")
+def maintenance_api(
+    background_tasks: BackgroundTasks,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Trigger memory consolidation/hygiene in the background."""
+    from app.providers.manager import get_provider_for_subsystem
+    provider = get_provider_for_subsystem("memory", "fast")
+    if not provider:
+        raise HTTPException(status_code=503, detail="Memory provider not configured.")
+
+    def run_maintenance():
+        with connection_scope() as conn:
+            # 1. Prune expired entries
+            from app.subsystems.memory.records import prune_memory
+            pruned_count = prune_memory(conn)
+            
+            # 2. Consolidate archival memories
+            memory_store.consolidate_archival_memory(
+                conn, provider, user_id=current_user["id"]
+            )
+            # Log results or store in a maintenance log if needed
+
+    background_tasks.add_task(run_maintenance)
+    return {"ok": True, "message": "Memory maintenance started."}
+
+
+@router.get("/queue")
+def list_memory_queue_api(
+    character_id: Optional[str] = Query(default=None),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return candidates waiting in the importance queue."""
+    with connection_scope() as connection:
+        where = "WHERE user_id = ?"
+        params = [current_user["id"]]
+        if character_id:
+            where += " AND character_id = ?"
+            params.append(character_id)
+            
+        rows = connection.execute(
+            f"SELECT * FROM memory_importance_queue {where} ORDER BY last_seen DESC",
+            tuple(params)
+        ).fetchall()
+        return {"ok": True, "candidates": [dict(row) for row in rows]}
+
+
+@router.post("/queue/promote/{candidate_id}")
+def promote_candidate_api(
+    candidate_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Manually promote a candidate from the queue to real memory."""
+    with connection_scope() as connection:
+        # Security: verify ownership
+        row = connection.execute(
+            "SELECT user_id FROM memory_importance_queue WHERE id = ?",
+            (candidate_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Candidate not found.")
+        if row["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden.")
+            
+        from app.subsystems.memory.records import _promote_candidate
+        _promote_candidate(connection, candidate_id)
+        connection.commit()
+        return {"ok": True}
+
+
+@router.delete("/queue/{candidate_id}")
+def delete_candidate_api(
+    candidate_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Delete a memory candidate from the queue."""
+    with connection_scope() as connection:
+        # Security: verify ownership
+        res = connection.execute(
+            "DELETE FROM memory_importance_queue WHERE id = ? AND user_id = ?",
+            (candidate_id, current_user["id"])
+        )
+        if res.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Candidate not found.")
+        connection.commit()
+        return {"ok": True}
+
+
+@router.get("/reflections")
+def list_reflections_api(
+    character_id: Optional[str] = Query(default=None),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return L5 high-level character insights/reflections."""
+    with connection_scope() as connection:
+        where = "WHERE user_id = ?"
+        params = [current_user["id"]]
+        if character_id:
+            where += " AND character_id = ?"
+            params.append(character_id)
+            
+        rows = connection.execute(
+            f"SELECT * FROM mem_reflection_cache {where} ORDER BY importance_score DESC",
+            tuple(params)
+        ).fetchall()
+        return {"ok": True, "reflections": [dict(row) for row in rows]}

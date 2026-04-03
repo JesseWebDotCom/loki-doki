@@ -18,6 +18,7 @@ from app.models.chat import (
     ChatRenameRequest,
 )
 from app.chats import store as chat_store
+from app.subsystems.memory import store as memory_store
 from app.runtime import runtime_context
 from app.orchestrator import route_message_stream
 from app.subsystems.character import character_service
@@ -41,7 +42,13 @@ def create_chat_api(
 ) -> dict[str, Any]:
     """Create one chat and return the refreshed chat state."""
     with connection_scope() as connection:
-        chat = chat_store.create_chat(connection, current_user["id"], payload.title or chat_store.DEFAULT_CHAT_TITLE)
+        character_id = payload.character_id or "lokidoki"
+        chat = chat_store.create_chat(
+            connection, 
+            current_user["id"], 
+            payload.title or chat_store.DEFAULT_CHAT_TITLE,
+            character_id=character_id
+        )
         state = chat_state_payload(connection, current_user["id"], active_chat_id=str(chat["id"]))
     return {"chat": chat, **state}
 
@@ -148,6 +155,9 @@ def chat_message_stream_api(
         dynamic_context = build_memory_context(
             connection,
             current_user["id"],
+            payload.message.strip(),
+            history,
+            active_providers["llm_fast"],
             character_id=rendering_context.active_character_id if rendering_context else None,
             chat_id=str(chat["id"]),
         )
@@ -209,7 +219,28 @@ def chat_message_stream_api(
             "created_at": None,
         }
         with connection_factory() as connection:
+            # 1. Persist the final assistant message
             chat_store.append_chat_message(connection, current_user["id"], str(chat["id"]), assistant_message)
+            
+            # 2. Extract and promote facts from this turn
+            memory_store.promote_person_facts(
+                connection,
+                current_user["id"],
+                rendering_context.active_character_id if rendering_context else None,
+                payload.message.strip(),
+                history,
+            )
+            
+            # 3. LLM Intelligence Queue extraction
+            if rendering_context and rendering_context.active_character_id:
+                memory_store.extract_person_facts_llm(
+                    connection,
+                    active_providers["llm_fast"],
+                    current_user["id"],
+                    rendering_context.active_character_id,
+                    payload.message.strip()
+                )
+
             saved_history = chat_store.load_chat_history(connection, current_user["id"], str(chat["id"]))
             saved_message = dict(saved_history[-1]) if saved_history else dict(assistant_message)
         yield json.dumps({"type": "done", "message": saved_message}) + "\n"

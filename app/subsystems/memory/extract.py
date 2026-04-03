@@ -1,7 +1,4 @@
-"""Heuristic fact extraction for promoting durable person memory."""
-
 from __future__ import annotations
-
 import re
 import sqlite3
 from typing import Any
@@ -198,3 +195,43 @@ def _dedupe_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(marker)
         deduped.append(fact)
     return deduped
+def extract_person_facts_llm(
+    conn: sqlite3.Connection,
+    provider: Any,
+    user_id: str,
+    character_id: str,
+    message: str,
+) -> int:
+    """Use an LLM to extract potential person facts and queue them for promotion."""
+    from app.subsystems.text.client import chat_completion
+    
+    prompt = (
+        "You are an expert fact extractor. Extract any concrete personal facts about the user from their message. "
+        "A fact should be a personal detail, preference, background info, or relationship. "
+        "Output ONLY the facts, one per line. If none, output nothing. "
+        "Example output:\n"
+        "The user lives in San Francisco.\n"
+        "The user likes spicy food.\n"
+        f"\n\nUser message: {message}"
+    )
+    
+    try:
+        response = chat_completion(provider, [{"role": "system", "content": prompt}], options={"temperature": 0.0}, timeout=4.0)
+        lines = [line.strip() for line in response.splitlines() if line.strip()]
+        count = 0
+        for line in lines:
+            # We use a low confidence (0.4) so it goes into the queue (Intelligence Queue)
+            write_memory(
+                conn,
+                scope="person",
+                key="potential_fact",
+                value=line,
+                user_id=user_id,
+                character_id=character_id,
+                confidence=0.4,
+                source="llm_extraction",
+            )
+            count += 1
+        return count
+    except Exception:
+        return 0
