@@ -16,7 +16,7 @@ const MAX_AVATAR_CACHE_SIZE = 48;
  * AnimatedCharacter — The SVG Puppeteer Renderer (Phase 3.3)
  * Standardized rig that bridges Canonical States to Style-Specific DiceBear assets.
  */
-const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head'; stageScale?: number }> = memo(({ viewPreset = 'full', stageScale = 1.0 }) => {
+const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head' | 'fullscreen'; stageScale?: number }> = memo(({ viewPreset = 'full', stageScale = 1.0 }) => {
   const { options, brain, sendToBrain } = useCharacter();
   const { isSpeaking: isMicSpeaking, viseme: audioViseme, isListening } = useAudio();
   const { isSpeaking: isVoiceSpeaking, registerVisemeListener } = useVoice();

@@ -40,12 +40,23 @@ import {
   X,
   Plus,
   Server,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  MessageSquare,
 } from "lucide-react"
 
 import { CharacterContext, type CharacterOptions } from "@/character-editor/context/CharacterContext"
 import { VoiceContext } from "@/character-editor/context/VoiceContext"
 import { AudioContext } from "@/character-editor/context/AudioContext"
 import AnimatedCharacter from "@/character-editor/components/AnimatedCharacter"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/character-editor/components/ui/dropdown-menu"
 
 import { Button } from "@/components/ui/button"
 import { AssistantMessageCard } from "@/components/assistant-message-card"
@@ -1536,7 +1547,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<"assistant" | "settings" | "admin">("assistant")
   const [assistantTab, setAssistantTab] = useState<"chat" | "talk">("chat")
   const [isCharacterVisible, setIsCharacterVisible] = useState(() => localStorage.getItem("ld_character_visible") !== "false")
-  const [characterDisplayMode, setCharacterDisplayMode] = useState<"full" | "head">(() => (localStorage.getItem("ld_character_mode") as any) || "head")
+  const [characterDisplayMode, setCharacterDisplayMode] = useState<"full" | "head" | "fullscreen">(() => (localStorage.getItem("ld_character_mode") as any) || "head")
 
   useEffect(() => {
     localStorage.setItem("ld_character_visible", String(isCharacterVisible))
@@ -1590,11 +1601,22 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem("ld_voice_reply_enabled", String(voiceReplyEnabled))
+    if (!voiceReplyEnabled) {
+      stopSpeaking()
+      stopAudioReply()
+    }
   }, [voiceReplyEnabled])
 
   useEffect(() => {
     localStorage.setItem("ld_voice_source", voiceSource)
   }, [voiceSource])
+
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(() => localStorage.getItem("ld_subtitles_enabled") !== "false")
+  useEffect(() => {
+    localStorage.setItem("ld_subtitles_enabled", String(subtitlesEnabled))
+  }, [subtitlesEnabled])
+
+  const [speakingWordIndex, setSpeakingWordIndex] = useState<number | null>(null)
   const [bargeInEnabled, setBargeInEnabled] = useState(false)
   const [voiceOptions, setVoiceOptions] = useState<SpeechSynthesisVoice[]>([])
   const [selectedVoiceURI, setSelectedVoiceURI] = useState("")
@@ -1631,6 +1653,28 @@ export default function App() {
   const [wakewordModelId, setWakewordModelId] = useState("loki_doki")
   const [wakewordSources, setWakewordSources] = useState<WakewordSource[]>([])
   const [wakewordRuntime, setWakewordRuntime] = useState<WakewordPayload["status"] | null>(null)
+
+  // Native Fullscreen Bridge
+  useEffect(() => {
+    if (characterDisplayMode === "fullscreen" && isCharacterVisible) {
+      if (!document.fullscreenElement) {
+        void document.documentElement.requestFullscreen().catch(() => {})
+      }
+    } else if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {})
+    }
+  }, [characterDisplayMode, isCharacterVisible])
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && characterDisplayMode === "fullscreen") {
+        setCharacterDisplayMode("head")
+      }
+    }
+    document.addEventListener("fullscreenchange", handleFullscreenChange)
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
+  }, [characterDisplayMode])
+
   const [wakewordEchoCancellationEnabled, setWakewordEchoCancellationEnabled] = useState(true)
   const [wakewordNoiseSuppressionEnabled, setWakewordNoiseSuppressionEnabled] = useState(true)
   const [wakewordAutoGainControlEnabled, setWakewordAutoGainControlEnabled] = useState(true)
@@ -3077,6 +3121,10 @@ export default function App() {
   }, [bargeInEnabled, isBargeInCapturing, isSubmitting, isVoiceListening, isVoiceReplyPending, speakingMessageKey, token, user])
 
   async function playMessageVoice(message: ChatMessage, messageKey: string) {
+    if (!voiceReplyEnabled) {
+      setVoiceStatus("Voice output is currently muted.");
+      return;
+    }
     try {
       const spokenText = prepareSpeechText(speakableMessageText(message))
       if (!spokenText) {
@@ -3121,7 +3169,13 @@ export default function App() {
             }
             setPendingSpeechMessageKey("")
             setSpeakingMessageKey(messageKey)
+            setSpeakingWordIndex(0)
             setVoiceStatus("Speaking...")
+          },
+          onWord: (index) => {
+            if (speechRequestRef.current === requestId) {
+              setSpeakingWordIndex(index)
+            }
           },
           onEnd: () => {
             if (speechRequestRef.current !== requestId) {
@@ -3129,6 +3183,7 @@ export default function App() {
             }
             setPendingSpeechMessageKey("")
             setSpeakingMessageKey("")
+            setSpeakingWordIndex(null)
             setVoiceStatus("Voice reply complete.")
           },
           onError: (message) => {
@@ -3137,6 +3192,7 @@ export default function App() {
             }
             setPendingSpeechMessageKey("")
             setSpeakingMessageKey("")
+            setSpeakingWordIndex(null)
             setVoiceStatus(message)
           },
         })
@@ -5988,11 +6044,11 @@ export default function App() {
       <div
         className={cn(
           "grid h-dvh overflow-hidden bg-[var(--panel)]",
-          isWorkspaceView ? "grid-cols-1" : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
+          isWorkspaceView || (characterDisplayMode === "fullscreen" && isCharacterVisible) ? "grid-cols-1" : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
         )}
         style={!isWorkspaceView ? { ["--sidebar-width" as string]: shellSidebarWidth } : undefined}
       >
-        {!isWorkspaceView ? (
+        {!isWorkspaceView && !(characterDisplayMode === "fullscreen" && isCharacterVisible) ? (
           <AppSidebar
             activeChatId={activeChatId}
             bootstrapAppName={bootstrap?.app_name || "LokiDoki"}
@@ -6084,7 +6140,10 @@ export default function App() {
             />
           ) : null}
 
-          <header className="relative flex h-16 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6">
+          <header className={cn(
+            "relative h-16 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6 z-20",
+            characterDisplayMode === "fullscreen" && isCharacterVisible ? "hidden" : "flex"
+          )}>
             <div className="flex items-center gap-3">
               <Button
                 className={cn("md:hidden", isWorkspaceView ? "hidden" : "")}
@@ -6183,40 +6242,6 @@ export default function App() {
             ) : null}
 
             <div className="relative flex items-center gap-1 text-[var(--foreground)] sm:gap-2" onPointerDown={(event) => event.stopPropagation()}>
-              {activeView === "assistant" && (
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <Button
-                    className={cn(
-                      "h-9 gap-2 rounded-full border px-3 text-xs shadow-[var(--shadow-soft)] transition-all",
-                      voiceReplyEnabled
-                        ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--foreground)] ring-1 ring-[var(--accent)]/30"
-                        : "border-[var(--line)] bg-[var(--panel)] text-[var(--foreground)] hover:bg-[var(--input)]"
-                    )}
-                    onClick={() => setVoiceReplyEnabled((current) => !current)}
-                    tooltip={voiceReplyEnabled ? "Disable spoken responses" : "Enable spoken responses"}
-                    type="button"
-                    variant="ghost"
-                  >
-                    {voiceReplyEnabled ? <Ear className="h-4 w-4" /> : <EarOff className="h-4 w-4" />}
-                    <span className="hidden lg:inline">{voiceReplyEnabled ? "Responses On" : "Responses Off"}</span>
-                  </Button>
-                  <Button
-                    className={cn(
-                      "h-9 gap-2 rounded-full border px-3 text-xs shadow-[var(--shadow-soft)] transition-all",
-                      isCharacterVisible
-                        ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--foreground)] ring-1 ring-[var(--accent)]/30"
-                        : "border-[var(--line)] bg-[var(--panel)] text-[var(--foreground)] hover:bg-[var(--input)]"
-                    )}
-                    onClick={() => setIsCharacterVisible((current) => !current)}
-                    tooltip={isCharacterVisible ? "Hide character" : "Show character"}
-                    type="button"
-                    variant="ghost"
-                  >
-                    {isCharacterVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                    <span className="hidden lg:inline">{isCharacterVisible ? "Character On" : "Character Off"}</span>
-                  </Button>
-                </div>
-              )}
               {user?.is_admin && debugMode ? (
                 <Button
                   className="h-9 gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-soft)] hover:bg-[var(--input)]"
@@ -6417,8 +6442,101 @@ export default function App() {
           ) : null}
 
           {activeView === "assistant" ? (
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="relative flex min-h-0 flex-1 overflow-hidden">
+              {/* Only show toolbar here if character is NOT in fullscreen mode (otherwise overlay handles it) */}
+              {characterDisplayMode !== "fullscreen" && (
+                <div className="pointer-events-auto absolute right-6 top-6 z-50 flex items-center gap-2">
+                  <div className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-xl shadow-strong transition-all duration-500 hover:gap-2">
+                    {/* Flyout Group */}
+                    <div className={cn(
+                      "flex items-center gap-1.5 overflow-hidden transition-all duration-300",
+                      isCharacterVisible ? "w-0 opacity-0 group-hover:w-auto group-hover:opacity-100" : "hidden"
+                    )}>
+                      {/* Body Mode */}
+                      <Button
+                        className={cn(
+                          "h-9 w-9 rounded-full transition-all",
+                          characterDisplayMode === "full" ? "bg-[var(--accent)] text-black font-bold shadow-[0_0_15px_rgba(var(--accent-rgb),0.5)]" : "text-white/60 hover:bg-white/10 hover:text-white"
+                        )}
+                        onClick={() => setCharacterDisplayMode("full")}
+                        size="icon"
+                        tooltip="Body Mode"
+                        variant="ghost"
+                      >
+                        <User className="h-5 w-5" />
+                      </Button>
+
+                      {/* Head Mode */}
+                      <Button
+                        className={cn(
+                          "h-9 w-9 rounded-full transition-all",
+                          characterDisplayMode === "head" ? "bg-[var(--accent)] text-black font-bold shadow-[0_0_15px_rgba(var(--accent-rgb),0.5)]" : "text-white/60 hover:bg-white/10 hover:text-white"
+                        )}
+                        onClick={() => setCharacterDisplayMode("head")}
+                        size="icon"
+                        tooltip="Head Mode"
+                        variant="ghost"
+                      >
+                        <Scan className="h-5 w-5" />
+                      </Button>
+
+                      {/* Fullscreen Mode */}
+                      <Button
+                        className={cn("h-9 w-9 rounded-full transition-all text-white/60 hover:bg-white/10 hover:text-white")}
+                        onClick={() => setCharacterDisplayMode("fullscreen")}
+                        size="icon"
+                        tooltip="Fullscreen Stage"
+                        variant="ghost"
+                      >
+                        <Maximize2 className="h-5 w-5" />
+                      </Button>
+
+                      {/* Hide/Exit Button */}
+                      <Button
+                        className="h-9 w-9 rounded-full text-white/50 hover:bg-rose-500/20 hover:text-rose-400 transition-all"
+                        onClick={(e) => { e.stopPropagation(); setIsCharacterVisible(false); }}
+                        size="icon"
+                        tooltip="Hide Character"
+                        variant="ghost"
+                      >
+                        <X className="h-5 w-5" />
+                      </Button>
+                      <div className="mx-1 h-4 w-px bg-white/20" />
+                    </div>
+
+                    {/* Trigger Icon */}
+                    <Button
+                      className={cn("h-9 w-9 rounded-full transition-all duration-300", isCharacterVisible ? "bg-white/5 text-white group-hover:bg-transparent" : "bg-[var(--accent)] text-black font-bold shadow-[0_0_20px_rgba(var(--accent-rgb),0.3)]")}
+                      onClick={() => !isCharacterVisible && setIsCharacterVisible(true)}
+                      size="icon"
+                      tooltip={isCharacterVisible ? "Stage Options (Hover)" : "Show Character"}
+                      variant="ghost"
+                    >
+                      {!isCharacterVisible ? <Eye className="h-5 w-5" /> : (characterDisplayMode === "full" ? <User className="h-5 w-5" /> : <Scan className="h-5 w-5" />)}
+                    </Button>
+
+                    <div className="h-4 w-px bg-white/20" />
+
+                    {/* Audio Toggle */}
+                    <Button
+                      className={cn("h-9 w-9 rounded-full transition-all duration-300", voiceReplyEnabled ? "text-[var(--accent)]" : "text-white/60 hover:bg-white/10 hover:text-white")}
+                      onClick={() => setVoiceReplyEnabled((prev) => !prev)}
+                      size="icon"
+                      tooltip={voiceReplyEnabled ? "Mute Output" : "Unmute Output"}
+                      variant="ghost"
+                    >
+                      {voiceReplyEnabled ? <Ear className="h-5 w-5" /> : <EarOff className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div
+                className={cn(
+                  "flex min-h-0 flex-1 flex-col overflow-hidden transition-all duration-500",
+                  characterDisplayMode === "fullscreen" && isCharacterVisible ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 translate-y-0"
+                )}
+              >
                 {assistantTab === "chat" ? (
                   <>
                     <div
@@ -6502,30 +6620,9 @@ export default function App() {
                 )}
               </div>
 
-              {isCharacterVisible && selectedCharacter && (
-                <aside className="relative flex w-[360px] border-l border-[var(--line)] bg-[var(--panel-strong)]/20 animate-in slide-in-from-right-4 duration-300 xl:w-[420px] overflow-hidden">
-                  <div className="absolute right-4 top-4 z-20 flex gap-2">
-                    <Button
-                      className="h-8 w-8 rounded-full border border-[var(--line)] bg-[var(--panel)]/80 backdrop-blur"
-                      onClick={() => setCharacterDisplayMode(current => current === "full" ? "head" : "full")}
-                      size="icon"
-                      tooltip={characterDisplayMode === "full" ? "Head mode" : "Full mode"}
-                      variant="ghost"
-                    >
-                      {characterDisplayMode === "full" ? <User className="h-4 w-4" /> : <Scan className="h-4 w-4" />}
-                    </Button>
-                    <Button
-                      className="h-8 w-8 rounded-full border border-[var(--line)] bg-[var(--panel)]/80 backdrop-blur"
-                      onClick={() => setIsCharacterVisible(false)}
-                      size="icon"
-                      tooltip="Hide character"
-                      variant="ghost"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="flex min-h-0 flex-1 flex-col">
+              {isCharacterVisible && selectedCharacter && characterDisplayMode !== "fullscreen" && (
+                <aside className="relative flex w-[360px] border-l xl:w-[420px] bg-[var(--panel-strong)]/20 animate-in slide-in-from-right-4 transition-all duration-500">
+                  <div className="flex h-full w-full flex-1 flex-col overflow-hidden p-6 pt-16">
                     <CharacterContext.Provider value={characterContextValue}>
                       <VoiceContext.Provider value={voiceContextValue}>
                         <AudioContext.Provider value={audioContextValue}>
@@ -6539,6 +6636,7 @@ export default function App() {
                   </div>
                 </aside>
               )}
+
             </div>
           ) : activeView === "settings" ? (
             <div className="workspace-shell min-h-0 flex-1 overflow-hidden" ref={rightPaneScrollRef}>
@@ -9174,6 +9272,97 @@ export default function App() {
           ) : null}
         </main>
       </div>
+
+      {/* Global Cinematic Fullscreen Stage (Independent High-Z Layer) */}
+      {isCharacterVisible && selectedCharacter && characterDisplayMode === "fullscreen" && (
+        <div className="fixed inset-0 z-[150] flex h-dvh w-dvw flex-col overflow-hidden bg-black animate-in fade-in duration-500">
+          <div className="pointer-events-auto absolute right-6 top-6 z-[160] flex items-center gap-2">
+            <div className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-xl shadow-strong transition-all duration-500 hover:gap-2">
+              <div className="flex items-center gap-1.5 overflow-hidden transition-all duration-300 w-0 opacity-0 group-hover:w-auto group-hover:opacity-100">
+                <Button
+                  className={cn("h-9 w-9 rounded-full transition-all bg-[var(--accent)] text-black font-bold")}
+                  onClick={() => setCharacterDisplayMode("full")}
+                  size="icon" tooltip="Body Mode" variant="ghost"
+                >
+                  <User className="h-5 w-5" />
+                </Button>
+                <Button
+                  className={cn("h-9 w-9 rounded-full transition-all text-white/60 hover:bg-white/10 hover:text-white")}
+                  onClick={() => setCharacterDisplayMode("head")}
+                  size="icon" tooltip="Head Mode" variant="ghost"
+                >
+                  <Scan className="h-5 w-5" />
+                </Button>
+                <Button
+                  className="h-9 w-9 rounded-full text-white/50 hover:bg-rose-500/20 hover:text-rose-400 transition-all font-bold"
+                  onClick={() => { setIsCharacterVisible(false); if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); }}
+                  size="icon" tooltip="Exit Stage" variant="ghost"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+                <div className="mx-1 h-4 w-px bg-white/20" />
+              </div>
+              <Button
+                className="h-9 w-9 rounded-full bg-[var(--accent)] text-black font-bold shadow-strong transition-all"
+                onClick={() => setCharacterDisplayMode("head")}
+                size="icon" tooltip="Exit Fullscreen" variant="ghost"
+              >
+                <Minimize2 className="h-5 w-5" />
+              </Button>
+              <div className="h-4 w-px bg-white/20" />
+              <Button
+                className={cn("h-9 w-9 rounded-full transition-all", voiceReplyEnabled ? "text-[var(--accent)]" : "text-white/60 hover:bg-white/10 hover:text-white")}
+                onClick={() => setVoiceReplyEnabled((prev) => !prev)}
+                size="icon" tooltip={voiceReplyEnabled ? "Mute" : "Unmute"} variant="ghost"
+              >
+                {voiceReplyEnabled ? <Ear className="h-5 w-5" /> : <EarOff className="h-5 w-5" />}
+              </Button>
+              <Button
+                className={cn("h-9 w-9 rounded-full transition-all", subtitlesEnabled ? "bg-[var(--accent)] text-black font-bold" : "text-white/60 hover:bg-white/10 hover:text-white")}
+                onClick={() => setSubtitlesEnabled((prev) => !prev)}
+                size="icon" tooltip="Subtitles" variant="ghost"
+              >
+                <MessageSquare className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex h-full w-full flex-1 flex-col overflow-hidden items-center justify-center">
+            <CharacterContext.Provider value={characterContextValue}>
+              <VoiceContext.Provider value={voiceContextValue}>
+                <AudioContext.Provider value={audioContextValue}>
+                  <AnimatedCharacter stageScale={2.5} viewPreset="full" />
+                </AudioContext.Provider>
+              </VoiceContext.Provider>
+            </CharacterContext.Provider>
+          </div>
+
+          {subtitlesEnabled && (
+            <div className="pointer-events-none absolute inset-0 z-[155] flex flex-col items-center justify-end px-12 pb-16">
+              <div className="relative flex w-full max-w-4xl flex-col items-center">
+                <div className="absolute -bottom-12 left-1/2 h-32 w-64 -translate-x-1/2 rounded-full bg-[var(--accent)]/30 blur-[60px]" />
+                <div className="w-full rounded-[40px] border border-white/10 bg-black/40 px-12 py-10 text-center backdrop-blur-2xl shadow-strong">
+                  {messages.slice(-1).map((msg, idx) => {
+                    const msgKey = speechMessageKey(msg, Math.max(0, messages.length - 1))
+                    return (
+                      <div key={idx} className="flex flex-col items-center gap-2">
+                        <span className="mb-2 text-[10px] font-black uppercase tracking-[0.4em] text-white/40">{msg.role === "user" ? "You" : selectedCharacter?.name}</span>
+                        <div className="flex flex-wrap justify-center text-2xl font-medium tracking-tight text-white/90 lg:text-3xl">
+                          {msg.content.split(" ").map((word, wIdx) => (
+                            <span key={wIdx} className={cn("mr-2 transition-all duration-300", msgKey === speakingMessageKey && wIdx === speakingWordIndex ? "scale-105 font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" : "opacity-60")}>
+                              {word}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
