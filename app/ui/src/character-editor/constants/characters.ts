@@ -14,19 +14,14 @@ export const FEATURED_CHARACTERS: CharacterStyle[] = [
     domain: 'DiceBear Avataaars',
   },
   {
-    id: 'micah',
-    primary_name: 'Micah',
-    domain: 'DiceBear Micah',
+    id: 'bottts',
+    primary_name: 'Bottts',
+    domain: 'DiceBear Bottts',
   },
   {
-    id: 'notionists',
-    primary_name: 'Nori',
-    domain: 'DiceBear Notionists',
-  },
-  {
-    id: 'adventurerNeutral',
-    primary_name: 'Ari',
-    domain: 'DiceBear Adventurer Neutral',
+    id: 'toonHead',
+    primary_name: 'Toon Head',
+    domain: 'DiceBear Toon Head',
   },
 ];
 

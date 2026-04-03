@@ -220,60 +220,7 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head'; stageScale?: n
                .replace(/<\/g>\s*<\/g>\s*$/i, '');
                
             if (options.style === 'avataaars') {
-               const splitIdx = core.search(/<g [^>]*transform/i);
-               const skinBase = splitIdx >= 0 ? core.substring(0, splitIdx) : core;
-               const remaining = splitIdx >= 0 ? core.substring(splitIdx) : '';
-               const bodySkinBase = skinBase.match(/<path [^>]*\/>/i)?.[0] || skinBase;
-               
-               let bodyComponents = '';
-               let headComponents = '';
-               const segments = remaining.split(/(?=<g [^>]*transform)/i).filter((s: string) => s.trim());
-               
-               segments.forEach((seg: string) => {
-                  const transformMatch = seg.match(/translate\([^)]* (\d+)\)/i);
-                  const yTranslate = transformMatch ? parseInt(transformMatch[1]) : 0;
-                  
-                  // HIJACK: Force specific shoulder shadows into the static body group
-                  const isShoulderPart = seg.match(/id="[^"]*(Shoulder|Neck-Shadow|Collar-Shadow)[^"]*"/i);
-                  
-                  if (isShoulderPart || yTranslate >= 150) {
-                     bodyComponents += seg;
-                  } else {
-                     headComponents += seg;
-                  }
-               });
-
-               return `
-                  <svg${before}viewBox="${vb}"${after} id="ld-character-svg">
-                     <defs>
-                        <!-- Tight Skin Mask (120px): Physically clips the rotated shoulders out of the skin group -->
-                        <mask id="ld-skin-mask">
-                           <path d="M 22 95 a 110 110 0 1 1 220 0 L 242 175 L 156 182 L 156 225 H 108 L 108 182 L 22 175 Z" fill="white" />
-                        </mask>
-                        <!-- Wide Hair Mask (260px+): Now much wider and taller to prevent clipping long hair or tall hats -->
-                        <mask id="ld-hair-mask">
-                           <path d="M -20 95 a 152 152 0 1 1 304 0 L 284 300 H -20 z" fill="white" />
-                        </mask>
-                        <!-- Static Torso Anchor (Full Width) -->
-                        <clipPath id="ld-body-clip"><rect x="-100" y="190" width="480" height="300" /></clipPath>
-                     </defs>
-                     <g>
-                        <g transform="translate(8)">
-                           <!-- Layer 1: Static Torso Skin (The "Basement") -->
-                           <g id="ld-body-base" clip-path="url(#ld-body-clip)">${bodySkinBase}</g>
-                           
-                           <!-- Layer 2: Rotating Face/Neck Skin (TIGHT MASK - EXCLUDES ROTATING SHOULDERS) -->
-                           <g id="ld-head-skin" class="ld-head-part" mask="url(#ld-skin-mask)">${skinBase}</g>
-                           
-                           <!-- Layer 3: Fixed Clothes (Includes Collars/Shoulders) -->
-                           <g id="ld-body-clothes">${bodyComponents}</g>
-                           
-                           <!-- Layer 4: Rotating Hair/Features (WIDE MASK - PRESERVES LONG HAIR) -->
-                           <g id="ld-head-face" class="ld-head-part" mask="url(#ld-hair-mask)">${headComponents}</g>
-                        </g>
-                     </g>
-                  </svg>
-               `;
+               return `<svg${before}viewBox="${vb}"${after} id="ld-character-svg"><g id="ld-body"></g><g id="ld-head">${core}</g></svg>`;
             } else {
                const parts = core.split('</g>');
                if (parts.length > 2) {
@@ -495,7 +442,7 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head'; stageScale?: n
       >
         <div 
           className={`flex items-center justify-center transition-all duration-[1000ms] overflow-hidden relative
-             ${viewPreset === 'head' ? 'w-[200px] h-[200px] rounded-full border-[6px] border-slate-700/50 bg-slate-800 shadow-glow' : 'w-full h-full min-w-[500px] min-h-[500px] p-24'}
+             ${viewPreset === 'head' ? 'w-[200px] h-[200px] rounded-full border-[6px] border-slate-700/50 bg-slate-800 shadow-glow' : 'h-full w-full min-w-[320px] min-h-[320px] p-10'}
           `}
         >
           <div 

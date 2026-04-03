@@ -119,6 +119,12 @@ def initialize_database(conn: sqlite3.Connection) -> None:
             version TEXT NOT NULL,
             source TEXT NOT NULL,
             system_prompt TEXT NOT NULL,
+            teaser TEXT NOT NULL DEFAULT '',
+            phonetic_spelling TEXT NOT NULL DEFAULT '',
+            identity_key TEXT NOT NULL DEFAULT '',
+            domain TEXT NOT NULL DEFAULT '',
+            behavior_style TEXT NOT NULL DEFAULT '',
+            voice_model TEXT NOT NULL DEFAULT '',
             default_voice TEXT NOT NULL DEFAULT '',
             default_voice_download_url TEXT NOT NULL DEFAULT '',
             default_voice_config_download_url TEXT NOT NULL DEFAULT '',
@@ -128,6 +134,7 @@ def initialize_database(conn: sqlite3.Connection) -> None:
             wakeword_download_url TEXT NOT NULL DEFAULT '',
             wakeword_source_name TEXT NOT NULL DEFAULT '',
             capabilities_json TEXT NOT NULL DEFAULT '{}',
+            character_editor_json TEXT NOT NULL DEFAULT '{}',
             logo TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 1,
             builtin INTEGER NOT NULL DEFAULT 0,
@@ -174,6 +181,12 @@ def initialize_database(conn: sqlite3.Connection) -> None:
     _ensure_character_settings_column(conn, "assigned_character_id", "TEXT")
     _ensure_character_settings_column(conn, "can_select_character", "INTEGER NOT NULL DEFAULT 1")
     _ensure_character_catalog_column(conn, "logo", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "teaser", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "phonetic_spelling", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "identity_key", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "domain", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "behavior_style", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "voice_model", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "default_voice_download_url", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "default_voice_config_download_url", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "default_voice_source_name", "TEXT NOT NULL DEFAULT ''")
@@ -181,6 +194,7 @@ def initialize_database(conn: sqlite3.Connection) -> None:
     _ensure_character_catalog_column(conn, "wakeword_model_id", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "wakeword_download_url", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_catalog_column(conn, "wakeword_source_name", "TEXT NOT NULL DEFAULT ''")
+    _ensure_character_catalog_column(conn, "character_editor_json", "TEXT NOT NULL DEFAULT '{}'")
     _ensure_settings_column(conn, "auto_update_skills", "INTEGER NOT NULL DEFAULT 0")
     _ensure_care_profiles_column(conn, "response_style", "TEXT NOT NULL DEFAULT 'chat_balanced'")
     _ensure_default_account(conn)

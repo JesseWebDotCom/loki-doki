@@ -65,7 +65,7 @@ const PuppetStage: React.FC = () => {
                variant={viewPreset === preset ? 'secondary' : 'ghost'} 
                size="sm" 
                className={`ce-control h-7 rounded-lg px-3 transition-all
-                  ${viewPreset === preset ? 'border-none bg-[var(--app-accent)] text-white shadow-lg' : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]'}
+                  ${viewPreset === preset ? 'border-none bg-[var(--app-accent-soft)] text-[var(--app-text)] shadow-lg' : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]'}
                `}
                onClick={() => setViewPreset(preset)}
              >
@@ -93,7 +93,7 @@ const PuppetStage: React.FC = () => {
           
           <AnimatedCharacter 
              viewPreset={viewPreset}
-             stageScale={viewPreset === 'full' ? 0.65 : 1.0} // Shrunk for Studio Lab interface
+             stageScale={viewPreset === 'full' ? 0.5 : 0.82}
           />
       </div>
 

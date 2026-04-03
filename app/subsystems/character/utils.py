@@ -12,6 +12,22 @@ from app.config import AppConfig
 from app.subsystems.character.models import CharacterDefinition
 
 
+def resolve_character_logo_url(character_id: str, path: str, logo: str) -> str:
+    """Return a browser-safe logo URL for one local character."""
+    cleaned = str(logo or "").strip()
+    if not cleaned:
+        return ""
+    if cleaned.startswith(("http://", "https://", "data:", "/")):
+        return cleaned
+    character_dir = Path(str(path or "")).expanduser()
+    if not character_dir.exists():
+        return ""
+    logo_path = character_dir / cleaned
+    if not logo_path.exists():
+        return ""
+    return f"/api/characters/{character_id}/logo"
+
+
 def row_to_definition(row: Union[dict[str, Any], sqlite3.Row]) -> CharacterDefinition:
     """Return one loaded character definition from a database row."""
     # Handle both dict-like and Row objects
@@ -22,6 +38,11 @@ def row_to_definition(row: Union[dict[str, Any], sqlite3.Row]) -> CharacterDefin
         version=str(data["version"]),
         source=str(data["source"]),
         system_prompt=str(data["system_prompt"]),
+        phonetic_spelling=str(data.get("phonetic_spelling") or ""),
+        identity_key=str(data.get("identity_key") or ""),
+        domain=str(data.get("domain") or ""),
+        behavior_style=str(data.get("behavior_style") or ""),
+        voice_model=str(data.get("voice_model") or ""),
         default_voice=str(data["default_voice"]),
         default_voice_download_url=str(data["default_voice_download_url"] or ""),
         default_voice_config_download_url=str(data["default_voice_config_download_url"] or ""),
@@ -31,8 +52,14 @@ def row_to_definition(row: Union[dict[str, Any], sqlite3.Row]) -> CharacterDefin
         wakeword_download_url=str(data["wakeword_download_url"] or ""),
         wakeword_source_name=str(data["wakeword_source_name"] or ""),
         capabilities=json.loads(str(data["capabilities_json"] or "{}")),
-        logo=str(data["logo"]),
+        character_editor=json.loads(str(data.get("character_editor_json") or "{}")),
+        logo=resolve_character_logo_url(
+            str(data["character_id"]),
+            str(data["path"]),
+            str(data["logo"]),
+        ),
         description=str(data["description"] or ""),
+        teaser=str(data.get("teaser") or ""),
         path=str(data["path"]),
         enabled=bool(data["enabled"]),
         builtin=bool(data["builtin"]),

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
 from app import db
 from app.deps import APP_CONFIG, connection_scope, get_current_user, enforce_admin
@@ -12,7 +14,7 @@ from app.models.character import (
     CharacterUpdateRequest,
     CharacterImportRequest,
 )
-from app.subsystems.character import character_service
+from app.subsystems.character import character_service, utils as character_utils
 from app.runtime import runtime_context
 
 router = APIRouter(prefix="/characters", tags=["characters"])
@@ -41,6 +43,28 @@ def get_characters(current_user: dict[str, Any] = Depends(get_current_user)) -> 
     del current_user
     with connection_scope() as connection:
         return character_service.list_characters(connection, APP_CONFIG)
+
+
+@router.get("/{character_id}/logo")
+def get_character_logo(character_id: str) -> FileResponse:
+    """Serve one local character logo asset for the UI."""
+    with connection_scope() as connection:
+        row = connection.execute(
+            "SELECT * FROM character_catalog WHERE character_id = ?",
+            (character_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Character not found.")
+    character = character_utils.row_to_definition(row)
+    logo_value = str(row["logo"] or "").strip()
+    if not logo_value or logo_value.startswith(("http://", "https://", "data:", "/")):
+        raise HTTPException(status_code=404, detail="Character logo is not a local asset.")
+    manifest_path = Path(character.path) / "character.json"
+    character_utils.validate_manifest_path(manifest_path, APP_CONFIG)
+    logo_path = Path(character.path) / logo_value
+    if not logo_path.exists() or not logo_path.is_file():
+        raise HTTPException(status_code=404, detail="Character logo asset is missing.")
+    return FileResponse(str(logo_path))
 
 
 @router.post("/install")

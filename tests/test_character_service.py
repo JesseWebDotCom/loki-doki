@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -59,9 +60,15 @@ class CharacterServiceTests(unittest.TestCase):
     def test_initialize_loads_builtin_and_repository_catalog(self) -> None:
         payload = character_service.list_characters(self.conn)
         installed_ids = {item["id"] for item in payload["installed"]}
-        available_ids = {item["id"] for item in payload["available"]}
-        self.assertIn("lokidoki", installed_ids)
-        self.assertIn("professor", available_ids)
+        self.assertEqual(
+            installed_ids,
+            {"lokidoki", "datum", "koda", "nolan", "lena", "tano"},
+        )
+        identity_keys = {item["id"]: item["identity_key"] for item in payload["installed"]}
+        self.assertTrue(all(value == "lokidoki" for value in identity_keys.values()))
+        phonetics = {item["id"]: item["phonetic_spelling"] for item in payload["installed"]}
+        self.assertEqual(phonetics["tano"], "TAH-noh")
+        self.assertEqual(phonetics["lokidoki"], "LOH-kee DOH-kee")
 
     def test_build_rendering_context_is_stable_until_layers_change(self) -> None:
         first = character_service.build_rendering_context(self.conn, self.user, "mac")
@@ -88,6 +95,122 @@ class CharacterServiceTests(unittest.TestCase):
         context = character_service.build_rendering_context(self.conn, self.user, "mac")
 
         self.assertEqual(context.active_character_id, "lokidoki")
+
+    def test_initialize_reconciles_removed_characters_and_cleans_up_state(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO character_catalog (
+                character_id, name, version, source, system_prompt, identity_key, domain,
+                behavior_style, voice_model, default_voice, capabilities_json,
+                character_editor_json, logo, enabled, builtin, path, description
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-bot",
+                "Legacy Bot",
+                "1.0.0",
+                "repository",
+                "Legacy prompt",
+                "legacy-bot",
+                "legacy",
+                "Legacy behavior",
+                "en_US-lessac-medium",
+                "en_US-lessac-medium",
+                "{}",
+                "{}",
+                "legacy.svg",
+                1,
+                0,
+                "/tmp/legacy-bot",
+                "Legacy character",
+            ),
+        )
+        self.conn.execute(
+            "UPDATE accounts SET default_character_id = 'legacy-bot' WHERE id = ?",
+            (self.user["account_id"],),
+        )
+        self.conn.execute(
+            """
+            UPDATE user_character_settings
+            SET active_character_id = 'legacy-bot', assigned_character_id = 'legacy-bot'
+            WHERE user_id = ?
+            """,
+            (self.user["id"],),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO user_character_customizations (user_id, character_id, custom_prompt)
+            VALUES (?, 'legacy-bot', 'Old custom prompt')
+            """,
+            (self.user["id"],),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO mem_char_user_memory (character_id, user_id, key, value)
+            VALUES ('legacy-bot', ?, 'favorite_food', 'pizza')
+            """,
+            (self.user["id"],),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO mem_char_world_knowledge (character_id, fact, source, expires_at)
+            VALUES ('legacy-bot', 'Old world fact', 'seed', '2099-01-01T00:00:00Z')
+            """
+        )
+        self.conn.execute(
+            """
+            INSERT INTO mem_char_evolution_state (character_id, user_id, state_json)
+            VALUES ('legacy-bot', ?, '{}')
+            """,
+            (self.user["id"],),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO mem_char_cross_awareness (user_id, char_a, char_b, fact)
+            VALUES (?, 'legacy-bot', 'lokidoki', 'Old awareness')
+            """,
+            (self.user["id"],),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO mem_characters (id, name, franchise, base_persona_prompt)
+            VALUES ('legacy-bot', 'Legacy Bot', '', 'Legacy prompt')
+            """
+        )
+        self.conn.commit()
+
+        character_service.initialize(self.conn, self.config)
+
+        stored_ids = {
+            row["character_id"]
+            for row in self.conn.execute("SELECT character_id FROM character_catalog").fetchall()
+        }
+        self.assertNotIn("legacy-bot", stored_ids)
+        self.assertEqual(
+            character_service.get_account(self.conn, self.user["account_id"])["default_character_id"],
+            "lokidoki",
+        )
+        settings = character_service.get_user_settings(self.conn, self.user["id"])
+        self.assertEqual(settings["active_character_id"], "lokidoki")
+        self.assertEqual(settings["assigned_character_id"], "lokidoki")
+        self.assertNotIn("legacy-bot", settings["character_customizations"])
+        self.assertEqual(
+            0,
+            self.conn.execute(
+                "SELECT COUNT(*) AS count FROM mem_char_user_memory WHERE character_id = 'legacy-bot'"
+            ).fetchone()["count"],
+        )
+        delete_rows = self.conn.execute(
+            """
+            SELECT table_name, operation
+            FROM memory_sync_queue
+            WHERE operation = 'delete'
+            ORDER BY id ASC
+            """
+        ).fetchall()
+        self.assertTrue(any(row["table_name"] == "mem_char_user_memory" for row in delete_rows))
+        self.assertTrue(any(row["table_name"] == "mem_char_evolution_state" for row in delete_rows))
 
     def test_builtin_character_cannot_be_disabled(self) -> None:
         with self.assertRaises(ValueError):
@@ -143,6 +266,92 @@ class CharacterServiceTests(unittest.TestCase):
             "test-delete",
             character_service.get_user_settings(self.conn, self.user["id"])["character_customizations"],
         )
+
+    def test_import_character_package_persists_generated_logo_asset(self) -> None:
+        repository_dir = Path(self.tempdir.name) / "characters-repository"
+        repository_dir.mkdir(parents=True, exist_ok=True)
+        config = replace(self.config, characters_repository_dir=repository_dir)
+
+        character = character_service.import_character_package(
+            self.conn,
+            config,
+            {
+                "format": "lokidoki-character-package",
+                "character": {
+                    "id": "logo-check",
+                    "name": "Logo Check",
+                    "description": "Logo persistence coverage.",
+                    "logo": "data:image/svg+xml;base64,PHN2Zy8+",
+                    "system_prompt": "You are Logo Check.",
+                },
+            },
+        )
+
+        manifest_path = repository_dir / "logo-check" / "character.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(character["id"], "logo-check")
+        self.assertEqual(manifest["logo"], "logo.svg")
+        self.assertTrue((repository_dir / "logo-check" / "logo.svg").exists())
+
+    def test_publish_character_to_repository_requires_saved_logo_asset(self) -> None:
+        repository_dir = Path(self.tempdir.name) / "characters-repository"
+        repository_dir.mkdir(parents=True, exist_ok=True)
+        character_dir = repository_dir / "publish-check"
+        character_dir.mkdir(parents=True, exist_ok=True)
+        (character_dir / "character.json").write_text(
+            json.dumps(
+                {
+                    "id": "publish-check",
+                    "name": "Publish Check",
+                    "version": "1.0.0",
+                    "source": "repository",
+                    "logo": "",
+                    "phonetic_spelling": "PUB-lish chek",
+                    "identity_key": "lokidoki",
+                    "domain": "avataaars",
+                    "description": "Publish coverage.",
+                    "behavior_style": "You are Publish Check.",
+                    "voice_model": "en_US-lessac-medium",
+                    "default_voice": "en_US-lessac-medium",
+                    "system_prompt": "You are Publish Check.",
+                    "character_editor": {"renderer": "dicebear"},
+                    "capabilities": {},
+                    "enabled": True,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        config = replace(self.config, characters_repository_dir=repository_dir)
+        character_service.initialize(self.conn, config)
+
+        source_repo_root = Path(self.tempdir.name) / "loki-doki-characters"
+        source_dir = source_repo_root / "sources" / "characters"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        (source_repo_root / "characters").mkdir(parents=True, exist_ok=True)
+        (source_repo_root / "scripts").mkdir(parents=True, exist_ok=True)
+        (source_repo_root / "scripts" / "build_index.py").write_text("print('ok')\n", encoding="utf-8")
+
+        with patch.object(character_service, "_characters_repo_root", return_value=source_repo_root):
+            with self.assertRaises(ValueError):
+                character_service.publish_character_to_repository(self.conn, config, "publish-check")
+
+        character_service.update_character_manifest(
+            self.conn,
+            config,
+            "publish-check",
+            {
+                "name": "Publish Check",
+                "logo": "data:image/svg+xml;base64,PHN2Zy8+",
+            },
+        )
+
+        with patch.object(character_service, "_characters_repo_root", return_value=source_repo_root):
+            published = character_service.publish_character_to_repository(self.conn, config, "publish-check")
+
+        self.assertTrue((source_dir / "publish-check" / "logo.svg").exists())
+        self.assertTrue((source_dir / "publish-check" / "character.json").exists())
+        self.assertTrue(published["published_package_path"].endswith("publish-check.zip"))
 
     def test_build_rendering_context_can_disable_selected_layers(self) -> None:
         character_service.update_user_settings(

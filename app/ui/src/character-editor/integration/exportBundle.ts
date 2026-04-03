@@ -39,6 +39,7 @@ export function buildCharacterEditorBundle(options: CharacterOptions) {
   const validation = validateCharacterPackage(options);
 
   return {
+    character_id: options.character_id?.trim() || '',
     exported_at: new Date().toISOString(),
     identity_key: deriveIdentityKey(options),
     manifest,

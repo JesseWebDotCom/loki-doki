@@ -1,9 +1,6 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react"
 import { createAvatar } from "@dicebear/core"
-import * as adventurerNeutralStyle from "@dicebear/adventurer-neutral"
-import * as avataaarsStyle from "@dicebear/avataaars"
-import * as micahStyle from "@dicebear/micah"
-import * as notionistsStyle from "@dicebear/notionists"
+import * as dicebearCollections from "@dicebear/collection"
 import {
   ArrowUpDown,
   ArrowUp,
@@ -307,6 +304,8 @@ type CharacterDefinition = {
   meta_url?: string
   logo: string
   description: string
+  teaser?: string
+  phonetic_spelling?: string
   identity_key?: string
   domain?: string
   behavior_style?: string
@@ -320,6 +319,8 @@ type CharacterDefinition = {
 type CharacterEditorDraft = {
   name: string
   description: string
+  teaser: string
+  phonetic_spelling: string
   logo: string
   system_prompt: string
   identity_key: string
@@ -346,18 +347,25 @@ type CharacterPackage = {
 }
 
 type CharacterEditorBundle = {
+  character_id?: string
   identity_key: string
   logo_data_url?: string
   manifest?: {
     primary_name?: string
     domain?: string
     identity_key?: string
+    teaser?: string
+    phonetic_spelling?: string
     behavior_style?: string
     voice_model?: string
+    wakeword_model?: string
   }
   editor_state?: {
+    character_id?: string
     name?: string
     description?: string
+    teaser?: string
+    phonetic_spelling?: string
     style?: string
     seed?: string
     persona_prompt?: string
@@ -366,6 +374,10 @@ type CharacterEditorBundle = {
     default_voice_config_source_name?: string
     default_voice_upload_data_url?: string
     default_voice_config_upload_data_url?: string
+    wakeword_model_id?: string
+    wakeword_source_name?: string
+    wakeword_upload_data_url?: string
+    [key: string]: unknown
   }
 }
 
@@ -374,6 +386,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return null
   }
   return value as Record<string, unknown>
+}
+
+function slugifyCharacterId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -393,11 +413,10 @@ function buildCharacterEditorLogo(characterEditor: Record<string, unknown>, fall
   const styleId = typeof editorState.style === "string" && editorState.style.trim() ? editorState.style : fallbackStyle || "avataaars"
   const selectedCollection =
     ({
-      avataaars: avataaarsStyle,
-      micah: micahStyle,
-      notionists: notionistsStyle,
-      adventurerNeutral: adventurerNeutralStyle,
-    } as Record<string, Parameters<typeof createAvatar>[0]>)[styleId] || avataaarsStyle
+      avataaars: dicebearCollections.avataaars,
+      bottts: dicebearCollections.bottts,
+      toonHead: dicebearCollections.toonHead,
+    } as Record<string, Parameters<typeof createAvatar>[0]>)[styleId] || dicebearCollections.avataaars
 
   const avatarOptions: Record<string, unknown> = {
     seed:
@@ -442,15 +461,19 @@ function buildCharacterEditorLogo(characterEditor: Record<string, unknown>, fall
 function buildPersistedCharacterEditorMetadata(draft: CharacterEditorDraft) {
   const nextCharacterEditor = { ...(draft.character_editor || {}) }
   const existingEditorState = asRecord(nextCharacterEditor.editor_state) || {}
-  const nextStyle = draft.domain || (typeof existingEditorState.style === "string" ? existingEditorState.style : "avataaars")
+  const nextStyle = typeof existingEditorState.style === "string" && existingEditorState.style.trim()
+    ? existingEditorState.style
+    : "avataaars"
 
   nextCharacterEditor.editor_state = {
     ...existingEditorState,
     name: draft.name.trim(),
     description: draft.description,
+    teaser: draft.teaser,
     identity_key: draft.identity_key,
     persona_prompt: draft.behavior_style || draft.system_prompt,
     voice_model: draft.voice_model || draft.default_voice,
+    wakeword_model_id: draft.wakeword_model_id || "",
     style: nextStyle,
   }
 
@@ -461,9 +484,11 @@ function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEdi
   return {
     name: character.name,
     description: character.description,
+    teaser: character.teaser || "",
+    phonetic_spelling: character.phonetic_spelling || "",
     logo: character.logo || "",
     system_prompt: character.system_prompt || "",
-    identity_key: character.identity_key || character.id,
+    identity_key: character.identity_key || "",
     domain: character.domain || "",
     behavior_style: character.behavior_style || character.system_prompt || "",
     voice_model: character.voice_model || character.default_voice || "",
@@ -482,6 +507,12 @@ function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEdi
   }
 }
 
+function characterEditorStyle(character: Pick<CharacterDefinition, "character_editor" | "domain">) {
+  const editorState = asRecord(asRecord(character.character_editor)?.editor_state)
+  const style = typeof editorState?.style === "string" ? editorState.style.trim() : ""
+  return style || "avataaars"
+}
+
 function getCharacterEditorBaseUrl() {
   if (typeof window !== "undefined") {
     return `${window.location.origin}/character-editor/editor`
@@ -497,6 +528,20 @@ function buildCharacterEditorUrl(
   params.set("theme_preset", themePresetId)
   params.set("theme_mode", themeMode)
   return `${getCharacterEditorBaseUrl()}${params.toString() ? `?${params.toString()}` : ""}`
+}
+
+function serializeEditorState(editorState: Record<string, unknown> | null | undefined): string {
+  if (!editorState) {
+    return ""
+  }
+  try {
+    const sanitized = Object.fromEntries(
+      Object.entries(editorState).filter(([key]) => !key.endsWith("_upload_data_url"))
+    )
+    return JSON.stringify(sanitized)
+  } catch {
+    return ""
+  }
 }
 
 type AdminAccountPayload = {
@@ -1273,6 +1318,18 @@ function CatalogLogo({
   )
 }
 
+function fallbackCharacterTeaser(character: Pick<CharacterDefinition, "teaser" | "description" | "name">) {
+  const teaser = String(character.teaser || "").trim()
+  if (teaser) {
+    return teaser
+  }
+  const description = String(character.description || "").trim()
+  if (description) {
+    return description
+  }
+  return `${character.name} character`
+}
+
 function CatalogTabs({
   activeTab,
   counts,
@@ -1682,11 +1739,11 @@ export default function App() {
       if (!allowedOrigins.has(event.origin)) {
         return
       }
-      const payload = event.data as { source?: string; type?: string; bundle?: CharacterEditorBundle } | null
-      if (!payload || payload.source !== "loki-doki-character-editor" || payload.type !== "character-editor-bundle" || !payload.bundle) {
+      const payload = event.data as { source?: string; type?: string; action?: "save" | "publish"; bundle?: CharacterEditorBundle } | null
+      if (!payload || payload.source !== "loki-doki-character-editor" || payload.type !== "character-editor-action" || !payload.bundle) {
         return
       }
-      void importCharacterEditorBundle(payload.bundle)
+      void importCharacterEditorBundle(payload.bundle, payload.action === "publish")
     }
 
     window.addEventListener("message", handleCharacterEditorMessage)
@@ -4378,8 +4435,15 @@ export default function App() {
       [characterId]: {
         name: current[characterId]?.name || "",
         description: current[characterId]?.description || "",
+        teaser: current[characterId]?.teaser || "",
+        phonetic_spelling: current[characterId]?.phonetic_spelling || "",
         logo: current[characterId]?.logo || "",
         system_prompt: current[characterId]?.system_prompt || "",
+        identity_key: current[characterId]?.identity_key || "",
+        domain: current[characterId]?.domain || "",
+        behavior_style: current[characterId]?.behavior_style || "",
+        voice_model: current[characterId]?.voice_model || "",
+        character_editor: current[characterId]?.character_editor || {},
         default_voice: current[characterId]?.default_voice || "",
         default_voice_download_url: current[characterId]?.default_voice_download_url || "",
         default_voice_config_download_url: current[characterId]?.default_voice_config_download_url || "",
@@ -4547,13 +4611,25 @@ export default function App() {
   }
 
   function buildCharacterImportPackage(bundle: CharacterEditorBundle): CharacterPackage {
-    const existingCharacter = characters.find((entry) => entry.id === bundle.identity_key) || null
+    const resolvedCharacterId = (bundle.character_id || "").trim()
+    const existingCharacter = characters.find((entry) => entry.id === resolvedCharacterId) || null
     const existingDraft = existingCharacter ? adminCharacterDrafts[existingCharacter.id] || null : null
     const uploadedVoiceModel = bundle.editor_state?.default_voice_upload_data_url?.trim() || ""
     const uploadedVoiceConfig = bundle.editor_state?.default_voice_config_upload_data_url?.trim() || ""
     const uploadedVoiceSourceName = bundle.editor_state?.default_voice_source_name?.trim() || ""
     const uploadedVoiceConfigSourceName = bundle.editor_state?.default_voice_config_source_name?.trim() || ""
-    const resolvedId = (bundle.identity_key || bundle.manifest?.identity_key || "").trim()
+    const resolvedId =
+      resolvedCharacterId ||
+      slugifyCharacterId(
+        [
+          bundle.editor_state?.name?.trim() ||
+          bundle.manifest?.primary_name?.trim() ||
+          "character",
+          bundle.manifest?.identity_key?.trim() ||
+          bundle.identity_key ||
+          "lokidoki",
+        ].join("_")
+      )
     const resolvedName =
       bundle.manifest?.primary_name?.trim() ||
       bundle.editor_state?.name?.trim() ||
@@ -4572,12 +4648,25 @@ export default function App() {
       existingDraft?.default_voice?.trim() ||
       existingCharacter?.default_voice ||
       ""
-    const resolvedDomain = bundle.manifest?.domain?.trim() || bundle.editor_state?.style?.trim() || "dicebear"
+    const resolvedDomain = bundle.manifest?.domain?.trim() || bundle.identity_key?.trim() || "lokidoki"
+    const resolvedStyle = bundle.editor_state?.style?.trim() || "avataaars"
     const resolvedDescription =
       bundle.editor_state?.description?.trim() ||
       existingDraft?.description?.trim() ||
       existingCharacter?.description ||
       `DiceBear-based LokiDoki character created in the character editor (${resolvedDomain}).`
+    const resolvedTeaser =
+      bundle.editor_state?.teaser?.trim() ||
+      bundle.manifest?.teaser?.trim() ||
+      existingDraft?.teaser?.trim() ||
+      existingCharacter?.teaser ||
+      ""
+    const resolvedPhoneticSpelling =
+      bundle.editor_state?.phonetic_spelling?.trim() ||
+      bundle.manifest?.phonetic_spelling?.trim() ||
+      existingDraft?.phonetic_spelling?.trim() ||
+      existingCharacter?.phonetic_spelling ||
+      ""
 
     return {
       format: "lokidoki-character-package",
@@ -4586,9 +4675,11 @@ export default function App() {
         name: resolvedName,
         version: existingCharacter?.version || "2.0.0",
         description: resolvedDescription,
+        teaser: resolvedTeaser,
+        phonetic_spelling: resolvedPhoneticSpelling,
         logo: bundle.logo_data_url || existingDraft?.logo || existingCharacter?.logo || "/lokidoki-logo.svg",
         system_prompt: resolvedPrompt,
-        identity_key: resolvedId,
+        identity_key: (bundle.manifest?.identity_key || bundle.identity_key || resolvedId).trim() || resolvedId,
         domain: resolvedDomain,
         behavior_style: resolvedPrompt,
         voice_model: resolvedVoice,
@@ -4602,14 +4693,24 @@ export default function App() {
           uploadedVoiceConfigSourceName || existingDraft?.default_voice_config_source_name || existingCharacter?.default_voice_config_source_name || "",
         default_voice_upload_data_url: uploadedVoiceModel || existingDraft?.default_voice_upload_data_url || "",
         default_voice_config_upload_data_url: uploadedVoiceConfig || existingDraft?.default_voice_config_upload_data_url || "",
-        wakeword_model_id: existingDraft?.wakeword_model_id || existingCharacter?.wakeword_model_id || "",
+        wakeword_model_id:
+          bundle.editor_state?.wakeword_model_id?.trim() ||
+          bundle.manifest?.wakeword_model?.trim() ||
+          existingDraft?.wakeword_model_id ||
+          existingCharacter?.wakeword_model_id ||
+          "",
         wakeword_download_url: existingDraft?.wakeword_download_url || existingCharacter?.wakeword_download_url || "",
-        wakeword_source_name: existingDraft?.wakeword_source_name || existingCharacter?.wakeword_source_name || "",
+        wakeword_source_name:
+          bundle.editor_state?.wakeword_source_name?.trim() ||
+          existingDraft?.wakeword_source_name ||
+          existingCharacter?.wakeword_source_name ||
+          "",
+        wakeword_upload_data_url: bundle.editor_state?.wakeword_upload_data_url?.trim() || "",
         enabled: existingCharacter?.enabled ?? true,
         capabilities: {
           editor: "character_editor",
           renderer: "dicebear",
-          domain: resolvedDomain,
+          domain: resolvedStyle,
         },
         character_editor: {
           source: "loki-doki-character-editor",
@@ -4621,20 +4722,138 @@ export default function App() {
     }
   }
 
-  async function importCharacterEditorBundle(bundle: CharacterEditorBundle) {
+  async function importCharacterEditorBundle(bundle: CharacterEditorBundle, publishAfterSave = false) {
     if (!token) {
       return
     }
-    const packagePayload = buildCharacterImportPackage(bundle)
     try {
-      const payload = await fetchJson<{ character: CharacterDefinition; installed: CharacterDefinition[]; available: CharacterDefinition[] }>(
-        "/api/characters/import",
-        {
-          method: "POST",
-          body: JSON.stringify({ package: packagePayload }),
-        },
-        token
-      )
+      const selectedVoiceId = String(
+        bundle.manifest?.voice_model?.trim() ||
+        bundle.editor_state?.voice_model?.trim() ||
+        ""
+      ).trim()
+      if (selectedVoiceId) {
+        let selectedVoice = adminVoices.find((voice) => voice.id === selectedVoiceId) || null
+        if (!selectedVoice && user?.is_admin) {
+          const voicePayload = await fetchJson<{ voices: AdminVoiceRecord[] }>("/api/admin/voices", {}, token)
+          setAdminVoices(voicePayload.voices)
+          selectedVoice = voicePayload.voices.find((voice) => voice.id === selectedVoiceId) || null
+        }
+        if (selectedVoice && !selectedVoice.installed) {
+          setAdminNotice(`Installing voice "${selectedVoice.label}" before save...`)
+          if (selectedVoice.custom) {
+            if (!selectedVoice.source_url.trim()) {
+              throw new Error(`Voice "${selectedVoice.label}" is not installed locally and cannot be auto-installed because it was uploaded from local files.`)
+            }
+            const voicePayload = await fetchJson<{ voices: AdminVoiceRecord[] }>(
+              `/api/admin/voices/${selectedVoice.id}/reinstall`,
+              { method: "POST" },
+              token
+            )
+            setAdminVoices(voicePayload.voices)
+          } else {
+            await fetchJson<{ ok: boolean; voice_id: string }>(
+              "/api/voices/piper/install",
+              {
+                method: "POST",
+                body: JSON.stringify({ voice_id: selectedVoice.id }),
+              },
+              token
+            )
+            if (user?.is_admin) {
+              const voicePayload = await fetchJson<{ voices: AdminVoiceRecord[] }>("/api/admin/voices", {}, token)
+              setAdminVoices(voicePayload.voices)
+            }
+          }
+          await refreshVoices(token)
+        }
+      }
+      const existingCharacterId = (bundle.character_id || "").trim()
+      const existingCharacter = existingCharacterId
+        ? characters.find((entry) => entry.id === existingCharacterId) || null
+        : null
+      const payload = existingCharacter
+        ? await fetchJson<{ character: CharacterDefinition; installed: CharacterDefinition[]; available: CharacterDefinition[] }>(
+            `/api/characters/${existingCharacter.id}`,
+            {
+              method: "PUT",
+              body: JSON.stringify({
+                name:
+                  bundle.editor_state?.name?.trim() ||
+                  bundle.manifest?.primary_name?.trim() ||
+                  existingCharacter.name,
+                description:
+                  bundle.editor_state?.description?.trim() ||
+                  existingCharacter.description ||
+                  "",
+                teaser:
+                  bundle.editor_state?.teaser?.trim() ||
+                  existingCharacter.teaser ||
+                  "",
+                phonetic_spelling:
+                  bundle.editor_state?.phonetic_spelling?.trim() ||
+                  bundle.manifest?.phonetic_spelling?.trim() ||
+                  existingCharacter.phonetic_spelling ||
+                  "",
+                logo: bundle.logo_data_url || existingCharacter.logo || "",
+                system_prompt:
+                  bundle.editor_state?.persona_prompt?.trim() ||
+                  existingCharacter.system_prompt ||
+                  "",
+                identity_key:
+                  bundle.manifest?.identity_key?.trim() ||
+                  existingCharacter.identity_key ||
+                  existingCharacter.id,
+                domain:
+                  bundle.manifest?.domain?.trim() ||
+                  bundle.identity_key?.trim() ||
+                  existingCharacter.domain ||
+                  "lokidoki",
+                behavior_style:
+                  bundle.manifest?.behavior_style?.trim() ||
+                  bundle.editor_state?.persona_prompt?.trim() ||
+                  existingCharacter.behavior_style ||
+                  existingCharacter.system_prompt ||
+                  "",
+                voice_model:
+                  bundle.manifest?.voice_model?.trim() ||
+                  bundle.editor_state?.voice_model?.trim() ||
+                  existingCharacter.voice_model ||
+                  existingCharacter.default_voice ||
+                  "",
+                default_voice:
+                  bundle.editor_state?.voice_model?.trim() ||
+                  existingCharacter.default_voice ||
+                  "",
+                wakeword_model_id:
+                  bundle.editor_state?.wakeword_model_id?.trim() ||
+                  existingCharacter.wakeword_model_id ||
+                  "",
+                wakeword_source_name:
+                  bundle.editor_state?.wakeword_source_name?.trim() ||
+                  existingCharacter.wakeword_source_name ||
+                  "",
+                wakeword_upload_data_url:
+                  bundle.editor_state?.wakeword_upload_data_url?.trim() ||
+                  "",
+                character_editor: {
+                  source: "loki-doki-character-editor",
+                  exported_at: new Date().toISOString(),
+                  manifest: bundle.manifest || {},
+                  editor_state: bundle.editor_state || {},
+                },
+              }),
+            },
+            token
+          )
+        : await fetchJson<{ character: CharacterDefinition; installed: CharacterDefinition[]; available: CharacterDefinition[] }>(
+            "/api/characters/import",
+            {
+              method: "POST",
+              body: JSON.stringify({ package: buildCharacterImportPackage(bundle) }),
+            },
+            token
+          )
       setCharacters(payload.available)
       setAdminCharacterDrafts(() => {
         const next: Record<string, CharacterEditorDraft> = {}
@@ -4653,15 +4872,26 @@ export default function App() {
       const nextDraft = buildCharacterEditorDraft(payload.character)
       const params = new URLSearchParams()
       params.set("embedded", "1")
+      params.set("character_id", payload.character.id)
       params.set("identity_key", payload.character.identity_key || payload.character.id)
-      params.set("style", payload.character.domain || "avataaars")
+      params.set("style", characterEditorStyle(payload.character))
       params.set("name", nextDraft.name || payload.character.name)
       params.set("description", nextDraft.description || payload.character.description || "")
+      params.set("teaser", nextDraft.teaser || payload.character.teaser || "")
+      params.set("phonetic_spelling", nextDraft.phonetic_spelling || payload.character.phonetic_spelling || "")
       params.set("persona_prompt", nextDraft.system_prompt || payload.character.behavior_style || payload.character.system_prompt || "")
       params.set("voice_model", nextDraft.default_voice || payload.character.voice_model || payload.character.default_voice || "en-us-lessac-medium.onnx")
+      const serializedEditorState = serializeEditorState(asRecord(payload.character.character_editor)?.editor_state as Record<string, unknown> | undefined)
+      if (serializedEditorState) {
+        params.set("editor_state", serializedEditorState)
+      }
       setCharacterEditorUrl(buildCharacterEditorUrl(params, effectiveThemePresetId, effectiveThemeMode))
       setIsCharacterEditorOpen(true)
-      setAdminNotice(`Character "${payload.character.name}" saved.`)
+      if (publishAfterSave) {
+        await publishCharacter(payload.character)
+      } else {
+        setAdminNotice(`Character "${payload.character.name}" saved.`)
+      }
     } catch (error) {
       setAdminNotice(error instanceof Error ? error.message : "Character save failed.")
     }
@@ -4673,12 +4903,19 @@ export default function App() {
     const params = new URLSearchParams()
     params.set("embedded", "1")
     if (character) {
+      params.set("character_id", character.id)
       params.set("identity_key", character.identity_key || character.id)
-      params.set("style", character.domain || "avataaars")
+      params.set("style", characterEditorStyle(character))
       params.set("name", draft?.name || character.name)
       params.set("description", draft?.description || character.description || "")
+      params.set("teaser", draft?.teaser || character.teaser || "")
+      params.set("phonetic_spelling", draft?.phonetic_spelling || character.phonetic_spelling || "")
       params.set("persona_prompt", draft?.system_prompt || character.behavior_style || character.system_prompt || "")
       params.set("voice_model", draft?.default_voice || character.voice_model || character.default_voice || "en-us-lessac-medium.onnx")
+      const serializedEditorState = serializeEditorState(asRecord(character.character_editor)?.editor_state as Record<string, unknown> | undefined)
+      if (serializedEditorState) {
+        params.set("editor_state", serializedEditorState)
+      }
     }
     const url = buildCharacterEditorUrl(params, effectiveThemePresetId, effectiveThemeMode)
     setActiveView("admin")
@@ -4746,23 +4983,7 @@ export default function App() {
       setAdminCharacterDrafts(() => {
         const next: Record<string, CharacterEditorDraft> = {}
         for (const character of payload.available) {
-          next[character.id] = {
-            name: character.name,
-            description: character.description,
-            logo: character.logo || "",
-            system_prompt: character.system_prompt || "",
-            default_voice: character.default_voice || "",
-            default_voice_download_url: character.default_voice_download_url || "",
-            default_voice_config_download_url: character.default_voice_config_download_url || "",
-            default_voice_source_name: character.default_voice_source_name || "",
-            default_voice_config_source_name: character.default_voice_config_source_name || "",
-            default_voice_upload_data_url: "",
-            default_voice_config_upload_data_url: "",
-            wakeword_model_id: character.wakeword_model_id || "",
-            wakeword_download_url: character.wakeword_download_url || "",
-            wakeword_source_name: character.wakeword_source_name || "",
-            wakeword_upload_data_url: "",
-          }
+          next[character.id] = buildCharacterEditorDraft(character)
         }
         return next
       })
@@ -5355,10 +5576,11 @@ export default function App() {
         ? "max-w-[1240px]"
         : "max-w-[980px]"
   )
-  const quickCharacterChoices = [
+  const sharedCharacterChoices = [
     ...(selectedCharacter ? [selectedCharacter] : []),
     ...characters.filter((item) => item.enabled && item.id !== activeCharacterId),
-  ].slice(0, 3)
+  ]
+  const settingsCharacterChoices = characters.filter((item) => item.enabled || item.id === activeCharacterId)
   const normalizedAdminUserSearch = adminUserSearch.trim().toLowerCase()
   const filteredAdminUsers = adminUsers.filter((item) =>
     !normalizedAdminUserSearch
@@ -5652,10 +5874,16 @@ export default function App() {
               {activeView === "assistant" ? (
                 <CharacterQuickSwitcher
                   busy={isCharacterSyncPending}
-                  characters={quickCharacterChoices}
+                  characters={sharedCharacterChoices.map((character) => ({
+                    ...character,
+                    teaser: fallbackCharacterTeaser(character),
+                  }))}
                   open={isCharacterMenuOpen}
                   pendingCharacterName={pendingCharacterName}
-                  selectedCharacter={selectedCharacter}
+                  selectedCharacter={selectedCharacter ? {
+                    ...selectedCharacter,
+                    teaser: fallbackCharacterTeaser(selectedCharacter),
+                  } : null}
                   onOpenCharacterSettings={openCharacterSettingsPanel}
                   onSelectCharacter={(characterId) => void handleCharacterSwitch(characterId)}
                   onToggle={() => {
@@ -6228,21 +6456,37 @@ export default function App() {
                         </div>
                         <div className="space-y-2">
                           <div className="workspace-label">Active Character</div>
-                          <Select
-                            disabled={Boolean(assignedCharacterId && !canSelectCharacter)}
-                            onChange={(event) => {
-                              const nextCharacterId = event.target.value
-                              setActiveCharacterId(nextCharacterId)
-                              void persistCharacterSettings({ active_character_id: nextCharacterId } as Partial<SettingsPayload>)
+                          <CharacterQuickSwitcher
+                            busy={isCharacterSyncPending}
+                            characters={settingsCharacterChoices.map((character) => ({
+                              ...character,
+                              teaser: fallbackCharacterTeaser(character),
+                            }))}
+                            selectedCharacter={selectedCharacter ? {
+                              ...selectedCharacter,
+                              teaser: fallbackCharacterTeaser(selectedCharacter),
+                            } : null}
+                            open={isCharacterMenuOpen}
+                            onToggle={() => {
+                              if (!isCharacterSyncPending && !(assignedCharacterId && !canSelectCharacter)) {
+                                setIsCharacterMenuOpen((current) => !current)
+                              }
                             }}
-                            value={activeCharacterId}
-                          >
-                            {characters.map((character) => (
-                              <option key={character.id} value={character.id}>
-                                {character.name} {character.enabled ? "" : "(disabled)"}
-                              </option>
-                            ))}
-                          </Select>
+                            onSelectCharacter={(characterId) => {
+                              if (assignedCharacterId && !canSelectCharacter) {
+                                return
+                              }
+                              setIsCharacterMenuOpen(false)
+                              void handleCharacterSwitch(characterId)
+                            }}
+                            onOpenCharacterSettings={() => {
+                              setIsCharacterMenuOpen(false)
+                            }}
+                            hideFooter
+                            footerLabel=""
+                            footerSubtitle=""
+                            pendingCharacterName={pendingCharacterName}
+                          />
                           {assignedCharacterId && !canSelectCharacter ? (
                             <div className="workspace-muted text-xs">This character is assigned by an administrator and selection is locked.</div>
                           ) : null}
@@ -7593,6 +7837,7 @@ export default function App() {
                               const draft = adminCharacterDrafts[character.id]
                               const title = draft?.name || character.name
                               const description = draft?.description || character.description || "No description yet."
+                              const phoneticSpelling = draft?.phonetic_spelling || character.phonetic_spelling || ""
                               return (
                                 <div key={character.id} className="flex flex-col gap-4 rounded-[26px] border border-white/8 bg-white/[0.03] px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
                                   <div className="min-w-0 flex-1">
@@ -7609,6 +7854,9 @@ export default function App() {
                                           </div>
                                         </div>
                                         <div className="mt-1 text-xs text-zinc-500">{character.id} · {character.version}</div>
+                                        {phoneticSpelling ? (
+                                          <div className="mt-1 text-xs text-cyan-300">Pronounced: {phoneticSpelling}</div>
+                                        ) : null}
                                         <div className="mt-2 line-clamp-2 text-sm text-zinc-400">{description}</div>
                                         <div className="mt-3 flex flex-wrap gap-2">
                                           {draft?.default_voice ? (

@@ -24,6 +24,8 @@ class CharacterUpdateRequest(BaseModel):
     """Editable character metadata payload."""
     name: str = Field(min_length=1)
     description: str = ""
+    teaser: str = ""
+    phonetic_spelling: str = ""
     logo: str = ""
     system_prompt: str = ""
     default_voice: str = ""

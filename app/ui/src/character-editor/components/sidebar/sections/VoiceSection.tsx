@@ -45,11 +45,11 @@ export const VoiceSection: React.FC<VoiceSectionProps> = ({
           <Button 
             onClick={() => speak(testText)}
             disabled={status !== 'connected' || isSpeaking}
-            className="h-10 rounded-xl border-none bg-[var(--app-accent)] text-[10px] font-black uppercase text-white shadow-lg hover:bg-[var(--app-accent-strong)]"
+            className="h-10 rounded-xl border-none bg-[var(--app-accent)] text-[10px] font-black uppercase !text-white shadow-lg hover:bg-[var(--app-accent-strong)] disabled:bg-[color:var(--app-bg-panel-strong)] disabled:!text-[var(--app-text-muted)] disabled:opacity-100"
           >
             {isSpeaking ? 'Speaking...' : 'Speak Text'}
           </Button>
-          <Button onClick={stop} variant="secondary" className="h-10 rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[10px] uppercase text-[var(--app-text)] hover:bg-[color:var(--app-accent-soft)]">Stop</Button>
+          <Button onClick={stop} variant="secondary" className="h-10 rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[10px] uppercase !text-[var(--app-text)] hover:bg-[color:var(--app-accent-soft)]">Stop</Button>
         </div>
       </div>
     </section>

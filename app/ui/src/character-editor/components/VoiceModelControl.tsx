@@ -16,9 +16,33 @@ import type { CharacterOptions } from '@/character-editor/context/CharacterConte
 type VoiceCatalogEntry = {
   id: string;
   label: string;
+  description: string;
+  language: string;
+  quality: string;
+  installed: boolean;
   has_config: boolean;
   is_custom: boolean;
 };
+
+type VoiceCatalogApiEntry = {
+  id?: string;
+  label?: string;
+  description?: string;
+  language?: string;
+  quality?: string;
+  installed?: boolean;
+};
+
+function voiceMetaLabel(voice: Pick<VoiceCatalogEntry, 'language' | 'quality'>) {
+  return [voice.language, voice.quality].filter(Boolean).join(' · ');
+}
+
+function triggerLabel(voice: VoiceCatalogEntry | null) {
+  if (!voice) {
+    return 'Select Voice Model';
+  }
+  return voice.label || voice.id;
+}
 
 interface VoiceModelControlProps {
   options: CharacterOptions;
@@ -58,7 +82,25 @@ export default function VoiceModelControl({
         throw new Error(`Failed to load installed voices (${response.status})`);
       }
       const data = await response.json();
-      setVoices(Array.isArray(data.voices) ? data.voices : []);
+      const catalog = Array.isArray(data.voices)
+        ? data.voices
+        : Array.isArray(data?.piper?.catalog)
+          ? data.piper.catalog
+          : [];
+      setVoices(
+        catalog
+          .filter((voice: VoiceCatalogApiEntry) => Boolean(voice?.id))
+          .map((voice: VoiceCatalogApiEntry) => ({
+            id: String(voice.id),
+            label: String(voice.label || voice.id || 'Voice'),
+            description: String(voice.description || ''),
+            language: String(voice.language || ''),
+            quality: String(voice.quality || ''),
+            installed: Boolean(voice.installed),
+            has_config: true,
+            is_custom: false,
+          }))
+      );
       setStatus('idle');
     } catch (error) {
       setStatus('error');
@@ -77,12 +119,20 @@ export default function VoiceModelControl({
       next.unshift({
         id: currentValue,
         label: `${currentValue} (current)`,
+        description: '',
+        language: '',
+        quality: '',
+        installed: false,
         has_config: true,
         is_custom: true,
       });
     }
     return next;
   }, [options.voice_model, voices]);
+  const selectedVoice = useMemo(
+    () => voiceOptions.find((voice) => voice.id === (options.voice_model || '').trim()) || null,
+    [options.voice_model, voiceOptions]
+  );
 
   const clearCustomVoiceUpload = () => {
     updateOption('default_voice_source_name', '');
@@ -138,14 +188,38 @@ export default function VoiceModelControl({
           <SelectTrigger
             className={`border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] ${compact ? 'h-8 rounded-lg text-[10px]' : 'h-10 rounded-xl text-sm'} font-semibold text-[var(--app-accent)]`}
           >
-            <SelectValue placeholder={status === 'loading' ? 'Loading voices...' : 'Select Voice Model'} />
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-left">
+                  {status === 'loading' && !selectedVoice ? 'Loading voices...' : triggerLabel(selectedVoice)}
+                </div>
+                {selectedVoice && !compact ? (
+                  <div className="truncate text-[10px] font-normal text-[var(--app-text-muted)]">
+                    {[voiceMetaLabel(selectedVoice), selectedVoice.id].filter(Boolean).join(' · ')}
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </SelectTrigger>
           <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
             {voiceOptions.map((voice) => (
-              <SelectItem key={voice.id} value={voice.id}>
-                <div className="flex items-center gap-2">
-                  <span>{voice.label}</span>
-                  {!voice.has_config ? <span className="text-[10px] text-amber-400">No config</span> : null}
+              <SelectItem key={voice.id} value={voice.id} className="items-start py-2">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">{voice.label}</span>
+                    <span className={`text-[10px] uppercase tracking-[0.18em] ${voice.installed ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {voice.installed ? 'Installed' : 'Catalog'}
+                    </span>
+                    {!voice.has_config ? <span className="text-[10px] text-amber-400">No config</span> : null}
+                  </div>
+                  <span className="truncate text-[11px] text-[var(--app-text-muted)]">
+                    {[voiceMetaLabel(voice), voice.id].filter(Boolean).join(' · ')}
+                  </span>
+                  {voice.description ? (
+                    <span className="line-clamp-2 whitespace-normal text-[11px] text-[var(--app-text-muted)]">
+                      {voice.description}
+                    </span>
+                  ) : null}
                 </div>
               </SelectItem>
             ))}
@@ -169,7 +243,7 @@ export default function VoiceModelControl({
             <Input
               type="file"
               accept=".onnx"
-              className="cursor-pointer border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-xs text-[var(--app-text)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--app-accent)] file:px-2 file:py-1 file:text-xs file:font-semibold file:text-white"
+              className="cursor-pointer border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-xs text-[var(--app-text)]"
               onChange={(event) => setModelFile(event.target.files?.[0] || null)}
             />
           </label>
@@ -178,7 +252,7 @@ export default function VoiceModelControl({
             <Input
               type="file"
               accept=".json,.onnx.json"
-              className="cursor-pointer border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-xs text-[var(--app-text)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--app-accent)] file:px-2 file:py-1 file:text-xs file:font-semibold file:text-white"
+              className="cursor-pointer border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-xs text-[var(--app-text)]"
               onChange={(event) => setConfigFile(event.target.files?.[0] || null)}
             />
           </label>
@@ -189,7 +263,7 @@ export default function VoiceModelControl({
             type="button"
             onClick={() => void handleUpload()}
             disabled={uploading || !modelFile || !configFile}
-            className="border-none bg-[var(--app-accent)] text-white hover:bg-[var(--app-accent-strong)]"
+            className="border-none bg-[var(--app-accent)] text-white hover:bg-[var(--app-accent-strong)] disabled:bg-[color:var(--app-bg-panel-strong)] disabled:text-[var(--app-text-muted)] disabled:opacity-100"
           >
             {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
             Upload Custom Voice

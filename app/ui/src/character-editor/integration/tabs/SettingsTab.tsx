@@ -1,11 +1,7 @@
 import React from 'react';
 import { Settings2, Shapes, Sparkles } from 'lucide-react';
-import { useAudio } from '@/character-editor/context/AudioContext';
+
 import { useCharacter } from '@/character-editor/context/CharacterContext';
-import { useVoice } from '@/character-editor/context/VoiceContext';
-import { IdentitySection } from '@/character-editor/components/sidebar/sections/IdentitySection';
-import { BrainSection } from '@/character-editor/components/sidebar/sections/BrainSection';
-import { VoiceSection } from '@/character-editor/components/sidebar/sections/VoiceSection';
 import { ConfigSection } from '@/character-editor/components/sidebar/sections/ConfigSection';
 import { RiggingSection } from '@/character-editor/components/sidebar/sections/RiggingSection';
 import { QuantumRiggingSection } from '@/character-editor/components/sidebar/sections/QuantumRiggingSection';
@@ -20,11 +16,8 @@ import {
 } from "@/character-editor/components/ui/select";
 import { FEATURED_CHARACTERS } from '@/character-editor/constants/characters';
 
-export const ControlsTab: React.FC = () => {
-  const { options, updateOption, resetToSeed, brain, sendToBrain } = useCharacter();
-  const audio = useAudio();
-  const voice = useVoice();
-  const bodyState = typeof brain.value === 'string' ? brain.value : 'body' in brain.value ? String(brain.value.body) : 'active';
+export const SettingsTab: React.FC = () => {
+  const { options, updateOption, resetToSeed } = useCharacter();
   const randomSeed = () => Math.random().toString(36).slice(2, 10);
 
   return (
@@ -63,9 +56,6 @@ export const ControlsTab: React.FC = () => {
         </div>
       </section>
 
-      <IdentitySection options={options} updateOption={updateOption} resetToSeed={resetToSeed} />
-      <BrainSection {...audio} bodyState={bodyState} sendToBrain={sendToBrain} />
-      <VoiceSection {...voice} />
       <ConfigSection options={options} updateOption={updateOption} />
       <RiggingSection options={options} updateOption={updateOption} resetToSeed={resetToSeed} />
       <QuantumRiggingSection options={options} updateOption={updateOption} />

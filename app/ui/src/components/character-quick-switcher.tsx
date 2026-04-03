@@ -6,6 +6,7 @@ type CharacterOption = {
   id: string
   name: string
   logo: string
+  teaser?: string
   enabled: boolean
 }
 
@@ -18,6 +19,9 @@ type CharacterQuickSwitcherProps = {
   onToggle: () => void
   onSelectCharacter: (characterId: string) => void
   onOpenCharacterSettings: () => void
+  footerLabel?: string
+  footerSubtitle?: string
+  hideFooter?: boolean
 }
 
 function CharacterBadge({ character }: { character: CharacterOption | null }) {
@@ -42,23 +46,26 @@ export function CharacterQuickSwitcher({
   onToggle,
   onSelectCharacter,
   onOpenCharacterSettings,
+  footerLabel = "More characters",
+  footerSubtitle = "Open the settings character area",
+  hideFooter = false,
 }: CharacterQuickSwitcherProps) {
   return (
     <div className="relative" onPointerDown={(event) => event.stopPropagation()}>
       <button
         aria-expanded={open}
-        className="sidebar-hover-surface flex h-11 items-center gap-3 rounded-[18px] border border-[var(--line)] bg-[var(--input)] px-3 text-left disabled:cursor-wait disabled:opacity-80"
+        className="sidebar-hover-surface flex min-h-[52px] items-center gap-3 rounded-[18px] border border-[var(--line)] bg-[var(--input)] px-3 py-2 text-left disabled:cursor-wait disabled:opacity-80"
         disabled={busy}
         onClick={onToggle}
         type="button"
       >
         <CharacterBadge character={selectedCharacter} />
-        <div className="min-w-0">
+          <div className="min-w-0">
           <div className="truncate text-sm font-medium text-[var(--foreground)]">
             {busy ? pendingCharacterName || selectedCharacter?.name || "LokiDoki" : selectedCharacter?.name || "LokiDoki"}
           </div>
-          <div className="truncate text-[11px] text-[var(--muted-foreground)]">
-            {busy ? "Compiling character..." : selectedCharacter ? "Current character" : "Neutral assistant"}
+          <div className="max-w-[220px] truncate text-[12px] leading-4 text-[var(--muted-foreground)]">
+            {busy ? "Compiling character..." : selectedCharacter?.teaser || "Neutral assistant"}
           </div>
         </div>
         {busy ? (
@@ -92,8 +99,8 @@ export function CharacterQuickSwitcher({
                   <CharacterBadge character={character} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{character.name}</div>
-                    <div className="truncate text-xs text-[var(--muted-foreground)]">
-                      {character.enabled ? "Ready to use" : "Currently selected"}
+                    <div className="line-clamp-2 text-[12px] leading-4 text-[var(--muted-foreground)]">
+                      {character.teaser || (character.enabled ? "Ready to use" : "Currently selected")}
                     </div>
                   </div>
                   {isSelected ? <Check className="h-4 w-4 text-[var(--foreground)]" /> : null}
@@ -101,7 +108,7 @@ export function CharacterQuickSwitcher({
               )
             })}
           </div>
-          <div className="mt-2 border-t border-[var(--line)] pt-2">
+          {!hideFooter ? <div className="mt-2 border-t border-[var(--line)] pt-2">
             <button
               className="quick-switcher-item flex w-full items-center gap-3 rounded-[18px] px-3 py-2.5 text-left text-[var(--foreground)] disabled:cursor-wait disabled:opacity-60"
               disabled={busy}
@@ -112,11 +119,11 @@ export function CharacterQuickSwitcher({
                 <Settings className="h-4 w-4" />
               </div>
               <div>
-                <div className="text-sm font-medium">More characters</div>
-                <div className="text-xs text-[var(--muted-foreground)]">Open the settings character area</div>
+                <div className="text-sm font-medium">{footerLabel}</div>
+                <div className="text-xs text-[var(--muted-foreground)]">{footerSubtitle}</div>
               </div>
             </button>
-          </div>
+          </div> : null}
         </div>
       ) : null}
     </div>

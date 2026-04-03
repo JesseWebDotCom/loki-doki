@@ -1,5 +1,5 @@
 import React from 'react';
-import { Palette, Scissors, RotateCcw, Shirt, Eye } from 'lucide-react';
+import { Palette, Scissors, RotateCcw, Shirt, Eye, Glasses } from 'lucide-react';
 import { Button } from "@/character-editor/components/ui/button";
 import {
   Select,
@@ -21,9 +21,22 @@ export const RiggingSection: React.FC<RiggingSectionProps> = ({ options, updateO
     updateOption(key, [value]);
   };
 
+  const colorLabel = (value: string) => (value === 'seed' ? 'Seed' : `#${value.toUpperCase()}`);
+  const ColorItem = ({ value }: { value: string }) => (
+    <div className="flex items-center gap-2">
+      <span
+        className="h-4 w-4 rounded-full border border-[color:var(--app-border)] shadow-inner"
+        style={{ backgroundColor: value === 'seed' ? 'transparent' : `#${value}` }}
+      />
+      <span>{colorLabel(value)}</span>
+    </div>
+  );
+
   const hairColors = ['2c1b18', '4a312c', '724130', 'a55728', 'b58143', 'd6b370', '1a1a1a', 'e8e1e1', '7fdff2'];
   const skinTones = ['ffdbac', 'f1c27d', 'e0ac69', '8d5524', '614335', 'ae5d4c'];
   const clothColors = ['3c4e5e', '2a2b2e', 'ff5c5c', '5cff5c', '5c5cff', 'ffffff', 'e0ac69', '64748b'];
+  const accessoryColors = ['262e33', '65c9ff', '5199e4', '25557c', 'e6e6e6', '929598', '3c4f5c', 'b1e2ff', 'a7ffc4', 'ffdeb5', 'ffafb9', 'ffffb1', 'ff488e', 'ff5c5c', 'ffffff'];
+  const isAvataaars = options.style === 'avataaars';
 
   return (
     <section id="rigging" className="space-y-4 pt-2">
@@ -37,6 +50,11 @@ export const RiggingSection: React.FC<RiggingSectionProps> = ({ options, updateO
       </div>
       
       <div className="space-y-5 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] p-4 shadow-[var(--app-shadow-soft)]">
+        {!isAvataaars ? (
+          <div className="rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] p-3 text-xs text-[var(--app-text-muted)]">
+            Detailed apparel and accessory controls are available for the Avataaars type.
+          </div>
+        ) : null}
         {/* HAIR */}
         <div className="space-y-2.5">
           <label className="ce-micro flex items-center gap-1.5 px-1 text-[var(--app-text-muted)]"><Scissors className="w-2.5 h-2.5 text-[var(--app-icon-primary)]" /> Style & Hair</label>
@@ -51,8 +69,16 @@ export const RiggingSection: React.FC<RiggingSectionProps> = ({ options, updateO
                 </SelectContent>
               </Select>
             </div>
-            <div className="w-[52px] shrink-0">
-               {/* Color picker would go here */}
+            <div className="w-[160px] shrink-0">
+              <Select value={options.hairColor?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('hairColor', v)}>
+                <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[10px] text-[var(--app-icon-primary)]">
+                  <SelectValue placeholder="Hair Color" />
+                </SelectTrigger>
+                <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
+                  <SelectItem value="seed"><ColorItem value="seed" /></SelectItem>
+                  {hairColors.map(t => <SelectItem key={t} value={t}><ColorItem value={t} /></SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>
@@ -66,15 +92,59 @@ export const RiggingSection: React.FC<RiggingSectionProps> = ({ options, updateO
                 <SelectValue placeholder="Outfit" />
               </SelectTrigger>
               <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
-                {['graphicShirt', 'blazerAndShirt', 'blazerAndSweater', 'hoodie', 'overall', 'shirtCrewNeck', 'shirtScoopNeck', 'shirtVNeck'].sort().map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                <SelectItem value="seed">seed</SelectItem>
+                {['graphicShirt', 'blazerAndShirt', 'blazerAndSweater', 'collarAndSweater', 'hoodie', 'overall', 'shirtCrewNeck', 'shirtScoopNeck', 'shirtVNeck'].sort().map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={options.clothesColor?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('clothesColor', v)}>
+              <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)]">
+                <SelectValue placeholder="Shirt Color" />
+              </SelectTrigger>
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
+                <SelectItem value="seed"><ColorItem value="seed" /></SelectItem>
+                {clothColors.map(t => <SelectItem key={t} value={t}><ColorItem value={t} /></SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={options.clothingGraphic?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('clothingGraphic', v)}>
+              <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[10px] text-[var(--app-icon-primary)]">
+                <SelectValue placeholder="Graphic" />
+              </SelectTrigger>
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
+                <SelectItem value="seed">seed</SelectItem>
+                {['bat', 'bear', 'cumbia', 'deer', 'diamond', 'hola', 'pizza', 'resist', 'skull', 'skullOutline'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={options.skinColor?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('skinColor', v)}>
               <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)]">
                 <SelectValue placeholder="Skin" />
               </SelectTrigger>
-              <SelectContent className="grid grid-cols-3 gap-2 border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] p-2">
-                 {skinTones.map(c => <SelectItem key={c} value={c} className="!p-0 h-8 w-8 rounded-full flex justify-center !text-[0px]"><div className="w-6 h-6 rounded-full border border-[color:var(--app-border)]" style={{ backgroundColor: `#${c}` }} /></SelectItem>)}
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
+                 <SelectItem value="seed"><ColorItem value="seed" /></SelectItem>
+                 {skinTones.map(c => <SelectItem key={c} value={c}><ColorItem value={c} /></SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-2.5 border-t border-[color:var(--app-border)] pt-4">
+          <label className="ce-micro flex items-center gap-1.5 px-1 text-[var(--app-text-muted)]"><Glasses className="w-2.5 h-2.5 text-[var(--app-icon-primary)]" /> Accessories</label>
+          <div className="grid grid-cols-2 gap-2">
+            <Select value={options.accessories?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('accessories', v)}>
+              <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)] text-[10px] text-[var(--app-icon-primary)]">
+                <SelectValue placeholder="Accessory" />
+              </SelectTrigger>
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
+                <SelectItem value="seed">seed</SelectItem>
+                {['kurt', 'prescription01', 'prescription02', 'round', 'sunglasses', 'wayfarers', 'eyepatch'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={options.accessoriesColor?.[0] || 'seed'} onValueChange={(v) => handleTraitChange('accessoriesColor', v)}>
+              <SelectTrigger className="h-10 rounded-xl border-[color:var(--app-border)] bg-[color:var(--app-bg-panel-strong)]">
+                <SelectValue placeholder="Accessory Color" />
+              </SelectTrigger>
+              <SelectContent className="border-[color:var(--app-border)] bg-[color:var(--app-bg-panel)] text-[var(--app-text)]">
+                <SelectItem value="seed"><ColorItem value="seed" /></SelectItem>
+                {accessoryColors.map(t => <SelectItem key={t} value={t}><ColorItem value={t} /></SelectItem>)}
               </SelectContent>
             </Select>
           </div>

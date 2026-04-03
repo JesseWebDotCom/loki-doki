@@ -60,6 +60,8 @@ class CharacterDefinition:
     logo: str
     description: str
     path: str
+    teaser: str = ""
+    phonetic_spelling: str = ""
     identity_key: str = ""
     domain: str = ""
     behavior_style: str = ""
