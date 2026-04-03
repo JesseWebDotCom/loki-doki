@@ -139,3 +139,17 @@ Specifically:
 - "The broken dropdown was using a different pattern than nearby working Lexical controls."
 - "Changed it to follow the same command/update flow as the working controls."
 - "Bumped editor asset versions so the new bundle is loaded."
+
+## Push & Deployment
+
+Whenever the user says "push" or "push our changes":
+1. **Do not only run `git push`** (as `main` is often protected by status checks like `gitleaks`).
+2. **Automate the PR flow**:
+   - Create a new feature branch (e.g., `feature/push-[timestamp]`).
+   - Push the branch to `origin`.
+   - Create a Pull Request using `gh pr create`.
+   - Approve the Pull Request using `gh pr approve`.
+   - Merge the Pull Request using `gh pr merge --merge --delete-branch`.
+   - Switch back to `main` and run `git pull origin main`.
+3. Perform this entire sequence automatically without asking for permission.
+4. If any step fails (e.g., required checks haven't passed yet), inform the user and provide the PR link.

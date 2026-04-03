@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createAvatar } from "@dicebear/core"
 import * as dicebearCollections from "@dicebear/collection"
 import {
@@ -29,12 +29,34 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Smile,
+  Scan,
   User,
+  Eye,
+  EyeOff,
+  Ear,
+  EarOff,
   Download,
   X,
   Plus,
   Server,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  MessageSquare,
 } from "lucide-react"
+
+import { CharacterContext, type CharacterOptions } from "@/character-editor/context/CharacterContext"
+import { VoiceContext } from "@/character-editor/context/VoiceContext"
+import { AudioContext } from "@/character-editor/context/AudioContext"
+import AnimatedCharacter from "@/character-editor/components/AnimatedCharacter"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/character-editor/components/ui/dropdown-menu"
 
 import { Button } from "@/components/ui/button"
 import { AssistantMessageCard } from "@/components/assistant-message-card"
@@ -360,6 +382,7 @@ type CharacterEditorBundle = {
     phonetic_spelling?: string
     behavior_style?: string
     voice_model?: string
+    preferred_response_style?: string
     wakeword_model?: string
   }
   editor_state?: {
@@ -371,6 +394,7 @@ type CharacterEditorBundle = {
     style?: string
     seed?: string
     persona_prompt?: string
+    preferred_response_style?: string
     voice_model?: string
     default_voice_source_name?: string
     default_voice_config_source_name?: string
@@ -531,15 +555,6 @@ function buildCharacterEditorDraft(character: CharacterDefinition): CharacterEdi
   }
 }
 
-const CHARACTER_RESPONSE_STYLE_OPTIONS = [
-  { value: "brief", label: "Brief" },
-  { value: "balanced", label: "Balanced" },
-  { value: "detailed", label: "Detailed" },
-] as const
-
-function characterResponseStyleLabel(style: string | undefined) {
-  return CHARACTER_RESPONSE_STYLE_OPTIONS.find((option) => option.value === style)?.label || "Balanced"
-}
 
 function characterEditorStyle(character: Pick<CharacterDefinition, "character_editor" | "domain">) {
   const editorState = asRecord(asRecord(character.character_editor)?.editor_state)
@@ -1530,6 +1545,18 @@ function AdminModal({
 
 export default function App() {
   const [activeView, setActiveView] = useState<"assistant" | "settings" | "admin">("assistant")
+  const [assistantTab, setAssistantTab] = useState<"chat" | "talk">("chat")
+  const [isCharacterVisible, setIsCharacterVisible] = useState(() => localStorage.getItem("ld_character_visible") !== "false")
+  const [characterDisplayMode, setCharacterDisplayMode] = useState<"full" | "head" | "fullscreen">(() => (localStorage.getItem("ld_character_mode") as any) || "head")
+
+  useEffect(() => {
+    localStorage.setItem("ld_character_visible", String(isCharacterVisible))
+  }, [isCharacterVisible])
+
+  useEffect(() => {
+    localStorage.setItem("ld_character_mode", characterDisplayMode)
+  }, [characterDisplayMode])
+
   const [bootstrap, setBootstrap] = useState<BootstrapDetails | null>(null)
   const [health, setHealth] = useState<HealthPayload | null>(null)
   const [isHealthOpen, setIsHealthOpen] = useState(false)
@@ -1538,7 +1565,10 @@ export default function App() {
   const [isAuthHydrating, setIsAuthHydrating] = useState<boolean>(() => Boolean(localStorage.getItem(tokenKey)))
   const [user, setUser] = useState<UserRecord | null>(null)
   const [chats, setChats] = useState<ChatSummary[]>([])
-  const [activeChatId, setActiveChatId] = useState("")
+  const [activeChatId, setActiveChatId] = useState(() => localStorage.getItem("ld_active_chat_id") || "")
+  useEffect(() => {
+    localStorage.setItem("ld_active_chat_id", activeChatId)
+  }, [activeChatId])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [prompt, setPrompt] = useState("")
   const [performanceProfileId, setPerformanceProfileId] = useState("fast")
@@ -1566,8 +1596,27 @@ export default function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isVoiceListening, setIsVoiceListening] = useState(false)
   const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null)
-  const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(true)
-  const [voiceSource, setVoiceSource] = useState<"browser" | "piper">("browser")
+  const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(() => localStorage.getItem("ld_voice_reply_enabled") !== "false")
+  const [voiceSource, setVoiceSource] = useState<"browser" | "piper">(() => (localStorage.getItem("ld_voice_source") as any) || "browser")
+
+  useEffect(() => {
+    localStorage.setItem("ld_voice_reply_enabled", String(voiceReplyEnabled))
+    if (!voiceReplyEnabled) {
+      stopSpeaking()
+      stopAudioReply()
+    }
+  }, [voiceReplyEnabled])
+
+  useEffect(() => {
+    localStorage.setItem("ld_voice_source", voiceSource)
+  }, [voiceSource])
+
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(() => localStorage.getItem("ld_subtitles_enabled") !== "false")
+  useEffect(() => {
+    localStorage.setItem("ld_subtitles_enabled", String(subtitlesEnabled))
+  }, [subtitlesEnabled])
+
+  const [speakingWordIndex, setSpeakingWordIndex] = useState<number | null>(null)
   const [bargeInEnabled, setBargeInEnabled] = useState(false)
   const [voiceOptions, setVoiceOptions] = useState<SpeechSynthesisVoice[]>([])
   const [selectedVoiceURI, setSelectedVoiceURI] = useState("")
@@ -1604,6 +1653,28 @@ export default function App() {
   const [wakewordModelId, setWakewordModelId] = useState("loki_doki")
   const [wakewordSources, setWakewordSources] = useState<WakewordSource[]>([])
   const [wakewordRuntime, setWakewordRuntime] = useState<WakewordPayload["status"] | null>(null)
+
+  // Native Fullscreen Bridge
+  useEffect(() => {
+    if (characterDisplayMode === "fullscreen" && isCharacterVisible) {
+      if (!document.fullscreenElement) {
+        void document.documentElement.requestFullscreen().catch(() => {})
+      }
+    } else if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {})
+    }
+  }, [characterDisplayMode, isCharacterVisible])
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && characterDisplayMode === "fullscreen") {
+        setCharacterDisplayMode("head")
+      }
+    }
+    document.addEventListener("fullscreenchange", handleFullscreenChange)
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
+  }, [characterDisplayMode])
+
   const [wakewordEchoCancellationEnabled, setWakewordEchoCancellationEnabled] = useState(true)
   const [wakewordNoiseSuppressionEnabled, setWakewordNoiseSuppressionEnabled] = useState(true)
   const [wakewordAutoGainControlEnabled, setWakewordAutoGainControlEnabled] = useState(true)
@@ -1622,8 +1693,13 @@ export default function App() {
     wakewordScore: 0,
   })
   const [characterEnabled, setCharacterEnabled] = useState(true)
-  const [activeCharacterId, setActiveCharacterId] = useState("lokidoki")
+  const [activeCharacterId, setActiveCharacterId] = useState(() => localStorage.getItem("ld_active_character_id") || "lokidoki")
   const [assignedCharacterId, setAssignedCharacterId] = useState("")
+
+  useEffect(() => {
+    localStorage.setItem("ld_active_character_id", activeCharacterId)
+  }, [activeCharacterId])
+
   const [canSelectCharacter, setCanSelectCharacter] = useState(true)
   const [userPromptText, setUserPromptText] = useState("")
   const [careProfileId, setCareProfileId] = useState("standard")
@@ -1939,6 +2015,7 @@ export default function App() {
     setRenamingChatId("")
     setIsMobileSidebarOpen(false)
     setActiveView("assistant")
+    setAssistantTab("chat")
   }
 
   async function selectChat(chatId: string, activeToken: string) {
@@ -1961,6 +2038,7 @@ export default function App() {
     setRenamingChatId("")
     setIsMobileSidebarOpen(false)
     setActiveView("assistant")
+    setAssistantTab("chat")
   }
 
   async function renameChat(chatId: string, title: string, activeToken: string) {
@@ -2488,7 +2566,20 @@ export default function App() {
     await primePiperPlayback()
     if (voiceSource === "browser") {
       stopAudioReply(false, false)
-      speakText(spokenText, selectedVoiceURI)
+      setIsVoiceReplyPending(true)
+      speakText(spokenText, selectedVoiceURI, {
+        onStart: () => {
+          window.dispatchEvent(new CustomEvent("viseme", { detail: "open" }))
+        },
+        onEnd: () => {
+          setIsVoiceReplyPending(false)
+          window.dispatchEvent(new CustomEvent("viseme", { detail: "closed" }))
+        },
+        onError: () => {
+          setIsVoiceReplyPending(false)
+          window.dispatchEvent(new CustomEvent("viseme", { detail: "closed" }))
+        }
+      })
       return "browser"
     }
     return speakWithPiper(spokenText)
@@ -2919,20 +3010,9 @@ export default function App() {
                     setVoiceStatus(`Heard: ${transcript}`)
                     forceScrollRef.current = true
                     setIsPinnedToBottom(true)
-                    setMessages((current) => [
-                      ...current,
-                      { role: "user", content: transcript, created_at: createdAt },
-                      {
-                        ...message,
-                        created_at: message.created_at || createdAt,
-                        pending: false,
-                        debug: {
-                          startedAtMs,
-                          durationMs: Date.now() - startedAtMs,
-                        },
-                      },
-                    ])
+                    setMessages(nextHistory)
                     syncActiveChatFromHistory(nextHistory)
+                    void playMessageVoice(message, `msg-${message.created_at}`)
                   })
                 })
                 .catch((error) => {
@@ -3041,6 +3121,10 @@ export default function App() {
   }, [bargeInEnabled, isBargeInCapturing, isSubmitting, isVoiceListening, isVoiceReplyPending, speakingMessageKey, token, user])
 
   async function playMessageVoice(message: ChatMessage, messageKey: string) {
+    if (!voiceReplyEnabled) {
+      setVoiceStatus("Voice output is currently muted.");
+      return;
+    }
     try {
       const spokenText = prepareSpeechText(speakableMessageText(message))
       if (!spokenText) {
@@ -3085,7 +3169,13 @@ export default function App() {
             }
             setPendingSpeechMessageKey("")
             setSpeakingMessageKey(messageKey)
+            setSpeakingWordIndex(0)
             setVoiceStatus("Speaking...")
+          },
+          onWord: (index) => {
+            if (speechRequestRef.current === requestId) {
+              setSpeakingWordIndex(index)
+            }
           },
           onEnd: () => {
             if (speechRequestRef.current !== requestId) {
@@ -3093,6 +3183,7 @@ export default function App() {
             }
             setPendingSpeechMessageKey("")
             setSpeakingMessageKey("")
+            setSpeakingWordIndex(null)
             setVoiceStatus("Voice reply complete.")
           },
           onError: (message) => {
@@ -3101,6 +3192,7 @@ export default function App() {
             }
             setPendingSpeechMessageKey("")
             setSpeakingMessageKey("")
+            setSpeakingWordIndex(null)
             setVoiceStatus(message)
           },
         })
@@ -5673,6 +5765,63 @@ export default function App() {
   const primaryIssue = topIssues[0]
   const selectedPiperVoice = piperVoices.find((voice) => voice.id === selectedPiperVoiceId) || null
   const selectedCharacter = characters.find((item) => item.id === activeCharacterId) || null
+
+  const characterContextValue = useMemo(() => ({
+    options: {
+      style: (selectedCharacter?.character_editor as any)?.editor_state?.style || "avataaars",
+      seed: (selectedCharacter?.character_editor as any)?.editor_state?.seed || selectedCharacter?.name || "Character",
+      flip: (selectedCharacter?.character_editor as any)?.editor_state?.flip || false,
+      rotate: (selectedCharacter?.character_editor as any)?.editor_state?.rotate || 0,
+      scale: (selectedCharacter?.character_editor as any)?.editor_state?.scale || 100,
+      radius: (selectedCharacter?.character_editor as any)?.editor_state?.radius || 0,
+      backgroundColor: (selectedCharacter?.character_editor as any)?.editor_state?.backgroundColor || ["transparent"],
+      backgroundType: (selectedCharacter?.character_editor as any)?.editor_state?.backgroundType || ["solid"],
+      backgroundRotation: (selectedCharacter?.character_editor as any)?.editor_state?.backgroundRotation || [0],
+      ...((selectedCharacter?.character_editor as any)?.editor_state || {}),
+    } as CharacterOptions,
+    setOptions: () => {},
+    updateOption: () => {},
+    resetToSeed: () => {},
+    loadManifest: async () => {},
+    saveManifest: async () => true,
+    brain: { value: "active", matches: () => false } as any,
+    sendToBrain: () => {},
+  }), [selectedCharacter])
+
+  const voiceContextValue = useMemo(() => ({
+    speak: () => {},
+    isSpeaking: voiceTelemetry.pipelineStatus === "speaking" || isVoiceReplyPending,
+    viseme: voiceTelemetry.currentViseme,
+    stop: () => {},
+    status: "connected" as const,
+    registerVisemeListener: (cb: (v: string) => void) => {
+      const handleViseme = (e: any) => cb(e.detail)
+      window.addEventListener("viseme", handleViseme)
+      return () => window.removeEventListener("viseme", handleViseme)
+    },
+    testSpeech: () => {},
+  }), [voiceTelemetry.pipelineStatus, isVoiceReplyPending])
+
+  const audioContextValue = useMemo(() => ({
+    isListening: wakewordTelemetry.wakewordScore > 0,
+    status: (wakewordTelemetry.wakewordScore > 0 ? "listening" : "idle") as any,
+    errorMessage: null,
+    permissionState: "granted" as const,
+    lastAction: null,
+    frequencyData: null,
+    volume: wakewordTelemetry.rms,
+    peakVolume: wakewordTelemetry.peak,
+    viseme: "closed",
+    isSpeaking: wakewordTelemetry.speechLevel > 0.5,
+    startListening: async () => {},
+    stopListening: () => {},
+    sensitivity: 0.5,
+    setSensitivity: () => {},
+    voiceIsolation: false,
+    setVoiceIsolation: () => {},
+    reflexesEnabled: true,
+    setReflexesEnabled: () => {},
+  }), [wakewordTelemetry])
   const themeCatalog = (availableThemes.length ? availableThemes : fallbackThemePresets).slice().sort((left, right) => {
     const order: Record<ThemePresetId, number> = {
       familiar: 0,
@@ -5895,11 +6044,11 @@ export default function App() {
       <div
         className={cn(
           "grid h-dvh overflow-hidden bg-[var(--panel)]",
-          isWorkspaceView ? "grid-cols-1" : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
+          isWorkspaceView || (characterDisplayMode === "fullscreen" && isCharacterVisible) ? "grid-cols-1" : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
         )}
         style={!isWorkspaceView ? { ["--sidebar-width" as string]: shellSidebarWidth } : undefined}
       >
-        {!isWorkspaceView ? (
+        {!isWorkspaceView && !(characterDisplayMode === "fullscreen" && isCharacterVisible) ? (
           <AppSidebar
             activeChatId={activeChatId}
             bootstrapAppName={bootstrap?.app_name || "LokiDoki"}
@@ -5991,7 +6140,10 @@ export default function App() {
             />
           ) : null}
 
-          <header className="relative flex h-16 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6">
+          <header className={cn(
+            "relative h-16 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6 z-20",
+            characterDisplayMode === "fullscreen" && isCharacterVisible ? "hidden" : "flex"
+          )}>
             <div className="flex items-center gap-3">
               <Button
                 className={cn("md:hidden", isWorkspaceView ? "hidden" : "")}
@@ -6069,6 +6221,26 @@ export default function App() {
                 </span>
               </button>
             </div>
+
+            {activeView === "assistant" ? (
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                <TabsList className="h-9">
+                  <TabsTrigger
+                    active={assistantTab === "chat"}
+                    onClick={() => setAssistantTab("chat")}
+                  >
+                    Chat
+                  </TabsTrigger>
+                  <TabsTrigger
+                    active={assistantTab === "talk"}
+                    onClick={() => setAssistantTab("talk")}
+                  >
+                    Talk
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+            ) : null}
+
             <div className="relative flex items-center gap-1 text-[var(--foreground)] sm:gap-2" onPointerDown={(event) => event.stopPropagation()}>
               {user?.is_admin && debugMode ? (
                 <Button
@@ -6270,27 +6442,201 @@ export default function App() {
           ) : null}
 
           {activeView === "assistant" ? (
-            <div
-              ref={messageViewportRef}
-              className="chat-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain"
-              onScroll={handleMessageScroll}
-            >
-              <ChatMessageList
-                assistantCharacter={selectedCharacter}
-                debugMode={debugMode}
-                debugNow={debugNow}
-                getMessageKey={speechMessageKey}
-                messages={messages}
-                onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
-                onRetrySmart={(assistantIndex) => void retryAssistantWithSmartModel(assistantIndex)}
-                onSuggestionSelect={setPrompt}
-                overviewRows={overviewRows}
-                pendingSpeechMessageKey={pendingSpeechMessageKey}
-                retryingAssistantIndex={retryingAssistantIndex}
-                speakingMessageKey={speakingMessageKey}
-                suggestions={suggestions}
-                userDisplayName={user?.display_name}
-              />
+            <div className="relative flex min-h-0 flex-1 overflow-hidden">
+              {/* Only show toolbar here if character is NOT in fullscreen mode (otherwise overlay handles it) */}
+              {characterDisplayMode !== "fullscreen" && (
+                <div className="pointer-events-auto absolute right-6 top-6 z-50 flex items-center gap-2">
+                  <div className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-xl shadow-strong transition-all duration-500 hover:gap-2">
+                    {/* Flyout Group */}
+                    <div className={cn(
+                      "flex items-center gap-1.5 overflow-hidden transition-all duration-300",
+                      isCharacterVisible ? "w-0 opacity-0 group-hover:w-auto group-hover:opacity-100" : "hidden"
+                    )}>
+                      {/* Body Mode */}
+                      <Button
+                        className={cn(
+                          "h-9 w-9 rounded-full transition-all",
+                          characterDisplayMode === "full" ? "bg-[var(--accent)] text-black font-bold shadow-[0_0_15px_rgba(var(--accent-rgb),0.5)]" : "text-white/60 hover:bg-white/10 hover:text-white"
+                        )}
+                        onClick={() => setCharacterDisplayMode("full")}
+                        size="icon"
+                        tooltip="Body Mode"
+                        variant="ghost"
+                      >
+                        <User className="h-5 w-5" />
+                      </Button>
+
+                      {/* Head Mode */}
+                      <Button
+                        className={cn(
+                          "h-9 w-9 rounded-full transition-all",
+                          characterDisplayMode === "head" ? "bg-[var(--accent)] text-black font-bold shadow-[0_0_15px_rgba(var(--accent-rgb),0.5)]" : "text-white/60 hover:bg-white/10 hover:text-white"
+                        )}
+                        onClick={() => setCharacterDisplayMode("head")}
+                        size="icon"
+                        tooltip="Head Mode"
+                        variant="ghost"
+                      >
+                        <Scan className="h-5 w-5" />
+                      </Button>
+
+                      {/* Fullscreen Mode */}
+                      <Button
+                        className={cn("h-9 w-9 rounded-full transition-all text-white/60 hover:bg-white/10 hover:text-white")}
+                        onClick={() => setCharacterDisplayMode("fullscreen")}
+                        size="icon"
+                        tooltip="Fullscreen Stage"
+                        variant="ghost"
+                      >
+                        <Maximize2 className="h-5 w-5" />
+                      </Button>
+
+                      {/* Hide/Exit Button */}
+                      <Button
+                        className="h-9 w-9 rounded-full text-white/50 hover:bg-rose-500/20 hover:text-rose-400 transition-all"
+                        onClick={(e) => { e.stopPropagation(); setIsCharacterVisible(false); }}
+                        size="icon"
+                        tooltip="Hide Character"
+                        variant="ghost"
+                      >
+                        <X className="h-5 w-5" />
+                      </Button>
+                      <div className="mx-1 h-4 w-px bg-white/20" />
+                    </div>
+
+                    {/* Trigger Icon */}
+                    <Button
+                      className={cn("h-9 w-9 rounded-full transition-all duration-300", isCharacterVisible ? "bg-white/5 text-white group-hover:bg-transparent" : "bg-[var(--accent)] text-black font-bold shadow-[0_0_20px_rgba(var(--accent-rgb),0.3)]")}
+                      onClick={() => !isCharacterVisible && setIsCharacterVisible(true)}
+                      size="icon"
+                      tooltip={isCharacterVisible ? "Stage Options (Hover)" : "Show Character"}
+                      variant="ghost"
+                    >
+                      {!isCharacterVisible ? <Eye className="h-5 w-5" /> : (characterDisplayMode === "full" ? <User className="h-5 w-5" /> : <Scan className="h-5 w-5" />)}
+                    </Button>
+
+                    <div className="h-4 w-px bg-white/20" />
+
+                    {/* Audio Toggle */}
+                    <Button
+                      className={cn("h-9 w-9 rounded-full transition-all duration-300", voiceReplyEnabled ? "text-[var(--accent)]" : "text-white/60 hover:bg-white/10 hover:text-white")}
+                      onClick={() => setVoiceReplyEnabled((prev) => !prev)}
+                      size="icon"
+                      tooltip={voiceReplyEnabled ? "Mute Output" : "Unmute Output"}
+                      variant="ghost"
+                    >
+                      {voiceReplyEnabled ? <Ear className="h-5 w-5" /> : <EarOff className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div
+                className={cn(
+                  "flex min-h-0 flex-1 flex-col overflow-hidden transition-all duration-500",
+                  characterDisplayMode === "fullscreen" && isCharacterVisible ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 translate-y-0"
+                )}
+              >
+                {assistantTab === "chat" ? (
+                  <>
+                    <div
+                      ref={messageViewportRef}
+                      className="chat-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                      onScroll={handleMessageScroll}
+                    >
+                      <ChatMessageList
+                        assistantCharacter={selectedCharacter}
+                        debugMode={debugMode}
+                        debugNow={debugNow}
+                        getMessageKey={speechMessageKey}
+                        messages={messages}
+                        onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
+                        onRetrySmart={(assistantIndex) => void retryAssistantWithSmartModel(assistantIndex)}
+                        onSuggestionSelect={setPrompt}
+                        overviewRows={overviewRows}
+                        pendingSpeechMessageKey={pendingSpeechMessageKey}
+                        retryingAssistantIndex={retryingAssistantIndex}
+                        speakingMessageKey={speakingMessageKey}
+                        suggestions={suggestions}
+                        userDisplayName={user?.display_name}
+                      />
+                    </div>
+                    <JumpToLatest onClick={jumpToLatest} visible={!isPinnedToBottom && messages.length > 0} />
+                    <ChatComposer
+                      chatError={chatError}
+                      characterSyncLabel={characterStatus || `Compiling ${pendingCharacterName || "character"}...`}
+                      characterName={selectedCharacter?.name || bootstrap?.app_name || "LokiDoki"}
+                      documentInputRef={documentInputRef}
+                      imageInputRef={imageInputRef}
+                      isAttachmentMenuOpen={isAttachmentMenuOpen}
+                      isCharacterSyncPending={isCharacterSyncPending}
+                      isSubmitting={isSubmitting}
+                      isVoiceListening={isVoiceListening}
+                      isVoiceReplyPending={isVoiceReplyPending}
+                      isWakewordMonitoring={isWakewordMonitoring}
+                      onDocumentSelected={(event) => void handleDocumentSelection(event)}
+                      onCloseAttachmentMenu={() => setIsAttachmentMenuOpen(false)}
+                      onImageSelected={(event) => void handleImageSelection(event)}
+                      onPromptChange={(event) => setPrompt(event.target.value)}
+                      onPromptKeyDown={handlePromptKeyDown}
+                      onRemoveDocument={() => setSelectedDocument(null)}
+                      onRemoveImage={() => setSelectedImage(null)}
+                      onRemoveVideo={() => setSelectedVideo(null)}
+                      recordingStream={recordingStream}
+                      onSubmit={submitChat}
+                      onToggleAttachmentMenu={() => setIsAttachmentMenuOpen((current) => !current)}
+                      onTogglePushToTalk={togglePushToTalk}
+                      onVideoSelected={(event) => void handleVideoSelection(event)}
+                      performanceProfileId={performanceProfileId}
+                      onSelectProfile={setPerformanceProfileId}
+                      prompt={prompt}
+                      selectedDocument={selectedDocument}
+                      selectedImage={selectedImage}
+                      selectedPiperVoiceLabel={selectedPiperVoice?.label || "piper"}
+                      selectedVideo={selectedVideo}
+                      userReady={Boolean(user)}
+                      videoInputRef={videoInputRef}
+                      voiceReplyEnabled={voiceReplyEnabled}
+                      voiceSource={voiceSource}
+                      voiceStatus={voiceStatus}
+                      wakewordEnabled={wakewordEnabled}
+                      wakewordScore={wakewordTelemetry.wakewordScore}
+                      wakewordSignalLevel={Math.max(wakewordTelemetry.peak, wakewordTelemetry.rms * 2.5)}
+                      wakewordSpeechLevel={wakewordTelemetry.speechLevel}
+                    />
+                  </>
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+                    <div className="max-w-md space-y-4">
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                        <Mic className="h-8 w-8" />
+                      </div>
+                      <h2 className="text-xl font-semibold text-[var(--foreground)]">Talk Tab Coming Soon</h2>
+                      <p className="text-[var(--muted-foreground)]">
+                        A hands-free, voice-first experience is being prepared for this space.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {isCharacterVisible && selectedCharacter && characterDisplayMode !== "fullscreen" && (
+                <aside className="relative flex w-[360px] border-l xl:w-[420px] bg-[var(--panel-strong)]/20 animate-in slide-in-from-right-4 transition-all duration-500">
+                  <div className="flex h-full w-full flex-1 flex-col overflow-hidden p-6 pt-16">
+                    <CharacterContext.Provider value={characterContextValue}>
+                      <VoiceContext.Provider value={voiceContextValue}>
+                        <AudioContext.Provider value={audioContextValue}>
+                          <AnimatedCharacter
+                            stageScale={characterDisplayMode === "head" ? 1.2 : 1.0}
+                            viewPreset={characterDisplayMode}
+                          />
+                        </AudioContext.Provider>
+                      </VoiceContext.Provider>
+                    </CharacterContext.Provider>
+                  </div>
+                </aside>
+              )}
+
             </div>
           ) : activeView === "settings" ? (
             <div className="workspace-shell min-h-0 flex-1 overflow-hidden" ref={rightPaneScrollRef}>
@@ -7995,9 +8341,6 @@ export default function App() {
                                           {draft?.default_voice ? (
                                             <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">Voice: {draft.default_voice}</div>
                                           ) : null}
-                                          <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">
-                                            Reply mode: {characterResponseStyleLabel(draft?.preferred_response_style || character.preferred_response_style)}
-                                          </div>
                                           {draft?.wakeword_model_id ? (
                                             <div className="rounded-full border border-white/8 bg-black/20 px-3 py-1 text-xs text-zinc-300">Wakeword: {draft.wakeword_model_id}</div>
                                           ) : null}
@@ -8009,30 +8352,6 @@ export default function App() {
                                     </div>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                                    {character.installed ? (
-                                      <div className="flex items-center gap-2 rounded-full border border-white/8 bg-black/20 px-3 py-1.5">
-                                        <span className="text-[11px] uppercase tracking-[0.12em] text-zinc-500">Reply mode</span>
-                                        <Select
-                                          className="h-8 min-w-[8.5rem] border-white/10 bg-zinc-950/80 text-xs"
-                                          onChange={(event) => updateCharacterDraft(character.id, { preferred_response_style: event.target.value })}
-                                          value={draft?.preferred_response_style || character.preferred_response_style || "balanced"}
-                                        >
-                                          {CHARACTER_RESPONSE_STYLE_OPTIONS.map((option) => (
-                                            <option key={option.value} value={option.value}>
-                                              {option.label}
-                                            </option>
-                                          ))}
-                                        </Select>
-                                        <Button
-                                          className="h-8 rounded-full px-3 text-xs"
-                                          onClick={() => void persistAdminCharacterDraft(character.id)}
-                                          type="button"
-                                          variant="outline"
-                                        >
-                                          Save
-                                        </Button>
-                                      </div>
-                                    ) : null}
                                     <Button className="h-8 rounded-full px-3 text-xs" onClick={() => openCharacterEditor(character.id)} type="button">
                                       <Sparkles className="mr-2 h-3.5 w-3.5" />
                                       Open Editor
@@ -8951,56 +9270,99 @@ export default function App() {
                 </div>
             </div>
           ) : null}
-
-          {activeView === "assistant" ? (
-            <>
-              <JumpToLatest onClick={jumpToLatest} visible={!isPinnedToBottom && messages.length > 0} />
-              <ChatComposer
-                chatError={chatError}
-                characterSyncLabel={characterStatus || `Compiling ${pendingCharacterName || "character"}...`}
-                characterName={selectedCharacter?.name || bootstrap?.app_name || "LokiDoki"}
-                documentInputRef={documentInputRef}
-                imageInputRef={imageInputRef}
-                isAttachmentMenuOpen={isAttachmentMenuOpen}
-                isCharacterSyncPending={isCharacterSyncPending}
-                isSubmitting={isSubmitting}
-                isVoiceListening={isVoiceListening}
-                isVoiceReplyPending={isVoiceReplyPending}
-                isWakewordMonitoring={isWakewordMonitoring}
-                onDocumentSelected={(event) => void handleDocumentSelection(event)}
-                onCloseAttachmentMenu={() => setIsAttachmentMenuOpen(false)}
-                onImageSelected={(event) => void handleImageSelection(event)}
-                onPromptChange={(event) => setPrompt(event.target.value)}
-                onPromptKeyDown={handlePromptKeyDown}
-                onRemoveDocument={() => setSelectedDocument(null)}
-                onRemoveImage={() => setSelectedImage(null)}
-                onRemoveVideo={() => setSelectedVideo(null)}
-                recordingStream={recordingStream}
-                onSubmit={submitChat}
-                onToggleAttachmentMenu={() => setIsAttachmentMenuOpen((current) => !current)}
-                onTogglePushToTalk={togglePushToTalk}
-                onVideoSelected={(event) => void handleVideoSelection(event)}
-                performanceProfileId={performanceProfileId}
-                onSelectProfile={setPerformanceProfileId}
-                prompt={prompt}
-                selectedDocument={selectedDocument}
-                selectedImage={selectedImage}
-                selectedPiperVoiceLabel={selectedPiperVoice?.label || "piper"}
-                selectedVideo={selectedVideo}
-                userReady={Boolean(user)}
-                videoInputRef={videoInputRef}
-                voiceReplyEnabled={voiceReplyEnabled}
-                voiceSource={voiceSource}
-                voiceStatus={voiceStatus}
-                wakewordEnabled={wakewordEnabled}
-                wakewordScore={wakewordTelemetry.wakewordScore}
-                wakewordSignalLevel={Math.max(wakewordTelemetry.peak, wakewordTelemetry.rms * 2.5)}
-                wakewordSpeechLevel={wakewordTelemetry.speechLevel}
-              />
-            </>
-          ) : null}
         </main>
       </div>
+
+      {/* Global Cinematic Fullscreen Stage (Independent High-Z Layer) */}
+      {isCharacterVisible && selectedCharacter && characterDisplayMode === "fullscreen" && (
+        <div className="fixed inset-0 z-[150] flex h-dvh w-dvw flex-col overflow-hidden bg-black animate-in fade-in duration-500">
+          <div className="pointer-events-auto absolute right-6 top-6 z-[160] flex items-center gap-2">
+            <div className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-xl shadow-strong transition-all duration-500 hover:gap-2">
+              <div className="flex items-center gap-1.5 overflow-hidden transition-all duration-300 w-0 opacity-0 group-hover:w-auto group-hover:opacity-100">
+                <Button
+                  className={cn("h-9 w-9 rounded-full transition-all bg-[var(--accent)] text-black font-bold")}
+                  onClick={() => setCharacterDisplayMode("full")}
+                  size="icon" tooltip="Body Mode" variant="ghost"
+                >
+                  <User className="h-5 w-5" />
+                </Button>
+                <Button
+                  className={cn("h-9 w-9 rounded-full transition-all text-white/60 hover:bg-white/10 hover:text-white")}
+                  onClick={() => setCharacterDisplayMode("head")}
+                  size="icon" tooltip="Head Mode" variant="ghost"
+                >
+                  <Scan className="h-5 w-5" />
+                </Button>
+                <Button
+                  className="h-9 w-9 rounded-full text-white/50 hover:bg-rose-500/20 hover:text-rose-400 transition-all font-bold"
+                  onClick={() => { setIsCharacterVisible(false); if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); }}
+                  size="icon" tooltip="Exit Stage" variant="ghost"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+                <div className="mx-1 h-4 w-px bg-white/20" />
+              </div>
+              <Button
+                className="h-9 w-9 rounded-full bg-[var(--accent)] text-black font-bold shadow-strong transition-all"
+                onClick={() => setCharacterDisplayMode("head")}
+                size="icon" tooltip="Exit Fullscreen" variant="ghost"
+              >
+                <Minimize2 className="h-5 w-5" />
+              </Button>
+              <div className="h-4 w-px bg-white/20" />
+              <Button
+                className={cn("h-9 w-9 rounded-full transition-all", voiceReplyEnabled ? "text-[var(--accent)]" : "text-white/60 hover:bg-white/10 hover:text-white")}
+                onClick={() => setVoiceReplyEnabled((prev) => !prev)}
+                size="icon" tooltip={voiceReplyEnabled ? "Mute" : "Unmute"} variant="ghost"
+              >
+                {voiceReplyEnabled ? <Ear className="h-5 w-5" /> : <EarOff className="h-5 w-5" />}
+              </Button>
+              <Button
+                className={cn("h-9 w-9 rounded-full transition-all", subtitlesEnabled ? "bg-[var(--accent)] text-black font-bold" : "text-white/60 hover:bg-white/10 hover:text-white")}
+                onClick={() => setSubtitlesEnabled((prev) => !prev)}
+                size="icon" tooltip="Subtitles" variant="ghost"
+              >
+                <MessageSquare className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex h-full w-full flex-1 flex-col overflow-hidden items-center justify-center">
+            <CharacterContext.Provider value={characterContextValue}>
+              <VoiceContext.Provider value={voiceContextValue}>
+                <AudioContext.Provider value={audioContextValue}>
+                  <AnimatedCharacter stageScale={2.5} viewPreset="full" />
+                </AudioContext.Provider>
+              </VoiceContext.Provider>
+            </CharacterContext.Provider>
+          </div>
+
+          {subtitlesEnabled && (
+            <div className="pointer-events-none absolute inset-0 z-[155] flex flex-col items-center justify-end px-12 pb-16">
+              <div className="relative flex w-full max-w-4xl flex-col items-center">
+                <div className="absolute -bottom-12 left-1/2 h-32 w-64 -translate-x-1/2 rounded-full bg-[var(--accent)]/30 blur-[60px]" />
+                <div className="w-full rounded-[40px] border border-white/10 bg-black/40 px-12 py-10 text-center backdrop-blur-2xl shadow-strong">
+                  {messages.slice(-1).map((msg, idx) => {
+                    const msgKey = speechMessageKey(msg, Math.max(0, messages.length - 1))
+                    return (
+                      <div key={idx} className="flex flex-col items-center gap-2">
+                        <span className="mb-2 text-[10px] font-black uppercase tracking-[0.4em] text-white/40">{msg.role === "user" ? "You" : selectedCharacter?.name}</span>
+                        <div className="flex flex-wrap justify-center text-2xl font-medium tracking-tight text-white/90 lg:text-3xl">
+                          {msg.content.split(" ").map((word, wIdx) => (
+                            <span key={wIdx} className={cn("mr-2 transition-all duration-300", msgKey === speakingMessageKey && wIdx === speakingWordIndex ? "scale-105 font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" : "opacity-60")}>
+                              {word}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

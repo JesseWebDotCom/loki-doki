@@ -157,7 +157,7 @@ def resolve_response_style_policy(
             _style_weight(scores, factors, "care_profile", care_style, 0.34, getattr(rendering_context, "care_profile_id", "profile"))
         character_style = str(getattr(rendering_context, "character_preferred_response_style", "") or "").strip()
         if character_style in scores:
-            _style_weight(scores, factors, "character_preference", character_style, 0.38, getattr(rendering_context, "active_character_id", "character"))
+            _style_weight(scores, factors, "character_preference", character_style, 0.65, getattr(rendering_context, "active_character_id", "character"))
         sentence_length = str(getattr(rendering_context, "care_profile_sentence_length", "") or "").strip().lower()
         if sentence_length == "short":
             _style_weight(scores, factors, "care_profile_sentence_length", "balanced", 0.18, sentence_length)

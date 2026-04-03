@@ -6,6 +6,7 @@ type SpeechCallbacks = {
   onStart?: () => void
   onEnd?: () => void
   onError?: (message: string) => void
+  onWord?: (index: number, word: string) => void
 }
 
 type SpeechRecognitionEventLike = Event & {
@@ -159,6 +160,13 @@ export function speakText(text: string, voiceURI?: string, callbacks?: SpeechCal
   utterance.onstart = () => callbacks?.onStart?.()
   utterance.onend = () => callbacks?.onEnd?.()
   utterance.onerror = (event) => callbacks?.onError?.(event.error || "Browser voice playback failed.")
+  utterance.onboundary = (event) => {
+    if (event.name === "word") {
+      const textBefore = prepared.substring(0, event.charIndex)
+      const wordsBefore = textBefore.trim() ? textBefore.trim().split(/\s+/) : []
+      callbacks?.onWord?.(wordsBefore.length, "")
+    }
+  }
   window.speechSynthesis.speak(utterance)
 }
 

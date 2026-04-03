@@ -16,7 +16,7 @@ const MAX_AVATAR_CACHE_SIZE = 48;
  * AnimatedCharacter — The SVG Puppeteer Renderer (Phase 3.3)
  * Standardized rig that bridges Canonical States to Style-Specific DiceBear assets.
  */
-const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head'; stageScale?: number }> = memo(({ viewPreset = 'full', stageScale = 1.0 }) => {
+const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head' | 'fullscreen'; stageScale?: number }> = memo(({ viewPreset = 'full', stageScale = 1.0 }) => {
   const { options, brain, sendToBrain } = useCharacter();
   const { isSpeaking: isMicSpeaking, viseme: audioViseme, isListening } = useAudio();
   const { isSpeaking: isVoiceSpeaking, registerVisemeListener } = useVoice();
@@ -175,6 +175,8 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head'; stageScale?: n
       rotate: options.rotate,
       radius: options.radius,
       scale: 100,
+      backgroundColor: ["transparent"],
+      backgroundType: [],
       ...faceProps,
     };
 
@@ -214,15 +216,20 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head'; stageScale?: n
             bodyContent = content.substring(0, headStartIdx);
             headContent = content.substring(headStartIdx);
          } else {
-            const core = content
+            let cleanedCore = content.trim()
                .replace(/<g [^>]*mask="url\(#viewboxMask\)"[^>]*>/i, '')
                .replace(/<g [^>]*transform="translate\(8\)"[^>]*>/i, '')
                .replace(/<\/g>\s*<\/g>\s*$/i, '');
                
+            // Aggressively strip background shape if it's at the very start of the core content
+            cleanedCore = cleanedCore.replace(/^(<rect|<circle|<path)[^>]*fill="[^"]*"[^>]*\/>/i, '');
+            // Some versions use separate opening/closing tags
+            cleanedCore = cleanedCore.replace(/^(<rect|<circle|<path)[^>]*fill="[^"]*"[^>]*><\/\1>/i, '');
+
             if (options.style === 'avataaars') {
-               return `<svg${before}viewBox="${vb}"${after} id="ld-character-svg"><g id="ld-body"></g><g id="ld-head">${core}</g></svg>`;
+               return `<svg${before}viewBox="${vb}"${after} width="100%" height="100%" id="ld-character-svg"><g id="ld-body"></g><g id="ld-head">${cleanedCore}</g></svg>`;
             } else {
-               const parts = core.split('</g>');
+               const parts = cleanedCore.split('</g>');
                if (parts.length > 2) {
                   bodyContent = parts[0] + '</g>';
                   headContent = parts.slice(1).join('</g>');
@@ -230,7 +237,7 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head'; stageScale?: n
             }
          }
          
-         return `<svg${before}viewBox="${vb}"${after} id="ld-character-svg"><g id="ld-body">${bodyContent}</g><g id="ld-head">${headContent}</g></svg>`;
+         return `<svg${before}viewBox="${vb}"${after} width="100%" height="100%" id="ld-character-svg"><g id="ld-body">${bodyContent}</g><g id="ld-head">${headContent}</g></svg>`;
       });
       
       if (avatarSvgCache.size >= MAX_AVATAR_CACHE_SIZE) {
@@ -442,7 +449,7 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head'; stageScale?: n
       >
         <div 
           className={`flex items-center justify-center transition-all duration-[1000ms] overflow-hidden relative
-             ${viewPreset === 'head' ? 'w-[200px] h-[200px] rounded-full border-[6px] border-slate-700/50 bg-slate-800 shadow-glow' : 'h-full w-full min-w-[320px] min-h-[320px] p-10'}
+             ${viewPreset === 'head' ? 'w-[200px] h-[200px] rounded-full border-[6px] border-slate-700/50 shadow-xl' : 'h-full w-full min-w-[320px] min-h-[320px] p-10'}
           `}
         >
           <div 

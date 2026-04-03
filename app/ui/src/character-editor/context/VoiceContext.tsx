@@ -15,7 +15,7 @@ interface VoiceContextType {
   testSpeech: () => void;
 }
 
-const VoiceContext = createContext<VoiceContextType | undefined>(undefined);
+export const VoiceContext = createContext<VoiceContextType | undefined>(undefined);
 
 export const VoiceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isSpeaking, setIsSpeaking] = useState(false);

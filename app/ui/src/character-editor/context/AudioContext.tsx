@@ -22,7 +22,7 @@ interface AudioContextType {
   setReflexesEnabled: (v: boolean) => void;
 }
 
-const AudioContext = createContext<AudioContextType | undefined>(undefined);
+export const AudioContext = createContext<AudioContextType | undefined>(undefined);
 const AUDIO_ENGINE_AUTOSTART_KEY = "loki_audio_engine_autostart";
 
 /**
