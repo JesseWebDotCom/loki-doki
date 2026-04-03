@@ -168,7 +168,10 @@ class BootstrapHandler(BaseHTTPRequestHandler):
                 request, timeout=proxy_timeout_for_path(self.path)
             ) as response:
                 self.send_response(response.status)
+                content_type = ""
                 for key, value in response.getheaders():
+                    if key.lower() == "content-type":
+                        content_type = value
                     if key.lower() not in {
                         "transfer-encoding",
                         "connection",
@@ -177,7 +180,16 @@ class BootstrapHandler(BaseHTTPRequestHandler):
                     }:
                         self.send_header(key, value)
                 self.end_headers()
-                self.wfile.write(response.read())
+                
+                # Stream the response back in chunks
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    # Flush for event streams to ensure real-time delivery
+                    if "text/event-stream" in content_type:
+                        self.wfile.flush()
         except urllib.error.HTTPError as exc:
             self.send_response(exc.code)
             for key, value in exc.headers.items():

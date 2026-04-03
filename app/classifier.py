@@ -17,25 +17,11 @@ COMPLEX_KEYWORDS = {
     "architecture",
 }
 WEB_KEYWORDS = {
-    "age",
-    "born",
-    "current",
-    "events",
-    "latest",
-    "movies",
-    "news",
-    "president",
-    "old",
-    "playing",
-    "search",
-    "showtimes",
-    "theater",
-    "theatre",
-    "tonight",
-    "today",
-    "weather",
+    "search", "google", "find", "look up", "news", "current",
+    "today", "tonight", "tomorrow", "weather", "forecast", "temperature",
+    "stock", "price", "market", "latest", "news", "near me", "nearby"
 }
-TOOL_KEYWORDS = {"calendar", "open", "settings", "system", "timer"}
+TOOL_KEYWORDS = {"calendar", "open", "settings", "system", "timer", "wikipedia"}
 ROUTER_VOCABULARY = COMPLEX_KEYWORDS | WEB_KEYWORDS | TOOL_KEYWORDS
 FUZZY_MIN_LENGTH = 5
 FUZZY_CUTOFF = 0.84
@@ -115,26 +101,7 @@ def _is_web_query(cleaned: str, words: set[str]) -> bool:
         return True
     if _is_office_holder_query(cleaned):
         return True
-    return bool(words & WEB_KEYWORDS) and any(
-        keyword in words
-        for keyword in (
-            "age",
-            "born",
-            "current",
-            "latest",
-            "movies",
-            "news",
-            "old",
-            "playing",
-            "president",
-            "showtimes",
-            "theater",
-            "theatre",
-            "today",
-            "tonight",
-            "weather",
-        )
-    )
+    return bool(words & WEB_KEYWORDS)
 
 
 def _normalized_words(cleaned: str) -> set[str]:
@@ -186,12 +153,19 @@ def _has_lookup_prefix(cleaned: str) -> bool:
             "what was ",
             "which ",
             "does ",
+            "did ",
+            "do ",
+            "can ",
             "is there ",
             "are there ",
             "has ",
             "have ",
             "where can i ",
             "i need ",
+            "do you know who ",
+            "do you know what ",
+            "know anything about ",
+            "tell me about ",
         )
     )
 

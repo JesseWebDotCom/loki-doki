@@ -37,21 +37,45 @@ class WikipediaSkill(BaseSkill):
         return await self._lookup_article(query, action=action)
 
     async def _lookup_article(self, query: str, *, action: str) -> dict[str, Any]:
-        formatted_query = query.replace(" ", "_")
-        summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{formatted_query}"
+        # Try original, then title case
+        attempts = [query, query.title()] if not any(c.isupper() for c in query) else [query]
+        
+        headers = {"User-Agent": "LokiDoki/1.0 (info@lokidoki.app)"}
+        payload = None
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=8.0) as client:
+            for attempt in attempts:
+                formatted_query = attempt.replace(" ", "_")
+                summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{formatted_query}"
+                try:
+                    response = await client.get(summary_url)
+                    if response.status_code == 200:
+                        payload = response.json()
+                        if payload.get("type") != "disambiguation":
+                            break
+                except httpx.RequestError:
+                    continue
+            
+            if not payload:
+                # Final attempt: use search API to find the real title
+                search_url = "https://en.wikipedia.org/w/api.php"
+                params = {"action": "query", "list": "search", "srsearch": query, "format": "json", "srlimit": 1}
+                try:
+                    search_response = await client.get(search_url, params=params)
+                    search_data = search_response.json()
+                    results = search_data.get("query", {}).get("search", [])
+                    if results:
+                        real_title = results[0]["title"]
+                        summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{real_title.replace(' ', '_')}"
+                        summary_response = await client.get(summary_url)
+                        if summary_response.status_code == 200:
+                            payload = summary_response.json()
+                except Exception:
+                    pass
+
+        if not payload or payload.get("type") == "disambiguation":
+            return self._failure(query, action, f"Could not find a specific Wikipedia article for '{query}'.")
+
         async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
-            try:
-                response = await client.get(summary_url)
-            except httpx.RequestError as exc:
-                return self._failure(query, action, f"Wikipedia request failed: {exc}")
-
-            if response.status_code != 200:
-                return self._failure(query, action, f"Could not find a specific Wikipedia article for '{query}'.")
-
-            payload = response.json()
-            if payload.get("type") == "disambiguation":
-                return self._failure(query, action, f"Could not find a specific Wikipedia article for '{query}'.")
-
             page_url = str(payload.get("content_urls", {}).get("desktop", {}).get("page", "")).strip()
             infobox = await self._fetch_infobox(client, page_url) if page_url else {}
             clean_data = {

@@ -327,32 +327,47 @@ class SkillService:
         message: str,
         *,
         turn_id: str = "",
+        history: Optional[list[dict[str, str]]] = None,
     ) -> Optional[dict[str, Any]]:
         """Route a message through the skill runtime when applicable."""
         self.initialize(conn, config)
         runtime_context = build_skill_context(conn, current_user, profile)
         installed = self._registry(config).list_installed(conn)
-        route = self._router.route(message, installed, runtime_context)
+        route = self._router.route(message, installed, runtime_context, history=history)
         if route.outcome == "no_skill":
             return None
         if route.outcome == "clarify":
             reply, card = clarification_reply(route.reason)
+            res_meta = {
+                "request_type": "skill_clarification",
+                "route": "skill_router_clarify",
+                "reason": route.reason,
+                "turn_id": turn_id,
+                "voice_summary": reply,
+                "skill_id": "none",
+                "action": "none",
+            }
             return {
                 "message": {
                     "role": "assistant",
                     "content": reply,
                     "meta": {
-                        "request_type": "skill_clarification",
-                        "route": "skill_router_clarify",
-                        "reason": route.reason,
-                        "turn_id": turn_id,
-                        "voice_summary": reply,
+                        **res_meta,
                         "card": card,
-                        "skill_id": "none",
-                        "action": "none",
+                        "skill_result": {},
                     },
                 },
                 "route": route.to_dict(),
+                "result": {
+                    "ok": False,
+                    "skill_id": "none",
+                    "action": "none",
+                    "route": route.to_dict(),
+                    "result": {},
+                    "reply": reply,
+                    "card": card,
+                    "meta": res_meta,
+                },
             }
         if route.candidate is None:
             raise SkillExecutionError("Skill router returned a skill call without a candidate.")
@@ -480,12 +495,13 @@ class SkillService:
         current_user: dict[str, Any],
         profile: str,
         message: str,
+        history: Optional[list[dict[str, str]]] = None,
     ) -> dict[str, Any]:
         """Return routing analysis for one request without executing it."""
         self.initialize(conn, config)
         runtime_context = build_skill_context(conn, current_user, profile)
         records = self._registry(config).list_installed(conn)
-        return self._router.route(message, records, runtime_context).to_dict()
+        return self._router.route(message, records, runtime_context, history=history).to_dict()
 
     def test_route(
         self,

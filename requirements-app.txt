@@ -2,7 +2,7 @@ accelerate==1.4.0
 beautifulsoup4==4.13.4
 diffusers==0.32.2
 fastapi==0.116.1
-ddgs==9.6.1
+duckduckgo-search==6.3.7
 faster-whisper==1.2.1
 huggingface_hub==0.29.1
 numpy==2.0.2; python_version < "3.11"

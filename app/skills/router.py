@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+import json
+from typing import Any, Optional
 
 from app.skills.types import InstalledSkillRecord, RouteCandidate, RouteDecision
 from app.skills.manifest import validate_manifest
 
-MIN_ROUTE_SCORE = 3.4
+MIN_ROUTE_SCORE = 3.0
 MIN_SKILL_CALL_SCORE = 1.5
 MIN_COMMAND_ROUTE_SCORE = 2.4
 CLARIFY_MARGIN = 0.75
@@ -21,6 +22,9 @@ QUESTION_PREFIXES = (
     "who was ",
     "what is ",
     "what are ",
+    "tell me who ",
+    "tell me what ",
+    "tell me about ",
     "which ",
     "did ",
     "does ",
@@ -82,14 +86,59 @@ class SkillRouter:
         message: str,
         installed_skills: list[InstalledSkillRecord],
         runtime_context: dict[str, Any],
+        *,
+        history: Optional[list[dict[str, str]]] = None,
     ) -> RouteDecision:
         """Return the deterministic route for one user message."""
         cleaned = " ".join(message.lower().strip().split())
         if not cleaned:
             return RouteDecision(outcome="no_skill", reason="Empty request.")
-        candidates = self._score_candidates(cleaned, installed_skills, runtime_context)
+
+        # Contextual boost: Bias towards recently used skills if pronouns are present
+        pronouns = {"his", "her", "they", "their", "them", "him", "she", "he"}
+        has_pronoun = any(f" {p} " in f" {cleaned} " for p in pronouns)
+        last_skill_id = None
+        last_subject = ""
+        
+        if history:
+            # Look back for the last skill execution in history meta
+            for msg in reversed(history):
+                meta = msg.get("meta") or {}
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except Exception:
+                        meta = {}
+                
+                if meta.get("skill_id") and meta.get("skill_id") != "none":
+                    last_skill_id = meta["skill_id"]
+                    # Try to find a subject name (e.g. from Wikipedia title or movie title)
+                    last_subject = str(meta.get("skill_result", {}).get("data", {}).get("title") or "").strip()
+                    break
+
+        # If pronouns are present and we have a last subject, try a hidden resolution for scoring
+        scoring_message = cleaned
+        if has_pronoun and last_subject:
+            for p in pronouns:
+                scoring_message = scoring_message.replace(f" {p} ", f" {last_subject} ")
+                if scoring_message.startswith(f"{p} "):
+                    scoring_message = scoring_message.replace(f"{p} ", f"{last_subject} ", 1)
+
+        candidates = self._score_candidates(scoring_message, installed_skills, runtime_context)
         if not candidates:
             return RouteDecision(outcome="no_skill", reason="No enabled skill matched this request.")
+
+        # Boost candidates that match the last used skill if pronouns are used
+        if last_skill_id:
+            for c in candidates:
+                if c.skill_id == last_skill_id:
+                    c.score *= 1.5 # Significant boost for continuing context
+                elif last_skill_id in ("wikipedia", "web_search") and c.skill_id == "movies":
+                    # People lookups often follow into movies
+                    c.score *= 1.2
+            # Re-sort after boosting
+            candidates.sort(key=lambda item: item.score, reverse=True)
+
         # Force tv_shows skill for queries containing 'show' or 'tv show' if installed
         if ("show" in cleaned or "tv show" in cleaned):
             for c in candidates:
@@ -149,7 +198,7 @@ class SkillRouter:
             for action_name, action in definition.actions.items():
                 if not action.enabled:
                     continue
-                extracted = _extract_entities(cleaned, action.required_entities + action.optional_entities)
+                extracted = _extract_entities(cleaned, definition.skill_id, action)
                 score, reasons = _score_action(cleaned, words, definition.skill_id, action_name, action, candidate_context, extracted)
                 scored.append(
                     RouteCandidate(
@@ -252,27 +301,42 @@ def _is_command_action(action) -> bool:
     return bool((phrase_words | keyword_words) & trigger_words)
 
 
-def _extract_entities(cleaned: str, entity_names: tuple[str, ...]) -> dict[str, Any]:
-    """Extract a light set of known entities from a request."""
+def _extract_entities(cleaned: str, skill_id: str, action: SkillActionDefinition) -> dict[str, Any]:
+    """Extract entities dynamically based on the action manifest and skill ID."""
+    entity_names = action.required_entities + action.optional_entities
     extracted: dict[str, Any] = {}
+    
+    # Generic prefix stripping based on the skill's activator phrases, ID, and Title
+    signal = cleaned
+    prefixes = list(action.phrases)
+    # Also strip the skill's own identity if it appears at the start (e.g. "wikipedia mr t")
+    prefixes.append(skill_id)
+    
+    for phrase in prefixes:
+        p = phrase.lower().strip()
+        if not p:
+            continue
+        if cleaned.startswith(p):
+            # Strip the matching phrase plus common connectors like "for" or "on"
+            candidate = cleaned[len(p):].strip()
+            for connector in ("for ", "on ", "about "):
+                if candidate.startswith(connector):
+                    candidate = candidate[len(connector):].strip()
+            
+            if len(candidate) < len(signal):
+                signal = candidate
+                
     if "query" in entity_names:
-        extracted["query"] = _extract_query(cleaned)
+        extracted["query"] = signal.strip(" ?!.,:;").strip()
     if "num_results" in entity_names:
         extracted["num_results"] = 5
     if "location" in entity_names:
-        extracted["location"] = _extract_location(cleaned)
+        extracted["location"] = _extract_location(signal)
     if "date" in entity_names:
-        extracted["date"] = _extract_date(cleaned)
+        extracted["date"] = _extract_date(signal)
     return extracted
 
 
-def _extract_query(cleaned: str) -> str:
-    """Extract a search-style query from the request."""
-    prefixes = ("search for ", "look up ", "find ", "google ", "search the web for ")
-    for prefix in prefixes:
-        if cleaned.startswith(prefix):
-            return cleaned[len(prefix) :].strip()
-    return cleaned
 
 
 def _extract_location(cleaned: str) -> str:
@@ -370,10 +434,10 @@ def _domain_lookup_score(skill_id: str, action_name: str, cleaned: str, words: s
     """Return extra score for domain-specific factual lookups."""
     identity_lookup = cleaned.startswith(IDENTITY_LOOKUP_PREFIXES)
     if skill_id == "wikipedia" and action_name == "lookup_article":
-        if identity_lookup:
-            return 3.8
+        if identity_lookup or any(cleaned.startswith(p) for p in ("tell me about ", "tell me who ", "tell me what ")):
+            return 4.2
         if "wikipedia" in words or "wiki" in words:
-            return 2.2
+            return 4.5
         return 0.0
     if skill_id == "tv_shows":
         if action_name == "get_show_cast" and cleaned.startswith(("cast of ", "who was in ", "who starred in ", "who was on ")):

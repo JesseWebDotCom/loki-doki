@@ -30,6 +30,8 @@ from app.api.chat_helpers import (
     chat_state_payload,
     resolve_response_style_policy,
 )
+from app.skills.service import skill_service, SkillService
+
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 compat_router = APIRouter(prefix="/chat", tags=["chat-compat"])
@@ -138,6 +140,9 @@ def chat_message_stream_api(
 ) -> StreamingResponse:
     """Stream one assistant reply turn."""
     connection_factory = connection_scope
+    skill_route = None
+    skill_message = None
+    turn_id = uuid4().hex
     with connection_scope() as connection:
         context = runtime_context(connection, APP_CONFIG)
         chat = chat_store.resolve_chat(connection, current_user["id"], payload.chat_id)
@@ -165,11 +170,30 @@ def chat_message_stream_api(
         chat_store.append_chat_message(connection, current_user["id"], str(chat["id"]), user_message)
         history = chat_store.load_chat_history(connection, current_user["id"], str(chat["id"]))
 
-    turn_id = uuid4().hex
+        # Skill routing must happen while the connection is still open
+        skill_route = skill_service.inspect_route(
+            connection,
+            APP_CONFIG,
+            current_user,
+            context["settings"]["profile"],
+            payload.message.strip(),
+            history=history,
+        )
+        skill_message = skill_service.route_and_execute(
+            connection,
+            APP_CONFIG,
+            current_user,
+            context["settings"]["profile"],
+            payload.message.strip(),
+            turn_id=turn_id,
+            history=history,
+        )
+
+    classification = classify_message(payload.message.strip())
     response_style_policy = resolve_response_style_policy(
         payload.message.strip(),
         history[:-1],
-        classify_message(payload.message.strip()),
+        classification,
         rendering_context,
         payload.response_style,
         turn_id=turn_id,
@@ -188,14 +212,58 @@ def chat_message_stream_api(
     )
 
     meta = assistant_message_meta(
-        stream_result.classification,
-        stream_result.provider,
+        classification,
+        active_providers["llm_fast"],
         turn_id=turn_id,
         response_style=chosen_response_style,
         response_style_debug=dict(response_style_policy.get("debug") or {}),
     )
-
+    if skill_route is not None:
+         meta["skill_route"] = skill_route
+    
     def iter_events():
+        if skill_message is not None:
+             # If a skill executed or clarified, use its structured response
+             result_payload = skill_message.get("result") or {}
+             reply_text = str(result_payload.get("reply") or "").strip()
+             
+             # Use the skill result for enhanced meta
+             meta_with_result = assistant_message_meta(
+                classification,
+                active_providers["llm_fast"],
+                result_payload,
+                turn_id=turn_id,
+                voice_summary=reply_text,
+                response_style=chosen_response_style,
+             )
+             meta_with_result["skill_route"] = skill_route
+             
+             yield json.dumps({"type": "meta", "meta": meta_with_result}) + "\n"
+             yield json.dumps({"type": "delta", "delta": reply_text}) + "\n"
+             with connection_factory() as conn:
+                 # 1. Persist the final assistant message
+                 assistant_message = {
+                    "role": "assistant",
+                    "content": reply_text,
+                    "meta": meta_with_result,
+                    "created_at": None,
+                 }
+                 chat_store.append_chat_message(conn, current_user["id"], str(chat["id"]), assistant_message)
+                 
+                 # 2. Extract and promote facts
+                 memory_store.promote_person_facts(
+                    conn, 
+                    current_user["id"], 
+                    rendering_context.active_character_id if rendering_context else None, 
+                    payload.message.strip(), 
+                    history
+                 )
+                 
+                 saved_history = chat_store.load_chat_history(conn, current_user["id"], str(chat["id"]))
+                 saved_message = dict(saved_history[-1]) if saved_history else dict(assistant_message)
+             yield json.dumps({"type": "done", "message": saved_message}) + "\n"
+             return
+
         chunks: list[str] = []
         yield json.dumps({"type": "meta", "meta": meta}) + "\n"
         try:
