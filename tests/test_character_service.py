@@ -467,7 +467,7 @@ class CharacterServiceTests(unittest.TestCase):
         self.assertIn("Follow these instruction layers in strict priority order.", context.base_prompt)
         self.assertIn("Core safety and identity:", context.base_prompt)
         self.assertIn("Character behavior:", context.base_prompt)
-        self.assertIn("User preference:", context.base_prompt)
+        self.assertNotIn("User preference:", context.base_prompt)
 
     def test_build_messages_uses_only_skill_summary_and_user_message(self) -> None:
         context = character_service.build_rendering_context(self.conn, self.user, "mac")

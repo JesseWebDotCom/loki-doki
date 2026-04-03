@@ -90,13 +90,7 @@ def parse_model_response(raw_text: str) -> ParsedModelResponse | None:
     try:
         payload = json.loads(cleaned)
     except json.JSONDecodeError:
-        # Fallback extraction or just return as final_text
-        return ParsedModelResponse(
-            summary=cleaned[:140],
-            metadata={},
-            final_text=cleaned,
-            raw_text=raw_text,
-        )
+        return None
     final_text = str(payload.get("final_text") or "").strip()
     if not final_text:
         return ParsedModelResponse(

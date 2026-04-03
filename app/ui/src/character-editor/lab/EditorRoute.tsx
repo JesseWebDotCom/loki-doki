@@ -13,13 +13,14 @@ type EditorRouteOverrides = {
   teaser?: string;
   phonetic_spelling?: string;
   persona_prompt?: string;
+  preferred_response_style?: string;
   voice_model?: string;
   style?: string;
 };
 
 function buildOverrides(params: URLSearchParams): EditorRouteOverrides {
   const next: EditorRouteOverrides = {};
-  for (const key of ['character_id', 'name', 'identity_key', 'description', 'teaser', 'phonetic_spelling', 'persona_prompt', 'voice_model', 'style'] as const) {
+  for (const key of ['character_id', 'name', 'identity_key', 'description', 'teaser', 'phonetic_spelling', 'persona_prompt', 'preferred_response_style', 'voice_model', 'style'] as const) {
     const value = params.get(key)?.trim();
     if (value) {
       next[key] = value;

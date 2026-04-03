@@ -462,20 +462,14 @@ function buildCharacterEditorLogo(characterEditor: Record<string, unknown>, fall
 
 function buildPersistedCharacterEditorMetadata(draft: CharacterEditorDraft) {
   const nextCharacterEditor = { ...(draft.character_editor || {}) }
-  const existingEditorState = asRecord(nextCharacterEditor.editor_state) || {}
+  const existingEditorState = sanitizeCharacterEditorState(asRecord(nextCharacterEditor.editor_state) || {})
   const nextStyle = typeof existingEditorState.style === "string" && existingEditorState.style.trim()
     ? existingEditorState.style
     : "avataaars"
 
   nextCharacterEditor.editor_state = {
     ...existingEditorState,
-    name: draft.name.trim(),
-    description: draft.description,
-    teaser: draft.teaser,
-    identity_key: draft.identity_key,
-    persona_prompt: draft.behavior_style || draft.system_prompt,
     preferred_response_style: draft.preferred_response_style || "balanced",
-    voice_model: draft.voice_model || draft.default_voice,
     wakeword_model_id: draft.wakeword_model_id || "",
     style: nextStyle,
   }
@@ -570,14 +564,35 @@ function buildCharacterEditorUrl(
   return `${getCharacterEditorBaseUrl()}${params.toString() ? `?${params.toString()}` : ""}`
 }
 
-function serializeEditorState(editorState: Record<string, unknown> | null | undefined): string {
+const REDUNDANT_CHARACTER_EDITOR_STATE_KEYS = new Set([
+  "character_id",
+  "name",
+  "identity_key",
+  "description",
+  "teaser",
+  "phonetic_spelling",
+  "persona_prompt",
+  "voice_model",
+])
+
+function sanitizeCharacterEditorState(editorState: Record<string, unknown> | null | undefined): Record<string, unknown> {
   if (!editorState) {
+    return {}
+  }
+  return Object.fromEntries(
+    Object.entries(editorState).filter(([key]) => (
+      !key.endsWith("_upload_data_url")
+      && !REDUNDANT_CHARACTER_EDITOR_STATE_KEYS.has(key)
+    ))
+  )
+}
+
+function serializeEditorState(editorState: Record<string, unknown> | null | undefined): string {
+  const sanitized = sanitizeCharacterEditorState(editorState)
+  if (!Object.keys(sanitized).length) {
     return ""
   }
   try {
-    const sanitized = Object.fromEntries(
-      Object.entries(editorState).filter(([key]) => !key.endsWith("_upload_data_url"))
-    )
     return JSON.stringify(sanitized)
   } catch {
     return ""
@@ -4825,7 +4840,6 @@ export default function App() {
         character_editor: {
           source: "loki-doki-character-editor",
           exported_at: new Date().toISOString(),
-          manifest: bundle.manifest || {},
           editor_state: bundle.editor_state || {},
         },
       },
@@ -4953,9 +4967,9 @@ export default function App() {
                   bundle.editor_state?.wakeword_upload_data_url?.trim() ||
                   "",
                 character_editor: {
+                  ...(existingCharacter.character_editor || {}),
                   source: "loki-doki-character-editor",
                   exported_at: new Date().toISOString(),
-                  manifest: bundle.manifest || {},
                   editor_state: bundle.editor_state || {},
                 },
               }),
@@ -4996,6 +5010,7 @@ export default function App() {
       params.set("teaser", nextDraft.teaser || payload.character.teaser || "")
       params.set("phonetic_spelling", nextDraft.phonetic_spelling || payload.character.phonetic_spelling || "")
       params.set("persona_prompt", nextDraft.system_prompt || payload.character.behavior_style || payload.character.system_prompt || "")
+      params.set("preferred_response_style", nextDraft.preferred_response_style || payload.character.preferred_response_style || "balanced")
       params.set("voice_model", nextDraft.default_voice || payload.character.voice_model || payload.character.default_voice || "en-us-lessac-medium.onnx")
       const serializedEditorState = serializeEditorState(asRecord(payload.character.character_editor)?.editor_state as Record<string, unknown> | undefined)
       if (serializedEditorState) {
@@ -5027,6 +5042,7 @@ export default function App() {
       params.set("teaser", draft?.teaser || character.teaser || "")
       params.set("phonetic_spelling", draft?.phonetic_spelling || character.phonetic_spelling || "")
       params.set("persona_prompt", draft?.system_prompt || character.behavior_style || character.system_prompt || "")
+      params.set("preferred_response_style", draft?.preferred_response_style || character.preferred_response_style || "balanced")
       params.set("voice_model", draft?.default_voice || character.voice_model || character.default_voice || "en-us-lessac-medium.onnx")
       const serializedEditorState = serializeEditorState(buildCharacterEditorLaunchState(character, draft))
       if (serializedEditorState) {

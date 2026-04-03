@@ -65,7 +65,7 @@ class TextServiceTests(unittest.TestCase):
         self.assertEqual(result.provider.model, "fast-model")
         args = mock_chat_completion.call_args.args
         self.assertEqual(args[0].model, "fast-model")
-        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 48)
+        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 128)
 
     def test_simple_query_uses_canned_reply(self) -> None:
         result = generate_text_reply(
@@ -213,8 +213,8 @@ class TextServiceTests(unittest.TestCase):
         self.assertEqual(result.provider.model, "fast-model")
         args = mock_chat_completion.call_args.args
         self.assertEqual(args[0].model, "fast-model")
-        self.assertIn("LIVE WEB CONTEXT", args[1][1]["content"])
-        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 160)
+        self.assertIn("User request: What happened in the news today?", args[1][1]["content"])
+        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 768)
 
     @patch("app.subsystems.text.service.search_web")
     def test_weather_query_returns_deterministic_filled_values(self, mock_search_web) -> None:
@@ -394,7 +394,7 @@ class TextServiceTests(unittest.TestCase):
         args = mock_chat_completion.call_args.args
         self.assertEqual(args[0].model, "thinking-model")
         self.assertEqual(args[1][-1]["content"], "Compare these plans and explain the tradeoffs")
-        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 192)
+        self.assertEqual(mock_chat_completion.call_args.kwargs["options"]["num_predict"], 512)
         self.assertIn("Never claim to be fictional", args[1][0]["content"])
 
     def test_tool_call_uses_function_provider_placeholder(self) -> None:
@@ -434,7 +434,7 @@ class TextServiceTests(unittest.TestCase):
             Classification("text_chat", "fast_qwen", "short prompt"),
         )
         chunks = list(result.chunks)
-        self.assertEqual(chunks, ["Fast ", "reply"])
+        self.assertEqual(chunks, ["Fast reply"])
         self.assertEqual(result.provider.model, "fast-model")
         args = mock_stream_chat_completion.call_args.args
         self.assertEqual(args[0].model, "fast-model")
