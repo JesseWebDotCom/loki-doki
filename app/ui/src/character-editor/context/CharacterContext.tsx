@@ -121,7 +121,7 @@ const defaultOptions: CharacterOptions = {
   headBob: 0,
 };
 
-const CharacterContext = createContext<CharacterContextType | undefined>(undefined);
+export const CharacterContext = createContext<CharacterContextType | undefined>(undefined);
 
 const LOCAL_STORAGE_KEY = 'loki_character_options';
 

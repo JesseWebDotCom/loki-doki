@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createAvatar } from "@dicebear/core"
 import * as dicebearCollections from "@dicebear/collection"
 import {
@@ -29,12 +29,23 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Smile,
+  Scan,
   User,
+  Eye,
+  EyeOff,
+  Ear,
+  EarOff,
   Download,
   X,
   Plus,
   Server,
 } from "lucide-react"
+
+import { CharacterContext, type CharacterOptions } from "@/character-editor/context/CharacterContext"
+import { VoiceContext } from "@/character-editor/context/VoiceContext"
+import { AudioContext } from "@/character-editor/context/AudioContext"
+import AnimatedCharacter from "@/character-editor/components/AnimatedCharacter"
 
 import { Button } from "@/components/ui/button"
 import { AssistantMessageCard } from "@/components/assistant-message-card"
@@ -1524,6 +1535,17 @@ function AdminModal({
 export default function App() {
   const [activeView, setActiveView] = useState<"assistant" | "settings" | "admin">("assistant")
   const [assistantTab, setAssistantTab] = useState<"chat" | "talk">("chat")
+  const [isCharacterVisible, setIsCharacterVisible] = useState(() => localStorage.getItem("ld_character_visible") !== "false")
+  const [characterDisplayMode, setCharacterDisplayMode] = useState<"full" | "head">(() => (localStorage.getItem("ld_character_mode") as any) || "head")
+
+  useEffect(() => {
+    localStorage.setItem("ld_character_visible", String(isCharacterVisible))
+  }, [isCharacterVisible])
+
+  useEffect(() => {
+    localStorage.setItem("ld_character_mode", characterDisplayMode)
+  }, [characterDisplayMode])
+
   const [bootstrap, setBootstrap] = useState<BootstrapDetails | null>(null)
   const [health, setHealth] = useState<HealthPayload | null>(null)
   const [isHealthOpen, setIsHealthOpen] = useState(false)
@@ -1532,7 +1554,10 @@ export default function App() {
   const [isAuthHydrating, setIsAuthHydrating] = useState<boolean>(() => Boolean(localStorage.getItem(tokenKey)))
   const [user, setUser] = useState<UserRecord | null>(null)
   const [chats, setChats] = useState<ChatSummary[]>([])
-  const [activeChatId, setActiveChatId] = useState("")
+  const [activeChatId, setActiveChatId] = useState(() => localStorage.getItem("ld_active_chat_id") || "")
+  useEffect(() => {
+    localStorage.setItem("ld_active_chat_id", activeChatId)
+  }, [activeChatId])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [prompt, setPrompt] = useState("")
   const [performanceProfileId, setPerformanceProfileId] = useState("fast")
@@ -1560,8 +1585,16 @@ export default function App() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isVoiceListening, setIsVoiceListening] = useState(false)
   const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null)
-  const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(true)
-  const [voiceSource, setVoiceSource] = useState<"browser" | "piper">("browser")
+  const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(() => localStorage.getItem("ld_voice_reply_enabled") !== "false")
+  const [voiceSource, setVoiceSource] = useState<"browser" | "piper">(() => (localStorage.getItem("ld_voice_source") as any) || "browser")
+
+  useEffect(() => {
+    localStorage.setItem("ld_voice_reply_enabled", String(voiceReplyEnabled))
+  }, [voiceReplyEnabled])
+
+  useEffect(() => {
+    localStorage.setItem("ld_voice_source", voiceSource)
+  }, [voiceSource])
   const [bargeInEnabled, setBargeInEnabled] = useState(false)
   const [voiceOptions, setVoiceOptions] = useState<SpeechSynthesisVoice[]>([])
   const [selectedVoiceURI, setSelectedVoiceURI] = useState("")
@@ -1616,8 +1649,13 @@ export default function App() {
     wakewordScore: 0,
   })
   const [characterEnabled, setCharacterEnabled] = useState(true)
-  const [activeCharacterId, setActiveCharacterId] = useState("lokidoki")
+  const [activeCharacterId, setActiveCharacterId] = useState(() => localStorage.getItem("ld_active_character_id") || "lokidoki")
   const [assignedCharacterId, setAssignedCharacterId] = useState("")
+
+  useEffect(() => {
+    localStorage.setItem("ld_active_character_id", activeCharacterId)
+  }, [activeCharacterId])
+
   const [canSelectCharacter, setCanSelectCharacter] = useState(true)
   const [userPromptText, setUserPromptText] = useState("")
   const [careProfileId, setCareProfileId] = useState("standard")
@@ -2484,7 +2522,20 @@ export default function App() {
     await primePiperPlayback()
     if (voiceSource === "browser") {
       stopAudioReply(false, false)
-      speakText(spokenText, selectedVoiceURI)
+      setIsVoiceReplyPending(true)
+      speakText(spokenText, selectedVoiceURI, {
+        onStart: () => {
+          window.dispatchEvent(new CustomEvent("viseme", { detail: "open" }))
+        },
+        onEnd: () => {
+          setIsVoiceReplyPending(false)
+          window.dispatchEvent(new CustomEvent("viseme", { detail: "closed" }))
+        },
+        onError: () => {
+          setIsVoiceReplyPending(false)
+          window.dispatchEvent(new CustomEvent("viseme", { detail: "closed" }))
+        }
+      })
       return "browser"
     }
     return speakWithPiper(spokenText)
@@ -2915,20 +2966,9 @@ export default function App() {
                     setVoiceStatus(`Heard: ${transcript}`)
                     forceScrollRef.current = true
                     setIsPinnedToBottom(true)
-                    setMessages((current) => [
-                      ...current,
-                      { role: "user", content: transcript, created_at: createdAt },
-                      {
-                        ...message,
-                        created_at: message.created_at || createdAt,
-                        pending: false,
-                        debug: {
-                          startedAtMs,
-                          durationMs: Date.now() - startedAtMs,
-                        },
-                      },
-                    ])
+                    setMessages(nextHistory)
                     syncActiveChatFromHistory(nextHistory)
+                    void playMessageVoice(message, `msg-${message.created_at}`)
                   })
                 })
                 .catch((error) => {
@@ -5669,6 +5709,63 @@ export default function App() {
   const primaryIssue = topIssues[0]
   const selectedPiperVoice = piperVoices.find((voice) => voice.id === selectedPiperVoiceId) || null
   const selectedCharacter = characters.find((item) => item.id === activeCharacterId) || null
+
+  const characterContextValue = useMemo(() => ({
+    options: {
+      style: (selectedCharacter?.character_editor as any)?.editor_state?.style || "avataaars",
+      seed: (selectedCharacter?.character_editor as any)?.editor_state?.seed || selectedCharacter?.name || "Character",
+      flip: (selectedCharacter?.character_editor as any)?.editor_state?.flip || false,
+      rotate: (selectedCharacter?.character_editor as any)?.editor_state?.rotate || 0,
+      scale: (selectedCharacter?.character_editor as any)?.editor_state?.scale || 100,
+      radius: (selectedCharacter?.character_editor as any)?.editor_state?.radius || 0,
+      backgroundColor: (selectedCharacter?.character_editor as any)?.editor_state?.backgroundColor || ["transparent"],
+      backgroundType: (selectedCharacter?.character_editor as any)?.editor_state?.backgroundType || ["solid"],
+      backgroundRotation: (selectedCharacter?.character_editor as any)?.editor_state?.backgroundRotation || [0],
+      ...((selectedCharacter?.character_editor as any)?.editor_state || {}),
+    } as CharacterOptions,
+    setOptions: () => {},
+    updateOption: () => {},
+    resetToSeed: () => {},
+    loadManifest: async () => {},
+    saveManifest: async () => true,
+    brain: { value: "active", matches: () => false } as any,
+    sendToBrain: () => {},
+  }), [selectedCharacter])
+
+  const voiceContextValue = useMemo(() => ({
+    speak: () => {},
+    isSpeaking: voiceTelemetry.pipelineStatus === "speaking" || isVoiceReplyPending,
+    viseme: voiceTelemetry.currentViseme,
+    stop: () => {},
+    status: "connected" as const,
+    registerVisemeListener: (cb: (v: string) => void) => {
+      const handleViseme = (e: any) => cb(e.detail)
+      window.addEventListener("viseme", handleViseme)
+      return () => window.removeEventListener("viseme", handleViseme)
+    },
+    testSpeech: () => {},
+  }), [voiceTelemetry.pipelineStatus, isVoiceReplyPending])
+
+  const audioContextValue = useMemo(() => ({
+    isListening: wakewordTelemetry.wakewordScore > 0,
+    status: (wakewordTelemetry.wakewordScore > 0 ? "listening" : "idle") as any,
+    errorMessage: null,
+    permissionState: "granted" as const,
+    lastAction: null,
+    frequencyData: null,
+    volume: wakewordTelemetry.rms,
+    peakVolume: wakewordTelemetry.peak,
+    viseme: "closed",
+    isSpeaking: wakewordTelemetry.speechLevel > 0.5,
+    startListening: async () => {},
+    stopListening: () => {},
+    sensitivity: 0.5,
+    setSensitivity: () => {},
+    voiceIsolation: false,
+    setVoiceIsolation: () => {},
+    reflexesEnabled: true,
+    setReflexesEnabled: () => {},
+  }), [wakewordTelemetry])
   const themeCatalog = (availableThemes.length ? availableThemes : fallbackThemePresets).slice().sort((left, right) => {
     const order: Record<ThemePresetId, number> = {
       familiar: 0,
@@ -6086,7 +6183,40 @@ export default function App() {
             ) : null}
 
             <div className="relative flex items-center gap-1 text-[var(--foreground)] sm:gap-2" onPointerDown={(event) => event.stopPropagation()}>
-
+              {activeView === "assistant" && (
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <Button
+                    className={cn(
+                      "h-9 gap-2 rounded-full border px-3 text-xs shadow-[var(--shadow-soft)] transition-all",
+                      voiceReplyEnabled
+                        ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--foreground)] ring-1 ring-[var(--accent)]/30"
+                        : "border-[var(--line)] bg-[var(--panel)] text-[var(--foreground)] hover:bg-[var(--input)]"
+                    )}
+                    onClick={() => setVoiceReplyEnabled((current) => !current)}
+                    tooltip={voiceReplyEnabled ? "Disable spoken responses" : "Enable spoken responses"}
+                    type="button"
+                    variant="ghost"
+                  >
+                    {voiceReplyEnabled ? <Ear className="h-4 w-4" /> : <EarOff className="h-4 w-4" />}
+                    <span className="hidden lg:inline">{voiceReplyEnabled ? "Responses On" : "Responses Off"}</span>
+                  </Button>
+                  <Button
+                    className={cn(
+                      "h-9 gap-2 rounded-full border px-3 text-xs shadow-[var(--shadow-soft)] transition-all",
+                      isCharacterVisible
+                        ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--foreground)] ring-1 ring-[var(--accent)]/30"
+                        : "border-[var(--line)] bg-[var(--panel)] text-[var(--foreground)] hover:bg-[var(--input)]"
+                    )}
+                    onClick={() => setIsCharacterVisible((current) => !current)}
+                    tooltip={isCharacterVisible ? "Hide character" : "Show character"}
+                    type="button"
+                    variant="ghost"
+                  >
+                    {isCharacterVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    <span className="hidden lg:inline">{isCharacterVisible ? "Character On" : "Character Off"}</span>
+                  </Button>
+                </div>
+              )}
               {user?.is_admin && debugMode ? (
                 <Button
                   className="h-9 gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-soft)] hover:bg-[var(--input)]"
@@ -6287,42 +6417,129 @@ export default function App() {
           ) : null}
 
           {activeView === "assistant" ? (
-            assistantTab === "chat" ? (
-              <div
-                ref={messageViewportRef}
-                className="chat-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain"
-                onScroll={handleMessageScroll}
-              >
-                <ChatMessageList
-                  assistantCharacter={selectedCharacter}
-                  debugMode={debugMode}
-                  debugNow={debugNow}
-                  getMessageKey={speechMessageKey}
-                  messages={messages}
-                  onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
-                  onRetrySmart={(assistantIndex) => void retryAssistantWithSmartModel(assistantIndex)}
-                  onSuggestionSelect={setPrompt}
-                  overviewRows={overviewRows}
-                  pendingSpeechMessageKey={pendingSpeechMessageKey}
-                  retryingAssistantIndex={retryingAssistantIndex}
-                  speakingMessageKey={speakingMessageKey}
-                  suggestions={suggestions}
-                  userDisplayName={user?.display_name}
-                />
-              </div>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-                <div className="max-w-md space-y-4">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
-                    <Mic className="h-8 w-8" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                {assistantTab === "chat" ? (
+                  <>
+                    <div
+                      ref={messageViewportRef}
+                      className="chat-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                      onScroll={handleMessageScroll}
+                    >
+                      <ChatMessageList
+                        assistantCharacter={selectedCharacter}
+                        debugMode={debugMode}
+                        debugNow={debugNow}
+                        getMessageKey={speechMessageKey}
+                        messages={messages}
+                        onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
+                        onRetrySmart={(assistantIndex) => void retryAssistantWithSmartModel(assistantIndex)}
+                        onSuggestionSelect={setPrompt}
+                        overviewRows={overviewRows}
+                        pendingSpeechMessageKey={pendingSpeechMessageKey}
+                        retryingAssistantIndex={retryingAssistantIndex}
+                        speakingMessageKey={speakingMessageKey}
+                        suggestions={suggestions}
+                        userDisplayName={user?.display_name}
+                      />
+                    </div>
+                    <JumpToLatest onClick={jumpToLatest} visible={!isPinnedToBottom && messages.length > 0} />
+                    <ChatComposer
+                      chatError={chatError}
+                      characterSyncLabel={characterStatus || `Compiling ${pendingCharacterName || "character"}...`}
+                      characterName={selectedCharacter?.name || bootstrap?.app_name || "LokiDoki"}
+                      documentInputRef={documentInputRef}
+                      imageInputRef={imageInputRef}
+                      isAttachmentMenuOpen={isAttachmentMenuOpen}
+                      isCharacterSyncPending={isCharacterSyncPending}
+                      isSubmitting={isSubmitting}
+                      isVoiceListening={isVoiceListening}
+                      isVoiceReplyPending={isVoiceReplyPending}
+                      isWakewordMonitoring={isWakewordMonitoring}
+                      onDocumentSelected={(event) => void handleDocumentSelection(event)}
+                      onCloseAttachmentMenu={() => setIsAttachmentMenuOpen(false)}
+                      onImageSelected={(event) => void handleImageSelection(event)}
+                      onPromptChange={(event) => setPrompt(event.target.value)}
+                      onPromptKeyDown={handlePromptKeyDown}
+                      onRemoveDocument={() => setSelectedDocument(null)}
+                      onRemoveImage={() => setSelectedImage(null)}
+                      onRemoveVideo={() => setSelectedVideo(null)}
+                      recordingStream={recordingStream}
+                      onSubmit={submitChat}
+                      onToggleAttachmentMenu={() => setIsAttachmentMenuOpen((current) => !current)}
+                      onTogglePushToTalk={togglePushToTalk}
+                      onVideoSelected={(event) => void handleVideoSelection(event)}
+                      performanceProfileId={performanceProfileId}
+                      onSelectProfile={setPerformanceProfileId}
+                      prompt={prompt}
+                      selectedDocument={selectedDocument}
+                      selectedImage={selectedImage}
+                      selectedPiperVoiceLabel={selectedPiperVoice?.label || "piper"}
+                      selectedVideo={selectedVideo}
+                      userReady={Boolean(user)}
+                      videoInputRef={videoInputRef}
+                      voiceReplyEnabled={voiceReplyEnabled}
+                      voiceSource={voiceSource}
+                      voiceStatus={voiceStatus}
+                      wakewordEnabled={wakewordEnabled}
+                      wakewordScore={wakewordTelemetry.wakewordScore}
+                      wakewordSignalLevel={Math.max(wakewordTelemetry.peak, wakewordTelemetry.rms * 2.5)}
+                      wakewordSpeechLevel={wakewordTelemetry.speechLevel}
+                    />
+                  </>
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+                    <div className="max-w-md space-y-4">
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                        <Mic className="h-8 w-8" />
+                      </div>
+                      <h2 className="text-xl font-semibold text-[var(--foreground)]">Talk Tab Coming Soon</h2>
+                      <p className="text-[var(--muted-foreground)]">
+                        A hands-free, voice-first experience is being prepared for this space.
+                      </p>
+                    </div>
                   </div>
-                  <h2 className="text-xl font-semibold text-[var(--foreground)]">Talk Tab Coming Soon</h2>
-                  <p className="text-[var(--muted-foreground)]">
-                    A hands-free, voice-first experience is being prepared for this space.
-                  </p>
-                </div>
+                )}
               </div>
-            )
+
+              {isCharacterVisible && selectedCharacter && (
+                <aside className="relative flex w-[360px] border-l border-[var(--line)] bg-[var(--panel-strong)]/20 animate-in slide-in-from-right-4 duration-300 xl:w-[420px] overflow-hidden">
+                  <div className="absolute right-4 top-4 z-20 flex gap-2">
+                    <Button
+                      className="h-8 w-8 rounded-full border border-[var(--line)] bg-[var(--panel)]/80 backdrop-blur"
+                      onClick={() => setCharacterDisplayMode(current => current === "full" ? "head" : "full")}
+                      size="icon"
+                      tooltip={characterDisplayMode === "full" ? "Head mode" : "Full mode"}
+                      variant="ghost"
+                    >
+                      {characterDisplayMode === "full" ? <User className="h-4 w-4" /> : <Scan className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      className="h-8 w-8 rounded-full border border-[var(--line)] bg-[var(--panel)]/80 backdrop-blur"
+                      onClick={() => setIsCharacterVisible(false)}
+                      size="icon"
+                      tooltip="Hide character"
+                      variant="ghost"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <CharacterContext.Provider value={characterContextValue}>
+                      <VoiceContext.Provider value={voiceContextValue}>
+                        <AudioContext.Provider value={audioContextValue}>
+                          <AnimatedCharacter
+                            stageScale={characterDisplayMode === "head" ? 1.2 : 1.0}
+                            viewPreset={characterDisplayMode}
+                          />
+                        </AudioContext.Provider>
+                      </VoiceContext.Provider>
+                    </CharacterContext.Provider>
+                  </div>
+                </aside>
+              )}
+            </div>
           ) : activeView === "settings" ? (
             <div className="workspace-shell min-h-0 flex-1 overflow-hidden" ref={rightPaneScrollRef}>
               <div className="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1">
@@ -8954,54 +9171,6 @@ export default function App() {
                 </div>
                 </div>
             </div>
-          ) : null}
-
-          {activeView === "assistant" && assistantTab === "chat" ? (
-            <>
-              <JumpToLatest onClick={jumpToLatest} visible={!isPinnedToBottom && messages.length > 0} />
-              <ChatComposer
-                chatError={chatError}
-                characterSyncLabel={characterStatus || `Compiling ${pendingCharacterName || "character"}...`}
-                characterName={selectedCharacter?.name || bootstrap?.app_name || "LokiDoki"}
-                documentInputRef={documentInputRef}
-                imageInputRef={imageInputRef}
-                isAttachmentMenuOpen={isAttachmentMenuOpen}
-                isCharacterSyncPending={isCharacterSyncPending}
-                isSubmitting={isSubmitting}
-                isVoiceListening={isVoiceListening}
-                isVoiceReplyPending={isVoiceReplyPending}
-                isWakewordMonitoring={isWakewordMonitoring}
-                onDocumentSelected={(event) => void handleDocumentSelection(event)}
-                onCloseAttachmentMenu={() => setIsAttachmentMenuOpen(false)}
-                onImageSelected={(event) => void handleImageSelection(event)}
-                onPromptChange={(event) => setPrompt(event.target.value)}
-                onPromptKeyDown={handlePromptKeyDown}
-                onRemoveDocument={() => setSelectedDocument(null)}
-                onRemoveImage={() => setSelectedImage(null)}
-                onRemoveVideo={() => setSelectedVideo(null)}
-                recordingStream={recordingStream}
-                onSubmit={submitChat}
-                onToggleAttachmentMenu={() => setIsAttachmentMenuOpen((current) => !current)}
-                onTogglePushToTalk={togglePushToTalk}
-                onVideoSelected={(event) => void handleVideoSelection(event)}
-                performanceProfileId={performanceProfileId}
-                onSelectProfile={setPerformanceProfileId}
-                prompt={prompt}
-                selectedDocument={selectedDocument}
-                selectedImage={selectedImage}
-                selectedPiperVoiceLabel={selectedPiperVoice?.label || "piper"}
-                selectedVideo={selectedVideo}
-                userReady={Boolean(user)}
-                videoInputRef={videoInputRef}
-                voiceReplyEnabled={voiceReplyEnabled}
-                voiceSource={voiceSource}
-                voiceStatus={voiceStatus}
-                wakewordEnabled={wakewordEnabled}
-                wakewordScore={wakewordTelemetry.wakewordScore}
-                wakewordSignalLevel={Math.max(wakewordTelemetry.peak, wakewordTelemetry.rms * 2.5)}
-                wakewordSpeechLevel={wakewordTelemetry.speechLevel}
-              />
-            </>
           ) : null}
         </main>
       </div>
