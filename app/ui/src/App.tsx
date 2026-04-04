@@ -2009,6 +2009,8 @@ export default function App() {
     { label: "TTS", value: bootstrap?.models.tts_voice || "Loading…" },
   ]
   const activeChat = chats.find((chat) => chat.id === activeChatId) || null
+  const displayProjectId = activeChat ? activeChat.project_id : activeProjectId
+  const displayProject = displayProjectId ? projects.find(p => p.id === displayProjectId) : null
   const filteredChats = chats.filter((chat) => !chat.project_id && chat.title.toLowerCase().includes(chatSearch.trim().toLowerCase()))
 
   async function refreshHealth() {
@@ -2059,12 +2061,15 @@ export default function App() {
     stopSpeaking()
     stopAudioReply()
     setVoiceStatus("")
+    
+    const currentActiveChat = chats.find((chat) => chat.id === activeChatId) || null
+    const effectiveProjectId = currentActiveChat ? currentActiveChat.project_id || "" : activeProjectId
     const payload = await fetchJson<ChatStatePayload & { chat: ChatSummary }>(
       "/api/chats",
       { 
         method: "POST", 
         body: JSON.stringify({ 
-          project_id: activeProjectId 
+          project_id: effectiveProjectId 
         }) 
       },
       activeToken
@@ -6136,7 +6141,7 @@ export default function App() {
             renamingChatId={renamingChatId}
             user={user}
             projects={projects}
-            activeProjectId={activeProjectId}
+            activeProjectId={displayProjectId || ""}
             onSelectProject={(projectId) => {
               setActiveProjectId(projectId)
               setActiveChatId("")
@@ -6231,65 +6236,56 @@ export default function App() {
           )}>
             {/* Left: Breadcrumbs */}
             <div className="flex items-center gap-2 overflow-hidden font-medium min-w-0">
-              {(() => {
-                const displayProjectId = activeChat ? activeChat.project_id : activeProjectId;
-                const displayProject = displayProjectId ? projects.find(p => p.id === displayProjectId) : null;
-                
-                return (
-                  <>
-                    {!displayProject && !activeChatId ? (
-                      <span 
-                        className="text-sm font-bold text-[var(--foreground)] cursor-pointer hover:opacity-80 transition-opacity shrink-0" 
-                        onClick={() => { setActiveProjectId(""); setActiveChatId(""); setActiveView("assistant"); }}
-                      >
-                        LokiDoki
-                      </span>
-                    ) : null}
+              {!displayProject && !activeChatId ? (
+                <span 
+                  className="text-sm font-bold text-[var(--foreground)] cursor-pointer hover:opacity-80 transition-opacity shrink-0" 
+                  onClick={() => { setActiveProjectId(""); setActiveChatId(""); setActiveView("assistant"); }}
+                >
+                  LokiDoki
+                </span>
+              ) : null}
 
-                    {displayProject ? (
-                      <div 
-                        className="flex items-center gap-2 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity shrink-0"
-                        onClick={() => {
-                          setActiveProjectId(displayProject.id);
-                          setActiveChatId("");
-                          setAssistantTab("chat");
-                        }}
-                      >
-                        <div 
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
-                          style={{ 
-                            color: displayProject.icon_color || "var(--accent)",
-                            backgroundColor: `${displayProject.icon_color || "var(--accent)"}1a`
-                          }}
-                        >
-                          {(() => {
-                            const Icon = displayProject.icon && (Lucide as any)[displayProject.icon] ? (Lucide as any)[displayProject.icon] : Lucide.Folder
-                            return <Icon className="h-3.5 w-3.5" />
-                          })()}
-                        </div>
-                        <span className="truncate text-sm font-bold text-[var(--foreground)]">
-                          {displayProject.name}
-                        </span>
-                      </div>
-                    ) : null}
+              {displayProject ? (
+                <div 
+                  className="flex items-center gap-2 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity shrink-0"
+                  onClick={() => {
+                    setActiveProjectId(displayProject.id);
+                    setActiveChatId("");
+                    setAssistantTab("chat");
+                  }}
+                >
+                  <div 
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                    style={{ 
+                      color: displayProject.icon_color || "var(--accent)",
+                      backgroundColor: `${displayProject.icon_color || "var(--accent)"}1a`
+                    }}
+                  >
+                    {(() => {
+                      const Icon = displayProject.icon && (Lucide as any)[displayProject.icon] ? (Lucide as any)[displayProject.icon] : Lucide.Folder
+                      return <Icon className="h-3.5 w-3.5" />
+                    })()}
+                  </div>
+                  <span className="truncate text-sm font-bold text-[var(--foreground)]">
+                    {displayProject.name}
+                  </span>
+                </div>
+              ) : null}
 
-                    {displayProject && activeChatId ? (
-                      <ChevronRight className="h-4 w-4 text-[var(--muted-foreground)] shrink-0" />
-                    ) : null}
+              {displayProject && activeChatId ? (
+                <ChevronRight className="h-4 w-4 text-[var(--muted-foreground)] shrink-0" />
+              ) : null}
 
-                    {activeChatId ? (
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[var(--panel-strong)] text-[var(--muted-foreground)]">
-                          <MessageSquare className="h-3.5 w-3.5" />
-                        </div>
-                        <span className="truncate text-sm font-bold text-[var(--foreground)]">
-                          {activeChat?.title || "New chat"}
-                        </span>
-                      </div>
-                    ) : null}
-                  </>
-                );
-              })()}
+              {activeChatId ? (
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[var(--panel-strong)] text-[var(--muted-foreground)]">
+                    <MessageSquare className="h-3.5 w-3.5" />
+                  </div>
+                  <span className="truncate text-sm font-bold text-[var(--foreground)]">
+                    {activeChat?.title || "New chat"}
+                  </span>
+                </div>
+              ) : null}
             </div>
 
             {/* Right: Consolidated UI Actions */}
