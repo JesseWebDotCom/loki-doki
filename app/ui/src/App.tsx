@@ -6367,10 +6367,13 @@ export default function App() {
                   
                   <DropdownMenuItem 
                     className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)] cursor-pointer"
-                    onClick={() => setIsRightSidebarCollapsed(prev => !prev)}
+                    onClick={() => {
+                      setIsCharacterVisible(prev => !prev)
+                      setIsRightSidebarCollapsed(false)
+                    }}
                   >
-                    {isRightSidebarCollapsed ? <PanelLeftOpen className="h-4 w-4 -rotate-180" /> : <PanelLeftClose className="h-4 w-4 -rotate-180" />}
-                    {isRightSidebarCollapsed ? "Show Character" : "Hide Character"}
+                    {!isCharacterVisible ? <PanelLeftOpen className="h-4 w-4 -rotate-180" /> : <PanelLeftClose className="h-4 w-4 -rotate-180" />}
+                    {!isCharacterVisible ? "Show Character" : "Hide Character"}
                   </DropdownMenuItem>
 
                   <DropdownMenuItem 
@@ -6533,7 +6536,7 @@ export default function App() {
               <div
                 className={cn(
                   "flex min-h-0 flex-1 flex-col overflow-hidden transition-all duration-500",
-                  characterDisplayMode === "fullscreen" && isCharacterVisible ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 translate-y-0"
+                  characterDisplayMode === "fullscreen" && isCharacterVisible ? "hidden" : "flex"
                 )}
               >
                 {assistantTab === "chat" ? (
@@ -6732,13 +6735,15 @@ export default function App() {
                 )}
               </div>
 
-              {isCharacterVisible && selectedCharacter && characterDisplayMode !== "fullscreen" && (
+              {isCharacterVisible && selectedCharacter && (
                 <aside className={cn(
-                  "relative flex flex-col border-l bg-[var(--panel-strong)]/20 animate-in slide-in-from-right-4 transition-all duration-500 overflow-hidden",
-                  isRightSidebarCollapsed ? "border-l-[color-mix(in_srgb,var(--line)_20%,transparent)]" : "border-l-[var(--line)]"
-                )} style={{ width: rightSidebarWidth }}>
+                  "relative flex flex-col border-l bg-[var(--panel-strong)]/20 animate-in slide-in-from-right-4 transition-all duration-500 overflow-hidden shrink-0",
+                  isRightSidebarCollapsed && characterDisplayMode !== "fullscreen" ? "border-l-[color-mix(in_srgb,var(--line)_20%,transparent)]" : "border-l-[var(--line)]",
+                  characterDisplayMode === "fullscreen" ? "border-l-0 bg-[var(--background)]" : ""
+                )} style={{ width: characterDisplayMode === "fullscreen" ? "100%" : rightSidebarWidth }}>
                   {/* Top Bar: Collapse Toggle */}
-                  <div className={cn("absolute top-4 z-10", isRightSidebarCollapsed ? "inset-x-0 flex justify-center" : "right-4")}>
+                  {characterDisplayMode !== "fullscreen" && (
+                    <div className={cn("absolute top-4 z-10", isRightSidebarCollapsed ? "inset-x-0 flex justify-center" : "right-4")}>
                     <Button
                       className="h-8 w-8 rounded-lg bg-[var(--panel-strong)]/40 text-[var(--muted-foreground)] backdrop-blur hover:bg-[var(--panel-strong)]/80 hover:text-[var(--foreground)]"
                       onClick={() => setIsRightSidebarCollapsed(!isRightSidebarCollapsed)}
@@ -6749,8 +6754,9 @@ export default function App() {
                       {isRightSidebarCollapsed ? <PanelLeftOpen className="h-4 w-4 -rotate-180" /> : <PanelLeftOpen className="h-4 w-4 rotate-180" />}
                     </Button>
                   </div>
+                  )}
 
-                  {!isRightSidebarCollapsed && (
+                  {(!isRightSidebarCollapsed || characterDisplayMode === "fullscreen") && (
                     <>
                   {/* Character Stage */}
                   <div className="flex-1 flex flex-col items-center justify-center min-h-0 overflow-hidden relative">
@@ -6758,12 +6764,37 @@ export default function App() {
                       <VoiceContext.Provider value={voiceContextValue}>
                         <AudioContext.Provider value={audioContextValue}>
                           <AnimatedCharacter
-                            stageScale={characterDisplayMode === "head" ? 1.4 : 1.0}
-                            viewPreset={characterDisplayMode}
+                            stageScale={characterDisplayMode === "fullscreen" ? 2.5 : characterDisplayMode === "head" ? 1.4 : 1.0}
+                            viewPreset={characterDisplayMode === "fullscreen" ? "full" : characterDisplayMode}
                           />
                         </AudioContext.Provider>
                       </VoiceContext.Provider>
                     </CharacterContext.Provider>
+
+                    {subtitlesEnabled && characterDisplayMode === "fullscreen" && (
+                      <div className="pointer-events-none absolute inset-0 z-[155] flex flex-col items-center justify-end px-12 pb-16">
+                        <div className="relative flex w-full max-w-4xl flex-col items-center">
+                          <div className="absolute -bottom-12 left-1/2 h-32 w-64 -translate-x-1/2 rounded-full bg-[var(--accent)]/30 blur-[60px]" />
+                          <div className="w-full rounded-[40px] border border-white/10 bg-black/40 px-12 py-10 text-center backdrop-blur-2xl shadow-strong">
+                            {messages.slice(-1).map((msg, idx) => {
+                              const msgKey = speechMessageKey(msg, Math.max(0, messages.length - 1))
+                              return (
+                                <div key={idx} className="flex flex-col items-center gap-2">
+                                  <span className="mb-2 text-[10px] font-black uppercase tracking-[0.4em] text-white/40">{msg.role === "user" ? "You" : selectedCharacter?.name}</span>
+                                  <div className="flex flex-wrap justify-center text-2xl font-medium tracking-tight text-white/90 lg:text-3xl">
+                                    {msg.content.split(" ").map((word, wIdx) => (
+                                      <span key={wIdx} className={cn("mr-2 transition-all duration-300", msgKey === speakingMessageKey && wIdx === speakingWordIndex ? "scale-105 font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" : "opacity-60")}>
+                                        {word}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Bottom: Selection & Audio */}
@@ -6796,15 +6827,30 @@ export default function App() {
                            >
                              <Scan className="h-4 w-4" />
                            </Button>
-                           <Button
-                             className="h-8 w-8 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                             onClick={() => setCharacterDisplayMode("fullscreen")}
-                             size="icon"
-                             variant="ghost"
-                             tooltip="Fullscreen Stage"
-                           >
-                             <Maximize2 className="h-4 w-4" />
-                           </Button>
+                           {characterDisplayMode === "fullscreen" ? (
+                             <Button
+                               className="h-8 w-8 rounded-lg bg-[var(--accent)] text-black"
+                               onClick={() => {
+                                 setCharacterDisplayMode("head");
+                                 if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+                               }}
+                               size="icon"
+                               variant="ghost"
+                               tooltip="Exit Fullscreen"
+                             >
+                               <Minimize2 className="h-4 w-4" />
+                             </Button>
+                           ) : (
+                             <Button
+                               className="h-8 w-8 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                               onClick={() => setCharacterDisplayMode("fullscreen")}
+                               size="icon"
+                               variant="ghost"
+                               tooltip="Fullscreen Stage"
+                             >
+                               <Maximize2 className="h-4 w-4" />
+                             </Button>
+                           )}
                            <div className="mx-1 h-4 w-px bg-[var(--line)]" />
                            <Button
                              className={cn(
@@ -6817,6 +6863,18 @@ export default function App() {
                              tooltip={voiceReplyEnabled ? "Mute Voice" : "Unmute Voice"}
                            >
                              {voiceReplyEnabled ? <Ear className="h-4 w-4" /> : <EarOff className="h-4 w-4" />}
+                           </Button>
+                           <Button
+                             className={cn(
+                               "h-8 w-8 rounded-lg transition-all",
+                               subtitlesEnabled ? "text-[var(--accent)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                             )}
+                             onClick={() => setSubtitlesEnabled((prev) => !prev)}
+                             size="icon"
+                             variant="ghost"
+                             tooltip={subtitlesEnabled ? "Hide Subtitles" : "Show Subtitles"}
+                           >
+                             <MessageSquare className="h-4 w-4" />
                            </Button>
                          </div>
                       </div>
@@ -9484,97 +9542,6 @@ export default function App() {
           ) : null}
         </main>
       </div>
-
-      {/* Global Cinematic Fullscreen Stage (Independent High-Z Layer) */}
-      {isCharacterVisible && selectedCharacter && characterDisplayMode === "fullscreen" && (
-        <div className="fixed inset-0 z-[150] flex h-dvh w-dvw flex-col overflow-hidden bg-black animate-in fade-in duration-500">
-          <div className="pointer-events-auto absolute right-6 top-6 z-[160] flex items-center gap-2">
-            <div className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-xl shadow-strong transition-all duration-500 hover:gap-2">
-              <div className="flex items-center gap-1.5 overflow-hidden transition-all duration-300 w-0 opacity-0 group-hover:w-auto group-hover:opacity-100">
-                <Button
-                  className={cn("h-9 w-9 rounded-full transition-all bg-[var(--accent)] text-black font-bold")}
-                  onClick={() => setCharacterDisplayMode("full")}
-                  size="icon" tooltip="Body Mode" variant="ghost"
-                >
-                  <User className="h-5 w-5" />
-                </Button>
-                <Button
-                  className={cn("h-9 w-9 rounded-full transition-all text-white/60 hover:bg-white/10 hover:text-white")}
-                  onClick={() => setCharacterDisplayMode("head")}
-                  size="icon" tooltip="Head Mode" variant="ghost"
-                >
-                  <Scan className="h-5 w-5" />
-                </Button>
-                <Button
-                  className="h-9 w-9 rounded-full text-white/50 hover:bg-rose-500/20 hover:text-rose-400 transition-all font-bold"
-                  onClick={() => { setIsCharacterVisible(false); if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); }}
-                  size="icon" tooltip="Exit Stage" variant="ghost"
-                >
-                  <X className="h-5 w-5" />
-                </Button>
-                <div className="mx-1 h-4 w-px bg-white/20" />
-              </div>
-              <Button
-                className="h-9 w-9 rounded-full bg-[var(--accent)] text-black font-bold shadow-strong transition-all"
-                onClick={() => setCharacterDisplayMode("head")}
-                size="icon" tooltip="Exit Fullscreen" variant="ghost"
-              >
-                <Minimize2 className="h-5 w-5" />
-              </Button>
-              <div className="h-4 w-px bg-white/20" />
-              <Button
-                className={cn("h-9 w-9 rounded-full transition-all", voiceReplyEnabled ? "text-[var(--accent)]" : "text-white/60 hover:bg-white/10 hover:text-white")}
-                onClick={() => setVoiceReplyEnabled((prev) => !prev)}
-                size="icon" tooltip={voiceReplyEnabled ? "Mute" : "Unmute"} variant="ghost"
-              >
-                {voiceReplyEnabled ? <Ear className="h-5 w-5" /> : <EarOff className="h-5 w-5" />}
-              </Button>
-              <Button
-                className={cn("h-9 w-9 rounded-full transition-all", subtitlesEnabled ? "bg-[var(--accent)] text-black font-bold" : "text-white/60 hover:bg-white/10 hover:text-white")}
-                onClick={() => setSubtitlesEnabled((prev) => !prev)}
-                size="icon" tooltip="Subtitles" variant="ghost"
-              >
-                <MessageSquare className="h-5 w-5" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex h-full w-full flex-1 flex-col overflow-hidden items-center justify-center">
-            <CharacterContext.Provider value={characterContextValue}>
-              <VoiceContext.Provider value={voiceContextValue}>
-                <AudioContext.Provider value={audioContextValue}>
-                  <AnimatedCharacter stageScale={2.5} viewPreset="full" />
-                </AudioContext.Provider>
-              </VoiceContext.Provider>
-            </CharacterContext.Provider>
-          </div>
-
-          {subtitlesEnabled && (
-            <div className="pointer-events-none absolute inset-0 z-[155] flex flex-col items-center justify-end px-12 pb-16">
-              <div className="relative flex w-full max-w-4xl flex-col items-center">
-                <div className="absolute -bottom-12 left-1/2 h-32 w-64 -translate-x-1/2 rounded-full bg-[var(--accent)]/30 blur-[60px]" />
-                <div className="w-full rounded-[40px] border border-white/10 bg-black/40 px-12 py-10 text-center backdrop-blur-2xl shadow-strong">
-                  {messages.slice(-1).map((msg, idx) => {
-                    const msgKey = speechMessageKey(msg, Math.max(0, messages.length - 1))
-                    return (
-                      <div key={idx} className="flex flex-col items-center gap-2">
-                        <span className="mb-2 text-[10px] font-black uppercase tracking-[0.4em] text-white/40">{msg.role === "user" ? "You" : selectedCharacter?.name}</span>
-                        <div className="flex flex-wrap justify-center text-2xl font-medium tracking-tight text-white/90 lg:text-3xl">
-                          {msg.content.split(" ").map((word, wIdx) => (
-                            <span key={wIdx} className={cn("mr-2 transition-all duration-300", msgKey === speakingMessageKey && wIdx === speakingWordIndex ? "scale-105 font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" : "opacity-60")}>
-                              {word}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {isProjectEditorOpen ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10">
