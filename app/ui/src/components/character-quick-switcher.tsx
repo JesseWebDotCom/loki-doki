@@ -22,6 +22,7 @@ type CharacterQuickSwitcherProps = {
   footerLabel?: string
   footerSubtitle?: string
   hideFooter?: boolean
+  minimal?: boolean
 }
 
 function CharacterBadge({ character }: { character: CharacterOption | null }) {
@@ -49,37 +50,49 @@ export function CharacterQuickSwitcher({
   footerLabel = "More characters",
   footerSubtitle = "Open the settings character area",
   hideFooter = false,
+  minimal = false,
 }: CharacterQuickSwitcherProps) {
   return (
     <div className="relative" onPointerDown={(event) => event.stopPropagation()}>
       <button
         aria-expanded={open}
-        className="sidebar-hover-surface flex min-h-[52px] items-center gap-3 rounded-[18px] border border-[var(--line)] bg-[var(--input)] px-3 py-2 text-left disabled:cursor-wait disabled:opacity-80"
+        className={cn(
+          "sidebar-hover-surface flex items-center transition-all disabled:cursor-wait disabled:opacity-80",
+          minimal
+            ? "h-10 w-10 justify-center rounded-full border border-[var(--line)] bg-[var(--input)] p-0"
+            : "min-h-[52px] gap-3 rounded-[18px] border border-[var(--line)] bg-[var(--input)] px-3 py-2 text-left"
+        )}
         disabled={busy}
         onClick={onToggle}
         type="button"
       >
         <CharacterBadge character={selectedCharacter} />
-          <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-[var(--foreground)]">
-            {busy ? pendingCharacterName || selectedCharacter?.name || "LokiDoki" : selectedCharacter?.name || "LokiDoki"}
-          </div>
-          <div className="max-w-[220px] truncate text-[12px] leading-4 text-[var(--muted-foreground)]">
-            {busy ? "Compiling character..." : selectedCharacter?.teaser || "Neutral assistant"}
-          </div>
-        </div>
-        {busy ? (
-          <LoaderCircle className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" />
-        ) : (
-          <ChevronDown className={cn("h-4 w-4 text-[var(--muted-foreground)] transition", open && "rotate-180")} />
+        {!minimal && (
+          <>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-[var(--foreground)]">
+                {busy ? pendingCharacterName || selectedCharacter?.name || "LokiDoki" : selectedCharacter?.name || "LokiDoki"}
+              </div>
+              <div className="max-w-[220px] truncate text-[12px] leading-4 text-[var(--muted-foreground)]">
+                {busy ? "Compiling character..." : selectedCharacter?.teaser || "Neutral assistant"}
+              </div>
+            </div>
+            {busy ? (
+              <LoaderCircle className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" />
+            ) : (
+              <ChevronDown className={cn("h-4 w-4 text-[var(--muted-foreground)] transition", open && "rotate-180")} />
+            )}
+          </>
+        )}
+        {minimal && busy && (
+           <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/20">
+             <LoaderCircle className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" />
+           </div>
         )}
       </button>
 
       {open ? (
         <div className="quick-switcher-shell absolute left-0 bottom-[calc(100%+10px)] z-50 w-72 rounded-[22px] p-2 shadow-xl">
-          <div className="px-3 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-            Characters
-          </div>
           <div className="space-y-1">
             {characters.map((character) => {
               const isSelected = character.id === selectedCharacter?.id
