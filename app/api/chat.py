@@ -29,6 +29,8 @@ from app.api.chat_helpers import (
     generate_chat_assistant_message,
     chat_state_payload,
     resolve_response_style_policy,
+    skill_render_context,
+    skill_should_skip_character_render,
 )
 from app.skills.service import skill_service, SkillService
 
@@ -230,43 +232,106 @@ async def chat_message_stream_api(
         if skill_message is not None:
              # 2. Handle structured skill response (executed or clarified)
              result_payload = skill_message.get("result") or {}
-             reply_text = str(result_payload.get("reply") or "").strip()
              
-             meta_with_result = assistant_message_meta(
-                classification,
-                active_providers["llm_fast"],
-                result_payload,
-                turn_id=turn_id,
-                voice_summary=reply_text,
-                response_style=chosen_response_style,
-                response_style_debug=dict(response_style_policy.get("debug") or {}),
-             )
-             meta_with_result["skill_route"] = skill_route
-             
-             yield json.dumps({"type": "meta", "meta": meta_with_result}) + "\n"
-             yield json.dumps({"type": "delta", "delta": reply_text}) + "\n"
-             
-             with connection_scope() as conn:
-                 assistant_message = {
-                    "role": "assistant",
-                    "content": reply_text,
-                    "meta": meta_with_result,
-                    "created_at": None,
-                 }
-                 chat_store.append_chat_message(conn, current_user["id"], str(chat["id"]), assistant_message)
+             if skill_should_skip_character_render(skill_message["message"]):
+                 reply_text = str(result_payload.get("reply") or "").strip()
+                 meta_with_result = assistant_message_meta(
+                    classification,
+                    active_providers["llm_fast"],
+                    result_payload,
+                    turn_id=turn_id,
+                    voice_summary=reply_text,
+                    response_style=chosen_response_style,
+                    response_style_debug=dict(response_style_policy.get("debug") or {}),
+                 )
+                 meta_with_result["skill_route"] = skill_route
                  
-                 memory_store.promote_person_facts(
-                    conn, 
-                    current_user["id"], 
-                    rendering_context.active_character_id if rendering_context else None, 
-                    payload.message.strip(), 
-                    history
+                 yield json.dumps({"type": "meta", "meta": meta_with_result}) + "\n"
+                 yield json.dumps({"type": "delta", "delta": reply_text}) + "\n"
+                 
+                 with connection_scope() as conn:
+                     assistant_message = {
+                        "role": "assistant",
+                        "content": reply_text,
+                        "meta": meta_with_result,
+                        "created_at": None,
+                     }
+                     chat_store.append_chat_message(conn, current_user["id"], str(chat["id"]), assistant_message)
+                     
+                     memory_store.promote_person_facts(
+                        conn, 
+                        current_user["id"], 
+                        rendering_context.active_character_id if rendering_context else None, 
+                        payload.message.strip(), 
+                        history
+                     )
+                     
+                     saved_history = chat_store.load_chat_history(conn, current_user["id"], str(chat["id"]))
+                     saved_message = dict(saved_history[-1]) if saved_history else dict(assistant_message)
+                 yield json.dumps({"type": "done", "message": saved_message}) + "\n"
+                 return
+             else:
+                 # Orchestrated character render for skill result
+                 _, skill_render_prompt = skill_render_context(skill_message["message"], skill_route)
+                 
+                 stream_result = route_message_stream(
+                    payload.message.strip(),
+                    current_user["display_name"],
+                    context["settings"]["profile"],
+                    history,
+                    active_providers,
+                    rendering_context=rendering_context,
+                    dynamic_context=skill_render_prompt,
+                    response_style=chosen_response_style,
                  )
                  
-                 saved_history = chat_store.load_chat_history(conn, current_user["id"], str(chat["id"]))
-                 saved_message = dict(saved_history[-1]) if saved_history else dict(assistant_message)
-             yield json.dumps({"type": "done", "message": saved_message}) + "\n"
-             return
+                 meta = assistant_message_meta(
+                    classification,
+                    active_providers["llm_fast"],
+                    result_payload,
+                    turn_id=turn_id,
+                    response_style=chosen_response_style,
+                    response_style_debug=dict(response_style_policy.get("debug") or {}),
+                 )
+                 meta["skill_route"] = skill_route
+                 
+                 chunks: list[str] = []
+                 yield json.dumps({"type": "meta", "meta": meta}) + "\n"
+                 try:
+                     for chunk in stream_result.chunks:
+                         text = str(chunk)
+                         if not text:
+                             continue
+                         chunks.append(text)
+                         yield json.dumps({"type": "delta", "delta": text}) + "\n"
+                 except Exception as exc:
+                     yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
+                     return
+
+                 assistant_message = {
+                     "role": "assistant",
+                     "content": "".join(chunks),
+                     "meta": {
+                         **meta,
+                         "voice_summary": "".join(chunks).strip(),
+                     },
+                     "created_at": None,
+                 }
+                 with connection_scope() as connection:
+                     chat_store.append_chat_message(connection, current_user["id"], str(chat["id"]), assistant_message)
+                     
+                     memory_store.promote_person_facts(
+                         connection,
+                         current_user["id"],
+                         rendering_context.active_character_id if rendering_context else None,
+                         payload.message.strip(),
+                         history,
+                     )
+                     
+                     saved_history = chat_store.load_chat_history(connection, current_user["id"], str(chat["id"]))
+                     saved_message = dict(saved_history[-1]) if saved_history else dict(assistant_message)
+                 yield json.dumps({"type": "done", "message": saved_message}) + "\n"
+                 return
 
         # 3. Standard text streaming fallback
         stream_result = route_message_stream(

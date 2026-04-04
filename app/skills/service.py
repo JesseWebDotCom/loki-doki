@@ -163,7 +163,16 @@ class SkillService:
             logging.error(f"Primary skill execution failed: {exc}")
             # Create a "failed" execution so we can trigger fallbacks
             from app.skills.types import SkillExecutionResult
-            execution = SkillExecutionResult(ok=False, skill_id=route.candidate.skill_id, action=route.candidate.action, route=route, result={}, reply="", card={}, meta={})
+            execution = SkillExecutionResult(
+                ok=False, 
+                skill_id=route.candidate.skill_id, 
+                action=route.candidate.action, 
+                route=route, 
+                result={}, 
+                reply=f"I encountered an error while trying to use the {route.candidate.skill_id} skill.", 
+                card={"type": "error", "title": "Skill Error", "detail": str(exc)}, 
+                meta={}
+            )
 
         if execution.ok or execution.skill_id not in SKILL_FALLBACKS:
             return execution

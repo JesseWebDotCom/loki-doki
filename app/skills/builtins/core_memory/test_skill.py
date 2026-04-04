@@ -1,15 +1,22 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 
 from app.skills.builtins.core_memory.skill import CoreMemorySkill
 
 @pytest.fixture
 def skill():
-    return CoreMemorySkill()
+    s = CoreMemorySkill()
+    s.manifest = {
+        "id": "core_memory",
+        "actions": {
+            "save_fact": {}
+        }
+    }
+    return s
 
 @pytest.fixture
 def emit_progress():
-    return MagicMock()
+    return AsyncMock()
 
 @pytest.fixture
 def ctx():
