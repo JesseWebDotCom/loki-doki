@@ -6799,87 +6799,9 @@ export default function App() {
 
                   {/* Bottom: Selection & Audio */}
                   <div className="z-10 space-y-4 border-t border-[var(--line)] bg-[var(--panel-strong)]/40 p-4">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center justify-between">
-                         <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Character</span>
-                         <div className="flex items-center gap-1">
-                           <Button
-                             className={cn(
-                               "h-8 w-8 rounded-lg",
-                               characterDisplayMode === "full" ? "bg-[var(--accent)] text-black" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                             )}
-                             onClick={() => setCharacterDisplayMode("full")}
-                             size="icon"
-                             variant="ghost"
-                             tooltip="Full Body"
-                           >
-                             <User className="h-4 w-4" />
-                           </Button>
-                           <Button
-                             className={cn(
-                               "h-8 w-8 rounded-lg",
-                               characterDisplayMode === "head" ? "bg-[var(--accent)] text-black" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                             )}
-                             onClick={() => setCharacterDisplayMode("head")}
-                             size="icon"
-                             variant="ghost"
-                             tooltip="Focus Head"
-                           >
-                             <Scan className="h-4 w-4" />
-                           </Button>
-                           {characterDisplayMode === "fullscreen" ? (
-                             <Button
-                               className="h-8 w-8 rounded-lg bg-[var(--accent)] text-black"
-                               onClick={() => {
-                                 setCharacterDisplayMode("head");
-                                 if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-                               }}
-                               size="icon"
-                               variant="ghost"
-                               tooltip="Exit Fullscreen"
-                             >
-                               <Minimize2 className="h-4 w-4" />
-                             </Button>
-                           ) : (
-                             <Button
-                               className="h-8 w-8 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                               onClick={() => setCharacterDisplayMode("fullscreen")}
-                               size="icon"
-                               variant="ghost"
-                               tooltip="Fullscreen Stage"
-                             >
-                               <Maximize2 className="h-4 w-4" />
-                             </Button>
-                           )}
-                           <div className="mx-1 h-4 w-px bg-[var(--line)]" />
-                           <Button
-                             className={cn(
-                               "h-8 w-8 rounded-lg transition-all",
-                               voiceReplyEnabled ? "text-[var(--accent)]" : "text-[var(--muted-foreground)] hover:text-white"
-                             )}
-                             onClick={() => setVoiceReplyEnabled((prev) => !prev)}
-                             size="icon"
-                             variant="ghost"
-                             tooltip={voiceReplyEnabled ? "Mute Voice" : "Unmute Voice"}
-                           >
-                             {voiceReplyEnabled ? <Ear className="h-4 w-4" /> : <EarOff className="h-4 w-4" />}
-                           </Button>
-                           <Button
-                             className={cn(
-                               "h-8 w-8 rounded-lg transition-all",
-                               subtitlesEnabled ? "text-[var(--accent)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                             )}
-                             onClick={() => setSubtitlesEnabled((prev) => !prev)}
-                             size="icon"
-                             variant="ghost"
-                             tooltip={subtitlesEnabled ? "Hide Subtitles" : "Show Subtitles"}
-                           >
-                             <MessageSquare className="h-4 w-4" />
-                           </Button>
-                         </div>
-                      </div>
-                      
+                    <div className="flex flex-row items-center justify-between gap-3">
                       <CharacterQuickSwitcher
+                        minimal={characterDisplayMode !== "fullscreen"}
                         busy={isCharacterSyncPending}
                         characters={sharedCharacterChoices.map((character) => ({
                           ...character,
@@ -6899,6 +6821,84 @@ export default function App() {
                           }
                         }}
                       />
+
+                      <div className="flex items-center gap-1">
+                        <Button
+                          className={cn(
+                            "h-8 w-8 rounded-lg",
+                            characterDisplayMode === "full" ? "bg-[var(--accent)] text-black" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                          )}
+                          onClick={() => setCharacterDisplayMode("full")}
+                          size="icon"
+                          variant="ghost"
+                          tooltip="Full Body"
+                        >
+                          <User className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          className={cn(
+                            "h-8 w-8 rounded-lg",
+                            characterDisplayMode === "head" ? "bg-[var(--accent)] text-black" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                          )}
+                          onClick={() => setCharacterDisplayMode("head")}
+                          size="icon"
+                          variant="ghost"
+                          tooltip="Focus Head"
+                        >
+                          <Scan className="h-4 w-4" />
+                        </Button>
+                        {characterDisplayMode === "fullscreen" ? (
+                          <Button
+                            className="h-8 w-8 rounded-lg bg-[var(--accent)] text-black"
+                            onClick={() => {
+                              setCharacterDisplayMode("head");
+                              if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+                            }}
+                            size="icon"
+                            variant="ghost"
+                            tooltip="Exit Fullscreen"
+                          >
+                            <Minimize2 className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            className="h-8 w-8 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                            onClick={() => setCharacterDisplayMode("fullscreen")}
+                            size="icon"
+                            variant="ghost"
+                            tooltip="Fullscreen Stage"
+                          >
+                            <Maximize2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <div className="mx-1 h-4 w-px bg-[var(--line)]" />
+                        <Button
+                          className={cn(
+                            "h-8 w-8 rounded-lg transition-all",
+                            voiceReplyEnabled ? "text-[var(--accent)]" : "text-[var(--muted-foreground)] hover:text-white"
+                          )}
+                          onClick={() => setVoiceReplyEnabled((prev) => !prev)}
+                          size="icon"
+                          variant="ghost"
+                          tooltip={voiceReplyEnabled ? "Mute Voice" : "Unmute Voice"}
+                        >
+                          {voiceReplyEnabled ? <Ear className="h-4 w-4" /> : <EarOff className="h-4 w-4" />}
+                        </Button>
+                        {characterDisplayMode === "fullscreen" && (
+                          <Button
+                            className={cn(
+                              "h-8 w-8 rounded-lg transition-all",
+                              subtitlesEnabled ? "text-[var(--accent)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                            )}
+                            onClick={() => setSubtitlesEnabled((prev) => !prev)}
+                            size="icon"
+                            variant="ghost"
+                            tooltip={subtitlesEnabled ? "Hide Subtitles" : "Show Subtitles"}
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                     </>
