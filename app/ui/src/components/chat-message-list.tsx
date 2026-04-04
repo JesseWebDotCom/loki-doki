@@ -181,7 +181,7 @@ export function ChatMessageList({
         </div>
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 pb-10">
         {messages.map((message, index) => (
           message.role === "assistant" && message.pending && !message.content ? null : (
           <div
@@ -194,8 +194,8 @@ export function ChatMessageList({
             {message.role === "user" ? (
               <div className="group max-w-[85%]">
                 <div className="chat-user-bubble">
-                  <p className="whitespace-pre-wrap break-words text-[15px] leading-7">
-                    {message.content}
+                  <p className="whitespace-pre-wrap break-words text-lg leading-7">
+                    {message.content.trim()}
                   </p>
                 </div>
                 <div className="mt-1 flex min-h-[32px] items-center justify-end gap-2 px-1">
@@ -207,7 +207,7 @@ export function ChatMessageList({
               </div>
             ) : (
               <div className="flex w-full max-w-[85%] items-start gap-4">
-                <div className="flex flex-none pt-3">
+                <div className="flex flex-none pt-1">
                   <AssistantAvatar character={assistantCharacter} onClick={onToggleCharacter} />
                 </div>
                 <div className="chat-assistant-bubble min-w-0 flex-1">

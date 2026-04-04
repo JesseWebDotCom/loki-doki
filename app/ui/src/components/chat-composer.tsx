@@ -260,7 +260,7 @@ export function ChatComposer({
                   autoCapitalize="sentences"
                   autoComplete="off"
                   autoCorrect="off"
-                  className="max-h-24 min-h-[42px] resize-none border-0 bg-transparent px-1 py-2 text-[15px] leading-6 text-[var(--foreground)] focus:border-transparent"
+                  className="max-h-24 min-h-[42px] resize-none border-0 bg-transparent px-1 py-2 text-lg leading-6 text-[var(--foreground)] focus:border-transparent"
                   data-1p-ignore="true"
                   data-lpignore="true"
                   disabled={isCharacterSyncPending}
