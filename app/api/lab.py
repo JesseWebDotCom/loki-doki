@@ -40,7 +40,7 @@ def _clean_prompt_lab_overrides(layer_overrides: dict[str, str]) -> dict[str, st
 
 
 @router.post("")
-def admin_prompt_lab_api(
+async def admin_prompt_lab_api(
     payload: AdminPromptLabRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -97,7 +97,7 @@ def admin_prompt_lab_api(
             skill_message = None
             if payload.use_skills:
                 skill_execute_started = time.perf_counter()
-                skill_message = skill_service.route_and_execute(
+                skill_message = await skill_service.route_and_execute(
                     connection,
                     APP_CONFIG,
                     target_user,
@@ -268,7 +268,7 @@ def admin_prompt_lab_api(
 
 
 @router.post("/compile")
-def admin_prompt_lab_compile_api(
+async def admin_prompt_lab_compile_api(
     payload: AdminPromptLabCompileRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:

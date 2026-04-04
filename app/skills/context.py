@@ -21,6 +21,7 @@ def build_skill_context(
         "username": current_user["username"],
         "display_name": current_user["display_name"],
         "profile": profile,
+        "location": [34.0522, -118.2437],  # Default: Los Angeles, CA
         "shared_contexts": dict(shared_contexts),
         "accounts": AccountManager(conn),
     }

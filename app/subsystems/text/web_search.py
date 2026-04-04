@@ -36,6 +36,7 @@ def search_web(query: str) -> WebSearchResult:
     weather = _weather_result(query_lower)
     if weather is not None:
         return weather
+    
     ddgs = _load_ddgs()
     if ddgs is None:
         return WebSearchResult(

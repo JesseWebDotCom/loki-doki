@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-from typing import Any
+from typing import Any, Optional, Callable, Awaitable
 
 from app.skills.loader import SkillLoader
 from app.skills.response import build_skill_render_payload, build_skill_reply
@@ -18,7 +18,7 @@ class SkillManager:
     def __init__(self, loader: SkillLoader):
         self._loader = loader
 
-    def execute(
+    async def execute(
         self,
         conn: sqlite3.Connection,
         record: InstalledSkillRecord,
@@ -27,6 +27,7 @@ class SkillManager:
         request_text: str,
         database_path: str,
         turn_id: str = "",
+        emit_progress: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> SkillExecutionResult:
         """Execute one routed skill action."""
         if route.candidate is None:
@@ -43,7 +44,19 @@ class SkillManager:
             "request_text": request_text,
             "database_path": database_path,
         }
-        result = asyncio.run(skill.execute(route.candidate.action, payload, **route.candidate.extracted_entities))
+        
+        # Injected default no-op progress emitter if none provided
+        async def _no_op_progress(msg: str) -> None:
+            pass
+        
+        progress_callback = emit_progress or _no_op_progress
+        
+        result = await skill.execute(
+            route.candidate.action, 
+            payload, 
+            emit_progress=progress_callback,
+            **route.candidate.extracted_entities
+        )
         reply, card = build_skill_reply(result)
         render_payload = build_skill_render_payload(result, reply, card, route.to_dict())
         storage_module.touch_skill_last_used(conn, record.skill_id)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+import time
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.deps import APP_CONFIG, connection_scope, get_current_user, enforce_admin
@@ -14,6 +15,7 @@ from app.models.skills import (
     SkillSharedContextRequest,
 )
 from app.skills import skill_service, SkillInstallError, SkillExecutionError
+from app.skills.context import build_skill_context
 from app.runtime import runtime_context
 
 router = APIRouter(prefix="/skills", tags=["skills"])
@@ -134,24 +136,65 @@ def inspect_skill_route_api(
         return {"route": route}
 
 
-@router.post("/test-run")
-def test_skill_run_api(
+@router.post("/test")
+async def test_skill_run_api(
     payload: SkillTestRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Execute a skill operation manually for testing."""
     enforce_admin(current_user)
     with connection_scope() as connection:
-        context = runtime_context(connection, APP_CONFIG)
+        # Force an index rebuild to pick up any recent manifest changes in the DB
+        registry = skill_service._registry(APP_CONFIG)
+        skill_service._index.build(registry.list_installed(connection))
+        
+        # Build the effective skill context (includes shared contexts and account manager)
+        # This is what the UI's "Context Used" block expects to visualize
+        skill_context = build_skill_context(connection, current_user, "mac")
+        
+        start_time = time.perf_counter()
         try:
-            result = skill_service.route_and_execute(
+            result = await skill_service.route_and_execute(
                 connection,
                 APP_CONFIG,
                 current_user,
-                context["settings"]["profile"],
+                "mac",
                 payload.message.strip(),
             )
-            return {"result": result}
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            
+            # Prepare a serializable version of the context for the UI
+            # AccountManager isn't directly serializable, so we just provide a count or summary if needed
+            ui_context = {
+                **skill_context,
+                "accounts": "AccountManager active" 
+            }
+
+            if result is None:
+                # Fallback for when no skill matches
+                return {
+                    "message": {"role": "assistant", "content": "No skill matched this message."},
+                    "route": {"outcome": "no_skill", "reason": "No skill keywords or patterns matched."},
+                    "result": {
+                        "ok": False,
+                        "result": {"context": ui_context} 
+                    },
+                    "timing_ms": duration_ms,
+                    "context": ui_context
+                }
+                
+            # If result is not None, match the UI path: skillTestResult.result.result.context
+            if "result" in result and isinstance(result["result"], dict):
+                exec_result = result["result"]
+                if "result" not in exec_result or not isinstance(exec_result["result"], dict):
+                    exec_result["result"] = {}
+                exec_result["result"]["context"] = ui_context
+
+            return {
+                **result,
+                "timing_ms": duration_ms,
+                "context": ui_context
+            }
         except SkillExecutionError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 

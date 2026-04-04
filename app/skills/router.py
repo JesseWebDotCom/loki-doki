@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+import json
+from typing import Any, Optional
 
 from app.skills.types import InstalledSkillRecord, RouteCandidate, RouteDecision
 from app.skills.manifest import validate_manifest
+from app.skills.normalizer import Normalizer
+from app.skills.tfidf_index import InvertedIndex, ActionRef
 
-MIN_ROUTE_SCORE = 3.4
+MIN_ROUTE_SCORE = 3.0
 MIN_SKILL_CALL_SCORE = 1.5
 MIN_COMMAND_ROUTE_SCORE = 2.4
 CLARIFY_MARGIN = 0.75
@@ -21,6 +24,9 @@ QUESTION_PREFIXES = (
     "who was ",
     "what is ",
     "what are ",
+    "tell me who ",
+    "tell me what ",
+    "tell me about ",
     "which ",
     "did ",
     "does ",
@@ -77,19 +83,71 @@ CURRENT_FACT_CUES = {"current", "latest", "new", "recent", "recently", "today", 
 class SkillRouter:
     """Score installed skills and decide whether a request is a skill call."""
 
+    def __init__(self, index: Optional[InvertedIndex] = None) -> None:
+        self._normalizer = Normalizer()
+        self._index = index or InvertedIndex(self._normalizer)
+
     def route(
         self,
         message: str,
         installed_skills: list[InstalledSkillRecord],
         runtime_context: dict[str, Any],
+        *,
+        history: Optional[list[dict[str, str]]] = None,
     ) -> RouteDecision:
         """Return the deterministic route for one user message."""
         cleaned = " ".join(message.lower().strip().split())
         if not cleaned:
             return RouteDecision(outcome="no_skill", reason="Empty request.")
-        candidates = self._score_candidates(cleaned, installed_skills, runtime_context)
+
+        # Contextual boost: Bias towards recently used skills if pronouns are present
+        pronouns = {"his", "her", "they", "their", "them", "him", "she", "he"}
+        has_pronoun = any(f" {p} " in f" {cleaned} " for p in pronouns)
+        last_skill_id = None
+        last_subject = ""
+        
+        if history:
+            # Look back for the last skill execution in history meta
+            for msg in reversed(history):
+                meta = msg.get("meta") or {}
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except Exception:
+                        meta = {}
+                
+                if meta.get("skill_id") and meta.get("skill_id") != "none":
+                    last_skill_id = meta["skill_id"]
+                    # Try to find a subject name (e.g. from Wikipedia title or movie title)
+                    last_subject = str(meta.get("skill_result", {}).get("data", {}).get("title") or "").strip()
+                    break
+
+        # If pronouns are present and we have a last subject, try a hidden resolution for scoring
+        scoring_message = cleaned
+        if has_pronoun and last_subject:
+            for p in pronouns:
+                scoring_message = scoring_message.replace(f" {p} ", f" {last_subject} ")
+                if scoring_message.startswith(f"{p} "):
+                    scoring_message = scoring_message.replace(f"{p} ", f"{last_subject} ", 1)
+
+        # Tokenize and normalize for indexing
+        query_tokens = self._normalizer.normalize(scoring_message)
+        candidates = self._score_candidates(scoring_message, query_tokens, installed_skills, runtime_context)
+        
         if not candidates:
             return RouteDecision(outcome="no_skill", reason="No enabled skill matched this request.")
+
+        # Boost candidates that match the last used skill if pronouns are used
+        if last_skill_id:
+            for c in candidates:
+                if c.skill_id == last_skill_id:
+                    c.score *= 1.5 # Significant boost for continuing context
+                elif last_skill_id in ("wikipedia", "web_search") and c.skill_id == "movies":
+                    # People lookups often follow into movies
+                    c.score *= 1.2
+            # Re-sort after boosting
+            candidates.sort(key=lambda item: item.score, reverse=True)
+
         # Force tv_shows skill for queries containing 'show' or 'tv show' if installed
         if ("show" in cleaned or "tv show" in cleaned):
             for c in candidates:
@@ -134,32 +192,107 @@ class SkillRouter:
     def _score_candidates(
         self,
         cleaned: str,
+        query_tokens: list[str],
         installed_skills: list[InstalledSkillRecord],
         runtime_context: dict[str, Any],
     ) -> list[RouteCandidate]:
-        words = set(re.findall(r"[a-z0-9_']+", cleaned))
+        words = set(query_tokens)
+        
+        # Phase 1: Fast indexed lookup
+        ref_scores = self._index.score_query(query_tokens)
+        
+        # Phase 2: Refined scoring for top candidates
         scored: list[RouteCandidate] = []
-        for record in installed_skills:
-            if not record.enabled or record.health_status == "error":
+        seen_refs: set[ActionRef] = set()
+        
+        # Detect identity-aware factual lookups (Who is, What is, etc.)
+        # These patterns often have zero TF-IDF score due to common tokens,
+        # so we force knowledge-retrieval skills into the candidate list.
+        identity_lookup = cleaned.startswith(IDENTITY_LOOKUP_PREFIXES)
+        force_refs: set[ActionRef] = set()
+        if identity_lookup:
+             # Find knowledge-retrieval actions to force into refinement
+             for record in installed_skills:
+                 if record.skill_id == "wikipedia" and record.enabled:
+                     force_refs.add(ActionRef("wikipedia", "lookup_article"))
+
+        # We check top 10 from index OR any skill that is already loaded if index is empty
+        limit = 10 if ref_scores else len(installed_skills) * 5
+        
+        # Merge index hits with forced identity refs
+        ref_queue: list[tuple[ActionRef, float]] = list(ref_scores[:limit])
+        for f_ref in force_refs:
+            if not any(r == f_ref for r, _ in ref_queue):
+                ref_queue.append((f_ref, 0.0))
+
+        for ref, index_score in ref_queue:
+            # Skip if we somehow already saw this one
+            if ref in seen_refs: continue
+            
+            # Find the record for this ref (can be from index or registry scan)
+            record = self._index.get_record(ref)
+            if not record:
+                 # Fallback scan for forced refs not in index
+                 for r in installed_skills:
+                     if r.skill_id == ref.skill_id:
+                         record = r
+                         break
+
+            if not record or not record.enabled or record.health_status == "error":
                 continue
+            
+            seen_refs.add(ref)
             definition = validate_manifest(record.manifest)
+            action = definition.actions.get(ref.action_name)
+            if not action or not action.enabled:
+                continue
+                
             candidate_context = {
                 **runtime_context.get("shared_contexts", {}).get(definition.skill_id, {}),
             }
-            for action_name, action in definition.actions.items():
-                if not action.enabled:
-                    continue
-                extracted = _extract_entities(cleaned, action.required_entities + action.optional_entities)
-                score, reasons = _score_action(cleaned, words, definition.skill_id, action_name, action, candidate_context, extracted)
-                scored.append(
-                    RouteCandidate(
-                        skill_id=definition.skill_id,
-                        action=action_name,
-                        score=score,
-                        reason=", ".join(reasons) if reasons else "Manifest routing score.",
-                        extracted_entities=extracted,
-                    )
+            
+            extracted = _extract_entities(cleaned, definition.skill_id, action)
+            score, reasons = _score_action(cleaned, words, definition.skill_id, ref.action_name, action, candidate_context, extracted)
+            
+            # Combine index score with refinement score
+            # We weight the refinement score higher since it handles exact phrases and negative keywords
+            final_score = score + (index_score * 0.2)
+            
+            scored.append(
+                RouteCandidate(
+                    skill_id=definition.skill_id,
+                    action=ref.action_name,
+                    score=final_score,
+                    reason=", ".join(reasons) if reasons else "Manifest routing score.",
+                    extracted_entities=extracted,
                 )
+            )
+
+        # Fallback: if no index hits, check system skills or previously installed ones linearly
+        # (Though in a warmed index, this should be rare)
+        if not scored:
+            for record in installed_skills:
+                if not record.enabled or record.health_status == "error":
+                    continue
+                definition = validate_manifest(record.manifest)
+                for action_name, action in definition.actions.items():
+                    ref = ActionRef(definition.skill_id, action_name)
+                    if ref in seen_refs or not action.enabled:
+                        continue
+                    
+                    extracted = _extract_entities(cleaned, definition.skill_id, action)
+                    score, reasons = _score_action(cleaned, words, definition.skill_id, action_name, action, {}, extracted)
+                    if score > 0:
+                        scored.append(
+                            RouteCandidate(
+                                skill_id=definition.skill_id,
+                                action=action_name,
+                                score=score,
+                                reason=", ".join(reasons) if reasons else "Fallback linear score.",
+                                extracted_entities=extracted,
+                            )
+                        )
+
         scored.sort(key=lambda item: item.score, reverse=True)
         return scored
 
@@ -252,27 +385,42 @@ def _is_command_action(action) -> bool:
     return bool((phrase_words | keyword_words) & trigger_words)
 
 
-def _extract_entities(cleaned: str, entity_names: tuple[str, ...]) -> dict[str, Any]:
-    """Extract a light set of known entities from a request."""
+def _extract_entities(cleaned: str, skill_id: str, action: SkillActionDefinition) -> dict[str, Any]:
+    """Extract entities dynamically based on the action manifest and skill ID."""
+    entity_names = action.required_entities + action.optional_entities
     extracted: dict[str, Any] = {}
+    
+    # Generic prefix stripping based on the skill's activator phrases, ID, and Title
+    signal = cleaned
+    prefixes = list(action.phrases)
+    # Also strip the skill's own identity if it appears at the start (e.g. "wikipedia mr t")
+    prefixes.append(skill_id)
+    
+    for phrase in prefixes:
+        p = phrase.lower().strip()
+        if not p:
+            continue
+        if cleaned.startswith(p):
+            # Strip the matching phrase plus common connectors like "for" or "on"
+            candidate = cleaned[len(p):].strip()
+            for connector in ("for ", "on ", "about "):
+                if candidate.startswith(connector):
+                    candidate = candidate[len(connector):].strip()
+            
+            if len(candidate) < len(signal):
+                signal = candidate
+                
     if "query" in entity_names:
-        extracted["query"] = _extract_query(cleaned)
+        extracted["query"] = signal.strip(" ?!.,:;").strip()
     if "num_results" in entity_names:
         extracted["num_results"] = 5
     if "location" in entity_names:
-        extracted["location"] = _extract_location(cleaned)
+        extracted["location"] = _extract_location(signal)
     if "date" in entity_names:
-        extracted["date"] = _extract_date(cleaned)
+        extracted["date"] = _extract_date(signal)
     return extracted
 
 
-def _extract_query(cleaned: str) -> str:
-    """Extract a search-style query from the request."""
-    prefixes = ("search for ", "look up ", "find ", "google ", "search the web for ")
-    for prefix in prefixes:
-        if cleaned.startswith(prefix):
-            return cleaned[len(prefix) :].strip()
-    return cleaned
 
 
 def _extract_location(cleaned: str) -> str:
@@ -368,12 +516,15 @@ def _has_reference_pattern(cleaned: str, words: set[str]) -> bool:
 
 def _domain_lookup_score(skill_id: str, action_name: str, cleaned: str, words: set[str]) -> float:
     """Return extra score for domain-specific factual lookups."""
-    identity_lookup = cleaned.startswith(IDENTITY_LOOKUP_PREFIXES)
     if skill_id == "wikipedia" and action_name == "lookup_article":
-        if identity_lookup:
-            return 3.8
+        # Strongly prefer Wikipedia for factual starting patterns
+        # even if keywords are common (like 'who', 'is', 'what')
+        if any(cleaned.startswith(p) for p in IDENTITY_LOOKUP_PREFIXES):
+            return 6.5 # Absolute confidence for standard identity query patterns
+        if any(cleaned.startswith(p) for p in ("tell me about ", "tell me who ", "tell me what ", "know about ", "heard of ")):
+            return 5.5
         if "wikipedia" in words or "wiki" in words:
-            return 2.2
+            return 5.0
         return 0.0
     if skill_id == "tv_shows":
         if action_name == "get_show_cast" and cleaned.startswith(("cast of ", "who was in ", "who starred in ", "who was on ")):

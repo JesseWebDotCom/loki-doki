@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 
 class BaseSkill(ABC):
@@ -12,7 +12,13 @@ class BaseSkill(ABC):
     manifest: dict[str, Any]
 
     @abstractmethod
-    async def execute(self, action: str, ctx: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    async def execute(
+        self,
+        action: str,
+        ctx: dict[str, Any],
+        emit_progress: Callable[[str], Awaitable[None]],
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """Execute one skill action."""
 
     async def test_connection(self, ctx: dict[str, Any]) -> dict[str, Any]:
@@ -24,3 +30,11 @@ class BaseSkill(ABC):
         actions = self.manifest.get("actions", {})
         if action not in actions:
             raise ValueError(f"Unknown action: {action}")
+
+    def build_sources(self, *sources: dict[str, Any]) -> list[dict[str, Any]]:
+        """Convenience helper to construct the sources list."""
+        return [s for s in sources if s.get("label") and s.get("url")]
+
+    def build_media(self, *items: dict[str, Any]) -> list[dict[str, Any]]:
+        """Convenience helper to construct the media list."""
+        return [m for m in items if m.get("type") and m.get("url")]

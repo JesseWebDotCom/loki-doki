@@ -18,17 +18,22 @@ class SkillRegistry:
         self._builtins_dir = builtins_dir
 
     def sync_system_skills(self, conn: sqlite3.Connection) -> None:
-        """Ensure built-in system skills are installed in SQLite."""
+        """Ensure built-in system skills are installed in SQLite and stale ones are removed."""
         if not self._builtins_dir.exists():
             return
+        
+        on_disk_ids = set()
         for manifest_path in sorted(self._builtins_dir.glob("*/manifest.json")):
             definition = validate_manifest(load_manifest(manifest_path))
+            skill_id = definition.skill_id
+            on_disk_ids.add(skill_id)
+            
             skill_dir = manifest_path.parent
             skill_path = skill_dir / "skill.py"
             logo = self._builtin_logo(skill_dir, definition.raw_manifest)
             storage_module.upsert_installed_skill(
                 conn,
-                skill_id=definition.skill_id,
+                skill_id=skill_id,
                 version=definition.version,
                 title=definition.title,
                 domain=definition.domain,
@@ -41,6 +46,13 @@ class SkillRegistry:
                 source_type="builtin",
                 source_ref=skill_path,
             )
+            
+        # Clean up stale builtin skills that are no longer on disk
+        installed = storage_module.list_installed_skills(conn)
+        for record in installed:
+            is_builtin_path = str(record.source_ref).startswith(str(self._builtins_dir) + "/")
+            if is_builtin_path and record.skill_id not in on_disk_ids:
+                storage_module.delete_installed_skill(conn, record.skill_id)
 
     def list_installed(self, conn: sqlite3.Connection) -> list[InstalledSkillRecord]:
         """Return all installed skills."""

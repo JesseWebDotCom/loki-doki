@@ -126,6 +126,7 @@ class AppConfig:
     app_port: int = APP_PORT
     public_host: str = PUBLIC_HOST
     public_port: int = PUBLIC_PORT
+    dev_skills_path: Optional[Path] = None
 
 
 def detect_profile() -> str:
@@ -198,6 +199,10 @@ def get_app_config() -> AppConfig:
     SKILLS_INSTALLED_DIR.mkdir(parents=True, exist_ok=True)
     # Load secrets from environment with secure defaults for local dev
     jwt_secret = os.environ.get("LOKIDOKI_JWT_SECRET", "lokidoki-phase-one-dev-secret")
+    # Optional local developer skills source
+    dev_skills_env = os.environ.get("LOKIDOKI_DEV_SKILLS_PATH")
+    dev_skills_path = Path(dev_skills_env).resolve() if dev_skills_env else None
+    
     return AppConfig(
         root_dir=ROOT_DIR,
         data_dir=DATA_DIR,
@@ -212,4 +217,5 @@ def get_app_config() -> AppConfig:
         characters_repository_dir=CHARACTERS_REPOSITORY_DIR,
         characters_repository_index_url=CHARACTERS_REPOSITORY_INDEX_URL,
         jwt_secret=jwt_secret,
+        dev_skills_path=dev_skills_path,
     )

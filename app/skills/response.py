@@ -21,6 +21,8 @@ def build_skill_reply(result: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         return detail, {"type": "error", "title": skill_id, "detail": detail}
     if presentation.get("type") == "search_results":
         return _search_reply(data)
+    if presentation.get("type") == "wikipedia_summary":
+        return _wikipedia_reply(data)
     if presentation.get("type") == "weather_report":
         return _weather_reply(data)
     if presentation.get("type") == "clarification":
@@ -67,6 +69,7 @@ def build_skill_render_payload(
         "response_style": _response_style(result),
         "data": _compact_value(dict(result.get("data") or {}), depth=0),
         "source_metadata": _source_metadata(result),
+        "media": _media_metadata(result),
         "errors": [str(item) for item in list(result.get("errors") or [])[:3]],
         "route": dict(route or {}),
     }
@@ -90,6 +93,24 @@ def _search_reply(data: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     snippet = str(top.get("snippet") or "").strip()
     reply = title if not snippet else f"{title}. {snippet}"
     return reply, {"type": "search_results", "title": data.get("query", "Search"), "items": results[:5]}
+
+
+def _wikipedia_reply(data: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Build a compact Wikipedia summary response."""
+    title = str(data.get("title") or "Wikipedia")
+    extract = str(data.get("extract") or "").strip()
+    if not extract:
+        reply = f"I found a Wikipedia article for '{title}', but it doesn't have a summary."
+        return reply, {"type": "wikipedia_summary", "title": title, "detail": reply}
+    
+    # Use the description for a brief summary if available, then the extract
+    description = str(data.get("description") or "").strip()
+    if description:
+        reply = f"{title}, {description.lower().strip('.')}. {extract}"
+    else:
+        reply = f"{title}. {extract}"
+    
+    return reply, {"type": "wikipedia_summary", "title": title, "detail": reply, "data": data}
 
 
 def _weather_reply(data: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -145,6 +166,21 @@ def _source_metadata(result: dict[str, Any]) -> list[dict[str, str]]:
     data = dict(result.get("data") or {})
     presentation = dict(result.get("presentation") or {})
     source_name = str(dict(result.get("meta") or {}).get("source") or result.get("skill") or "").strip()
+    
+    # 1. Prefer explicit standardized sources array
+    raw_sources = list(result.get("sources") or [])
+    if raw_sources:
+        return [
+            {
+                "title": str(s.get("label") or s.get("title") or "Source"),
+                "url": str(s.get("url") or ""),
+                "snippet": str(s.get("snippet") or ""),
+                "source": source_name or "skill",
+            }
+            for s in raw_sources if s.get("url")
+        ]
+
+    # 2. Fallback to legacy presentation-specific logic
     sources: list[dict[str, str]] = []
     if str(presentation.get("type") or "") == "search_results":
         for item in list(data.get("results") or [])[:5]:
@@ -163,19 +199,29 @@ def _source_metadata(result: dict[str, Any]) -> list[dict[str, str]]:
                     }
                 )
         return sources
-    page_url = str(data.get("page_url") or "").strip()
-    title = str(data.get("title") or "").strip()
-    extract = str(data.get("extract") or data.get("summary") or "").strip()
-    if title or page_url or extract:
-        sources.append(
-            {
-                "title": title,
-                "url": page_url,
-                "snippet": extract,
-                "source": source_name or "skill",
-            }
-        )
     return sources
+
+
+def _media_metadata(result: dict[str, Any]) -> list[dict[str, str]]:
+    """Return normalized media attachments for one skill result."""
+    presentation = dict(result.get("presentation") or {})
+    media = list(presentation.get("media") or [])
+    if not media:
+        # Fallback to single poster/image in data if present
+        data = dict(result.get("data") or {})
+        poster_url = str(data.get("poster_url") or data.get("image_url") or "").strip()
+        if poster_url:
+            return [{"type": "poster", "url": poster_url}]
+        return []
+    
+    return [
+        {
+            "type": str(m.get("type") or "image"),
+            "url": str(m.get("url") or ""),
+            "alt": str(m.get("alt") or m.get("title") or ""),
+        }
+        for m in media if m.get("url")
+    ]
 
 
 def _response_style(result: dict[str, Any]) -> str:

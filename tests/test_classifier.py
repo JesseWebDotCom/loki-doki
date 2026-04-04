@@ -101,5 +101,21 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(result.route, "function_model")
 
 
+    def test_conversational_lookup_prefix_routes_to_web_query(self) -> None:
+        result = classify_message("Do you know who Angine de Poitrine is?")
+        self.assertEqual(result.request_type, "web_query")
+        self.assertEqual(result.route, "web_search")
+
+    def test_wikipedia_keyword_routes_to_web_query(self) -> None:
+        result = classify_message("search wikipedia for this")
+        self.assertEqual(result.request_type, "web_query")
+        self.assertEqual(result.route, "web_search")
+
+    def test_tell_me_about_prefix_routes_to_web_query(self) -> None:
+        result = classify_message("tell me about the band Angine de Poitrine")
+        self.assertEqual(result.request_type, "web_query")
+        self.assertEqual(result.route, "web_search")
+
+
 if __name__ == "__main__":
     unittest.main()

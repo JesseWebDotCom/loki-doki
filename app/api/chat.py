@@ -29,7 +29,11 @@ from app.api.chat_helpers import (
     generate_chat_assistant_message,
     chat_state_payload,
     resolve_response_style_policy,
+    skill_render_context,
+    skill_should_skip_character_render,
 )
+from app.skills.service import skill_service, SkillService
+
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 compat_router = APIRouter(prefix="/chat", tags=["chat-compat"])
@@ -94,7 +98,7 @@ def delete_chat_api(
 
 
 @router.post("/message")
-def chat_message_api(
+async def chat_message_api(
     payload: ChatRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -110,7 +114,7 @@ def chat_message_api(
         # Reload history to include the user message
         history = chat_store.load_chat_history(connection, current_user["id"], str(chat["id"]))
         
-        assistant_message = generate_chat_assistant_message(
+        assistant_message = await generate_chat_assistant_message(
             connection,
             current_user,
             context["settings"]["profile"],
@@ -132,12 +136,15 @@ def chat_message_api(
 
 
 @router.post("/message/stream")
-def chat_message_stream_api(
+async def chat_message_stream_api(
     payload: ChatRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
     """Stream one assistant reply turn."""
-    connection_factory = connection_scope
+    classification = classify_message(payload.message.strip())
+    turn_id = uuid4().hex
+    
+    # Pre-build context and providers
     with connection_scope() as connection:
         context = runtime_context(connection, APP_CONFIG)
         chat = chat_store.resolve_chat(connection, current_user["id"], payload.chat_id)
@@ -161,41 +168,193 @@ def chat_message_stream_api(
             character_id=rendering_context.active_character_id if rendering_context else None,
             chat_id=str(chat["id"]),
         )
+        
         user_message = {"role": "user", "content": payload.message.strip()}
         chat_store.append_chat_message(connection, current_user["id"], str(chat["id"]), user_message)
         history = chat_store.load_chat_history(connection, current_user["id"], str(chat["id"]))
+        
+        # Skill routing needs to be peeked first to see if we should run a skill
+        skill_route = skill_service.inspect_route(
+            connection,
+            APP_CONFIG,
+            current_user,
+            context["settings"]["profile"],
+            payload.message.strip(),
+            history=history,
+        )
 
-    turn_id = uuid4().hex
+    # Resolve response style policy
     response_style_policy = resolve_response_style_policy(
         payload.message.strip(),
         history[:-1],
-        classify_message(payload.message.strip()),
+        classification,
         rendering_context,
         payload.response_style,
         turn_id=turn_id,
     )
     chosen_response_style = str(response_style_policy["style"])
 
-    stream_result = route_message_stream(
-        payload.message.strip(),
-        current_user["display_name"],
-        context["settings"]["profile"],
-        history[:-1],
-        active_providers,
-        rendering_context=rendering_context,
-        dynamic_context=dynamic_context,
-        response_style=chosen_response_style,
-    )
+    async def iter_events():
+        import asyncio
+        progress_queue = asyncio.Queue()
+        
+        async def emit_progress(msg: str):
+            await progress_queue.put(msg) if progress_queue else None
 
-    meta = assistant_message_meta(
-        stream_result.classification,
-        stream_result.provider,
-        turn_id=turn_id,
-        response_style=chosen_response_style,
-        response_style_debug=dict(response_style_policy.get("debug") or {}),
-    )
+        skill_message = None
+        if skill_route:
+            # 1. Execute skill with progress streaming
+            connection_factory = connection_scope
+            with connection_factory() as connection:
+                skill_task = asyncio.create_task(
+                    skill_service.route_and_execute(
+                        connection,
+                        APP_CONFIG,
+                        current_user,
+                        context["settings"]["profile"],
+                        payload.message.strip(),
+                        turn_id=turn_id,
+                        history=history,
+                        emit_progress=emit_progress,
+                    )
+                )
 
-    def iter_events():
+                while not skill_task.done():
+                    try:
+                        # Wait for a progress message or check if task finished
+                        msg = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
+                        yield json.dumps({"type": "skill_progress", "skill": skill_route.get("skill"), "message": msg}) + "\n"
+                    except asyncio.TimeoutError:
+                        continue
+                
+                skill_message = await skill_task
+
+        if skill_message is not None:
+             # 2. Handle structured skill response (executed or clarified)
+             result_payload = skill_message.get("result") or {}
+             
+             if skill_should_skip_character_render(skill_message["message"]):
+                 reply_text = str(result_payload.get("reply") or "").strip()
+                 meta_with_result = assistant_message_meta(
+                    classification,
+                    active_providers["llm_fast"],
+                    result_payload,
+                    turn_id=turn_id,
+                    voice_summary=reply_text,
+                    response_style=chosen_response_style,
+                    response_style_debug=dict(response_style_policy.get("debug") or {}),
+                 )
+                 meta_with_result["skill_route"] = skill_route
+                 
+                 yield json.dumps({"type": "meta", "meta": meta_with_result}) + "\n"
+                 yield json.dumps({"type": "delta", "delta": reply_text}) + "\n"
+                 
+                 with connection_scope() as conn:
+                     assistant_message = {
+                        "role": "assistant",
+                        "content": reply_text,
+                        "meta": meta_with_result,
+                        "created_at": None,
+                     }
+                     chat_store.append_chat_message(conn, current_user["id"], str(chat["id"]), assistant_message)
+                     
+                     memory_store.promote_person_facts(
+                        conn, 
+                        current_user["id"], 
+                        rendering_context.active_character_id if rendering_context else None, 
+                        payload.message.strip(), 
+                        history
+                     )
+                     
+                     saved_history = chat_store.load_chat_history(conn, current_user["id"], str(chat["id"]))
+                     saved_message = dict(saved_history[-1]) if saved_history else dict(assistant_message)
+                 yield json.dumps({"type": "done", "message": saved_message}) + "\n"
+                 return
+             else:
+                 # Orchestrated character render for skill result
+                 _, skill_render_prompt = skill_render_context(skill_message["message"], skill_route)
+                 
+                 stream_result = route_message_stream(
+                    payload.message.strip(),
+                    current_user["display_name"],
+                    context["settings"]["profile"],
+                    history,
+                    active_providers,
+                    rendering_context=rendering_context,
+                    dynamic_context=skill_render_prompt,
+                    response_style=chosen_response_style,
+                 )
+                 
+                 meta = assistant_message_meta(
+                    classification,
+                    active_providers["llm_fast"],
+                    result_payload,
+                    turn_id=turn_id,
+                    response_style=chosen_response_style,
+                    response_style_debug=dict(response_style_policy.get("debug") or {}),
+                 )
+                 meta["skill_route"] = skill_route
+                 
+                 chunks: list[str] = []
+                 yield json.dumps({"type": "meta", "meta": meta}) + "\n"
+                 try:
+                     for chunk in stream_result.chunks:
+                         text = str(chunk)
+                         if not text:
+                             continue
+                         chunks.append(text)
+                         yield json.dumps({"type": "delta", "delta": text}) + "\n"
+                 except Exception as exc:
+                     yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
+                     return
+
+                 assistant_message = {
+                     "role": "assistant",
+                     "content": "".join(chunks),
+                     "meta": {
+                         **meta,
+                         "voice_summary": "".join(chunks).strip(),
+                     },
+                     "created_at": None,
+                 }
+                 with connection_scope() as connection:
+                     chat_store.append_chat_message(connection, current_user["id"], str(chat["id"]), assistant_message)
+                     
+                     memory_store.promote_person_facts(
+                         connection,
+                         current_user["id"],
+                         rendering_context.active_character_id if rendering_context else None,
+                         payload.message.strip(),
+                         history,
+                     )
+                     
+                     saved_history = chat_store.load_chat_history(connection, current_user["id"], str(chat["id"]))
+                     saved_message = dict(saved_history[-1]) if saved_history else dict(assistant_message)
+                 yield json.dumps({"type": "done", "message": saved_message}) + "\n"
+                 return
+
+        # 3. Standard text streaming fallback
+        stream_result = route_message_stream(
+            payload.message.strip(),
+            current_user["display_name"],
+            context["settings"]["profile"],
+            history[:-1],
+            active_providers,
+            rendering_context=rendering_context,
+            dynamic_context=dynamic_context,
+            response_style=chosen_response_style,
+        )
+
+        meta = assistant_message_meta(
+            classification,
+            active_providers["llm_fast"],
+            turn_id=turn_id,
+            response_style=chosen_response_style,
+            response_style_debug=dict(response_style_policy.get("debug") or {}),
+        )
+        if skill_route is not None:
+             meta["skill_route"] = skill_route
+
         chunks: list[str] = []
         yield json.dumps({"type": "meta", "meta": meta}) + "\n"
         try:
@@ -218,11 +377,9 @@ def chat_message_stream_api(
             },
             "created_at": None,
         }
-        with connection_factory() as connection:
-            # 1. Persist the final assistant message
+        with connection_scope() as connection:
             chat_store.append_chat_message(connection, current_user["id"], str(chat["id"]), assistant_message)
             
-            # 2. Extract and promote facts from this turn
             memory_store.promote_person_facts(
                 connection,
                 current_user["id"],
@@ -231,7 +388,6 @@ def chat_message_stream_api(
                 history,
             )
             
-            # 3. LLM Intelligence Queue extraction
             if rendering_context and rendering_context.active_character_id:
                 memory_store.extract_person_facts_llm(
                     connection,
@@ -249,7 +405,7 @@ def chat_message_stream_api(
 
 
 @router.post("/retry-smart")
-def retry_smart_api(
+async def retry_smart_api(
     payload: SmartRetryRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -268,7 +424,7 @@ def retry_smart_api(
              raise HTTPException(status_code=400, detail="Target index is not an assistant reply to a user message.")
              
         # Generate new smart reply
-        assistant_message = generate_chat_assistant_message(
+        assistant_message = await generate_chat_assistant_message(
             connection,
             current_user,
             context["settings"]["profile"],
@@ -289,18 +445,18 @@ def retry_smart_api(
 
 
 @compat_router.post("/stream")
-def chat_stream_alias_api(
+async def chat_stream_alias_api(
     payload: ChatRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:
     """Compatibility alias for the legacy singular chat stream route."""
-    return chat_message_stream_api(payload, current_user)
+    return await chat_message_stream_api(payload, current_user)
 
 
 @compat_router.post("/retry-smart")
-def retry_smart_alias_api(
+async def retry_smart_alias_api(
     payload: SmartRetryRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Compatibility alias for the legacy singular retry-smart route."""
-    return retry_smart_api(payload, current_user)
+    return await retry_smart_api(payload, current_user)

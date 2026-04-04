@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from app.skills.base import BaseSkill
 from app.subsystems.memory import store as memory_store
@@ -13,7 +13,13 @@ class CoreMemorySkill(BaseSkill):
 
     manifest: dict[str, Any] = {}
 
-    async def execute(self, action: str, ctx: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    async def execute(
+        self,
+        action: str,
+        ctx: dict[str, Any],
+        emit_progress: Callable[[str], Awaitable[None]],
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """Execute the requested memory action."""
         self.validate_action(action)
         if action != "save_fact":

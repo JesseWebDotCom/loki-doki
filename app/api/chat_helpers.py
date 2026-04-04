@@ -105,24 +105,73 @@ def assistant_message_meta(
         "execution": execution_meta(provider),
         "turn_id": turn_id,
     }
+    
+    def get_val(obj: Any, name: str, default: Any = None) -> Any:
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
     chosen_voice_summary = voice_summary.strip()
-    if result is not None and getattr(result, "parsed", None) is not None:
-        meta["rendered_response"] = {
-            "summary": result.parsed.summary,
-            "metadata": result.parsed.metadata,
-        }
+    if result is not None:
+        # 1. Handle parsed response
+        parsed = get_val(result, "parsed")
+        if parsed is not None:
+            summary = get_val(parsed, "summary")
+            metadata = get_val(parsed, "metadata")
+            meta["rendered_response"] = {
+                "summary": summary,
+                "metadata": metadata,
+            }
+            if not chosen_voice_summary:
+                chosen_voice_summary = str(summary or "").strip()
+        
+        # 2. Handle debug info
+        debug_val = get_val(result, "debug")
+        if debug_val:
+            meta["prompt_debug"] = debug_val
+            
+        # 3. Handle reply fallback
         if not chosen_voice_summary:
-            chosen_voice_summary = str(result.parsed.summary or "").strip()
-    if result is not None and getattr(result, "debug", None):
-        meta["prompt_debug"] = result.debug
-    if not chosen_voice_summary and result is not None:
-        chosen_voice_summary = str(getattr(result, "reply", "") or "").strip()
+            chosen_voice_summary = str(get_val(result, "reply", "") or "").strip()
+            
+        # 4. Extract skill routing if present
+        skill_id = get_val(result, "skill_id")
+        action = get_val(result, "action")
+        if skill_id is not None and action is not None:
+            meta["skill_route"] = {
+                "skill": skill_id,
+                "action": action,
+                "reason": classification.reason or get_val(result, "reason", ""),
+            }
+        else:
+            res_meta = get_val(result, "meta")
+            if isinstance(res_meta, dict) and "route" in res_meta:
+                 route_str = res_meta["route"]
+                 if isinstance(route_str, str) and "." in route_str:
+                     sid, act = route_str.split(".", 1)
+                     meta["skill_route"] = {"skill": sid, "action": act, "reason": classification.reason}
+            elif isinstance(result, dict) and "skill_id" in result:
+                 meta["skill_route"] = {
+                    "skill": result["skill_id"],
+                    "action": result.get("action", "unknown"),
+                    "reason": classification.reason,
+                }
+
     if chosen_voice_summary:
         meta["voice_summary"] = chosen_voice_summary
     if response_style.strip():
         meta["response_style"] = response_style.strip()
     if response_style_debug:
         meta["response_style_debug"] = response_style_debug
+    if classification.request_type == "web_query":
+        meta["skill_route"] = {
+            "skill": "web_search",
+            "action": "search",
+            "reason": classification.reason,
+        }
+    
     return meta
 
 
@@ -264,7 +313,7 @@ def _variation_style(seed: str) -> str:
     return "balanced" if int(digest[:2], 16) % 2 == 0 else "detailed"
 
 
-def generate_chat_assistant_message(
+async def generate_chat_assistant_message(
     connection: sqlite3.Connection,
     current_user: dict[str, Any],
     profile: str,
@@ -329,7 +378,7 @@ def generate_chat_assistant_message(
         profile,
         resolved_message,
     )
-    skill_message = skill_service.route_and_execute(
+    skill_message = await skill_service.route_and_execute(
         connection,
         APP_CONFIG,
         current_user,
@@ -416,7 +465,14 @@ def generate_chat_assistant_message(
     assistant_message["meta"]["memory_debug"] = memory_debug
     if promoted_facts:
         assistant_message["meta"]["memory_debug"]["promoted_facts"] = promoted_facts
-    assistant_message["meta"]["skill_route"] = skill_route
+    
+    if skill_route is not None:
+        assistant_message["meta"]["skill_route"] = skill_route
+    else:
+        if "skill_route" not in assistant_message["meta"]:
+            assistant_message["meta"]["skill_route"] = None
+
+    assistant_message["meta"]["skill_route_applied"] = skill_route is not None
 
     # Background intelligence gathering for the Queue
     if rendering_context and rendering_context.active_character_id:

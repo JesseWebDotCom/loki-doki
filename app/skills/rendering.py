@@ -41,6 +41,9 @@ def skill_render_context(
     if presentation == "wikipedia_summary":
         return skill_result, _wikipedia_render_context(render_payload)
 
+    media = list(render_payload.get("media") or [])
+    media_context = f"Visual Attachments: {json.dumps(media, ensure_ascii=False)}" if media else "No visual attachments."
+
     # Generic skill result
     response_style = str(render_payload.get("response_style") or "balanced")
     rules = (
@@ -50,7 +53,8 @@ def skill_render_context(
         "3. Keep the answer compact unless the payload clearly requires extra detail.\n"
         "4. If sources are present, mention them naturally in sentence form instead of inline citation formatting.\n"
         "5. Do not end with a follow-up question unless the payload explicitly calls for clarification.\n"
-        "6. Preserve verified facts exactly and do not invent missing details."
+        "6. Preserve verified facts exactly and do not invent missing details.\n"
+        f"7. {media_context}. If media is present, you may naturally mention it (e.g. 'I've pulled up the poster...')."
     )
     return skill_result, (
         f"{rules}\n\n"
@@ -89,6 +93,10 @@ def _wikipedia_render_context(render_payload: dict[str, Any]) -> str:
         context_lines.append(f"Preferred short spoken summary: {voice_summary}")
     if source_metadata:
         context_lines.append(f"Normalized sources: {json.dumps(source_metadata, ensure_ascii=False)}")
+    
+    media = list(render_payload.get("media") or [])
+    if media:
+        context_lines.append(f"Visual Attachments: {json.dumps(media, ensure_ascii=False)}")
 
     context = "\n".join(context_lines)
 
@@ -99,7 +107,8 @@ def _wikipedia_render_context(render_payload: dict[str, Any]) -> str:
         "3. Lead with the most useful summary first.\n"
         "4. Use the extract and infobox to enrich the answer, but do not copy Wikipedia text verbatim.\n"
         "5. If the source matters, mention Wikipedia naturally in the sentence instead of link formatting.\n"
-        "6. Do not add a follow-up question unless it would genuinely help the user continue."
+        "6. Do not add a follow-up question unless it would genuinely help the user continue.\n"
+        "7. If visual attachments are present, you may naturally refer to them."
     )
 
     return f"{rules}\n\n{context}"

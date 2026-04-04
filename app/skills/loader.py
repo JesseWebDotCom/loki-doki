@@ -21,6 +21,9 @@ class SkillLoader:
     def load(self, record: InstalledSkillRecord) -> BaseSkill:
         """Load or return the cached skill instance, invalidating on file change."""
         path = Path(record.source_ref)
+        if not path.is_file():
+            raise ValueError(f"Skill implementation file for {record.skill_id} not found at {path}.")
+        
         try:
             current_mtime = path.stat().st_mtime
         except OSError:
