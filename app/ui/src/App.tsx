@@ -60,7 +60,8 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { AssistantMessageCard } from "@/components/assistant-message-card"
-import { AppSidebar } from "@/components/app-sidebar"
+import { AppSidebar, type ProjectSummary } from "@/components/app-sidebar"
+import { ProjectEditorPanel, type Project } from "@/components/project-editor-panel"
 import { CharacterQuickSwitcher } from "@/components/character-quick-switcher"
 import { MemoryManagementPanel } from "@/components/memory-management-panel"
 import { createBargeInMonitor } from "@/barge-in"
@@ -1091,6 +1092,24 @@ async function fetchJson<T>(url: string, options: RequestInit = {}, token?: stri
   return payload as T
 }
 
+async function fetchProjects(token: string): Promise<ProjectSummary[]> {
+  return fetchJson<ProjectSummary[]>("/api/projects", {}, token)
+}
+
+async function createProject(project: Partial<Project>, token: string): Promise<ProjectSummary> {
+  return fetchJson<ProjectSummary>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify(project),
+  }, token)
+}
+
+async function updateProject(project: Project, token: string): Promise<ProjectSummary> {
+  return fetchJson<ProjectSummary>(`/api/projects/${project.id}`, {
+    method: "PATCH",
+    body: JSON.stringify(project),
+  }, token)
+}
+
 function openExternalUrl(url: string) {
   if (!url) {
     return
@@ -1565,10 +1584,19 @@ export default function App() {
   const [isAuthHydrating, setIsAuthHydrating] = useState<boolean>(() => Boolean(localStorage.getItem(tokenKey)))
   const [user, setUser] = useState<UserRecord | null>(null)
   const [chats, setChats] = useState<ChatSummary[]>([])
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeChatId, setActiveChatId] = useState(() => localStorage.getItem("ld_active_chat_id") || "")
+  const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem("ld_active_project_id") || "")
+  const [isProjectEditorOpen, setIsProjectEditorOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
+
   useEffect(() => {
     localStorage.setItem("ld_active_chat_id", activeChatId)
   }, [activeChatId])
+
+  useEffect(() => {
+    localStorage.setItem("ld_active_project_id", activeProjectId)
+  }, [activeProjectId])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [prompt, setPrompt] = useState("")
   const [performanceProfileId, setPerformanceProfileId] = useState("fast")
@@ -1648,6 +1676,24 @@ export default function App() {
   const [customVoiceEditorDraft, setCustomVoiceEditorDraft] = useState<CustomVoiceEditorDraft | null>(null)
   const [isRefreshingVoiceCatalog, setIsRefreshingVoiceCatalog] = useState(false)
   const [expandedAdminVoiceDetails, setExpandedAdminVoiceDetails] = useState<Record<string, boolean>>({})
+
+  const refreshProjects = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await fetchProjects(token)
+      setProjects(data)
+    } catch (error) {
+      console.error("Failed to fetch projects:", error)
+    }
+  }, [token])
+
+  useEffect(() => {
+    if (token) {
+      void refreshProjects()
+    } else {
+      setProjects([])
+    }
+  }, [token, refreshProjects])
   const [wakewordEnabled, setWakewordEnabled] = useState(false)
   const [wakewordThreshold, setWakewordThreshold] = useState(0.35)
   const [wakewordModelId, setWakewordModelId] = useState("loki_doki")
@@ -6062,8 +6108,18 @@ export default function App() {
             renameChatTitle={renameChatTitle}
             renamingChatId={renamingChatId}
             user={user}
-            onBeginRenamingChat={beginRenamingChat}
+            projects={projects}
+            activeProjectId={activeProjectId}
+            onSelectProject={(projectId) => {
+              setActiveProjectId(projectId)
+            }}
+            onCreateProject={() => {
+              setEditingProject(null)
+              setIsProjectEditorOpen(true)
+            }}
+            onBeginRenamingChat={(chat) => beginRenamingChat(chat)}
             onCloseMobileSidebar={() => setIsMobileSidebarOpen(false)}
+            onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
             onCreateChat={() => {
               if (token) {
                 void createChat(token).catch((error) => {
@@ -8104,8 +8160,9 @@ export default function App() {
                                     <div className="mt-2">
                                       <AssistantMessageCard
                                         debugNow={debugNow}
-                                        message={promptLabPreviewMessage(promptLabResult)}
+                                        message={promptLabPreviewMessage(promptLabResult) as any}
                                         messageKey={`prompt-lab:${promptLabResult.user.id}:${promptLabResult.elapsed_ms}`}
+                                        messageTime={String(promptLabResult.elapsed_ms)}
                                         onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
                                         pendingSpeechMessageKey={pendingSpeechMessageKey}
                                         showRuntimeDebug={true}
@@ -9363,6 +9420,31 @@ export default function App() {
           )}
         </div>
       )}
+
+      {isProjectEditorOpen ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-xl animate-in fade-in duration-300" onClick={() => setIsProjectEditorOpen(false)} />
+          <div className="relative w-full max-w-2xl animate-in zoom-in-95 duration-300" onPointerDown={(e) => e.stopPropagation()}>
+            <ProjectEditorPanel
+              project={editingProject}
+              onCancel={() => setIsProjectEditorOpen(false)}
+              onSave={async (project) => {
+                try {
+                  if (project.id) {
+                    await updateProject(project as Project, token!)
+                  } else {
+                    await createProject(project, token!)
+                  }
+                  await refreshProjects()
+                  setIsProjectEditorOpen(false)
+                } catch (error) {
+                  setChatError(error instanceof Error ? error.message : "Project save failed.")
+                }
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

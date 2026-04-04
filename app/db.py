@@ -11,6 +11,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from app.chats import store as chat_store
+from app.projects import store as project_store
 from app.subsystems.memory import db as memory_db
 DEFAULT_ACCOUNT_NAME = "Primary Household"
 DEFAULT_ACCOUNT_ID = "default-account"
@@ -206,6 +207,7 @@ def initialize_database(conn: sqlite3.Connection) -> None:
     _ensure_user_character_rows(conn)
     _seed_example_prompt_content(conn)
     chat_store.initialize_chat_tables(conn)
+    project_store.initialize_project_tables(conn)
     memory_db.initialize_memory_tables(conn)
     conn.commit()
 

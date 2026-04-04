@@ -1,9 +1,11 @@
-import { Bug, ChevronDown, Ellipsis, LogOut, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Pencil, Search, Settings, Shield, Trash2 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Bug, ChevronDown, ChevronRight, Ellipsis, Folder, FolderPlus, LogOut, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Search, Settings, Shield, Trash2, icons } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
 type UserRecord = {
+  id?: string
   username: string
   display_name: string
   is_admin?: boolean
@@ -14,11 +16,20 @@ type ChatSummary = {
   title: string
 }
 
+export type ProjectSummary = {
+  id: string
+  name: string
+  icon?: string
+  icon_color?: string
+}
+
 type AppSidebarProps = {
   isMobileSidebarOpen: boolean
   isSidebarCollapsed: boolean
   bootstrapAppName: string
   filteredChats: ChatSummary[]
+  projects?: ProjectSummary[]
+  activeProjectId?: string
   activeChatId: string
   openChatMenuId: string
   chatMenuAnchor: "header" | "sidebar"
@@ -34,11 +45,14 @@ type AppSidebarProps = {
   onSetActiveView: (view: "assistant" | "settings" | "admin") => void
   onSelectChat: (chatId: string) => void
   onOpenChatMenu: (chatId: string, anchor: "header" | "sidebar") => void
+  onSelectProject?: (projectId: string) => void
+  onCreateProject?: () => void
   onBeginRenamingChat: (chat: ChatSummary) => void
   onRenameChatSubmit: (chatId: string) => void
   onRenameChatTitleChange: (title: string) => void
   onRenameChatCancel: () => void
   onDeleteChat: (chat: ChatSummary) => void
+  onMoveChatToProject?: (chat: ChatSummary) => void
   onToggleProfileMenu: () => void
   onSignOut: () => void
   onToggleDebugMode: () => void
@@ -49,6 +63,8 @@ export function AppSidebar({
   isSidebarCollapsed,
   bootstrapAppName,
   filteredChats,
+  projects = [],
+  activeProjectId,
   activeChatId,
   openChatMenuId,
   chatMenuAnchor,
@@ -63,15 +79,31 @@ export function AppSidebar({
   onSetActiveView,
   onSelectChat,
   onOpenChatMenu,
+  onSelectProject,
+  onCreateProject,
   onBeginRenamingChat,
   onRenameChatSubmit,
   onRenameChatTitleChange,
   onRenameChatCancel,
   onDeleteChat,
+  onMoveChatToProject,
   onToggleProfileMenu,
   onSignOut,
   onToggleDebugMode,
 }: AppSidebarProps) {
+  const projectsKey = user?.id ? `ld_projects_collapsed_${user.id}` : "ld_projects_collapsed"
+  const chatsKey = user?.id ? `ld_chats_collapsed_${user.id}` : "ld_chats_collapsed"
+
+  const [isProjectsCollapsed, setIsProjectsCollapsed] = useState(() => localStorage.getItem(projectsKey) === "1")
+  const [isChatsCollapsed, setIsChatsCollapsed] = useState(() => localStorage.getItem(chatsKey) === "1")
+
+  useEffect(() => {
+    localStorage.setItem(projectsKey, isProjectsCollapsed ? "1" : "0")
+  }, [isProjectsCollapsed, projectsKey])
+
+  useEffect(() => {
+    localStorage.setItem(chatsKey, isChatsCollapsed ? "1" : "0")
+  }, [isChatsCollapsed, chatsKey])
   return (
     <>
       {isMobileSidebarOpen ? (
@@ -117,12 +149,12 @@ export function AppSidebar({
               isSidebarCollapsed ? "h-10 w-10 p-0 justify-center" : "h-9 w-full justify-start gap-3 px-2"
             } sidebar-hover-surface bg-transparent text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)]`}
             onClick={onCreateChat}
-          tooltip={isSidebarCollapsed ? "New Chat" : undefined}
+            tooltip={isSidebarCollapsed ? "New Chat" : undefined}
             type="button"
             variant="ghost"
           >
             <MessageSquarePlus className={isSidebarCollapsed ? "h-5 w-5" : "h-4 w-4"} />
-          {!isSidebarCollapsed ? "New Chat" : null}
+            {!isSidebarCollapsed ? "New Chat" : null}
           </Button>
         </div>
         <div className="px-2 pb-2">
@@ -158,77 +190,130 @@ export function AppSidebar({
         <div className={`min-h-0 flex-1 overflow-y-auto ${isSidebarCollapsed ? "px-2 pb-24" : "px-2 pb-36"}`}>
           {!isSidebarCollapsed ? (
             <>
-              <div className="px-2 pb-2 pt-6 text-[13px] font-medium text-[var(--muted-foreground)]">Recents</div>
-              <div className="space-y-1">
-                {filteredChats.map((chat) => {
-                  const isActive = chat.id === activeChatId
-                  const isMenuOpen = openChatMenuId === chat.id && chatMenuAnchor === "sidebar"
-                  const isRenaming = renamingChatId === chat.id
-                  return (
-                    <div
-                      key={chat.id}
-                      className={`group relative rounded-xl px-2 py-1.5 text-left transition ${
-                        isActive ? "bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
-                      }`}
-                    >
-                      {isRenaming ? (
-                        <form
-                          onSubmit={(event) => {
-                            event.preventDefault()
-                            onRenameChatSubmit(chat.id)
-                          }}
-                        >
-                          <Input
-                            autoFocus
-                            className="h-9 rounded-xl border-[var(--line)] bg-black/20 pr-10 text-sm"
-                            value={renameChatTitle}
-                            onBlur={() => onRenameChatSubmit(chat.id)}
-                            onChange={(event) => onRenameChatTitleChange(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Escape") {
-                                onRenameChatCancel()
-                              }
-                            }}
-                          />
-                        </form>
-                      ) : (
-                        <button className="block min-w-0 max-w-full pr-9 text-left" onClick={() => onSelectChat(chat.id)} type="button">
-                          <div className="truncate text-sm font-bold">{chat.title}</div>
-                        </button>
-                      )}
+              <div
+                className="group flex w-full cursor-pointer items-center justify-between px-3 pb-2 pt-8"
+                onClick={() => setIsProjectsCollapsed(!isProjectsCollapsed)}
+              >
+                <div className="flex items-center gap-1.5">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted-foreground)] opacity-60">Projects</div>
+                  {isProjectsCollapsed ? <ChevronRight className="h-3 w-3 text-[var(--muted-foreground)] opacity-40" /> : <ChevronDown className="h-3 w-3 text-[var(--muted-foreground)] opacity-40" />}
+                </div>
+              </div>
+              {!isProjectsCollapsed && (
+                <div className="space-y-1">
+                  <button
+                    className="group flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left text-[var(--muted-foreground)] transition hover:bg-[var(--input)] hover:text-[var(--foreground)]"
+                    onClick={() => onCreateProject?.()}
+                    type="button"
+                  >
+                    <FolderPlus className="h-4 w-4 shrink-0" />
+                    <div className="truncate text-sm font-medium">New Project</div>
+                  </button>
+                  {projects.slice(0, 4).map((project) => {
+                    const isActive = project.id === activeProjectId
+                    const IconComponent = (icons as any)[project.icon || "Folder"] || Folder
+                    return (
                       <button
-                        className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--panel-strong)]/95 text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] hover:text-[var(--foreground)] ${
-                          isActive || isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                        key={project.id}
+                        className={`group flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition ${
+                          isActive ? "bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
                         }`}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onOpenChatMenu(chat.id, "sidebar")
-                        }}
-                        title={`Chat actions for ${chat.title}`}
+                        onClick={() => onSelectProject?.(project.id)}
                         type="button"
                       >
-                        <Ellipsis className="h-4 w-4" />
+                        <IconComponent className="h-4 w-4 shrink-0" style={{ color: project.icon_color || "currentColor" }} />
+                        <div className="truncate text-sm font-medium">{project.name}</div>
                       </button>
-                      {isMenuOpen ? (
-                        <div
-                          className="absolute right-2 top-[calc(100%+6px)] z-40 w-48 rounded-[22px] border border-[var(--line)] bg-[var(--panel-strong)]/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
-                          onPointerDown={(event) => event.stopPropagation()}
-                        >
-                          <button className="sidebar-menu-item sidebar-hover-ghost flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--foreground)]" onClick={() => onBeginRenamingChat(chat)} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
-                            <Pencil className="h-4 w-4 text-[var(--muted-foreground)]" />
-                            Rename chat
-                          </button>
-                          <button className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm text-rose-300 hover:bg-rose-500/10" onClick={() => onDeleteChat(chat)} type="button">
-                            <Trash2 className="h-4 w-4 text-rose-300" />
-                            Delete chat
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                })}
-                {filteredChats.length === 0 ? <div className="px-2 py-1.5 text-sm text-[var(--muted-foreground)]">No chats match that search.</div> : null}
+                    )
+                  })}
+                </div>
+              )}
+
+              <div
+                className="flex w-full cursor-pointer items-center gap-1.5 px-3 pb-2 pt-8"
+                onClick={() => setIsChatsCollapsed(!isChatsCollapsed)}
+              >
+                <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted-foreground)] opacity-60">Chats</div>
+                {isChatsCollapsed ? <ChevronRight className="h-3 w-3 text-[var(--muted-foreground)] opacity-40" /> : <ChevronDown className="h-3 w-3 text-[var(--muted-foreground)] opacity-40" />}
               </div>
+              {!isChatsCollapsed && (
+                <div className="space-y-1">
+                  {filteredChats.map((chat) => {
+                    const isActive = chat.id === activeChatId
+                    const isMenuOpen = openChatMenuId === chat.id && chatMenuAnchor === "sidebar"
+                    const isRenaming = renamingChatId === chat.id
+                    return (
+                      <div
+                        key={chat.id}
+                        className={`group relative rounded-xl px-2 py-1.5 text-left transition ${
+                          isActive ? "bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
+                        }`}
+                      >
+                        {isRenaming ? (
+                          <form
+                            onSubmit={(event) => {
+                              event.preventDefault()
+                              onRenameChatSubmit(chat.id)
+                            }}
+                          >
+                            <Input
+                              autoFocus
+                              className="h-9 rounded-xl border-[var(--line)] bg-black/20 pr-10 text-sm"
+                              value={renameChatTitle}
+                              onBlur={() => onRenameChatSubmit(chat.id)}
+                              onChange={(event) => onRenameChatTitleChange(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  onRenameChatCancel()
+                                }
+                              }}
+                            />
+                          </form>
+                        ) : (
+                          <button className="block min-w-0 max-w-full pr-9 text-left" onClick={() => onSelectChat(chat.id)} type="button">
+                            <div className="truncate text-sm font-bold">{chat.title}</div>
+                          </button>
+                        )}
+                        <button
+                          className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--panel-strong)]/95 text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] hover:text-[var(--foreground)] ${
+                            isActive || isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                          }`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onOpenChatMenu(chat.id, "sidebar")
+                          }}
+                          title={`Chat actions for ${chat.title}`}
+                          type="button"
+                        >
+                          <Ellipsis className="h-4 w-4" />
+                        </button>
+                        {isMenuOpen ? (
+                          <div
+                            className="absolute right-2 top-[calc(100%+6px)] z-40 w-48 rounded-[22px] border border-[var(--line)] bg-[var(--panel-strong)]/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
+                            onPointerDown={(event) => event.stopPropagation()}
+                          >
+                            <button className="sidebar-menu-item sidebar-hover-ghost flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--foreground)]" onClick={() => onBeginRenamingChat(chat)} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
+                              <Pencil className="h-4 w-4 text-[var(--muted-foreground)]" />
+                              Rename chat
+                            </button>
+                            {onMoveChatToProject ? (
+                              <button className="sidebar-menu-item sidebar-hover-ghost flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--foreground)]" onClick={() => onMoveChatToProject(chat)} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
+                                <Folder className="h-4 w-4 text-[var(--muted-foreground)]" />
+                                Move to project
+                              </button>
+                            ) : null}
+                            <button className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm text-rose-300 hover:bg-rose-500/10" onClick={() => onDeleteChat(chat)} type="button">
+                              <Trash2 className="h-4 w-4 text-rose-300" />
+                              Delete chat
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                  {filteredChats.length === 0 ? <div className="px-2 py-1.5 text-sm text-[var(--muted-foreground)]">No chats match that search.</div> : null}
+                </div>
+              )}
             </>
           ) : (
             <div />

@@ -22,6 +22,7 @@ def initialize_chat_tables(conn: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             character_id TEXT NOT NULL DEFAULT 'lokidoki',
+            project_id TEXT,
             title TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -43,6 +44,7 @@ def initialize_chat_tables(conn: sqlite3.Connection) -> None:
         """
     )
     _ensure_chat_sessions_column(conn, "character_id", "TEXT NOT NULL DEFAULT 'lokidoki'")
+    _ensure_chat_sessions_column(conn, "project_id", "TEXT")
     conn.executescript(
         """
         CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_char
@@ -74,6 +76,7 @@ def list_chat_summaries(conn: sqlite3.Connection, user_id: str) -> list[dict[str
         SELECT
             chat_sessions.id,
             chat_sessions.title,
+            chat_sessions.project_id,
             chat_sessions.created_at,
             chat_sessions.updated_at,
             chat_sessions.last_message_at,
@@ -127,6 +130,7 @@ def get_chat_summary(conn: sqlite3.Connection, user_id: str, chat_id: str) -> Op
         SELECT
             chat_sessions.id,
             chat_sessions.title,
+            chat_sessions.project_id,
             chat_sessions.created_at,
             chat_sessions.updated_at,
             chat_sessions.last_message_at,
