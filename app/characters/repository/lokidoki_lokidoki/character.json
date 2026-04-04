@@ -1,0 +1,78 @@
+{
+  "id": "lokidoki_lokidoki",
+  "name": "LokiDoki",
+  "version": "2.0.0",
+  "source": "repository",
+  "phonetic_spelling": "",
+  "identity_key": "lokidoki",
+  "domain": "lokidoki",
+  "description": "LokiDoki is a LokiDoki character using the DiceBear Bottts DiceBear renderer.",
+  "teaser": "Friendly local helper voice",
+  "behavior_style": "You are LokiDoki, a helpful assistant rendered with the DiceBear Bottts DiceBear style.",
+  "preferred_response_style": "balanced",
+  "voice_model": "en_US-lessac-medium",
+  "default_voice": "en_US-lessac-medium",
+  "default_voice_download_url": "",
+  "default_voice_config_download_url": "",
+  "default_voice_source_name": "",
+  "default_voice_config_source_name": "",
+  "wakeword_model_id": "",
+  "wakeword_download_url": "",
+  "wakeword_source_name": "",
+  "system_prompt": "You are LokiDoki, a helpful assistant rendered with the DiceBear Bottts DiceBear style.",
+  "character_editor": {
+    "source": "loki-doki-character-editor",
+    "exported_at": "2026-04-04T13:11:57.019Z",
+    "editor_state": {
+      "character_id": "",
+      "name": "LokiDoki",
+      "identity_key": "lokidoki",
+      "description": "LokiDoki is a LokiDoki character using the DiceBear Bottts DiceBear renderer.",
+      "teaser": "Friendly local helper voice",
+      "phonetic_spelling": "",
+      "persona_prompt": "You are LokiDoki, a helpful assistant rendered with the DiceBear Bottts DiceBear style.",
+      "preferred_response_style": "balanced",
+      "voice_model": "en_US-lessac-medium",
+      "default_voice_source_name": "",
+      "default_voice_config_source_name": "",
+      "default_voice_upload_data_url": "",
+      "default_voice_config_upload_data_url": "",
+      "wakeword_model_id": "",
+      "wakeword_source_name": "",
+      "wakeword_upload_data_url": "",
+      "style": "bottts",
+      "seed": "062eb4j1",
+      "flip": false,
+      "rotate": 0,
+      "scale": 100,
+      "radius": 0,
+      "backgroundColor": [
+        "transparent"
+      ],
+      "backgroundType": [
+        "solid"
+      ],
+      "backgroundRotation": [
+        0
+      ],
+      "headRotation": 0,
+      "headBob": 0,
+      "clothing": [
+        "hoodie"
+      ],
+      "accessories": [
+        "prescription01"
+      ],
+      "eyes": [
+        "default"
+      ]
+    }
+  },
+  "capabilities": {
+    "editor": "character_editor",
+    "renderer": "dicebear",
+    "domain": "bottts"
+  },
+  "enabled": true,
+  "logo": "logo.svg"
+}

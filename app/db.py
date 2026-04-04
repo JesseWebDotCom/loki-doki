@@ -11,6 +11,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from app.chats import store as chat_store
+from app.projects import store as project_store
 from app.subsystems.memory import db as memory_db
 DEFAULT_ACCOUNT_NAME = "Primary Household"
 DEFAULT_ACCOUNT_ID = "default-account"
@@ -92,7 +93,8 @@ def initialize_database(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS account_prompt_policy (
             account_id TEXT PRIMARY KEY,
             core_safety_prompt TEXT NOT NULL DEFAULT '',
-            account_policy_prompt TEXT NOT NULL DEFAULT '',
+            device_policy_prompt TEXT NOT NULL DEFAULT '',
+            scrub_flags_json TEXT NOT NULL DEFAULT '{}',
             proactive_chatter_enabled INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
@@ -153,13 +155,15 @@ def initialize_database(conn: sqlite3.Connection) -> None:
             base_prompt_hash TEXT NOT NULL DEFAULT '',
             compiled_prompt_hash TEXT NOT NULL DEFAULT '',
             compiled_base_prompt TEXT NOT NULL DEFAULT '',
+            compiled_segments_json TEXT NOT NULL DEFAULT '{}',
+            assigned_character_id TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY (care_profile_id) REFERENCES care_profiles(id) ON DELETE RESTRICT
         );
 
         CREATE TABLE IF NOT EXISTS user_prompt_overrides (
             user_id TEXT PRIMARY KEY,
-            admin_prompt TEXT NOT NULL DEFAULT '',
+            user_admin_prompt TEXT NOT NULL DEFAULT '',
             blocked_topics_json TEXT NOT NULL DEFAULT '[]',
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -175,8 +179,11 @@ def initialize_database(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    _migrate_prompt_layer_names(conn)
     _ensure_user_column(conn, "account_id", "TEXT")
     _ensure_account_prompt_policy_column(conn, "proactive_chatter_enabled", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_account_prompt_policy_column(conn, "scrub_flags_json", "TEXT NOT NULL DEFAULT '{}'")
+    _ensure_character_settings_column(conn, "compiled_segments_json", "TEXT NOT NULL DEFAULT '{}'")
     _ensure_character_settings_column(conn, "compiled_prompt_hash", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_settings_column(conn, "compiled_base_prompt", "TEXT NOT NULL DEFAULT ''")
     _ensure_character_settings_column(conn, "assigned_character_id", "TEXT")
@@ -206,8 +213,36 @@ def initialize_database(conn: sqlite3.Connection) -> None:
     _ensure_user_character_rows(conn)
     _seed_example_prompt_content(conn)
     chat_store.initialize_chat_tables(conn)
+    project_store.initialize_project_tables(conn)
     memory_db.initialize_memory_tables(conn)
     conn.commit()
+
+
+def _migrate_prompt_layer_names(conn: sqlite3.Connection) -> None:
+    """Rename prompt layer columns to their new standardized names."""
+    # account_prompt_policy: account_policy_prompt -> device_policy_prompt
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(account_prompt_policy)").fetchall()
+    }
+    if "account_policy_prompt" in columns and "device_policy_prompt" not in columns:
+        conn.execute("ALTER TABLE account_prompt_policy RENAME COLUMN account_policy_prompt TO device_policy_prompt")
+
+    # user_prompt_overrides: admin_prompt -> user_admin_prompt
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(user_prompt_overrides)").fetchall()
+    }
+    if "admin_prompt" in columns and "user_admin_prompt" not in columns:
+        conn.execute("ALTER TABLE user_prompt_overrides RENAME COLUMN admin_prompt TO user_admin_prompt")
+
+    # projects: instructions -> project_prompt
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(projects)").fetchall()
+    }
+    if "instructions" in columns and "project_prompt" not in columns:
+        conn.execute("ALTER TABLE projects RENAME COLUMN instructions TO project_prompt")
 
 
 def _ensure_user_column(conn: sqlite3.Connection, column_name: str, ddl: str) -> None:
@@ -278,6 +313,17 @@ def _ensure_care_profiles_column(conn: sqlite3.Connection, column_name: str, ddl
     conn.execute(f"ALTER TABLE care_profiles ADD COLUMN {column_name} {ddl}")
 
 
+def _ensure_projects_column(conn: sqlite3.Connection, column_name: str, ddl: str) -> None:
+    """Add one column to projects if it is missing."""
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(projects)").fetchall()
+    }
+    if column_name in columns:
+        return
+    conn.execute(f"ALTER TABLE projects ADD COLUMN {column_name} {ddl}")
+
+
 def _ensure_default_account(conn: sqlite3.Connection) -> None:
     """Create the default household account when missing."""
     conn.execute(
@@ -302,7 +348,7 @@ def _ensure_account_prompt_policy(conn: sqlite3.Connection) -> None:
     """Seed the default account prompt policy row."""
     conn.execute(
         """
-        INSERT INTO account_prompt_policy (account_id, core_safety_prompt, account_policy_prompt)
+        INSERT INTO account_prompt_policy (account_id, core_safety_prompt, device_policy_prompt)
         VALUES (?, '', '')
         ON CONFLICT(account_id) DO NOTHING
         """,
@@ -408,7 +454,7 @@ def _ensure_user_character_rows(conn: sqlite3.Connection) -> None:
     )
     conn.executemany(
         """
-        INSERT INTO user_prompt_overrides (user_id, admin_prompt, blocked_topics_json)
+        INSERT INTO user_prompt_overrides (user_id, user_admin_prompt, blocked_topics_json)
         VALUES (?, '', '[]')
         ON CONFLICT(user_id) DO NOTHING
         """,
@@ -421,8 +467,8 @@ def _seed_example_prompt_content(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         UPDATE account_prompt_policy
-        SET account_policy_prompt = ?
-        WHERE account_id = ? AND TRIM(account_policy_prompt) = ''
+        SET device_policy_prompt = ?
+        WHERE account_id = ? AND TRIM(device_policy_prompt) = ''
         """,
         (DEFAULT_ACCOUNT_POLICY_EXAMPLE, DEFAULT_ACCOUNT_ID),
     )
@@ -437,8 +483,8 @@ def _seed_example_prompt_content(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         UPDATE user_prompt_overrides
-        SET admin_prompt = ?
-        WHERE TRIM(admin_prompt) = ''
+        SET user_admin_prompt = ?
+        WHERE TRIM(user_admin_prompt) = ''
         """,
         (DEFAULT_ADMIN_PROMPT_EXAMPLE,),
     )

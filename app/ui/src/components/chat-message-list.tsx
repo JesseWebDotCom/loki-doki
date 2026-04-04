@@ -85,20 +85,31 @@ type ChatMessageListProps = {
   onPlayVoice: (message: ChatMessage, messageKey: string) => void
   onRetrySmart: (assistantIndex: number) => void
   getMessageKey: (message: ChatMessage, index: number) => string
+  onToggleCharacter?: () => void
 }
 
-function AssistantAvatar({ character }: { character?: CharacterDefinition | null }) {
-  if (character?.logo) {
+function AssistantAvatar({ character, onClick }: { character?: CharacterDefinition | null; onClick?: () => void }) {
+  const className = cn(
+    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--panel-strong)] shadow-sm",
+    onClick && "cursor-pointer transition-opacity hover:opacity-80"
+  )
+
+  const inner = character?.logo ? (
+    <img alt={character.name} className="h-6 w-6 rounded-full object-cover" src={character.logo} />
+  ) : (
+    <Sparkles className="h-4 w-4 text-[var(--accent)]" />
+  )
+
+  if (onClick) {
     return (
-      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--panel-strong)] shadow-sm">
-        <img alt={character.name} className="h-6 w-6 rounded-full object-cover" src={character.logo} />
-      </div>
+      <button className={className} onClick={onClick} type="button" title="Toggle character panel">
+        {inner}
+      </button>
     )
   }
+
   return (
-    <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--panel-strong)] shadow-sm">
-      <Sparkles className="h-4 w-4 text-[var(--accent)]" />
-    </div>
+    <div className={className}>{inner}</div>
   )
 }
 
@@ -117,6 +128,7 @@ export function ChatMessageList({
   onPlayVoice,
   onRetrySmart,
   getMessageKey,
+  onToggleCharacter,
 }: ChatMessageListProps) {
   function formatMessageTime(message: ChatMessage): string {
     const timestamp = message.created_at
@@ -169,7 +181,7 @@ export function ChatMessageList({
         </div>
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 pb-10">
         {messages.map((message, index) => (
           message.role === "assistant" && message.pending && !message.content ? null : (
           <div
@@ -182,8 +194,8 @@ export function ChatMessageList({
             {message.role === "user" ? (
               <div className="group max-w-[85%]">
                 <div className="chat-user-bubble">
-                  <p className="whitespace-pre-wrap break-words text-[15px] leading-7">
-                    {message.content}
+                  <p className="whitespace-pre-wrap break-words text-lg leading-7">
+                    {message.content.trim()}
                   </p>
                 </div>
                 <div className="mt-1 flex min-h-[32px] items-center justify-end gap-2 px-1">
@@ -195,8 +207,8 @@ export function ChatMessageList({
               </div>
             ) : (
               <div className="flex w-full max-w-[85%] items-start gap-4">
-                <div className="flex flex-none pt-3">
-                  <AssistantAvatar character={assistantCharacter} />
+                <div className="flex flex-none pt-1">
+                  <AssistantAvatar character={assistantCharacter} onClick={onToggleCharacter} />
                 </div>
                 <div className="chat-assistant-bubble min-w-0 flex-1">
                   <AssistantMessageCard
@@ -221,7 +233,7 @@ export function ChatMessageList({
           <div className="flex w-full max-w-[85%] items-start gap-4">
             <div className="flex flex-none pt-3">
               <div className="chat-avatar-pulsing">
-                <AssistantAvatar character={assistantCharacter} />
+                <AssistantAvatar character={assistantCharacter} onClick={onToggleCharacter} />
               </div>
             </div>
             <div className="flex-1">

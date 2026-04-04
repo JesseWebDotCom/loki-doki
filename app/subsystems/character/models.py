@@ -16,26 +16,43 @@ DEFAULT_CORE_SAFETY_PROMPT = (
     "Do not end every response with a follow-up question. Answer directly and let the user lead the conversation."
 )
 DEFAULT_BLOCKED_TOPIC_REPLY = "I can't help with that topic right now."
+PRIORITY_HEADER = "Follow these instruction layers in strict priority order. Higher-priority layers always win if any instruction conflicts."
 PROMPT_COMPILER_VERSION = "v4"
 PROMPT_LAYER_ORDER = (
     "core_safety_prompt",
-    "account_policy_prompt",
-    "admin_prompt",
+    "device_policy_prompt",
+    "user_admin_prompt",
+    "project_prompt",
     "care_profile_prompt",
     "character_prompt",
     "character_custom_prompt",
     "user_prompt",
 )
+PROMPT_STAGE_GROUPS = {
+    "device": [
+        "core_safety_prompt",
+        "device_policy_prompt",
+    ],
+    "user": [
+        "user_admin_prompt",
+        "care_profile_prompt",
+    ],
+    "character": [
+        "character_prompt",
+        "character_custom_prompt",
+    ],
+    "project": [
+        "project_prompt",
+    ],
+    "user_prefs": [
+        "user_prompt",
+    ],
+}
 SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?])\s+")
 PROMPT_COMPILER_OPTIONS: dict[str, int | float] = {"temperature": 0, "num_predict": 256}
 PROFANITY_PATTERN = re.compile(
     r"\b(fuck(?:er|ing|ed|s)?|shit(?:ty)?|damn|bitch(?:es)?|asshole|bastard)\b",
     flags=re.IGNORECASE,
-)
-PROMPT_STAGE_GROUPS = (
-    ("1_2", ("core_safety_prompt", "account_policy_prompt")),
-    ("3_4", ("admin_prompt", "care_profile_prompt")),
-    ("5_6", ("character_prompt", "character_custom_prompt")),
 )
 
 
@@ -97,9 +114,9 @@ class CharacterRenderingContext:
     account_id: str
     display_name: str
     profile: str
-    base_prompt: str
-    base_prompt_hash: str
     active_character_id: Optional[str]
+    segments: dict[str, str] = field(default_factory=dict)
+    base_prompt_hash: str = ""
     active_character_name: str = "LokiDoki"
     character_behavior_style: str = ""
     character_preferred_response_style: str = "balanced"
@@ -111,3 +128,21 @@ class CharacterRenderingContext:
     blocked_topics: tuple[str, ...] = ()
     max_response_tokens: int = 160
     debug: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def base_prompt(self) -> str:
+        """Assembles the final system prompt from prioritized segments."""
+        if not self.segments:
+            return ""
+        
+        # Start with the authoritative priority header
+        assembled = [PRIORITY_HEADER]
+        
+        # Join non-empty segments in prioritized order (Device, User, Character, Project, User Prefs)
+        # We rely on the dict keys being in order from PROMPT_STAGE_GROUPS/compiler
+        for segment_text in self.segments.values():
+            text = str(segment_text or "").strip()
+            if text:
+                assembled.append(text)
+                
+        return "\n\n".join(assembled).strip()

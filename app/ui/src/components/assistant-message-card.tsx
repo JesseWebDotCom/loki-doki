@@ -240,7 +240,7 @@ export function AssistantMessageCard({
     
     // Normalize: If the model accidentally puts a header at the end of a line, force a split
     // e.g. "paragraph. #### Header" -> "paragraph.\n#### Header"
-    const normalized = text.replace(/([.!?])\s+(#+\s)/g, '$1\n$2');
+    const normalized = text.trim().replace(/([.!?])\s+(#+\s)/g, '$1\n$2');
     
     // Split into intentional blocks (paragraphs/lines)
     const lines = normalized.split('\n');
@@ -449,7 +449,7 @@ export function AssistantMessageCard({
       }}
       ref={cardRef}
     >
-      <div className="py-2 text-[var(--foreground)]">
+      <div className="pb-2 text-[var(--foreground)]">
         {/* Wikipedia thumbnail image card */}
         {(() => {
           const thumb = message.meta?.skill_result?.data?.thumbnail
@@ -475,7 +475,7 @@ export function AssistantMessageCard({
             </a>
           )
         })()}
-        <div className="max-w-3xl whitespace-pre-wrap break-words text-[15px] leading-7">
+        <div className="max-w-3xl whitespace-pre-wrap break-words text-lg leading-7">
           {renderContent(message.content)}
         </div>
         <div className="clear-both" />

@@ -227,7 +227,16 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head' | 'fullscreen';
             cleanedCore = cleanedCore.replace(/^(<rect|<circle|<path)[^>]*fill="[^"]*"[^>]*><\/\1>/i, '');
 
             if (options.style === 'avataaars') {
-               return `<svg${before}viewBox="${vb}"${after} width="100%" height="100%" id="ld-character-svg"><g id="ld-body"></g><g id="ld-head">${cleanedCore}</g></svg>`;
+               // AVATAAARS SPLIT: Identify where the facial features/head parts begin inside the cleaned core
+               const headSearchIdx = cleanedCore.search(/<(g|path|circle|ellipse|rect|use) [^>]*id\s*=\s*["'][^"']*(head|ear|skin|face|top|hair|eyes|eyebrow|beard|mouth|nose|cap|hat|mask|neck)[^"']*/i);
+               if (headSearchIdx >= 0) {
+                  bodyContent = cleanedCore.substring(0, headSearchIdx);
+                  headContent = cleanedCore.substring(headSearchIdx);
+               } else {
+                  headContent = cleanedCore;
+               }
+               // Standard Avataaars assembly
+               return `<svg${before}viewBox="${vb}"${after} width="100%" height="100%" id="ld-character-svg"><g id="ld-body">${bodyContent}</g><g id="ld-head">${headContent}</g></svg>`;
             } else {
                const parts = cleanedCore.split('</g>');
                if (parts.length > 2) {
@@ -352,7 +361,24 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head' | 'fullscreen';
 
     // Initialize sequence
     if (dozeState.stage === 'none') {
-      const waitTime = bodyState === 'dozing' ? 1000 + Math.random() * 4000 : 0;
+      if (bodyState === 'sleep') {
+        // QUICK SLEEP INITIATION: Close eyes immediately, tilt after delay
+        setDozeState({ stage: 'settling', rotation: 0, eyeState: 'closed' });
+        
+        trackTimeout(() => {
+          const finalTiltDir = Math.random() > 0.5 ? 1 : -1;
+          const finalTiltAmount = (12 + Math.random() * 10) * finalTiltDir;
+          setDozeState({ stage: 'tilting', rotation: finalTiltAmount, eyeState: 'closed' });
+          
+          trackTimeout(() => {
+            setDozeState({ stage: 'sleeping', rotation: finalTiltAmount, eyeState: 'closed' });
+          }, 2000);
+        }, 800);
+        return;
+      }
+
+      // DOZING ROUTINE: Random blinking/drifting first
+      const waitTime = 1000 + Math.random() * 4000;
       trackTimeout(() => {
         setDozeState({ stage: 'blinking', rotation: 0, eyeState: 'default' });
         let blinkCount = 0;

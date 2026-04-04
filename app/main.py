@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import db
 from app.deps import APP_CONFIG, ensure_database_ready, connection_scope
-from app.api import auth, admin, admin_voices, chat, analysis, vision, voice, skills, memory, system, character, lab, settings
+from app.api import auth, admin, admin_voices, chat, analysis, vision, voice, skills, memory, system, character, lab, settings, projects
 from app.api.utils import UI_SHELL_CACHE_HEADERS, CachedAssetStaticFiles
 from app.subsystems.voice import wakeword_runtime_status
 from app.subsystems.character import character_service
@@ -74,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(settings.router, prefix="/api")
     app.include_router(character.router, prefix="/api")
     app.include_router(lab.router, prefix="/api")
+    app.include_router(projects.router, prefix="/api")
 
     # UI Static Serving
     dist_dir = APP_CONFIG.ui_dist_dir

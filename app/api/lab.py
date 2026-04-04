@@ -28,8 +28,9 @@ def _clean_prompt_lab_overrides(layer_overrides: dict[str, str]) -> dict[str, st
         for key, value in layer_overrides.items()
         if key in {
             "core_safety_prompt",
-            "account_policy_prompt",
-            "admin_prompt",
+            "device_policy_prompt",
+            "user_admin_prompt",
+            "project_prompt",
             "care_profile_prompt",
             "user_prompt",
             "character_custom_prompt",

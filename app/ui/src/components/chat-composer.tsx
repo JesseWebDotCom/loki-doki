@@ -260,7 +260,7 @@ export function ChatComposer({
                   autoCapitalize="sentences"
                   autoComplete="off"
                   autoCorrect="off"
-                  className="max-h-24 min-h-[42px] resize-none border-0 bg-transparent px-1 py-2 text-[15px] leading-6 text-[var(--foreground)] focus:border-transparent"
+                  className="max-h-24 min-h-[42px] resize-none border-0 bg-transparent px-1 py-2 text-lg leading-6 text-[var(--foreground)] focus:border-transparent"
                   data-1p-ignore="true"
                   data-lpignore="true"
                   disabled={isCharacterSyncPending}
@@ -314,7 +314,7 @@ export function ChatComposer({
                 <div className="relative" ref={profileMenuRef}>
                     <Button
                       aria-expanded={menuOpen}
-                      className="h-10 rounded-full px-4 border-0 bg-white/[0.04] text-[13px] font-medium text-[var(--foreground)] hover:bg-white/[0.08]"
+                      className="h-10 rounded-full px-4 border-0 bg-white/[0.04] text-[15px] font-medium text-[var(--foreground)] hover:bg-white/[0.08]"
                       disabled={!userReady || isSubmitting || isCharacterSyncPending}
                       onClick={handleToggleProfileMenu}
                       type="button"
@@ -435,7 +435,7 @@ function MenuButton({
 }) {
   return (
     <button
-      className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-sm text-[var(--foreground)] transition hover:bg-white/[0.06]"
+      className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-[15px] text-[var(--foreground)] transition hover:bg-white/[0.06]"
       onClick={onClick}
       type="button"
     >
@@ -465,8 +465,8 @@ function ProfileMenuButton({
       type="button"
     >
       <div>
-        <div className="text-[13px] font-medium text-[var(--foreground)]">{name}</div>
-        <div className="text-[11px] text-zinc-500">{subtitle}</div>
+        <div className="text-[15px] font-medium text-[var(--foreground)]">{name}</div>
+        <div className="text-[13px] text-zinc-500">{subtitle}</div>
       </div>
       {isSelected ? (
         <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#8ab4f8]">

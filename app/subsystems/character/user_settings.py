@@ -16,7 +16,8 @@ def get_user_settings(conn: sqlite3.Connection, user_id: str) -> dict[str, Any]:
         SELECT s.user_id, s.care_profile_id, s.character_enabled,
                s.active_character_id, s.assigned_character_id, s.can_select_character,
                s.user_prompt, s.base_prompt_hash, s.compiled_prompt_hash,
-               s.compiled_base_prompt, o.admin_prompt, o.blocked_topics_json,
+               s.compiled_base_prompt, s.compiled_segments_json,
+               o.user_admin_prompt, o.blocked_topics_json,
                cp.label AS care_profile_label
         FROM user_character_settings s
         LEFT JOIN user_prompt_overrides o ON o.user_id = s.user_id
@@ -43,7 +44,8 @@ def get_user_settings(conn: sqlite3.Connection, user_id: str) -> dict[str, Any]:
         "base_prompt_hash": str(row["base_prompt_hash"] or ""),
         "compiled_prompt_hash": str(row["compiled_prompt_hash"] or ""),
         "compiled_base_prompt": str(row["compiled_base_prompt"] or ""),
-        "admin_prompt": str(row["admin_prompt"] or ""),
+        "compiled_segments": json.loads(str(row["compiled_segments_json"] or "{}")),
+        "user_admin_prompt": str(row["user_admin_prompt"] or ""),
         "blocked_topics": json.loads(row["blocked_topics_json"] or "[]"),
         "character_customizations": {
             str(item["character_id"]): str(item["custom_prompt"] or "")
@@ -70,7 +72,8 @@ def update_user_settings(conn: sqlite3.Connection, user_id: str, values: dict[st
         SET care_profile_id = ?, character_enabled = ?,
             active_character_id = ?, assigned_character_id = ?, can_select_character = ?,
             user_prompt = ?, base_prompt_hash = '',
-            compiled_prompt_hash = '', compiled_base_prompt = ''
+            compiled_prompt_hash = '', compiled_base_prompt = '',
+            compiled_segments_json = '{}'
         WHERE user_id = ?
         """,
         (
@@ -102,23 +105,24 @@ def update_user_overrides(conn: sqlite3.Connection, user_id: str, values: dict[s
     """Persist admin-controlled prompt overrides for one user."""
     conn.execute(
         """
-        INSERT INTO user_prompt_overrides (user_id, admin_prompt, blocked_topics_json, updated_at)
+        INSERT INTO user_prompt_overrides (user_id, user_admin_prompt, blocked_topics_json, updated_at)
         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
-            admin_prompt = excluded.admin_prompt,
+            user_admin_prompt = excluded.user_admin_prompt,
             blocked_topics_json = excluded.blocked_topics_json,
             updated_at = CURRENT_TIMESTAMP
         """,
         (
             user_id,
-            str(values.get("admin_prompt", "")).strip(),
+            str(values.get("user_admin_prompt", "")).strip(),
             json.dumps(list(values.get("blocked_topics", []))),
         ),
     )
     conn.execute(
         """
         UPDATE user_character_settings
-        SET compiled_prompt_hash = '', compiled_base_prompt = '', base_prompt_hash = ''
+        SET compiled_prompt_hash = '', compiled_base_prompt = '',
+            base_prompt_hash = '', compiled_segments_json = '{}'
         WHERE user_id = ?
         """,
         (user_id,),

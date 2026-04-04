@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createAvatar } from "@dicebear/core"
 import * as dicebearCollections from "@dicebear/collection"
+import * as Lucide from "lucide-react"
 import {
   ArrowUpDown,
   ArrowUp,
@@ -9,6 +10,7 @@ import {
   CircleCheckBig,
   Clapperboard,
   ChevronDown,
+  ChevronRight,
   Camera,
   Ellipsis,
   FileText,
@@ -60,7 +62,8 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { AssistantMessageCard } from "@/components/assistant-message-card"
-import { AppSidebar } from "@/components/app-sidebar"
+import { AppSidebar, type ProjectSummary } from "@/components/app-sidebar"
+import { ProjectEditorPanel, type Project } from "@/components/project-editor-panel"
 import { CharacterQuickSwitcher } from "@/components/character-quick-switcher"
 import { MemoryManagementPanel } from "@/components/memory-management-panel"
 import { createBargeInMonitor } from "@/barge-in"
@@ -149,6 +152,7 @@ type UserRecord = {
 type ChatSummary = {
   id: string
   title: string
+  project_id: string | null
   created_at: string
   updated_at: string
   last_message_at: string | null
@@ -1091,6 +1095,24 @@ async function fetchJson<T>(url: string, options: RequestInit = {}, token?: stri
   return payload as T
 }
 
+async function fetchProjects(token: string): Promise<ProjectSummary[]> {
+  return fetchJson<ProjectSummary[]>("/api/projects", {}, token)
+}
+
+async function createProject(project: Partial<Project>, token: string): Promise<ProjectSummary> {
+  return fetchJson<ProjectSummary>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify(project),
+  }, token)
+}
+
+async function updateProject(project: Project, token: string): Promise<ProjectSummary> {
+  return fetchJson<ProjectSummary>(`/api/projects/${project.id}`, {
+    method: "PATCH",
+    body: JSON.stringify(project),
+  }, token)
+}
+
 function openExternalUrl(url: string) {
   if (!url) {
     return
@@ -1565,10 +1587,28 @@ export default function App() {
   const [isAuthHydrating, setIsAuthHydrating] = useState<boolean>(() => Boolean(localStorage.getItem(tokenKey)))
   const [user, setUser] = useState<UserRecord | null>(null)
   const [chats, setChats] = useState<ChatSummary[]>([])
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeChatId, setActiveChatId] = useState(() => localStorage.getItem("ld_active_chat_id") || "")
+  const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem("ld_active_project_id") || "")
+  const [isProjectEditorOpen, setIsProjectEditorOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
+
   useEffect(() => {
     localStorage.setItem("ld_active_chat_id", activeChatId)
   }, [activeChatId])
+
+  useEffect(() => {
+    localStorage.setItem("ld_active_project_id", activeProjectId)
+  }, [activeProjectId])
+
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    const storedUserId = localStorage.getItem(currentUserKey)
+    return storedUserId ? localStorage.getItem(sidebarStateKey(storedUserId)) === "1" : false
+  })
+  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState<boolean>(() => {
+    const storedUserId = localStorage.getItem(currentUserKey)
+    return storedUserId ? localStorage.getItem(`ld_right_sidebar_collapsed_${storedUserId}`) === "1" : false
+  })
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [prompt, setPrompt] = useState("")
   const [performanceProfileId, setPerformanceProfileId] = useState("fast")
@@ -1648,6 +1688,24 @@ export default function App() {
   const [customVoiceEditorDraft, setCustomVoiceEditorDraft] = useState<CustomVoiceEditorDraft | null>(null)
   const [isRefreshingVoiceCatalog, setIsRefreshingVoiceCatalog] = useState(false)
   const [expandedAdminVoiceDetails, setExpandedAdminVoiceDetails] = useState<Record<string, boolean>>({})
+
+  const refreshProjects = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await fetchProjects(token)
+      setProjects(data)
+    } catch (error) {
+      console.error("Failed to fetch projects:", error)
+    }
+  }, [token])
+
+  useEffect(() => {
+    if (token) {
+      void refreshProjects()
+    } else {
+      setProjects([])
+    }
+  }, [token, refreshProjects])
   const [wakewordEnabled, setWakewordEnabled] = useState(false)
   const [wakewordThreshold, setWakewordThreshold] = useState(0.35)
   const [wakewordModelId, setWakewordModelId] = useState("loki_doki")
@@ -1757,13 +1815,16 @@ export default function App() {
   const [settingsRecognitionTab, setSettingsRecognitionTab] = useState<"facial" | "vocal">("facial")
   const [activeSettingsSection, setActiveSettingsSection] = useState<"general" | "recognition" | "appearance" | "voice" | "wakeword" | "memory">("general")
   const [activeAdminSection, setActiveAdminSection] = useState<"dashboard" | "general" | "users" | "care_profiles" | "prompt_lab" | "voices" | "skills" | "characters">("dashboard")
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
-    const storedUserId = localStorage.getItem(currentUserKey)
-    return storedUserId ? localStorage.getItem(sidebarStateKey(storedUserId)) === "1" : false
-  })
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
   const [isCharacterMenuOpen, setIsCharacterMenuOpen] = useState(false)
   const [isCharacterSyncPending, setIsCharacterSyncPending] = useState(false)
+
+  useEffect(() => {
+    const storedUserId = localStorage.getItem(currentUserKey)
+    if (storedUserId) {
+      localStorage.setItem(`ld_right_sidebar_collapsed_${storedUserId}`, isRightSidebarCollapsed ? "1" : "0")
+    }
+  }, [isRightSidebarCollapsed])
   const [pendingCharacterName, setPendingCharacterName] = useState("")
   const [openChatMenuId, setOpenChatMenuId] = useState("")
   const [chatMenuAnchor, setChatMenuAnchor] = useState<"header" | "sidebar">("header")
@@ -1948,7 +2009,9 @@ export default function App() {
     { label: "TTS", value: bootstrap?.models.tts_voice || "Loading…" },
   ]
   const activeChat = chats.find((chat) => chat.id === activeChatId) || null
-  const filteredChats = chats.filter((chat) => chat.title.toLowerCase().includes(chatSearch.trim().toLowerCase()))
+  const displayProjectId = activeChat ? activeChat.project_id : activeProjectId
+  const displayProject = displayProjectId ? projects.find(p => p.id === displayProjectId) : null
+  const filteredChats = chats.filter((chat) => !chat.project_id && chat.title.toLowerCase().includes(chatSearch.trim().toLowerCase()))
 
   async function refreshHealth() {
     try {
@@ -1998,16 +2061,24 @@ export default function App() {
     stopSpeaking()
     stopAudioReply()
     setVoiceStatus("")
+    
+    const currentActiveChat = chats.find((chat) => chat.id === activeChatId) || null
+    const effectiveProjectId = currentActiveChat ? currentActiveChat.project_id || "" : activeProjectId
     const payload = await fetchJson<ChatStatePayload & { chat: ChatSummary }>(
       "/api/chats",
-      { method: "POST", body: JSON.stringify({}) },
+      { 
+        method: "POST", 
+        body: JSON.stringify({ 
+          project_id: effectiveProjectId 
+        }) 
+      },
       activeToken
     )
     forceScrollRef.current = true
-    setChats(payload.chats)
+    setChats(payload.chats || [])
     setActiveChatId(payload.active_chat_id)
-    setMessages(payload.history)
-    markLatestAssistantAsSeen(payload.history)
+    setMessages(payload.history || [])
+    markLatestAssistantAsSeen(payload.history || [])
     setPrompt("")
     setChatSearch("")
     setChatError("")
@@ -2028,10 +2099,10 @@ export default function App() {
     }
     const payload = await fetchJson<ChatStatePayload>(`/api/chats/${chatId}/select`, { method: "POST" }, activeToken)
     forceScrollRef.current = true
-    setChats(payload.chats)
+    setChats(payload.chats || [])
     setActiveChatId(payload.active_chat_id)
-    setMessages(payload.history)
-    markLatestAssistantAsSeen(payload.history)
+    setMessages(payload.history || [])
+    markLatestAssistantAsSeen(payload.history || [])
     setPrompt("")
     setChatError("")
     setOpenChatMenuId("")
@@ -2047,10 +2118,10 @@ export default function App() {
       { method: "PATCH", body: JSON.stringify({ title }) },
       activeToken
     )
-    setChats(payload.chats)
+    setChats(payload.chats || [])
     setActiveChatId(payload.active_chat_id)
-    setMessages(payload.history)
-    markLatestAssistantAsSeen(payload.history)
+    setMessages(payload.history || [])
+    markLatestAssistantAsSeen(payload.history || [])
     setOpenChatMenuId("")
     setRenamingChatId("")
   }
@@ -2065,10 +2136,10 @@ export default function App() {
       activeToken
     )
     forceScrollRef.current = true
-    setChats(payload.chats)
+    setChats(payload.chats || [])
     setActiveChatId(payload.active_chat_id)
-    setMessages(payload.history)
-    markLatestAssistantAsSeen(payload.history)
+    setMessages(payload.history || [])
+    markLatestAssistantAsSeen(payload.history || [])
     setOpenChatMenuId("")
     setRenamingChatId("")
     setPrompt("")
@@ -2100,12 +2171,13 @@ export default function App() {
   }
 
   function markLatestAssistantAsSeen(history: ChatMessage[]) {
-    const latestAssistantIndex = [...history]
+    const safeHistory = history || []
+    const latestAssistantIndex = [...safeHistory]
       .map((message, index) => ({ message, index }))
       .reverse()
       .find((entry) => entry.message.role === "assistant" && !entry.message.pending)?.index
     lastSpokenMessageRef.current =
-      latestAssistantIndex === undefined ? "" : speechMessageKey(history[latestAssistantIndex], latestAssistantIndex)
+      latestAssistantIndex === undefined ? "" : speechMessageKey(safeHistory[latestAssistantIndex], latestAssistantIndex)
   }
 
   async function refreshSkills(activeToken: string) {
@@ -2760,9 +2832,9 @@ export default function App() {
         setAvailableThemes(settings.available_themes?.length ? settings.available_themes : fallbackThemePresets)
         setDebugMode(settings.debug_mode)
         forceScrollRef.current = true
-        setChats(settings.chats)
+        setChats(settings.chats || [])
         setActiveChatId(settings.active_chat_id)
-        setMessages(settings.history)
+        setMessages(settings.history || [])
         setCharacterEnabled(settings.character_enabled)
         setActiveCharacterId(settings.active_character_id)
         setAssignedCharacterId(settings.assigned_character_id)
@@ -2800,7 +2872,7 @@ export default function App() {
             return accumulator
           }, {})
         )
-        const latestAssistantIndex = [...settings.history]
+        const latestAssistantIndex = [...(settings.history || [])]
           .map((message, index) => ({ message, index }))
           .reverse()
           .find((entry) => entry.message.role === "assistant")?.index
@@ -5838,7 +5910,9 @@ export default function App() {
       ? selectedThemeSummary.preview.light
       : selectedThemeSummary.preview.dark
   const isWorkspaceView = activeView === "settings" || activeView === "admin"
-  const shellSidebarWidth = isWorkspaceView ? "0px" : isSidebarCollapsed ? "64px" : "288px"
+  const showRightSidebar = isCharacterVisible && Boolean(selectedCharacter) && characterDisplayMode !== "fullscreen"
+  const leftSidebarWidth = isWorkspaceView ? "0px" : isSidebarCollapsed ? "64px" : "288px"
+  const rightSidebarWidth = isRightSidebarCollapsed ? "48px" : "360px"
   const settingsContentClass = cn(
     "mx-auto w-full",
     activeSettingsSection === "memory"
@@ -5870,7 +5944,7 @@ export default function App() {
   )
   const normalizedSkillSearch = adminSkillSearch.trim().toLowerCase()
   const skillCatalogEntries: SkillCatalogEntry[] = [
-    ...installedSkills.map((skill) => ({
+    ...(installedSkills || []).map((skill) => ({
       id: skill.skill_id,
       title: skill.title,
       description: skill.description,
@@ -5885,8 +5959,8 @@ export default function App() {
       load_type: skill.load_type,
       account_count: skill.accounts.length,
     })),
-    ...availableSkills
-      .filter((skill) => !installedSkills.some((installed) => installed.skill_id === skill.id))
+    ...(availableSkills || [])
+      .filter((skill) => !(installedSkills || []).some((installed) => installed.skill_id === skill.id))
       .map((skill) => ({
         id: skill.id,
         title: skill.title,
@@ -5898,7 +5972,7 @@ export default function App() {
         system: false,
         health_status: "unknown",
         health_detail: "Not installed yet.",
-        domains: skill.domains,
+        domains: skill.domains || [],
         load_type: "lazy",
         account_count: 0,
       })),
@@ -5908,7 +5982,7 @@ export default function App() {
     available: skillCatalogEntries.filter((skill) => !skill.installed).length,
     all: skillCatalogEntries.length,
   }
-  const skillDomainOptions = [...new Set(skillCatalogEntries.flatMap((skill) => skill.domains).filter(Boolean))].sort((left, right) => left.localeCompare(right))
+  const skillDomainOptions = [...new Set(skillCatalogEntries.flatMap((skill) => skill.domains || []).filter(Boolean))].sort((left, right) => left.localeCompare(right))
   const filteredSkillEntries = sortSkills(
     skillCatalogEntries.filter((skill) => {
       if (adminSkillCatalogTab === "installed" && !skill.installed) {
@@ -5949,8 +6023,8 @@ export default function App() {
     || adminSkillKindFilter !== "all"
     || adminSkillSort !== "recommended"
   )
-  const voiceLanguageOptions = [...new Set(adminVoices.map((voice) => voice.language).filter(Boolean))].sort((left, right) => left.localeCompare(right))
-  const voiceQualityOptions = [...new Set(adminVoices.map((voice) => voice.quality).filter(Boolean))].sort((left, right) => left.localeCompare(right))
+  const voiceLanguageOptions = [...new Set((adminVoices || []).map((voice) => voice.language || "").filter(Boolean))].sort((left, right) => left.localeCompare(right))
+  const voiceQualityOptions = [...new Set((adminVoices || []).map((voice) => voice.quality || "").filter(Boolean))].sort((left, right) => left.localeCompare(right))
   const adminVoiceFilterMatches = (voice: AdminVoiceRecord): boolean => {
     if (adminVoiceLanguageFilter !== "all" && voice.language !== adminVoiceLanguageFilter) {
       return false
@@ -6044,9 +6118,13 @@ export default function App() {
       <div
         className={cn(
           "grid h-dvh overflow-hidden bg-[var(--panel)]",
-          isWorkspaceView || (characterDisplayMode === "fullscreen" && isCharacterVisible) ? "grid-cols-1" : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
+          isWorkspaceView || (characterDisplayMode === "fullscreen" && isCharacterVisible) 
+            ? "grid-cols-1" 
+            : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
         )}
-        style={!isWorkspaceView ? { ["--sidebar-width" as string]: shellSidebarWidth } : undefined}
+        style={!isWorkspaceView ? { 
+          ["--sidebar-width" as string]: leftSidebarWidth
+        } : undefined}
       >
         {!isWorkspaceView && !(characterDisplayMode === "fullscreen" && isCharacterVisible) ? (
           <AppSidebar
@@ -6062,8 +6140,20 @@ export default function App() {
             renameChatTitle={renameChatTitle}
             renamingChatId={renamingChatId}
             user={user}
-            onBeginRenamingChat={beginRenamingChat}
+            projects={projects}
+            activeProjectId={displayProjectId || ""}
+            onSelectProject={(projectId) => {
+              setActiveProjectId(projectId)
+              setActiveChatId("")
+              setAssistantTab("chat")
+            }}
+            onCreateProject={() => {
+              setEditingProject(null)
+              setIsProjectEditorOpen(true)
+            }}
+            onBeginRenamingChat={(chat) => beginRenamingChat(chat)}
             onCloseMobileSidebar={() => setIsMobileSidebarOpen(false)}
+            onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
             onCreateChat={() => {
               if (token) {
                 void createChat(token).catch((error) => {
@@ -6141,107 +6231,65 @@ export default function App() {
           ) : null}
 
           <header className={cn(
-            "relative h-16 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6 z-20",
+            "relative flex h-16 shrink-0 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6 z-20 transition-all",
             characterDisplayMode === "fullscreen" && isCharacterVisible ? "hidden" : "flex"
           )}>
-            <div className="flex items-center gap-3">
-              <Button
-                className={cn("md:hidden", isWorkspaceView ? "hidden" : "")}
-                onClick={() => setIsMobileSidebarOpen(true)}
-                size="icon"
-                tooltip="Open navigation"
-                type="button"
-                variant="ghost"
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-              {activeView === "assistant" ? (
-                <CharacterQuickSwitcher
-                  busy={isCharacterSyncPending}
-                  characters={sharedCharacterChoices.map((character) => ({
-                    ...character,
-                    teaser: fallbackCharacterTeaser(character),
-                  }))}
-                  open={isCharacterMenuOpen}
-                  pendingCharacterName={pendingCharacterName}
-                  selectedCharacter={selectedCharacter ? {
-                    ...selectedCharacter,
-                    teaser: fallbackCharacterTeaser(selectedCharacter),
-                  } : null}
-                  onOpenCharacterSettings={openCharacterSettingsPanel}
-                  onSelectCharacter={(characterId) => void handleCharacterSwitch(characterId)}
-                  onToggle={() => {
-                    if (!isCharacterSyncPending) {
-                      setIsCharacterMenuOpen((current) => !current)
-                    }
+            {/* Left: Breadcrumbs */}
+            <div className="flex items-center gap-2 overflow-hidden font-medium min-w-0">
+              {!displayProject && !activeChatId ? (
+                <span 
+                  className="text-sm font-bold text-[var(--foreground)] cursor-pointer hover:opacity-80 transition-opacity shrink-0" 
+                  onClick={() => { setActiveProjectId(""); setActiveChatId(""); setActiveView("assistant"); }}
+                >
+                  LokiDoki
+                </span>
+              ) : null}
+
+              {displayProject ? (
+                <div 
+                  className="flex items-center gap-2 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity shrink-0"
+                  onClick={() => {
+                    setActiveProjectId(displayProject.id);
+                    setActiveChatId("");
+                    setAssistantTab("chat");
                   }}
-                />
-              ) : (
-                <div className="workspace-view-badge text-sm font-medium">
-                  <span className="max-w-[160px] truncate sm:max-w-none">
-                    {activeView === "settings" ? "Settings" : "Administration"}
+                >
+                  <div 
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                    style={{ 
+                      color: displayProject.icon_color || "var(--accent)",
+                      backgroundColor: `${displayProject.icon_color || "var(--accent)"}1a`
+                    }}
+                  >
+                    {(() => {
+                      const Icon = displayProject.icon && (Lucide as any)[displayProject.icon] ? (Lucide as any)[displayProject.icon] : Lucide.Folder
+                      return <Icon className="h-3.5 w-3.5" />
+                    })()}
+                  </div>
+                  <span className="truncate text-sm font-bold text-[var(--foreground)]">
+                    {displayProject.name}
                   </span>
                 </div>
-              )}
-              <button
-                aria-expanded={isHealthOpen}
-                aria-label="Open local service status"
-                className={`flex items-center gap-2 border px-2.5 py-1 text-xs ${
-                  healthTone === "ok"
-                    ? "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--foreground)]"
-                    : healthTone === "warn"
-                      ? "border-amber-900/70 bg-amber-950/30 text-amber-200"
-                      : healthTone === "error"
-                        ? "border-rose-900/70 bg-rose-950/30 text-rose-200"
-                        : "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--muted-foreground)]"
-                } ${canOpenHealth ? "cursor-pointer hover:bg-[var(--input)]" : "cursor-default"}`}
-                disabled={!canOpenHealth}
-                onClick={() => {
-                  if (canOpenHealth) {
-                    setIsHealthOpen((current) => !current)
-                  }
-                }}
-                type="button"
-              >
-                {healthTone === "ok" ? (
-                  <CircleCheckBig className="h-3.5 w-3.5" />
-                ) : healthTone === "checking" ? (
-                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CircleAlert className="h-3.5 w-3.5" />
-                )}
-                <span>
-                  <span className="hidden sm:inline">
-                    {!health
-                    ? "Checking"
-                    : primaryIssue
-                      ? `${topIssues.length} issue${topIssues.length === 1 ? "" : "s"}`
-                      : "Local"}
+              ) : null}
+
+              {displayProject && activeChatId ? (
+                <ChevronRight className="h-4 w-4 text-[var(--muted-foreground)] shrink-0" />
+              ) : null}
+
+              {activeChatId ? (
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[var(--panel-strong)] text-[var(--muted-foreground)]">
+                    <MessageSquare className="h-3.5 w-3.5" />
+                  </div>
+                  <span className="truncate text-sm font-bold text-[var(--foreground)]">
+                    {activeChat?.title || "New chat"}
                   </span>
-                </span>
-              </button>
+                </div>
+              ) : null}
             </div>
 
-            {activeView === "assistant" ? (
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                <TabsList className="h-9">
-                  <TabsTrigger
-                    active={assistantTab === "chat"}
-                    onClick={() => setAssistantTab("chat")}
-                  >
-                    Chat
-                  </TabsTrigger>
-                  <TabsTrigger
-                    active={assistantTab === "talk"}
-                    onClick={() => setAssistantTab("talk")}
-                  >
-                    Talk
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-            ) : null}
-
-            <div className="relative flex items-center gap-1 text-[var(--foreground)] sm:gap-2" onPointerDown={(event) => event.stopPropagation()}>
+            {/* Right: Consolidated UI Actions */}
+            <div className="flex items-center gap-2">
               {user?.is_admin && debugMode ? (
                 <Button
                   className="h-9 gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-soft)] hover:bg-[var(--input)]"
@@ -6253,49 +6301,90 @@ export default function App() {
                   Logs
                 </Button>
               ) : null}
-              {!isWorkspaceView ? (
-                <Button
-                  className="h-8 w-8 border border-[var(--line)] bg-[var(--panel)]"
-                  disabled={!activeChat}
-                  onClick={() => {
-                    if (activeChat) {
-                      openChatMenu(activeChat.id, "header")
-                    }
-                  }}
-                  size="icon"
-                  tooltip={activeChat ? "Chat actions" : "No active chat"}
-                  type="button"
-                  variant="ghost"
-                >
-                  <Ellipsis className="h-4 w-4" />
-                </Button>
-              ) : null}
-              {!isWorkspaceView && openChatMenuId === activeChatId && chatMenuAnchor === "header" && activeChat ? (
-                <div
-                  className="absolute right-0 top-[calc(100%+8px)] z-30 w-44 border border-[var(--line)] bg-[var(--panel-strong)]/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--input)]" onClick={() => beginRenamingChat(activeChat)} type="button">
-                    <Pencil className="h-4 w-4 text-[var(--muted-foreground)]" />
-                    Rename chat
-                  </button>
-                  <button
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-rose-300 hover:bg-rose-500/10"
-                    onClick={() => {
-                      if (!token || !window.confirm(`Delete "${activeChat.title}"?`)) {
-                        return
-                      }
-                      void deleteChat(activeChat.id, token).catch((error) => {
-                        setChatError(error instanceof Error ? error.message : "Chat delete failed.")
-                      })
-                    }}
-                    type="button"
+
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <Button
+                    className="h-9 w-9 rounded-full text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)] transition-all"
+                    size="icon"
+                    variant="ghost"
                   >
-                    <Trash2 className="h-4 w-4 text-rose-300" />
-                    Delete chat
-                  </button>
-                </div>
-              ) : null}
+                    <Ellipsis className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56 rounded-[22px] border border-[var(--line)] bg-[var(--panel-strong)]/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)]">
+                  {activeProjectId && (
+                    <DropdownMenuItem 
+                      className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)] cursor-pointer"
+                      onClick={() => {
+                        const proj = projects.find(p => p.id === activeProjectId)
+                        if (proj) {
+                          setEditingProject({
+                            id: proj.id,
+                            name: proj.name,
+                            description: "",
+                            instructions: "",
+                            icon: proj.icon || "Folder",
+                            icon_color: proj.icon_color || "#3b82f6"
+                          })
+                          setIsProjectEditorOpen(true)
+                        }
+                      }}
+                    >
+                      <Settings className="h-4 w-4 text-[var(--muted-foreground)]" />
+                      Project settings
+                    </DropdownMenuItem>
+                  )}
+
+                  {activeChat && (
+                    <>
+                      {activeProjectId && <DropdownMenuSeparator className="bg-[var(--line)]" />}
+                      <DropdownMenuItem 
+                        className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)] cursor-pointer"
+                        onClick={() => beginRenamingChat(activeChat)}
+                      >
+                        <Pencil className="h-4 w-4 text-[var(--muted-foreground)]" />
+                        Rename chat
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm font-medium text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                        onClick={() => {
+                          if (!token || !window.confirm(`Delete "${activeChat.title}"?`)) {
+                            return
+                          }
+                          void deleteChat(activeChat.id, token).catch((error) => {
+                            setChatError(error instanceof Error ? error.message : "Chat delete failed.")
+                          })
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete chat
+                      </DropdownMenuItem>
+                    </>
+                  )}
+
+                  <DropdownMenuSeparator className="bg-[var(--line)]" />
+                  
+                  <DropdownMenuItem 
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)] cursor-pointer"
+                    onClick={() => {
+                      setIsCharacterVisible(prev => !prev)
+                      setIsRightSidebarCollapsed(false)
+                    }}
+                  >
+                    {!isCharacterVisible ? <PanelLeftOpen className="h-4 w-4 -rotate-180" /> : <PanelLeftClose className="h-4 w-4 -rotate-180" />}
+                    {!isCharacterVisible ? "Show Character" : "Hide Character"}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem 
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)] cursor-pointer"
+                    onClick={() => setIsHealthOpen(true)}
+                  >
+                    <Server className="h-4 w-4 text-[var(--muted-foreground)]" />
+                    Status
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </header>
 
@@ -6443,105 +6532,130 @@ export default function App() {
 
           {activeView === "assistant" ? (
             <div className="relative flex min-h-0 flex-1 overflow-hidden">
-              {/* Only show toolbar here if character is NOT in fullscreen mode (otherwise overlay handles it) */}
-              {characterDisplayMode !== "fullscreen" && (
-                <div className="pointer-events-auto absolute right-6 top-6 z-50 flex items-center gap-2">
-                  <div className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-xl shadow-strong transition-all duration-500 hover:gap-2">
-                    {/* Flyout Group */}
-                    <div className={cn(
-                      "flex items-center gap-1.5 overflow-hidden transition-all duration-300",
-                      isCharacterVisible ? "w-0 opacity-0 group-hover:w-auto group-hover:opacity-100" : "hidden"
-                    )}>
-                      {/* Body Mode */}
-                      <Button
-                        className={cn(
-                          "h-9 w-9 rounded-full transition-all",
-                          characterDisplayMode === "full" ? "bg-[var(--accent)] text-black font-bold shadow-[0_0_15px_rgba(var(--accent-rgb),0.5)]" : "text-white/60 hover:bg-white/10 hover:text-white"
-                        )}
-                        onClick={() => setCharacterDisplayMode("full")}
-                        size="icon"
-                        tooltip="Body Mode"
-                        variant="ghost"
-                      >
-                        <User className="h-5 w-5" />
-                      </Button>
-
-                      {/* Head Mode */}
-                      <Button
-                        className={cn(
-                          "h-9 w-9 rounded-full transition-all",
-                          characterDisplayMode === "head" ? "bg-[var(--accent)] text-black font-bold shadow-[0_0_15px_rgba(var(--accent-rgb),0.5)]" : "text-white/60 hover:bg-white/10 hover:text-white"
-                        )}
-                        onClick={() => setCharacterDisplayMode("head")}
-                        size="icon"
-                        tooltip="Head Mode"
-                        variant="ghost"
-                      >
-                        <Scan className="h-5 w-5" />
-                      </Button>
-
-                      {/* Fullscreen Mode */}
-                      <Button
-                        className={cn("h-9 w-9 rounded-full transition-all text-white/60 hover:bg-white/10 hover:text-white")}
-                        onClick={() => setCharacterDisplayMode("fullscreen")}
-                        size="icon"
-                        tooltip="Fullscreen Stage"
-                        variant="ghost"
-                      >
-                        <Maximize2 className="h-5 w-5" />
-                      </Button>
-
-                      {/* Hide/Exit Button */}
-                      <Button
-                        className="h-9 w-9 rounded-full text-white/50 hover:bg-rose-500/20 hover:text-rose-400 transition-all"
-                        onClick={(e) => { e.stopPropagation(); setIsCharacterVisible(false); }}
-                        size="icon"
-                        tooltip="Hide Character"
-                        variant="ghost"
-                      >
-                        <X className="h-5 w-5" />
-                      </Button>
-                      <div className="mx-1 h-4 w-px bg-white/20" />
-                    </div>
-
-                    {/* Trigger Icon */}
-                    <Button
-                      className={cn("h-9 w-9 rounded-full transition-all duration-300", isCharacterVisible ? "bg-white/5 text-white group-hover:bg-transparent" : "bg-[var(--accent)] text-black font-bold shadow-[0_0_20px_rgba(var(--accent-rgb),0.3)]")}
-                      onClick={() => !isCharacterVisible && setIsCharacterVisible(true)}
-                      size="icon"
-                      tooltip={isCharacterVisible ? "Stage Options (Hover)" : "Show Character"}
-                      variant="ghost"
-                    >
-                      {!isCharacterVisible ? <Eye className="h-5 w-5" /> : (characterDisplayMode === "full" ? <User className="h-5 w-5" /> : <Scan className="h-5 w-5" />)}
-                    </Button>
-
-                    <div className="h-4 w-px bg-white/20" />
-
-                    {/* Audio Toggle */}
-                    <Button
-                      className={cn("h-9 w-9 rounded-full transition-all duration-300", voiceReplyEnabled ? "text-[var(--accent)]" : "text-white/60 hover:bg-white/10 hover:text-white")}
-                      onClick={() => setVoiceReplyEnabled((prev) => !prev)}
-                      size="icon"
-                      tooltip={voiceReplyEnabled ? "Mute Output" : "Unmute Output"}
-                      variant="ghost"
-                    >
-                      {voiceReplyEnabled ? <Ear className="h-5 w-5" /> : <EarOff className="h-5 w-5" />}
-                    </Button>
-                  </div>
-                </div>
-              )}
 
               <div
                 className={cn(
                   "flex min-h-0 flex-1 flex-col overflow-hidden transition-all duration-500",
-                  characterDisplayMode === "fullscreen" && isCharacterVisible ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 translate-y-0"
+                  characterDisplayMode === "fullscreen" && isCharacterVisible ? "hidden" : "flex"
                 )}
               >
                 {assistantTab === "chat" ? (
-                  <>
-                    <div
-                      ref={messageViewportRef}
-                      className="chat-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                  activeProjectId && !activeChatId ? (
+                    <div className="flex flex-1 flex-col items-center justify-start pt-16 md:pt-24 px-6 pb-8 text-center overflow-y-auto">
+                      {(() => {
+                        const activeProject = projects.find(p => p.id === activeProjectId)
+                        const IconComponent = activeProject?.icon && (Lucide as any)[activeProject.icon] ? (Lucide as any)[activeProject.icon] : Lucide.Folder
+                        return (
+                          <div className="max-w-2xl w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
+                            <div className="mb-8 flex justify-center">
+                              <div className="relative">
+                                <div className="absolute inset-0 blur-3xl opacity-20 bg-[var(--accent)] rounded-full" />
+                                <div 
+                                  className="relative flex h-20 w-20 items-center justify-center rounded-3xl border border-white/10 bg-[var(--panel-strong)]/50 shadow-strong shadow-[var(--shadow-soft)]"
+                                  style={{ color: activeProject?.icon_color }}
+                                >
+                                  <IconComponent className="h-10 w-10" />
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <h1 className="text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
+                              {activeProject?.name || "Project"}
+                            </h1>
+                            {((activeProject as any)?.description) ? (
+                              <p className="mx-auto mt-4 max-w-xl text-lg text-[var(--muted-foreground)] whitespace-pre-wrap">
+                                {(activeProject as any).description}
+                              </p>
+                            ) : null}
+                            <p className="mt-6 text-sm text-[var(--muted-foreground)] opacity-70">
+                              Select a chat to continue or start a new one in this workspace.
+                            </p>
+
+                            <div className="mt-10 flex flex-wrap justify-center gap-4">
+                              <Button
+                                className="h-12 gap-3 rounded-2xl bg-[var(--accent)] px-6 text-base font-bold text-black shadow-strong hover:scale-105 active:scale-95 transition-all"
+                                onClick={() => {
+                                  if (token) {
+                                    void createChat(token).catch(console.error)
+                                  }
+                                }}
+                              >
+                                <MessageSquarePlus className="h-5 w-5" />
+                                New chat in {activeProject?.name || "Project"}
+                              </Button>
+                          <Button
+                            className="h-12 gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-6 text-base font-bold text-[var(--foreground)] shadow-sm hover:bg-[var(--input)] transition-all"
+                            onClick={() => {
+                              if (activeProject) {
+                                setEditingProject({
+                                  id: activeProject.id,
+                                  name: activeProject.name,
+                                  description: (activeProject as any).description || "",
+                                  instructions: (activeProject as any).instructions || "",
+                                  icon: activeProject.icon || "Folder",
+                                  icon_color: activeProject.icon_color || "#3b82f6"
+                                })
+                                setIsProjectEditorOpen(true)
+                              }
+                            }}
+                          >
+                            <Settings className="h-5 w-5" />
+                            Project Settings
+                          </Button>
+                            </div>
+
+                            <div className="mt-16 w-full border-t border-[var(--line)] pt-10">
+                              <div className="flex justify-center border-b border-[var(--line)] mb-6">
+                                <TabsList className="bg-transparent border-0 h-auto p-0 gap-8">
+                                  <TabsTrigger 
+                                    active={true}
+                                    className="px-0 py-3 rounded-none border-b-2 border-[var(--accent)] text-sm font-bold bg-transparent"
+                                  >
+                                    Chats
+                                  </TabsTrigger>
+                                  <TabsTrigger 
+                                    active={false}
+                                    className="px-0 py-3 rounded-none border-b-2 border-transparent text-[var(--muted-foreground)] text-sm font-medium hover:text-[var(--foreground)] bg-transparent"
+                                  >
+                                    Sources
+                                  </TabsTrigger>
+                                </TabsList>
+                              </div>
+
+                              <div className="grid gap-3 sm:grid-cols-2 text-left">
+                                {chats.filter(c => c.id !== "" && c.project_id === activeProjectId).slice(0, 6).map(chat => (
+                                  <button
+                                    key={chat.id}
+                                    className="group flex items-center gap-4 rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)]/30 p-4 transition-all hover:bg-[var(--input)] hover:border-[var(--accent)]/30 active:scale-[0.98]"
+                                    onClick={() => selectChat(chat.id, token)}
+                                  >
+                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--panel-strong)] text-[var(--muted-foreground)] group-hover:text-[var(--accent)] transition-colors">
+                                      <MessageSquare className="h-5 w-5" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="truncate text-base font-bold text-[var(--foreground)]">{chat.title}</div>
+                                      <div className="truncate text-xs text-[var(--muted-foreground)]">
+                                        {chat.message_count} messages • {new Date(chat.updated_at).toLocaleDateString()}
+                                      </div>
+                                    </div>
+                                  </button>
+                                ))}
+                                {chats.filter(c => c.id !== "" && projects.some(p => p.id === activeProjectId)).length === 0 && (
+                                  <div className="col-span-2 py-10 text-center text-[var(--muted-foreground)]">
+                                    No chats in this project yet.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        ref={messageViewportRef}
+                        className="chat-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain"
                       onScroll={handleMessageScroll}
                     >
                       <ChatMessageList
@@ -6553,6 +6667,7 @@ export default function App() {
                         onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
                         onRetrySmart={(assistantIndex) => void retryAssistantWithSmartModel(assistantIndex)}
                         onSuggestionSelect={setPrompt}
+                        onToggleCharacter={() => setIsRightSidebarCollapsed((prev) => !prev)}
                         overviewRows={overviewRows}
                         pendingSpeechMessageKey={pendingSpeechMessageKey}
                         retryingAssistantIndex={retryingAssistantIndex}
@@ -6605,7 +6720,7 @@ export default function App() {
                       wakewordSpeechLevel={wakewordTelemetry.speechLevel}
                     />
                   </>
-                ) : (
+                )) : (
                   <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
                     <div className="max-w-md space-y-4">
                       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
@@ -6620,20 +6735,174 @@ export default function App() {
                 )}
               </div>
 
-              {isCharacterVisible && selectedCharacter && characterDisplayMode !== "fullscreen" && (
-                <aside className="relative flex w-[360px] border-l xl:w-[420px] bg-[var(--panel-strong)]/20 animate-in slide-in-from-right-4 transition-all duration-500">
-                  <div className="flex h-full w-full flex-1 flex-col overflow-hidden p-6 pt-16">
+              {isCharacterVisible && selectedCharacter && (
+                <aside className={cn(
+                  "relative flex flex-col border-l bg-[var(--panel-strong)]/20 animate-in slide-in-from-right-4 transition-all duration-500 overflow-hidden shrink-0",
+                  isRightSidebarCollapsed && characterDisplayMode !== "fullscreen" ? "border-l-[color-mix(in_srgb,var(--line)_20%,transparent)]" : "border-l-[var(--line)]",
+                  characterDisplayMode === "fullscreen" ? "border-l-0 bg-[var(--background)]" : ""
+                )} style={{ width: characterDisplayMode === "fullscreen" ? "100%" : rightSidebarWidth }}>
+                  {/* Top Bar: Collapse Toggle */}
+                  {characterDisplayMode !== "fullscreen" && (
+                    <div className={cn("absolute top-4 z-10", isRightSidebarCollapsed ? "inset-x-0 flex justify-center" : "right-4")}>
+                    <Button
+                      className="h-8 w-8 rounded-lg bg-[var(--panel-strong)]/40 text-[var(--muted-foreground)] backdrop-blur hover:bg-[var(--panel-strong)]/80 hover:text-[var(--foreground)]"
+                      onClick={() => setIsRightSidebarCollapsed(!isRightSidebarCollapsed)}
+                      size="icon"
+                      variant="ghost"
+                      tooltip={isRightSidebarCollapsed ? "Show Character" : "Hide Character"}
+                    >
+                      {isRightSidebarCollapsed ? <PanelLeftOpen className="h-4 w-4 -rotate-180" /> : <PanelLeftOpen className="h-4 w-4 rotate-180" />}
+                    </Button>
+                  </div>
+                  )}
+
+                  {(!isRightSidebarCollapsed || characterDisplayMode === "fullscreen") && (
+                    <>
+                  {/* Character Stage */}
+                  <div className="flex-1 flex flex-col items-center justify-center min-h-0 overflow-hidden relative">
                     <CharacterContext.Provider value={characterContextValue}>
                       <VoiceContext.Provider value={voiceContextValue}>
                         <AudioContext.Provider value={audioContextValue}>
                           <AnimatedCharacter
-                            stageScale={characterDisplayMode === "head" ? 1.2 : 1.0}
-                            viewPreset={characterDisplayMode}
+                            stageScale={characterDisplayMode === "fullscreen" ? 2.5 : characterDisplayMode === "head" ? 1.4 : 1.0}
+                            viewPreset={characterDisplayMode === "fullscreen" ? "full" : characterDisplayMode}
                           />
                         </AudioContext.Provider>
                       </VoiceContext.Provider>
                     </CharacterContext.Provider>
+
+                    {subtitlesEnabled && characterDisplayMode === "fullscreen" && (
+                      <div className="pointer-events-none absolute inset-0 z-[155] flex flex-col items-center justify-end px-12 pb-16">
+                        <div className="relative flex w-full max-w-4xl flex-col items-center">
+                          <div className="absolute -bottom-12 left-1/2 h-32 w-64 -translate-x-1/2 rounded-full bg-[var(--accent)]/30 blur-[60px]" />
+                          <div className="w-full rounded-[40px] border border-white/10 bg-black/40 px-12 py-10 text-center backdrop-blur-2xl shadow-strong">
+                            {messages.slice(-1).map((msg, idx) => {
+                              const msgKey = speechMessageKey(msg, Math.max(0, messages.length - 1))
+                              return (
+                                <div key={idx} className="flex flex-col items-center gap-2">
+                                  <span className="mb-2 text-[10px] font-black uppercase tracking-[0.4em] text-white/40">{msg.role === "user" ? "You" : selectedCharacter?.name}</span>
+                                  <div className="flex flex-wrap justify-center text-2xl font-medium tracking-tight text-white/90 lg:text-3xl">
+                                    {msg.content.split(" ").map((word, wIdx) => (
+                                      <span key={wIdx} className={cn("mr-2 transition-all duration-300", msgKey === speakingMessageKey && wIdx === speakingWordIndex ? "scale-105 font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" : "opacity-60")}>
+                                        {word}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Bottom: Selection & Audio */}
+                  <div className="z-10 space-y-4 border-t border-[var(--line)] bg-[var(--panel-strong)]/40 p-4">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                         <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Character</span>
+                         <div className="flex items-center gap-1">
+                           <Button
+                             className={cn(
+                               "h-8 w-8 rounded-lg",
+                               characterDisplayMode === "full" ? "bg-[var(--accent)] text-black" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                             )}
+                             onClick={() => setCharacterDisplayMode("full")}
+                             size="icon"
+                             variant="ghost"
+                             tooltip="Full Body"
+                           >
+                             <User className="h-4 w-4" />
+                           </Button>
+                           <Button
+                             className={cn(
+                               "h-8 w-8 rounded-lg",
+                               characterDisplayMode === "head" ? "bg-[var(--accent)] text-black" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                             )}
+                             onClick={() => setCharacterDisplayMode("head")}
+                             size="icon"
+                             variant="ghost"
+                             tooltip="Focus Head"
+                           >
+                             <Scan className="h-4 w-4" />
+                           </Button>
+                           {characterDisplayMode === "fullscreen" ? (
+                             <Button
+                               className="h-8 w-8 rounded-lg bg-[var(--accent)] text-black"
+                               onClick={() => {
+                                 setCharacterDisplayMode("head");
+                                 if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+                               }}
+                               size="icon"
+                               variant="ghost"
+                               tooltip="Exit Fullscreen"
+                             >
+                               <Minimize2 className="h-4 w-4" />
+                             </Button>
+                           ) : (
+                             <Button
+                               className="h-8 w-8 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                               onClick={() => setCharacterDisplayMode("fullscreen")}
+                               size="icon"
+                               variant="ghost"
+                               tooltip="Fullscreen Stage"
+                             >
+                               <Maximize2 className="h-4 w-4" />
+                             </Button>
+                           )}
+                           <div className="mx-1 h-4 w-px bg-[var(--line)]" />
+                           <Button
+                             className={cn(
+                               "h-8 w-8 rounded-lg transition-all",
+                               voiceReplyEnabled ? "text-[var(--accent)]" : "text-[var(--muted-foreground)] hover:text-white"
+                             )}
+                             onClick={() => setVoiceReplyEnabled((prev) => !prev)}
+                             size="icon"
+                             variant="ghost"
+                             tooltip={voiceReplyEnabled ? "Mute Voice" : "Unmute Voice"}
+                           >
+                             {voiceReplyEnabled ? <Ear className="h-4 w-4" /> : <EarOff className="h-4 w-4" />}
+                           </Button>
+                           <Button
+                             className={cn(
+                               "h-8 w-8 rounded-lg transition-all",
+                               subtitlesEnabled ? "text-[var(--accent)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                             )}
+                             onClick={() => setSubtitlesEnabled((prev) => !prev)}
+                             size="icon"
+                             variant="ghost"
+                             tooltip={subtitlesEnabled ? "Hide Subtitles" : "Show Subtitles"}
+                           >
+                             <MessageSquare className="h-4 w-4" />
+                           </Button>
+                         </div>
+                      </div>
+                      
+                      <CharacterQuickSwitcher
+                        busy={isCharacterSyncPending}
+                        characters={sharedCharacterChoices.map((character) => ({
+                          ...character,
+                          teaser: fallbackCharacterTeaser(character),
+                        }))}
+                        open={isCharacterMenuOpen}
+                        pendingCharacterName={pendingCharacterName}
+                        selectedCharacter={selectedCharacter ? {
+                          ...selectedCharacter,
+                          teaser: fallbackCharacterTeaser(selectedCharacter),
+                        } : null}
+                        onOpenCharacterSettings={openCharacterSettingsPanel}
+                        onSelectCharacter={(characterId) => void handleCharacterSwitch(characterId)}
+                        onToggle={() => {
+                          if (!isCharacterSyncPending) {
+                            setIsCharacterMenuOpen((current) => !current)
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                    </>
+                  )}
                 </aside>
               )}
 
@@ -8104,8 +8373,9 @@ export default function App() {
                                     <div className="mt-2">
                                       <AssistantMessageCard
                                         debugNow={debugNow}
-                                        message={promptLabPreviewMessage(promptLabResult)}
+                                        message={promptLabPreviewMessage(promptLabResult) as any}
                                         messageKey={`prompt-lab:${promptLabResult.user.id}:${promptLabResult.elapsed_ms}`}
+                                        messageTime={String(promptLabResult.elapsed_ms)}
                                         onPlayVoice={(message, messageKey) => void playMessageVoice(message, messageKey)}
                                         pendingSpeechMessageKey={pendingSpeechMessageKey}
                                         showRuntimeDebug={true}
@@ -9273,96 +9543,30 @@ export default function App() {
         </main>
       </div>
 
-      {/* Global Cinematic Fullscreen Stage (Independent High-Z Layer) */}
-      {isCharacterVisible && selectedCharacter && characterDisplayMode === "fullscreen" && (
-        <div className="fixed inset-0 z-[150] flex h-dvh w-dvw flex-col overflow-hidden bg-black animate-in fade-in duration-500">
-          <div className="pointer-events-auto absolute right-6 top-6 z-[160] flex items-center gap-2">
-            <div className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 p-1 backdrop-blur-xl shadow-strong transition-all duration-500 hover:gap-2">
-              <div className="flex items-center gap-1.5 overflow-hidden transition-all duration-300 w-0 opacity-0 group-hover:w-auto group-hover:opacity-100">
-                <Button
-                  className={cn("h-9 w-9 rounded-full transition-all bg-[var(--accent)] text-black font-bold")}
-                  onClick={() => setCharacterDisplayMode("full")}
-                  size="icon" tooltip="Body Mode" variant="ghost"
-                >
-                  <User className="h-5 w-5" />
-                </Button>
-                <Button
-                  className={cn("h-9 w-9 rounded-full transition-all text-white/60 hover:bg-white/10 hover:text-white")}
-                  onClick={() => setCharacterDisplayMode("head")}
-                  size="icon" tooltip="Head Mode" variant="ghost"
-                >
-                  <Scan className="h-5 w-5" />
-                </Button>
-                <Button
-                  className="h-9 w-9 rounded-full text-white/50 hover:bg-rose-500/20 hover:text-rose-400 transition-all font-bold"
-                  onClick={() => { setIsCharacterVisible(false); if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); }}
-                  size="icon" tooltip="Exit Stage" variant="ghost"
-                >
-                  <X className="h-5 w-5" />
-                </Button>
-                <div className="mx-1 h-4 w-px bg-white/20" />
-              </div>
-              <Button
-                className="h-9 w-9 rounded-full bg-[var(--accent)] text-black font-bold shadow-strong transition-all"
-                onClick={() => setCharacterDisplayMode("head")}
-                size="icon" tooltip="Exit Fullscreen" variant="ghost"
-              >
-                <Minimize2 className="h-5 w-5" />
-              </Button>
-              <div className="h-4 w-px bg-white/20" />
-              <Button
-                className={cn("h-9 w-9 rounded-full transition-all", voiceReplyEnabled ? "text-[var(--accent)]" : "text-white/60 hover:bg-white/10 hover:text-white")}
-                onClick={() => setVoiceReplyEnabled((prev) => !prev)}
-                size="icon" tooltip={voiceReplyEnabled ? "Mute" : "Unmute"} variant="ghost"
-              >
-                {voiceReplyEnabled ? <Ear className="h-5 w-5" /> : <EarOff className="h-5 w-5" />}
-              </Button>
-              <Button
-                className={cn("h-9 w-9 rounded-full transition-all", subtitlesEnabled ? "bg-[var(--accent)] text-black font-bold" : "text-white/60 hover:bg-white/10 hover:text-white")}
-                onClick={() => setSubtitlesEnabled((prev) => !prev)}
-                size="icon" tooltip="Subtitles" variant="ghost"
-              >
-                <MessageSquare className="h-5 w-5" />
-              </Button>
-            </div>
+      {isProjectEditorOpen ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-xl animate-in fade-in duration-300" onClick={() => setIsProjectEditorOpen(false)} />
+          <div className="relative w-full max-w-2xl animate-in zoom-in-95 duration-300" onPointerDown={(e) => e.stopPropagation()}>
+            <ProjectEditorPanel
+              project={editingProject}
+              onCancel={() => setIsProjectEditorOpen(false)}
+              onSave={async (project) => {
+                try {
+                  if (project.id) {
+                    await updateProject(project as Project, token!)
+                  } else {
+                    await createProject(project, token!)
+                  }
+                  await refreshProjects()
+                  setIsProjectEditorOpen(false)
+                } catch (error) {
+                  setChatError(error instanceof Error ? error.message : "Project save failed.")
+                }
+              }}
+            />
           </div>
-
-          <div className="flex h-full w-full flex-1 flex-col overflow-hidden items-center justify-center">
-            <CharacterContext.Provider value={characterContextValue}>
-              <VoiceContext.Provider value={voiceContextValue}>
-                <AudioContext.Provider value={audioContextValue}>
-                  <AnimatedCharacter stageScale={2.5} viewPreset="full" />
-                </AudioContext.Provider>
-              </VoiceContext.Provider>
-            </CharacterContext.Provider>
-          </div>
-
-          {subtitlesEnabled && (
-            <div className="pointer-events-none absolute inset-0 z-[155] flex flex-col items-center justify-end px-12 pb-16">
-              <div className="relative flex w-full max-w-4xl flex-col items-center">
-                <div className="absolute -bottom-12 left-1/2 h-32 w-64 -translate-x-1/2 rounded-full bg-[var(--accent)]/30 blur-[60px]" />
-                <div className="w-full rounded-[40px] border border-white/10 bg-black/40 px-12 py-10 text-center backdrop-blur-2xl shadow-strong">
-                  {messages.slice(-1).map((msg, idx) => {
-                    const msgKey = speechMessageKey(msg, Math.max(0, messages.length - 1))
-                    return (
-                      <div key={idx} className="flex flex-col items-center gap-2">
-                        <span className="mb-2 text-[10px] font-black uppercase tracking-[0.4em] text-white/40">{msg.role === "user" ? "You" : selectedCharacter?.name}</span>
-                        <div className="flex flex-wrap justify-center text-2xl font-medium tracking-tight text-white/90 lg:text-3xl">
-                          {msg.content.split(" ").map((word, wIdx) => (
-                            <span key={wIdx} className={cn("mr-2 transition-all duration-300", msgKey === speakingMessageKey && wIdx === speakingWordIndex ? "scale-105 font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" : "opacity-60")}>
-                              {word}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

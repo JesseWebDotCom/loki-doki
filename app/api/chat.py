@@ -51,7 +51,8 @@ def create_chat_api(
             connection, 
             current_user["id"], 
             payload.title or chat_store.DEFAULT_CHAT_TITLE,
-            character_id=character_id
+            character_id=character_id,
+            project_id=payload.project_id
         )
         state = chat_state_payload(connection, current_user["id"], active_chat_id=str(chat["id"]))
     return {"chat": chat, **state}
@@ -124,6 +125,7 @@ async def chat_message_api(
             chat_id=str(chat["id"]),
             force_smart=(payload.performance_profile_id == "thinking"),
             response_style=payload.response_style,
+            project_id=chat.get("project_id"),
         )
         chat_store.append_chat_message(connection, current_user["id"], str(chat["id"]), assistant_message)
         
@@ -158,6 +160,7 @@ async def chat_message_stream_api(
             current_user,
             context["settings"]["profile"],
             compiler_provider=active_providers["llm_thinking"],
+            project_id=chat.get("project_id"),
         )
         dynamic_context = build_memory_context(
             connection,
@@ -434,6 +437,7 @@ async def retry_smart_api(
             chat_id=str(chat["id"]),
             force_smart=True,
             response_style=payload.response_style,
+            project_id=chat.get("project_id"),
         )
         chat_store.replace_chat_message(connection, current_user["id"], str(chat["id"]), payload.assistant_index, assistant_message)
         

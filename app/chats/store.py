@@ -22,6 +22,7 @@ def initialize_chat_tables(conn: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             character_id TEXT NOT NULL DEFAULT 'lokidoki',
+            project_id TEXT,
             title TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -43,6 +44,7 @@ def initialize_chat_tables(conn: sqlite3.Connection) -> None:
         """
     )
     _ensure_chat_sessions_column(conn, "character_id", "TEXT NOT NULL DEFAULT 'lokidoki'")
+    _ensure_chat_sessions_column(conn, "project_id", "TEXT")
     conn.executescript(
         """
         CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_char
@@ -74,6 +76,7 @@ def list_chat_summaries(conn: sqlite3.Connection, user_id: str) -> list[dict[str
         SELECT
             chat_sessions.id,
             chat_sessions.title,
+            chat_sessions.project_id,
             chat_sessions.created_at,
             chat_sessions.updated_at,
             chat_sessions.last_message_at,
@@ -127,6 +130,7 @@ def get_chat_summary(conn: sqlite3.Connection, user_id: str, chat_id: str) -> Op
         SELECT
             chat_sessions.id,
             chat_sessions.title,
+            chat_sessions.project_id,
             chat_sessions.created_at,
             chat_sessions.updated_at,
             chat_sessions.last_message_at,
@@ -141,9 +145,9 @@ def get_chat_summary(conn: sqlite3.Connection, user_id: str, chat_id: str) -> Op
     return None if not rows else dict(rows[0])
 
 
-def create_chat(conn: sqlite3.Connection, user_id: str, title: str = DEFAULT_CHAT_TITLE, character_id: str = "lokidoki") -> dict[str, Any]:
+def create_chat(conn: sqlite3.Connection, user_id: str, title: str = DEFAULT_CHAT_TITLE, character_id: str = "lokidoki", project_id: Optional[str] = None) -> dict[str, Any]:
     """Create one blank chat and make it active."""
-    created = _create_chat(conn, user_id, title, character_id)
+    created = _create_chat(conn, user_id, title, character_id, project_id)
     _set_active_chat_id(conn, user_id, created["id"])
     conn.commit()
     return created
@@ -343,16 +347,16 @@ def _migrate_legacy_histories(conn: sqlite3.Connection) -> None:
         save_chat_history(conn, user_id, created["id"], history)
 
 
-def _create_chat(conn: sqlite3.Connection, user_id: str, title: str, character_id: str = "lokidoki") -> dict[str, Any]:
+def _create_chat(conn: sqlite3.Connection, user_id: str, title: str, character_id: str = "lokidoki", project_id: Optional[str] = None) -> dict[str, Any]:
     """Insert one chat row without committing."""
     chat_id = str(uuid4())
     cleaned_title = _normalize_title(title)
     conn.execute(
         """
-        INSERT INTO chat_sessions (id, user_id, character_id, title)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO chat_sessions (id, user_id, character_id, project_id, title)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (chat_id, user_id, character_id, cleaned_title),
+        (chat_id, user_id, character_id, project_id, cleaned_title),
     )
     chat = get_chat_summary(conn, user_id, chat_id)
     if chat is None:
