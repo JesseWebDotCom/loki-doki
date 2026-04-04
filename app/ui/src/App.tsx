@@ -6563,7 +6563,12 @@ export default function App() {
                             <h1 className="text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
                               {activeProject?.name || "Project"}
                             </h1>
-                            <p className="mt-4 text-lg text-[var(--muted-foreground)]">
+                            {((activeProject as any)?.description) ? (
+                              <p className="mx-auto mt-4 max-w-xl text-lg text-[var(--muted-foreground)] whitespace-pre-wrap">
+                                {(activeProject as any).description}
+                              </p>
+                            ) : null}
+                            <p className="mt-6 text-sm text-[var(--muted-foreground)] opacity-70">
                               Select a chat to continue or start a new one in this workspace.
                             </p>
 
