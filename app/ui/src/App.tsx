@@ -6300,7 +6300,7 @@ export default function App() {
           </header>
 
           {isHealthOpen && canOpenHealth ? (
-            <div className="absolute left-4 right-4 top-18 z-10 md:left-auto md:right-6 md:w-[380px]">
+            <div className="absolute left-4 right-4 top-18 z-[60] md:left-auto md:right-6 md:w-[380px]">
               <Card className="border-[var(--line)] bg-[var(--panel-strong)]/96 text-[var(--foreground)] shadow-2xl">
                 <CardContent className="p-3">
                   <div className="mb-3 flex items-center justify-between">
@@ -6347,7 +6347,7 @@ export default function App() {
 
 
           {user?.is_admin && debugMode && isDebugOpen ? (
-            <div className="absolute bottom-28 right-4 top-16 z-10 w-[min(460px,calc(100vw-32px))]">
+            <div className="absolute bottom-28 right-4 top-16 z-[60] w-[min(460px,calc(100vw-32px))]">
               <Card className="flex h-full min-h-0 flex-col border-[var(--line)] bg-[var(--panel-strong)]/98 text-[var(--foreground)] shadow-2xl">
                 <CardContent className="flex min-h-0 flex-1 flex-col p-3">
                   <div className="mb-3 flex items-center justify-between">
@@ -6421,7 +6421,7 @@ export default function App() {
           ) : null}
 
           {isCameraPreviewOpen ? (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+            <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
               <div className="w-full max-w-2xl">
                 <Card className="border-[var(--line)] bg-[var(--card)]/96 text-[var(--foreground)] shadow-[var(--shadow-strong)]">
                   <CardContent className="space-y-4 p-4">
