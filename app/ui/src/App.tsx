@@ -10,6 +10,7 @@ import {
   CircleCheckBig,
   Clapperboard,
   ChevronDown,
+  ChevronRight,
   Camera,
   Ellipsis,
   FileText,
@@ -2008,7 +2009,7 @@ export default function App() {
     { label: "TTS", value: bootstrap?.models.tts_voice || "Loading…" },
   ]
   const activeChat = chats.find((chat) => chat.id === activeChatId) || null
-  const filteredChats = chats.filter((chat) => chat.title.toLowerCase().includes(chatSearch.trim().toLowerCase()))
+  const filteredChats = chats.filter((chat) => !chat.project_id && chat.title.toLowerCase().includes(chatSearch.trim().toLowerCase()))
 
   async function refreshHealth() {
     try {
@@ -2069,10 +2070,10 @@ export default function App() {
       activeToken
     )
     forceScrollRef.current = true
-    setChats(payload.chats)
+    setChats(payload.chats || [])
     setActiveChatId(payload.active_chat_id)
-    setMessages(payload.history)
-    markLatestAssistantAsSeen(payload.history)
+    setMessages(payload.history || [])
+    markLatestAssistantAsSeen(payload.history || [])
     setPrompt("")
     setChatSearch("")
     setChatError("")
@@ -2093,10 +2094,10 @@ export default function App() {
     }
     const payload = await fetchJson<ChatStatePayload>(`/api/chats/${chatId}/select`, { method: "POST" }, activeToken)
     forceScrollRef.current = true
-    setChats(payload.chats)
+    setChats(payload.chats || [])
     setActiveChatId(payload.active_chat_id)
-    setMessages(payload.history)
-    markLatestAssistantAsSeen(payload.history)
+    setMessages(payload.history || [])
+    markLatestAssistantAsSeen(payload.history || [])
     setPrompt("")
     setChatError("")
     setOpenChatMenuId("")
@@ -2112,10 +2113,10 @@ export default function App() {
       { method: "PATCH", body: JSON.stringify({ title }) },
       activeToken
     )
-    setChats(payload.chats)
+    setChats(payload.chats || [])
     setActiveChatId(payload.active_chat_id)
-    setMessages(payload.history)
-    markLatestAssistantAsSeen(payload.history)
+    setMessages(payload.history || [])
+    markLatestAssistantAsSeen(payload.history || [])
     setOpenChatMenuId("")
     setRenamingChatId("")
   }
@@ -2130,10 +2131,10 @@ export default function App() {
       activeToken
     )
     forceScrollRef.current = true
-    setChats(payload.chats)
+    setChats(payload.chats || [])
     setActiveChatId(payload.active_chat_id)
-    setMessages(payload.history)
-    markLatestAssistantAsSeen(payload.history)
+    setMessages(payload.history || [])
+    markLatestAssistantAsSeen(payload.history || [])
     setOpenChatMenuId("")
     setRenamingChatId("")
     setPrompt("")
@@ -2165,12 +2166,13 @@ export default function App() {
   }
 
   function markLatestAssistantAsSeen(history: ChatMessage[]) {
-    const latestAssistantIndex = [...history]
+    const safeHistory = history || []
+    const latestAssistantIndex = [...safeHistory]
       .map((message, index) => ({ message, index }))
       .reverse()
       .find((entry) => entry.message.role === "assistant" && !entry.message.pending)?.index
     lastSpokenMessageRef.current =
-      latestAssistantIndex === undefined ? "" : speechMessageKey(history[latestAssistantIndex], latestAssistantIndex)
+      latestAssistantIndex === undefined ? "" : speechMessageKey(safeHistory[latestAssistantIndex], latestAssistantIndex)
   }
 
   async function refreshSkills(activeToken: string) {
@@ -2825,9 +2827,9 @@ export default function App() {
         setAvailableThemes(settings.available_themes?.length ? settings.available_themes : fallbackThemePresets)
         setDebugMode(settings.debug_mode)
         forceScrollRef.current = true
-        setChats(settings.chats)
+        setChats(settings.chats || [])
         setActiveChatId(settings.active_chat_id)
-        setMessages(settings.history)
+        setMessages(settings.history || [])
         setCharacterEnabled(settings.character_enabled)
         setActiveCharacterId(settings.active_character_id)
         setAssignedCharacterId(settings.assigned_character_id)
@@ -2865,7 +2867,7 @@ export default function App() {
             return accumulator
           }, {})
         )
-        const latestAssistantIndex = [...settings.history]
+        const latestAssistantIndex = [...(settings.history || [])]
           .map((message, index) => ({ message, index }))
           .reverse()
           .find((entry) => entry.message.role === "assistant")?.index
@@ -5937,7 +5939,7 @@ export default function App() {
   )
   const normalizedSkillSearch = adminSkillSearch.trim().toLowerCase()
   const skillCatalogEntries: SkillCatalogEntry[] = [
-    ...installedSkills.map((skill) => ({
+    ...(installedSkills || []).map((skill) => ({
       id: skill.skill_id,
       title: skill.title,
       description: skill.description,
@@ -5952,8 +5954,8 @@ export default function App() {
       load_type: skill.load_type,
       account_count: skill.accounts.length,
     })),
-    ...availableSkills
-      .filter((skill) => !installedSkills.some((installed) => installed.skill_id === skill.id))
+    ...(availableSkills || [])
+      .filter((skill) => !(installedSkills || []).some((installed) => installed.skill_id === skill.id))
       .map((skill) => ({
         id: skill.id,
         title: skill.title,
@@ -5965,7 +5967,7 @@ export default function App() {
         system: false,
         health_status: "unknown",
         health_detail: "Not installed yet.",
-        domains: skill.domains,
+        domains: skill.domains || [],
         load_type: "lazy",
         account_count: 0,
       })),
@@ -5975,7 +5977,7 @@ export default function App() {
     available: skillCatalogEntries.filter((skill) => !skill.installed).length,
     all: skillCatalogEntries.length,
   }
-  const skillDomainOptions = [...new Set(skillCatalogEntries.flatMap((skill) => skill.domains).filter(Boolean))].sort((left, right) => left.localeCompare(right))
+  const skillDomainOptions = [...new Set(skillCatalogEntries.flatMap((skill) => skill.domains || []).filter(Boolean))].sort((left, right) => left.localeCompare(right))
   const filteredSkillEntries = sortSkills(
     skillCatalogEntries.filter((skill) => {
       if (adminSkillCatalogTab === "installed" && !skill.installed) {
@@ -6016,8 +6018,8 @@ export default function App() {
     || adminSkillKindFilter !== "all"
     || adminSkillSort !== "recommended"
   )
-  const voiceLanguageOptions = [...new Set(adminVoices.map((voice) => voice.language).filter(Boolean))].sort((left, right) => left.localeCompare(right))
-  const voiceQualityOptions = [...new Set(adminVoices.map((voice) => voice.quality).filter(Boolean))].sort((left, right) => left.localeCompare(right))
+  const voiceLanguageOptions = [...new Set((adminVoices || []).map((voice) => voice.language || "").filter(Boolean))].sort((left, right) => left.localeCompare(right))
+  const voiceQualityOptions = [...new Set((adminVoices || []).map((voice) => voice.quality || "").filter(Boolean))].sort((left, right) => left.localeCompare(right))
   const adminVoiceFilterMatches = (voice: AdminVoiceRecord): boolean => {
     if (adminVoiceLanguageFilter !== "all" && voice.language !== adminVoiceLanguageFilter) {
       return false
@@ -6227,43 +6229,67 @@ export default function App() {
             "relative flex h-16 shrink-0 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6 z-20 transition-all",
             characterDisplayMode === "fullscreen" && isCharacterVisible ? "hidden" : "flex"
           )}>
-            {/* Left: Site Icon & Breadcrumbs */}
-            <div className="flex items-center gap-4 min-w-0">
-              <div className="flex items-center gap-2" onClick={() => setActiveView("assistant")}>
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-black cursor-pointer hover:scale-105 transition-transform">
-                  <Sparkles className="h-5 w-5" />
-                </div>
-              </div>
+            {/* Left: Breadcrumbs */}
+            <div className="flex items-center gap-2 overflow-hidden font-medium min-w-0">
+              {(() => {
+                const displayProjectId = activeChat ? activeChat.project_id : activeProjectId;
+                const displayProject = displayProjectId ? projects.find(p => p.id === displayProjectId) : null;
+                
+                return (
+                  <>
+                    {!displayProject && !activeChatId ? (
+                      <span 
+                        className="text-sm font-bold text-[var(--foreground)] cursor-pointer hover:opacity-80 transition-opacity shrink-0" 
+                        onClick={() => { setActiveProjectId(""); setActiveChatId(""); setActiveView("assistant"); }}
+                      >
+                        LokiDoki
+                      </span>
+                    ) : null}
 
-              <div className="h-4 w-px bg-[var(--line)] md:block hidden" />
+                    {displayProject ? (
+                      <div 
+                        className="flex items-center gap-2 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity shrink-0"
+                        onClick={() => {
+                          setActiveProjectId(displayProject.id);
+                          setActiveChatId("");
+                          setAssistantTab("chat");
+                        }}
+                      >
+                        <div 
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                          style={{ 
+                            color: displayProject.icon_color || "var(--accent)",
+                            backgroundColor: `${displayProject.icon_color || "var(--accent)"}1a`
+                          }}
+                        >
+                          {(() => {
+                            const Icon = displayProject.icon && (Lucide as any)[displayProject.icon] ? (Lucide as any)[displayProject.icon] : Lucide.Folder
+                            return <Icon className="h-3.5 w-3.5" />
+                          })()}
+                        </div>
+                        <span className="truncate text-sm font-bold text-[var(--foreground)]">
+                          {displayProject.name}
+                        </span>
+                      </div>
+                    ) : null}
 
-              <div className="flex items-center gap-2 overflow-hidden md:flex hidden font-medium">
-                {activeProjectId ? (
-                  <div 
-                    className="flex items-center gap-2 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
-                    onClick={() => setActiveChatId("")}
-                  >
-                    <div 
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
-                      style={{ 
-                        color: projects.find(p => p.id === activeProjectId)?.icon_color || "var(--accent)",
-                        backgroundColor: `${projects.find(p => p.id === activeProjectId)?.icon_color || "var(--accent)"}1a`
-                      }}
-                    >
-                      {(() => {
-                        const proj = projects.find(p => p.id === activeProjectId)
-                        const Icon = proj?.icon && (Lucide as any)[proj.icon] ? (Lucide as any)[proj.icon] : Lucide.Folder
-                        return <Icon className="h-3.5 w-3.5" />
-                      })()}
-                    </div>
-                    <span className="truncate text-sm font-bold text-[var(--foreground)]">
-                      {projects.find(p => p.id === activeProjectId)?.name || "Project"}
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-sm font-bold text-[var(--foreground)]">LokiDoki</span>
-                )}
-              </div>
+                    {displayProject && activeChatId ? (
+                      <ChevronRight className="h-4 w-4 text-[var(--muted-foreground)] shrink-0" />
+                    ) : null}
+
+                    {activeChatId ? (
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[var(--panel-strong)] text-[var(--muted-foreground)]">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                        </div>
+                        <span className="truncate text-sm font-bold text-[var(--foreground)]">
+                          {activeChat?.title || "New chat"}
+                        </span>
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Right: Consolidated UI Actions */}
@@ -6553,6 +6579,25 @@ export default function App() {
                                 <MessageSquarePlus className="h-5 w-5" />
                                 New chat in {activeProject?.name || "Project"}
                               </Button>
+                          <Button
+                            className="h-12 gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-6 text-base font-bold text-[var(--foreground)] shadow-sm hover:bg-[var(--input)] transition-all"
+                            onClick={() => {
+                              if (activeProject) {
+                                setEditingProject({
+                                  id: activeProject.id,
+                                  name: activeProject.name,
+                                  description: (activeProject as any).description || "",
+                                  instructions: (activeProject as any).instructions || "",
+                                  icon: activeProject.icon || "Folder",
+                                  icon_color: activeProject.icon_color || "#3b82f6"
+                                })
+                                setIsProjectEditorOpen(true)
+                              }
+                            }}
+                          >
+                            <Settings className="h-5 w-5" />
+                            Project Settings
+                          </Button>
                             </div>
 
                             <div className="mt-16 w-full border-t border-[var(--line)] pt-10">
