@@ -76,7 +76,7 @@ export function CharacterQuickSwitcher({
       </button>
 
       {open ? (
-        <div className="quick-switcher-shell absolute left-0 top-[calc(100%+10px)] z-40 w-72 rounded-[22px] p-2">
+        <div className="quick-switcher-shell absolute left-0 bottom-[calc(100%+10px)] z-50 w-72 rounded-[22px] p-2 shadow-xl">
           <div className="px-3 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
             Characters
           </div>

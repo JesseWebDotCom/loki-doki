@@ -14,6 +14,11 @@ type UserRecord = {
 type ChatSummary = {
   id: string
   title: string
+  project_id: string | null
+  created_at: string
+  updated_at: string
+  last_message_at: string | null
+  message_count: number
 }
 
 export type ProjectSummary = {

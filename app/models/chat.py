@@ -27,6 +27,7 @@ class ChatCreateRequest(BaseModel):
     """Create one chat."""
     title: str = ""
     character_id: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 class ChatRenameRequest(BaseModel):

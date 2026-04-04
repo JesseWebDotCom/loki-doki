@@ -51,7 +51,8 @@ def create_chat_api(
             connection, 
             current_user["id"], 
             payload.title or chat_store.DEFAULT_CHAT_TITLE,
-            character_id=character_id
+            character_id=character_id,
+            project_id=payload.project_id
         )
         state = chat_state_payload(connection, current_user["id"], active_chat_id=str(chat["id"]))
     return {"chat": chat, **state}
