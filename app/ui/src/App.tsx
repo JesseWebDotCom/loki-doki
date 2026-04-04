@@ -6113,13 +6113,10 @@ export default function App() {
           "grid h-dvh overflow-hidden bg-[var(--panel)]",
           isWorkspaceView || (characterDisplayMode === "fullscreen" && isCharacterVisible) 
             ? "grid-cols-1" 
-              : showRightSidebar
-                ? "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)_var(--right-sidebar-width)]"
-                : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
+            : "grid-cols-1 md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
         )}
         style={!isWorkspaceView ? { 
-          ["--sidebar-width" as string]: leftSidebarWidth,
-            ["--right-sidebar-width" as string]: showRightSidebar ? rightSidebarWidth : "0px"
+          ["--sidebar-width" as string]: leftSidebarWidth
         } : undefined}
       >
         {!isWorkspaceView && !(characterDisplayMode === "fullscreen" && isCharacterVisible) ? (
