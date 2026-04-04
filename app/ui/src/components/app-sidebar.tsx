@@ -124,75 +124,71 @@ export function AppSidebar({
           isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full md:flex"
         }`}
       >
-      <div className="px-2 py-2">
-          <div className={`flex items-center ${isSidebarCollapsed ? "justify-center" : "justify-between"} gap-3`}>
-            {!isSidebarCollapsed ? (
-              <button className="flex min-w-0 items-center gap-3 text-left" onClick={onCreateChat} type="button">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent">
-                  <img alt="LokiDoki logo" className="h-8 w-8" src="/lokidoki-logo.svg" />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-2xl font-bold tracking-tight text-[var(--foreground)]">{bootstrapAppName}</div>
-                </div>
-              </button>
-            ) : null}
-            <Button
-              className="hidden h-9 w-9 border-0 bg-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] md:flex"
+        <div className="px-3 py-2">
+          <div className="flex h-10 items-center gap-3 text-left">
+            <button
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-transparent transition-colors hover:bg-[var(--input)]"
               onClick={onToggleSidebarCollapsed}
-              size="icon"
-              tooltip={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               type="button"
-              variant="ghost"
             >
-              {isSidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </Button>
+              <img alt="LokiDoki logo" className="h-6 w-6" src="/lokidoki-logo.svg" />
+            </button>
+            {!isSidebarCollapsed ? (
+              <>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-base font-semibold tracking-tight text-[var(--foreground)]">{bootstrapAppName}</div>
+                </div>
+                <Button
+                  className="hidden h-9 w-9 shrink-0 border-0 bg-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] md:flex"
+                  onClick={onToggleSidebarCollapsed}
+                  size="icon"
+                  tooltip="Collapse sidebar"
+                  type="button"
+                  variant="ghost"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
+              </>
+            ) : null}
           </div>
         </div>
-        <div className="px-2 py-1">
+        <div className="px-3 py-1">
           <Button
-            className={`rounded-xl border-0 ${
-              isSidebarCollapsed ? "h-10 w-10 p-0 justify-center" : "h-9 w-full justify-start gap-3 px-2"
-            } sidebar-hover-surface bg-transparent text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)]`}
+            className={`flex items-center rounded-xl border-0 p-0 sidebar-hover-surface bg-transparent text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)] ${
+              isSidebarCollapsed ? "h-10 w-10 shrink-0 justify-start" : "h-10 w-full justify-start"
+            }`}
             onClick={onCreateChat}
             tooltip={isSidebarCollapsed ? "New Chat" : undefined}
             type="button"
             variant="ghost"
           >
-            <MessageSquarePlus className={isSidebarCollapsed ? "h-5 w-5" : "h-4 w-4"} />
-            {!isSidebarCollapsed ? "New Chat" : null}
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center">
+              <MessageSquarePlus className="h-5 w-5" />
+            </div>
+            {!isSidebarCollapsed ? <span className="pr-4">New Chat</span> : null}
           </Button>
         </div>
-        <div className="px-2 pb-2">
-          {isSidebarCollapsed ? (
-            <button
+        <div className="px-3 pb-2">
+          <button
             aria-label="Search Chat"
-              className="flex h-10 w-full items-center justify-center rounded-xl px-0 text-[var(--muted-foreground)] transition hover:bg-[var(--input)] hover:text-[var(--foreground)]"
-              onClick={() => {
-                onSetActiveView("assistant")
-                onCloseMobileSidebar()
-              }}
-            title="Search Chat"
-              type="button"
-            >
-              <Search className="h-5 w-5 shrink-0" />
-            </button>
-          ) : (
-            <div className="space-y-3">
-              <button
-                className="sidebar-hover-ghost flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left text-[var(--foreground)] transition hover:bg-[var(--input)]"
-                onClick={() => {
-                  onSetActiveView("assistant")
-                  onCloseMobileSidebar()
-                }}
-                type="button"
-              >
-                <Search className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
-              <div className="text-sm font-medium">Search Chat</div>
-              </button>
+            className={`sidebar-hover-ghost flex items-center rounded-xl text-[var(--foreground)] transition hover:bg-[var(--input)] ${
+              isSidebarCollapsed ? "h-10 w-10 shrink-0 justify-start p-0" : "h-10 w-full justify-start p-0"
+            }`}
+            onClick={() => {
+              onSetActiveView("assistant")
+              onCloseMobileSidebar()
+            }}
+            title={isSidebarCollapsed ? "Search Chat" : undefined}
+            type="button"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center">
+              <Search className="h-5 w-5 shrink-0 text-[var(--muted-foreground)]" />
             </div>
-          )}
+            {!isSidebarCollapsed ? <div className="pr-4 text-sm font-medium">Search Chat</div> : null}
+          </button>
         </div>
-        <div className={`min-h-0 flex-1 overflow-y-auto ${isSidebarCollapsed ? "px-2 pb-24" : "px-2 pb-36"}`}>
+        <div className={`min-h-0 flex-1 overflow-y-auto ${isSidebarCollapsed ? "px-3 pb-24" : "px-3 pb-36"}`}>
           {!isSidebarCollapsed ? (
             <>
               <div
@@ -324,22 +320,26 @@ export function AppSidebar({
             <div />
           )}
         </div>
-        <div className={`absolute bottom-0 left-0 right-0 bg-[var(--panel-strong)]/95 ${isSidebarCollapsed ? "flex justify-center p-2" : "px-2 py-2"}`}>
+        <div className="absolute bottom-0 left-0 right-0 bg-[var(--panel-strong)]/95 px-3 py-2">
           <div className="relative z-40 w-full" onPointerDown={(event) => event.stopPropagation()}>
             <button
-              className={`sidebar-hover-ghost flex items-center rounded-xl transition hover:bg-[var(--input)] ${isSidebarCollapsed ? "h-10 w-10 justify-center p-0" : "w-full gap-3 px-2 py-1.5 text-left"}`}
+              className={`sidebar-hover-ghost flex items-center rounded-xl transition hover:bg-[var(--input)] ${
+                isSidebarCollapsed ? "h-10 w-10 shrink-0 justify-start p-0" : "h-10 w-full justify-start p-0"
+              }`}
               onClick={onToggleProfileMenu}
               type="button"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-medium text-[var(--accent-foreground)]">
-                {(user?.display_name || "G").slice(0, 1)}
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-medium text-[var(--accent-foreground)]">
+                  {(user?.display_name || "G").slice(0, 1)}
+                </div>
               </div>
               {!isSidebarCollapsed ? (
                 <>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 text-left">
                     <div className="sidebar-profile-name truncate text-sm font-medium text-[var(--foreground)]">{user?.display_name || "Guest"}</div>
                   </div>
-                  <ChevronDown className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
+                  <ChevronDown className="sidebar-menu-icon mr-2 shrink-0 text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
                 </>
               ) : null}
             </button>
