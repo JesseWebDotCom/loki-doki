@@ -6542,7 +6542,7 @@ export default function App() {
               >
                 {assistantTab === "chat" ? (
                   activeProjectId && !activeChatId ? (
-                    <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+                    <div className="flex flex-1 flex-col items-center justify-start pt-16 md:pt-24 px-6 pb-8 text-center overflow-y-auto">
                       {(() => {
                         const activeProject = projects.find(p => p.id === activeProjectId)
                         const IconComponent = activeProject?.icon && (Lucide as any)[activeProject.icon] ? (Lucide as any)[activeProject.icon] : Lucide.Folder
