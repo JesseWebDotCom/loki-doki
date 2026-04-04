@@ -18,10 +18,11 @@ class SkillRepository:
 
     def list_available(self) -> list[dict[str, Any]]:
         """Return all available skills from the configured catalog."""
+        dev_items = self._read_dev()
         remote_items = self._read_remote()
         if remote_items:
-            return remote_items
-        return self._read_local()
+            return dev_items + remote_items
+        return dev_items + self._read_local()
 
     def get(self, skill_id: str) -> Optional[dict[str, Any]]:
         """Return one repository skill record."""
@@ -93,3 +94,31 @@ class SkillRepository:
         normalized["latest_version"] = str(item.get("latest_version") or item.get("version") or "1.0.0").strip() or "1.0.0"
         normalized["account_mode"] = str(item.get("account_mode") or "none").strip() or "none"
         return normalized
+
+    def _read_dev(self) -> list[dict[str, Any]]:
+        """Return skills from the local development source (if configured)."""
+        if not self._config.dev_skills_path or not self._config.dev_skills_path.exists():
+            return []
+        
+        from app.skills.manifest import load_manifest, validate_manifest
+        items = []
+        for manifest_path in sorted(self._config.dev_skills_path.glob("*/manifest.json")):
+            try:
+                definition = validate_manifest(load_manifest(manifest_path))
+                skill_dir = manifest_path.parent
+                item = {
+                    "id": definition.skill_id,
+                    "title": f"(Dev) {definition.title}",
+                    "description": definition.description,
+                    "version": definition.version,
+                    "domain": definition.domain,
+                    "domains": [definition.domain],
+                    "platforms": ["mac", "pi_cpu", "pi_hailo"],
+                    "account_mode": definition.account_mode,
+                    "package_dir": str(skill_dir),
+                    "logo_url": local_path_to_file_url(skill_dir / definition.raw_manifest["logo_path"]) if definition.raw_manifest.get("logo_path") else "",
+                }
+                items.append(item)
+            except Exception:
+                continue
+        return items

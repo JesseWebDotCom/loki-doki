@@ -272,6 +272,41 @@ def get_skill_account(conn: sqlite3.Connection, skill_id: str, account_id: str) 
     return _account_from_row(row)
 
 
+def delete_skill_account(conn: sqlite3.Connection, skill_id: str, account_id: str) -> None:
+    """Delete one skill account."""
+    conn.execute(
+        "DELETE FROM skill_accounts WHERE skill_id = ? AND id = ?",
+        (skill_id, account_id),
+    )
+    conn.commit()
+
+
+def set_skill_account_enabled(conn: sqlite3.Connection, skill_id: str, account_id: str, enabled: bool) -> None:
+    """Update the enabled state for one skill account."""
+    conn.execute(
+        "UPDATE skill_accounts SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE skill_id = ? AND id = ?",
+        (int(enabled), skill_id, account_id),
+    )
+    conn.commit()
+
+
+
+def get_skill_account(conn: sqlite3.Connection, skill_id: str, account_id: str) -> Optional[AccountRecord]:
+    """Return one skill account."""
+    row = conn.execute(
+        """
+        SELECT id, skill_id, label, config_json, enabled, is_default,
+               context_json, allowed_user_ids_json, health_status, health_detail
+        FROM skill_accounts
+        WHERE skill_id = ? AND id = ?
+        """,
+        (skill_id, account_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return _account_from_row(row)
+
+
 def upsert_skill_account(
     conn: sqlite3.Connection,
     *,

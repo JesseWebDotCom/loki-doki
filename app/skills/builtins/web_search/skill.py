@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from app.skills.base import BaseSkill
 from app.skills.local_runtime import parse_search_context
@@ -14,12 +14,21 @@ class WebSearchSkill(BaseSkill):
 
     manifest: dict[str, Any] = {}
 
-    async def execute(self, action: str, ctx: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    async def execute(
+        self,
+        action: str,
+        ctx: dict[str, Any],
+        emit_progress: Callable[[str], Awaitable[None]],
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """Execute the requested search action."""
         del ctx
         self.validate_action(action)
         if action != "search":
             raise ValueError(f"Unhandled action: {action}")
+        
+        await emit_progress("Searching the web...")
+        
         query = str(kwargs.get("query", "")).strip()
         num_results = int(kwargs.get("num_results", 5) or 5)
         result = search_web(query)

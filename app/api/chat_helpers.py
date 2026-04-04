@@ -313,7 +313,7 @@ def _variation_style(seed: str) -> str:
     return "balanced" if int(digest[:2], 16) % 2 == 0 else "detailed"
 
 
-def generate_chat_assistant_message(
+async def generate_chat_assistant_message(
     connection: sqlite3.Connection,
     current_user: dict[str, Any],
     profile: str,
@@ -378,7 +378,7 @@ def generate_chat_assistant_message(
         profile,
         resolved_message,
     )
-    skill_message = skill_service.route_and_execute(
+    skill_message = await skill_service.route_and_execute(
         connection,
         APP_CONFIG,
         current_user,
