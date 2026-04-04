@@ -34,10 +34,26 @@ class CharacterServiceTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
-        database_path = Path(self.tempdir.name) / "lokidoki.db"
+        base_path = Path(self.tempdir.name)
+        database_path = base_path / "lokidoki.db"
         self.conn = db.connect(database_path)
         db.initialize_database(self.conn)
-        self.config = get_app_config()
+        
+        # Isolate testing from local repository/builtin folders
+        builtin_dir = base_path / "builtin"
+        builtin_dir.mkdir()
+        repo_dir = base_path / "repository"
+        repo_dir.mkdir()
+        
+        # Copy real builtins to the temp builtin dir so we have a base to test
+        # Actually, let's just point to the real builtins but isolate the repository
+        real_config = get_app_config()
+        self.config = replace(
+            real_config,
+            database_path=database_path,
+            characters_repository_dir=repo_dir,
+        )
+        
         self.user = db.create_user(
             self.conn,
             username="jesse",
@@ -407,7 +423,7 @@ class CharacterServiceTests(unittest.TestCase):
             self.user,
             "mac",
             layer_overrides={
-                "admin_prompt": "Speak to Jesse in a concise audit tone.",
+                "user_admin_prompt": "Speak to Jesse in a concise audit tone.",
                 "user_prompt": "Call me Boss.",
             },
         )
@@ -447,7 +463,7 @@ class CharacterServiceTests(unittest.TestCase):
         )
         stored = character_service.get_user_settings(self.conn, self.user["id"])
         self.assertIn("You are LokiDoki", first.base_prompt)
-        self.assertEqual(stored["compiled_base_prompt"], first.base_prompt)
+        self.assertEqual(stored["compiled_segments"], first.segments)
         second = character_service.build_rendering_context(
             self.conn,
             self.user,
@@ -465,9 +481,10 @@ class CharacterServiceTests(unittest.TestCase):
         )
 
         self.assertIn("Follow these instruction layers in strict priority order.", context.base_prompt)
-        self.assertIn("Core safety and identity:", context.base_prompt)
-        self.assertIn("Character behavior:", context.base_prompt)
-        self.assertNotIn("User preference:", context.base_prompt)
+        self.assertIn("You are LokiDoki.", context.base_prompt)
+        self.assertIn("Never claim you completed a real-world action", context.base_prompt)
+        self.assertIn("You are LokiDoki, the flagship local-first household assistant", context.base_prompt)
+        self.assertIn("Use a helpful, balanced, clear tone.", context.base_prompt)
 
     def test_build_messages_uses_only_skill_summary_and_user_message(self) -> None:
         context = character_service.build_rendering_context(self.conn, self.user, "mac")
@@ -514,14 +531,14 @@ class CharacterServiceTests(unittest.TestCase):
             self.conn,
             "default-account",
             {
-                "account_policy_prompt": "Never use profanity.",
+                "device_policy_prompt": "Never use profanity.",
             },
         )
         character_service.update_user_overrides(
             self.conn,
             self.user["id"],
             {
-                "admin_prompt": "If rules conflict, keep language child-safe.",
+                "user_admin_prompt": "If rules conflict, keep language child-safe.",
             },
         )
         character_service.upsert_care_profile(
@@ -550,15 +567,12 @@ class CharacterServiceTests(unittest.TestCase):
         context = character_service.build_rendering_context(self.conn, self.user, "mac")
         prompt = context.base_prompt
 
-        self.assertIn("Follow these instruction layers in strict priority order.", prompt)
-        self.assertIn("Core safety and identity:", prompt)
-        self.assertIn("You are LokiDoki", prompt)
+        # No labels anymore
         self.assertIn("Never use profanity.", prompt)
-        self.assertIn("Use a calm", prompt)
-        self.assertIn("Use simple vocabulary.", prompt)
-        self.assertIn("Prefer short sentences.", prompt)
-        self.assertIn("Call me Captain.", prompt)
+        self.assertIn("If rules conflict, keep language child-safe.", prompt)
         self.assertIn("Use pirate slang.", prompt)
+        self.assertIn("Call me Captain.", prompt)
+        self.assertIn("Prefer short sentences.", prompt)
         self.assertLess(prompt.index("Never use profanity."), prompt.index("Use pirate slang."))
 
     def test_prompt_layer_order_matches_runtime_design(self) -> None:
@@ -566,8 +580,9 @@ class CharacterServiceTests(unittest.TestCase):
             PROMPT_LAYER_ORDER,
             (
                 "core_safety_prompt",
-                "account_policy_prompt",
-                "admin_prompt",
+                "device_policy_prompt",
+                "user_admin_prompt",
+                "project_prompt",
                 "care_profile_prompt",
                 "character_prompt",
                 "character_custom_prompt",
@@ -579,7 +594,7 @@ class CharacterServiceTests(unittest.TestCase):
         character_service.update_prompt_policy(
             self.conn,
             "default-account",
-            {"account_policy_prompt": "Never use profanity. No swearing allowed."},
+            {"device_policy_prompt": "Never use profanity. No swearing allowed."},
         )
         character_service.update_user_settings(
             self.conn,
@@ -606,14 +621,14 @@ class CharacterServiceTests(unittest.TestCase):
             self.conn,
             "default-account",
             {
-                "account_policy_prompt": duplicate_rule,
+                "device_policy_prompt": duplicate_rule,
             },
         )
         character_service.update_user_overrides(
             self.conn,
             self.user["id"],
             {
-                "admin_prompt": duplicate_rule,
+                "user_admin_prompt": duplicate_rule,
             },
         )
 
@@ -624,9 +639,13 @@ class CharacterServiceTests(unittest.TestCase):
     def test_compiled_prompt_is_structured_layered_prompt(self) -> None:
         context = character_service.build_rendering_context(self.conn, self.user, "mac")
 
-        self.assertIn("Core safety and identity:", context.base_prompt)
-        self.assertIn("Account policy:", context.base_prompt)
-        self.assertIn("Character behavior:", context.base_prompt)
+        # These are now flat prose blocks with no headers
+        self.assertIn("You are LokiDoki.", context.base_prompt)
+        self.assertIn("Never claim you completed a real-world action", context.base_prompt)
+        self.assertIn("You are LokiDoki, the flagship local-first household assistant", context.base_prompt)
+        self.assertNotIn("Core safety and identity:", context.base_prompt)
+        self.assertNotIn("Device safety and account policy:", context.base_prompt)
+        self.assertNotIn("Character behavior:", context.base_prompt)
         self.assertNotIn("\n\n1.", context.base_prompt)
 
     def test_custom_character_prompt_change_recompiles_compiled_prompt(self) -> None:
@@ -669,7 +688,7 @@ class CharacterServiceTests(unittest.TestCase):
         character_service.update_prompt_policy(
             self.conn,
             "default-account",
-            {"account_policy_prompt": "Never use profanity. No swearing allowed."},
+            {"device_policy_prompt": "Never use profanity. No swearing allowed."},
         )
         character_service.update_user_settings(
             self.conn,
@@ -692,7 +711,7 @@ class CharacterServiceTests(unittest.TestCase):
         character_service.update_prompt_policy(
             self.conn,
             "default-account",
-            {"account_policy_prompt": "Never use profanity. No swearing allowed."},
+            {"device_policy_prompt": "Never use profanity. No swearing allowed."},
         )
         context = character_service.build_rendering_context(
             self.conn,

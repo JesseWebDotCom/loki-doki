@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import re
 
 from app.providers.types import ProviderSpec
 from app.subsystems.character import utils
 from app.subsystems.character.models import (
     PROFANITY_PATTERN,
     PROMPT_LAYER_ORDER,
+    PROMPT_STAGE_GROUPS,
+    PRIORITY_HEADER,
     PROMPT_COMPILER_VERSION,
 )
 
@@ -57,42 +60,61 @@ def _prompt_compiler_input(non_empty_layers: dict[str, str]) -> str:
 def compile_base_prompt(
     non_empty_layers: dict[str, str],
     compiler_provider: ProviderSpec | None,
-) -> str:
-    """Compile the layers into one compact prompt."""
+) -> dict[str, str]:
+    """Compile the layers into prioritized segments."""
     del compiler_provider
     return _structured_fallback(non_empty_layers)
 
 
-def _structured_fallback(non_empty_layers: dict[str, str]) -> str:
-    """Return a deterministic system prompt that preserves layer boundaries."""
-    sections = [
-        "Follow these instruction layers in strict priority order. Higher-priority layers always win if any instruction conflicts.",
-    ]
+def _structured_fallback(non_empty_layers: dict[str, str]) -> dict[str, Any]:
+    """Return a dictionary of 5 prioritized segments."""
+    segments = {}
     seen_values: set[str] = set()
     profanity_blocked = False
-    for key in PROMPT_LAYER_ORDER:
-        value = utils.normalize_instruction_text(non_empty_layers.get(key, ""))
-        if not value:
-            continue
-        if profanity_blocked:
-            value = _strip_disallowed_profanity(value)
-        normalized_value = value.lower()
-        if normalized_value in seen_values:
-            continue
-        seen_values.add(normalized_value)
-        sections.append(f"{_label_for_layer(key)}: {value}")
-        if key == "account_policy_prompt" and _blocks_profanity(value):
-            profanity_blocked = True
-    return "\n\n".join(sections).strip()
+
+    # 1. Identify if profanity is blocked by device policy
+    device_policy = non_empty_layers.get("device_policy_prompt", "")
+    if _blocks_profanity(device_policy):
+        profanity_blocked = True
+
+    # 2. Compile each segment
+    for segment_key, layers_in_segment in PROMPT_STAGE_GROUPS.items():
+        segment_content = []
+        for layer_key in layers_in_segment:
+            value = utils.normalize_instruction_text(non_empty_layers.get(layer_key, ""))
+            if not value:
+                continue
+
+            # Filtering and cleaning
+            if profanity_blocked:
+                # Basic string-based scrubbing as defined in spec
+                value = _strip_disallowed_profanity(value).strip()
+                if not value:
+                    continue
+
+            # Deduplication
+            normalized_value = value.lower()
+            if normalized_value in seen_values:
+                continue
+            seen_values.add(normalized_value)
+
+            # Flat prose addition (no labels)
+            segment_content.append(value)
+
+        # Store the segment (even if empty, to preserve structure)
+        segments[segment_key] = " ".join(segment_content)
+
+    return segments
 
 
 def _label_for_layer(key: str) -> str:
     """Return a readable label for one prompt layer."""
     return {
         "core_safety_prompt": "Core safety and identity",
-        "account_policy_prompt": "Account policy",
-        "admin_prompt": "Admin guidance",
-        "care_profile_prompt": "Care profile",
+        "device_policy_prompt": "Device safety and account policy",
+        "user_admin_prompt": "Administrator instructions",
+        "project_prompt": "Project instructions",
+        "care_profile_prompt": "Communication style and care profile",
         "character_prompt": "Character behavior",
         "character_custom_prompt": "Character customization",
         "user_prompt": "User preference",
@@ -107,12 +129,14 @@ def _blocks_profanity(text: str) -> bool:
 
 def _strip_disallowed_profanity(text: str) -> str:
     """Remove profanity requests from lower-priority layers when a higher layer forbids them."""
+    # First apply the defined profanity pattern
     cleaned = PROFANITY_PATTERN.sub("", text)
+    
+    # Then remove specific "swear" requests using word boundaries to avoid corrupting "swearing"
+    cleaned = re.sub(r"\bswear\b", "", cleaned, flags=re.IGNORECASE)
+    
+    # Handle common phrases
     cleaned = cleaned.replace("swear all the time", "")
-    cleaned = cleaned.replace("And swear!!!!", "")
-    cleaned = cleaned.replace("And swear!", "")
-    cleaned = cleaned.replace("And swear.", "")
-    cleaned = cleaned.replace("swear", "")
     return utils.normalize_instruction_text(cleaned)
 
 

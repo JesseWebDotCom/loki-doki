@@ -365,11 +365,18 @@ async def generate_chat_assistant_message(
     
     is_standalone = pre_classification.request_type in ("image_generation", "web_query", "tool_call", "static_text", "command_call")
     resolved_message = message if is_standalone else reformulate_followup_query(message, history, active_providers)
+    
+    project_id = None
+    if chat_id:
+        chat = chat_store.get_chat(connection, current_user["id"], chat_id)
+        project_id = chat.get("project_id") if chat else None
+        
     rendering_context = character_service.build_rendering_context(
         connection,
         current_user,
         profile,
         compiler_provider=active_providers["llm_thinking"],
+        project_id=project_id,
     )
     skill_route = skill_service.inspect_route(
         connection,
@@ -616,6 +623,7 @@ def render_skill_message(
     turn_id: str = "",
     response_style: Optional[str] = None,
     response_style_debug: Optional[dict[str, Any]] = None,
+    project_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Render one skill result through the character orchestration layer."""
     from app.subsystems.text import generate_text_reply
@@ -644,6 +652,7 @@ def render_skill_message(
         current_user,
         profile,
         compiler_provider=providers["llm_thinking"],
+        project_id=project_id,
     )
     render_classification = Classification(
         "skill_call",

@@ -16,7 +16,7 @@ def initialize_project_tables(conn: sqlite3.Connection) -> None:
             user_id TEXT NOT NULL,
             name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
-            instructions TEXT NOT NULL DEFAULT '',
+            project_prompt TEXT NOT NULL DEFAULT '',
             icon TEXT NOT NULL DEFAULT 'Folder',
             icon_color TEXT NOT NULL DEFAULT '#3b82f6',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -37,7 +37,7 @@ def list_projects(conn: sqlite3.Connection, user_id: str) -> list[dict[str, Any]
     """Return all projects for one user."""
     rows = conn.execute(
         """
-        SELECT id, name, description, instructions, icon, icon_color, created_at, updated_at
+        SELECT id, name, description, project_prompt, icon, icon_color, created_at, updated_at
         FROM projects
         WHERE user_id = ?
         ORDER BY created_at DESC
@@ -51,7 +51,7 @@ def get_project(conn: sqlite3.Connection, user_id: str, project_id: str) -> Opti
     """Return one project summary for a user-owned project."""
     row = conn.execute(
         """
-        SELECT id, name, description, instructions, icon, icon_color, created_at, updated_at
+        SELECT id, name, description, project_prompt, icon, icon_color, created_at, updated_at
         FROM projects
         WHERE user_id = ? AND id = ?
         """,
@@ -65,7 +65,7 @@ def create_project(
     user_id: str,
     name: str,
     description: str = "",
-    instructions: str = "",
+    project_prompt: str = "",
     icon: str = "Folder",
     icon_color: str = "#3b82f6",
 ) -> dict[str, Any]:
@@ -73,10 +73,10 @@ def create_project(
     project_id = str(uuid4())
     conn.execute(
         """
-        INSERT INTO projects (id, user_id, name, description, instructions, icon, icon_color)
+        INSERT INTO projects (id, user_id, name, description, project_prompt, icon, icon_color)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (project_id, user_id, name, description, instructions, icon, icon_color),
+        (project_id, user_id, name, description, project_prompt, icon, icon_color),
     )
     conn.commit()
     project = get_project(conn, user_id, project_id)
@@ -91,7 +91,7 @@ def update_project(
     project_id: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
-    instructions: Optional[str] = None,
+    project_prompt: Optional[str] = None,
     icon: Optional[str] = None,
     icon_color: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -104,9 +104,9 @@ def update_project(
     if description is not None:
         updates.append("description = ?")
         params.append(description)
-    if instructions is not None:
-        updates.append("instructions = ?")
-        params.append(instructions)
+    if project_prompt is not None:
+        updates.append("project_prompt = ?")
+        params.append(project_prompt)
     if icon is not None:
         updates.append("icon = ?")
         params.append(icon)

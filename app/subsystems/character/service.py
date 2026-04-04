@@ -20,6 +20,7 @@ from app.subsystems.character.models import (
     ParsedModelResponse,
 )
 from app.subsystems.character import catalog, policy, care, user_settings, compiler, render, utils
+from app.projects import store as project_store
 
 
 class CharacterService:
@@ -241,17 +242,19 @@ class CharacterService:
         compiler_provider: Optional[ProviderSpec] = None,
         persist_compiled: bool = True,
         force_recompile: bool = False,
+        project_id: Optional[str] = None,
     ) -> CharacterRenderingContext:
         """Resolve all prompt layers and cache the compiled base prompt."""
-        state = self.resolve_prompt_state(conn, current_user, enabled_layers, layer_overrides)
+        project = project_store.get_project(conn, str(current_user["id"]), project_id) if project_id else None
+        state = self.resolve_prompt_state(conn, current_user, enabled_layers, layer_overrides, project=project)
         non_empty = state["non_empty_layers"]
         compiled_hash = compiler.get_prompt_hash(non_empty)
-        base_prompt = compiler.compile_base_prompt(non_empty, compiler_provider)
+        segments = compiler.compile_base_prompt(non_empty, compiler_provider)
         
         if persist_compiled:
              conn.execute(
-                 "UPDATE user_character_settings SET base_prompt_hash = ?, compiled_prompt_hash = ?, compiled_base_prompt = ? WHERE user_id = ?",
-                 (compiled_hash, compiled_hash, base_prompt, current_user["id"])
+                 "UPDATE user_character_settings SET base_prompt_hash = ?, compiled_prompt_hash = ?, compiled_base_prompt = '', compiled_segments_json = ? WHERE user_id = ?",
+                 (compiled_hash, compiled_hash, json.dumps(segments), current_user["id"])
              )
              conn.commit()
              
@@ -260,7 +263,7 @@ class CharacterService:
             account_id=str(current_user.get("account_id") or "default-account"),
             display_name=str(current_user["display_name"]),
             profile=profile,
-            base_prompt=base_prompt,
+            segments=segments,
             base_prompt_hash=compiled_hash,
             active_character_id=state["active_character_id"],
             active_character_name=state["active_character_name"],
@@ -287,6 +290,7 @@ class CharacterService:
         current_user: dict[str, Any],
         enabled_layers: Optional[dict[str, bool]] = None,
         layer_overrides: Optional[dict[str, str]] = None,
+        project: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Resolve prompt layers and related metadata without compiling or persisting."""
         settings = self.get_user_settings(conn, current_user["id"])
@@ -313,8 +317,9 @@ class CharacterService:
         blocked = tuple(dict.fromkeys([*care_prof["blocked_topics"], *settings["blocked_topics"]]))
         layers = {
             "core_safety_prompt": account["core_safety_prompt"] or "You are LokiDoki.",
-            "account_policy_prompt": account["account_policy_prompt"],
-            "admin_prompt": settings["admin_prompt"],
+            "device_policy_prompt": account["device_policy_prompt"],
+            "user_admin_prompt": settings["user_admin_prompt"],
+            "project_prompt": project["project_prompt"] if project else "",
             "care_profile_prompt": self._care_profile_prompt(care_prof),
             "user_prompt": settings["user_prompt"],
             "character_prompt": char.system_prompt if character_enabled and char else "",
