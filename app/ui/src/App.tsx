@@ -6099,7 +6099,10 @@ export default function App() {
     return (
       <div className="app-frame grid min-h-dvh place-items-center bg-[var(--background)] text-[var(--foreground)]">
         <div className="flex flex-col items-center gap-4">
-          <img alt="LokiDoki logo" className="h-16 w-16 rounded-2xl bg-[var(--panel)] p-2" src="/lokidoki-logo.svg" />
+          <div className="avatar-spinner is-large rounded-2xl">
+            <div className="avatar-spinner-ring" />
+            <img alt="LokiDoki logo" className="h-16 w-16 rounded-2xl bg-[var(--panel)] p-2" src="/lokidoki-logo.svg" />
+          </div>
           <div className="text-center">
             <div className="text-lg font-medium text-[var(--foreground)]">{bootstrap?.app_name || "LokiDoki"}</div>
             <div className="mt-1 text-sm text-[var(--muted-foreground)]">Restoring your session…</div>

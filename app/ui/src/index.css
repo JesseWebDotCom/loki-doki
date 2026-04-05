@@ -579,6 +579,7 @@ select {
   line-height: 1.2;
   color: var(--muted-foreground);
   -webkit-line-clamp: 4;
+  line-clamp: 4;
   -webkit-box-orient: vertical;
 }
 
@@ -601,15 +602,9 @@ select {
   }
 }
 
-@keyframes chat-avatar-pulse {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.1;
-  }
-  50% {
-    transform: scale(0.92);
-    opacity: 0.5;
-  }
+@keyframes spinner-modern {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 @keyframes chat-send-processing {
@@ -623,18 +618,82 @@ select {
   }
 }
 
+.avatar-spinner {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Subtle background track */
+.avatar-spinner::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.avatar-spinner-ring {
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  /* Modern smooth fading tail using conic gradient */
+  background: conic-gradient(from 0deg, transparent 20%, var(--accent) 100%);
+  /* Hollow out the center with a radial mask */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #fff calc(100% - 2.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #fff calc(100% - 2.5px));
+  animation: spinner-modern 1s linear infinite;
+  will-change: transform;
+  transform: translateZ(0);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* High-intensity glow point at the leading edge */
+.avatar-spinner-ring::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 
+    0 0 10px 2px var(--accent),
+    0 0 20px 4px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* Refined large variant for startup screen */
+.avatar-spinner.is-large::before,
+.avatar-spinner.is-large .avatar-spinner-ring {
+  inset: -18px;
+}
+
+.avatar-spinner.is-large .avatar-spinner-ring {
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4.5px), #fff calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4.5px), #fff calc(100% - 4px));
+}
+
+.avatar-spinner.is-large .avatar-spinner-ring::after {
+  width: 5px;
+  height: 5px;
+  box-shadow: 
+    0 0 15px 3px var(--accent),
+    0 0 30px 6px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
 .typing-dot {
   animation: typing-dot-bounce 1.2s ease-in-out infinite;
 }
 
-.chat-avatar-pulsing {
-  animation: chat-avatar-pulse 2.2s ease-in-out infinite;
-  filter: grayscale(100%);
-}
 
 .chat-send-button.is-processing {
   animation: chat-send-processing 1s ease-in-out infinite;
 }
+
 
 @media (max-width: 1023px) {
   .workspace-nav {

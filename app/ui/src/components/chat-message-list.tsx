@@ -232,7 +232,8 @@ export function ChatMessageList({
         {messages.some((message) => message.role === "assistant" && message.pending && !message.content) ? (
           <div className="flex w-full max-w-[85%] items-start gap-4">
             <div className="flex flex-none pt-3">
-              <div className="chat-avatar-pulsing">
+              <div className="avatar-spinner rounded-full">
+                <div className="avatar-spinner-ring" />
                 <AssistantAvatar character={assistantCharacter} onClick={onToggleCharacter} />
               </div>
             </div>

@@ -173,26 +173,34 @@ const AnimatedCharacter: React.FC<{ viewPreset?: 'full' | 'head' | 'fullscreen';
       seed: options.seed,
       flip: options.flip,
       rotate: options.rotate,
+      translateX: options.translateX,
+      translateY: options.translateY,
       radius: options.radius,
+      randomizeIds: options.randomizeIds,
       scale: 100,
-      backgroundColor: ["transparent"],
-      backgroundType: [],
+      backgroundColor: options.backgroundColor || ["transparent"],
+      backgroundType: options.backgroundType || [],
+      backgroundRotation: options.backgroundRotation || 0,
       ...faceProps,
     };
 
     // Only pass overrides if they aren't 'seed'
     if (options.top && options.top[0] !== 'seed') buildOptions.top = options.top;
+    if (options.topProbability !== undefined) buildOptions.topProbability = options.topProbability;
     if (options.accessories && options.accessories[0] !== 'seed') buildOptions.accessories = options.accessories;
     if (options.eyes && options.eyes[0] !== 'seed') buildOptions.eyes = options.eyes;
+    if (options.eyebrows && options.eyebrows[0] !== 'seed') buildOptions.eyebrows = options.eyebrows;
     if (options.mouth && options.mouth[0] !== 'seed') buildOptions.mouth = options.mouth;
     if (options.clothing && options.clothing[0] !== 'seed') buildOptions.clothing = options.clothing;
     if (options.clothingGraphic && options.clothingGraphic[0] !== 'seed') buildOptions.clothingGraphic = options.clothingGraphic;
     if (options.facialHair && options.facialHair[0] !== 'seed') buildOptions.facialHair = options.facialHair;
+    if (options.facialHairProbability !== undefined) buildOptions.facialHairProbability = options.facialHairProbability;
+    if (options.hair && options.hair[0] !== 'seed') buildOptions.hair = options.hair;
+    if (options.hairProbability !== undefined) buildOptions.hairProbability = options.hairProbability;
     if (options.hairColor && options.hairColor[0] !== 'seed') buildOptions.hairColor = options.hairColor;
     if (options.skinColor && options.skinColor[0] !== 'seed') buildOptions.skinColor = options.skinColor;
     if (options.clothesColor && options.clothesColor[0] !== 'seed') buildOptions.clothesColor = options.clothesColor;
     if (options.accessoriesColor && options.accessoriesColor[0] !== 'seed') buildOptions.accessoriesColor = options.accessoriesColor;
-    if (options.eyebrows && options.eyebrows[0] !== 'seed') buildOptions.eyebrows = options.eyebrows;
 
     try {
       const cacheKey = JSON.stringify({ style: options.style, buildOptions });
