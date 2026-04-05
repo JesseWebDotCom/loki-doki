@@ -76,14 +76,3 @@ chmod +x run.sh
 
 `./run.sh` starts the guided setup and run flow.
 
-## Security Guardrails
-
-Enable the tracked pre-commit hook right after cloning:
-
-```bash
-./scripts/install_git_hooks.sh
-```
-
-The hook blocks commits that stage local-only files like `app_config.json`, `.env`, `.pi.env`, `.lokidoki/`, or `data/`, and it rejects secret-like values such as real passwords, tokens, JWT secrets, and private keys.
-
-GitHub Actions also runs a `gitleaks` scan on pushes and pull requests via [`.github/workflows/gitleaks.yml`](/Users/jessetorres/Projects/loki-doki/.github/workflows/gitleaks.yml). In repository settings, mark the `gitleaks` status check as required for `main` so bypassing local hooks still fails in CI.
