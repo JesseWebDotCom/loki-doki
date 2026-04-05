@@ -1,42 +1,61 @@
 @import "tailwindcss";
 
 :root {
-  --font-sans: "Geist Variable", "Geist", "Avenir Next", "SF Pro Text", "Segoe UI", ui-sans-serif, sans-serif;
-  --ui-sidebar-name-size: 0.98rem;
-  --ui-sidebar-meta-size: 0.82rem;
+  --font-sans: "Inter", "Geist Variable", "Geist", "Avenir Next", "SF Pro Text", "Segoe UI", ui-sans-serif, sans-serif;
+  --ui-sidebar-name-size: 0.95rem;
+  --ui-sidebar-meta-size: 0.8rem;
   --ui-sidebar-menu-size: 0.875rem;
-  --ui-sidebar-icon-size: 1rem;
-  --radius-sm: 14px;
-  --radius-md: 20px;
-  --radius-lg: 28px;
-  --shadow-soft: 0 24px 60px rgba(15, 23, 42, 0.14);
-  --shadow-strong: 0 30px 90px rgba(15, 23, 42, 0.22);
-  --motion-fast: 160ms;
-  --motion-base: 220ms;
-  --ui-label-tracking: 0.14em;
-  --ui-micro-tracking: 0.16em;
-  --background-image:
-    radial-gradient(circle at top, rgba(16, 163, 127, 0.14), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(59, 130, 246, 0.12), transparent 24%),
-    linear-gradient(180deg, #0d1117 0%, #111827 100%);
-  --panel-glow: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
-  --background: #0d1117;
-  --foreground: #f3f4f6;
-  --muted-foreground: #9ca3af;
-  --line: rgba(148, 163, 184, 0.2);
-  --panel: rgba(22, 27, 34, 0.8);
-  --panel-strong: rgba(17, 24, 39, 0.94);
-  --accent: #10a37f;
-  --accent-strong: #12b98f;
-  --accent-foreground: #ecfffb;
-  --card: rgba(22, 27, 34, 0.88);
-  --input: rgba(17, 24, 39, 0.92);
-  --assistant-bubble: rgba(28, 36, 48, 0.92);
-  --sidebar: rgba(14, 19, 27, 0.78);
-  --ring: rgba(16, 163, 127, 0.6);
-  --shadow-soft: 0 24px 64px rgba(0, 0, 0, 0.32);
-  --shadow-strong: 0 28px 90px rgba(0, 0, 0, 0.45);
+  --ui-sidebar-icon-size: 1.1rem;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+  --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.1);
+  --shadow-strong: 0 8px 30px rgba(0, 0, 0, 0.2);
+  --motion-fast: 140ms;
+  --motion-base: 200ms;
+  --ui-label-tracking: 0.08em;
+  --ui-micro-tracking: 0.1em;
+  --background-image: linear-gradient(180deg, #0d0d0d 0%, #0d0d0d 100%);
+  --panel-glow: none;
+  --background: #0d0d0d;
+  --foreground: #ececec;
+  --muted-foreground: #8e8e8e;
+  --line: rgba(255, 255, 255, 0.08);
+  --panel: #161616;
+  --panel-strong: #1a1a1a;
+  --accent: #ffffff;
+  --accent-strong: #ffffff;
+  --accent-foreground: #000000;
+  --card: #161616;
+  --input: #161616;
+  --assistant-bubble: transparent;
+  --sidebar: #090909;
+  --ring: rgba(255, 255, 255, 0.2);
 }
+
+html[data-theme-preset="onyx"] {
+  --background-image: linear-gradient(180deg, #0d0d0d 0%, #0d0d0d 100%);
+  --background: #0d0d0d;
+  --foreground: #ececec;
+  --muted-foreground: #8e8e8e;
+  --line: rgba(255, 255, 255, 0.06);
+  --panel: #161616;
+  --panel-strong: #1a1a1a;
+  --accent: #ffffff;
+  --accent-strong: #ffffff;
+  --accent-foreground: #000000;
+  --card: #161616;
+  --input: #161616;
+  --assistant-bubble: transparent;
+  --sidebar: #090909;
+  --ring: rgba(255, 255, 255, 0.15);
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 32px;
+}
+
 
 html[data-theme-preset="familiar"][data-theme-mode="light"] {
   --background-image:
@@ -281,12 +300,23 @@ select {
 
 .app-sidebar {
   border-right: 1px solid var(--line);
-  background:
-    var(--panel-glow),
-    color-mix(in srgb, var(--sidebar) 94%, transparent);
-  backdrop-filter: blur(24px);
-  box-shadow: var(--shadow-soft);
+  background: var(--sidebar);
 }
+
+.chat-user-bubble {
+  border-radius: 20px;
+  padding: 0.75rem 1.25rem;
+  background: #212121;
+  color: #ececec;
+}
+
+.chat-composer-pill {
+  background: #161616;
+  border: 1px solid var(--line);
+  border-radius: 32px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
 
 .workspace-shell,
 .workspace-content,

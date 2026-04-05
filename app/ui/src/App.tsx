@@ -5924,7 +5924,7 @@ export default function App() {
       : selectedThemeSummary.preview.dark
   const isWorkspaceView = activeView === "settings" || activeView === "admin"
   const showRightSidebar = isCharacterVisible && Boolean(selectedCharacter) && characterDisplayMode !== "fullscreen"
-  const leftSidebarWidth = isWorkspaceView ? "0px" : isSidebarCollapsed ? "64px" : "288px"
+  const leftSidebarWidth = isWorkspaceView ? "0px" : isSidebarCollapsed ? "70px" : "260px"
   const rightSidebarWidth = isRightSidebarCollapsed ? "48px" : "360px"
   const settingsContentClass = cn(
     "mx-auto w-full transition-all duration-300",
@@ -6243,7 +6243,7 @@ export default function App() {
           ) : null}
 
           <header className={cn(
-            "relative flex h-16 shrink-0 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6 z-20 transition-all",
+            "relative flex h-16 shrink-0 items-center justify-between border-b border-[var(--line)] bg-transparent px-4 z-20 transition-all",
             (characterDisplayMode === "fullscreen" && isCharacterVisible) || isWorkspaceView ? "hidden" : "flex"
           )}>
             {/* Left: Breadcrumbs */}
@@ -6680,6 +6680,7 @@ export default function App() {
                         onRetrySmart={(assistantIndex) => void retryAssistantWithSmartModel(assistantIndex)}
                         onSuggestionSelect={setPrompt}
                         onToggleCharacter={() => setIsRightSidebarCollapsed((prev) => !prev)}
+                        chatTitle={activeChat?.title}
                         overviewRows={overviewRows}
                         pendingSpeechMessageKey={pendingSpeechMessageKey}
                         retryingAssistantIndex={retryingAssistantIndex}

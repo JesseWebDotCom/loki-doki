@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
-import { Bug, ChevronDown, ChevronRight, Ellipsis, Folder, FolderPlus, LogOut, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Search, Settings, Shield, Trash2, icons } from "lucide-react"
+import { Bug, ChevronDown, ChevronRight, Ellipsis, Folder, FolderPlus, LayoutGrid, LogOut, MessageSquarePlus, PanelLeftClose, Pencil, Search, Settings, Shield, Trash2, icons } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 
 type UserRecord = {
   id?: string
@@ -109,6 +110,7 @@ export function AppSidebar({
   useEffect(() => {
     localStorage.setItem(chatsKey, isChatsCollapsed ? "1" : "0")
   }, [isChatsCollapsed, chatsKey])
+
   return (
     <>
       {isMobileSidebarOpen ? (
@@ -120,256 +122,270 @@ export function AppSidebar({
         />
       ) : null}
       <aside
-        className={`app-sidebar absolute inset-y-0 left-0 z-30 flex w-[min(340px,88vw)] min-h-0 flex-col transition-transform md:relative md:z-20 md:w-auto md:translate-x-0 ${
+        className={`app-sidebar absolute inset-y-0 left-0 z-30 flex w-[260px] min-h-0 flex-col border-r border-[#1a1a1a] bg-[#090909] transition-transform md:relative md:z-20 md:translate-x-0 ${
           isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full md:flex"
-        }`}
+        } ${isSidebarCollapsed ? "md:w-[70px]" : "md:w-[260px]"}`}
       >
-        <div className="px-3 py-2">
-          <div className="flex h-10 items-center gap-3 text-left">
-            <button
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-transparent transition-colors hover:bg-[var(--input)]"
+        {/* Branding */}
+        <div className={cn(
+          "flex h-16 items-center p-2 transition-all",
+          isSidebarCollapsed ? "px-2" : "px-4"
+        )}>
+          <div className="flex w-full items-center justify-between">
+            <div 
+              className={cn(
+                "flex items-center gap-2.5 cursor-pointer transition-opacity hover:opacity-80 active:scale-95",
+                isSidebarCollapsed && "w-full justify-center"
+              )}
               onClick={onToggleSidebarCollapsed}
-              title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              type="button"
             >
-              <img alt="LokiDoki logo" className="h-6 w-6" src="/lokidoki-logo.svg" />
-            </button>
-            {!isSidebarCollapsed ? (
-              <>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-base font-semibold tracking-tight text-[var(--foreground)]">{bootstrapAppName}</div>
-                </div>
-                <Button
-                  className="hidden h-9 w-9 shrink-0 border-0 bg-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] md:flex"
-                  onClick={onToggleSidebarCollapsed}
-                  size="icon"
-                  tooltip="Collapse sidebar"
-                  type="button"
-                  variant="ghost"
-                >
-                  <PanelLeftClose className="h-4 w-4" />
-                </Button>
-              </>
-            ) : null}
+              <img 
+                alt="LokiDoki logo" 
+                className="h-[24px] w-[24px]" 
+                src="/lokidoki-logo.svg" 
+              />
+              {!isSidebarCollapsed && (
+                <span className="text-lg font-bold tracking-tight text-[#ececec]">
+                  {bootstrapAppName.toLowerCase() === "lokidoki" ? "lokidoki" : bootstrapAppName}
+                </span>
+              )}
+            </div>
+            {!isSidebarCollapsed && (
+              <Button
+                className="h-8 w-8 text-[#8e8e8e] hover:bg-white/[0.05] hover:text-[#ececec]"
+                onClick={onToggleSidebarCollapsed}
+                size="icon"
+                variant="ghost"
+              >
+                <PanelLeftClose className="h-[18px] w-[18px]" />
+              </Button>
+            )}
           </div>
         </div>
-        <div className="px-3 py-1">
-          <Button
-            className={`flex items-center rounded-xl border-0 p-0 sidebar-hover-surface bg-transparent text-sm font-medium text-[var(--foreground)] hover:bg-[var(--input)] ${
-              isSidebarCollapsed ? "h-10 w-10 shrink-0 justify-start" : "h-10 w-full justify-start"
-            }`}
-            onClick={onCreateChat}
-            tooltip={isSidebarCollapsed ? "New Chat" : undefined}
-            type="button"
-            variant="ghost"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center">
-              <MessageSquarePlus className="h-5 w-5" />
-            </div>
-            {!isSidebarCollapsed ? <span className="pr-4">New Chat</span> : null}
-          </Button>
-        </div>
-        <div className="px-3 pb-2">
+
+        {/* Action Menu */}
+        <div className="space-y-0.5 px-2 pb-4">
           <button
-            aria-label="Search Chat"
-            className={`sidebar-hover-ghost flex items-center rounded-xl text-[var(--foreground)] transition hover:bg-[var(--input)] ${
-              isSidebarCollapsed ? "h-10 w-10 shrink-0 justify-start p-0" : "h-10 w-full justify-start p-0"
-            }`}
-            onClick={() => {
-              onSetActiveView("assistant")
-              onCloseMobileSidebar()
-            }}
-            title={isSidebarCollapsed ? "Search Chat" : undefined}
+            className={cn(
+              "flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[#8e8e8e] transition hover:bg-white/[0.05] hover:text-[#ececec]",
+              isSidebarCollapsed && "justify-center px-0"
+            )}
+            onClick={onCreateChat}
             type="button"
+            title="New Session"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center">
-              <Search className="h-5 w-5 shrink-0 text-[var(--muted-foreground)]" />
-            </div>
-            {!isSidebarCollapsed ? <div className="pr-4 text-sm font-medium">Search Chat</div> : null}
+            <MessageSquarePlus className="h-[18px] w-[18px]" />
+            {!isSidebarCollapsed && <span className="text-[13px] font-medium">New Session</span>}
+          </button>
+          <button
+            className={cn(
+              "flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[#8e8e8e] transition hover:bg-white/[0.05] hover:text-[#ececec]",
+              isSidebarCollapsed && "justify-center px-0"
+            )}
+            onClick={() => onSetActiveView("assistant")}
+            type="button"
+            title="Search Chats"
+          >
+            <Search className="h-[18px] w-[18px]" />
+            {!isSidebarCollapsed && <span className="text-[13px] font-medium">Search Chats</span>}
+          </button>
+          <button
+            className={cn(
+              "flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[#8e8e8e] transition hover:bg-white/[0.05] hover:text-[#ececec]",
+              isSidebarCollapsed && "justify-center px-0"
+            )}
+            onClick={() => {}} // Placeholder for Craft
+            type="button"
+            title="Craft"
+          >
+            <LayoutGrid className="h-[18px] w-[18px]" />
+            {!isSidebarCollapsed && <span className="text-[13px] font-medium">Craft</span>}
           </button>
         </div>
-        <div className={`min-h-0 flex-1 overflow-y-auto ${isSidebarCollapsed ? "px-3 pb-24" : "px-3 pb-36"}`}>
-          {!isSidebarCollapsed ? (
-            <>
-              <div
-                className="group flex w-full cursor-pointer items-center justify-between px-3 pb-2 pt-8"
-                onClick={() => setIsProjectsCollapsed(!isProjectsCollapsed)}
-              >
-                <div className="flex items-center gap-1.5">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted-foreground)] opacity-60">Projects</div>
-                  {isProjectsCollapsed ? <ChevronRight className="h-3 w-3 text-[var(--muted-foreground)] opacity-40" /> : <ChevronDown className="h-3 w-3 text-[var(--muted-foreground)] opacity-40" />}
-                </div>
-              </div>
-              {!isProjectsCollapsed && (
-                <div className="space-y-1">
-                  <button
-                    className="group flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left text-[var(--muted-foreground)] transition hover:bg-[var(--input)] hover:text-[var(--foreground)]"
-                    onClick={() => onCreateProject?.()}
-                    type="button"
-                  >
-                    <FolderPlus className="h-4 w-4 shrink-0" />
-                    <div className="truncate text-sm font-medium">New Project</div>
-                  </button>
-                  {projects.slice(0, 4).map((project) => {
-                    const isActive = project.id === activeProjectId
-                    const IconComponent = (icons as any)[project.icon || "Folder"] || Folder
-                    return (
-                      <button
-                        key={project.id}
-                        className={`group flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition ${
-                          isActive ? "bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
-                        }`}
-                        onClick={() => onSelectProject?.(project.id)}
-                        type="button"
-                      >
-                        <IconComponent className="h-4 w-4 shrink-0" style={{ color: project.icon_color || "currentColor" }} />
-                        <div className="truncate text-sm font-medium">{project.name}</div>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
 
-              <div
-                className="flex w-full cursor-pointer items-center gap-1.5 px-3 pb-2 pt-8"
-                onClick={() => setIsChatsCollapsed(!isChatsCollapsed)}
-              >
-                <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted-foreground)] opacity-60">Chats</div>
-                {isChatsCollapsed ? <ChevronRight className="h-3 w-3 text-[var(--muted-foreground)] opacity-40" /> : <ChevronDown className="h-3 w-3 text-[var(--muted-foreground)] opacity-40" />}
-              </div>
-              {!isChatsCollapsed && (
-                <div className="space-y-1">
-                  {filteredChats.map((chat) => {
-                    const isActive = chat.id === activeChatId
-                    const isMenuOpen = openChatMenuId === chat.id && chatMenuAnchor === "sidebar"
-                    const isRenaming = renamingChatId === chat.id
-                    return (
-                      <div
-                        key={chat.id}
-                        className={`group relative rounded-xl px-2 py-1.5 text-left transition ${
-                          isActive ? "bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:bg-[var(--input)] hover:text-[var(--foreground)]"
-                        }`}
-                      >
-                        {isRenaming ? (
-                          <form
-                            onSubmit={(event) => {
-                              event.preventDefault()
-                              onRenameChatSubmit(chat.id)
-                            }}
-                          >
-                            <Input
-                              autoFocus
-                              className="h-9 rounded-xl border-[var(--line)] bg-black/20 pr-10 text-sm"
-                              value={renameChatTitle}
-                              onBlur={() => onRenameChatSubmit(chat.id)}
-                              onChange={(event) => onRenameChatTitleChange(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Escape") {
-                                  onRenameChatCancel()
-                                }
-                              }}
-                            />
-                          </form>
-                        ) : (
-                          <button className="block min-w-0 max-w-full pr-9 text-left" onClick={() => onSelectChat(chat.id)} type="button">
-                            <div className="truncate text-sm font-bold">{chat.title}</div>
-                          </button>
-                        )}
+        {/* Scrollable Content */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-2">
+          {!isSidebarCollapsed && (
+            <>
+              {/* Projects */}
+              <div className="mt-4 px-3">
+                <div 
+                  className="flex cursor-pointer items-center justify-between py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#8e8e8e]/50"
+                  onClick={() => setIsProjectsCollapsed(!isProjectsCollapsed)}
+                >
+                  <span>Projects</span>
+                  {isProjectsCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </div>
+                {!isProjectsCollapsed && (
+                  <div className="mt-1 space-y-0.5">
+                    <button
+                      className="flex h-9 w-full items-center gap-3 rounded-lg px-2 text-[#8e8e8e] transition hover:bg-white/[0.04] hover:text-[#ececec]"
+                      onClick={onCreateProject}
+                      type="button"
+                    >
+                      <FolderPlus className="h-4 w-4 opacity-70" />
+                      <span className="text-[13px] font-medium">New Project</span>
+                    </button>
+                    {projects.map((project) => {
+                      const isActive = project.id === activeProjectId
+                      const IconComponent = (icons as any)[project.icon || "Folder"] || Folder
+                      return (
                         <button
-                          className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--panel-strong)]/95 text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--accent)_12%,var(--input))] hover:text-[var(--foreground)] ${
-                            isActive || isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                          key={project.id}
+                          className={`flex h-9 w-full items-center gap-3 rounded-lg px-2 text-[13px] font-medium transition ${
+                            isActive ? "bg-[#1a1a1a] text-[#ececec]" : "text-[#8e8e8e] hover:bg-white/[0.04] hover:text-[#ececec]"
                           }`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onOpenChatMenu(chat.id, "sidebar")
-                          }}
-                          title={`Chat actions for ${chat.title}`}
+                          onClick={() => onSelectProject?.(project.id)}
                           type="button"
                         >
-                          <Ellipsis className="h-4 w-4" />
+                          <IconComponent className="h-4 w-4 opacity-70" style={{ color: project.icon_color }} />
+                          <span className="truncate">{project.name}</span>
                         </button>
-                        {isMenuOpen ? (
-                          <div
-                            className="absolute right-2 top-[calc(100%+6px)] z-40 w-48 rounded-[22px] border border-[var(--line)] bg-[var(--panel-strong)]/98 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
-                            onPointerDown={(event) => event.stopPropagation()}
-                          >
-                            <button className="sidebar-menu-item sidebar-hover-ghost flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--foreground)]" onClick={() => onBeginRenamingChat(chat)} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
-                              <Pencil className="h-4 w-4 text-[var(--muted-foreground)]" />
-                              Rename chat
-                            </button>
-                            {onMoveChatToProject ? (
-                              <button className="sidebar-menu-item sidebar-hover-ghost flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--foreground)]" onClick={() => onMoveChatToProject(chat)} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
-                                <Folder className="h-4 w-4 text-[var(--muted-foreground)]" />
-                                Move to project
-                              </button>
-                            ) : null}
-                            <button className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-sm text-rose-300 hover:bg-rose-500/10" onClick={() => onDeleteChat(chat)} type="button">
-                              <Trash2 className="h-4 w-4 text-rose-300" />
-                              Delete chat
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    )
-                  })}
-                  {filteredChats.length === 0 ? <div className="px-2 py-1.5 text-sm text-[var(--muted-foreground)]">No chats match that search.</div> : null}
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Recents */}
+              <div className="mt-6 px-3">
+                <div 
+                  className="flex cursor-pointer items-center justify-between py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#8e8e8e]/50"
+                  onClick={() => setIsChatsCollapsed(!isChatsCollapsed)}
+                >
+                  <span>Recently</span>
+                  {isChatsCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </div>
-              )}
+                {!isChatsCollapsed && (
+                  <div className="mt-1 space-y-0.5">
+                    {filteredChats.map((chat) => {
+                      const isActive = chat.id === activeChatId
+                      const isMenuOpen = openChatMenuId === chat.id && chatMenuAnchor === "sidebar"
+                      const isRenaming = renamingChatId === chat.id
+                      return (
+                        <div
+                          key={chat.id}
+                          className={`group relative flex h-9 w-full items-center rounded-lg px-2 text-[13px] font-medium transition ${
+                            isActive ? "bg-[#1a1a1a] text-[#ececec]" : "text-[#8e8e8e] hover:bg-white/[0.04] hover:text-[#ececec]"
+                          }`}
+                        >
+                          {isRenaming ? (
+                            <form
+                              className="flex-1"
+                              onSubmit={(event) => {
+                                event.preventDefault()
+                                onRenameChatSubmit(chat.id)
+                              }}
+                            >
+                              <Input
+                                autoFocus
+                                className="h-7 border-0 bg-transparent p-0 text-[13px] focus-visible:ring-0"
+                                value={renameChatTitle}
+                                onBlur={() => onRenameChatSubmit(chat.id)}
+                                onChange={(event) => onRenameChatTitleChange(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Escape") {
+                                    onRenameChatCancel()
+                                  }
+                                }}
+                              />
+                            </form>
+                          ) : (
+                            <button className="flex-1 truncate pr-6 text-left" onClick={() => onSelectChat(chat.id)}>
+                              {chat.title}
+                            </button>
+                          )}
+                          <button
+                            className={`absolute right-1 flex h-6 w-6 items-center justify-center rounded-md text-[#8e8e8e] hover:bg-white/10 hover:text-[#ececec] ${
+                              isActive || isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                            }`}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onOpenChatMenu(chat.id, "sidebar")
+                            }}
+                          >
+                            <Ellipsis className="h-3.5 w-3.5" />
+                          </button>
+                          {isMenuOpen && (
+                            <div
+                              className="absolute left-[calc(100%+8px)] top-0 z-50 w-48 rounded-xl border border-[#1a1a1a] bg-[#161616] p-1.5 shadow-2xl"
+                              onPointerDown={(event) => event.stopPropagation()}
+                            >
+                              <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-[#8e8e8e] hover:bg-white/[0.05] hover:text-[#ececec]" onClick={() => onBeginRenamingChat(chat)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                                Rename
+                              </button>
+                              {onMoveChatToProject && (
+                                <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-[#8e8e8e] hover:bg-white/[0.05] hover:text-[#ececec]" onClick={() => onMoveChatToProject(chat)}>
+                                  <Folder className="h-3.5 w-3.5" />
+                                  Move
+                                </button>
+                              )}
+                              <div className="my-1 h-px bg-[#1a1a1a]" />
+                              <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-rose-400 hover:bg-rose-500/10" onClick={() => onDeleteChat(chat)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </>
-          ) : (
-            <div />
           )}
         </div>
-        <div className="absolute bottom-0 left-0 right-0 bg-[var(--panel-strong)]/95 px-3 py-2">
-          <div className="relative z-40 w-full" onPointerDown={(event) => event.stopPropagation()}>
+
+        {/* Bottom Profile */}
+        <div className="mt-auto p-2">
+          <div className="relative">
             <button
-              className={`sidebar-hover-ghost flex items-center rounded-xl transition hover:bg-[var(--input)] ${
-                isSidebarCollapsed ? "h-10 w-10 shrink-0 justify-start p-0" : "h-10 w-full justify-start p-0"
+              className={`flex h-12 w-full items-center gap-3 rounded-lg px-3 transition hover:bg-white/[0.05] ${
+                isSidebarCollapsed ? "justify-center px-0" : ""
               }`}
               onClick={onToggleProfileMenu}
               type="button"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-medium text-[var(--accent-foreground)]">
-                  {(user?.display_name || "G").slice(0, 1)}
-                </div>
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#333] text-[10px] font-bold text-white">
+                {(user?.display_name || "G").slice(0, 1).toUpperCase()}
               </div>
-              {!isSidebarCollapsed ? (
-                <>
-                  <div className="min-w-0 flex-1 text-left">
-                    <div className="sidebar-profile-name truncate text-sm font-medium text-[var(--foreground)]">{user?.display_name || "Guest"}</div>
-                  </div>
-                  <ChevronDown className="sidebar-menu-icon mr-2 shrink-0 text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
-                </>
-              ) : null}
+              {!isSidebarCollapsed && (
+                <span className="truncate text-[13px] font-medium text-[#ececec]">{user?.display_name || "Guest"}</span>
+              )}
             </button>
-            {isProfileMenuOpen ? (
-              <div className={`sidebar-menu-shell quick-switcher-shell absolute bottom-[calc(100%+10px)] z-50 rounded-[24px] p-2 ${isSidebarCollapsed ? "left-0 w-56" : "left-0 right-0"}`}>
-                <button className="sidebar-menu-item quick-switcher-item flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={() => onSetActiveView("settings")} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
-                  <Settings className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
+            {isProfileMenuOpen && (
+              <div className={`absolute bottom-[calc(100%+8px)] z-50 rounded-xl border border-[#1a1a1a] bg-[#161616] p-1.5 shadow-2xl ${
+                isSidebarCollapsed ? "left-0 w-56" : "left-0 right-0"
+              }`}>
+                <button className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-[#8e8e8e] hover:bg-white/[0.05] hover:text-[#ececec]" onClick={() => onSetActiveView("settings")}>
+                  <Settings className="h-4 w-4" />
                   Settings
                 </button>
-                {user?.is_admin ? (
-                  <button className="sidebar-menu-item quick-switcher-item flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={() => onSetActiveView("admin")} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
-                    <Shield className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
-                    Administration
-                  </button>
-                ) : null}
-                {user?.is_admin ? (
-                  <button className="sidebar-menu-item quick-switcher-item flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={onToggleDebugMode} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
-                    <Bug className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
-                    Debug mode: {debugMode ? "On" : "Off"}
-                  </button>
-                ) : null}
-                <button className="sidebar-menu-item quick-switcher-item flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={onSignOut} style={{ fontSize: "var(--ui-sidebar-menu-size)" }} type="button">
-                  <LogOut className="sidebar-menu-icon text-[var(--muted-foreground)]" style={{ width: "var(--ui-sidebar-icon-size)", height: "var(--ui-sidebar-icon-size)" }} />
+                {user?.is_admin && (
+                  <>
+                    <button className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-[#8e8e8e] hover:bg-white/[0.05] hover:text-[#ececec]" onClick={() => onSetActiveView("admin")}>
+                      <Shield className="h-4 w-4" />
+                      Administration
+                    </button>
+                    <button className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-[#8e8e8e] hover:bg-white/[0.05] hover:text-[#ececec]" onClick={onToggleDebugMode}>
+                      <Bug className="h-4 w-4" />
+                      Debug mode: {debugMode ? "On" : "Off"}
+                    </button>
+                  </>
+                )}
+                <div className="my-1.5 h-px bg-[#1a1a1a]" />
+                <button className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-[#8e8e8e] hover:bg-white/[0.05] hover:text-[#ececec]" onClick={onSignOut}>
+                  <LogOut className="h-4 w-4" />
                   Sign out
                 </button>
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       </aside>
     </>
   )
 }
+

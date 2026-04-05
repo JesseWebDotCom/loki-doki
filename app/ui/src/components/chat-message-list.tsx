@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { LoaderCircle, Sparkles } from "lucide-react"
+import { LoaderCircle, Sparkles, MessageSquare } from "lucide-react"
 
 import { AssistantMessageCard } from "@/components/assistant-message-card"
 import { ChatCopyButton } from "@/components/chat-copy-button"
@@ -86,6 +86,7 @@ type ChatMessageListProps = {
   onRetrySmart: (assistantIndex: number) => void
   getMessageKey: (message: ChatMessage, index: number) => string
   onToggleCharacter?: () => void
+  chatTitle?: string
 }
 
 function AssistantAvatar({ character, onClick }: { character?: CharacterDefinition | null; onClick?: () => void }) {
@@ -129,6 +130,7 @@ export function ChatMessageList({
   onRetrySmart,
   getMessageKey,
   onToggleCharacter,
+  chatTitle,
 }: ChatMessageListProps) {
   function formatMessageTime(message: ChatMessage): string {
     const timestamp = message.created_at
@@ -141,104 +143,106 @@ export function ChatMessageList({
   }
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 py-6 sm:px-6 sm:py-8 xl:px-10">
+    <div className="mx-auto flex min-h-full w-full max-w-[1100px] flex-col px-4 pt-16 pb-6 sm:px-8 sm:pt-24 sm:pb-8">
       {messages.length === 0 ? (
-        <div className="flex min-h-full flex-1 items-center justify-center py-8">
-          <div className="chat-empty-state w-full max-w-4xl">
-            <div className="mx-auto max-w-2xl text-center">
-              <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--muted-foreground)]">
-                <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />
-                AI Assistant
+        <div className="flex min-h-[60vh] flex-col items-center justify-center py-10 animate-in fade-in slide-in-from-bottom-8 duration-1000">
+          <div className="w-full max-w-2xl text-center">
+            <div className="mb-10 flex justify-center">
+              <div className="relative">
+                <div className="absolute inset-0 blur-3xl opacity-10 bg-white rounded-full" />
+                <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-white/5 bg-[#161616]/40 backdrop-blur-sm shadow-2xl">
+                  <img src="/lokidoki-logo.svg" alt="LokiDoki" className="h-9 w-9" />
+                </div>
               </div>
-              <h1 className="mt-6 text-4xl font-semibold tracking-tight text-[var(--foreground)] sm:text-5xl">
-                Welcome, {userDisplayName || "there"}
-              </h1>
-              <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-[var(--muted-foreground)]">
-                Ask a question, start voice capture, or drop in an image, video, or document to work through it together.
-              </p>
             </div>
-            <div className="mt-10 grid gap-3 sm:grid-cols-2">
+            
+            <h1 className="text-4xl font-bold tracking-tight text-[#ececec] sm:text-6xl mb-6">
+              How can I help you?
+            </h1>
+            <p className="text-[#8e8e8e] text-lg mb-16 max-w-lg mx-auto opacity-70">
+              Start a new conversation or ask about anything on your mind.
+            </p>
+            
+            <div className="grid gap-4 sm:grid-cols-2 text-left">
               {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
-                  className="chat-suggestion-card text-left"
+                  className="group relative flex flex-col items-start gap-1 rounded-[22px] border border-white/5 bg-[#161616]/30 p-5 transition-all hover:bg-[#1a1a1a]/50 hover:border-white/10 hover:scale-[1.02] active:scale-[0.98]"
                   onClick={() => onSuggestionSelect(suggestion)}
                   type="button"
                 >
-                  <div className="text-sm font-medium text-[var(--foreground)]">{suggestion}</div>
-                  <div className="mt-2 text-sm text-[var(--muted-foreground)]">Start here</div>
+                  <div className="text-[15px] font-semibold text-[#ececec] mb-1 group-hover:text-white transition-colors">{suggestion}</div>
+                  <div className="text-[12px] text-[#8e8e8e] opacity-60">Explain in simple terms</div>
+                  <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Sparkles className="h-3.5 w-3.5 text-white" />
+                  </div>
                 </button>
-              ))}
-            </div>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-              {overviewRows.map((row) => (
-                <span key={row.label}>
-                  {row.label}: {row.value}
-                </span>
               ))}
             </div>
           </div>
         </div>
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 pb-10">
+      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-10 pb-32">
+        {messages.length > 0 && (
+          <div className="mb-12 flex items-center gap-3 pt-10 pb-6 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+             <div className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md border border-white/5 bg-[#161616]/50 shadow-sm">
+                <MessageSquare className="h-3.5 w-3.5 text-[#8e8e8e]" />
+             </div>
+             <h1 className="text-4xl font-bold tracking-tight text-[#ececec]">
+                {chatTitle || "Untitled Session"}
+             </h1>
+          </div>
+        )}
         {messages.map((message, index) => (
           message.role === "assistant" && message.pending && !message.content ? null : (
-          <div
-            key={`${message.role}-${index}`}
-            className={cn(
-              "flex w-full items-start",
-              message.role === "user" ? "justify-end" : "justify-start"
-            )}
-          >
-            {message.role === "user" ? (
-              <div className="group max-w-[85%]">
-                <div className="chat-user-bubble">
-                  <p className="whitespace-pre-wrap break-words text-lg leading-7">
-                    {message.content.trim()}
-                  </p>
-                </div>
-                <div className="mt-1 flex min-h-[32px] items-center justify-end gap-2 px-1">
-                  <div className="flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                    <span className="text-[11px] text-[var(--muted-foreground)]">{formatMessageTime(message)}</span>
-                    <ChatCopyButton className="h-8 w-8 rounded-xl border border-[var(--line)] bg-transparent text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--panel)]" content={message.content} />
+            <div
+              key={`${message.role}-${index}`}
+              className="flex w-full items-start animate-in fade-in slide-in-from-bottom-4 duration-500"
+            >
+              {message.role === "user" ? (
+                <div className="group flex w-full flex-col items-end px-1">
+                  <div className="max-w-[85%]">
+                    <p className="whitespace-pre-wrap break-words text-[18px] leading-[1.7] text-[#ececec] text-right">
+                      {message.content.trim()}
+                    </p>
+                  </div>
+                  <div className="mt-2 flex min-h-[24px] items-center gap-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                    <ChatCopyButton className="h-6 w-6 text-[#8e8e8e]/50 hover:text-[#ececec] p-1 scale-90" content={message.content} />
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div className="flex w-full max-w-[85%] items-start gap-4">
-                <div className="flex flex-none pt-1">
-                  <AssistantAvatar character={assistantCharacter} onClick={onToggleCharacter} />
+              ) : (
+                <div className="flex w-full items-start">
+                  <div className="min-w-0 flex-1">
+                    <AssistantMessageCard
+                      debugNow={debugNow}
+                      message={message as any}
+                      messageKey={getMessageKey(message, index)}
+                      messageTime={formatMessageTime(message)}
+                      onPlayVoice={onPlayVoice}
+                      onRetrySmart={() => onRetrySmart(index)}
+                      pendingSpeechMessageKey={pendingSpeechMessageKey}
+                      retrySmartPending={retryingAssistantIndex === index}
+                      showRuntimeDebug={debugMode}
+                      speakingMessageKey={speakingMessageKey}
+                    />
+                  </div>
                 </div>
-                <div className="chat-assistant-bubble min-w-0 flex-1">
-                  <AssistantMessageCard
-                    debugNow={debugNow}
-                    message={message as any}
-                    messageKey={getMessageKey(message, index)}
-                    messageTime={formatMessageTime(message)}
-                    onPlayVoice={onPlayVoice}
-                    onRetrySmart={() => onRetrySmart(index)}
-                    pendingSpeechMessageKey={pendingSpeechMessageKey}
-                    retrySmartPending={retryingAssistantIndex === index}
-                    showRuntimeDebug={debugMode}
-                    speakingMessageKey={speakingMessageKey}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           )
         ))}
+        
         {messages.some((message) => message.role === "assistant" && message.pending && !message.content) ? (
-          <div className="flex w-full max-w-[85%] items-start gap-4">
-            <div className="flex flex-none pt-3">
-              <div className="avatar-spinner rounded-full">
-                <div className="avatar-spinner-ring" />
-                <AssistantAvatar character={assistantCharacter} onClick={onToggleCharacter} />
-              </div>
+          <div className="flex w-full items-start gap-4 animate-in fade-in duration-300">
+            <div className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-md border border-[#1a1a1a] bg-[#0d0d0d]">
+               <img src="/lokidoki-logo.svg" alt="LokiDoki" className="h-[18px] w-[18px] opacity-80" />
             </div>
-            <div className="flex-1">
-              <ChatTypingIndicator />
+            <div className="flex-1 pt-1">
+              <span className="text-[13px] font-medium text-[#8e8e8e] animate-pulse">Thinking...</span>
+              <div className="mt-2 w-full">
+                <ChatTypingIndicator />
+              </div>
             </div>
           </div>
         ) : null}
