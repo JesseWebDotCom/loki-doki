@@ -32,8 +32,12 @@ export type CharacterOptions = {
   radius: number;
   backgroundColor: string[];
   backgroundType: string[];
-  backgroundRotation: number[];
+  backgroundRotation: number;
+  translateX: number;
+  translateY: number;
+  randomizeIds: boolean;
   top?: string[];
+  topProbability?: number;
   accessories?: string[];
   accessoriesColor?: string[];
   clothing?: string[];
@@ -43,7 +47,10 @@ export type CharacterOptions = {
   eyes?: string[];
   facialHair?: string[];
   facialHairColor?: string[];
+  facialHairProbability?: number;
+  hair?: string[];
   hairColor?: string[];
+  hairProbability?: number;
   hatColor?: string[];
   mouth?: string[];
   skinColor?: string[];
@@ -108,7 +115,7 @@ const defaultOptions: CharacterOptions = {
   wakeword_model_id: '',
   wakeword_source_name: '',
   wakeword_upload_data_url: '',
-  style: 'avataaars',
+  style: 'bottts',
   seed: 'Avery',
   flip: false,
   rotate: 0,
@@ -116,7 +123,13 @@ const defaultOptions: CharacterOptions = {
   radius: 0,
   backgroundColor: ['transparent'],
   backgroundType: ['solid'],
-  backgroundRotation: [0],
+  backgroundRotation: 0,
+  translateX: 0,
+  translateY: 0,
+  randomizeIds: false,
+  topProbability: 100,
+  facialHairProbability: 100,
+  hairProbability: 100,
   headRotation: 0,
   headBob: 0,
 };

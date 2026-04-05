@@ -9,18 +9,33 @@ export const DEFAULT_VOICE_MODEL = 'en-us-lessac-medium.onnx';
 
 export const FEATURED_CHARACTERS: CharacterStyle[] = [
   {
+    id: 'bottts',
+    primary_name: 'Botts',
+    domain: 'DiceBear Botts',
+  },
+  {
+    id: 'bottts-neutral',
+    primary_name: 'botts neutral',
+    domain: 'DiceBear Botts Neutral',
+  },
+  {
     id: 'avataaars',
-    primary_name: 'Avery',
+    primary_name: 'vataraars',
     domain: 'DiceBear Avataaars',
   },
   {
-    id: 'bottts',
-    primary_name: 'Bottts',
-    domain: 'DiceBear Bottts',
+    id: 'avataaars-neutral',
+    primary_name: 'avataars nuetral',
+    domain: 'DiceBear Avataaars Neutral',
   },
   {
-    id: 'toonHead',
-    primary_name: 'Toon Head',
+    id: 'fun-emoji',
+    primary_name: 'fun emoji',
+    domain: 'DiceBear Fun Emoji',
+  },
+  {
+    id: 'toon-head',
+    primary_name: 'toon head',
     domain: 'DiceBear Toon Head',
   },
 ];
