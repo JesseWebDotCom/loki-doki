@@ -28,6 +28,8 @@ import {
   Search,
   Settings,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
@@ -46,6 +48,16 @@ import {
   Minimize2,
   Monitor,
   MessageSquare,
+  LayoutGrid,
+  FlaskConical,
+  Cpu,
+  Layers,
+  Activity,
+  Database,
+  List,
+  Palette,
+  Volume2,
+  Brain,
 } from "lucide-react"
 
 import { CharacterContext, type CharacterOptions } from "@/character-editor/context/CharacterContext"
@@ -1616,6 +1628,7 @@ export default function App() {
   const [authError, setAuthError] = useState("")
   const [chatError, setChatError] = useState("")
   const [chatSearch, setChatSearch] = useState("")
+  const [workspaceSearch, setWorkspaceSearch] = useState("")
   const [themePresetId, setThemePresetId] = useState<ThemePresetId>("familiar")
   const [themeMode, setThemeMode] = useState<ThemeMode>("dark")
   const [effectiveThemePresetId, setEffectiveThemePresetId] = useState<ThemePresetId>("familiar")
@@ -1813,7 +1826,7 @@ export default function App() {
   const [adminUserCharacterDrafts, setAdminUserCharacterDrafts] = useState<Record<string, { care_profile_id: string; character_enabled: boolean; assigned_character_id: string; can_select_character: boolean; admin_prompt: string }>>({})
   const [adminUserThemeDrafts, setAdminUserThemeDrafts] = useState<Record<string, { theme_admin_override_enabled: boolean; theme_admin_override_preset_id: ThemePresetId; theme_admin_override_mode: ThemeMode }>>({})
   const [settingsRecognitionTab, setSettingsRecognitionTab] = useState<"facial" | "vocal">("facial")
-  const [activeSettingsSection, setActiveSettingsSection] = useState<"general" | "recognition" | "appearance" | "voice" | "wakeword" | "memory">("general")
+  const [activeSettingsSection, setActiveSettingsSection] = useState<"general" | "recognition" | "appearance" | "voice" | "wakeword" | "memory" | "about">("general")
   const [activeAdminSection, setActiveAdminSection] = useState<"dashboard" | "general" | "users" | "care_profiles" | "prompt_lab" | "voices" | "skills" | "characters">("dashboard")
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
   const [isCharacterMenuOpen, setIsCharacterMenuOpen] = useState(false)
@@ -1980,23 +1993,23 @@ export default function App() {
     "Help me wire push-to-talk voice",
     "Analyze an image I upload",
   ]
-  const settingsSections: Array<{ id: "general" | "recognition" | "appearance" | "voice" | "wakeword" | "memory"; label: string; detail: string }> = [
-    { id: "general", label: "General", detail: "Profile, account, and character defaults" },
-    { id: "recognition", label: "Recognition", detail: "Facial and future vocal enrollment" },
-    { id: "memory", label: "Memory", detail: "Inspect active chat, personal, and household memory" },
-    { id: "appearance", label: "Appearance", detail: "Theme and debug tools" },
-    { id: "voice", label: "Voice", detail: "Reply voice and preview" },
-    { id: "wakeword", label: "Wakeword", detail: "Hands-free listening" },
+  const settingsSections: Array<{ id: "general" | "recognition" | "appearance" | "voice" | "wakeword" | "memory"; label: string; detail: string; category: string; icon: keyof typeof Lucide }> = [
+    { id: "general", label: "General", detail: "Profile, account, and character defaults", category: "Account", icon: "User" },
+    { id: "recognition", label: "Recognition", detail: "Facial and future vocal enrollment", category: "Account", icon: "Scan" },
+    { id: "appearance", label: "Appearance", detail: "Theme and debug tools", category: "Personalization", icon: "Palette" },
+    { id: "voice", label: "Voice", detail: "Reply voice and preview", category: "Personalization", icon: "Volume2" },
+    { id: "wakeword", label: "Wakeword", detail: "Hands-free listening", category: "Personalization", icon: "Ear" },
+    { id: "memory", label: "Memory", detail: "Inspect active chat, personal, and household memory", category: "Data", icon: "Brain" },
   ]
-  const adminSections: Array<{ id: "dashboard" | "general" | "users" | "care_profiles" | "prompt_lab" | "voices" | "skills" | "characters"; label: string; detail: string }> = [
-    { id: "dashboard", label: "Dashboard", detail: "Nodes, users, and live system usage" },
-    { id: "general", label: "General", detail: "Install defaults and prompt policy" },
-    { id: "users", label: "Users", detail: "Accounts, access, care profiles, and passwords" },
-    { id: "care_profiles", label: "Care Profiles", detail: "Create, inspect, and edit response profiles" },
-    { id: "prompt_lab", label: "Prompt Lab", detail: "Test prompts as users and inspect orchestration" },
-    { id: "voices", label: "Voices", detail: "Installed Piper voices, usage, and custom sources" },
-    { id: "characters", label: "Characters", detail: "Character catalog and availability" },
-    { id: "skills", label: "Skills", detail: "Installs, routing, and configuration" },
+  const adminSections: Array<{ id: "dashboard" | "general" | "users" | "care_profiles" | "prompt_lab" | "voices" | "skills" | "characters"; label: string; detail: string; category: string; icon: keyof typeof Lucide }> = [
+    { id: "dashboard", label: "Dashboard", detail: "Nodes, users, and live system usage", category: "Overview", icon: "LayoutGrid" },
+    { id: "general", label: "General", detail: "Install defaults and prompt policy", category: "System", icon: "Settings" },
+    { id: "voices", label: "Voices", detail: "Installed Piper voices, usage, and custom sources", category: "System", icon: "Volume2" },
+    { id: "characters", label: "Characters", detail: "Character catalog and availability", category: "System", icon: "Smile" },
+    { id: "skills", label: "Skills", detail: "Installs, routing, and configuration", category: "System", icon: "Cpu" },
+    { id: "users", label: "Users", detail: "Accounts, access, care profiles, and passwords", category: "Access", icon: "Users" },
+    { id: "care_profiles", label: "Care Profiles", detail: "Create, inspect, and edit response profiles", category: "Content", icon: "Shield" },
+    { id: "prompt_lab", label: "Prompt Lab", detail: "Test prompts as users and inspect orchestration", category: "Content", icon: "FlaskConical" },
   ]
 
   const overviewRows = [
@@ -5914,22 +5927,18 @@ export default function App() {
   const leftSidebarWidth = isWorkspaceView ? "0px" : isSidebarCollapsed ? "64px" : "288px"
   const rightSidebarWidth = isRightSidebarCollapsed ? "48px" : "360px"
   const settingsContentClass = cn(
-    "mx-auto w-full",
+    "mx-auto w-full transition-all duration-300",
     activeSettingsSection === "memory"
-      ? "max-w-[1200px]"
+      ? "max-w-[1400px]"
       : activeSettingsSection === "appearance"
-        ? "max-w-[1320px]"
-        : "max-w-[880px]"
+        ? "max-w-[1600px]"
+        : "max-w-[1100px]"
   )
   const adminContentClass = cn(
-    "mx-auto w-full",
+    "mx-auto w-full transition-all duration-300",
     activeAdminSection === "characters" && isCharacterEditorOpen
       ? "max-w-full"
-      : activeAdminSection === "characters" || activeAdminSection === "skills" || activeAdminSection === "prompt_lab"
-      ? "max-w-[1380px]"
-      : activeAdminSection === "dashboard" || activeAdminSection === "users"
-        ? "max-w-[1240px]"
-        : "max-w-[980px]"
+      : "max-w-[1600px]"
   )
   const sharedCharacterChoices = [
     ...(selectedCharacter ? [selectedCharacter] : []),
@@ -6235,7 +6244,7 @@ export default function App() {
 
           <header className={cn(
             "relative flex h-16 shrink-0 items-center justify-between border-b border-[var(--line)] bg-[var(--panel-strong)]/72 px-4 backdrop-blur sm:px-6 z-20 transition-all",
-            characterDisplayMode === "fullscreen" && isCharacterVisible ? "hidden" : "flex"
+            (characterDisplayMode === "fullscreen" && isCharacterVisible) || isWorkspaceView ? "hidden" : "flex"
           )}>
             {/* Left: Breadcrumbs */}
             <div className="flex items-center gap-2 overflow-hidden font-medium min-w-0">
@@ -6913,39 +6922,102 @@ export default function App() {
           ) : activeView === "settings" ? (
             <div className="workspace-shell min-h-0 flex-1 overflow-hidden" ref={rightPaneScrollRef}>
               <div className="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1">
-                <div className="workspace-nav h-auto space-y-3 overflow-x-auto px-3 py-3 lg:h-full lg:px-4 lg:py-4">
-                  <div className="workspace-rail-card p-3">
-                    <Button className="w-full justify-start gap-2 rounded-2xl px-3 text-sm" onClick={() => setActiveView("assistant")} type="button" variant="ghost">
-                      <ArrowUpDown className="h-4 w-4 rotate-90" />
+                <div className="workspace-nav relative flex h-full flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--panel-strong)]/30">
+                  <div className="sticky top-0 z-30 flex flex-col gap-3 bg-[var(--background)]/80 p-4 pb-1 backdrop-blur-xl">
+                    <div className="flex items-center gap-2 px-1">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)]/10 text-[var(--accent)]">
+                        <Settings className="h-4 w-4" />
+                      </div>
+                      <div className="text-lg font-bold tracking-tight text-[var(--foreground)]">Settings</div>
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                      <input
+                        className="h-10 w-full rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)]/50 pl-9 pr-4 text-sm outline-none transition-all focus:border-[var(--accent)] focus:bg-[var(--panel)] focus:ring-1 focus:ring-[var(--accent)]/20"
+                        onChange={(e) => setWorkspaceSearch(e.target.value)}
+                        placeholder="Search settings..."
+                        type="text"
+                        value={workspaceSearch}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-2 py-4 scrollbar-hide">
+                    {Object.entries(
+                      settingsSections.reduce((acc, section) => {
+                        if (!workspaceSearch || section.label.toLowerCase().includes(workspaceSearch.toLowerCase()) || section.category.toLowerCase().includes(workspaceSearch.toLowerCase())) {
+                          if (!acc[section.category]) acc[section.category] = []
+                          acc[section.category].push(section)
+                        }
+                        return acc
+                      }, {} as Record<string, typeof settingsSections>)
+                    ).map(([category, sections]) => (
+                      <div key={category} className="mb-4">
+                        <div className="sticky top-0 z-20 mb-2 bg-[var(--background)]/5 px-3 py-1.5 backdrop-blur-md">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted-foreground)] opacity-70">
+                            {category}
+                          </div>
+                        </div>
+                        <div className="space-y-0.5">
+                          {sections.map((section) => {
+                            const Icon = Lucide[section.icon] as any
+                            return (
+                              <button
+                                key={section.id}
+                                className={cn(
+                                  "group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-all",
+                                  activeSettingsSection === section.id
+                                    ? "bg-[var(--accent)]/10 text-[var(--accent)] shadow-sm"
+                                    : "text-[var(--muted-foreground)] hover:bg-[var(--panel-strong)]/40 hover:text-[var(--foreground)]"
+                                )}
+                                onClick={() => setActiveSettingsSection(section.id)}
+                                type="button"
+                              >
+                                <Icon className={cn("h-4 w-4 shrink-0 transition-transform group-hover:scale-110", activeSettingsSection === section.id ? "text-[var(--accent)]" : "text-[var(--muted-foreground)]")} />
+                                <span className="truncate text-[13px] font-medium leading-none">{section.label}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-auto border-t border-[var(--line)] p-4">
+                    <Button 
+                      className="group w-full justify-start gap-3 rounded-[20px] px-3 py-5 text-sm font-medium transition-all hover:bg-rose-500/10 hover:text-rose-400" 
+                      onClick={() => setActiveView("assistant")} 
+                      type="button" 
+                      variant="ghost"
+                    >
+                      <ArrowUpDown className="h-4 w-4 rotate-90 text-[var(--muted-foreground)] group-hover:text-rose-400" />
                       Back to chats
                     </Button>
                   </div>
-                  <div className="px-3 py-2">
-                    <div className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">Settings</div>
-                    <div className="mt-1 text-sm text-[var(--muted-foreground)]">Personal preferences, appearance, voice, wakeword, and memory.</div>
-                  </div>
-                  {settingsSections.map((section) => (
-                    <button
-                      key={section.id}
-                      className={cn("workspace-section-button", activeSettingsSection === section.id ? "is-active" : "")}
-                      onClick={() => setActiveSettingsSection(section.id)}
-                      type="button"
-                    >
-                      <div className="text-sm font-medium">{section.label}</div>
-                      <div className="workspace-section-detail mt-1 text-xs">{section.detail}</div>
-                    </button>
-                  ))}
                 </div>
 
-                <div className="workspace-content min-h-0 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10 lg:py-8 xl:px-12">
-                  <div className={cn(settingsContentClass, "space-y-6")}>
+                <div className="workspace-content min-h-0 overflow-y-auto px-4 py-8 sm:px-6 lg:px-10 xl:px-12">
+                  <div className={cn(settingsContentClass, "space-y-8 pb-20")}>
+                    {(() => {
+                      const section = settingsSections.find(s => s.id === activeSettingsSection)
+                      if (!section) return null
+                      const Icon = Lucide[section.icon] as any
+                      return (
+                        <div className="mb-8 flex flex-col gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)]/10 text-[var(--accent)] shadow-sm">
+                            <Icon className="h-6 w-6" />
+                          </div>
+                          <div>
+                            <h1 className="text-3xl font-bold tracking-tight text-[var(--foreground)]">{section.label}</h1>
+                            <p className="mt-1.5 text-[var(--muted-foreground)]">{section.detail}</p>
+                          </div>
+                        </div>
+                      )
+                    })()}
                   {activeSettingsSection === "appearance" ? (
                     <Card className="workspace-panel text-[var(--foreground)]">
                       <CardContent className="space-y-6 p-5 sm:p-6">
-                        <div>
-                          <div className="text-xl font-semibold">Appearance</div>
-                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">Choose a full visual preset and a separate light, dark, or automatic mode.</div>
-                        </div>
+
                         <div className="workspace-inline-panel p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
@@ -7162,10 +7234,7 @@ export default function App() {
                   {activeSettingsSection === "general" ? (
                     <Card className="workspace-panel text-[var(--foreground)]">
                       <CardContent className="space-y-4 p-5 sm:p-6">
-                        <div>
-                          <div className="text-xl font-semibold">General</div>
-                          <div className="workspace-muted mt-1 text-sm">Profile details, password, and your default response behavior.</div>
-                        </div>
+
                         <div className="grid gap-4 lg:grid-cols-2">
                           <div className="space-y-2">
                             <div className="workspace-label">Username</div>
@@ -7298,10 +7367,7 @@ export default function App() {
                   {activeSettingsSection === "recognition" ? (
                     <Card className="border-[var(--line)] bg-[var(--card)] text-[var(--foreground)] shadow-2xl">
                       <CardContent className="space-y-4 p-5 sm:p-6">
-                        <div>
-                          <div className="text-xl font-semibold">Recognition</div>
-                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">Each user manages their own recognition enrollment here.</div>
-                        </div>
+
                         <div className="flex flex-wrap gap-2">
                           <Button
                             className="h-9 rounded-full px-3 text-xs"
@@ -7340,10 +7406,7 @@ export default function App() {
                   {activeSettingsSection === "voice" ? (
                     <Card className="border-[var(--line)] bg-[var(--card)] text-[var(--foreground)] shadow-2xl">
                       <CardContent className="space-y-4 p-5 sm:p-6">
-                        <div>
-                          <div className="text-xl font-semibold">Voice</div>
-                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">Browser voices or local Piper output for spoken replies. This only applies when character mode is off.</div>
-                        </div>
+
                         <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--input)] px-4 py-4">
                           <div>
                             <div className="text-sm font-medium text-[var(--foreground)]">Voice Reply</div>
@@ -7421,10 +7484,7 @@ export default function App() {
                   {activeSettingsSection === "wakeword" ? (
                     <Card className="border-[var(--line)] bg-[var(--card)] text-[var(--foreground)] shadow-2xl">
                       <CardContent className="space-y-4 p-5 sm:p-6">
-                        <div>
-                          <div className="text-xl font-semibold">Wakeword</div>
-                          <div className="mt-1 text-sm text-[var(--muted-foreground)]">Hands-free local wakeword monitoring and model selection. This only applies when character mode is off.</div>
-                        </div>
+
                         <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--input)] px-4 py-4">
                           <div>
                             <div className="text-sm font-medium text-[var(--foreground)]">Wakeword</div>
@@ -7583,6 +7643,20 @@ export default function App() {
                         </div>
                       </CardContent>
                     </Card>
+                  ) : activeSettingsSection === "about" ? (
+                    <div className="flex flex-col items-center gap-6 py-12 text-center animate-in zoom-in-95 duration-500">
+                      <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-[var(--accent)]/10 text-[var(--accent)] shadow-neo">
+                        <Info className="h-10 w-10" />
+                      </div>
+                      <div className="max-w-md">
+                        <h2 className="text-2xl font-bold text-[var(--foreground)]">LokiDoki {bootstrap?.version}</h2>
+                        <p className="mt-2 text-[var(--muted-foreground)]">Your local private AI companion platform.</p>
+                        <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-4 py-1.5 text-xs text-[var(--muted-foreground)]">
+                          <Cpu className="h-3.5 w-3.5" />
+                          Profile {health?.profile || bootstrap?.profile || "mac"}
+                        </div>
+                      </div>
+                    </div>
                   ) : null}
                   </div>
                 </div>
@@ -7591,32 +7665,111 @@ export default function App() {
           ) : activeView === "admin" ? (
             <div className="workspace-shell min-h-0 flex-1 overflow-hidden" ref={rightPaneScrollRef}>
               <div className="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1">
-                  <div className="workspace-nav h-auto space-y-3 overflow-x-auto px-3 py-3 lg:h-full lg:px-4 lg:py-4">
-                    <div className="workspace-rail-card p-3">
-                      <Button className="w-full justify-start gap-2 rounded-2xl px-3 text-sm" onClick={() => setActiveView("assistant")} type="button" variant="ghost">
-                        <ArrowUpDown className="h-4 w-4 rotate-90" />
-                        Exit admin
-                      </Button>
+                <div className="workspace-nav relative flex h-full flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--panel-strong)]/30">
+                  <div className="sticky top-0 z-30 flex flex-col gap-3 bg-[var(--background)]/80 p-4 pb-1 backdrop-blur-xl">
+                    <div className="flex items-center gap-2 px-1">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)]/10 text-[var(--accent)]">
+                        <ShieldAlert className="h-4 w-4" />
+                      </div>
+                      <div className="text-lg font-bold tracking-tight text-[var(--foreground)]">Administration</div>
                     </div>
-                    <div className="px-3 py-2">
-                      <div className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">Administration</div>
-                      <div className="mt-1 text-sm text-[var(--muted-foreground)]">Users, policies, skills, voices, characters, and system controls.</div>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                      <input
+                        className="h-10 w-full rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)]/50 pl-9 pr-4 text-sm outline-none transition-all focus:border-[var(--accent)] focus:bg-[var(--panel)] focus:ring-1 focus:ring-[var(--accent)]/20"
+                        onChange={(e) => setWorkspaceSearch(e.target.value)}
+                        placeholder="Search system..."
+                        type="text"
+                        value={workspaceSearch}
+                      />
                     </div>
-                    {adminSections.map((section) => (
-                      <button
-                        key={section.id}
-                        className={cn("workspace-section-button", activeAdminSection === section.id ? "is-active" : "")}
-                        onClick={() => setActiveAdminSection(section.id)}
-                        type="button"
-                      >
-                        <div className="text-sm font-medium">{section.label}</div>
-                        <div className="workspace-section-detail mt-1 text-xs">{section.detail}</div>
-                      </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-2 py-4 scrollbar-hide">
+                    {Object.entries(
+                      adminSections.reduce((acc, section) => {
+                        if (!workspaceSearch || section.label.toLowerCase().includes(workspaceSearch.toLowerCase()) || section.category.toLowerCase().includes(workspaceSearch.toLowerCase())) {
+                          if (!acc[section.category]) acc[section.category] = []
+                          acc[section.category].push(section)
+                        }
+                        return acc
+                      }, {} as Record<string, typeof adminSections>)
+                    ).map(([category, sections]) => (
+                      <div key={category} className="mb-4">
+                        <div className="sticky top-0 z-20 mb-2 bg-[var(--background)]/5 px-3 py-1.5 backdrop-blur-md">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted-foreground)] opacity-70">
+                            {category}
+                          </div>
+                        </div>
+                        <div className="space-y-0.5">
+                          {sections.map((section) => {
+                            const Icon = Lucide[section.icon] as any
+                            return (
+                              <button
+                                key={section.id}
+                                className={cn(
+                                  "group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-all",
+                                  activeAdminSection === section.id
+                                    ? "bg-[var(--accent)]/10 text-[var(--accent)] shadow-sm"
+                                    : "text-[var(--muted-foreground)] hover:bg-[var(--panel-strong)]/40 hover:text-[var(--foreground)]"
+                                )}
+                                onClick={() => {
+                                  setActiveAdminSection(section.id)
+                                  if (section.id !== "characters") {
+                                    setIsCharacterEditorOpen(false)
+                                  }
+                                }}
+                                type="button"
+                              >
+                                <Icon className={cn("h-4 w-4 shrink-0 transition-transform group-hover:scale-110", activeAdminSection === section.id ? "text-[var(--accent)]" : "text-[var(--muted-foreground)]")} />
+                                <span className="truncate text-[13px] font-medium leading-none">{section.label}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
                     ))}
                   </div>
 
-                  <div className="workspace-content min-h-0 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10 lg:py-8 xl:px-12">
-                  <div className={cn(adminContentClass, "space-y-6")}>
+                  <div className="mt-auto border-t border-[var(--line)] p-4">
+                    <Button 
+                      className="group w-full justify-start gap-3 rounded-[20px] px-3 py-5 text-sm font-medium transition-all hover:bg-rose-500/10 hover:text-rose-400" 
+                      onClick={() => setActiveView("assistant")} 
+                      type="button" 
+                      variant="ghost"
+                    >
+                      <ArrowUpDown className="h-4 w-4 rotate-90 text-[var(--muted-foreground)] group-hover:text-rose-400" />
+                      Back to chats
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="workspace-content min-h-0 overflow-y-auto px-4 py-8 sm:px-6 lg:px-10 xl:px-12">
+                  <div className={cn(adminContentClass, "space-y-8 pb-20")}>
+                    {(() => {
+                      const section = adminSections.find(s => s.id === activeAdminSection)
+                      if (!section || (activeAdminSection === "characters" && isCharacterEditorOpen)) return null
+                      const Icon = Lucide[section.icon] as any
+                      return (
+                        <div className="mb-8 flex flex-col gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent)]/10 text-[var(--accent)] shadow-sm">
+                            <Icon className="h-6 w-6" />
+                          </div>
+                          <div>
+                            <h1 className="text-3xl font-bold tracking-tight text-[var(--foreground)]">{section.label}</h1>
+                            <p className="mt-1.5 text-[var(--muted-foreground)]">
+                              {section.id === "voices" && adminVoiceCatalogStatus ? (
+                                <>{adminVoiceCatalogStatus.voice_count} standard voices cached · Synced {voiceCatalogFetchedLabel}</>
+                              ) : section.id === "skills" ? (
+                                <>{installedSkills.length} installed · {availableSkills.length} in repository</>
+                              ) : (
+                                section.detail
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                   {activeAdminSection === "characters" && isCharacterEditorOpen ? (
                     <div className="flex min-h-[calc(100dvh-10rem)] flex-col gap-4">
@@ -7646,13 +7799,7 @@ export default function App() {
                     <div className="space-y-4">
                       <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                         <CardContent className="space-y-4 p-5 sm:p-6">
-                          <div>
-                            <div className="flex items-center gap-2 text-xl font-semibold">
-                              <Server className="h-5 w-5 text-zinc-400" />
-                              Dashboard
-                            </div>
-                            <div className="mt-1 text-sm text-zinc-500">Nodes, users, and live CPU, memory, and disk usage for the system, LokiDoki, and Ollama.</div>
-                          </div>
+
                           {adminRuntimeMetrics ? (
                             <div className="space-y-4">
                               <div className="grid gap-3 md:grid-cols-2">
@@ -7759,10 +7906,7 @@ export default function App() {
                     <div className="space-y-4">
                       <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                         <CardContent className="space-y-4 p-5 sm:p-6">
-                          <div>
-                            <div className="text-xl font-semibold">System Defaults</div>
-                            <div className="mt-1 text-sm text-zinc-500">Set the default character and the local node name for this LokiDoki installation.</div>
-                          </div>
+
                           {adminAccount ? (
                             <div className="space-y-4">
                               <div className="space-y-2">
@@ -7801,10 +7945,7 @@ export default function App() {
 
                       <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                         <CardContent className="space-y-4 p-5 sm:p-6">
-                          <div>
-                            <div className="text-xl font-semibold">Prompt Policy</div>
-                            <div className="mt-1 text-sm text-zinc-500">Global install-level prompt rules layered above characters and user prompts.</div>
-                          </div>
+
                           {adminPromptPolicy ? (
                             <div className="space-y-3">
                               <div className="space-y-2">
@@ -7830,10 +7971,7 @@ export default function App() {
 
                       <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                         <CardContent className="space-y-4 p-5 sm:p-6">
-                          <div>
-                            <div className="text-xl font-semibold">Conversational Tone</div>
-                            <div className="mt-1 text-sm text-zinc-500">Global behavior for conversational filler and helpfulness.</div>
-                          </div>
+
                           {adminPromptPolicy ? (
                             <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
                               <div>
@@ -7863,10 +8001,7 @@ export default function App() {
 
                       <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                         <CardContent className="space-y-4 p-5 sm:p-6">
-                          <div>
-                            <div className="text-xl font-semibold">Updates</div>
-                            <div className="mt-1 text-sm text-zinc-500">Manage how skills and system components update.</div>
-                          </div>
+
                           {adminAccount ? (
                             <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
                               <div>
@@ -7902,10 +8037,7 @@ export default function App() {
                       <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                         <CardContent className="space-y-6 p-5 sm:p-6">
                           <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div>
-                              <div className="text-xl font-semibold">Users</div>
-                              <div className="mt-1 text-sm text-zinc-500">Manage each user account: care profile, character access, admin rights, and password.</div>
-                            </div>
+
                             <div className="w-full max-w-sm">
                               <Input onChange={(event) => setAdminUserSearch(event.target.value)} placeholder="Search users" value={adminUserSearch} />
                             </div>
@@ -8148,10 +8280,7 @@ export default function App() {
                   {activeAdminSection === "care_profiles" ? (
                     <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                       <CardContent className="space-y-4 p-5 sm:p-6">
-                        <div>
-                          <div className="text-xl font-semibold">Care Profiles</div>
-                          <div className="mt-1 text-sm text-zinc-500">Inspect built-ins and create or edit custom care profiles with explicit labeled fields.</div>
-                        </div>
+
                         <div className="space-y-2">
                           {adminCareProfiles.map((profile) => (
                             <button
@@ -8237,10 +8366,7 @@ export default function App() {
                   {activeAdminSection === "prompt_lab" ? (
                     <Card className="border-white/8 bg-zinc-950/96 text-zinc-100 shadow-2xl">
                       <CardContent className="space-y-6 p-5 sm:p-6">
-                        <div>
-                          <div className="text-xl font-semibold">Prompt Lab</div>
-                          <div className="mt-1 text-sm text-zinc-500">Run a one-off message as any user and inspect the rendered response, skill routing, timing, character, care profile, and final LLM messages.</div>
-                        </div>
+
                         <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
                           <div className="space-y-4 rounded-3xl border border-white/8 bg-white/[0.03] p-4">
                             <div className="space-y-2">
@@ -8538,27 +8664,21 @@ export default function App() {
                             type="file"
                           />
                           <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div>
-                              <div className="text-xl font-semibold">Character Catalog</div>
-                              <div className="mt-1 text-sm text-zinc-500">
-                                Search installed and available characters, then open a focused editor only when you need to change one.
+                            {characterCatalogRepository ? (
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                                <span>{characterCatalogRepository.description}</span>
+                                {characterCatalogRepository.repo_url ? (
+                                  <Button
+                                    className="h-7 rounded-full px-3 text-[11px]"
+                                    onClick={() => openExternalUrl(characterCatalogRepository.repo_url)}
+                                    type="button"
+                                    variant="outline"
+                                  >
+                                    Open Repo
+                                  </Button>
+                                ) : null}
                               </div>
-                              {characterCatalogRepository ? (
-                                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                                  <span>{characterCatalogRepository.description}</span>
-                                  {characterCatalogRepository.repo_url ? (
-                                    <Button
-                                      className="h-7 rounded-full px-3 text-[11px]"
-                                      onClick={() => openExternalUrl(characterCatalogRepository.repo_url)}
-                                      type="button"
-                                      variant="outline"
-                                    >
-                                      Open Repo
-                                    </Button>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                            </div>
+                            ) : null}
                             <div className="flex flex-wrap items-center gap-2">
                               <Button className="h-9 rounded-full px-3 text-xs" onClick={() => openCharacterEditor()} type="button">
                                 <Sparkles className="mr-2 h-3.5 w-3.5" />
@@ -8836,10 +8956,9 @@ export default function App() {
                         <CardContent className="flex max-h-[calc(100dvh-13rem)] min-h-[28rem] flex-col gap-4 p-5 sm:p-6">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="text-xl font-semibold">Voices</div>
+                              <div className="text-sm font-medium uppercase tracking-[0.18em] text-zinc-500">Standard Voice Set</div>
                               <div className="mt-1 text-xs text-zinc-500">
-                                {adminVoiceCatalogStatus ? `${adminVoiceCatalogStatus.voice_count} standard voices cached` : "Loading Piper catalog"} · Synced {voiceCatalogFetchedLabel}
-                                {adminVoiceCatalogStatus?.stale ? " · cached fallback" : ""}
+                                {adminVoiceCatalogStatus?.stale ? "Using cached fallback catalog" : "Active Piper index"}
                               </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -9126,9 +9245,9 @@ export default function App() {
                       <CardContent className="flex max-h-[calc(100dvh-13rem)] min-h-[28rem] flex-col gap-4 p-5 sm:p-6">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="text-xl font-semibold">Skills</div>
+                            <div className="text-sm font-medium uppercase tracking-[0.18em] text-zinc-500">Skill Inventory</div>
                             <div className="mt-1 text-xs text-zinc-500">
-                              {installedSkills.length} installed · {availableSkills.length} in repository · Read-only connection tests available when supported
+                              Read-only connection tests available when supported
                             </div>
                             {skillCatalogRepository ? (
                               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
