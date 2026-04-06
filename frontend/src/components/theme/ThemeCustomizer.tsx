@@ -1,13 +1,13 @@
 import React from "react"
-import { Sun, Moon, Monitor, RotateCcw, CornerUpLeft } from "lucide-react"
+import { Sun, Moon, Monitor, RotateCcw, CornerLeftUp, Type } from "lucide-react"
 import { useTheme } from "./ThemeProvider"
-import type { Theme, Radius, Palette as PaletteType } from "./ThemeProvider"
+import type { Theme, Radius, Palette as PaletteType, Font as FontType } from "./ThemeProvider"
 
 const ThemeCustomizer: React.FC = () => {
-  const { theme, setTheme, radius, setRadius, palette, setPalette, reset } = useTheme()
+  const { theme, setTheme, radius, setRadius, palette, setPalette, font, setFont, reset } = useTheme()
 
   return (
-    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-card/40 backdrop-blur-3xl p-3 px-8 rounded-full border border-border/20 shadow-m4 animate-in fade-in zoom-in-95 duration-700 z-50 font-roboto">
+    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-card/60 backdrop-blur-3xl p-3 px-8 rounded-full border border-border/10 shadow-m4 animate-in fade-in zoom-in-95 duration-700 z-50">
       
       {/* Palette Select */}
       <div className="flex items-center gap-2.5 border-r border-border/20 pr-6 group">
@@ -50,16 +50,33 @@ const ThemeCustomizer: React.FC = () => {
 
       {/* Radius Select */}
       <div className="flex items-center gap-2 border-r border-border/20 pr-4">
-        <CornerUpLeft size={16} className="text-muted-foreground" />
+        <CornerLeftUp size={16} className="text-muted-foreground" />
+        <span className="text-sm font-medium text-foreground/80">Radius</span>
         <select 
           value={radius} 
           onChange={(e) => setRadius(e.target.value as Radius)}
-          className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer hover:text-primary transition-colors"
+          className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer hover:text-primary transition-colors appearance-none pr-1"
         >
-          <option value="0" className="bg-card">Sharp</option>
-          <option value="0.5rem" className="bg-card">Rounded</option>
-          <option value="1rem" className="bg-card">Pill (Default)</option>
+          <option value="0" className="bg-onyx-2">Sharp</option>
+          <option value="0.5rem" className="bg-onyx-2">Rounded</option>
+          <option value="1rem" className="bg-onyx-2">Pill</option>
         </select>
+        <span className="text-[10px] text-muted-foreground transition-transform group-hover:translate-y-0.5">▾</span>
+      </div>
+
+      {/* Style (Font) Select */}
+      <div className="flex items-center gap-2 border-r border-border/20 pr-4 group">
+        <Type size={16} className="text-muted-foreground" />
+        <span className="text-sm font-medium text-foreground/80">Style</span>
+        <select 
+          value={font} 
+          onChange={(e) => setFont(e.target.value as FontType)}
+          className="bg-transparent text-sm font-bold focus:outline-none cursor-pointer hover:text-primary transition-colors appearance-none pr-1"
+        >
+          <option value="roboto" className="bg-onyx-2">Roboto</option>
+          <option value="merriweather" className="bg-onyx-2">Merriweather</option>
+        </select>
+        <span className="text-[10px] text-muted-foreground transition-transform group-hover:translate-y-0.5">▾</span>
       </div>
 
       {/* Reset */}

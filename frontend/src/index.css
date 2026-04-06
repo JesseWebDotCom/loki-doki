@@ -8,7 +8,10 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  font-family: Roboto, Inter, system-ui, sans-serif;
+  /* DYNAMIC: Maps to ThemeProvider selection */
+  --font-primary: Roboto, Inter, system-ui, sans-serif;
+  
+  font-family: var(--font-primary);
   line-height: 1.5;
   font-weight: 400;
 
@@ -137,7 +140,8 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-roboto;
+    @apply bg-background text-foreground;
+    font-family: var(--font-primary);
     background-color: var(--background);
     margin: 0;
     display: flex;

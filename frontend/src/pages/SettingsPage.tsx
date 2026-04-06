@@ -27,7 +27,7 @@ const SettingsPage: React.FC = () => {
             {/* Theme Selection */}
             <div className="space-y-6 text-center">
               <h1 className="text-2xl font-bold tracking-tight mb-8">System Preview</h1>
-              <div className="relative group/preview mx-auto max-w-5xl rounded-3xl overflow-hidden border border-border/20 bg-onyx-2/5 shadow-m4">
+              <div className="relative group/preview mx-auto max-w-5xl rounded-lg overflow-hidden border border-border/20 bg-onyx-2/5 shadow-m4">
                 <ThemeShowcase />
                 <ThemeCustomizer />
               </div>

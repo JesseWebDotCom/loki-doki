@@ -22,7 +22,7 @@ const MessageItem: React.FC<MessageProps> = ({ role, content, timestamp }) => {
           </span>
           <span className="text-[10px] text-muted-foreground/50 font-mono italic">{timestamp}</span>
         </div>
-        <div className={`text-[15px] leading-relaxed whitespace-pre-wrap font-medium tracking-tight ${!isUser ? 'font-merriweather' : 'font-roboto'}`}>
+        <div className={`text-[15px] leading-relaxed whitespace-pre-wrap font-medium tracking-tight`}>
           {content}
         </div>
       </div>

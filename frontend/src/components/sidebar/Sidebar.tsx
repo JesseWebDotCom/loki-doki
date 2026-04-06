@@ -24,7 +24,7 @@ const Sidebar: React.FC<SidebarProps> = ({ phase }) => {
     <aside className="w-80 border-r border-sidebar-border bg-sidebar flex flex-col p-6 h-screen select-none shadow-m4 z-20">
       {/* Branding */}
       <div className="flex items-center gap-3 mb-10 px-2 group">
-        <div className="p-2.5 rounded-2xl bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform shadow-m2 text-primary">
+        <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform shadow-m2 text-primary">
           <Ghost className="w-6 h-6" />
         </div>
         <div>
@@ -39,7 +39,7 @@ const Sidebar: React.FC<SidebarProps> = ({ phase }) => {
       <nav className="space-y-2 mb-10">
         <Link 
           to="/" 
-          className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 border ${
+          className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 border ${
             isChat 
               ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold' 
               : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
@@ -50,7 +50,7 @@ const Sidebar: React.FC<SidebarProps> = ({ phase }) => {
         </Link>
         <Link 
           to="/settings" 
-          className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 border ${
+          className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 border ${
             isSettings 
               ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold' 
               : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'

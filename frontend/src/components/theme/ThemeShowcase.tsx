@@ -61,7 +61,7 @@ function ThemePreview({ mode, styles }: { mode: 'light' | 'dark'; styles: Record
 
   return (
     <div
-      className="rounded-2xl border p-8 space-y-8 shadow-m3 transition-all duration-500"
+      className="rounded-lg border p-8 space-y-8 shadow-m3 transition-all duration-500"
       style={{
         ...cssVars,
         background: styles['--background'],
@@ -78,23 +78,23 @@ function ThemePreview({ mode, styles }: { mode: 'light' | 'dark'; styles: Record
 
       {/* Color Swatches */}
       <div className="grid grid-cols-5 gap-3">
-        <div className="aspect-square rounded-xl shadow-m1" style={{ background: styles['--primary'] }} title="Primary" />
-        <div className="aspect-square rounded-xl shadow-m1" style={{ background: styles['--secondary'] }} title="Secondary" />
-        <div className="aspect-square rounded-xl shadow-m1" style={{ background: styles['--accent'] }} title="Accent" />
-        <div className="aspect-square rounded-xl shadow-m1" style={{ background: styles['--muted'] }} title="Muted" />
-        <div className="aspect-square rounded-xl shadow-m1" style={{ background: styles['--destructive'] }} title="Destructive" />
+        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--primary'] }} title="Primary" />
+        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--secondary'] }} title="Secondary" />
+        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--accent'] }} title="Accent" />
+        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--muted'] }} title="Muted" />
+        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--destructive'] }} title="Destructive" />
       </div>
 
       {/* Buttons */}
       <div className="flex flex-wrap gap-3">
         <button
-          className="px-5 py-2.5 rounded-xl text-sm font-bold shadow-m2 transition-transform active:scale-95"
+          className="px-5 py-2.5 rounded-md text-sm font-bold shadow-m2 transition-transform active:scale-95"
           style={{ background: styles['--primary'], color: styles['--primary-foreground'] }}
         >
           Primary Action
         </button>
         <button
-          className="px-5 py-2.5 rounded-xl text-sm font-bold shadow-m1 transition-transform active:scale-95"
+          className="px-5 py-2.5 rounded-md text-sm font-bold shadow-m1 transition-transform active:scale-95"
           style={{ background: styles['--secondary'], color: styles['--secondary-foreground'] }}
         >
           Secondary
@@ -109,7 +109,7 @@ function ThemePreview({ mode, styles }: { mode: 'light' | 'dark'; styles: Record
 
       {/* Card */}
       <div
-        className="rounded-xl border p-6 space-y-3 shadow-m1"
+        className="rounded-md border p-6 space-y-3 shadow-m1"
         style={{
           background: styles['--card'],
           borderColor: styles['--border'],
