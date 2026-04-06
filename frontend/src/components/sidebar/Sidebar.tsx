@@ -3,7 +3,6 @@ import { Ghost, MessageSquare, Settings } from 'lucide-react';
 import ExecutionTimeline from './ExecutionTimeline';
 import StatusMetrics from './StatusMetrics';
 import { Link, useLocation } from 'react-router-dom';
-import ThemeToggle from '../theme/ThemeToggle';
 
 interface SidebarProps {
   phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis';
@@ -77,14 +76,6 @@ const Sidebar: React.FC<SidebarProps> = ({ phase }) => {
           </h3>
           <StatusMetrics />
         </div>
-      </div>
-
-      {/* Theme Switcher Footer */}
-      <div className="mt-8 border-t border-border/10 pt-8 px-2">
-        <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-4">
-          Aesthetic Switcher
-        </div>
-        <ThemeToggle />
       </div>
     </aside>
   );

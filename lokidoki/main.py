@@ -99,3 +99,11 @@ async def root():
         with open("frontend/dist/index.html", "r") as f:
             return f.read()
     return HTMLResponse("<h1>LokiDoki Core</h1><p>Frontend not built. Run <code>npm run build</code> in the frontend directory.</p>")
+
+@app.get("/{full_path:path}")
+async def catch_all(full_path: str):
+    """Catch-all for SPA routing."""
+    if os.path.exists("frontend/dist/index.html"):
+        with open("frontend/dist/index.html", "r") as f:
+            return HTMLResponse(content=open("frontend/dist/index.html", "r").read(), status_code=200)
+    return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)

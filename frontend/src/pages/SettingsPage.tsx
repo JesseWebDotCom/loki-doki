@@ -1,8 +1,7 @@
 import React from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
-import ThemeCustomizer from '../components/theme/ThemeCustomizer';
 import ThemeShowcase from '../components/theme/ThemeShowcase';
-import { Settings, Palette, Bell, Shield, Info } from 'lucide-react';
+import { Settings, Bell, Shield, Info } from 'lucide-react';
 
 const SettingsPage: React.FC = () => {
   return (
@@ -26,26 +25,9 @@ const SettingsPage: React.FC = () => {
           <div className="max-w-4xl mx-auto space-y-12">
             
             {/* Theme Selection */}
-            <div className="space-y-6">
-              <div className="flex items-center gap-2 border-b border-border/10 pb-4">
-                <Palette className="text-primary w-5 h-5" />
-                <h2 className="text-xl font-bold tracking-tight">Appearance</h2>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                <div>
-                  <h3 className="text-base font-bold text-foreground">Global Aesthetic Orchestration</h3>
-                  <p className="text-sm text-muted-foreground">Calibrate the system-wide radius, color palette, and design system mode.</p>
-                </div>
-                <div className="flex justify-start md:justify-end">
-                  <ThemeCustomizer />
-                </div>
-              </div>
-
-              {/* Live Preview Container */}
-              <div className="mt-12 bg-card rounded-2xl p-8 border border-border/50">
-                <ThemeShowcase />
-              </div>
+            <div className="space-y-6 text-center">
+              <h1 className="text-2xl font-bold tracking-tight mb-8">System Preview</h1>
+              <ThemeShowcase />
             </div>
 
             {/* Placeholder Sections */}
