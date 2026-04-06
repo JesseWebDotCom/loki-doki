@@ -67,11 +67,11 @@ const App: React.FC = () => {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               placeholder="Interact with the LokiDoki agentic pipeline..."
-              className="w-full bg-[#131416]/50 border border-gray-800/50 rounded-2xl py-5 pl-8 pr-16 focus:outline-none focus:border-electric/50 focus:ring-4 focus:ring-electric/5 transition-all placeholder-gray-700 shadow-2xl text-lg font-medium"
+              className="w-full bg-[#131416]/50 border border-gray-800/50 rounded-2xl py-5 pl-8 pr-16 focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/5 transition-all placeholder-gray-700 shadow-m4 text-lg font-medium"
             />
             <button 
               onClick={handleSend}
-              className="absolute right-4 top-4 p-3 bg-electric hover:bg-electric/90 text-white rounded-xl transition-all shadow-lg shadow-electric/20 active:scale-95"
+              className="absolute right-4 top-4 p-3 bg-primary hover:bg-primary/90 text-white rounded-xl transition-all shadow-m2 shadow-primary/20 active:scale-95"
             >
               <Send size={20} />
             </button>
@@ -80,7 +80,7 @@ const App: React.FC = () => {
           <div className="text-center mt-6 flex items-center justify-center gap-4">
             <span className="h-[1px] w-12 bg-gray-800/50" />
             <div className="text-[10px] text-gray-600 uppercase tracking-[0.4em] font-bold font-sans">
-              Autonomous Intelligence Pipeline
+              Onyx Material Orchestration 
             </div>
             <span className="h-[1px] w-12 bg-gray-800/50" />
           </div>

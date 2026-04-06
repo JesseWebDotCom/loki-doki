@@ -10,7 +10,7 @@ LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). I
 ## Approach
 - **Think Before Acting**: Read existing files (especially `docs/DESIGN.md`) before writing code.
 - **TDD First**: Always write a failing unit test in `tests/` before implementing new core logic or skill features.
-- **shadcn/ui Mandatory**: All web components MUST be built using `shadcn/ui` primitives for consistency and accessible UI.
+- **shadcn/ui & Onyx Material Mandatory**: All web components MUST be built using `shadcn/ui` primitives and follow the **Onyx Material** design system (Elevation Level 1-4, Material Purple accents, Onyx foundations).
 - **Modular Design**: Prefer small, single-responsibility files. If a file exceeds ~250 lines or covers multiple distinct duties, refactor it into smaller, logically grouped files IMMEDIATELY.
 - **Be Concise**: Thorough reasoning, but dense and direct output.
 - **Incremental Edits**: Prefer surgical `replace_file_content` over full file rewrites.

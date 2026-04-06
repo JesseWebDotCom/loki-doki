@@ -23,8 +23,8 @@ const ExecutionTimeline: React.FC<TimelineProps> = ({ phases }) => {
               <CircleCheck className="w-4 h-4 text-green-500" />
             ) : phase.status === 'active' ? (
               <div className="relative">
-                <Loader2 className="w-4 h-4 text-electric animate-spin" />
-                <div className="absolute inset-0 bg-electric/20 rounded-full blur-sm animate-pulse" />
+                <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                <div className="absolute inset-0 bg-primary/20 rounded-full blur-sm animate-pulse" />
               </div>
             ) : (
               <CircleDashed className="w-4 h-4 text-gray-700" />

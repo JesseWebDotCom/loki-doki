@@ -16,13 +16,13 @@ const Sidebar: React.FC<SidebarProps> = ({ phase }) => {
   ];
 
   return (
-    <aside className="w-80 border-r border-gray-800/10 bg-[#090a0b] flex flex-col p-6 h-screen select-none">
+    <aside className="w-80 border-r border-sidebar-border bg-sidebar flex flex-col p-6 h-screen select-none shadow-m4 z-20">
       <div className="flex items-center gap-3 mb-10 px-2 group">
-        <div className="p-2 rounded-xl bg-electric/10 border border-electric/20 group-hover:scale-110 transition-transform">
-          <Ghost className="text-electric w-6 h-6" />
+        <div className="p-2.5 rounded-2xl bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform shadow-m2 text-primary">
+          <Ghost className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-lg font-bold tracking-tight text-white/90 font-sans">LokiDoki</h2>
+          <h2 className="text-lg font-bold tracking-tight text-sidebar-foreground font-sans">LokiDoki</h2>
           <div className="text-[9px] font-bold text-gray-600 uppercase tracking-widest">
             Agentic Core v0.1
           </div>

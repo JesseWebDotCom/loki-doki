@@ -17,7 +17,7 @@ const MetricRow: React.FC<MetricProps> = ({ icon, label, value, status = 'active
     </div>
     <div className="flex items-center gap-2">
       <div className="text-xs font-mono text-gray-300 font-bold">{value}</div>
-      {status === 'active' && <div className="w-1.5 h-1.5 rounded-full bg-electric shadow-[0_0_8px_rgba(59,130,246,0.5)]" />}
+      {status === 'active' && <div className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(151,71,255,0.5)]" />}
     </div>
   </div>
 );
@@ -38,8 +38,8 @@ const StatusMetrics: React.FC = () => {
       <MetricRow icon={<Timer size={14}/>} label="Avg TBT" value="420ms" />
       
       <div className="mt-8 px-2">
-        <div className="p-4 rounded-xl bg-electric/5 border border-electric/10">
-          <div className="text-[9px] font-bold text-electric uppercase tracking-widest mb-1 opacity-60 font-sans">
+        <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 shadow-m1">
+          <div className="text-[9px] font-bold text-primary uppercase tracking-widest mb-1 opacity-60 font-sans">
             System Optimizer
           </div>
           <div className="text-xs text-gray-400 leading-snug font-medium italic">
