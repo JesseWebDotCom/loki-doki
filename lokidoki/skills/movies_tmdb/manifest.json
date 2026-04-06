@@ -1,0 +1,27 @@
+{
+  "skill_id": "movies_tmdb",
+  "name": "TMDB Movie Database",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 1000
+  },
+  "intents": ["get_movie_detail", "search_movies"],
+  "parameters": {
+    "query": {"type": "string", "required": true}
+  },
+  "mechanisms": [
+    {
+      "method": "tmdb_api",
+      "priority": 1,
+      "timeout_ms": 3000,
+      "requires_internet": true
+    },
+    {
+      "method": "local_cache",
+      "priority": 2,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}

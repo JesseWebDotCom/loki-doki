@@ -1,0 +1,27 @@
+{
+  "skill_id": "tvshows_tvmaze",
+  "name": "TVMaze Detail Engine",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 1000
+  },
+  "intents": ["get_tv_detail", "get_episodes"],
+  "parameters": {
+    "query": {"type": "string", "required": true}
+  },
+  "mechanisms": [
+    {
+      "method": "tvmaze_api",
+      "priority": 1,
+      "timeout_ms": 3000,
+      "requires_internet": true
+    },
+    {
+      "method": "local_cache",
+      "priority": 2,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}

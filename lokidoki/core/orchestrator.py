@@ -10,10 +10,7 @@ from lokidoki.core.compression import compress_text
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor, SkillResult
 from lokidoki.core.skill_factory import get_skill_instance
-
-# Model policy per DESIGN.md
-FAST_MODEL = "gemma4:e2b"
-THINKING_MODEL = "gemma4:e2b"
+from lokidoki.core.model_manager import ModelManager, ModelPolicy
 
 
 @dataclass
@@ -49,6 +46,7 @@ class Orchestrator:
         decomposer: Decomposer,
         inference_client: InferenceClient,
         memory: SessionMemory,
+        model_manager: ModelManager | None = None,
         registry: SkillRegistry | None = None,
         skill_executor: SkillExecutor | None = None,
         admin_prompt: str = "",
@@ -57,16 +55,22 @@ class Orchestrator:
         self._decomposer = decomposer
         self._inference = inference_client
         self._memory = memory
+        self._model_manager = model_manager or ModelManager(inference_client)
         self._registry = registry
         self._executor = skill_executor or SkillExecutor()
         self._admin_prompt = admin_prompt
         self._user_prompt = user_prompt
+
+    @property
+    def policy(self) -> ModelPolicy:
+        return self._model_manager.policy
 
     async def process(
         self, user_input: str, available_intents: list[str] | None = None
     ) -> AsyncGenerator[PipelineEvent, None]:
         """Run the full agentic pipeline, yielding SSE-ready events at each phase."""
         self._memory.add_message("user", user_input)
+        fast_model = self._model_manager.policy.fast_model
 
         # Phase 1: Augmentation
         yield PipelineEvent(phase="augmentation", status="active")
@@ -78,7 +82,7 @@ class Orchestrator:
         )
 
         # Phase 2: Decomposition
-        yield PipelineEvent(phase="decomposition", status="active", data={"model": FAST_MODEL})
+        yield PipelineEvent(phase="decomposition", status="active", data={"model": fast_model})
         try:
             decomposition = await self._decomposer.decompose(
                 user_input=user_input,
@@ -87,10 +91,9 @@ class Orchestrator:
             )
         except OllamaError as e:
             yield PipelineEvent(phase="decomposition", status="failed", data={"error": str(e)})
-            # Fallback: treat as direct chat with no decomposition
             decomposition = DecompositionResult(
                 asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
-                model=FAST_MODEL,
+                model=fast_model,
             )
 
         self._memory.ingest_decomposition(
@@ -115,7 +118,7 @@ class Orchestrator:
         # Phase 3: Skill Routing & Parallel Execution
         skill_data = ""
         skill_results: dict[str, SkillResult] = {}
-        sources: list[dict] = []  # [{url, title}] indexed by [src:N]
+        sources: list[dict] = []
         if not decomposition.is_course_correction and decomposition.asks:
             yield PipelineEvent(
                 phase="routing", status="active",
@@ -123,7 +126,6 @@ class Orchestrator:
             )
 
             if self._registry:
-                # Build parallel execution tasks
                 tasks = []
                 for ask in decomposition.asks:
                     manifest = self._registry.get_skill_by_intent(ask.intent)
@@ -139,7 +141,6 @@ class Orchestrator:
                 if tasks:
                     skill_results = await self._executor.execute_parallel(tasks)
 
-            # Build skill data string for synthesis
             parts = []
             routing_log = []
             for ask in decomposition.asks:
@@ -175,10 +176,11 @@ class Orchestrator:
                 },
             )
 
-        # Phase 4: Synthesis
+        # Phase 4: Synthesis — dynamic model selection via ModelManager
         yield PipelineEvent(phase="synthesis", status="active")
-        synthesis_model = THINKING_MODEL if decomposition.overall_reasoning_complexity == "thinking" else FAST_MODEL
-        keep_alive = "5m" if synthesis_model == THINKING_MODEL else -1
+        synthesis_model, keep_alive = self._model_manager.get_model(
+            decomposition.overall_reasoning_complexity
+        )
 
         compressed_context = compress_text(
             " ".join(m["content"] for m in context[-3:])
@@ -187,12 +189,22 @@ class Orchestrator:
 
         tone = "empathetic" if self._memory.sentiment.get("sentiment") in ("worried", "frustrated", "sad") else "friendly"
 
+        # Build prompt with tiered prompt hierarchy (Admin > User > Persona)
+        prompt_parts = []
+        if self._user_prompt:
+            prompt_parts.append(f"USER_STYLE:{self._user_prompt}")
+        if self._admin_prompt:
+            prompt_parts.append(f"ADMIN_RULES:{self._admin_prompt}")
+            prompt_parts.append("PRIORITY:Admin>User>Persona. Admin safety rules override all.")
+
         prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
             tone=tone,
             context=compressed_context,
             skill_data=compressed_skill_data,
             query=user_input,
         )
+        if prompt_parts:
+            prompt = "\n".join(prompt_parts) + "\n" + prompt
 
         try:
             t0 = time.perf_counter()
@@ -217,5 +229,6 @@ class Orchestrator:
                 "latency_ms": synthesis_ms,
                 "tone": tone,
                 "sources": sources,
+                "platform": self._model_manager.policy.platform,
             },
         )

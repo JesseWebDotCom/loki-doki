@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from lokidoki.core.orchestrator import Orchestrator, PipelineEvent
 from lokidoki.core.decomposer import DecompositionResult, Ask
 from lokidoki.core.memory import SessionMemory
+from lokidoki.core.model_manager import ModelManager, ModelPolicy
 
 
 MOCK_DECOMPOSITION = DecompositionResult(
@@ -31,17 +32,20 @@ def orchestrator():
     mock_inference.generate = AsyncMock(return_value=MOCK_SYNTHESIS_RESPONSE)
 
     memory = SessionMemory()
+    policy = ModelPolicy(platform="mac")
+    model_manager = ModelManager(inference_client=mock_inference, policy=policy)
+
     return Orchestrator(
         decomposer=mock_decomposer,
         inference_client=mock_inference,
         memory=memory,
+        model_manager=model_manager,
     )
 
 
 class TestOrchestrator:
     @pytest.mark.anyio
     async def test_process_emits_phase_events(self, orchestrator):
-        """Test that processing emits augmentation, decomposition, synthesis events."""
         events = []
         async for event in orchestrator.process("What's the weather?"):
             events.append(event)
@@ -53,7 +57,6 @@ class TestOrchestrator:
 
     @pytest.mark.anyio
     async def test_process_returns_final_response(self, orchestrator):
-        """Test that the final event contains the synthesized response."""
         events = []
         async for event in orchestrator.process("What's the weather?"):
             events.append(event)
@@ -64,7 +67,6 @@ class TestOrchestrator:
 
     @pytest.mark.anyio
     async def test_process_stores_messages_in_memory(self, orchestrator):
-        """Test that user and assistant messages are stored in session memory."""
         async for _ in orchestrator.process("Hello"):
             pass
 
@@ -74,7 +76,6 @@ class TestOrchestrator:
 
     @pytest.mark.anyio
     async def test_process_ingests_sentiment_and_facts(self, orchestrator):
-        """Test that decomposition sentiment/facts are ingested into memory."""
         async for _ in orchestrator.process("I like hiking in the rain"):
             pass
 
@@ -83,7 +84,6 @@ class TestOrchestrator:
 
     @pytest.mark.anyio
     async def test_decomposition_event_contains_asks(self, orchestrator):
-        """Test that the decomposition event includes parsed asks."""
         events = []
         async for event in orchestrator.process("Weather?"):
             events.append(event)
@@ -96,7 +96,6 @@ class TestOrchestrator:
 
     @pytest.mark.anyio
     async def test_decomposition_event_contains_model_info(self, orchestrator):
-        """Test that decomposition event includes model tag and latency."""
         events = []
         async for event in orchestrator.process("test"):
             events.append(event)
@@ -107,7 +106,6 @@ class TestOrchestrator:
 
     @pytest.mark.anyio
     async def test_course_correction_skips_skills(self, orchestrator):
-        """Test that course corrections bypass skill routing."""
         correction = DecompositionResult(
             is_course_correction=True,
             overall_reasoning_complexity="fast",
@@ -125,8 +123,8 @@ class TestOrchestrator:
         assert "routing" not in phases
 
     @pytest.mark.anyio
-    async def test_synthesis_uses_reasoning_model_for_thinking(self, orchestrator):
-        """Test that 'thinking' complexity triggers the 9B model."""
+    async def test_synthesis_uses_thinking_model_for_complex_queries(self, orchestrator):
+        """Test that 'thinking' complexity triggers the 9B model on capable platforms."""
         thinking_result = DecompositionResult(
             is_course_correction=False,
             overall_reasoning_complexity="thinking",
@@ -139,10 +137,41 @@ class TestOrchestrator:
         async for _ in orchestrator.process("Explain quantum physics"):
             pass
 
-        # Check that synthesis used the 9B model
         call_kwargs = orchestrator._inference.generate.call_args.kwargs
-        assert call_kwargs.get("model") == "gemma4:e2b"
+        assert call_kwargs.get("model") == "gemma4"  # Mac uses 9B for thinking
         assert call_kwargs.get("keep_alive") == "5m"
+
+    @pytest.mark.anyio
+    async def test_synthesis_includes_platform_info(self, orchestrator):
+        events = []
+        async for event in orchestrator.process("Hello"):
+            events.append(event)
+
+        synth_done = [e for e in events if e.phase == "synthesis" and e.status == "done"]
+        assert synth_done[0].data["platform"] == "mac"
+
+    @pytest.mark.anyio
+    async def test_admin_prompt_injected_into_synthesis(self):
+        mock_decomposer = AsyncMock()
+        mock_decomposer.decompose = AsyncMock(return_value=MOCK_DECOMPOSITION)
+        mock_inference = AsyncMock()
+        mock_inference.generate = AsyncMock(return_value="Safe response")
+
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=SessionMemory(),
+            admin_prompt="NO PROFANITY",
+            user_prompt="Be funny",
+        )
+
+        async for _ in orch.process("Tell me a joke"):
+            pass
+
+        prompt = mock_inference.generate.call_args.kwargs["prompt"]
+        assert "ADMIN_RULES:NO PROFANITY" in prompt
+        assert "USER_STYLE:Be funny" in prompt
+        assert "PRIORITY:Admin>User>Persona" in prompt
 
 
 class TestPipelineEvent:

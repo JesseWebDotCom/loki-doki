@@ -1,0 +1,22 @@
+{
+  "skill_id": "smarthome_mock",
+  "name": "Smart Home Mock Controller",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 500
+  },
+  "intents": ["control_device", "get_device_status"],
+  "parameters": {
+    "device": {"type": "string", "required": true},
+    "action": {"type": "string", "required": false}
+  },
+  "mechanisms": [
+    {
+      "method": "local_state",
+      "priority": 1,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}

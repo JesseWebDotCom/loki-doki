@@ -8,6 +8,8 @@ from lokidoki.core.memory import SessionMemory
 from lokidoki.core.orchestrator import Orchestrator
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
+from lokidoki.core.model_manager import ModelManager, ModelPolicy
+from lokidoki.core.platform import detect_platform
 
 router = APIRouter()
 
@@ -15,6 +17,7 @@ router = APIRouter()
 _session_memory = SessionMemory()
 _registry = SkillRegistry(skills_dir="lokidoki/skills")
 _registry.scan()
+_model_policy = ModelPolicy()
 
 
 def get_inference_client() -> InferenceClient:
@@ -37,11 +40,16 @@ class ChatRequest(BaseModel):
 async def chat(request: ChatRequest):
     """Process a chat message through the agentic pipeline, streaming SSE events."""
     client = get_inference_client()
-    decomposer = Decomposer(inference_client=client, model="gemma4:e2b")
+    model_manager = ModelManager(inference_client=client, policy=_model_policy)
+    decomposer = Decomposer(
+        inference_client=client,
+        model=_model_policy.fast_model,
+    )
     orchestrator = Orchestrator(
         decomposer=decomposer,
         inference_client=client,
         memory=_session_memory,
+        model_manager=model_manager,
         registry=_registry,
         skill_executor=SkillExecutor(),
     )
@@ -75,6 +83,16 @@ async def get_skills():
     return {
         "skills": list(_registry.skills.keys()),
         "intents": _registry.get_all_intents(),
+    }
+
+
+@router.get("/platform")
+async def get_platform():
+    """Return detected platform and active model policy."""
+    return {
+        "platform": _model_policy.platform,
+        "fast_model": _model_policy.fast_model,
+        "thinking_model": _model_policy.thinking_model,
     }
 
 

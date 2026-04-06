@@ -1,14 +1,29 @@
 from dataclasses import dataclass
 from lokidoki.core.inference import InferenceClient
+from lokidoki.core.platform import detect_platform, get_model_preset
 
 
 @dataclass
 class ModelPolicy:
-    """Model switching policy per DESIGN.md Section II."""
-    fast_model: str = "gemma4:e2b"
-    thinking_model: str = "gemma4:e2b"
-    fast_keep_alive: int | str = -1  # resident forever
-    thinking_keep_alive: str = "5m"  # free after 5 min inactivity
+    """Model switching policy per DESIGN.md Section II.
+
+    Defaults are set from platform detection at construction time.
+    """
+    fast_model: str = ""
+    thinking_model: str = ""
+    fast_keep_alive: int | str = -1
+    thinking_keep_alive: str = "5m"
+    platform: str = ""
+
+    def __post_init__(self):
+        if not self.platform:
+            self.platform = detect_platform()
+        if not self.fast_model or not self.thinking_model:
+            preset = get_model_preset(self.platform)
+            self.fast_model = self.fast_model or preset["fast_model"]
+            self.thinking_model = self.thinking_model or preset["thinking_model"]
+            self.fast_keep_alive = preset["fast_keep_alive"]
+            self.thinking_keep_alive = preset["thinking_keep_alive"]
 
     def select(self, complexity: str) -> tuple[str, int | str]:
         """Select model and keep_alive based on reasoning complexity."""
@@ -28,15 +43,16 @@ class ModelManager:
         self._client = inference_client
         self._policy = policy or ModelPolicy()
 
+    @property
+    def policy(self) -> ModelPolicy:
+        return self._policy
+
     def get_model(self, complexity: str) -> tuple[str, int | str]:
         """Get the appropriate model for a given reasoning complexity."""
         return self._policy.select(complexity)
 
     async def ensure_resident(self) -> bool:
-        """Pre-load the fast model into RAM for minimal cold-start latency.
-
-        Sends a minimal prompt to force Ollama to load the model with keep_alive=-1.
-        """
+        """Pre-load the fast model into RAM for minimal cold-start latency."""
         try:
             await self._client.generate(
                 model=self._policy.fast_model,

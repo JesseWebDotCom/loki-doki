@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { Send } from 'lucide-react';
 import Sidebar from '../components/sidebar/Sidebar';
 import ChatWindow from '../components/chat/ChatWindow';
-import { sendChatMessage } from '../lib/api';
+import { sendChatMessage, getSessionMessages } from '../lib/api';
 import type { PipelineEvent, DecompositionData, SynthesisData, SourceInfo } from '../lib/api';
 
 export interface Message {
@@ -34,6 +34,7 @@ const ChatPage: React.FC = () => {
   const [input, setInput] = useState('');
   const [pipeline, setPipeline] = useState<PipelineState>(INITIAL_PIPELINE);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
 
   const handleEvent = useCallback((event: PipelineEvent) => {
     setPipeline(prev => {
@@ -90,9 +91,41 @@ const ChatPage: React.FC = () => {
     }
   };
 
+  const handleNewSession = () => {
+    setMessages([
+      { role: 'assistant', content: 'New session started. System ready.', timestamp: new Date().toLocaleTimeString() }
+    ]);
+    setPipeline(INITIAL_PIPELINE);
+    setCurrentSessionId(undefined);
+  };
+
+  const handleSelectSession = async (sessionId: string) => {
+    try {
+      const res = await getSessionMessages(sessionId);
+      const loaded: Message[] = res.messages.map((m: any) => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.created_at?.split('T')[1]?.slice(0, 8) || '',
+      }));
+      setMessages(loaded.length > 0 ? loaded : [
+        { role: 'assistant', content: 'Empty session loaded.', timestamp: new Date().toLocaleTimeString() }
+      ]);
+      setCurrentSessionId(sessionId);
+      setPipeline(INITIAL_PIPELINE);
+    } catch {
+      // Failed to load
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
-      <Sidebar phase={pipeline.phase} pipeline={pipeline} />
+      <Sidebar
+        phase={pipeline.phase}
+        pipeline={pipeline}
+        onNewSession={handleNewSession}
+        onSelectSession={handleSelectSession}
+        currentSessionId={currentSessionId}
+      />
 
       <main className="flex-1 flex flex-col relative bg-background shadow-inner">
         <ChatWindow messages={messages} pipeline={pipeline} />
