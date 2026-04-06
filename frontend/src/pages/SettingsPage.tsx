@@ -1,6 +1,7 @@
 import React from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
 import ThemeToggle from '../components/theme/ThemeToggle';
+import ThemeShowcase from '../components/theme/ThemeShowcase';
 import { Settings, Palette, Bell, Shield, Info } from 'lucide-react';
 
 const SettingsPage: React.FC = () => {
@@ -39,6 +40,11 @@ const SettingsPage: React.FC = () => {
                 <div className="flex justify-start md:justify-end">
                   <ThemeToggle />
                 </div>
+              </div>
+
+              {/* Live Preview Container */}
+              <div className="mt-12">
+                <ThemeShowcase />
               </div>
             </div>
 
