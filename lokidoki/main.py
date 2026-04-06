@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from lokidoki.api.routes import tests
+from lokidoki.api.routes import tests, chat, memory, audio
 import asyncio
 import json
 import os
@@ -38,19 +38,21 @@ async def run_command_with_logs(cmd: str, cwd: str = "."):
     await process.wait()
     return process.returncode
 
+BOOTSTRAP_STEPS = [
+    ("check-python", "Verifying Python 3.11+", "python3 --version"),
+    ("check-uv", "Verifying uv Engine", "uv --version"),
+    ("check-frontend-deps", "Synchronizing UI Libraries (npm install)", "npm install"),
+    ("check-frontend-build", "Optimizing UI Core (npm build)", "npm run build"),
+    ("check-ollama", "Verifying Ollama Service", "ollama --version"),
+    ("pull-model", "Pulling LLM (gemma4:e2b)", "ollama pull gemma4:e2b"),
+    ("warm-resident", "Loading Resident Model into RAM", "curl -s http://localhost:11434/api/generate -d '{\"model\":\"gemma4:e2b\",\"prompt\":\".\",\"keep_alive\":-1,\"stream\":false}'"),
+    ("check-piper", "Initializing Piper Voice", "mkdir -p data/models/piper && echo 'Piper initialized'"),
+    ("check-residency", "Verifying System Health", "echo 'Hardware nominal'"),
+]
+
 async def run_bootstrap():
     """Performs full-stack bootstrap orchestration."""
-    # List of steps to perform
-    steps = [
-        ("check-python", "Verifying Python 3.11+", "python3 --version"),
-        ("check-uv", "Verifying uv Engine", "uv --version"),
-        ("check-frontend-deps", "Synchronizing UI Libraries (npm install)", "npm install"),
-        ("check-frontend-build", "Optimizing UI Core (npm build)", "npm run build"),
-        ("check-ollama", "Verifying Ollama Service", "ollama --version"),
-        ("check-models", "Ensuring LLM Residence (Gemma 2B)", "ollama pull gemma:2b"),
-        ("check-piper", "Initializing Piper Voice", "mkdir -p data/models/piper && echo 'Piper initialized'"),
-        ("check-residency", "Verifying System Health", "echo 'Hardware nominal'"),
-    ]
+    steps = BOOTSTRAP_STEPS
 
     for step_id, label, cmd in steps:
         await bootstrap_queue.put({"type": "step_start", "step_id": step_id, "message": label})
@@ -90,8 +92,11 @@ async def bootstrap_status(request: Request):
                 break
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-# Include the test runner router
+# Include routers
 app.include_router(tests.router, prefix="/api/v1/tests", tags=["Testing"])
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
+app.include_router(memory.router, prefix="/api/v1/memory", tags=["Memory"])
+app.include_router(audio.router, prefix="/api/v1/audio", tags=["Audio"])
 
 @app.get("/", response_class=HTMLResponse)
 async def root():

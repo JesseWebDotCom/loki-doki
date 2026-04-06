@@ -1,12 +1,17 @@
 import React from 'react';
 import { Cpu, Layers, Timer, Activity } from 'lucide-react';
 import Badge from '../ui/Badge';
+import type { PipelineState } from '../../pages/ChatPage';
 
 interface MetricProps {
   icon: React.ReactNode;
   label: string;
   value: string;
   status?: 'active' | 'success' | 'warning';
+}
+
+interface StatusMetricsProps {
+  pipeline?: PipelineState;
 }
 
 const MetricRow: React.FC<MetricProps> = ({ icon, label, value, status = 'active' }) => (
@@ -22,7 +27,13 @@ const MetricRow: React.FC<MetricProps> = ({ icon, label, value, status = 'active
   </div>
 );
 
-const StatusMetrics: React.FC = () => {
+const StatusMetrics: React.FC<StatusMetricsProps> = ({ pipeline }) => {
+  const decompModel = pipeline?.decomposition?.model ?? 'gemma4:e2b';
+  const synthModel = pipeline?.synthesis?.model ?? '--';
+  const totalMs = pipeline?.totalLatencyMs
+    ? `${pipeline.totalLatencyMs.toFixed(0)}ms`
+    : '--';
+
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between mb-4 px-2">
@@ -32,18 +43,20 @@ const StatusMetrics: React.FC = () => {
         </h3>
         <Badge variant="success">Resident</Badge>
       </div>
-      
-      <MetricRow icon={<Cpu size={14}/>} label="Gemma 2B" value="4.2GB" />
-      <MetricRow icon={<Layers size={14}/>} label="KV Cache" value="128MB" />
-      <MetricRow icon={<Timer size={14}/>} label="Avg TBT" value="420ms" />
-      
+
+      <MetricRow icon={<Cpu size={14}/>} label="Router" value={decompModel} />
+      <MetricRow icon={<Layers size={14}/>} label="Synth" value={synthModel} />
+      <MetricRow icon={<Timer size={14}/>} label="Pipeline" value={totalMs} />
+
       <div className="mt-8 px-2">
         <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 shadow-m1">
           <div className="text-[9px] font-bold text-primary uppercase tracking-widest mb-1 opacity-60 font-sans">
-            System Optimizer
+            System Status
           </div>
           <div className="text-xs text-gray-400 leading-snug font-medium italic">
-            Pi 5 thermal stable. Memory pressure within nominal ranges.
+            {pipeline?.phase !== 'idle'
+              ? `Processing: ${pipeline?.phase} phase active`
+              : 'Pipeline idle. Ready for input.'}
           </div>
         </div>
       </div>

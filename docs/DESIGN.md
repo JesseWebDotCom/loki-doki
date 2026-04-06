@@ -110,7 +110,7 @@ Every input received by LokiDoki is semantically parsed by the resident **Gemma 
 
 ### II. Model Resident & Switching Policy
 - **Primary Model (`gemma4:e2b`)**: Stays resident in RAM at all times via Ollama `keep_alive: -1`. All routing and simple chat synthesis occur here.
-- **High-Reasoning Model (`gemma4:9b`)**: Loaded dynamically when reasoning is required.
+- **High-Reasoning Model (`gemma4`)**: Loaded dynamically when reasoning is required.
   - **The Trigger**: Flagged by the **Semantic Decomposition** step in the `overall_reasoning_complexity` field.
   - **Scope of Use**: If triggered, the **entire Synthesis step** (final response generation) uses the 9B model to ensure maximum authoritative quality. Simple skill-gathering is still completed in parallel before synthesis begins.
   - **Cleanup**: Uses `keep_alive: "5m"` in the Ollama API call, allowing for follow-up questions to use the same model without reloading, while still freeing RAM after a period of user inactivity.
@@ -118,7 +118,7 @@ Every input received by LokiDoki is semantically parsed by the resident **Gemma 
 ### III. System Warm-up (`run.py` Logic)
 To minimize "cold start" latency, `run.py` performs the following sequence on launch:
 1.  **Ollama Check**: Verified if the `ollama` service is running.
-2.  **Model Pull**: Ensures `gemma4:e2b` and `gemma4:9b` are downloaded.
+2.  **Model Pull**: Ensures `gemma4:e2b` and `gemma4` are downloaded.
 3.  **Resident Load**: Sends a header-only request to `gemma4:e2b` to forcibly load it into RAM before the browser opens.
 
 ### III. Audio Intelligence
@@ -283,7 +283,7 @@ The "Decomposition" step (Gemma 4-E2B) performs a triple-pass: **Intents**, **Sh
 ### I. Models (Ollama)
 - **Router/Decomposition**: `gemma4:e2b` (Optimized for JSON output and multi-step reasoning).
 - **Light Reasoning**: `gemma4:e2b` (Standard response generation for simple queries).
-- **Deep Reasoning**: `gemma4:9b` or `qwen2.5:7b-instruct` (Loaded dynamically for complex "Thinking" tasks).
+- **Deep Reasoning**: `gemma4` or `qwen2.5:7b-instruct` (Loaded dynamically for complex "Thinking" tasks).
 
 ### II. Backend Components (FastAPI)
 - **`Orchestrator`**: The central brain. Manages the lifecycle of a request from input to final synthesis.
@@ -308,29 +308,29 @@ The "Decomposition" step (Gemma 4-E2B) performs a triple-pass: **Intents**, **Sh
    - [x] **Caveman Compression**: Signal-only token pre-processor with 100% test coverage.
    - [x] **Deliverables**: Verified `pre-commit` hooks, green unit tests, and a functional "Tests" UI.
 
-2. **Phase 2: Intent Engine & Decomposition**
-   - [ ] **Gemma Integration**: Connect to `gemma:2b` via Ollama for semantic parsing.
-   - [ ] **JSON Decomposition**: Robust parsing of user input into structured "Asks."
-   - [ ] **Sentiment & Memory**: Initial sentiment extraction and session-local fact recording.
-   - [ ] **Deliverables**: A "Technical Details" sidebar showing live LLM decomposition logs.
+2. **Phase 2: Intent Engine & Decomposition** (COMPLETED)
+   - [x] **Gemma Integration**: Connect to `gemma:2b` via Ollama for semantic parsing.
+   - [x] **JSON Decomposition**: Robust parsing of user input into structured "Asks."
+   - [x] **Sentiment & Memory**: Initial sentiment extraction and session-local fact recording.
+   - [x] **Deliverables**: A "Technical Details" sidebar showing live LLM decomposition logs.
 
-3. **Phase 3: Skill Framework & Multi-Mechanism Routing**
-   - [ ] **Registry**: Dynamic skill discovery system.
-   - [ ] **Core Skills**: Implement Time, Weather, and Wikipedia engines.
-   - [ ] **Fallback Logic**: API → Scraper → Cache priority system for each skill.
-   - [ ] **Deliverables**: Parallel execution of multiple skills with "First-Win" cancellation.
+3. **Phase 3: Skill Framework & Multi-Mechanism Routing** (COMPLETED)
+   - [x] **Registry**: Dynamic skill discovery system.
+   - [x] **Core Skills**: Implement Time, Weather, and Wikipedia engines.
+   - [x] **Fallback Logic**: API → Scraper → Cache priority system for each skill.
+   - [x] **Deliverables**: Parallel execution of multiple skills with "First-Win" cancellation.
 
-4. **Phase 4: Persistence & Local RAG**
-   - [ ] **SQLite Migration**: Transitions from JSON files to structured database storage.
-   - [ ] **Memory Index**: BM25 implementation for fast long-term memory retrieval.
-   - [ ] **Context Restoration**: Cross-chat continuity using rolling context fragments.
-   - [ ] **Deliverables**: Searchable memory tab and historical context awareness.
+4. **Phase 4: Persistence & Local RAG** (COMPLETED)
+   - [x] **SQLite Migration**: Transitions from JSON files to structured database storage.
+   - [x] **Memory Index**: BM25 implementation for fast long-term memory retrieval.
+   - [x] **Context Restoration**: Cross-chat continuity using rolling context fragments.
+   - [x] **Deliverables**: Searchable memory tab and historical context awareness.
 
-5. **Phase 5: Advanced Reasoning & Refinement**
-   - [ ] **Dynamic Load Policy**: Automated switching between 2B and 9B models based on complexity.
-   - [ ] **Audio Intelligence**: Integrate Faster-Whisper (STT) and Piper (TTS).
-   - [ ] **Performance Tuning**: Pi 5 specific optimization for KV cache and resident RAM policy.
-   - [ ] **Deliverables**: Fully autonomous, low-latency conversational agent with voice interaction.
+5. **Phase 5: Advanced Reasoning & Refinement** (COMPLETED)
+   - [x] **Dynamic Load Policy**: Automated switching between 2B and 9B models based on complexity.
+   - [x] **Audio Intelligence**: Integrate Faster-Whisper (STT) and Piper (TTS).
+   - [x] **Performance Tuning**: Pi 5 specific optimization for KV cache and resident RAM policy.
+   - [x] **Deliverables**: Fully autonomous, low-latency conversational agent with voice interaction.
 ---
 
 ## 10. Testing & Quality Assurance

@@ -2,13 +2,16 @@ import React from 'react';
 import { Ghost, MessageSquare, Settings } from 'lucide-react';
 import ExecutionTimeline from './ExecutionTimeline';
 import StatusMetrics from './StatusMetrics';
+import DecompositionPanel from './DecompositionPanel';
 import { Link, useLocation } from 'react-router-dom';
+import type { PipelineState } from '../../pages/ChatPage';
 
 interface SidebarProps {
   phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis';
+  pipeline?: PipelineState;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ phase }) => {
+const Sidebar: React.FC<SidebarProps> = ({ phase, pipeline }) => {
   const location = useLocation();
   const isChat = location.pathname === '/';
   const isSettings = location.pathname === '/settings';
@@ -30,29 +33,29 @@ const Sidebar: React.FC<SidebarProps> = ({ phase }) => {
         <div>
           <h2 className="text-lg font-bold tracking-tight text-sidebar-foreground font-sans">LokiDoki</h2>
           <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
-            Agentic Core v0.1
+            Agentic Core v0.2
           </div>
         </div>
       </div>
 
       {/* Navigation */}
       <nav className="space-y-2 mb-10">
-        <Link 
-          to="/" 
+        <Link
+          to="/"
           className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 border ${
-            isChat 
-              ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold' 
+            isChat
+              ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold'
               : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
           <MessageSquare size={18} />
           <span className="text-sm tracking-tight">Agentic Chat</span>
         </Link>
-        <Link 
-          to="/settings" 
+        <Link
+          to="/settings"
           className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 border ${
-            isSettings 
-              ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold' 
+            isSettings
+              ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold'
               : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
@@ -62,19 +65,28 @@ const Sidebar: React.FC<SidebarProps> = ({ phase }) => {
       </nav>
 
       {/* Execution Context */}
-      <div className="flex-1 overflow-y-auto px-2 space-y-12 no-scrollbar">
+      <div className="flex-1 overflow-y-auto px-2 space-y-10 no-scrollbar">
         <div>
           <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-6 border-b border-border/10 pb-2">
             Execution Timeline
           </h3>
-          <ExecutionTimeline phases={phases} />
+          <ExecutionTimeline phases={phases} pipeline={pipeline} />
         </div>
+
+        {pipeline?.decomposition && (
+          <div>
+            <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-6 border-b border-border/10 pb-2">
+              Decomposition Log
+            </h3>
+            <DecompositionPanel data={pipeline.decomposition} />
+          </div>
+        )}
 
         <div>
           <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-6 border-b border-border/10 pb-2">
             System Metrics
           </h3>
-          <StatusMetrics />
+          <StatusMetrics pipeline={pipeline} />
         </div>
       </div>
     </aside>

@@ -1,0 +1,27 @@
+{
+  "skill_id": "weather_owm",
+  "name": "OpenWeatherMap",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 1000
+  },
+  "intents": ["get_weather", "get_forecast"],
+  "parameters": {
+    "location": {"type": "string", "required": true}
+  },
+  "mechanisms": [
+    {
+      "method": "owm_api",
+      "priority": 1,
+      "timeout_ms": 3000,
+      "requires_internet": true
+    },
+    {
+      "method": "local_cache",
+      "priority": 2,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}

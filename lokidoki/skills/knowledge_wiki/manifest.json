@@ -1,0 +1,27 @@
+{
+  "skill_id": "knowledge_wiki",
+  "name": "Wikipedia Knowledge Engine",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 1000
+  },
+  "intents": ["search_knowledge", "get_summary"],
+  "parameters": {
+    "query": {"type": "string", "required": true}
+  },
+  "mechanisms": [
+    {
+      "method": "mediawiki_api",
+      "priority": 1,
+      "timeout_ms": 3000,
+      "requires_internet": true
+    },
+    {
+      "method": "web_scraper",
+      "priority": 2,
+      "timeout_ms": 5000,
+      "requires_internet": true
+    }
+  ]
+}

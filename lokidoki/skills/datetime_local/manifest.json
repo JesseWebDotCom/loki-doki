@@ -1,0 +1,17 @@
+{
+  "skill_id": "datetime_local",
+  "name": "Local Date & Time",
+  "is_searchable": false,
+  "intents": ["get_datetime", "get_timezone"],
+  "parameters": {
+    "timezone": {"type": "string", "required": false}
+  },
+  "mechanisms": [
+    {
+      "method": "system_clock",
+      "priority": 1,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}
