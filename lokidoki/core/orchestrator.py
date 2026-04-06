@@ -28,14 +28,25 @@ class PipelineEvent:
 
 # Token-efficient synthesis prompt (Zero-Markdown)
 SYNTHESIS_PROMPT_TEMPLATE = (
-    "ROLE:conversational assistant. Generate natural response from skill data+context.\n"
-    "RULES:grammatically correct,natural language,cite sources with [src:N] markers\n"
+    "ROLE:conversational assistant. Answer the user query directly and concisely.\n"
+    "RULES:1-3 sentences max unless asked for detail,natural language,no preamble,"
+    "no meta-commentary,cite sources with [src:N] markers when SKILL_DATA is used\n"
     "TONE:{tone}\n"
     "CONTEXT:{context}\n"
     "SKILL_DATA:{skill_data}\n"
     "USER_QUERY:{query}\n"
     "RESPOND:"
 )
+
+# Synthesis output cap. 384 tokens ≈ 3-4 short paragraphs — plenty for a chat
+# turn while bounding worst-case latency on slow models.
+SYNTHESIS_NUM_PREDICT = 384
+
+# Length below which a query is forced through the fast model regardless of
+# the decomposer's classification. Short queries don't justify the cost of the
+# bigger "thinking" model, and the decomposer occasionally over-classifies
+# trivial questions as "thinking".
+TRIVIAL_QUERY_CHAR_LIMIT = 120
 
 
 class Orchestrator:
@@ -176,11 +187,16 @@ class Orchestrator:
                 },
             )
 
-        # Phase 4: Synthesis — dynamic model selection via ModelManager
+        # Phase 4: Synthesis — dynamic model selection via ModelManager.
+        # Force fast model for short queries even if decomposer said "thinking";
+        # the upgrade is too expensive to apply on misclassifications of
+        # trivial questions.
+        effective_complexity = decomposition.overall_reasoning_complexity
+        if len(user_input) < TRIVIAL_QUERY_CHAR_LIMIT and len(decomposition.asks) <= 1:
+            effective_complexity = "fast"
+
         yield PipelineEvent(phase="synthesis", status="active")
-        synthesis_model, keep_alive = self._model_manager.get_model(
-            decomposition.overall_reasoning_complexity
-        )
+        synthesis_model, keep_alive = self._model_manager.get_model(effective_complexity)
 
         compressed_context = compress_text(
             " ".join(m["content"] for m in context[-3:])
@@ -206,17 +222,27 @@ class Orchestrator:
         if prompt_parts:
             prompt = "\n".join(prompt_parts) + "\n" + prompt
 
+        response = ""
+        synthesis_ms = 0.0
         try:
             t0 = time.perf_counter()
-            response = await self._inference.generate(
+            async for token in self._inference.generate_stream(
                 model=synthesis_model,
                 prompt=prompt,
                 keep_alive=keep_alive,
-            )
+                num_predict=SYNTHESIS_NUM_PREDICT,
+                temperature=0.4,
+            ):
+                response += token
+                yield PipelineEvent(
+                    phase="synthesis", status="streaming",
+                    data={"delta": token},
+                )
             synthesis_ms = (time.perf_counter() - t0) * 1000
         except OllamaError as e:
-            response = f"I couldn't generate a response. {e}"
-            synthesis_ms = 0.0
+            if not response:
+                response = f"I couldn't generate a response. {e}"
+            synthesis_ms = (time.perf_counter() - t0) * 1000 if synthesis_ms == 0.0 else synthesis_ms
             yield PipelineEvent(phase="synthesis", status="failed", data={"error": str(e)})
 
         self._memory.add_message("assistant", response)

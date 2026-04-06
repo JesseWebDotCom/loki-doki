@@ -90,6 +90,41 @@ class TestInferenceClient:
         assert payload["format"] == schema
 
     @pytest.mark.anyio
+    async def test_generate_stream_yields_response_chunks(self, client):
+        """generate_stream must yield each response token as it arrives from
+        the NDJSON stream and stop on the `done` chunk."""
+        ndjson_lines = [
+            '{"response":"Hello"}',
+            '{"response":" world"}',
+            '{"response":"!","done":true}',
+        ]
+
+        class FakeStream:
+            def __init__(self):
+                self.status_code = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_a):
+                return False
+
+            async def aiter_lines(self):
+                for line in ndjson_lines:
+                    yield line
+
+            async def aread(self):
+                return b""
+
+        with patch.object(client._client, "stream", return_value=FakeStream()) as mock_stream:
+            chunks = [c async for c in client.generate_stream("gemma4:e2b", "hi", num_predict=64)]
+
+        assert chunks == ["Hello", " world", "!"]
+        payload = mock_stream.call_args.kwargs["json"]
+        assert payload["stream"] is True
+        assert payload["options"]["num_predict"] == 64
+
+    @pytest.mark.anyio
     async def test_generate_raises_on_http_error(self, client):
         """Test that OllamaError is raised on non-200 responses."""
         mock_response = MagicMock()

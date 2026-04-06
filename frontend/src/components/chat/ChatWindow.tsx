@@ -32,6 +32,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, pipeline }) => {
           </React.Fragment>
         ))}
         {isThinking && <ThinkingIndicator pipeline={pipeline} />}
+        {isThinking && pipeline?.streamingResponse && (
+          <MessageItem
+            role="assistant"
+            content={pipeline.streamingResponse}
+            timestamp=""
+            sources={[]}
+          />
+        )}
       </div>
     </div>
   );

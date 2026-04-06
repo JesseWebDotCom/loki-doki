@@ -1,3 +1,6 @@
+import json
+from typing import AsyncIterator
+
 import httpx
 
 
@@ -71,6 +74,67 @@ class InferenceClient:
             )
 
         return response.json()["response"]
+
+    async def generate_stream(
+        self,
+        model: str,
+        prompt: str,
+        keep_alive: int | str = -1,
+        num_predict: int | None = None,
+        temperature: float | None = None,
+    ) -> AsyncIterator[str]:
+        """Stream tokens from Ollama as they are generated.
+
+        Yields each `response` chunk from Ollama's NDJSON stream. Caller is
+        responsible for accumulation. Raises OllamaError on transport / HTTP
+        failures *before* the first chunk; mid-stream errors surface as
+        OllamaError as well.
+        """
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": True,
+            "keep_alive": keep_alive,
+        }
+        options: dict = {}
+        if num_predict is not None:
+            options["num_predict"] = num_predict
+        if temperature is not None:
+            options["temperature"] = temperature
+        if options:
+            payload["options"] = options
+
+        try:
+            async with self._client.stream("POST", "/api/generate", json=payload) as response:
+                if response.status_code == 404:
+                    raise OllamaError(
+                        f"Model '{model}' not found. Pull it with: ollama pull {model}"
+                    )
+                if response.status_code != 200:
+                    body = await response.aread()
+                    raise OllamaError(
+                        f"Ollama error {response.status_code}: {body[:200].decode(errors='replace')}"
+                    )
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if "error" in chunk:
+                        raise OllamaError(f"Ollama stream error: {chunk['error']}")
+                    token = chunk.get("response", "")
+                    if token:
+                        yield token
+                    if chunk.get("done"):
+                        break
+        except (httpx.ConnectError, ConnectionError, OSError):
+            raise OllamaError(f"Ollama unreachable at {self.base_url}")
+        except OllamaError:
+            raise
+        except Exception as e:
+            raise OllamaError(f"Ollama stream failed: {e}")
 
     async def close(self):
         await self._client.aclose()

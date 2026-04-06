@@ -21,15 +21,21 @@ MOCK_DECOMPOSITION_JSON = json.dumps({
 })
 
 
+def _make_stream(text: str):
+    """Build an async generator factory matching InferenceClient.generate_stream."""
+    async def _gen(*_a, **_kw):
+        for tok in text.split(" "):
+            yield tok + " "
+    return _gen
+
+
 @pytest.mark.anyio
 async def test_chat_endpoint_returns_sse_stream():
     """Test that POST /api/v1/chat returns an SSE event stream."""
     with patch("lokidoki.api.routes.chat.get_inference_client") as mock_get_client:
         mock_client = AsyncMock()
-        mock_client.generate = AsyncMock(side_effect=[
-            MOCK_DECOMPOSITION_JSON,  # decomposition call
-            "Hello! How can I help you?",  # synthesis call
-        ])
+        mock_client.generate = AsyncMock(return_value=MOCK_DECOMPOSITION_JSON)
+        mock_client.generate_stream = _make_stream("Hello! How can I help you?")
         mock_get_client.return_value = mock_client
 
         transport = ASGITransport(app=app)
@@ -58,10 +64,8 @@ async def test_chat_endpoint_returns_final_response():
     """Test that the SSE stream includes the final synthesized response."""
     with patch("lokidoki.api.routes.chat.get_inference_client") as mock_get_client:
         mock_client = AsyncMock()
-        mock_client.generate = AsyncMock(side_effect=[
-            MOCK_DECOMPOSITION_JSON,
-            "The answer is 42.",
-        ])
+        mock_client.generate = AsyncMock(return_value=MOCK_DECOMPOSITION_JSON)
+        mock_client.generate_stream = _make_stream("The answer is 42.")
         mock_get_client.return_value = mock_client
 
         transport = ASGITransport(app=app)

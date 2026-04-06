@@ -17,6 +17,7 @@ export interface PipelineState {
   phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis' | 'completed';
   decomposition: DecompositionData | null;
   synthesis: SynthesisData | null;
+  streamingResponse: string;
   totalLatencyMs: number;
 }
 
@@ -24,6 +25,7 @@ const INITIAL_PIPELINE: PipelineState = {
   phase: 'idle',
   decomposition: null,
   synthesis: null,
+  streamingResponse: '',
   totalLatencyMs: 0,
 };
 
@@ -43,8 +45,14 @@ const ChatPage: React.FC = () => {
       if (event.phase === 'decomposition' && event.status === 'done') {
         next.decomposition = event.data as DecompositionData;
       }
+      if (event.phase === 'synthesis' && event.status === 'streaming') {
+        const delta = (event.data?.delta as string | undefined) ?? '';
+        next.streamingResponse = prev.streamingResponse + delta;
+      }
       if (event.phase === 'synthesis' && event.status === 'done') {
         next.synthesis = event.data as SynthesisData;
+        // Final response from server overrides accumulated stream (in case of mismatch).
+        next.streamingResponse = (event.data as SynthesisData).response ?? prev.streamingResponse;
         const decompMs = next.decomposition?.latency_ms ?? 0;
         const synthMs = (event.data as SynthesisData).latency_ms ?? 0;
         next.totalLatencyMs = decompMs + synthMs;
@@ -61,7 +69,7 @@ const ChatPage: React.FC = () => {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsProcessing(true);
-    setPipeline({ ...INITIAL_PIPELINE, phase: 'augmentation' });
+    setPipeline({ ...INITIAL_PIPELINE, phase: 'augmentation', streamingResponse: '' });
 
     try {
       await sendChatMessage(input, handleEvent);
