@@ -33,11 +33,9 @@ def bootstrap():
     # 3. Wait for the server to start (simple polling)
     time.sleep(2) 
     
-    # 4. Open the UI (frontend usually served by Vite in dev)
-    # For Phase 1 Static POC, we'll point to the API/Static index
-    # Once the React UI is ready, we point to localhost:5173
-    ui_url = "http://127.0.0.1:8000/docs" # Default to docs for now to verify backend
-    print(f"🌐 Launching User Interface: {ui_url}")
+    # 4. Open the UI (Bootstrap Wizard first)
+    ui_url = "http://127.0.0.1:8000/bootstrap"
+    print(f"🌐 Launching Bootstrap Wizard: {ui_url}")
     webbrowser.open(ui_url)
 
     # 5. Keep the main process alive and stream backend logs

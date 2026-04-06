@@ -301,13 +301,36 @@ The "Decomposition" step (Gemma 4-E2B) performs a triple-pass: **Intents**, **Sh
 ---
 
 ## 8. Development Roadmap (Phased)
-As you complete each phase, mark them as done and ask the user to validate.
 
-1. **Phase 1: Bootstrap**: `run.sh`/`run.py`, Basic FastAPI, Static Chat UI.
-2. **Phase 2: Intent Engine**: Integrate `gemma4:e2b` for decomposition and basic JSON parsing.
-3. **Phase 3: Skill Framework**: Implement first 3 skills (Time, Weather, Wikipedia) with at least two mechanisms each.
-4. **Phase 4: Persistence**: Move from volatile session state to JSON file-based history.
-5. **Phase 5: Refinement**: Implement dynamic model loading and `thinking` vs `fast` reasoning paths.
+1. **Phase 1: Bootstrap & TDD Foundation** (COMPLETED)
+   - [x] **Infrastructure**: `run.py`, `run.sh`, Basic FastAPI, and React/Tailwind skeleton.
+   - [x] **TDD Setup**: Backend Test Runner API, `pytest`, and the browser-based **Tests Tab**.
+   - [x] **Caveman Compression**: Signal-only token pre-processor with 100% test coverage.
+   - [x] **Deliverables**: Verified `pre-commit` hooks, green unit tests, and a functional "Tests" UI.
+
+2. **Phase 2: Intent Engine & Decomposition**
+   - [ ] **Gemma Integration**: Connect to `gemma:2b` via Ollama for semantic parsing.
+   - [ ] **JSON Decomposition**: Robust parsing of user input into structured "Asks."
+   - [ ] **Sentiment & Memory**: Initial sentiment extraction and session-local fact recording.
+   - [ ] **Deliverables**: A "Technical Details" sidebar showing live LLM decomposition logs.
+
+3. **Phase 3: Skill Framework & Multi-Mechanism Routing**
+   - [ ] **Registry**: Dynamic skill discovery system.
+   - [ ] **Core Skills**: Implement Time, Weather, and Wikipedia engines.
+   - [ ] **Fallback Logic**: API → Scraper → Cache priority system for each skill.
+   - [ ] **Deliverables**: Parallel execution of multiple skills with "First-Win" cancellation.
+
+4. **Phase 4: Persistence & Local RAG**
+   - [ ] **SQLite Migration**: Transitions from JSON files to structured database storage.
+   - [ ] **Memory Index**: BM25 implementation for fast long-term memory retrieval.
+   - [ ] **Context Restoration**: Cross-chat continuity using rolling context fragments.
+   - [ ] **Deliverables**: Searchable memory tab and historical context awareness.
+
+5. **Phase 5: Advanced Reasoning & Refinement**
+   - [ ] **Dynamic Load Policy**: Automated switching between 2B and 9B models based on complexity.
+   - [ ] **Audio Intelligence**: Integrate Faster-Whisper (STT) and Piper (TTS).
+   - [ ] **Performance Tuning**: Pi 5 specific optimization for KV cache and resident RAM policy.
+   - [ ] **Deliverables**: Fully autonomous, low-latency conversational agent with voice interaction.
 ---
 
 ## 10. Testing & Quality Assurance

@@ -1,18 +1,17 @@
 #!/bin/bash
 
-# LokiDoki Bootstrap Loader
-# Primary entry point for localized agentic services.
+# LokiDoki Bootstrap Entry Point
+# Ensures the bare minimum to serve the install wizard.
 
-# Ensure we are in the project root
 cd "$(dirname "$0")"
 
-# Check if uv is installed
+# Check for uv
 if ! command -v uv &> /dev/null; then
-    echo "Error: 'uv' is not installed. Please install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo "Error: 'uv' not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
 
-# Execute the bootstrap script using uv
-# This automatically handles dependency sync based on pyproject.toml
-echo "🚀 Bootstrapping LokiDoki Core..."
+# Launch the bootstrap server
+# uv run handles the initial environment sync if needed
+echo "💎 Initializing LokiDoki Bootstrap..."
 uv run run.py
