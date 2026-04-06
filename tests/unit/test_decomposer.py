@@ -1,7 +1,9 @@
+import asyncio
 import pytest
 import json
 from unittest.mock import AsyncMock, patch
 from lokidoki.core.decomposer import Decomposer, DecompositionResult, Ask
+from lokidoki.core.inference import OllamaError
 
 
 VALID_LLM_RESPONSE = json.dumps({
@@ -119,15 +121,71 @@ class TestDecomposer:
         assert result.long_term_memory[0]["fact"] == "User enjoys hiking"
 
     @pytest.mark.anyio
-    async def test_decompose_calls_inference_with_json_mode(self, decomposer):
-        """Test that the decomposer requests JSON output from the LLM."""
+    async def test_decompose_uses_schema_constrained_output(self, decomposer):
+        """Regression: the decomposer must request schema-constrained generation
+        (format_schema), not freeform JSON mode. Schema-constrained decoding
+        terminates as soon as the schema is satisfied, which fixes the
+        gemma+JSON-mode trailing-whitespace runaway at the source.
+        See incident 2026-04-06."""
         decomposer._client.generate = AsyncMock(return_value=VALID_LLM_RESPONSE)
 
         await decomposer.decompose("test")
 
         decomposer._client.generate.assert_called_once()
-        call_kwargs = decomposer._client.generate.call_args.kwargs
-        assert call_kwargs.get("json_mode") is True
+        kwargs = decomposer._client.generate.call_args.kwargs
+        schema = kwargs.get("format_schema")
+        assert isinstance(schema, dict), "decomposer must pass a JSON schema, not json_mode"
+        assert schema.get("type") == "object"
+        # Enum on reasoning_complexity prevents the model from stuffing the
+        # wrong value into the field (observed bug: "direct_chat" leaking in).
+        rc = schema["properties"]["overall_reasoning_complexity"]
+        assert rc.get("enum") == ["fast", "thinking"]
+        # Deterministic decoding for parsing.
+        assert kwargs.get("temperature") == 0.0
+
+    @pytest.mark.anyio
+    async def test_decompose_passes_num_predict_cap(self, decomposer):
+        """Regression: gemma4:e2b in JSON mode degenerates into trailing whitespace
+        until it hits num_predict. The decomposer MUST cap output tokens to prevent
+        a single request from running for >100s. See incident 2026-04-06."""
+        decomposer._client.generate = AsyncMock(return_value=VALID_LLM_RESPONSE)
+
+        await decomposer.decompose("test")
+
+        kwargs = decomposer._client.generate.call_args.kwargs
+        assert "num_predict" in kwargs, "decomposer must pass num_predict to bound generation"
+        assert kwargs["num_predict"] > 0
+        assert kwargs["num_predict"] <= 1024, "num_predict cap should keep latency bounded"
+
+    @pytest.mark.anyio
+    async def test_decompose_times_out_to_fallback(self):
+        """Regression: if the inference call hangs, decompose() must time out and
+        return a direct_chat fallback rather than blocking the pipeline forever."""
+        mock_client = AsyncMock()
+
+        async def hang(*_a, **_kw):
+            await asyncio.sleep(10)
+            return VALID_LLM_RESPONSE
+
+        mock_client.generate = AsyncMock(side_effect=hang)
+        d = Decomposer(inference_client=mock_client, model="gemma4:e2b", timeout_s=0.05)
+
+        result = await d.decompose("anything")
+
+        assert isinstance(result, DecompositionResult)
+        assert len(result.asks) == 1
+        assert result.asks[0].intent == "direct_chat"
+        assert result.asks[0].distilled_query == "anything"
+
+    @pytest.mark.anyio
+    async def test_decompose_handles_ollama_error(self, decomposer):
+        """If Ollama errors out, decomposer should fall back, not raise."""
+        decomposer._client.generate = AsyncMock(side_effect=OllamaError("model missing"))
+
+        result = await decomposer.decompose("hello")
+
+        assert len(result.asks) == 1
+        assert result.asks[0].intent == "direct_chat"
 
     @pytest.mark.anyio
     async def test_decompose_handles_malformed_json(self, decomposer):

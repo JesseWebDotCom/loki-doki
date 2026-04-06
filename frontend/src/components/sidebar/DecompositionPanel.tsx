@@ -2,6 +2,7 @@ import React from 'react';
 import { Brain, Target, Clock, Heart } from 'lucide-react';
 import Badge from '../ui/Badge';
 import type { DecompositionData } from '../../lib/api';
+import { formatDuration } from '../../lib/utils';
 
 interface DecompositionPanelProps {
   data: DecompositionData;
@@ -18,7 +19,7 @@ const DecompositionPanel: React.FC<DecompositionPanelProps> = ({ data }) => {
         </div>
         <div className="flex items-center gap-2">
           <Clock size={12} className="text-muted-foreground" />
-          <span className="text-xs font-mono text-primary font-bold">{data.latency_ms.toFixed(0)}ms</span>
+          <span className="text-xs font-mono text-primary font-bold">{formatDuration(data.latency_ms)}</span>
         </div>
       </div>
 

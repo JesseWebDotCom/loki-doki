@@ -1,9 +1,10 @@
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from lokidoki.core.inference import InferenceClient
+from lokidoki.core.inference import InferenceClient, OllamaError
 
 
 @dataclass
@@ -23,6 +24,57 @@ class DecompositionResult:
     asks: list[Ask] = field(default_factory=list)
     model: str = ""
     latency_ms: float = 0.0
+
+
+# JSON Schema for structured output. Constrains Ollama's decoder to terminate
+# as soon as the schema is satisfied — fixes the gemma+JSON-mode whitespace
+# runaway at the source rather than capping with num_predict.
+DECOMPOSITION_SCHEMA: dict = {
+    "type": "object",
+    "required": [
+        "is_course_correction",
+        "overall_reasoning_complexity",
+        "short_term_memory",
+        "long_term_memory",
+        "asks",
+    ],
+    "properties": {
+        "is_course_correction": {"type": "boolean"},
+        "overall_reasoning_complexity": {"type": "string", "enum": ["fast", "thinking"]},
+        "short_term_memory": {
+            "type": "object",
+            "required": ["sentiment", "concern"],
+            "properties": {
+                "sentiment": {"type": "string"},
+                "concern": {"type": "string"},
+            },
+        },
+        "long_term_memory": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["category", "fact"],
+                "properties": {
+                    "category": {"type": "string"},
+                    "fact": {"type": "string"},
+                },
+            },
+        },
+        "asks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["ask_id", "intent", "distilled_query"],
+                "properties": {
+                    "ask_id": {"type": "string"},
+                    "intent": {"type": "string"},
+                    "distilled_query": {"type": "string"},
+                    "parameters": {"type": "object"},
+                },
+            },
+        },
+    },
+}
 
 
 # Dense, token-efficient system prompt (Zero-Markdown per DESIGN.md)
@@ -45,9 +97,17 @@ DECOMPOSITION_PROMPT = (
 class Decomposer:
     """Semantic decomposition engine using a local LLM via Ollama."""
 
-    def __init__(self, inference_client: InferenceClient, model: str = "gemma4:e2b"):
+    def __init__(
+        self,
+        inference_client: InferenceClient,
+        model: str = "gemma4:e2b",
+        timeout_s: float = 15.0,
+        num_predict: int = 256,
+    ):
         self._client = inference_client
         self._model = model
+        self._timeout_s = timeout_s
+        self._num_predict = num_predict
 
     async def decompose(
         self,
@@ -59,11 +119,20 @@ class Decomposer:
         prompt = self._build_prompt(user_input, chat_context, available_intents)
 
         t0 = time.perf_counter()
-        raw = await self._client.generate(
-            model=self._model,
-            prompt=prompt,
-            json_mode=True,
-        )
+        try:
+            raw = await asyncio.wait_for(
+                self._client.generate(
+                    model=self._model,
+                    prompt=prompt,
+                    format_schema=DECOMPOSITION_SCHEMA,
+                    temperature=0.0,
+                    num_predict=self._num_predict,
+                ),
+                timeout=self._timeout_s,
+            )
+        except (asyncio.TimeoutError, OllamaError):
+            latency_ms = (time.perf_counter() - t0) * 1000
+            return self._fallback_result(user_input, latency_ms)
         latency_ms = (time.perf_counter() - t0) * 1000
 
         return self._parse_response(raw, user_input, latency_ms)

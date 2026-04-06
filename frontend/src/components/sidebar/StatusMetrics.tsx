@@ -2,6 +2,7 @@ import React from 'react';
 import { Cpu, Layers, Timer, Activity } from 'lucide-react';
 import Badge from '../ui/Badge';
 import type { PipelineState } from '../../pages/ChatPage';
+import { formatDuration } from '../../lib/utils';
 
 interface MetricProps {
   icon: React.ReactNode;
@@ -31,7 +32,7 @@ const StatusMetrics: React.FC<StatusMetricsProps> = ({ pipeline }) => {
   const decompModel = pipeline?.decomposition?.model ?? 'gemma4:e2b';
   const synthModel = pipeline?.synthesis?.model ?? '--';
   const totalMs = pipeline?.totalLatencyMs
-    ? `${pipeline.totalLatencyMs.toFixed(0)}ms`
+    ? formatDuration(pipeline.totalLatencyMs)
     : '--';
 
   return (

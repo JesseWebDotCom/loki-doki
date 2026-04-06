@@ -42,6 +42,54 @@ class TestInferenceClient:
         assert payload["stream"] is False
 
     @pytest.mark.anyio
+    async def test_generate_forwards_num_predict_option(self, client):
+        """Regression: num_predict must be forwarded to Ollama via options.num_predict
+        so callers can cap output length and avoid runaway generation."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"response": "{}", "done": True}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            await client.generate("gemma4:e2b", "p", num_predict=128)
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload.get("options", {}).get("num_predict") == 128
+
+    @pytest.mark.anyio
+    async def test_generate_forwards_format_schema(self, client):
+        """Regression: format_schema must be sent to Ollama as the `format` field
+        (structured output). This is the real fix for the gemma JSON-mode runaway —
+        the schema constrains decoding so the model terminates cleanly."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"response": "{}", "done": True}
+        mock_response.raise_for_status = MagicMock()
+
+        schema = {"type": "object", "properties": {"x": {"type": "string"}}}
+        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            await client.generate("gemma4:e2b", "p", format_schema=schema, temperature=0.0)
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["format"] == schema, "format_schema must be sent as Ollama 'format'"
+        assert payload.get("options", {}).get("temperature") == 0.0
+
+    @pytest.mark.anyio
+    async def test_generate_format_schema_overrides_json_mode(self, client):
+        """When both are set, schema wins — json_mode is the legacy fallback."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"response": "{}", "done": True}
+        mock_response.raise_for_status = MagicMock()
+
+        schema = {"type": "object"}
+        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            await client.generate("gemma4:e2b", "p", json_mode=True, format_schema=schema)
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["format"] == schema
+
+    @pytest.mark.anyio
     async def test_generate_raises_on_http_error(self, client):
         """Test that OllamaError is raised on non-200 responses."""
         mock_response = MagicMock()

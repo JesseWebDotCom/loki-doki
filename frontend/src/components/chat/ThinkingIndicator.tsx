@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Loader2, Brain, Route, Sparkles, Layers, ChevronRight, CircleCheck } from 'lucide-react';
+import { Loader2, Brain, Route, Sparkles, Layers, ChevronRight, CircleCheck, Copy, Check } from 'lucide-react';
 import type { PipelineState } from '../../pages/ChatPage';
+import { formatDuration } from '../../lib/utils';
 
 interface ThinkingIndicatorProps {
   pipeline: PipelineState;
@@ -17,8 +18,39 @@ const PHASE_ORDER: Array<keyof typeof PHASE_CONFIG> = ['augmentation', 'decompos
 
 const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const currentPhase = pipeline.phase;
   if (currentPhase === 'idle') return null;
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const decompMs = pipeline.decomposition?.latency_ms ?? 0;
+    const synthMs = pipeline.synthesis?.latency_ms ?? 0;
+    const lines = [
+      `Pipeline: ${pipeline.totalLatencyMs > 0 ? formatDuration(pipeline.totalLatencyMs) : 'in progress'}`,
+      `  Augmenting context`,
+      `  Decomposing intent  ${decompMs > 0 ? formatDuration(decompMs) : ''}`.trimEnd(),
+      `  Routing to skills`,
+      `  Synthesizing response  ${synthMs > 0 ? formatDuration(synthMs) : ''}`.trimEnd(),
+    ];
+    if (pipeline.decomposition) {
+      lines.push(`Model: ${pipeline.decomposition.model}`);
+      lines.push(`Reasoning: ${pipeline.decomposition.reasoning_complexity}`);
+      for (const a of pipeline.decomposition.asks) {
+        lines.push(`  - [${a.intent}] ${a.distilled_query}`);
+      }
+    }
+    if (pipeline.synthesis?.response) {
+      lines.push(`Response: ${pipeline.synthesis.response}`);
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
 
   const isCompleted = currentPhase === 'completed';
   const currentIndex = isCompleted
@@ -60,7 +92,7 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
           </span>
           {isCompleted ? (
             <span className="text-[10px] text-green-500 font-bold uppercase tracking-widest ml-auto">
-              {pipeline.totalLatencyMs > 0 ? `${pipeline.totalLatencyMs.toFixed(0)}ms` : 'Done'}
+              {pipeline.totalLatencyMs > 0 ? formatDuration(pipeline.totalLatencyMs) : 'Done'}
             </span>
           ) : (
             <span className="text-[10px] text-primary font-bold uppercase tracking-widest animate-pulse ml-auto">
@@ -75,6 +107,16 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
             expanded ? 'max-h-60 opacity-100 mt-2' : 'max-h-0 opacity-0'
           }`}
         >
+          <div className="flex items-center justify-end pt-2">
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-card/60"
+              aria-label="Copy pipeline status"
+            >
+              {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
           <div className="flex flex-col gap-2 border-t border-border/30 pt-2">
             {PHASE_ORDER.map((phase, idx) => {
               const config = PHASE_CONFIG[phase];
@@ -117,13 +159,13 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
 
                   {isDone && pipeline.decomposition && phase === 'decomposition' && (
                     <span className="text-[10px] text-muted-foreground font-mono ml-auto">
-                      {pipeline.decomposition.latency_ms.toFixed(0)}ms
+                      {formatDuration(pipeline.decomposition.latency_ms)}
                     </span>
                   )}
 
                   {isDone && pipeline.synthesis && phase === 'synthesis' && (
                     <span className="text-[10px] text-muted-foreground font-mono ml-auto">
-                      {pipeline.synthesis.latency_ms.toFixed(0)}ms
+                      {formatDuration(pipeline.synthesis.latency_ms)}
                     </span>
                   )}
                 </div>

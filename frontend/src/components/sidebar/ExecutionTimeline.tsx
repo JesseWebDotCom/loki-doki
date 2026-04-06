@@ -1,6 +1,7 @@
 import React from 'react';
 import { Zap, CircleCheck, CircleDashed, Loader2 } from 'lucide-react';
 import type { PipelineState } from '../../pages/ChatPage';
+import { formatDuration } from '../../lib/utils';
 
 interface Phase {
   id: string;
@@ -17,10 +18,10 @@ const ExecutionTimeline: React.FC<TimelineProps> = ({ phases, pipeline }) => {
   const getLatency = (phaseId: string): string | null => {
     if (!pipeline) return null;
     if (phaseId === 'decomposition' && pipeline.decomposition) {
-      return `${pipeline.decomposition.latency_ms.toFixed(0)}ms`;
+      return formatDuration(pipeline.decomposition.latency_ms);
     }
     if (phaseId === 'synthesis' && pipeline.synthesis) {
-      return `${pipeline.synthesis.latency_ms.toFixed(0)}ms`;
+      return formatDuration(pipeline.synthesis.latency_ms);
     }
     return null;
   };
@@ -93,7 +94,7 @@ const ExecutionTimeline: React.FC<TimelineProps> = ({ phases, pipeline }) => {
         <div className="pt-4 border-t border-border/10 flex items-center justify-between px-1">
           <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Total</span>
           <span className="text-xs font-mono text-primary font-bold">
-            {pipeline.totalLatencyMs.toFixed(0)}ms
+            {formatDuration(pipeline.totalLatencyMs)}
           </span>
         </div>
       )}
