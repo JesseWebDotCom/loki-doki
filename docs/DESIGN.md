@@ -301,6 +301,8 @@ The "Decomposition" step (Gemma 4-E2B) performs a triple-pass: **Intents**, **Sh
 ---
 
 ## 8. Development Roadmap (Phased)
+As you complete each phase, mark them as done and ask the user to validate.
+
 1. **Phase 1: Bootstrap**: `run.sh`/`run.py`, Basic FastAPI, Static Chat UI.
 2. **Phase 2: Intent Engine**: Integrate `gemma4:e2b` for decomposition and basic JSON parsing.
 3. **Phase 3: Skill Framework**: Implement first 3 skills (Time, Weather, Wikipedia) with at least two mechanisms each.
