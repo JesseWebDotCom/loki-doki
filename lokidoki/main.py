@@ -16,6 +16,10 @@ bootstrap_queue = asyncio.Queue()
 os.makedirs("lokidoki/static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="lokidoki/static"), name="static")
 
+# Mount frontend assets if they exist
+if os.path.exists("frontend/dist"):
+    app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+
 async def run_bootstrap():
     """Performs the actual bootstrap checks and syncs."""
     steps = [
@@ -72,6 +76,9 @@ async def bootstrap_status(request: Request):
 # Include the test runner router
 app.include_router(tests.router, prefix="/api/v1/tests", tags=["Testing"])
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    return {"message": "LokiDoki Core API is running"}
+    if os.path.exists("frontend/dist/index.html"):
+        with open("frontend/dist/index.html", "r") as f:
+            return f.read()
+    return HTMLResponse("<h1>LokiDoki Core</h1><p>Frontend not built. Run <code>npm run build</code> in the frontend directory.</p>")

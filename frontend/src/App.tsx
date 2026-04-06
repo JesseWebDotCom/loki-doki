@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Terminal, Cpu, Ghost, Layers, Timer, Zap } from 'lucide-react';
+import { Send, Cpu, Ghost, Layers, Timer, Zap } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
