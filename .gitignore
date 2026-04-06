@@ -1,0 +1,260 @@
+# =============================================================================
+# LokiDoki — .gitignore
+# =============================================================================
+
+# =============================================================================
+# MACOS
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+*.icloud
+
+# =============================================================================
+# PYTHON
+# =============================================================================
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+.eggs/
+*.egg-link
+MANIFEST
+.Python
+pip-wheel-metadata/
+share/python-wheels/
+*.so
+*.dylib
+
+# uv
+.uv/
+# Keep uv.lock — commit it
+# !uv.lock
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+junit.xml
+test-results/
+
+# mypy / type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# =============================================================================
+# NODE / JAVASCRIPT (not used in core but guard against accidental scaffolding)
+# =============================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm/
+.yarn/
+.pnp.*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.parcel-cache/
+.next/
+.nuxt/
+.vite/
+dist/
+.cache/
+
+# =============================================================================
+# DOWNLOADED MODELS — too large for git
+# =============================================================================
+assets/models/
+
+# =============================================================================
+# DOWNLOADED WEB VENDOR ASSETS — re-downloaded by setup.sh
+# =============================================================================
+lokidoki/ui/web/vendor/
+
+# =============================================================================
+# RUNTIME DATA — generated at runtime, never committed
+# =============================================================================
+data/
+.lokidoki/
+
+# =============================================================================
+# ENVIRONMENT AND SECRETS
+# =============================================================================
+.env
+.env.*
+!.env.example
+.pi.env
+.pi_host
+*.pem
+*.key
+*.cert
+*.crt
+secrets/
+configs/config.local.toml
+configs/config.*.local.toml
+
+# =============================================================================
+# EDITORS AND IDEs
+# =============================================================================
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# JetBrains (PyCharm, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.idea_modules/
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.netrwhist
+Session.vim
+.vim/
+
+# Emacs
+*~
+\#*\#
+.#*
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# =============================================================================
+# OS — LINUX
+# =============================================================================
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# OS — WINDOWS
+# =============================================================================
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# =============================================================================
+# LOGS
+# =============================================================================
+.app-server.log
+.app-server.pid
+.lokidoki_installer_state.json
+*.log
+*.log.*
+*.pid
+logs/
+log/
+old_stt.log
+
+# =============================================================================
+# COMPILED / BINARY
+# =============================================================================
+*.o
+*.a
+*.lib
+*.dll
+*.exe
+*.out
+*.app
+
+# whisper.cpp build output (if using whisper.cpp backend)
+whisper.cpp/build/
+whisper.cpp/models/*.bin
+
+# =============================================================================
+# TEMPORARY FILES
+# =============================================================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+app_config.json
+.lokidoki_installer_state.json
+/tmp/tts.wav
+/tmp/capture.jpg
+
+# =============================================================================
+# JUPYTER (guard against accidental notebook use)
+# =============================================================================
+.ipynb_checkpoints/
+*.ipynb
+
+# =============================================================================
+# DOCKER (if added later)
+# =============================================================================
+.docker/
+
+# =============================================================================
+# WHAT IS DELIBERATELY KEPT (do not add these by mistake)
+# =============================================================================
+# uv.lock                  — dependency lockfile, always committed
+# AGENTS.md                — Codex instructions, always committed
+# docs/spec.md             — full spec, always committed
+# .github/                 — Copilot instructions, always committed
+# configs/*.toml           — config profiles (no secrets), always committed
+# personas/*.toml          — persona definitions, always committed
+# assets/faces/            — face PNG sequences, committed
+# assets/sounds/           — sound .wav files, committed
+# wakeword.onnx            — wake word model, committed (small enough)
