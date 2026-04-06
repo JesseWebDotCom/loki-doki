@@ -7,7 +7,7 @@ const ThemeCustomizer: React.FC = () => {
   const { theme, setTheme, radius, setRadius, palette, setPalette, reset } = useTheme()
 
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-card/60 backdrop-blur-2xl p-3 px-8 rounded-full border border-border/40 shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-in fade-in zoom-in-95 duration-700 z-[100] font-roboto">
+    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-card/40 backdrop-blur-3xl p-3 px-8 rounded-full border border-border/20 shadow-m4 animate-in fade-in zoom-in-95 duration-700 z-50 font-roboto">
       
       {/* Palette Select */}
       <div className="flex items-center gap-2.5 border-r border-border/20 pr-6 group">

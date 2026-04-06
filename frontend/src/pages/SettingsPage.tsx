@@ -1,5 +1,5 @@
-import React from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
+import ThemeCustomizer from '../components/theme/ThemeCustomizer';
 import ThemeShowcase from '../components/theme/ThemeShowcase';
 import { Settings, Bell, Shield, Info } from 'lucide-react';
 
@@ -27,7 +27,10 @@ const SettingsPage: React.FC = () => {
             {/* Theme Selection */}
             <div className="space-y-6 text-center">
               <h1 className="text-2xl font-bold tracking-tight mb-8">System Preview</h1>
-              <ThemeShowcase />
+              <div className="relative group/preview mx-auto max-w-5xl rounded-3xl overflow-hidden border border-border/20 bg-onyx-2/5 shadow-m4">
+                <ThemeShowcase />
+                <ThemeCustomizer />
+              </div>
             </div>
 
             {/* Placeholder Sections */}

@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './components/theme/ThemeProvider';
 import ChatPage from './pages/ChatPage';
 import SettingsPage from './pages/SettingsPage';
-import ThemeCustomizer from './components/theme/ThemeCustomizer';
 
 const App: React.FC = () => {
   return (
@@ -13,7 +12,6 @@ const App: React.FC = () => {
           <Route path="/" element={<ChatPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
-        <ThemeCustomizer />
       </Router>
     </ThemeProvider>
   );
