@@ -147,7 +147,20 @@ class Orchestrator:
                     if not skill_instance:
                         continue
                     mechs = self._registry.get_mechanisms(skill_id)
-                    tasks.append((ask.ask_id, skill_instance, mechs, ask.parameters))
+                    params = dict(ask.parameters or {})
+                    # Backstop: the decomposer LLM frequently emits
+                    # `parameters: {}` even when the manifest declares
+                    # required keys. Default every required key to the
+                    # distilled query so skills never see a missing param
+                    # purely because of decomposer omission. Skills can
+                    # still validate semantic correctness internally.
+                    required_params = [
+                        k for k, spec in (manifest.get("parameters") or {}).items()
+                        if isinstance(spec, dict) and spec.get("required")
+                    ]
+                    for key in required_params:
+                        params.setdefault(key, ask.distilled_query)
+                    tasks.append((ask.ask_id, skill_instance, mechs, params))
 
                 if tasks:
                     skill_results = await self._executor.execute_parallel(tasks)
@@ -174,6 +187,8 @@ class Orchestrator:
                     routing_log.append({
                         "ask_id": ask.ask_id, "intent": ask.intent,
                         "status": "failed" if result else "no_skill",
+                        "mechanism": result.mechanism_used if result else None,
+                        "latency_ms": result.latency_ms if result else 0,
                         "mechanism_log": result.mechanism_log if result else [],
                     })
 

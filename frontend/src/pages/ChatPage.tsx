@@ -3,7 +3,7 @@ import { Send } from 'lucide-react';
 import Sidebar from '../components/sidebar/Sidebar';
 import ChatWindow from '../components/chat/ChatWindow';
 import { sendChatMessage, getSessionMessages } from '../lib/api';
-import type { PipelineEvent, DecompositionData, SynthesisData, SourceInfo } from '../lib/api';
+import type { PipelineEvent, DecompositionData, SynthesisData, SourceInfo, RoutingData } from '../lib/api';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -16,6 +16,7 @@ export interface Message {
 export interface PipelineState {
   phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis' | 'completed';
   decomposition: DecompositionData | null;
+  routing: RoutingData | null;
   synthesis: SynthesisData | null;
   streamingResponse: string;
   totalLatencyMs: number;
@@ -24,6 +25,7 @@ export interface PipelineState {
 const INITIAL_PIPELINE: PipelineState = {
   phase: 'idle',
   decomposition: null,
+  routing: null,
   synthesis: null,
   streamingResponse: '',
   totalLatencyMs: 0,
@@ -45,6 +47,14 @@ const ChatPage: React.FC = () => {
       if (event.phase === 'decomposition' && event.status === 'done') {
         next.decomposition = event.data as DecompositionData;
       }
+      if (event.phase === 'routing' && event.status === 'done') {
+        const data = event.data as Omit<RoutingData, 'latency_ms'>;
+        const routingMs = (data.routing_log ?? []).reduce(
+          (sum, r) => sum + (r.latency_ms ?? 0),
+          0,
+        );
+        next.routing = { ...data, latency_ms: routingMs };
+      }
       if (event.phase === 'synthesis' && event.status === 'streaming') {
         const delta = (event.data?.delta as string | undefined) ?? '';
         next.streamingResponse = prev.streamingResponse + delta;
@@ -54,8 +64,9 @@ const ChatPage: React.FC = () => {
         // Final response from server overrides accumulated stream (in case of mismatch).
         next.streamingResponse = (event.data as SynthesisData).response ?? prev.streamingResponse;
         const decompMs = next.decomposition?.latency_ms ?? 0;
+        const routingMs = next.routing?.latency_ms ?? 0;
         const synthMs = (event.data as SynthesisData).latency_ms ?? 0;
-        next.totalLatencyMs = decompMs + synthMs;
+        next.totalLatencyMs = decompMs + routingMs + synthMs;
       }
 
       return next;

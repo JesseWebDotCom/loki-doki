@@ -198,7 +198,6 @@
             <div id="check-frontend-deps" class="step"><div class="step-icon"></div> UI Libraries</div>
             <div id="check-frontend-build" class="step"><div class="step-icon"></div> UI Optimization</div>
             <div id="check-ollama" class="step"><div class="step-icon"></div> Ollama Service</div>
-            <div id="check-models" class="step"><div class="step-icon"></div> LLM Residence</div>
             <div id="check-piper" class="step"><div class="step-icon"></div> Piper Voice</div>
             <div id="check-residency" class="step"><div class="step-icon"></div> System Health</div>
         </div>
@@ -228,7 +227,7 @@
         
         const steps = [
             'check-python', 'check-uv', 'check-frontend-deps', 
-            'check-frontend-build', 'check-ollama', 'check-models', 
+            'check-frontend-build', 'check-ollama',
             'check-piper', 'check-residency'
         ];
         let currentStepIdx = 0;
@@ -281,6 +280,7 @@
                 taskEl.textContent = "Pipeline halted. Check logs.";
                 taskEl.style.color = "var(--failure)";
             } else if (data.type === 'complete') {
+                progressEl.style.width = '100%';
                 document.getElementById('waiting-btn').style.display = 'none';
                 document.getElementById('launch-btn').style.display = 'block';
                 taskEl.textContent = "System Ready.";

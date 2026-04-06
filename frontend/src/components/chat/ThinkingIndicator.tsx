@@ -25,14 +25,36 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const decompMs = pipeline.decomposition?.latency_ms ?? 0;
+    const routingMs = pipeline.routing?.latency_ms ?? 0;
     const synthMs = pipeline.synthesis?.latency_ms ?? 0;
     const lines = [
       `Pipeline: ${pipeline.totalLatencyMs > 0 ? formatDuration(pipeline.totalLatencyMs) : 'in progress'}`,
       `  Augmenting context`,
       `  Decomposing intent  ${decompMs > 0 ? formatDuration(decompMs) : ''}`.trimEnd(),
-      `  Routing to skills`,
+      `  Routing to skills  ${routingMs > 0 ? formatDuration(routingMs) : ''}`.trimEnd(),
       `  Synthesizing response  ${synthMs > 0 ? formatDuration(synthMs) : ''}`.trimEnd(),
     ];
+    if (pipeline.routing) {
+      const r = pipeline.routing;
+      if (r.routing_log.length === 0) {
+        lines.push(`Skills: LLM-only (no skills routed)`);
+      } else {
+        lines.push(`Skills: ${r.skills_resolved} resolved, ${r.skills_failed} failed`);
+        for (const entry of r.routing_log) {
+          const ms = entry.latency_ms ? ` ${formatDuration(entry.latency_ms)}` : '';
+          const mech = entry.mechanism ? ` via ${entry.mechanism}` : '';
+          lines.push(`    - [${entry.status}] ${entry.intent}${mech}${ms}`);
+          if (entry.status !== 'success' && entry.mechanism_log) {
+            for (const m of entry.mechanism_log as Array<Record<string, any>>) {
+              const err = m?.error ? ` — ${m.error}` : '';
+              lines.push(`        · ${m?.method ?? '?'} [${m?.status ?? '?'}]${err}`);
+            }
+          }
+        }
+      }
+    } else {
+      lines.push(`Skills: LLM-only (no routing phase)`);
+    }
     if (pipeline.decomposition) {
       lines.push(`Model: ${pipeline.decomposition.model}`);
       lines.push(`Reasoning: ${pipeline.decomposition.reasoning_complexity}`);
@@ -127,8 +149,8 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
               const isPending = idx > currentIndex;
 
               return (
+                <React.Fragment key={phase}>
                 <div
-                  key={phase}
                   className={`flex items-center gap-3 transition-all duration-300 ${
                     isPending ? 'opacity-30' : isActive ? 'opacity-100' : 'opacity-60'
                   }`}
@@ -163,12 +185,61 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
                     </span>
                   )}
 
+                  {isDone && pipeline.routing && phase === 'routing' && (
+                    <span className="text-[10px] text-muted-foreground font-mono ml-auto">
+                      {pipeline.routing.routing_log.length === 0
+                        ? 'LLM-only'
+                        : `${pipeline.routing.skills_resolved}✓ ${pipeline.routing.skills_failed}✗ · ${formatDuration(pipeline.routing.latency_ms)}`}
+                    </span>
+                  )}
+
                   {isDone && pipeline.synthesis && phase === 'synthesis' && (
                     <span className="text-[10px] text-muted-foreground font-mono ml-auto">
                       {formatDuration(pipeline.synthesis.latency_ms)}
                     </span>
                   )}
                 </div>
+
+                {phase === 'routing' && pipeline.routing && (idx <= currentIndex) && (
+                  pipeline.routing.routing_log.length === 0 ? (
+                    <div className="ml-8 text-[11px] text-muted-foreground italic">
+                      LLM-only response (no skills routed)
+                    </div>
+                  ) : (
+                    <div className="ml-8 flex flex-col gap-1 border-l border-border/30 pl-3">
+                      {pipeline.routing.routing_log.map((entry) => {
+                        const ok = entry.status === 'success';
+                        const noSkill = entry.status === 'no_skill';
+                        const dotColor = ok ? 'bg-green-500' : noSkill ? 'bg-gray-500' : 'bg-red-500';
+                        const failureDetail = !ok && entry.mechanism_log
+                          ? (entry.mechanism_log as Array<Record<string, any>>)
+                              .map(m => `${m?.method ?? '?'} [${m?.status ?? '?'}]${m?.error ? ` — ${m.error}` : ''}`)
+                              .join('\n')
+                          : '';
+                        const tooltip = ok
+                          ? entry.mechanism ?? ''
+                          : (failureDetail || entry.status);
+                        return (
+                          <div
+                            key={entry.ask_id}
+                            className="flex items-center gap-2 text-[11px]"
+                            title={tooltip}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
+                            <span className="font-mono text-muted-foreground truncate">
+                              {entry.intent}
+                              {entry.mechanism ? ` · ${entry.mechanism}` : ''}
+                            </span>
+                            <span className="ml-auto font-mono text-muted-foreground/70 shrink-0">
+                              {entry.latency_ms ? formatDuration(entry.latency_ms) : '—'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                )}
+                </React.Fragment>
               );
             })}
           </div>
