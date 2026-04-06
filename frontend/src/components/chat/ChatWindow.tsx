@@ -23,7 +23,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages }) => {
   return (
     <div 
       ref={scrollRef} 
-      className="flex-1 overflow-y-auto p-12 space-y-4 scroll-smooth scrollbar-hide bg-[#0c0d0e]"
+      className="flex-1 overflow-y-auto p-12 space-y-4 scroll-smooth scrollbar-hide bg-background"
     >
       <div className="max-w-4xl mx-auto">
         {messages.map((msg, idx) => (

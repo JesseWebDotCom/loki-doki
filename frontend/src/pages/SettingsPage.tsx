@@ -1,6 +1,6 @@
 import React from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
-import ThemeToggle from '../components/theme/ThemeToggle';
+import ThemeCustomizer from '../components/theme/ThemeCustomizer';
 import ThemeShowcase from '../components/theme/ThemeShowcase';
 import { Settings, Palette, Bell, Shield, Info } from 'lucide-react';
 
@@ -34,16 +34,16 @@ const SettingsPage: React.FC = () => {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
                 <div>
-                  <h3 className="text-base font-bold text-foreground">Design System Mode</h3>
-                  <p className="text-sm text-muted-foreground">Select between Light (Day), Dark (Night), or System-synchronized modes.</p>
+                  <h3 className="text-base font-bold text-foreground">Global Aesthetic Orchestration</h3>
+                  <p className="text-sm text-muted-foreground">Calibrate the system-wide radius, color palette, and design system mode.</p>
                 </div>
                 <div className="flex justify-start md:justify-end">
-                  <ThemeToggle />
+                  <ThemeCustomizer />
                 </div>
               </div>
 
               {/* Live Preview Container */}
-              <div className="mt-12">
+              <div className="mt-12 bg-card rounded-2xl p-8 border border-border/50">
                 <ThemeShowcase />
               </div>
             </div>
