@@ -1,0 +1,17 @@
+repos:
+- repo: local
+  hooks:
+    - id: pytest-unit
+      name: pytest-unit (Fast)
+      entry: pytest tests/unit
+      language: system
+      types: [python]
+      pass_filenames: false
+      stages: [commit]
+    - id: pytest-full
+      name: pytest-full (Full Suite)
+      entry: pytest tests
+      language: system
+      types: [python]
+      pass_filenames: false
+      stages: [push]

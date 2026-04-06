@@ -308,3 +308,24 @@ As you complete each phase, mark them as done and ask the user to validate.
 3. **Phase 3: Skill Framework**: Implement first 3 skills (Time, Weather, Wikipedia) with at least two mechanisms each.
 4. **Phase 4: Persistence**: Move from volatile session state to JSON file-based history.
 5. **Phase 5: Refinement**: Implement dynamic model loading and `thinking` vs `fast` reasoning paths.
+---
+
+## 10. Testing & Quality Assurance
+
+LokiDoki follows a **Test-Driven Development (TDD)** methodology to ensure system reliability and performance on the Pi 5.
+
+### I. Automated Test Suite
+- **Fast Unit Tests**: Target core logic (compression, parsing, skill selection). Run automatically on every `git commit`.
+- **Full Integration Suite**: Target end-to-end orchestration and API reliability. Run automatically on every `git push`.
+- **Coverage Target**: 100% coverage for all `lokidoki/core` and `skills/` components.
+
+### II. Test Runner UI
+A dedicated **"Tests" Tab** in the browser allows users and developers to:
+- Trigger test execution on demand.
+- View real-time output with clean, formatted results.
+- Drill down into detailed logs for failures.
+
+### III. CI/CD Hooks (Local)
+Managed via `pre-commit`, ensuring no regressions enter the codebase.
+- `commit`: `pytest tests/unit`
+- `push`: `pytest tests/`
