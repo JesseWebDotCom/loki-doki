@@ -1,11 +1,11 @@
 # LokiDoki Core — Agent Rules
 
 ## Project Context
-LokiDoki is a private, local AI assistant for Raspberry Pi 5. It uses a "Skills-First, LLM-Last" architecture.
-- **Backend**: FastAPI (Python), `uv` (dependency management), Ollama (Gemma 2B/9B).
-- **Frontend**: React (Vite), Tailwind CSS, shadcn/ui.
-- **Core Loop**: Decomposition (2B) -> Parallel Skills -> Synthesis (9B).
-- **Locations**: `docs/`, `lokidoki/` (app), `assets/` (models/ui), `data/` (runtime).
+LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). It uses a "Skills-First, LLM-Last" architecture.
+- **Backend**: FastAPI, `uv`, Ollama (Gemma 2B/9B).
+- **Frontend**: React (Vite), Tailwind, shadcn/ui.
+- **Core Loop**: Decomposition (2B) -> Skills -> Synthesis (9B).
+- **Files**: `docs/`, `lokidoki/` (app), `assets/`, `data/`.
 
 ## Approach
 - **Think Before Acting**: Read existing files (especially `docs/DESIGN.md`) before writing code.
@@ -14,7 +14,7 @@ LokiDoki is a private, local AI assistant for Raspberry Pi 5. It uses a "Skills-
 - **Atomic Operations**: Only re-read files if they've changed.
 - **Self-Verification**: Test code/paths before asserting success.
 - **No Fluff**: No sycophantic openers, apologies, or closing pleasantries.
-- **Smallest Change**: Implement the most direct solution that solves the issue.
+- **Smallest Change**: Implement direct solutions that solve the issue.
 - **User Instructions Overrules**: User prompt always takes precedence over this file.
 
 ## Technical Patterns
