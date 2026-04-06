@@ -1,178 +1,105 @@
 import React from 'react';
 import { useTheme } from './ThemeProvider';
+import { palettes } from './themes';
 
-// Mapping the user's provided theme objects to a format we can use for preview
-const lightTheme = {
-    '--background': 'oklch(0.98 0.01 334.35)',
-    '--foreground': 'oklch(0.22 0 0)',
-    '--card': 'oklch(0.96 0.01 335.69)',
-    '--card-foreground': 'oklch(0.14 0 0)',
-    '--popover': 'oklch(0.95 0.01 316.67)',
-    '--popover-foreground': 'oklch(0.40 0.04 309.35)',
-    '--primary': 'oklch(0.51 0.21 286.50)',
-    '--primary-foreground': 'oklch(1.00 0 0)',
-    '--secondary': 'oklch(0.49 0.04 300.23)',
-    '--secondary-foreground': 'oklch(1.00 0 0)',
-    '--muted': 'oklch(0.96 0.01 335.69)',
-    '--muted-foreground': 'oklch(0.14 0 0)',
-    '--accent': 'oklch(0.92 0.04 303.47)',
-    '--accent-foreground': 'oklch(0.14 0 0)',
-    '--destructive': 'oklch(0.57 0.23 29.21)',
-    '--border': 'oklch(0.83 0.02 308.26)',
-    '--input': 'oklch(0.57 0.02 309.68)',
-    '--ring': 'oklch(0.50 0.13 293.77)',
-    '--chart-1': 'oklch(0.61 0.21 279.42)',
-    '--chart-2': 'oklch(0.72 0.15 157.67)',
-    '--chart-3': 'oklch(0.66 0.17 324.24)',
-    '--chart-4': 'oklch(0.81 0.15 127.91)',
-    '--chart-5': 'oklch(0.68 0.17 258.25)',
+interface ThemePreviewProps {
+  title: string;
+  isDark: boolean;
+  paletteData: any;
 }
 
-const darkTheme = {
-    '--background': 'oklch(0.15 0.01 317.69)',
-    '--foreground': 'oklch(0.95 0.01 321.50)',
-    '--card': 'oklch(0.22 0.02 322.13)',
-    '--card-foreground': 'oklch(0.95 0.01 321.50)',
-    '--popover': 'oklch(0.22 0.02 322.13)',
-    '--popover-foreground': 'oklch(0.95 0.01 321.50)',
-    '--primary': 'oklch(0.60 0.22 279.81)',
-    '--primary-foreground': 'oklch(0.98 0.01 321.51)',
-    '--secondary': 'oklch(0.45 0.03 294.79)',
-    '--secondary-foreground': 'oklch(0.95 0.01 321.50)',
-    '--muted': 'oklch(0.22 0.01 319.50)',
-    '--muted-foreground': 'oklch(0.70 0.01 320.70)',
-    '--accent': 'oklch(0.35 0.06 299.57)',
-    '--accent-foreground': 'oklch(0.95 0.01 321.50)',
-    '--destructive': 'oklch(0.57 0.23 29.21)',
-    '--border': 'oklch(0.40 0.04 309.35)',
-    '--input': 'oklch(0.40 0.04 309.35)',
-    '--ring': 'oklch(0.50 0.15 294.97)',
-    '--chart-1': 'oklch(0.50 0.25 274.99)',
-    '--chart-2': 'oklch(0.60 0.15 150.16)',
-    '--chart-3': 'oklch(0.65 0.20 309.96)',
-    '--chart-4': 'oklch(0.60 0.17 132.98)',
-    '--chart-5': 'oklch(0.60 0.20 255.25)',
-}
-
-function ThemePreview({ mode, styles }: { mode: 'light' | 'dark'; styles: Record<string, string> }) {
-  const cssVars = Object.fromEntries(
-    Object.entries(styles).map(([key, value]) => [key, value])
-  ) as React.CSSProperties
+function ThemePreview({ title, isDark, paletteData }: ThemePreviewProps) {
+  const vars = isDark ? paletteData.dark : paletteData.light;
+  
+  // Create a scoped style object for the preview card
+  const style = {
+    ...vars,
+    '--radius': '1.5rem', // Match high-radius aesthetic
+  } as React.CSSProperties;
 
   return (
-    <div
-      className="rounded-lg border p-8 space-y-8 shadow-m3 transition-all duration-500"
-      style={{
-        ...cssVars,
-        background: styles['--background'],
-        color: styles['--foreground'],
-        borderColor: styles['--border']
-      }}
+    <div 
+      style={style}
+      className="flex-1 rounded-[2.5rem] bg-background text-foreground border border-border/10 p-10 space-y-10 shadow-m3 transition-all duration-500 overflow-hidden"
     >
-      <div className="text-center space-y-2">
-        <h3 className="text-xl font-bold tracking-tight">{mode === 'light' ? 'Authorized Day Mode' : 'Authorized Night Mode'}</h3>
-        <p className="text-sm font-medium" style={{ color: styles['--muted-foreground'] }}>
-          Google Material Design Architecture
-        </p>
+      <div className="text-center space-y-1">
+        <h3 className="text-2xl font-bold tracking-tight">{title}</h3>
+        <p className="text-sm font-medium text-muted-foreground">Preview of theme colors</p>
       </div>
 
-      {/* Color Swatches */}
-      <div className="grid grid-cols-5 gap-3">
-        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--primary'] }} title="Primary" />
-        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--secondary'] }} title="Secondary" />
-        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--accent'] }} title="Accent" />
-        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--muted'] }} title="Muted" />
-        <div className="aspect-square rounded-md shadow-m1" style={{ background: styles['--destructive'] }} title="Destructive" />
+      {/* Swatches */}
+      <div className="grid grid-cols-5 gap-4">
+        <div className="aspect-square rounded-3xl bg-primary shadow-m1" />
+        <div className="aspect-square rounded-3xl bg-secondary shadow-m1 opacity-80" />
+        <div className="aspect-square rounded-3xl bg-accent shadow-m1" />
+        <div className="aspect-square rounded-3xl bg-muted border border-border/10 shadow-sm" />
+        <div className="aspect-square rounded-3xl bg-destructive shadow-m1" />
       </div>
 
       {/* Buttons */}
-      <div className="flex flex-wrap gap-3">
-        <button
-          className="px-5 py-2.5 rounded-md text-sm font-bold shadow-m2 transition-transform active:scale-95"
-          style={{ background: styles['--primary'], color: styles['--primary-foreground'] }}
-        >
-          Primary Action
-        </button>
-        <button
-          className="px-5 py-2.5 rounded-md text-sm font-bold shadow-m1 transition-transform active:scale-95"
-          style={{ background: styles['--secondary'], color: styles['--secondary-foreground'] }}
-        >
-          Secondary
-        </button>
-        <button
-          className="px-5 py-2.5 rounded-xl text-sm font-bold border shadow-sm transition-transform active:scale-95"
-          style={{ borderColor: styles['--border'], color: styles['--foreground'] }}
-        >
-          Outline View
-        </button>
+      <div className="flex flex-wrap items-center gap-4">
+        <button className="px-8 py-3 rounded-full bg-primary text-primary-foreground font-bold text-sm shadow-m2">Primary</button>
+        <button className="px-8 py-3 rounded-full bg-secondary text-secondary-foreground font-bold text-sm shadow-m1">Secondary</button>
+        <button className="px-8 py-3 rounded-full border border-border text-foreground font-bold text-sm">Outline</button>
+        <button className="px-8 py-3 rounded-full bg-destructive text-primary-foreground font-bold text-sm shadow-m1">Destructive</button>
       </div>
 
-      {/* Card */}
-      <div
-        className="rounded-md border p-6 space-y-3 shadow-m1"
-        style={{
-          background: styles['--card'],
-          borderColor: styles['--border'],
-          color: styles['--card-foreground']
-        }}
-      >
-        <h4 className="font-bold text-lg">Surface Layer 1</h4>
-        <p className="text-sm leading-relaxed" style={{ color: styles['--muted-foreground'] }}>
-          Material Design surface with oklch calibration and high-fidelity elevation.
+      {/* Surface Layer / Card */}
+      <div className="rounded-[2rem] bg-card p-8 border border-border/5 space-y-2 shadow-m2 transition-all hover:scale-[1.01]">
+        <h4 className="text-xl font-bold tracking-tight">Card Title</h4>
+        <p className="text-sm font-medium text-muted-foreground leading-relaxed">
+          Card description with muted text styling.
         </p>
       </div>
 
+      {/* Input Field Form Factor */}
+      <div className="space-y-3">
+        <label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground ml-1">Input Field</label>
+        <div className="w-full px-6 py-4 rounded-2xl bg-background border border-border/20 text-sm italic text-muted-foreground flex items-center">
+          Enter text...
+        </div>
+      </div>
+
       {/* Badges */}
-      <div className="flex gap-3">
-        <span
-          className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-primary/10 border border-primary/20"
-          style={{ color: styles['--primary'] }}
-        >
-          Active
-        </span>
-        <span
-          className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-secondary/10 border border-secondary/20"
-          style={{ color: styles['--secondary'] }}
-        >
-          Context
-        </span>
+      <div className="flex items-center gap-3">
+         <span className="px-5 py-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-widest shadow-sm">Badge</span>
+         <span className="px-5 py-1.5 rounded-full bg-secondary text-secondary-foreground text-[10px] font-black uppercase tracking-widest shadow-sm">Secondary</span>
+         <span className="px-5 py-1.5 rounded-full border border-border text-foreground text-[10px] font-black uppercase tracking-widest">Outline</span>
       </div>
 
       {/* Chart Colors */}
-      <div className="space-y-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Visualization Core</p>
-        <div className="grid grid-cols-5 gap-2">
-          <div className="h-10 rounded-lg shadow-sm" style={{ background: styles['--chart-1'] }} />
-          <div className="h-10 rounded-lg shadow-sm" style={{ background: styles['--chart-2'] }} />
-          <div className="h-10 rounded-lg shadow-sm" style={{ background: styles['--chart-3'] }} />
-          <div className="h-10 rounded-lg shadow-sm" style={{ background: styles['--chart-4'] }} />
-          <div className="h-10 rounded-lg shadow-sm" style={{ background: styles['--chart-5'] }} />
+      <div className="space-y-4">
+        <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground ml-1">Chart Colors</h5>
+        <div className="grid grid-cols-5 h-12 gap-2">
+            <div className="rounded-xl bg-primary/80" />
+            <div className="rounded-xl bg-secondary/80" />
+            <div className="rounded-xl bg-accent/80" />
+            <div className="rounded-xl bg-primary/40" />
+            <div className="rounded-xl bg-secondary/40" />
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 const ThemeShowcase: React.FC = () => {
-    const { theme } = useTheme();
-    
-    // Determine which preview to show based on current theme
-    const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const { palette } = useTheme();
+    const currentPalette = palettes.find(p => p.id === palette) || palettes[0];
 
     return (
-        <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="flex items-center gap-4 mb-4">
-                <span className="h-[1px] flex-1 bg-border/20" />
-                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.4em]">
+        <div className="w-full animate-in fade-in duration-1000 p-8 space-y-12">
+            <div className="flex items-center gap-6 mb-4 opacity-40">
+                <span className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+                <div className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.5em] whitespace-nowrap">
                     Live Authoritative Preview
                 </div>
-                <span className="h-[1px] flex-1 bg-border/20" />
+                <span className="h-[1px] flex-1 bg-gradient-to-r from-border via-border to-transparent" />
             </div>
             
-            <ThemePreview 
-                mode={isDark ? 'dark' : 'light'} 
-                styles={isDark ? darkTheme : lightTheme} 
-            />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-stretch">
+                <ThemePreview title="Light Mode" isDark={false} paletteData={currentPalette} />
+                <ThemePreview title="Dark Mode" isDark={true} paletteData={currentPalette} />
+            </div>
         </div>
     );
 };

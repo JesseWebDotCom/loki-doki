@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from "react"
+import { palettes, type PaletteId } from "./themes"
 
 export type Theme = "dark" | "light" | "system"
 export type Radius = "0" | "0.5rem" | "1rem"
-export type Palette = "material" | "ocean" | "onyx"
+export type Palette = PaletteId
 export type Font = "roboto" | "merriweather"
 
 interface ThemeProviderProps {
@@ -64,33 +65,57 @@ export function ThemeProvider({
 
   useEffect(() => {
     const root = window.document.documentElement
+    
+    // 1. Handle Dark/Light Mode
     root.classList.remove("light", "dark")
+    const activeMode = theme === "system" 
+      ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+      : theme
+    root.classList.add(activeMode)
 
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
-      root.classList.add(systemTheme)
-    } else {
-      root.classList.add(theme)
-    }
-
-    // Apply Radius
+    // 2. Apply Radius
     root.style.setProperty("--radius", radius)
 
-    // Apply Font
+    // 3. Apply Font
     if (font === "merriweather") {
-      root.style.setProperty("--font-primary", "Merriweather, serif")
+      root.style.setProperty("--font-primary", "Merriweather, Inter, serif")
     } else {
       root.style.setProperty("--font-primary", "Roboto, Inter, sans-serif")
     }
 
-    // Apply Palette Overrides
-    if (palette === "ocean") {
-      root.style.setProperty("--primary", "oklch(0.65 0.20 160)") // Vibrant Cyan/Green
-    } else if (palette === "onyx") {
-      root.style.setProperty("--primary", "oklch(0.985 0 0)") // Silver/White accent
-    } else {
-      root.style.removeProperty("--primary") // Fallback to index.css Material Purple
+    // 4. Apply Palette Variables
+    const currentPalette = palettes.find(p => p.id === palette) || palettes[0]
+    const paletteVars = activeMode === "dark" ? currentPalette.dark : currentPalette.light
+
+    Object.entries(paletteVars).forEach(([key, value]) => {
+      root.style.setProperty(key, value)
+    })
+
+    // 5. Derive surface variables if not explicitly provided
+    if (!paletteVars['--card']) {
+      root.style.setProperty('--card', paletteVars['--background'])
     }
+    if (!paletteVars['--popover']) {
+      root.style.setProperty('--popover', paletteVars['--background'])
+    }
+    if (!paletteVars['--muted']) {
+      root.style.setProperty('--muted', paletteVars['--background'])
+    }
+    
+    // Sidebar fallback logic
+    if (!paletteVars['--sidebar']) {
+      root.style.setProperty('--sidebar', paletteVars['--background'])
+    }
+    if (!paletteVars['--sidebar-foreground']) {
+      root.style.setProperty('--sidebar-foreground', paletteVars['--foreground'])
+    }
+    if (!paletteVars['--sidebar-border']) {
+      root.style.setProperty('--sidebar-border', paletteVars['--border'] || 'transparent')
+    }
+
+    // Also update foregrounds if missing
+    if (!paletteVars['--card-foreground']) root.style.setProperty('--card-foreground', paletteVars['--foreground'])
+    if (!paletteVars['--popover-foreground']) root.style.setProperty('--popover-foreground', paletteVars['--foreground'])
 
   }, [theme, radius, palette, font])
 
