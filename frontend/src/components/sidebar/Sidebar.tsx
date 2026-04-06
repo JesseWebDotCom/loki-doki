@@ -7,7 +7,7 @@ import { Link, useLocation } from 'react-router-dom';
 import type { PipelineState } from '../../pages/ChatPage';
 
 interface SidebarProps {
-  phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis';
+  phase: PipelineState['phase'];
   pipeline?: PipelineState;
 }
 

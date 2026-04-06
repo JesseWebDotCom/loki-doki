@@ -10,10 +10,11 @@ export interface Message {
   content: string;
   timestamp: string;
   sources?: SourceInfo[];
+  pipeline?: PipelineState;
 }
 
 export interface PipelineState {
-  phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis';
+  phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis' | 'completed';
   decomposition: DecompositionData | null;
   synthesis: SynthesisData | null;
   totalLatencyMs: number;
@@ -66,11 +67,13 @@ const ChatPage: React.FC = () => {
 
       setPipeline(prev => {
         if (prev.synthesis?.response) {
+          const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
           setMessages(msgs => [...msgs, {
             role: 'assistant',
             content: prev.synthesis!.response,
             timestamp: new Date().toLocaleTimeString(),
             sources: prev.synthesis!.sources ?? [],
+            pipeline: completedPipeline,
           }]);
         }
         return { ...prev, phase: 'idle' };

@@ -20,16 +20,14 @@ interface MessageProps {
  * Returns an array of React nodes (strings + citation elements).
  */
 function renderWithCitations(content: string, sources: SourceInfo[]): React.ReactNode[] {
-  if (!sources.length) {
-    return [content];
-  }
-
   const parts: React.ReactNode[] = [];
   const regex = /\[src:(\d+)\]/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
+  let hasMarkers = false;
 
   while ((match = regex.exec(content)) !== null) {
+    hasMarkers = true;
     // Text before this marker
     if (match.index > lastIndex) {
       parts.push(content.slice(lastIndex, match.index));
@@ -61,12 +59,22 @@ function renderWithCitations(content: string, sources: SourceInfo[]): React.Reac
         </TooltipProvider>
       );
     } else {
-      // Unknown source index — render as plain text
-      parts.push(match[0]);
+      // Source not available — render as a muted indicator (strip raw marker)
+      parts.push(
+        <span
+          key={`src-na-${match.index}`}
+          className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-muted/50 border border-border/30 text-muted-foreground mx-0.5 align-middle"
+          title={`Source ${match[1]} unavailable`}
+        >
+          <LinkIcon size={10} />
+        </span>
+      );
     }
 
     lastIndex = regex.lastIndex;
   }
+
+  if (!hasMarkers) return [content];
 
   // Remaining text after last marker
   if (lastIndex < content.length) {
