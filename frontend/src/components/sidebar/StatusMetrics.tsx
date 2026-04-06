@@ -1,0 +1,54 @@
+import React from 'react';
+import { Cpu, Layers, Timer, Activity } from 'lucide-react';
+import Badge from '../ui/Badge';
+
+interface MetricProps {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  status?: 'active' | 'success' | 'warning';
+}
+
+const MetricRow: React.FC<MetricProps> = ({ icon, label, value, status = 'active' }) => (
+  <div className="flex items-center justify-between py-3 border-b border-gray-800/10 last:border-0 hover:bg-white/5 transition-colors px-2 rounded-lg">
+    <div className="flex items-center gap-3">
+      <div className="p-1.5 rounded-md bg-white/5 text-gray-500">{icon}</div>
+      <span className="text-xs font-semibold text-gray-500 tracking-tight uppercase">{label}</span>
+    </div>
+    <div className="flex items-center gap-2">
+      <div className="text-xs font-mono text-gray-300 font-bold">{value}</div>
+      {status === 'active' && <div className="w-1.5 h-1.5 rounded-full bg-electric shadow-[0_0_8px_rgba(59,130,246,0.5)]" />}
+    </div>
+  </div>
+);
+
+const StatusMetrics: React.FC = () => {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between mb-4 px-2">
+        <h3 className="text-[10px] font-bold text-gray-600 uppercase tracking-widest flex items-center gap-2">
+          <Activity size={12} className="text-gray-500" />
+          Hardware Residence
+        </h3>
+        <Badge variant="success">Resident</Badge>
+      </div>
+      
+      <MetricRow icon={<Cpu size={14}/>} label="Gemma 2B" value="4.2GB" />
+      <MetricRow icon={<Layers size={14}/>} label="KV Cache" value="128MB" />
+      <MetricRow icon={<Timer size={14}/>} label="Avg TBT" value="420ms" />
+      
+      <div className="mt-8 px-2">
+        <div className="p-4 rounded-xl bg-electric/5 border border-electric/10">
+          <div className="text-[9px] font-bold text-electric uppercase tracking-widest mb-1 opacity-60 font-sans">
+            System Optimizer
+          </div>
+          <div className="text-xs text-gray-400 leading-snug font-medium italic">
+            Pi 5 thermal stable. Memory pressure within nominal ranges.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default StatusMetrics;

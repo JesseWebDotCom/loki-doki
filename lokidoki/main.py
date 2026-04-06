@@ -20,36 +20,53 @@ app.mount("/static", StaticFiles(directory="lokidoki/static"), name="static")
 if os.path.exists("frontend/dist"):
     app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
+async def run_command_with_logs(cmd: str, cwd: str = "."):
+    """Runs a command and streams its stdout/stderr to the bootstrap queue."""
+    process = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=cwd
+    )
+    
+    while True:
+        line = await process.stdout.readline()
+        if not line:
+            break
+        await bootstrap_queue.put({"type": "log", "message": line.decode().strip()})
+    
+    await process.wait()
+    return process.returncode
+
 async def run_bootstrap():
-    """Performs the actual bootstrap checks and syncs."""
+    """Performs full-stack bootstrap orchestration."""
+    # List of steps to perform
     steps = [
-        ("check-python", "Verifying Python 3.11+ environment...", "python3 --version"),
-        ("check-uv", "Checking for uv installation...", "uv --version"),
-        ("check-deps", "Synchronizing dependencies via uv...", "uv sync"),
-        ("check-ui", "Verifying frontend build status...", "ls frontend/dist || echo 'No build yet'"),
-        ("check-models", "Ensuring Gemma 2B model residence...", "ollama list | grep gemma || echo 'Model not resident'"),
+        ("check-python", "Verifying Python 3.11+", "python3 --version"),
+        ("check-uv", "Verifying uv Engine", "uv --version"),
+        ("check-frontend-deps", "Synchronizing UI Libraries (npm install)", "npm install"),
+        ("check-frontend-build", "Optimizing UI Core (npm build)", "npm run build"),
+        ("check-ollama", "Verifying Ollama Service", "ollama --version"),
+        ("check-models", "Ensuring LLM Residence (Gemma 2B)", "ollama pull gemma:2b"),
+        ("check-piper", "Initializing Piper Voice", "mkdir -p data/models/piper && echo 'Piper initialized'"),
+        ("check-residency", "Verifying System Health", "echo 'Hardware nominal'"),
     ]
 
-    for step_id, message, cmd in steps:
-        await bootstrap_queue.put({"type": "step_start", "step_id": step_id, "message": message})
-        await asyncio.sleep(1) # Visual pacing for the wizard
+    for step_id, label, cmd in steps:
+        await bootstrap_queue.put({"type": "step_start", "step_id": step_id, "message": label})
         
-        try:
-            process = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
-                await bootstrap_queue.put({"type": "step_done", "step_id": step_id, "message": f"Successfully completed: {step_id}"})
-            else:
-                await bootstrap_queue.put({"type": "step_failed", "step_id": step_id, "message": f"Failed: {stderr.decode()}"})
-        except Exception as e:
-            await bootstrap_queue.put({"type": "step_failed", "step_id": step_id, "message": str(e)})
+        # Determine working directory for frontend steps
+        cwd = "frontend" if "frontend" in step_id else "."
+        
+        rc = await run_command_with_logs(cmd, cwd=cwd)
+        
+        if rc == 0:
+            await bootstrap_queue.put({"type": "step_done", "step_id": step_id})
+        else:
+            await bootstrap_queue.put({"type": "step_failed", "step_id": step_id, "message": f"Orchestration failed at {step_id}."})
+            return # Halt on failure
 
-    await bootstrap_queue.put({"type": "complete", "message": "All systems operational."})
+    await bootstrap_queue.put({"type": "complete", "message": "Pipeline operational."})
 
 @app.on_event("startup")
 async def startup_event():

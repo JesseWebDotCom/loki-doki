@@ -29,30 +29,38 @@
 
         .wizard-container {
             width: 100%;
-            max-width: 440px;
+            max-width: 520px;
             background: var(--surface);
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 24px;
+            padding: 48px;
+            box-shadow: 0 50px 100px -20px rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.03);
             text-align: center;
             position: relative;
         }
 
         h1 {
-            font-size: 24px;
-            font-weight: 700;
+            font-size: 28px;
+            font-weight: 800;
             margin-bottom: 8px;
-            letter-spacing: -0.02em;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #fff 0%, #666 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .subtitle {
             color: var(--text-dim);
-            font-size: 14px;
+            font-size: 15px;
             margin-bottom: 32px;
+            font-weight: 500;
         }
 
-        .steps-container {
+        .steps-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
             text-align: left;
             margin-bottom: 32px;
         }
@@ -61,69 +69,82 @@
             display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 16px;
-            font-size: 14px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 12px;
+            font-size: 13px;
+            border: 1px solid transparent;
             transition: all 0.3s ease;
         }
 
         .step-icon {
-            width: 20px;
-            height: 20px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            border: 2px solid var(--text-dim);
+            background: var(--text-dim);
             flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
         }
 
-        .step.active .step-icon { border-color: var(--brand); box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
-        .step.done .step-icon { background: var(--success); border-color: var(--success); }
-        .step.failed .step-icon { background: var(--failure); border-color: var(--failure); }
+        .step.active { border-color: var(--brand); background: rgba(59, 130, 246, 0.05); }
+        .step.active .step-icon { background: var(--brand); box-shadow: 0 0 10px var(--brand); }
+        .step.done .step-icon { background: var(--success); }
+        .step.failed .step-icon { background: var(--failure); }
+
+        .progress-section {
+            margin-bottom: 24px;
+        }
 
         .progress-bar-bg {
-            height: 4px;
+            height: 6px;
             background: rgba(255, 255, 255, 0.05);
-            border-radius: 2px;
+            border-radius: 3px;
             overflow: hidden;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
 
         .progress-bar-fill {
             height: 100%;
             width: 0%;
-            background: var(--brand);
+            background: linear-gradient(90deg, var(--brand) 0%, #60a5fa 100%);
             transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
         .details-btn {
-            background: none;
-            border: none;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             color: var(--text-dim);
-            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 10px;
             cursor: pointer;
             text-transform: uppercase;
             letter-spacing: 0.1em;
-            text-decoration: underline;
+            font-weight: 700;
         }
 
-        .details-btn:hover { color: var(--text-bright); }
+        .details-btn:hover { color: var(--text-bright); border-color: rgba(255, 255, 255, 0.2); }
 
         .console {
             display: none;
-            margin-top: 16px;
             background: #000;
-            border-radius: 8px;
-            padding: 12px;
+            border-radius: 12px;
+            padding: 16px;
             font-family: "SF Mono", "Menlo", monospace;
-            font-size: 12px;
+            font-size: 11px;
             text-align: left;
-            height: 120px;
+            height: 180px;
             overflow-y: auto;
             color: #10b981;
             opacity: 0.8;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            line-height: 1.6;
         }
 
         .buttons {
@@ -134,79 +155,90 @@
         }
 
         .btn {
-            padding: 14px;
-            border-radius: 12px;
-            font-weight: 600;
-            font-size: 15px;
+            padding: 16px;
+            border-radius: 16px;
+            font-weight: 700;
+            font-size: 16px;
             cursor: pointer;
-            transition: transform 0.2s ease, opacity 0.2s ease;
+            transition: all 0.2s ease;
             border: none;
         }
 
-        .btn-launch { background: var(--brand); color: white; display: none; }
-        .btn-launch:hover { transform: translateY(-1px); opacity: 0.9; }
-
-        .btn-disabled { background: #232427; color: #4b4c50; cursor: not-allowed; }
-
-        .loading-spinner {
-            width: 12px;
-            height: 12px;
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            border-top-color: white;
-            border-radius: 50%;
-            animation: spin 1s infinite linear;
+        .btn-launch { 
+            background: var(--brand); 
+            color: white; 
             display: none;
+            box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4);
         }
+        .btn-launch:hover { transform: translateY(-2px); box-shadow: 0 15px 30px -5px rgba(59, 130, 246, 0.5); }
 
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .btn-disabled { background: #1e1f21; color: #4b4c50; cursor: not-allowed; }
 
         .ghost-icon {
             display: inline-block;
             margin-bottom: 24px;
             color: var(--brand);
-            animation: float 3s ease-in-out infinite;
+            animation: float 4s ease-in-out infinite;
         }
 
-        @keyframes float { 0% { transform: translateY(0); } 50% { transform: translateY(-8px); } 100% { transform: translateY(0); } }
+        @keyframes float { 0% { transform: translateY(0); } 50% { transform: translateY(-12px); } 100% { transform: translateY(0); } }
     </style>
 </head>
 <body>
     <div class="wizard-container">
         <div class="ghost-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 1.9-1.9a9 9 0 1 1 3.2 3.2L11 24"/><circle cx="9" cy="9" r="6"/><circle cx="15" cy="15" r="6"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
         </div>
-        <h1>LokiDoki Initializing</h1>
-        <p class="subtitle">Autonomous Agent & Skill Orchestrator Pipeline</p>
+        <h1>LokiDoki Core</h1>
+        <p class="subtitle">Full-Stack Dependency Orchestration</p>
 
-        <div class="steps-container">
-            <div id="check-python" class="step"><div class="step-icon"></div> Python Runtime 3.11+</div>
-            <div id="check-uv" class="step"><div class="step-icon"></div> Dependency Engine (uv)</div>
-            <div id="check-deps" class="step"><div class="step-icon"></div> Library Synchronization</div>
-            <div id="check-ui" class="step"><div class="step-icon"></div> Frontend Core Bundle</div>
-            <div id="check-models" class="step"><div class="step-icon"></div> LLM Residence (Gemma 2B)</div>
+        <div class="steps-grid">
+            <div id="check-python" class="step"><div class="step-icon"></div> Python Runtime</div>
+            <div id="check-uv" class="step"><div class="step-icon"></div> uv Engine</div>
+            <div id="check-frontend-deps" class="step"><div class="step-icon"></div> UI Libraries</div>
+            <div id="check-frontend-build" class="step"><div class="step-icon"></div> UI Optimization</div>
+            <div id="check-ollama" class="step"><div class="step-icon"></div> Ollama Service</div>
+            <div id="check-models" class="step"><div class="step-icon"></div> LLM Residence</div>
+            <div id="check-piper" class="step"><div class="step-icon"></div> Piper Voice</div>
+            <div id="check-residency" class="step"><div class="step-icon"></div> System Health</div>
         </div>
 
-        <div class="progress-bar-bg"><div id="progress-fill" class="progress-bar-fill"></div></div>
+        <div class="progress-section">
+            <div class="progress-bar-bg"><div id="progress-fill" class="progress-bar-fill"></div></div>
+            <div class="console-header">
+                <span id="current-task" style="font-size: 11px; color: var(--text-dim); font-weight: 600;">System idle...</span>
+                <button class="details-btn" onclick="toggleConsole()">View Detailed Logs</button>
+            </div>
+        </div>
         
-        <button class="details-btn" onclick="toggleConsole()">Show Detail View</button>
-        <div id="console" class="console">Initializing bootstrap listener...</div>
+        <div id="console" class="console">
+            <div>[System] Initializing session...</div>
+        </div>
 
         <div class="buttons">
             <button id="launch-btn" class="btn btn-launch" onclick="launchApp()">Launch Chat Interface</button>
-            <button id="waiting-btn" class="btn btn-disabled">Please Wait...</button>
+            <button id="waiting-btn" class="btn btn-disabled">Orchestrating Pipeline...</button>
         </div>
     </div>
 
     <script>
         const statusEl = document.getElementById('console');
         const progressEl = document.getElementById('progress-fill');
-        const steps = ['check-python', 'check-uv', 'check-deps', 'check-ui', 'check-models'];
+        const taskEl = document.getElementById('current-task');
+        
+        const steps = [
+            'check-python', 'check-uv', 'check-frontend-deps', 
+            'check-frontend-build', 'check-ollama', 'check-models', 
+            'check-piper', 'check-residency'
+        ];
         let currentStepIdx = 0;
 
         function log(msg) {
             const div = document.createElement('div');
             div.textContent = `> ${msg}`;
             statusEl.appendChild(div);
+            // Limit log lines for performance
+            if (statusEl.children.length > 500) statusEl.removeChild(statusEl.firstChild);
             statusEl.scrollTop = statusEl.scrollHeight;
         }
 
@@ -217,6 +249,7 @@
 
         function updateStep(id, status) {
             const el = document.getElementById(id);
+            if (!el) return;
             el.className = `step ${status}`;
             if (status === 'done') {
                 currentStepIdx++;
@@ -224,29 +257,37 @@
             }
         }
 
-        // Connect to Server-Sent Events from backend
+        // Connect to SSE
         const eventSource = new EventSource('/api/v1/bootstrap/status');
 
         eventSource.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            log(data.message);
+            
+            if (data.type === 'log') {
+                log(data.message);
+                return;
+            }
 
             if (data.type === 'step_start') {
+                taskEl.textContent = data.message;
                 updateStep(data.step_id, 'active');
+                log(`[START] ${data.message}`);
             } else if (data.type === 'step_done') {
                 updateStep(data.step_id, 'done');
+                log(`[DONE] ${data.step_id} verified.`);
             } else if (data.type === 'step_failed') {
                 updateStep(data.step_id, 'failed');
+                log(`[ERROR] ${data.message}`);
+                taskEl.textContent = "Pipeline halted. Check logs.";
+                taskEl.style.color = "var(--failure)";
             } else if (data.type === 'complete') {
                 document.getElementById('waiting-btn').style.display = 'none';
                 document.getElementById('launch-btn').style.display = 'block';
-                log("Bootstrap sequence complete. System ready.");
+                taskEl.textContent = "System Ready.";
+                taskEl.style.color = "var(--success)";
+                log("All systems operational. Launching enabled.");
                 eventSource.close();
             }
-        };
-
-        eventSource.onerror = (e) => {
-            log("Error connecting to bootstrap server. Retrying...");
         };
 
         function launchApp() {
