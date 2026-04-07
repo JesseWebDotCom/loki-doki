@@ -21,6 +21,15 @@ class Ask:
     intent: str
     distilled_query: str
     parameters: dict = field(default_factory=dict)
+    # How the orchestrator should turn the skill result into the user-
+    # facing response. "synthesized" runs the 9B synthesis model over
+    # the skill data (default; safe for anything conversational).
+    # "verbatim" returns the skill's primary text payload directly with
+    # a [src:N] marker — used for definitional / lookup queries where
+    # paraphrasing through an LLM only adds latency, hallucination risk,
+    # and context-window failure modes. The decomposer chooses; the
+    # orchestrator never inspects the user's words to decide.
+    response_shape: str = "synthesized"
 
 
 @dataclass
@@ -69,12 +78,16 @@ DECOMPOSITION_SCHEMA: dict = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["ask_id", "intent", "distilled_query"],
+                "required": ["ask_id", "intent", "distilled_query", "response_shape"],
                 "properties": {
                     "ask_id": {"type": "string"},
                     "intent": {"type": "string"},
                     "distilled_query": {"type": "string"},
                     "parameters": {"type": "object"},
+                    "response_shape": {
+                        "type": "string",
+                        "enum": ["verbatim", "synthesized"],
+                    },
                 },
             },
         },
@@ -91,7 +104,8 @@ DECOMPOSITION_PROMPT = (
     "long_term_memory:[{subject_type:'self'|'person',subject_name:str,"
     "predicate:str,value:str,kind:'fact'|'relationship',"
     "relationship_kind:str|null,category:str,negates_previous:bool}],"
-    "asks:[{ask_id:str,intent:str,distilled_query:str,parameters:{}}]}\n"
+    "asks:[{ask_id:str,intent:str,distilled_query:str,parameters:{},"
+    "response_shape:\"verbatim\"|\"synthesized\"}]}\n"
     "RULES:\n"
     "- is_course_correction=true if user corrects/refines previous answer\n"
     "- overall_reasoning_complexity=\"thinking\" if query needs deep analysis, math, or multi-step logic\n"
@@ -111,6 +125,15 @@ DECOMPOSITION_PROMPT = (
     "- Lowercased input is still valid. 'my brother artie' yields subject_name:'Artie' (capitalize on output).\n"
     "- Set negates_previous=true ONLY when the user explicitly corrects a prior fact (e.g. 'No, my brother's name is Art, not Artie' -> negates_previous:true). Default false.\n"
     "- Distill each ask into a clean, skill-ready sub-query\n"
+    "- response_shape=\"verbatim\" when the user is asking for a direct"
+    " factual lookup that a knowledge skill can answer with its own"
+    " text (definitions, biographies, 'who/what is X', 'tell me about"
+    " X', 'define X'). The orchestrator returns the skill's text"
+    " directly with a [src:N] marker.\n"
+    "- response_shape=\"synthesized\" for everything else: conversation,"
+    " opinion, multi-source reasoning, follow-ups, anything where the"
+    " skill data is raw input that still needs the assistant's voice."
+    " When in doubt, choose \"synthesized\".\n"
 )
 
 
@@ -236,6 +259,11 @@ class Decomposer:
                     intent=a.get("intent", "direct_chat"),
                     distilled_query=a.get("distilled_query", original_input),
                     parameters=a.get("parameters", {}),
+                    response_shape=(
+                        a.get("response_shape")
+                        if a.get("response_shape") in ("verbatim", "synthesized")
+                        else "synthesized"
+                    ),
                 )
                 for i, a in enumerate(data.get("asks", []))
             ]

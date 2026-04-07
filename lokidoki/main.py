@@ -1,8 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from lokidoki.api.routes import tests, chat, memory, audio, settings, auth, admin, projects
+from lokidoki.api.routes import tests, chat, memory, audio, settings, auth, admin, projects, logs
 from lokidoki.api.middleware.bootstrap_gate import BootstrapGateMiddleware
+from lokidoki.core.log_buffer import install as install_log_buffer
+
+install_log_buffer()
 import asyncio
 import json
 import os
@@ -103,6 +106,7 @@ app.include_router(projects.router, prefix="/api/v1/projects", tags=["Projects"]
 app.include_router(memory.router, prefix="/api/v1/memory", tags=["Memory"])
 app.include_router(audio.router, prefix="/api/v1/audio", tags=["Audio"])
 app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
+app.include_router(logs.router, prefix="/api/v1/logs", tags=["Logs"])
 
 @app.get("/", response_class=HTMLResponse)
 async def root():

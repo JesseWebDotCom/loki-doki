@@ -33,14 +33,14 @@ from lokidoki.core.orchestrator_skills import (
 class TestAckPromptShape:
     def test_contains_warm_positive_examples(self):
         p = build_acknowledgment_prompt(query="my brother artie loves movies")
-        # The new warm pattern the model is supposed to imitate.
-        assert "GOOD EXAMPLES" in p
         # Reaction words that signal warmth.
-        assert "Aww" in p or "Oh nice" in p
+        assert "Aww" in p
         # Bot self-disclosure (sharing its own take).
-        assert "I'm a movie person" in p or "I'm a sucker" in p
+        assert "I'm a total sucker" in p
         # Follow-up question pattern.
         assert "?" in p
+        # Section header for the few-shot block.
+        assert "examples of the warm" in p
 
     def test_contains_personality_block(self):
         """The bot's interests must be injected so it can self-disclose."""
@@ -55,13 +55,37 @@ class TestAckPromptShape:
         )
         assert "rock climbing" in p
 
-    def test_contains_banned_block(self):
+    def test_user_query_not_duplicated_in_fewshot(self):
+        """REGRESSION: a 2B model mode-collapses to empty output when its
+        actual query is also a few-shot example. The user query must
+        appear ONLY in the final generation slot, never in the demos.
+
+        Pins the bug from the live test where 'my brother artie loves
+        movies' was both the first GOOD example and the actual query,
+        causing synthesis to return empty for 1.77s.
+        """
+        query = "my brother artie loves movies"
+        p = build_acknowledgment_prompt(query=query)
+        # Split at the final generation marker; the few-shot section is
+        # everything before it.
+        parts = p.split("Now respond")
+        assert len(parts) == 2, "prompt must have a single generation slot"
+        fewshot_section = parts[0]
+        assert query not in fewshot_section, (
+            f"user query must not appear in few-shot examples; "
+            f"this causes 2B models to mode-collapse"
+        )
+        # And the query DOES appear in the generation slot.
+        assert query in parts[1]
+
+    def test_no_banned_block_adjacent_to_generation_slot(self):
+        """REGRESSION: a 'BANNED' block immediately before the model's
+        turn confuses small models. The current prompt should be
+        positive-only — the BANNED-STARTS rule is fine as a one-liner."""
         p = build_acknowledgment_prompt(query="my brother artie loves movies")
-        assert "BANNED" in p
-        assert "BANNED STARTS" in p
-        # The exact failure modes the user reported.
-        assert "Artie loves movies." in p
-        assert "Got it — noted." in p  # explicitly banned as cold
+        # The string "← BANNED" is the failure pattern from the previous
+        # version. It must not appear anywhere.
+        assert "← BANNED" not in p
 
     def test_does_not_include_skill_data_or_context(self):
         p = build_acknowledgment_prompt(query="my brother artie loves movies")
@@ -75,6 +99,15 @@ class TestAckPromptShape:
         )
         assert "FOLLOWUP" in p
         assert "Ask which Artie" in p
+
+    def test_diverse_few_shot_relations(self):
+        """Examples must cover varied relationships so the model can
+        generalize, not memorize. No two examples should use the same
+        relationship word."""
+        p = build_acknowledgment_prompt(query="anything")
+        relations = ["sister", "puppy", "dad", "bakery", "friend"]
+        for r in relations:
+            assert r in p, f"missing diverse example with '{r}'"
 
 
 # --- Orchestrator routing test --------------------------------------------
@@ -144,16 +177,17 @@ async def test_orchestrator_uses_ack_prompt_for_fact_turn(memory, user_session):
         pass
 
     assert "prompt" in captured, "generate_stream was never called"
-    # The few-shot ack template contains these landmark strings.
-    assert "GOOD EXAMPLES" in captured["prompt"]
+    # Landmark strings of the new ack template.
     assert "YOUR PERSONALITY" in captured["prompt"]
-    assert "BANNED" in captured["prompt"]
-    # "Got it — noted." is in the BANNED block, not the GOOD block.
-    assert "← BANNED" in captured["prompt"]
+    assert "warm, friendly conversational assistant" in captured["prompt"]
+    assert "Now respond" in captured["prompt"]
     # The general synthesis template should NOT be in the prompt.
     assert "ROLE:conversational assistant" not in captured["prompt"]
     # And the cap is the ack one.
     assert captured["num_predict"] == ACKNOWLEDGMENT_NUM_PREDICT
+    # CRITICAL: the user's input must not be duplicated in the few-shot.
+    fewshot = captured["prompt"].split("Now respond")[0]
+    assert "my brother artie loves movies" not in fewshot
 
 
 @pytest.mark.anyio

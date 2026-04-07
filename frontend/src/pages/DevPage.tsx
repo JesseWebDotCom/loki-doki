@@ -1,6 +1,7 @@
 import React from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
-import { Wrench } from 'lucide-react';
+import { Wrench, ScrollText } from 'lucide-react';
+import LogViewer from '../components/dev/LogViewer';
 
 const DevPage: React.FC = () => {
   return (
@@ -24,12 +25,26 @@ const DevPage: React.FC = () => {
           <div className="max-w-4xl mx-auto space-y-12">
             <div className="space-y-4">
               <div className="flex items-center gap-2 border-b border-border/10 pb-4">
+                <ScrollText className="text-primary w-5 h-5" />
+                <h2 className="text-xl font-bold tracking-tight">Backend Logs</h2>
+                <span className="text-[10px] font-bold text-muted-foreground bg-card/60 px-2 py-0.5 rounded-md border border-border/30 ml-2">
+                  LIVE • polls every 1.5s
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                In-memory ring buffer of the last 2000 backend log records (admin-only).
+              </p>
+              <LogViewer height="h-[60vh]" />
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b border-border/10 pb-4">
                 <Wrench className="text-primary w-5 h-5" />
                 <h2 className="text-xl font-bold tracking-tight">Tools</h2>
               </div>
               <div className="rounded-xl border border-border/30 bg-card/50 p-6 shadow-m1">
                 <p className="text-sm text-muted-foreground">
-                  Developer tools coming soon.
+                  More developer tools coming soon.
                 </p>
               </div>
             </div>

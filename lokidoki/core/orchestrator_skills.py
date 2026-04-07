@@ -15,6 +15,34 @@ from lokidoki.core.skill_executor import SkillExecutor, SkillResult
 from lokidoki.core.skill_factory import get_skill_instance
 
 
+def try_verbatim_fast_path(
+    asks: List[Ask],
+    skill_results: Dict[str, SkillResult],
+) -> Optional[Tuple[str, float]]:
+    """If this turn qualifies for the synthesis fast-path, return
+    ``(response_text, skill_latency_ms)``; otherwise ``None``.
+
+    Triggers when the decomposer flagged a single ask as
+    ``response_shape="verbatim"`` AND the resolved skill returned a
+    non-empty ``lead`` field. The decomposer (a 2B LLM) is the
+    classifier here — we deliberately do NOT keyword/regex-match the
+    user's input. The caller is responsible for persisting the
+    response and emitting pipeline events.
+    """
+    if len(asks) != 1:
+        return None
+    only = asks[0]
+    if getattr(only, "response_shape", "synthesized") != "verbatim":
+        return None
+    res = skill_results.get(only.ask_id)
+    if not (res and res.success):
+        return None
+    lead = (res.data or {}).get("lead")
+    if not (isinstance(lead, str) and lead.strip()):
+        return None
+    return f"{lead.strip()}\n\n[src:1]", res.latency_ms
+
+
 async def run_skills(
     asks: List[Ask],
     registry: Optional[SkillRegistry],
@@ -114,51 +142,54 @@ BOT_INTERESTS = (
 
 # Acknowledgment-only template used when the user shared a personal fact
 # with no question attached. Small models (gemma4:e2b) famously ignore
-# negative instructions like "don't restate the input", so we instead
-# lean hard on few-shot imitation of *warm* responses that include:
-#   - a genuine reaction
-#   - the bot sharing its own related take (from BOT_INTERESTS)
-#   - sometimes a short follow-up question
-# Plus a banned-replies block with the exact parroting failure modes,
-# and a tight token cap (enforced by num_predict in the orchestrator).
+# negative instructions, so we use **positive-only** few-shot imitation.
+#
+# Critical design rules learned the hard way:
+# - NEVER use a few-shot example whose USER line matches a likely real
+#   input verbatim. If the model sees its own training query duplicated
+#   it mode-collapses to empty output.
+# - NO BANNED block. Showing the model a "REPLY: ... ← BANNED" pattern
+#   right before its turn confuses it; some 2B models emit ← themselves.
+# - Keep examples diverse: different relations, activities, locations.
+# - End the prompt cleanly with a single fresh USER:/REPLY: pair so the
+#   model knows exactly where to generate.
 ACKNOWLEDGMENT_PROMPT_TEMPLATE = (
-    "TASK: The user just shared a personal fact. React like a friend would: "
-    "warm, brief (1–2 sentences), and add YOUR OWN take or a quick follow-up "
-    "question. Do NOT just repeat what they said — bring something fresh.\n"
+    "You are a warm, friendly conversational assistant. The user just "
+    "shared a personal fact about themselves or someone they know. Reply "
+    "like a real friend would: 1–2 sentences, genuine reaction, optionally "
+    "share your own take, optionally ask a short follow-up question. "
+    "Never just restate what they said.\n"
     "\n"
-    "YOUR PERSONALITY: You enjoy {interests}. Reference these naturally when "
-    "the topic overlaps — never force it.\n"
+    "YOUR PERSONALITY: You enjoy {interests}. Mention these naturally when "
+    "the topic actually overlaps — never force it.\n"
     "\n"
-    "GOOD EXAMPLES (copy this warm style):\n"
-    "USER: my brother artie loves movies\n"
-    "REPLY: Oh nice — your brother sounds fun. I'm a movie person too, "
-    "especially sci-fi. What's his go-to?\n"
+    "Here are examples of the warm, conversational style to use:\n"
+    "\n"
+    "USER: my sister sarah just started med school\n"
+    "REPLY: Wow, that's a huge undertaking — wishing her the best. Is she "
+    "leaning toward a specialty yet?\n"
     "\n"
     "USER: I just got a puppy named Max\n"
-    "REPLY: Aww, congratulations! I'm a sucker for dogs. What breed is he?\n"
+    "REPLY: Aww, congratulations! I'm a total sucker for dogs. What breed "
+    "is he?\n"
     "\n"
-    "USER: my wife is from Portland\n"
-    "REPLY: Portland's such a great city — the coffee scene alone! Have "
-    "you spent much time there together?\n"
+    "USER: my dad collects vintage records\n"
+    "REPLY: That's such a cool hobby — there's something special about "
+    "vinyl. Any genre he gravitates toward?\n"
     "\n"
-    "USER: my coworker Tom plays Halo\n"
-    "REPLY: Halo is a classic — I still hum the theme sometimes. Campaign "
-    "guy or multiplayer?\n"
+    "USER: I work at a bakery downtown\n"
+    "REPLY: Oh that's the dream gig — fresh bread is one of the best smells "
+    "in the world. What's your specialty?\n"
     "\n"
-    "USER: I work at a bakery\n"
-    "REPLY: Oh that's the dream — fresh bread is one of life's best smells. "
-    "What's your specialty?\n"
+    "USER: my friend liz hiked the appalachian trail\n"
+    "REPLY: That's incredible — what an undertaking. Hiking's one of my "
+    "favorite ways to spend a weekend. Did she go solo?\n"
     "\n"
-    "BANNED REPLIES (these are WRONG — they just echo the user):\n"
-    "USER: my brother artie loves movies\n"
-    "REPLY: Your brother Artie loves movies.       ← BANNED (restates input)\n"
-    "REPLY: That's great! Artie loves movies.      ← BANNED (restates input)\n"
-    "REPLY: Artie loves movies. Got it noted.      ← BANNED (no warmth, restates)\n"
-    "REPLY: Got it — noted.                        ← BANNED (cold, no reaction)\n"
-    "\n"
-    "BANNED STARTS: \"That's\", \"Your <relation>\", \"You said\", any direct "
-    "name+verb echo from the input.\n"
+    "Rules: keep it under 30 words. Never start your reply with \"That's "
+    "great\", \"Your\", \"You said\", or a name from the user's message. "
+    "Don't echo the user's exact phrasing back at them.\n"
     "{clarify_block}"
+    "Now respond to this user message in the same warm style:\n"
     "USER: {query}\n"
     "REPLY:"
 )

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
 import ThemeCustomizer from '../components/theme/ThemeCustomizer';
 import ThemeShowcase from '../components/theme/ThemeShowcase';
-import { Settings, Shield, Volume2, Cpu, Save, Check, Mic, Info } from 'lucide-react';
+import { Settings, Volume2, Cpu, Save, Check, Mic, Info } from 'lucide-react';
 import { getPlatformInfo, getSettings, saveSettings } from '../lib/api';
 import type { PlatformInfo, SettingsData } from '../lib/api';
 
@@ -87,27 +87,6 @@ const SettingsPage: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* Parental / Admin Controls */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-b border-border/10 pb-4">
-                <Shield className="text-red-400 w-5 h-5" />
-                <h2 className="text-xl font-bold tracking-tight">Admin Controls</h2>
-                <span className="text-[10px] font-bold text-red-400 bg-red-400/10 px-2 py-0.5 rounded-md border border-red-400/20 ml-2">
-                  TIER 1 — HIGHEST PRIORITY
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Admin rules override all other prompts. Use this for parental controls or safety boundaries.
-              </p>
-              <textarea
-                value={settings.admin_prompt}
-                onChange={(e) => setSettings(prev => ({ ...prev, admin_prompt: e.target.value }))}
-                placeholder="Example: No profanity. Keep all responses family-friendly and safe for children."
-                rows={3}
-                className="w-full bg-card/50 border border-border/50 rounded-xl p-4 focus:outline-none focus:border-red-400/50 focus:ring-4 focus:ring-red-400/5 transition-all text-sm font-medium resize-none"
-              />
-            </div>
 
             {/* User Customization Prompt */}
             <div className="space-y-4">

@@ -353,6 +353,24 @@ export async function addRelationship(personId: number, relation: string) {
   );
 }
 
+export async function setPrimaryRelationship(personId: number, relation: string) {
+  const r = await fetch(`${API_BASE}/memory/people/${personId}/primary-relationship`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ relation }),
+  });
+  if (!r.ok) throw new Error(`/memory/people/${personId}/primary-relationship: ${r.status}`);
+  return (await r.json()) as { id: number };
+}
+
+export async function deleteRelationship(relId: number) {
+  const r = await fetch(`${API_BASE}/memory/relationships/${relId}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`/memory/relationships/${relId}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
 export async function getAmbiguityGroups() {
   return getJson<{ groups: import("./api-types").AmbiguityGroup[] }>(
     "/memory/ambiguity_groups",

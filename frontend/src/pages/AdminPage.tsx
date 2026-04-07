@@ -7,10 +7,13 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { ShieldCheck, Users, Brain, Check, X, Trash2, AlertTriangle } from "lucide-react";
+import { ShieldCheck, Shield, Users, Brain, Check, X, Trash2, AlertTriangle, Save, ScrollText } from "lucide-react";
+import LogViewer from "../components/dev/LogViewer";
 import Sidebar from "../components/sidebar/Sidebar";
 import { useAuth } from "../auth/useAuth";
 import { AdminPasswordPrompt } from "../components/AdminPasswordPrompt";
+import { getSettings, saveSettings } from "../lib/api";
+import type { SettingsData } from "../lib/api";
 
 type AdminUser = {
   id: number;
@@ -51,6 +54,23 @@ const AdminPage: React.FC = () => {
   const [adminFacts, setAdminFacts] = useState<AdminFact[]>([]);
   const [factFilter, setFactFilter] = useState<string>("active,ambiguous,pending");
   const [newPerson, setNewPerson] = useState("");
+  const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [adminPromptSaved, setAdminPromptSaved] = useState(false);
+
+  useEffect(() => {
+    void getSettings().then(setSettings).catch(() => {});
+  }, []);
+
+  const saveAdminPrompt = useCallback(async () => {
+    if (!settings) return;
+    try {
+      await saveSettings(settings);
+      setAdminPromptSaved(true);
+      setTimeout(() => setAdminPromptSaved(false), 2000);
+    } catch {
+      setError("failed to save admin prompt");
+    }
+  }, [settings]);
 
   const loadUserMemory = useCallback(
     async (uid: number) => {
@@ -306,6 +326,56 @@ const AdminPage: React.FC = () => {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            {/* Backend logs */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b border-border/10 pb-4">
+                <ScrollText className="text-primary w-5 h-5" />
+                <h2 className="text-xl font-bold tracking-tight">Backend Logs</h2>
+              </div>
+              <LogViewer height="h-80" />
+            </div>
+
+            {/* Admin Controls — moved from Settings */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b border-border/10 pb-4">
+                <Shield className="text-red-400 w-5 h-5" />
+                <h2 className="text-xl font-bold tracking-tight">Admin Controls</h2>
+                <span className="text-[10px] font-bold text-red-400 bg-red-400/10 px-2 py-0.5 rounded-md border border-red-400/20 ml-2">
+                  TIER 1 — HIGHEST PRIORITY
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Admin rules override all other prompts. Use this for parental controls or safety boundaries.
+              </p>
+              <textarea
+                value={settings?.admin_prompt ?? ""}
+                onChange={(e) =>
+                  setSettings((prev) =>
+                    prev ? { ...prev, admin_prompt: e.target.value } : prev,
+                  )
+                }
+                placeholder="Example: No profanity. Keep all responses family-friendly and safe for children."
+                rows={3}
+                disabled={!settings}
+                className="w-full bg-card/50 border border-border/50 rounded-xl p-4 focus:outline-none focus:border-red-400/50 focus:ring-4 focus:ring-red-400/5 transition-all text-sm font-medium resize-none disabled:opacity-50"
+              />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void saveAdminPrompt()}
+                  disabled={!settings}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-m1 ${
+                    adminPromptSaved
+                      ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                      : "bg-primary text-white hover:bg-primary/90 active:scale-95"
+                  } disabled:opacity-50`}
+                >
+                  {adminPromptSaved ? <Check size={14} /> : <Save size={14} />}
+                  {adminPromptSaved ? "Saved" : "Save Admin Prompt"}
+                </button>
               </div>
             </div>
 

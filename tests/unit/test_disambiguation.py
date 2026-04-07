@@ -142,6 +142,35 @@ def test_relationship_hint_resolves(memory):
     assert report["person_id"] == a_brother
 
 
+def test_set_primary_relationship_replaces_existing(memory):
+    """Picking a different relation in the UI must REPLACE the existing
+    one, not stack a second row. The dropdown is a single-value picker."""
+    mp, uid = memory
+    pid = _run(mp.create_person(uid, "Artie"))
+    _run(mp.add_relationship(uid, pid, "brother"))
+    rels = _run(mp.list_relationships(uid))
+    assert len([r for r in rels if r["person_id"] == pid]) == 1
+    assert rels[0]["relation"] == "brother"
+
+    # User changes the dropdown from brother → cousin.
+    new_id = _run(mp.set_primary_relationship(uid, pid, "cousin"))
+    assert new_id > 0
+    rels = _run(mp.list_relationships(uid))
+    person_rels = [r for r in rels if r["person_id"] == pid]
+    assert len(person_rels) == 1, "must replace, not stack"
+    assert person_rels[0]["relation"] == "cousin"
+
+
+def test_set_primary_relationship_empty_clears(memory):
+    """Empty string clears all relationships for the person."""
+    mp, uid = memory
+    pid = _run(mp.create_person(uid, "Tom"))
+    _run(mp.add_relationship(uid, pid, "coworker"))
+    _run(mp.set_primary_relationship(uid, pid, ""))
+    rels = _run(mp.list_relationships(uid))
+    assert not any(r["person_id"] == pid for r in rels)
+
+
 def test_brother_relationship_auto_created_from_input(memory):
     """When the user says "my brother artie loves movies" and the
     decomposer only emits the loves-movies fact (no separate

@@ -24,7 +24,7 @@ export interface PeopleTabProps {
   onResolveAmbiguity: (groupId: number, personId: number) => void;
   onRenamePerson: (id: number, name: string) => void;
   onDeletePerson: (id: number) => void;
-  onAddRelationship: (id: number, relation: string) => void;
+  onSetPrimaryRelationship: (id: number, relation: string) => void;
   onMergePerson: (sourceId: number, intoId: number) => void;
   onCreatePerson: (name: string) => void;
 }
@@ -58,7 +58,7 @@ export const PeopleTab: React.FC<PeopleTabProps> = ({
   onResolveAmbiguity,
   onRenamePerson,
   onDeletePerson,
-  onAddRelationship,
+  onSetPrimaryRelationship,
   onMergePerson,
   onCreatePerson,
 }) => {
@@ -210,7 +210,8 @@ export const PeopleTab: React.FC<PeopleTabProps> = ({
                       <Edit3 size={11} /> Rename
                     </button>
                     <RelationshipPicker
-                      onPick={(rel) => onAddRelationship(person.id, rel)}
+                      current={relationship?.relation}
+                      onPick={(rel) => onSetPrimaryRelationship(person.id, rel)}
                     />
                     <MergePicker
                       people={people.filter((p) => p.id !== person.id)}
@@ -262,19 +263,28 @@ const RELATION_OPTIONS = [
   "son", "daughter", "friend", "coworker", "boss", "neighbor", "pet",
 ];
 
-const RelationshipPicker: React.FC<{ onPick: (rel: string) => void }> = ({ onPick }) => {
+const RelationshipPicker: React.FC<{
+  current?: string;
+  onPick: (rel: string) => void;
+}> = ({ current, onPick }) => {
+  // Controlled select: shows the current relationship and replaces it
+  // when the user picks a different value. Empty value clears.
+  // If the current relation isn't in our preset list (e.g. an unusual
+  // one the LLM made up), include it as an extra option so the user
+  // doesn't lose visibility.
+  const value = current ?? "";
+  const hasCustom = current && !RELATION_OPTIONS.includes(current);
   return (
     <select
-      onChange={(e) => {
-        if (e.target.value) {
-          onPick(e.target.value);
-          e.target.value = "";
-        }
-      }}
-      defaultValue=""
-      className="text-[11px] bg-card border border-border/40 rounded-md px-2 py-1"
+      value={value}
+      onChange={(e) => onPick(e.target.value)}
+      className="text-[11px] bg-card border border-border/40 rounded-md px-2 py-1 min-w-[110px]"
+      title="Set primary relationship"
     >
-      <option value="">+ Relationship…</option>
+      <option value="">— no relationship —</option>
+      {hasCustom && current && (
+        <option value={current}>{current} (current)</option>
+      )}
       {RELATION_OPTIONS.map((r) => (
         <option key={r} value={r}>
           {r}

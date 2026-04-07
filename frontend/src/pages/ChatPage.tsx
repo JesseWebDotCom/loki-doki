@@ -220,9 +220,19 @@ const ChatPage: React.FC = () => {
   };
 
   const handleSelectSession = async (sessionId: string) => {
+    // Switch state immediately so the right pane reacts even if the
+    // messages fetch is slow or errors. Clearing activeProjectId
+    // ensures the ProjectLandingView gate (`activeProject && !currentSessionId`)
+    // can never trap us when picking a chat from the sidebar.
+    setActiveProjectId(null);
+    setCurrentSessionId(sessionId);
+    setPipeline(INITIAL_PIPELINE);
+    setMessages([
+      { role: 'assistant', content: 'Loading session…', timestamp: new Date().toLocaleTimeString() }
+    ]);
     try {
       const res = await getSessionMessages(sessionId);
-      const loaded: Message[] = res.messages.map((m: any) => ({
+      const loaded: Message[] = (res.messages || []).map((m: any) => ({
         role: m.role,
         content: m.content,
         timestamp: m.created_at?.split('T')[1]?.slice(0, 8) || '',
@@ -230,10 +240,11 @@ const ChatPage: React.FC = () => {
       setMessages(loaded.length > 0 ? loaded : [
         { role: 'assistant', content: 'Empty session loaded.', timestamp: new Date().toLocaleTimeString() }
       ]);
-      setCurrentSessionId(sessionId);
-      setPipeline(INITIAL_PIPELINE);
-    } catch {
-      // Failed to load
+    } catch (err) {
+      console.error('[ChatPage] failed to load session messages', sessionId, err);
+      setMessages([
+        { role: 'assistant', content: `Failed to load session: ${err instanceof Error ? err.message : 'unknown error'}`, timestamp: new Date().toLocaleTimeString() }
+      ]);
     }
   };
 

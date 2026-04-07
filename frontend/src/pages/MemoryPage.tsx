@@ -22,7 +22,7 @@ import {
   createPerson,
   renamePerson,
   deletePerson,
-  addRelationship,
+  setPrimaryRelationship,
   resolveAmbiguityGroup,
   mergePeople,
 } from "../lib/api";
@@ -136,9 +136,9 @@ const MemoryPage: React.FC = () => {
     },
     [refreshAll],
   );
-  const handleAddRelationship = useCallback(
+  const handleSetPrimaryRelationship = useCallback(
     async (id: number, relation: string) => {
-      await addRelationship(id, relation);
+      await setPrimaryRelationship(id, relation);
       await refreshAll();
     },
     [refreshAll],
@@ -277,7 +277,7 @@ const MemoryPage: React.FC = () => {
                 onResolveAmbiguity={handleResolveAmbiguity}
                 onRenamePerson={handleRenamePerson}
                 onDeletePerson={handleDeletePerson}
-                onAddRelationship={handleAddRelationship}
+                onSetPrimaryRelationship={handleSetPrimaryRelationship}
                 onMergePerson={handleMergePerson}
                 onCreatePerson={handleCreatePerson}
               />

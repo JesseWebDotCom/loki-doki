@@ -29,6 +29,9 @@ WIKI_HTML_BODY = """
 <div id="mw-content-text">
 <p>The Raspberry Pi is a series of small single-board computers developed in the UK.</p>
 <p>It was released in 2012.</p>
+<h2><span class="mw-headline">History</span></h2>
+<p>This paragraph is after the first h2 and should NOT be in the lead.</p>
+<h2><span class="mw-headline">Hardware</span></h2>
 </div>
 </body></html>
 """
@@ -48,7 +51,9 @@ class TestWikipediaSkill:
 
         assert result.success is True
         assert "Raspberry Pi" in result.data["title"]
-        assert "single-board" in result.data["extract"]
+        assert "single-board" in result.data["lead"]
+        assert result.data["sections"] == []
+        assert result.data["url"].endswith("Raspberry_Pi")
         assert result.source_url != ""
         assert result.source_title != ""
 
@@ -92,7 +97,9 @@ class TestWikipediaSkill:
             result = await skill.execute_mechanism("web_scraper", {"query": "Raspberry Pi"})
 
         assert result.success is True
-        assert "Raspberry Pi" in result.data["content"]
+        assert "single-board computers" in result.data["lead"]
+        assert "after the first h2" not in result.data["lead"]
+        assert result.data["sections"] == ["History", "Hardware"]
         assert result.source_url != ""
 
     @pytest.mark.anyio

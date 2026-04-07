@@ -282,6 +282,41 @@ async def add_relationship(
     return {"id": rel_id}
 
 
+class SetPrimaryRelationship(BaseModel):
+    relation: str  # empty string clears all relationships for the person
+
+
+@router.put("/people/{person_id}/primary-relationship")
+async def set_primary_relationship(
+    person_id: int,
+    body: SetPrimaryRelationship,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Replace ALL existing relationships for a person with one new edge.
+
+    Used by the Memory UI's relationship dropdown so changing 'brother'
+    to 'cousin' actually replaces the value instead of stacking. Pass
+    ``relation=""`` to clear every relationship for the person.
+    """
+    rel_id = await memory.set_primary_relationship(
+        user.id, person_id, body.relation,
+    )
+    return {"id": rel_id}
+
+
+@router.delete("/relationships/{rel_id}")
+async def delete_relationship(
+    rel_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    ok = await memory.delete_relationship(user.id, rel_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="relationship_not_found")
+    return {"ok": True}
+
+
 @router.get("/ambiguity_groups")
 async def list_ambiguity_groups(
     user: User = Depends(current_user),

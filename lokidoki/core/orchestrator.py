@@ -33,6 +33,7 @@ from lokidoki.core.orchestrator_skills import (
     build_acknowledgment_prompt,
     build_synthesis_prompt,
     run_skills,
+    try_verbatim_fast_path,
 )
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
@@ -114,6 +115,9 @@ class Orchestrator:
         recent = await self._memory.get_messages(
             user_id=user_id, session_id=session_id, limit=5
         )
+        # `recent` includes the user message we just inserted above, so
+        # the first turn of a brand-new session has exactly 1 item.
+        is_first_turn = len(recent) <= 1
         relevant_facts = await self._memory.search_facts(
             user_id=user_id, query=user_input, top_k=5, project_id=project_id
         )
@@ -140,6 +144,21 @@ class Orchestrator:
                 asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
                 model=fast_model,
             )
+
+        # Verbatim turns are lookups, not statements. gemma routinely
+        # mis-parses "Who is Corey Feldman?" as a fact ({person:"Who",
+        # is, "Corey Feldman"}) and creates a junk person row. The
+        # decomposer's own response_shape signal tells us this turn is
+        # a question — drop long_term_memory wholesale rather than
+        # trying to filter individual items with heuristics.
+        if (
+            decomposition.asks
+            and all(
+                getattr(a, "response_shape", "synthesized") == "verbatim"
+                for a in decomposition.asks
+            )
+        ):
+            decomposition.long_term_memory = []
 
         # Persist decomposer-extracted facts. PR3 ships structured items:
         # ``subject_type`` selects 'self' vs a person row, and
@@ -195,8 +214,9 @@ class Orchestrator:
         # ---- routing -----------------------------------------------------
         skill_data = ""
         sources: list[dict] = []
+        skill_results: dict = {}
         if not decomposition.is_course_correction and decomposition.asks:
-            skill_data, _results, sources, routing_log = await run_skills(
+            skill_data, skill_results, sources, routing_log = await run_skills(
                 decomposition.asks, self._registry, self._executor
             )
             yield PipelineEvent(
@@ -208,6 +228,35 @@ class Orchestrator:
                     "routing_log": routing_log,
                 },
             )
+
+        # ---- synthesis fast-path ----------------------------------------
+        # When the decomposer flagged the ask as response_shape="verbatim"
+        # and the skill returned a `lead` field, return that text
+        # directly with a [src:1] marker and skip the 9B model. The
+        # decomposer is the classifier here — see try_verbatim_fast_path.
+        fast = try_verbatim_fast_path(decomposition.asks, skill_results)
+        if fast is not None:
+            response, fast_latency_ms = fast
+            yield PipelineEvent(phase="synthesis", status="active", data={"fast_path": True})
+            await self._memory.add_message(
+                user_id=user_id, session_id=session_id, role="assistant", content=response,
+            )
+            if is_first_turn:
+                await self._auto_name_session(user_id, session_id, user_input)
+            yield PipelineEvent(
+                phase="synthesis",
+                status="done",
+                data={
+                    "response": response,
+                    "model": "fast_path",
+                    "latency_ms": fast_latency_ms,
+                    "tone": "neutral",
+                    "sources": sources,
+                    "platform": self._model_manager.policy.platform,
+                    "fast_path": True,
+                },
+            )
+            return
 
         # ---- synthesis ---------------------------------------------------
         effective_complexity = decomposition.overall_reasoning_complexity
@@ -300,7 +349,7 @@ class Orchestrator:
         )
 
         # ---- post-process -----------------------------------------------
-        if not recent:  # First turn auto-naming
+        if is_first_turn:  # First turn auto-naming
             await self._auto_name_session(user_id, session_id, user_input)
 
         yield PipelineEvent(
@@ -324,6 +373,7 @@ class Orchestrator:
             f"PROMPT: {first_input}\n"
             f"TITLE:"
         )
+        logger.info("[orchestrator] auto-naming session %s", session_id)
         try:
             title = await self._inference.generate(
                 model=self._model_manager.policy.fast_model,
@@ -331,8 +381,13 @@ class Orchestrator:
                 num_predict=20,
                 temperature=0.3,
             )
-            title = title.strip().strip('"').strip("'")
+            title = title.strip().strip('"').strip("'").splitlines()[0] if title.strip() else ""
+            logger.info("[orchestrator] auto-name raw title for %s: %r", session_id, title)
             if title:
-                await self._memory.update_session_title(user_id, session_id, title)
+                ok = await self._memory.update_session_title(user_id, session_id, title)
+                logger.info(
+                    "[orchestrator] update_session_title(%s) -> %s (title=%r)",
+                    session_id, ok, title,
+                )
         except Exception:
             logger.exception("[orchestrator] auto-naming failed")

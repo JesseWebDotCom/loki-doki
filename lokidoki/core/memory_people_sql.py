@@ -240,6 +240,45 @@ def upsert_relationship(
     return int(cur.lastrowid)
 
 
+def set_primary_relationship(
+    conn: sqlite3.Connection,
+    user_id: int,
+    person_id: int,
+    relation: str,
+) -> int:
+    """Replace ALL existing relationships for ``person_id`` with one new edge.
+
+    Used by the Memory UI's relationship dropdown when the user picks a
+    different value than the current one. ``relation=''`` clears every
+    relationship for the person and returns 0.
+    """
+    conn.execute(
+        "DELETE FROM relationships WHERE owner_user_id = ? AND person_id = ?",
+        (user_id, person_id),
+    )
+    if not relation.strip():
+        conn.commit()
+        return 0
+    cur = conn.execute(
+        "INSERT INTO relationships "
+        "(owner_user_id, person_id, relation, confidence) VALUES (?, ?, ?, ?)",
+        (user_id, person_id, relation.strip(), DEFAULT_CONFIDENCE),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def delete_relationship(
+    conn: sqlite3.Connection, user_id: int, rel_id: int
+) -> bool:
+    cur = conn.execute(
+        "DELETE FROM relationships WHERE owner_user_id = ? AND id = ?",
+        (user_id, rel_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def list_relationships(
     conn: sqlite3.Connection, user_id: int
 ) -> list[sqlite3.Row]:

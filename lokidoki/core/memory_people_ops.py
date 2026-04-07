@@ -208,6 +208,27 @@ async def add_relationship(
         )
 
 
+async def set_primary_relationship(
+    self: MemoryProvider,
+    user_id: int,
+    person_id: int,
+    relation: str,
+) -> int:
+    async with self._lock:
+        return await self._run_thread_unlocked(
+            psql.set_primary_relationship, user_id, person_id, relation
+        )
+
+
+async def delete_relationship(
+    self: MemoryProvider, user_id: int, rel_id: int
+) -> bool:
+    async with self._lock:
+        return await self._run_thread_unlocked(
+            psql.delete_relationship, user_id, rel_id
+        )
+
+
 async def list_relationships(
     self: MemoryProvider, user_id: int
 ) -> list[dict]:
@@ -264,3 +285,5 @@ MemoryProvider.reject_fact = reject_fact                          # type: ignore
 MemoryProvider.delete_fact = delete_fact                          # type: ignore[attr-defined]
 MemoryProvider.patch_fact = patch_fact                            # type: ignore[attr-defined]
 MemoryProvider.list_facts_by_status = list_facts_by_status        # type: ignore[attr-defined]
+MemoryProvider.set_primary_relationship = set_primary_relationship  # type: ignore[attr-defined]
+MemoryProvider.delete_relationship = delete_relationship          # type: ignore[attr-defined]

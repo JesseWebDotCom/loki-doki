@@ -14,6 +14,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from lokidoki.core import skill_factory
+from lokidoki.core import memory_people_ops  # noqa: F401 — installs MemoryProvider.list_people
 from lokidoki.core.decomposer import Ask, DecompositionResult
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
@@ -175,3 +176,177 @@ async def test_pipeline_wiki_failure_surfaces_in_routing_log(memory):
     assert "mediawiki_api" in methods_tried
     # Latency should be reported even on failure (UI shows it instead of "—").
     assert "latency_ms" in log[0]
+
+
+@pytest.mark.anyio
+async def test_pipeline_definitional_query_uses_fast_path(memory):
+    """A 'who is X?' query that resolves to a knowledge skill with a
+    `lead` field must skip the 9B synthesis stage and return the lead
+    verbatim with a [src:1] marker. This avoids the empty-response
+    failure mode where Wikipedia content blew past the model's context
+    window."""
+    registry = SkillRegistry()
+    registry.scan()
+
+    decomp = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="fast",
+        asks=[Ask(
+            ask_id="ask_001",
+            intent="knowledge_wiki.search_knowledge",
+            distilled_query="Corey Feldman",
+            parameters={},
+            response_shape="verbatim",
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    orch = _build_orchestrator(decomp, registry, memory)
+
+    # Sentinel: if the orchestrator wrongly calls inference, the test
+    # explodes loudly instead of silently passing.
+    def _explode(*_a, **_kw):
+        raise AssertionError("inference must NOT be called on the fast-path")
+
+    orch._inference.generate_stream = _explode  # type: ignore[method-assign]
+
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "query": {
+            "pages": {
+                "98765": {
+                    "pageid": 98765,
+                    "title": "Corey Feldman",
+                    "extract": "Corey Scott Feldman is an American actor and musician.",
+                }
+            }
+        }
+    }
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
+        events = []
+        async for event in orch.process(
+            "Who is Corey Feldman?", user_id=uid, session_id=sid
+        ):
+            events.append(event)
+
+    synth_done = [e for e in events if e.phase == "synthesis" and e.status == "done"]
+    assert len(synth_done) == 1
+    data = synth_done[0].data
+    assert data.get("fast_path") is True
+    assert data["model"] == "fast_path"
+    assert "Corey Scott Feldman" in data["response"]
+    assert "[src:1]" in data["response"]
+    assert data["sources"] and data["sources"][0]["url"].endswith("Corey_Feldman")
+
+
+@pytest.mark.anyio
+async def test_pipeline_synthesized_shape_does_not_use_fast_path(memory):
+    """Same query and skill data as the verbatim test, but the
+    decomposer flagged the ask as ``response_shape="synthesized"``.
+    The orchestrator must run the normal synthesis path (i.e. call the
+    inference client) and NOT take the fast-path. Guards against the
+    fast-path silently swallowing turns the user wanted synthesized."""
+    registry = SkillRegistry()
+    registry.scan()
+
+    decomp = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="fast",
+        asks=[Ask(
+            ask_id="ask_001",
+            intent="knowledge_wiki.search_knowledge",
+            distilled_query="Corey Feldman",
+            parameters={},
+            response_shape="synthesized",
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    orch = _build_orchestrator(decomp, registry, memory)
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "query": {"pages": {"98765": {
+            "pageid": 98765, "title": "Corey Feldman",
+            "extract": "Corey Scott Feldman is an American actor and musician.",
+        }}}
+    }
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
+        events = []
+        async for event in orch.process(
+            "Who is Corey Feldman?", user_id=uid, session_id=sid
+        ):
+            events.append(event)
+
+    synth_done = [e for e in events if e.phase == "synthesis" and e.status == "done"]
+    assert len(synth_done) == 1
+    assert synth_done[0].data.get("fast_path") is not True
+    assert synth_done[0].data["model"] != "fast_path"
+
+
+@pytest.mark.anyio
+async def test_pipeline_verbatim_turn_drops_long_term_memory(memory):
+    """Regression: gemma sometimes parses 'Who is Corey Feldman?' as a
+    fact and emits long_term_memory items like {person:'Who', is,
+    'Corey Feldman'}, which used to create a junk person row. When the
+    decomposer flags every ask as response_shape='verbatim' the turn
+    is a lookup, not a statement — long_term_memory must be discarded
+    wholesale before persistence."""
+    registry = SkillRegistry()
+    registry.scan()
+
+    decomp = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="fast",
+        long_term_memory=[{
+            "subject_type": "person",
+            "subject_name": "Who",
+            "predicate": "is",
+            "value": "Corey Feldman",
+            "kind": "fact",
+            "relationship_kind": None,
+            "category": "general",
+            "negates_previous": False,
+        }],
+        asks=[Ask(
+            ask_id="ask_001",
+            intent="knowledge_wiki.search_knowledge",
+            distilled_query="Corey Feldman",
+            parameters={},
+            response_shape="verbatim",
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    orch = _build_orchestrator(decomp, registry, memory)
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "query": {"pages": {"98765": {
+            "pageid": 98765, "title": "Corey Feldman",
+            "extract": "Corey Scott Feldman is an American actor.",
+        }}}
+    }
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
+        async for _ in orch.process(
+            "Who is Corey Feldman?", user_id=uid, session_id=sid
+        ):
+            pass
+
+    people = await memory.list_people(uid)
+    assert not any(p["name"].lower() == "who" for p in people), (
+        f"junk person row 'Who' was persisted: {people}"
+    )

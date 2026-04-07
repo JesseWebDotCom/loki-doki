@@ -19,6 +19,7 @@ LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). I
 - **No Fluff**: No sycophantic openers, apologies, or closing pleasantries.
 - **Smallest Change**: Implement direct solutions that solve the issue.
 - **User Instructions Overrules**: User prompt always takes precedence over this file.
+- **No Regex/Keyword Classification of User Intent**: NEVER classify what the user *meant* using regex, keyword lists, or substring matches on `user_input`. That is the decomposer's job — it is a 2B LLM that already runs on every turn and emits structured fields (`intent`, `response_shape`, `overall_reasoning_complexity`, `short_term_memory.sentiment`, etc.). If downstream code needs a new branching signal — "is this a definitional query?", "is this an emotional turn?", "does this need synthesis?" — add a new field to `DecompositionResult` / `Ask`, teach the decomposer prompt + JSON schema to emit it, and branch on the structured field. Regex/keyword heuristics are a one-way ratchet toward unmaintainable rule piles: every edge case becomes another alternation, and they silently miss phrasings the LLM would handle correctly. Regex IS fine for parsing *machine-generated* text (HTML, JSON shapes, file paths) and for repair-loop salvage of malformed model output; it is NOT fine for understanding the user.
 
 ## Technical Patterns
 - Use `uv` for Python dependency management.
