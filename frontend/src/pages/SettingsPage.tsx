@@ -3,6 +3,7 @@ import Sidebar from '../components/sidebar/Sidebar';
 import ThemeCustomizer from '../components/theme/ThemeCustomizer';
 import ThemeShowcase from '../components/theme/ThemeShowcase';
 import SkillsSection from '../components/settings/SkillsSection';
+import CharactersSection from '../components/settings/CharactersSection';
 import { Settings, Volume2, Cpu, Save, Check, Mic, Info } from 'lucide-react';
 import { getPlatformInfo, getSettings, saveSettings } from '../lib/api';
 import type { PlatformInfo, SettingsData } from '../lib/api';
@@ -89,26 +90,11 @@ const SettingsPage: React.FC = () => {
               </div>
             )}
 
-            {/* User Customization Prompt */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-b border-border/10 pb-4">
-                <Settings className="text-primary w-5 h-5" />
-                <h2 className="text-xl font-bold tracking-tight">Bot Personality</h2>
-                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 ml-2">
-                  TIER 2
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Custom prompt for general bot behavior. Admin rules take precedence over these.
-              </p>
-              <textarea
-                value={settings.user_prompt}
-                onChange={(e) => setSettings(prev => ({ ...prev, user_prompt: e.target.value }))}
-                placeholder="Example: Speak simply and use analogies. Be encouraging and patient."
-                rows={3}
-                className="w-full bg-card/50 border border-border/50 rounded-xl p-4 focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-medium resize-none"
-              />
-            </div>
+            {/* Character (replaces legacy Bot Personality textarea —
+                 the active character's behavior_prompt is now what
+                 feeds the Tier 2 personality slot in the synthesis
+                 prompt). */}
+            <CharactersSection />
 
             {/* Audio Settings */}
             <div className="space-y-4">

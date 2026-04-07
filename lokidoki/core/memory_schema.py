@@ -211,6 +211,108 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_owner ON messages(owner_user_id);
+
+-- Character system (see docs/CHARACTER_SYSTEM.md §3).
+--
+-- voices/wakewords use string PKs because they map 1:1 to on-disk
+-- model identifiers (e.g. "en_US-lessac-medium", a Piper voice id).
+-- Characters reference them via nullable FK so a character can be
+-- created before its assets are installed; the provisioner backfills.
+CREATE TABLE IF NOT EXISTS voices (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    is_global INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'missing',  -- 'installed' | 'missing' | 'downloading'
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS wakewords (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    file_path TEXT NOT NULL DEFAULT '',
+    is_global INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'missing',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS characters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phonetic_name TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    behavior_prompt TEXT NOT NULL DEFAULT '',
+    avatar_style TEXT NOT NULL DEFAULT 'bottts',  -- 'avataaars'|'bottts'|'toon-head'
+    avatar_seed TEXT NOT NULL DEFAULT '',
+    avatar_config TEXT NOT NULL DEFAULT '{}',     -- JSON blob, parsed in Python
+    voice_id TEXT REFERENCES voices(id) ON DELETE SET NULL,
+    wakeword_id TEXT REFERENCES wakewords(id) ON DELETE SET NULL,
+    source TEXT NOT NULL DEFAULT 'user',           -- 'builtin' | 'admin' | 'user'
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_characters_source ON characters(source);
+
+-- Per-user pointer at the active character. Mirrors the
+-- skill_enabled_user / skill_config_user shape: the catalog
+-- (`characters`) is admin-managed and global, but each user picks
+-- their own active character. ON DELETE SET NULL on the FK means
+-- deleting a character doesn't orphan the row — `get_active_*`
+-- falls back to a builtin in code.
+CREATE TABLE IF NOT EXISTS character_settings_user (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    active_character_id INTEGER REFERENCES characters(id) ON DELETE SET NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Per-user overrides on top of a catalog character row. Same merge
+-- direction as skill_config: catalog ← user_overrides, user wins.
+-- All override columns are nullable; NULL means "use the catalog
+-- value". A row exists only if a user has actually customized
+-- something for that character.
+--
+-- We deliberately do NOT allow overriding `source` or `id` (those
+-- are catalog identity) or `voice_id`/`wakeword_id` (those bind to
+-- on-disk assets that the admin provisions — letting users point at
+-- arbitrary files would break the asset budget rules in §5).
+CREATE TABLE IF NOT EXISTS character_overrides_user (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    name TEXT,
+    phonetic_name TEXT,
+    description TEXT,
+    behavior_prompt TEXT,
+    avatar_style TEXT,
+    avatar_seed TEXT,
+    avatar_config TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, character_id)
+);
+CREATE INDEX IF NOT EXISTS idx_char_overrides_user ON character_overrides_user(user_id);
+
+-- Two-tier enable toggles for characters, mirroring
+-- skill_enabled_global / skill_enabled_user. Both default to
+-- "enabled" when no row exists, so admins/users only need to write
+-- a row when they want to override the default. Resolution at read
+-- time AND-merges:
+--   visible = global_enabled AND user_enabled
+-- Disabling a character globally hides it from every user without
+-- destroying the catalog row (so it can be re-enabled later). Per-
+-- user rows let admins restrict specific characters away from
+-- specific users (e.g. an "after-hours only" persona).
+CREATE TABLE IF NOT EXISTS character_enabled_global (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS character_enabled_user (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, character_id)
+);
+CREATE INDEX IF NOT EXISTS idx_char_enabled_user ON character_enabled_user(user_id);
 """
 
 FTS_SCHEMA = """

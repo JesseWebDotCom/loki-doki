@@ -56,6 +56,35 @@ RELATIONSHIP_COLUMN_MIGRATIONS = (
 )
 
 
+def _table_has_column(
+    conn: sqlite3.Connection, table: str, column: str
+) -> bool:
+    try:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    except sqlite3.OperationalError:
+        return False
+    return column in cols
+
+
+def _drop_legacy_character_tables(conn: sqlite3.Connection) -> None:
+    """Drop pre-Phase-1 character tables that don't match the new shape.
+
+    Only drops if the table exists AND lacks the marker column we
+    introduced this PR. Safe because the legacy tables shipped empty
+    (never wired up to any route).
+    """
+    if _table_has_column(conn, "characters", "id") and not _table_has_column(
+        conn, "characters", "source"
+    ):
+        conn.execute("DROP TABLE IF EXISTS characters")
+    if _table_has_column(conn, "wakewords", "id") and not _table_has_column(
+        conn, "wakewords", "is_global"
+    ):
+        conn.execute("DROP TABLE IF EXISTS wakewords")
+    # `voices` legacy shape happens to match the new one — leave it.
+    conn.commit()
+
+
 def _add_columns(
     conn: sqlite3.Connection, table: str, migrations: tuple
 ) -> None:
@@ -91,6 +120,17 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
             "sqlite-vec failed to load (%s); continuing with FTS5/BM25 only",
             exc,
         )
+
+    # One-shot cleanup: an earlier scratch implementation of the
+    # character system left empty `characters`/`voices`/`wakewords`
+    # tables in some dev DBs with a different shape (no `source`
+    # column on characters, no `is_global`/`status` on wakewords).
+    # CORE_SCHEMA's `CREATE TABLE IF NOT EXISTS` would no-op against
+    # them and then `CREATE INDEX ... characters(source)` would crash
+    # with "no such column: source". The legacy tables never held
+    # real data, so we drop any that don't already match the new
+    # shape and let CORE_SCHEMA recreate them clean.
+    _drop_legacy_character_tables(conn)
 
     conn.executescript(CORE_SCHEMA)
     _add_columns(conn, "users", USER_COLUMN_MIGRATIONS)

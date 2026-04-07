@@ -51,6 +51,12 @@ class MemoryProvider:
         self._conn, self._vec_loaded = await asyncio.to_thread(
             open_and_migrate, self._db_path
         )
+        # Idempotent character seeding + first-boot personality migration.
+        # Lives outside open_and_migrate so the seed module can read
+        # data/settings.json (a side effect that doesn't belong in the
+        # pure schema layer).
+        from lokidoki.core.character_seed import run_seed
+        await asyncio.to_thread(run_seed, self._conn)
 
     async def close(self) -> None:
         if self._conn is not None:

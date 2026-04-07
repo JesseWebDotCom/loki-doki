@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { ShieldCheck, Shield, Users, Brain, Check, X, Trash2, AlertTriangle, Save, ScrollText } from "lucide-react";
 import LogViewer from "../components/dev/LogViewer";
+import CharactersAdminSection from "../components/admin/CharactersAdminSection";
 import Sidebar from "../components/sidebar/Sidebar";
 import { useAuth } from "../auth/useAuth";
 import { AdminPasswordPrompt } from "../components/AdminPasswordPrompt";
@@ -328,6 +329,11 @@ const AdminPage: React.FC = () => {
                 </table>
               </div>
             </div>
+
+            {/* Character catalog + per-user access */}
+            <CharactersAdminSection
+              users={users.filter((u) => u.status !== "deleted")}
+            />
 
             {/* Backend logs */}
             <div className="space-y-4">

@@ -16,6 +16,7 @@ from typing import Optional, Union
 
 from lokidoki.auth.dependencies import current_user, get_memory
 from lokidoki.auth.users import User
+from lokidoki.core import character_ops
 from lokidoki.core.decomposer import Decomposer
 from lokidoki.core.inference import InferenceClient
 from lokidoki.core.memory_provider import MemoryProvider
@@ -62,6 +63,16 @@ async def chat(
         user_id, project_id=request.project_id
     )
 
+    # Resolve the active character for this user (catalog ← per-user
+    # overrides) and inject its behavior_prompt into the synthesis
+    # tier only. Decomposer is constructed independently and never
+    # sees this string — that's the contract from CHARACTER_SYSTEM.md
+    # §2.3 ("must NOT reach the decomposer").
+    resolved = await memory.run_sync(
+        lambda conn: character_ops.get_active_character_for_user(conn, user_id)
+    )
+    behavior_prompt = (resolved or {}).get("behavior_prompt", "") if resolved else ""
+
     client = get_inference_client()
     model_manager = ModelManager(inference_client=client, policy=_model_policy)
     decomposer = Decomposer(inference_client=client, model=_model_policy.fast_model)
@@ -72,6 +83,7 @@ async def chat(
         model_manager=model_manager,
         registry=_registry,
         skill_executor=SkillExecutor(),
+        user_prompt=behavior_prompt,
     )
 
     async def event_stream():

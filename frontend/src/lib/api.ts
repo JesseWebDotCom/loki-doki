@@ -392,6 +392,151 @@ export async function getSettings() {
   return getJson<import("./api-types").SettingsData>("/settings");
 }
 
+// ---- characters ----------------------------------------------------------
+
+export interface CharacterRow {
+  id: number;
+  name: string;
+  phonetic_name: string;
+  description: string;
+  behavior_prompt: string;
+  avatar_style: "avataaars" | "bottts" | "toon-head";
+  avatar_seed: string;
+  avatar_config: Record<string, unknown>;
+  voice_id: string | null;
+  wakeword_id: string | null;
+  source: "builtin" | "admin" | "user";
+  has_user_overrides: boolean;
+}
+
+export interface CharactersListResponse {
+  characters: CharacterRow[];
+  active_character_id: number | null;
+}
+
+export async function listCharacters() {
+  return getJson<CharactersListResponse>("/characters");
+}
+
+export async function setActiveCharacter(characterId: number) {
+  return postJson<{ ok: boolean; active_character_id: number }>(
+    "/characters/active",
+    { character_id: characterId },
+  );
+}
+
+export async function setCharacterOverride(
+  characterId: number,
+  fields: Partial<Pick<CharacterRow, "name" | "phonetic_name" | "description" | "behavior_prompt" | "avatar_style" | "avatar_seed">> & { avatar_config?: Record<string, unknown> },
+) {
+  const r = await fetch(`${API_BASE}/characters/${characterId}/override`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  if (!r.ok) throw new Error(`override: ${r.status}`);
+  return (await r.json()) as CharacterRow;
+}
+
+export async function clearCharacterOverride(characterId: number) {
+  const r = await fetch(`${API_BASE}/characters/${characterId}/override`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`clear override: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+// ---- characters: admin ---------------------------------------------------
+
+export interface AdminCharacterRow {
+  id: number;
+  name: string;
+  phonetic_name: string;
+  description: string;
+  behavior_prompt: string;
+  avatar_style: "avataaars" | "bottts" | "toon-head";
+  avatar_seed: string;
+  avatar_config: Record<string, unknown>;
+  voice_id: string | null;
+  wakeword_id: string | null;
+  source: "builtin" | "admin" | "user";
+  global_enabled: boolean;
+}
+
+export async function adminListCatalog() {
+  return getJson<{ characters: AdminCharacterRow[] }>("/characters/admin/catalog");
+}
+
+export interface AdminCharacterCreate {
+  name: string;
+  description?: string;
+  phonetic_name?: string;
+  behavior_prompt?: string;
+  avatar_style?: "avataaars" | "bottts" | "toon-head";
+  avatar_seed?: string;
+}
+
+export async function adminCreateCharacter(body: AdminCharacterCreate) {
+  return postJson<{ id: number }>("/characters/admin", body);
+}
+
+export async function adminPatchCharacter(
+  characterId: number,
+  fields: Partial<AdminCharacterCreate>,
+) {
+  const r = await fetch(`${API_BASE}/characters/admin/${characterId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  if (!r.ok) throw new Error(`patch: ${r.status}`);
+  return (await r.json()) as { id: number };
+}
+
+export async function adminDeleteCharacter(characterId: number) {
+  const r = await fetch(`${API_BASE}/characters/admin/${characterId}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`delete: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function adminSetGlobalEnabled(
+  characterId: number,
+  enabled: boolean,
+) {
+  return postJson<{ ok: boolean }>(
+    `/characters/admin/${characterId}/enable`,
+    { enabled },
+  );
+}
+
+export interface CharacterAccessRow {
+  character_id: number;
+  name: string;
+  source: "builtin" | "admin" | "user";
+  global_enabled: boolean;
+  user_override: boolean | null;
+  effective: boolean;
+}
+
+export async function adminGetUserAccess(userId: number) {
+  return getJson<{ matrix: CharacterAccessRow[] }>(
+    `/characters/admin/users/${userId}/access`,
+  );
+}
+
+export async function adminSetUserEnabled(
+  userId: number,
+  characterId: number,
+  enabled: boolean | null,
+) {
+  return postJson<{ ok: boolean }>(
+    `/characters/admin/users/${userId}/characters/${characterId}/enable`,
+    { enabled },
+  );
+}
+
 // ---- skills config -------------------------------------------------------
 
 export interface SkillConfigField {
