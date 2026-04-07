@@ -51,7 +51,7 @@ BOOTSTRAP_STEPS = [
     ("check-ollama", "Verifying Ollama Service", "ollama --version"),
     ("pull-model", "Pulling LLM (gemma4:e2b)", "ollama pull gemma4:e2b"),
     ("warm-resident", "Loading Resident Model into RAM", "curl -s http://localhost:11434/api/generate -d '{\"model\":\"gemma4:e2b\",\"prompt\":\".\",\"keep_alive\":-1,\"stream\":false}'"),
-    ("check-piper", "Initializing Piper Voice", "mkdir -p data/models/piper && echo 'Piper initialized'"),
+    ("check-piper", "Initializing Piper Voice", "uv run python -c 'from lokidoki.core.audio import ensure_default_voice, warm_voice, DEFAULT_VOICE_ID; r = ensure_default_voice(); print(r); warm_voice(DEFAULT_VOICE_ID)'"),
     ("check-residency", "Verifying System Health", "echo 'Hardware nominal'"),
 ]
 

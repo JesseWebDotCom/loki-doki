@@ -28,7 +28,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, pipeline }) => {
         {messages.map((msg, idx) => (
           <React.Fragment key={idx}>
             {msg.pipeline && <ThinkingIndicator pipeline={msg.pipeline} />}
-            <MessageItem {...msg} />
+            <MessageItem {...msg} messageKey={`msg-${idx}`} />
           </React.Fragment>
         ))}
         {isThinking && <ThinkingIndicator pipeline={pipeline} />}

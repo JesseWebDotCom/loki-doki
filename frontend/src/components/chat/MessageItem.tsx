@@ -2,7 +2,8 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Link as LinkIcon, Brain } from 'lucide-react';
+import { Link as LinkIcon, Brain, Play, Square, LoaderCircle, Volume2, VolumeX } from 'lucide-react';
+import { useTTSState } from '../../utils/tts';
 import {
   Tooltip,
   TooltipContent,
@@ -18,6 +19,7 @@ interface MessageProps {
   sources?: SourceInfo[];
   confirmations?: SilentConfirmation[];
   clarification?: string;
+  messageKey?: string;
 }
 
 /**
@@ -75,11 +77,18 @@ const MessageItem: React.FC<MessageProps> = ({
   sources = [],
   confirmations = [],
   clarification,
+  messageKey,
 }) => {
   const isUser = role === 'user';
-  
+  const tts = useTTSState();
+  const myKey = messageKey ?? '';
+  const isSpeaking = !isUser && tts.speakingKey === myKey;
+  const isPending = !isUser && tts.pendingKey === myKey;
+
   // Transform citations into markdown-recognizable links
   const processedContent = isUser ? content : preprocessContent(content);
+
+  const isActive = isSpeaking || isPending;
 
   return (
     <div className={`flex w-full mb-8 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -93,6 +102,40 @@ const MessageItem: React.FC<MessageProps> = ({
             {role}
           </span>
           <span className="text-[10px] text-muted-foreground/40 font-mono italic">{timestamp}</span>
+          {!isUser && myKey && (
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => tts.speak(myKey, content)}
+                disabled={tts.muted || isActive}
+                title={tts.muted ? 'Voice muted' : 'Play / replay'}
+                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                {isPending ? (
+                  <LoaderCircle size={13} className="animate-spin" />
+                ) : (
+                  <Play size={13} />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => tts.stop()}
+                disabled={!isActive}
+                title="Stop"
+                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                <Square size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={tts.toggleMute}
+                title={tts.muted ? 'Unmute (allow auto-play)' : 'Mute (silence auto-play)'}
+                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition"
+              >
+                {tts.muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+              </button>
+            </div>
+          )}
         </div>
         
         <div className={`prose-onyx text-[15px] leading-relaxed font-medium tracking-tight ${isUser ? 'text-foreground' : 'text-foreground/90'}`}>

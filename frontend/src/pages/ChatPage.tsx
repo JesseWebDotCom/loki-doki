@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Send } from 'lucide-react';
+import { useTTSState } from '../utils/tts';
 import Sidebar from '../components/sidebar/Sidebar';
 import ChatWindow from '../components/chat/ChatWindow';
 import ProjectLandingView from '../components/projects/ProjectLandingView';
@@ -67,6 +68,7 @@ const ChatPage: React.FC = () => {
   const [projectChats, setProjectChats] = useState<any[]>([]);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
+  const tts = useTTSState();
 
   const activeProject = useMemo<ProjectRecord | null>(
     () => (activeProjectId ? projects.find((p) => p.id === activeProjectId) || null : null),
@@ -183,15 +185,20 @@ const ChatPage: React.FC = () => {
           prev.streamingResponse?.trim() ||
           '⚠️ No response received. Check the backend log — Ollama may have errored.';
         const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
-        setMessages(msgs => [...msgs, {
-          role: 'assistant',
-          content: finalText,
-          timestamp: new Date().toLocaleTimeString(),
-          sources: prev.synthesis?.sources ?? [],
-          pipeline: completedPipeline,
-          confirmations: prev.confirmations,
-          clarification: prev.clarification ?? undefined,
-        }]);
+        setMessages(msgs => {
+          const next = [...msgs, {
+            role: 'assistant' as const,
+            content: finalText,
+            timestamp: new Date().toLocaleTimeString(),
+            sources: prev.synthesis?.sources ?? [],
+            pipeline: completedPipeline,
+            confirmations: prev.confirmations,
+            clarification: prev.clarification ?? undefined,
+          }];
+          // Auto-play the new assistant message (no-op when muted).
+          tts.speak(`msg-${next.length - 1}`, finalText);
+          return next;
+        });
         return { ...prev, phase: 'idle' };
       });
       // Nudge the sidebar to refetch sessions + titles. The backend
