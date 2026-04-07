@@ -17,30 +17,89 @@ race where two find-or-create calls interleave on the same name.
 from __future__ import annotations
 
 import sqlite3
+from typing import Optional
 
 from lokidoki.core.confidence import DEFAULT_CONFIDENCE
 
 
-def find_or_create_person(
+def find_people_by_name(
+    conn: sqlite3.Connection, user_id: int, name: str
+) -> list[sqlite3.Row]:
+    """Return ALL people matching ``name`` case-insensitively for this user.
+
+    Multiple "Artie" rows are allowed (brother-Artie, dog-Artie); the
+    orchestrator picks one with disambiguation scoring.
+    """
+    norm = name.strip()
+    if not norm:
+        return []
+    return conn.execute(
+        "SELECT id, name, created_at FROM people "
+        "WHERE owner_user_id = ? AND LOWER(name) = LOWER(?) "
+        "ORDER BY id ASC",
+        (user_id, norm),
+    ).fetchall()
+
+
+def create_person(
     conn: sqlite3.Connection, user_id: int, name: str
 ) -> int:
-    """Idempotent, case-insensitive person lookup. Returns the row id."""
+    """Unconditionally create a new people row. Returns the new id."""
     norm = name.strip()
     if not norm:
         raise ValueError("person name cannot be empty")
-    row = conn.execute(
-        "SELECT id FROM people "
-        "WHERE owner_user_id = ? AND LOWER(name) = LOWER(?)",
-        (user_id, norm),
-    ).fetchone()
-    if row:
-        return int(row["id"])
     cur = conn.execute(
         "INSERT INTO people (owner_user_id, name) VALUES (?, ?)",
         (user_id, norm),
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def find_or_create_person(
+    conn: sqlite3.Connection, user_id: int, name: str
+) -> int:
+    """Legacy single-result helper.
+
+    Used by code paths that don't need disambiguation (e.g. admin
+    routes). Returns the FIRST matching row, or creates one. The
+    orchestrator path uses ``find_people_by_name`` + scoring instead.
+    """
+    rows = find_people_by_name(conn, user_id, name)
+    if rows:
+        return int(rows[0]["id"])
+    return create_person(conn, user_id, name)
+
+
+def update_person_name(
+    conn: sqlite3.Connection, user_id: int, person_id: int, name: str
+) -> bool:
+    norm = name.strip()
+    if not norm:
+        return False
+    cur = conn.execute(
+        "UPDATE people SET name = ? WHERE owner_user_id = ? AND id = ?",
+        (norm, user_id, person_id),
+    )
+    # Re-point any facts whose subject text mirrored the old lowercase name.
+    conn.execute(
+        "UPDATE facts SET subject = LOWER(?) "
+        "WHERE owner_user_id = ? AND subject_ref_id = ?",
+        (norm, user_id, person_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def delete_person(
+    conn: sqlite3.Connection, user_id: int, person_id: int
+) -> bool:
+    cur = conn.execute(
+        "DELETE FROM people WHERE owner_user_id = ? AND id = ?",
+        (user_id, person_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def list_people(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
@@ -70,12 +129,31 @@ def list_facts_about_person(
     conn: sqlite3.Connection, user_id: int, person_id: int
 ) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT id, subject, predicate, value, category, confidence, "
+        "SELECT id, subject, subject_type, subject_ref_id, predicate, value, "
+        "       category, confidence, observation_count, last_observed_at, "
+        "       status, ambiguity_group_id, source_message_id, "
         "       created_at, updated_at FROM facts "
         "WHERE owner_user_id = ? AND subject_ref_id = ? "
+        "AND status IN ('active','ambiguous') "
         "ORDER BY updated_at DESC",
         (user_id, person_id),
     ).fetchall()
+
+
+def count_recent_session_refs(
+    conn: sqlite3.Connection, user_id: int, person_id: int, since_message_id: int
+) -> int:
+    """How many facts about this person were observed in the recent window.
+
+    Used by disambiguation scoring as a co-occurrence signal.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) FROM facts "
+        "WHERE owner_user_id = ? AND subject_ref_id = ? "
+        "AND source_message_id IS NOT NULL AND source_message_id >= ?",
+        (user_id, person_id, since_message_id),
+    ).fetchone()
+    return int(row[0]) if row else 0
 
 
 def merge_people(
@@ -172,6 +250,74 @@ def list_relationships(
         "JOIN people p ON p.id = r.person_id "
         "WHERE r.owner_user_id = ? "
         "ORDER BY r.relation, LOWER(p.name)",
+        (user_id,),
+    ).fetchall()
+
+
+def create_ambiguity_group(
+    conn: sqlite3.Connection,
+    user_id: int,
+    raw_name: str,
+    candidate_person_ids: list[int],
+) -> int:
+    import json as _json
+
+    cur = conn.execute(
+        "INSERT INTO ambiguity_groups "
+        "(owner_user_id, raw_name, candidate_person_ids) VALUES (?, ?, ?)",
+        (user_id, raw_name, _json.dumps(candidate_person_ids)),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def get_ambiguity_group(
+    conn: sqlite3.Connection, user_id: int, group_id: int
+) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, raw_name, candidate_person_ids, resolved_person_id, resolved_at "
+        "FROM ambiguity_groups WHERE owner_user_id = ? AND id = ?",
+        (user_id, group_id),
+    ).fetchone()
+
+
+def resolve_ambiguity_group(
+    conn: sqlite3.Connection,
+    user_id: int,
+    group_id: int,
+    person_id: int,
+) -> bool:
+    """Bind every fact in the group to ``person_id`` and mark resolved."""
+    person = conn.execute(
+        "SELECT name FROM people WHERE owner_user_id = ? AND id = ?",
+        (user_id, person_id),
+    ).fetchone()
+    if not person:
+        return False
+    subject = person["name"].strip().lower()
+    cur = conn.execute(
+        "UPDATE facts SET subject_ref_id = ?, subject = ?, "
+        "subject_type = 'person', status = 'active', "
+        "ambiguity_group_id = NULL, updated_at = datetime('now') "
+        "WHERE owner_user_id = ? AND ambiguity_group_id = ?",
+        (person_id, subject, user_id, group_id),
+    )
+    conn.execute(
+        "UPDATE ambiguity_groups SET resolved_person_id = ?, "
+        "resolved_at = datetime('now') WHERE owner_user_id = ? AND id = ?",
+        (person_id, user_id, group_id),
+    )
+    conn.commit()
+    return cur.rowcount >= 0
+
+
+def list_unresolved_ambiguity_groups(
+    conn: sqlite3.Connection, user_id: int
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, raw_name, candidate_person_ids, created_at "
+        "FROM ambiguity_groups WHERE owner_user_id = ? AND resolved_person_id IS NULL "
+        "ORDER BY id DESC",
         (user_id,),
     ).fetchall()
 

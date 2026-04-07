@@ -19,6 +19,7 @@ import type {
   RoutingData,
   ProjectRecord,
   ProjectInput,
+  SilentConfirmation,
 } from '../lib/api';
 
 export interface Message {
@@ -27,6 +28,8 @@ export interface Message {
   timestamp: string;
   sources?: SourceInfo[];
   pipeline?: PipelineState;
+  confirmations?: SilentConfirmation[];
+  clarification?: string;
 }
 
 export interface PipelineState {
@@ -36,6 +39,8 @@ export interface PipelineState {
   synthesis: SynthesisData | null;
   streamingResponse: string;
   totalLatencyMs: number;
+  confirmations: SilentConfirmation[];
+  clarification: string | null;
 }
 
 const INITIAL_PIPELINE: PipelineState = {
@@ -45,6 +50,8 @@ const INITIAL_PIPELINE: PipelineState = {
   synthesis: null,
   streamingResponse: '',
   totalLatencyMs: 0,
+  confirmations: [],
+  clarification: null,
 };
 
 const ChatPage: React.FC = () => {
@@ -102,7 +109,28 @@ const ChatPage: React.FC = () => {
   };
 
   const handleEvent = useCallback((event: PipelineEvent) => {
+    // Capture the session id the backend assigned for a brand-new chat
+    // so the next turn reuses it instead of creating yet another row.
+    if (event.phase === 'session' && event.data?.session_id) {
+      const sid = String(event.data.session_id);
+      setCurrentSessionId((prev) => prev ?? sid);
+    }
     setPipeline(prev => {
+      // silent_confirmation / clarification_question are side-channel
+      // events; don't mutate the pipeline phase chip for them.
+      if (event.phase === 'silent_confirmation') {
+        return {
+          ...prev,
+          confirmations: [...prev.confirmations, event.data as SilentConfirmation],
+        };
+      }
+      if (event.phase === 'clarification_question') {
+        return {
+          ...prev,
+          clarification: (event.data?.hint as string) ?? null,
+        };
+      }
+
       const next = { ...prev, phase: event.phase as PipelineState['phase'] };
 
       if (event.phase === 'decomposition' && event.status === 'done') {
@@ -147,18 +175,29 @@ const ChatPage: React.FC = () => {
       await sendChatMessage(input, handleEvent, currentSessionId ? Number(currentSessionId) : undefined, activeProjectId || undefined);
 
       setPipeline(prev => {
-        if (prev.synthesis?.response) {
-          const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
-          setMessages(msgs => [...msgs, {
-            role: 'assistant',
-            content: prev.synthesis!.response,
-            timestamp: new Date().toLocaleTimeString(),
-            sources: prev.synthesis!.sources ?? [],
-            pipeline: completedPipeline,
-          }]);
-        }
+        // Always emit a message at the end of a turn, even if synthesis
+        // returned empty or errored. Falls back to whatever streamed in,
+        // or a clear "no response" placeholder so the UI never looks stuck.
+        const finalText =
+          prev.synthesis?.response?.trim() ||
+          prev.streamingResponse?.trim() ||
+          '⚠️ No response received. Check the backend log — Ollama may have errored.';
+        const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
+        setMessages(msgs => [...msgs, {
+          role: 'assistant',
+          content: finalText,
+          timestamp: new Date().toLocaleTimeString(),
+          sources: prev.synthesis?.sources ?? [],
+          pipeline: completedPipeline,
+          confirmations: prev.confirmations,
+          clarification: prev.clarification ?? undefined,
+        }]);
         return { ...prev, phase: 'idle' };
       });
+      // Nudge the sidebar to refetch sessions + titles. The backend
+      // auto-names a fresh session on the first turn and we won't see
+      // that name until something re-pulls /memory/sessions.
+      setDataVersion((v) => v + 1);
     } catch (err) {
       setMessages(prev => [...prev, {
         role: 'assistant',

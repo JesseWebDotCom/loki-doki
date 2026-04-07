@@ -50,6 +50,11 @@ The interface is designed for utility and rapid feedback rather than aesthetic c
   - **Parallel Skill Pills**: A horizontal or vertical list of active skills during the "Skill Routing" phase, each with its own status (Success/Fallback/Failure) and timer.
   - **Total Time-to-First-Token**: A prominent counter showing the overall latency from "Send" to the first streamed character.
 
+### Admin Tab
+Admin-only surface, gated by `require_admin` and a freshness password challenge:
+- **Users panel**: list, create, disable/enable, delete, promote/demote, reset PIN.
+- **Per-user Memory panel**: clicking a user row opens side-by-side People and Facts panels for that user's tenant. Admins can create/delete people, promote `pending`/`ambiguous` facts to `active` (forcing confidence ≥ 0.85), reject, edit, or hard-delete. The Facts panel has a status filter (Live / Pending / Active / Rejected / Superseded) so admins can audit the full lifecycle.
+
 ### Configuration Tab
 Enables user customization of the system's behavior:
 - **Parental Controls**: Overarching system-level control prompt that dictates hard boundaries.
@@ -59,11 +64,13 @@ Enables user customization of the system's behavior:
     - **Read-Aloud Toggle**: Enable/Disable automated speech for every response.
 
 ### Memory Tab (Identity & Context)
-A dedicated interface for viewing the bot's internal records:
-- **Identity Panel**: Persistent facts about the user (e.g., name, age, home city).
-- **Relationship Directory**: Catalog of people mentioned and their roles (e.g., "Billy (Brother)").
-- **Global Memory Index**: Searchable list of all extracted long-term facts.
-- **Recent Context Timeline**: A rolling view of the 5 most recent session-wide context fragments currently being "restored" to new chats.
+A dedicated interface for viewing and curating the bot's internal records. Built on three tabs (You / People / Other) where every fact carries an effective-confidence percentage and an inline action cluster:
+- **Per-fact controls**: Confirm ✓, Edit value, Reassign person (dropdown of all known people + "self"), Reject (soft, recoverable), Delete (hard).
+- **Per-person controls**: Rename, set/change relationship, Delete (with cascade warning), Merge into another person.
+- **Needs disambiguation callout**: Facts that landed ambiguous (e.g. "Artie loves movies" when multiple Arties exist) surface at the top with a candidate picker.
+- **ConfidenceBar**: Renders the recency-decayed confidence as a Material-purple bar plus a numeric `%`. Hover tooltip exposes raw stored confidence, observation count, and last-seen timestamp.
+- **Search**: BM25 across the user's full fact corpus, scoped to project where applicable.
+- **Recent Context Timeline**: Rolling view of facts currently being "restored" to new chats.
 
 ---
 
@@ -91,6 +98,11 @@ Asks are routed to appropriate **Skills** in parallel based on intent.
   - **Prioritized**: Mechanisms are tried in order.
   - **Timed**: Strict timeouts for each mechanism.
   - **Connectivity Aware**: Mechanisms flag whether they can run with no internet.
+
+### III.b Silent Confirmation & Friendly Clarification
+The orchestrator emits two side-channel SSE events alongside the normal pipeline phases:
+- **`silent_confirmation`** — one event per successful fact write. The chat UI renders these as a quiet chip beneath the assistant response (`Saved: brother Artie likes movies`, optionally `(was: …)` for revisions or `(replaces: …)` for supersedes). The spoken synthesis never restates them — they exist purely so the user can spot-check what the system stored.
+- **`clarification_question`** — emitted only when a fact landed `status='ambiguous'` or a contradiction was uncertainly resolved (margin < 0.2). The orchestrator builds a short hint and threads it into the synthesis prompt as a `CLARIFY:` line, giving the model a concrete question to ask. The frontend also renders the hint as a small italic note below the response. Rate-limited via `clarification_state` so the bot doesn't badger the user every turn.
 
 ### IV. Final Synthesis & Generation
 1. A final consolidated prompt is formed using:
@@ -132,7 +144,34 @@ To minimize "cold start" latency, `run.py` performs the following sequence on la
 ### IV. Memory & Local RAG
 Rather than a heavyweight Vector DB, LokiDoki uses a tiered memory system:
 - **Session Context**: Full history of the current tab.
-- **Long-term Key Facts**: A lightweight **BM25 (Best Match 25)** keyword index of past interactions, allowing for fast relevance lookup on the Pi without constant embedding model overhead.
+- **Long-term Key Facts**: SQLite + FTS5 (BM25) over a `facts` table, with optional `sqlite-vec` embeddings for hybrid search. People and relationships live in their own tables and back-reference facts via `subject_ref_id`.
+
+#### Confidence model
+Every fact stores a `confidence` in `[0.05, 0.99]`, an `observation_count`, and a `last_observed_at` timestamp. Two confidence views exist:
+- **Stored confidence**: long-running EMA. `update_confidence()` nudges toward 1.0 on each re-observation, toward 0.0 on each contradiction (weight 0.2 normally, 0.35 for revisions).
+- **Effective confidence**: stored value decayed by recency. `effective = stored * 0.5 ** (age_days / HALF_LIFE_DAYS)` with a 180-day half-life. Identity-class categories (`identity`, `relationship`, `biographical`) skip decay entirely — your brother stays your brother. The API returns both values; the UI renders effective and tooltips raw.
+
+#### Belief revision (contradiction handling at write-time)
+A curated `SINGLE_VALUE_PREDICATES` set covers predicates where only one value can be true at a time (`name`, `age`, `birthday`, `lives_in`, `married_to`, ...). When a new write conflicts with an existing active fact for the same `(subject_ref_id, predicate)`:
+- **Multi-value predicates** (`likes`, `visited`, `owns`): both rows coexist freely.
+- **Single-value predicates**: the loser's confidence is bumped down. If it falls below `0.15` it flips to `status='rejected'` and is excluded from retrieval but kept for audit.
+- **Explicit negation**: when the decomposer flags `negates_previous=true` (e.g. "no, my brother's name is Art, not Artie"), every conflicting active row is immediately marked `status='superseded'` instead of waiting for decay.
+
+#### Person disambiguation
+The `people` table no longer enforces `UNIQUE(owner, name)` — multiple "Artie" rows are allowed (brother-Artie, dog-Artie, celebrity Artie Lange). When the decomposer emits a `subject_type='person'` item, the orchestrator scores every name match by:
+1. **Relationship hint**: a relation word in front of the name in the user message ("my brother Artie") strongly favors the candidate with that relationship row.
+2. **Recent co-occurrence**: facts about the candidate observed earlier in the same session add weight.
+3. **Recency tiebreaker**: more recently created people slightly preferred.
+
+If the top candidate's score margin clears the disambiguation threshold, the fact binds directly. Otherwise it's written with `status='ambiguous'` and tied to a new `ambiguity_groups` row that lists every viable candidate. The Memory UI surfaces these with a "Who is this?" picker.
+
+#### Fact lifecycle states
+`facts.status` is one of:
+- `active` — visible everywhere, eligible for retrieval.
+- `ambiguous` — written but waiting for the user to pick a person.
+- `pending` — admin staging tier (manual moderation).
+- `rejected` — soft-deleted; hidden from retrieval, recoverable.
+- `superseded` — replaced by an explicit belief revision.
 
 ### IV. Dynamic Skill Discovery & Intent Registry
 To avoid hard-coded routing, LokiDoki uses a dynamic discovery engine:
@@ -253,8 +292,24 @@ The "Decomposition" step (Gemma 4-E2B) performs a triple-pass: **Intents**, **Sh
   },
   "long_term_memory": [
     {
-      "category": "family",
-      "fact": "User's brother Billy loves The Incredibles movie"
+      "subject_type": "person",
+      "subject_name": "Billy",
+      "predicate": "loves",
+      "value": "The Incredibles",
+      "kind": "fact",
+      "relationship_kind": null,
+      "category": "preference",
+      "negates_previous": false
+    },
+    {
+      "subject_type": "person",
+      "subject_name": "Billy",
+      "predicate": "is",
+      "value": "brother",
+      "kind": "relationship",
+      "relationship_kind": "brother",
+      "category": "relationship",
+      "negates_previous": false
     }
   ],
   "asks": [
@@ -298,39 +353,6 @@ The "Decomposition" step (Gemma 4-E2B) performs a triple-pass: **Intents**, **Sh
 - **`TechnicalStatusPanel`**: A "DevTools" style sidebar or overlay showing the real-time decomposition and routing logs.
 - **`SkillStatusCard`**: Micro-component indicating which skills are being queried and their success/failure status.
 
----
-
-## 8. Development Roadmap (Phased)
-
-1. **Phase 1: Bootstrap & TDD Foundation** (COMPLETED)
-   - [x] **Infrastructure**: `run.py`, `run.sh`, Basic FastAPI, and React/Tailwind skeleton.
-   - [x] **TDD Setup**: Backend Test Runner API, `pytest`, and the browser-based **Tests Tab**.
-   - [x] **Caveman Compression**: Signal-only token pre-processor with 100% test coverage.
-   - [x] **Deliverables**: Verified `pre-commit` hooks, green unit tests, and a functional "Tests" UI.
-
-2. **Phase 2: Intent Engine & Decomposition** (COMPLETED)
-   - [x] **Gemma Integration**: Connect to `gemma:2b` via Ollama for semantic parsing.
-   - [x] **JSON Decomposition**: Robust parsing of user input into structured "Asks."
-   - [x] **Sentiment & Memory**: Initial sentiment extraction and session-local fact recording.
-   - [x] **Deliverables**: A "Technical Details" sidebar showing live LLM decomposition logs.
-
-3. **Phase 3: Skill Framework & Multi-Mechanism Routing** (COMPLETED)
-   - [x] **Registry**: Dynamic skill discovery system.
-   - [x] **Core Skills**: Implement Time, Weather, and Wikipedia engines.
-   - [x] **Fallback Logic**: API → Scraper → Cache priority system for each skill.
-   - [x] **Deliverables**: Parallel execution of multiple skills with "First-Win" cancellation.
-
-4. **Phase 4: Persistence & Local RAG** (COMPLETED)
-   - [x] **SQLite Migration**: Transitions from JSON files to structured database storage.
-   - [x] **Memory Index**: BM25 implementation for fast long-term memory retrieval.
-   - [x] **Context Restoration**: Cross-chat continuity using rolling context fragments.
-   - [x] **Deliverables**: Searchable memory tab and historical context awareness.
-
-5. **Phase 5: Advanced Reasoning & Refinement** (COMPLETED)
-   - [x] **Dynamic Load Policy**: Automated switching between 2B and 9B models based on complexity.
-   - [x] **Audio Intelligence**: Integrate Faster-Whisper (STT) and Piper (TTS).
-   - [x] **Performance Tuning**: Pi 5 specific optimization for KV cache and resident RAM policy.
-   - [x] **Deliverables**: Fully autonomous, low-latency conversational agent with voice interaction.
 ---
 
 ## 10. Testing & Quality Assurance

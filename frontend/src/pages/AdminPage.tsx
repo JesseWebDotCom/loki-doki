@@ -7,7 +7,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { ShieldCheck, Users } from "lucide-react";
+import { ShieldCheck, Users, Brain, Check, X, Trash2, AlertTriangle } from "lucide-react";
 import Sidebar from "../components/sidebar/Sidebar";
 import { useAuth } from "../auth/useAuth";
 import { AdminPasswordPrompt } from "../components/AdminPasswordPrompt";
@@ -17,6 +17,18 @@ type AdminUser = {
   username: string;
   role: "admin" | "user";
   status: "active" | "disabled" | "deleted";
+};
+
+type AdminPerson = { id: number; name: string; fact_count?: number };
+type AdminFact = {
+  id: number;
+  subject: string;
+  predicate: string;
+  value: string;
+  confidence: number;
+  effective_confidence?: number;
+  status: string;
+  category: string;
 };
 
 async function api(path: string, init?: RequestInit): Promise<Response> {
@@ -33,6 +45,65 @@ const AdminPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(
     null,
+  );
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+  const [adminPeople, setAdminPeople] = useState<AdminPerson[]>([]);
+  const [adminFacts, setAdminFacts] = useState<AdminFact[]>([]);
+  const [factFilter, setFactFilter] = useState<string>("active,ambiguous,pending");
+  const [newPerson, setNewPerson] = useState("");
+
+  const loadUserMemory = useCallback(
+    async (uid: number) => {
+      const [pr, fr] = await Promise.all([
+        api(`/api/v1/admin/users/${uid}/people`),
+        api(`/api/v1/admin/users/${uid}/facts?status=${factFilter}`),
+      ]);
+      if (pr.ok) setAdminPeople(((await pr.json()) as { people: AdminPerson[] }).people);
+      if (fr.ok) setAdminFacts(((await fr.json()) as { facts: AdminFact[] }).facts);
+    },
+    [factFilter],
+  );
+
+  useEffect(() => {
+    if (selectedUser) void loadUserMemory(selectedUser.id);
+  }, [selectedUser, loadUserMemory]);
+
+  const adminFactAction = useCallback(
+    async (factId: number, action: "promote" | "reject" | "delete") => {
+      const method = action === "delete" ? "DELETE" : "POST";
+      const path =
+        action === "delete"
+          ? `/api/v1/admin/facts/${factId}`
+          : `/api/v1/admin/facts/${factId}/${action}`;
+      const r = await api(path, { method });
+      if (!r.ok) {
+        setError(`${action} failed`);
+        return;
+      }
+      if (selectedUser) void loadUserMemory(selectedUser.id);
+    },
+    [selectedUser, loadUserMemory],
+  );
+
+  const adminCreatePerson = useCallback(async () => {
+    if (!selectedUser || !newPerson.trim()) return;
+    const r = await api(`/api/v1/admin/users/${selectedUser.id}/people`, {
+      method: "POST",
+      body: JSON.stringify({ name: newPerson.trim() }),
+    });
+    if (r.ok) {
+      setNewPerson("");
+      void loadUserMemory(selectedUser.id);
+    }
+  }, [selectedUser, newPerson, loadUserMemory]);
+
+  const adminDeletePerson = useCallback(
+    async (personId: number) => {
+      if (!confirm("Delete this person and cascade their facts?")) return;
+      const r = await api(`/api/v1/admin/people/${personId}`, { method: "DELETE" });
+      if (r.ok && selectedUser) void loadUserMemory(selectedUser.id);
+    },
+    [selectedUser, loadUserMemory],
   );
 
   const refresh = useCallback(async () => {
@@ -57,6 +128,37 @@ const AdminPage: React.FC = () => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const handleResetMemory = useCallback(async () => {
+    const confirmed = confirm(
+      "Wipe ALL memory? This deletes every fact, person, relationship, " +
+      "ambiguity group, session, and message for every user.\n\n" +
+      "Users, projects, and admin login are preserved.\n\n" +
+      "This cannot be undone.",
+    );
+    if (!confirmed) return;
+    const fn = async () => {
+      const r = await api("/api/v1/admin/reset-memory", { method: "POST" });
+      if (r.status === 403) {
+        const detail = (await r.json().catch(() => ({}))) as { detail?: string };
+        if (detail.detail?.startsWith("password_challenge")) {
+          setPendingAction(() => fn);
+          return;
+        }
+      }
+      if (!r.ok) {
+        setError(`reset failed (${r.status})`);
+        return;
+      }
+      const data = (await r.json()) as { wiped: Record<string, number> };
+      const total = Object.values(data.wiped).reduce((s, n) => s + (n || 0), 0);
+      setError(null);
+      alert(`Memory wiped: ${total} rows across ${Object.keys(data.wiped).length} tables.`);
+      if (selectedUser) void loadUserMemory(selectedUser.id);
+      void refresh();
+    };
+    await fn();
+  }, [selectedUser, loadUserMemory, refresh]);
 
   const act = useCallback(
     async (id: number, action: string) => {
@@ -134,8 +236,9 @@ const AdminPage: React.FC = () => {
                     {users.map((u) => (
                       <tr
                         key={u.id}
-                        className="border-b border-border/10 last:border-0 text-sm hover:bg-card/30 transition-colors"
+                        className={`border-b border-border/10 last:border-0 text-sm hover:bg-card/30 transition-colors cursor-pointer ${selectedUser?.id === u.id ? "bg-primary/5" : ""}`}
                         data-testid={`admin-row-${u.id}`}
+                        onClick={() => setSelectedUser(u)}
                       >
                         <td className="px-4 py-3 font-bold">{u.username}</td>
                         <td className="px-4 py-3">
@@ -205,6 +308,162 @@ const AdminPage: React.FC = () => {
                 </table>
               </div>
             </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b border-red-400/20 pb-4">
+                <AlertTriangle className="text-red-400 w-5 h-5" />
+                <h2 className="text-xl font-bold tracking-tight text-red-400">
+                  Danger Zone
+                </h2>
+              </div>
+              <div className="rounded-xl border border-red-400/30 bg-red-400/5 p-4 flex items-center justify-between gap-4">
+                <div className="text-xs">
+                  <div className="font-bold text-red-300 mb-1">Reset memory</div>
+                  <div className="text-muted-foreground">
+                    Wipes all facts, people, relationships, ambiguity groups,
+                    sessions, and messages for every user. Preserves users,
+                    projects, and your admin login. Useful for retesting fact
+                    extraction from a clean slate.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleResetMemory()}
+                  className="shrink-0 rounded-md border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-400/20 transition-all"
+                >
+                  Reset Memory
+                </button>
+              </div>
+            </div>
+
+            {selectedUser && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 border-b border-border/10 pb-4">
+                  <Brain className="text-primary w-5 h-5" />
+                  <h2 className="text-xl font-bold tracking-tight">
+                    Memory: {selectedUser.username}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedUser(null)}
+                    className="ml-auto text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    close
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="rounded-xl border border-border/30 bg-card/50 p-4 space-y-3">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      People ({adminPeople.length})
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={newPerson}
+                        onChange={(e) => setNewPerson(e.target.value)}
+                        placeholder="Add person…"
+                        className="flex-1 bg-background border border-border/40 rounded-md px-2 py-1 text-xs"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void adminCreatePerson();
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void adminCreatePerson()}
+                        className="text-xs px-2 py-1 rounded-md bg-primary/10 border border-primary/30 text-primary"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                      {adminPeople.map((p) => (
+                        <div
+                          key={p.id}
+                          className="flex items-center gap-2 text-xs p-2 rounded bg-background/40 border border-border/20"
+                        >
+                          <span className="flex-1 font-medium">{p.name}</span>
+                          <span className="text-muted-foreground">
+                            {p.fact_count ?? 0} facts
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void adminDeletePerson(p.id)}
+                            className="p-1 rounded hover:bg-red-400/10 text-red-400"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border/30 bg-card/50 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                        Facts ({adminFacts.length})
+                      </div>
+                      <select
+                        value={factFilter}
+                        onChange={(e) => setFactFilter(e.target.value)}
+                        className="text-[10px] bg-background border border-border/40 rounded px-1 py-0.5"
+                      >
+                        <option value="active,ambiguous,pending">Live</option>
+                        <option value="pending,ambiguous">Pending</option>
+                        <option value="active">Active</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="superseded">Superseded</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                      {adminFacts.map((f) => (
+                        <div
+                          key={f.id}
+                          className="flex items-start gap-2 text-xs p-2 rounded bg-background/40 border border-border/20"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-mono text-[10px] text-muted-foreground">
+                              {f.subject}.{f.predicate}
+                            </div>
+                            <div className="font-medium truncate">{f.value}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {f.status} •{" "}
+                              {Math.round(
+                                (f.effective_confidence ?? f.confidence) * 100,
+                              )}
+                              %
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void adminFactAction(f.id, "promote")}
+                            title="Promote"
+                            className="p-1 rounded hover:bg-green-400/10 text-green-400"
+                          >
+                            <Check size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void adminFactAction(f.id, "reject")}
+                            title="Reject"
+                            className="p-1 rounded hover:bg-amber-400/10 text-amber-400"
+                          >
+                            <X size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void adminFactAction(f.id, "delete")}
+                            title="Delete"
+                            className="p-1 rounded hover:bg-red-400/10 text-red-400"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </main>

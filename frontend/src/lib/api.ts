@@ -30,6 +30,8 @@ export type {
   Relationship,
   ConflictCandidate,
   FactConflict,
+  AmbiguityGroup,
+  SilentConfirmation,
 } from "./api-types";
 
 const API_BASE = "/api/v1";
@@ -282,6 +284,85 @@ export async function getRelationships() {
 export async function getFactConflicts() {
   return getJson<{ conflicts: import("./api-types").FactConflict[] }>(
     "/memory/facts/conflicts",
+  );
+}
+
+export async function confirmFact(id: number) {
+  return postJson<{ id: number; confidence: number }>(
+    `/memory/facts/${id}/confirm`,
+    {},
+  );
+}
+
+export async function rejectFact(id: number) {
+  return postJson<{ ok: boolean }>(`/memory/facts/${id}/reject`, {});
+}
+
+export async function patchFact(
+  id: number,
+  patch: Partial<{
+    value: string;
+    predicate: string;
+    subject: string;
+    subject_ref_id: number | null;
+    subject_type: string;
+    status: string;
+  }>,
+) {
+  const r = await fetch(`${API_BASE}/memory/facts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw new Error(`/memory/facts/${id}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function deleteFact(id: number) {
+  const r = await fetch(`${API_BASE}/memory/facts/${id}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`/memory/facts/${id}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function createPerson(name: string) {
+  return postJson<{ id: number; name: string }>("/memory/people", { name });
+}
+
+export async function renamePerson(id: number, name: string) {
+  const r = await fetch(`${API_BASE}/memory/people/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) throw new Error(`/memory/people/${id}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function deletePerson(id: number) {
+  const r = await fetch(`${API_BASE}/memory/people/${id}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`/memory/people/${id}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function addRelationship(personId: number, relation: string) {
+  return postJson<{ id: number }>(
+    `/memory/people/${personId}/relationships`,
+    { relation },
+  );
+}
+
+export async function getAmbiguityGroups() {
+  return getJson<{ groups: import("./api-types").AmbiguityGroup[] }>(
+    "/memory/ambiguity_groups",
+  );
+}
+
+export async function resolveAmbiguityGroup(groupId: number, personId: number) {
+  return postJson<{ ok: boolean }>(
+    `/memory/ambiguity_groups/${groupId}/resolve`,
+    { person_id: personId },
   );
 }
 

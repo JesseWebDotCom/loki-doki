@@ -4,9 +4,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from typing import Optional
+
 from lokidoki.auth import users as users_mod
 from lokidoki.auth.dependencies import get_memory, require_admin
 from lokidoki.auth.users import User
+from lokidoki.core.confidence import effective_confidence
 from lokidoki.core.memory_provider import MemoryProvider
 
 router = APIRouter()
@@ -131,6 +134,276 @@ async def demote_user(
     await _get_target(memory, user_id)
     await users_mod.set_role(memory, user_id, "user")
     return {"ok": True}
+
+
+# --- People / Facts admin -------------------------------------------------
+
+
+def _decorate_fact(f: dict) -> dict:
+    out = dict(f)
+    last = out.get("last_observed_at") or out.get("updated_at") or out.get("created_at") or ""
+    out["effective_confidence"] = effective_confidence(
+        float(out.get("confidence") or 0.0),
+        last,
+        out.get("category") or "general",
+    )
+    return out
+
+
+class AdminCreatePerson(BaseModel):
+    name: str
+
+
+class AdminAddRelationship(BaseModel):
+    relation: str
+
+
+class AdminFactPatch(BaseModel):
+    value: Optional[str] = None
+    predicate: Optional[str] = None
+    subject: Optional[str] = None
+    subject_ref_id: Optional[int] = None
+    subject_type: Optional[str] = None
+    status: Optional[str] = None
+
+
+@router.get("/users/{user_id}/people")
+async def admin_list_people(
+    user_id: int,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    return {"people": await memory.list_people(user_id)}
+
+
+@router.post("/users/{user_id}/people")
+async def admin_create_person(
+    user_id: int,
+    body: AdminCreatePerson,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="name_required")
+    pid = await memory.create_person(user_id, body.name.strip())
+    return {"id": pid}
+
+
+@router.patch("/people/{person_id}")
+async def admin_rename_person(
+    person_id: int,
+    body: AdminCreatePerson,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+    target_user_id: int = 0,
+):
+    # We accept the person_id directly; admin routes are not user-scoped
+    # by URL since the admin can edit any user's people. The person row
+    # carries owner_user_id which the SQL helpers enforce.
+    # We need the owner — look it up.
+    ok = False
+    async def _go(conn):
+        row = conn.execute(
+            "SELECT owner_user_id FROM people WHERE id = ?", (person_id,)
+        ).fetchone()
+        if not row:
+            return False
+        from lokidoki.core import memory_people_sql as psql
+        return psql.update_person_name(conn, int(row["owner_user_id"]), person_id, body.name.strip())
+    ok = await memory.run_sync(_go)
+    if not ok:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    return {"ok": True}
+
+
+@router.delete("/people/{person_id}")
+async def admin_delete_person(
+    person_id: int,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    async def _go(conn):
+        row = conn.execute(
+            "SELECT owner_user_id FROM people WHERE id = ?", (person_id,)
+        ).fetchone()
+        if not row:
+            return False
+        from lokidoki.core import memory_people_sql as psql
+        return psql.delete_person(conn, int(row["owner_user_id"]), person_id)
+    ok = await memory.run_sync(_go)
+    if not ok:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    return {"ok": True}
+
+
+@router.post("/people/{person_id}/relationships")
+async def admin_add_relationship(
+    person_id: int,
+    body: AdminAddRelationship,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    async def _go(conn):
+        row = conn.execute(
+            "SELECT owner_user_id FROM people WHERE id = ?", (person_id,)
+        ).fetchone()
+        if not row:
+            return None
+        from lokidoki.core import memory_people_sql as psql
+        return psql.upsert_relationship(conn, int(row["owner_user_id"]), person_id, body.relation.strip())
+    rel_id = await memory.run_sync(_go)
+    if rel_id is None:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    return {"id": rel_id}
+
+
+@router.get("/users/{user_id}/facts")
+async def admin_list_user_facts(
+    user_id: int,
+    status: Optional[str] = None,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    if status:
+        statuses = tuple(s.strip() for s in status.split(",") if s.strip())
+    else:
+        statuses = ("active", "ambiguous", "pending", "rejected", "superseded")
+    rows = await memory.list_facts_by_status(user_id, statuses, limit=500)
+    return {"facts": [_decorate_fact(r) for r in rows]}
+
+
+@router.post("/facts/{fact_id}/promote")
+async def admin_promote_fact(
+    fact_id: int,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    async def _go(conn):
+        row = conn.execute(
+            "SELECT owner_user_id, confidence FROM facts WHERE id = ?", (fact_id,)
+        ).fetchone()
+        if not row:
+            return False
+        new_conf = max(0.85, float(row["confidence"]))
+        conn.execute(
+            "UPDATE facts SET status = 'active', confidence = ?, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (new_conf, fact_id),
+        )
+        conn.commit()
+        return True
+    ok = await memory.run_sync(_go)
+    if not ok:
+        raise HTTPException(status_code=404, detail="fact_not_found")
+    return {"ok": True}
+
+
+@router.post("/facts/{fact_id}/reject")
+async def admin_reject_fact(
+    fact_id: int,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    async def _go(conn):
+        cur = conn.execute(
+            "UPDATE facts SET status = 'rejected', updated_at = datetime('now') "
+            "WHERE id = ?",
+            (fact_id,),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    ok = await memory.run_sync(_go)
+    if not ok:
+        raise HTTPException(status_code=404, detail="fact_not_found")
+    return {"ok": True}
+
+
+@router.patch("/facts/{fact_id}")
+async def admin_patch_fact(
+    fact_id: int,
+    body: AdminFactPatch,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(status_code=400, detail="no_fields")
+    async def _go(conn):
+        row = conn.execute(
+            "SELECT owner_user_id FROM facts WHERE id = ?", (fact_id,)
+        ).fetchone()
+        if not row:
+            return False
+        from lokidoki.core import memory_sql as sql_mod
+        return sql_mod.patch_fact(conn, int(row["owner_user_id"]), fact_id, **fields)
+    ok = await memory.run_sync(_go)
+    if not ok:
+        raise HTTPException(status_code=404, detail="fact_not_found")
+    return {"ok": True}
+
+
+@router.delete("/facts/{fact_id}")
+async def admin_delete_fact(
+    fact_id: int,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    async def _go(conn):
+        cur = conn.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    ok = await memory.run_sync(_go)
+    if not ok:
+        raise HTTPException(status_code=404, detail="fact_not_found")
+    return {"ok": True}
+
+
+# --- Database reset -------------------------------------------------------
+
+
+# Tables wiped by reset_memory. Order matters: child tables first so the
+# FK cascades don't fight us, even though most have ON DELETE CASCADE.
+_MEMORY_TABLES_TO_WIPE = (
+    "facts",
+    "ambiguity_groups",
+    "relationships",
+    "people",
+    "messages",
+    "sessions",
+    "user_sentiment",
+    "facts_fts",
+    "messages_fts",
+)
+
+
+@router.post("/reset-memory")
+async def reset_memory(
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Wipe all memory/conversation data. Keeps users and projects.
+
+    Use this from the Admin tab when you want a clean slate to retest
+    fact extraction without losing your admin login or project setup.
+    """
+    def _go(conn):
+        wiped: dict[str, int] = {}
+        for table in _MEMORY_TABLES_TO_WIPE:
+            try:
+                cur = conn.execute(f"DELETE FROM {table}")
+                wiped[table] = cur.rowcount
+            except Exception:
+                # FTS tables and vec_facts may not exist on every DB; tolerate.
+                wiped[table] = 0
+        # vec_facts is optional (sqlite-vec).
+        try:
+            conn.execute("DELETE FROM vec_facts")
+        except Exception:
+            pass
+        conn.commit()
+        return wiped
+    wiped = await memory.run_sync(_go)
+    return {"ok": True, "wiped": wiped}
 
 
 @router.post("/users/{user_id}/reset-pin")

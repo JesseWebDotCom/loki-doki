@@ -9,10 +9,15 @@ Pinned properties (DO NOT relax without updating the design doc):
 """
 import pytest
 
+from datetime import datetime, timedelta, timezone
+
 from lokidoki.core.confidence import (
     DEFAULT_CONFIDENCE,
+    HALF_LIFE_DAYS,
     MAX_CONFIDENCE,
     MIN_CONFIDENCE,
+    effective_confidence,
+    is_single_value_predicate,
     update_confidence,
 )
 
@@ -69,3 +74,35 @@ class TestUpdateConfidence:
             update_confidence(0.5, confirmed=True, weight=-0.1)
         with pytest.raises(ValueError):
             update_confidence(0.5, confirmed=True, weight=1.5)
+
+
+class TestEffectiveConfidence:
+    def _ts(self, days_ago: float) -> str:
+        t = datetime.now(timezone.utc) - timedelta(days=days_ago)
+        return t.strftime("%Y-%m-%d %H:%M:%S")
+
+    def test_fresh_equals_stored(self):
+        assert effective_confidence(0.8, self._ts(0)) == pytest.approx(0.8, abs=1e-3)
+
+    def test_one_half_life_halves(self):
+        eff = effective_confidence(0.8, self._ts(HALF_LIFE_DAYS))
+        assert eff == pytest.approx(0.4, abs=0.01)
+
+    def test_identity_no_decay(self):
+        eff = effective_confidence(0.8, self._ts(10000), category="identity")
+        assert eff == pytest.approx(0.8, abs=1e-3)
+
+    def test_relationship_no_decay(self):
+        eff = effective_confidence(0.8, self._ts(10000), category="relationship")
+        assert eff == pytest.approx(0.8, abs=1e-3)
+
+
+class TestSingleValuePredicate:
+    def test_known(self):
+        assert is_single_value_predicate("name")
+        assert is_single_value_predicate("is_named")
+        assert is_single_value_predicate("lives_in")
+
+    def test_unknown(self):
+        assert not is_single_value_predicate("likes")
+        assert not is_single_value_predicate("visited")

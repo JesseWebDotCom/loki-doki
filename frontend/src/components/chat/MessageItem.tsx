@@ -2,20 +2,22 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Link as LinkIcon } from 'lucide-react';
+import { Link as LinkIcon, Brain } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   TooltipProvider,
 } from '../ui/tooltip';
-import type { SourceInfo } from '../../lib/api';
+import type { SourceInfo, SilentConfirmation } from '../../lib/api';
 
 interface MessageProps {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
   sources?: SourceInfo[];
+  confirmations?: SilentConfirmation[];
+  clarification?: string;
 }
 
 /**
@@ -66,7 +68,14 @@ function preprocessContent(content: string): string {
   return content.replace(/\[src:(\d+)\]/g, ' [🔗$1](#cite-$1)');
 }
 
-const MessageItem: React.FC<MessageProps> = ({ role, content, timestamp, sources = [] }) => {
+const MessageItem: React.FC<MessageProps> = ({
+  role,
+  content,
+  timestamp,
+  sources = [],
+  confirmations = [],
+  clarification,
+}) => {
   const isUser = role === 'user';
   
   // Transform citations into markdown-recognizable links
@@ -131,6 +140,43 @@ const MessageItem: React.FC<MessageProps> = ({ role, content, timestamp, sources
             {processedContent}
           </ReactMarkdown>
         </div>
+
+        {!isUser && confirmations.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-border/20 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-primary/70">
+              <Brain size={11} />
+              Memory updated
+            </div>
+            {confirmations.map((c) => (
+              <div
+                key={c.fact_id}
+                className="flex items-center gap-2 text-[11px] text-muted-foreground pl-1"
+              >
+                <Brain size={11} className={c.status === 'ambiguous' ? 'text-amber-400' : 'text-primary/70'} />
+                <span className="truncate">
+                  <span className="font-medium text-foreground/80">{c.subject}</span>{' '}
+                  <span className="font-mono text-[10px]">{c.predicate}</span>{' '}
+                  <span className="font-medium text-foreground/80">{c.value}</span>
+                  {c.contradiction_action === 'revise' && c.previous_value && (
+                    <span className="text-amber-400/80"> (was: {c.previous_value})</span>
+                  )}
+                  {c.contradiction_action === 'supersede' && c.previous_value && (
+                    <span className="text-amber-400/80"> (replaces: {c.previous_value})</span>
+                  )}
+                  {c.status === 'ambiguous' && (
+                    <span className="text-amber-400/80"> — needs disambiguation</span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isUser && clarification && (
+          <div className="mt-3 text-[11px] italic text-primary/70 border-l-2 border-primary/40 pl-3">
+            {clarification}
+          </div>
+        )}
       </div>
     </div>
   );

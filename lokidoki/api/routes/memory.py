@@ -12,9 +12,22 @@ from typing import Optional, Union
 
 from lokidoki.auth.dependencies import current_user, get_memory
 from lokidoki.auth.users import User
+from lokidoki.core.confidence import effective_confidence
 from lokidoki.core.memory_provider import MemoryProvider
 
 router = APIRouter()
+
+
+def _decorate_fact(f: dict) -> dict:
+    """Add ``effective_confidence`` to a fact dict for the wire."""
+    out = dict(f)
+    last = out.get("last_observed_at") or out.get("updated_at") or out.get("created_at") or ""
+    out["effective_confidence"] = effective_confidence(
+        float(out.get("confidence") or 0.0),
+        last,
+        out.get("category") or "general",
+    )
+    return out
 
 
 @router.get("/facts")
@@ -24,7 +37,7 @@ async def get_facts(
     memory: MemoryProvider = Depends(get_memory),
 ):
     facts = await memory.list_facts(user.id, limit=200, project_id=project_id)
-    return {"facts": facts}
+    return {"facts": [_decorate_fact(f) for f in facts]}
 
 
 @router.get("/facts/search")
@@ -91,7 +104,7 @@ async def get_person_detail(
     if person is None:
         raise HTTPException(status_code=404, detail="person_not_found")
     facts = await memory.list_facts_about_person(user.id, person_id)
-    return {"person": person, "facts": facts}
+    return {"person": person, "facts": [_decorate_fact(f) for f in facts]}
 
 
 @router.post("/people/{person_id}/merge")
@@ -148,6 +161,163 @@ async def list_fact_conflicts(
             for (subject, predicate), candidates in groups.items()
         ]
     }
+
+
+class FactPatch(BaseModel):
+    value: Optional[str] = None
+    predicate: Optional[str] = None
+    subject: Optional[str] = None
+    subject_ref_id: Optional[int] = None
+    subject_type: Optional[str] = None
+    status: Optional[str] = None
+
+
+@router.post("/facts/{fact_id}/confirm")
+async def confirm_fact(
+    fact_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    new_conf = await memory.confirm_fact(user.id, fact_id)
+    if new_conf is None:
+        raise HTTPException(status_code=404, detail="fact_not_found")
+    return {"id": fact_id, "confidence": new_conf}
+
+
+@router.post("/facts/{fact_id}/reject")
+async def reject_fact(
+    fact_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    ok = await memory.reject_fact(user.id, fact_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="fact_not_found")
+    return {"ok": True}
+
+
+@router.patch("/facts/{fact_id}")
+async def patch_fact(
+    fact_id: int,
+    body: FactPatch,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(status_code=400, detail="no_fields")
+    ok = await memory.patch_fact(user.id, fact_id, **fields)
+    if not ok:
+        raise HTTPException(status_code=404, detail="fact_not_found")
+    return {"ok": True}
+
+
+@router.delete("/facts/{fact_id}")
+async def delete_fact(
+    fact_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    ok = await memory.delete_fact(user.id, fact_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="fact_not_found")
+    return {"ok": True}
+
+
+class CreatePerson(BaseModel):
+    name: str
+
+
+@router.post("/people")
+async def create_person(
+    body: CreatePerson,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="name_required")
+    pid = await memory.create_person(user.id, body.name.strip())
+    return {"id": pid, "name": body.name.strip()}
+
+
+@router.patch("/people/{person_id}")
+async def rename_person(
+    person_id: int,
+    body: CreatePerson,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    ok = await memory.update_person_name(user.id, person_id, body.name.strip())
+    if not ok:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    return {"ok": True}
+
+
+@router.delete("/people/{person_id}")
+async def delete_person(
+    person_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    ok = await memory.delete_person(user.id, person_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    return {"ok": True}
+
+
+class AddRelationship(BaseModel):
+    relation: str
+
+
+@router.post("/people/{person_id}/relationships")
+async def add_relationship(
+    person_id: int,
+    body: AddRelationship,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    if not body.relation.strip():
+        raise HTTPException(status_code=400, detail="relation_required")
+    rel_id = await memory.add_relationship(user.id, person_id, body.relation.strip())
+    return {"id": rel_id}
+
+
+@router.get("/ambiguity_groups")
+async def list_ambiguity_groups(
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    import json as _json
+
+    rows = await memory.list_unresolved_ambiguity_groups(user.id)
+    return {
+        "groups": [
+            {
+                "id": r["id"],
+                "raw_name": r["raw_name"],
+                "candidate_person_ids": _json.loads(r["candidate_person_ids"]),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+    }
+
+
+class ResolveAmbiguity(BaseModel):
+    person_id: int = Field(..., gt=0)
+
+
+@router.post("/ambiguity_groups/{group_id}/resolve")
+async def resolve_ambiguity(
+    group_id: int,
+    body: ResolveAmbiguity,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    ok = await memory.resolve_ambiguity_group(user.id, group_id, body.person_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="not_found")
+    return {"ok": True}
 
 
 @router.get("/context")

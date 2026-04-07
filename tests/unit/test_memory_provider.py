@@ -82,10 +82,10 @@ class TestFactDedupAndConfirm:
     @pytest.mark.anyio
     async def test_repeat_confirms_existing_row(self, memory):
         uid = await memory.get_or_create_user("default")
-        id1, c1 = await memory.upsert_fact(
+        id1, c1, _ = await memory.upsert_fact(
             user_id=uid, subject="self", predicate="likes", value="hiking"
         )
-        id2, c2 = await memory.upsert_fact(
+        id2, c2, _ = await memory.upsert_fact(
             user_id=uid, subject="self", predicate="likes", value="hiking"
         )
         assert id1 == id2, "dedup should re-use the existing fact row"
@@ -96,10 +96,10 @@ class TestFactDedupAndConfirm:
     async def test_distinct_values_coexist_for_conflict_ui(self, memory):
         """PR3's conflict UI needs the storage layer to keep both rows."""
         uid = await memory.get_or_create_user("default")
-        id1, _ = await memory.upsert_fact(
+        id1, _, _ = await memory.upsert_fact(
             user_id=uid, subject="Billy", predicate="favorite_movie", value="Incredibles"
         )
-        id2, _ = await memory.upsert_fact(
+        id2, _, _ = await memory.upsert_fact(
             user_id=uid, subject="Billy", predicate="favorite_movie", value="Cars"
         )
         assert id1 != id2

@@ -1,15 +1,9 @@
 /**
- * MemoryPage — three tabs: You / People / Other.
- *
- * - **You** holds self facts (subject = "self") and conflicts on those.
- * - **People** is one expandable card per resolved person, with their
- *   relationship to the user and every fact about them nested inside.
- * - **Other** catches facts whose subject is neither "self" nor a known
- *   person — orphans the orchestrator hasn't bound to a person row yet.
- *
- * The page is the only stateful piece; each tab is presentational.
+ * MemoryPage — three tabs (You / People / Other) with full per-fact and
+ * per-person mutation surface. Owns the refetch loop and threads action
+ * callbacks down into the tab components.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Brain, User, Users, Database } from "lucide-react";
 import Sidebar from "../components/sidebar/Sidebar";
 import { PeopleTab } from "../components/memory/PeopleTab";
@@ -20,12 +14,24 @@ import {
   getProjects,
   getRelationships,
   getFactConflicts,
+  getAmbiguityGroups,
+  confirmFact,
+  rejectFact,
+  patchFact,
+  deleteFact,
+  createPerson,
+  renamePerson,
+  deletePerson,
+  addRelationship,
+  resolveAmbiguityGroup,
+  mergePeople,
 } from "../lib/api";
 import type {
   Fact,
   Person,
   Relationship,
   FactConflict,
+  AmbiguityGroup,
 } from "../lib/api";
 
 type TabId = "you" | "people" | "other";
@@ -36,59 +42,137 @@ const MemoryPage: React.FC = () => {
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
   const [conflicts, setConflicts] = useState<FactConflict[]>([]);
+  const [ambiguityGroups, setAmbiguityGroups] = useState<AmbiguityGroup[]>([]);
   const [projects, setProjects] = useState<Array<{ id: number; name: string }>>([]);
   const [projectFilter, setProjectFilter] = useState<number | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [p, r, c, pr] = await Promise.all([
-          getPeople(),
-          getRelationships(),
-          getFactConflicts(),
-          getProjects(),
-        ]);
-        setPeople(p.people);
-        setRelationships(r.relationships);
-        setConflicts(c.conflicts);
-        setProjects(pr.projects as Array<{ id: number; name: string }>);
-      } catch {
-        // Backend not reachable — render empties rather than crashing.
-      }
-    })();
-  }, []);
-
-  // Refetch facts whenever the project filter changes.
-  useEffect(() => {
-    (async () => {
-      try {
-        const f = await getFacts(projectFilter ?? undefined);
-        setFacts(f.facts as Fact[]);
-      } catch {
-        // ignore
-      }
-    })();
+  const refreshAll = useCallback(async () => {
+    try {
+      const [p, r, c, pr, ag, f] = await Promise.all([
+        getPeople(),
+        getRelationships(),
+        getFactConflicts(),
+        getProjects(),
+        getAmbiguityGroups(),
+        getFacts(projectFilter ?? undefined),
+      ]);
+      setPeople(p.people);
+      setRelationships(r.relationships);
+      setConflicts(c.conflicts);
+      setProjects(pr.projects as Array<{ id: number; name: string }>);
+      setAmbiguityGroups(ag.groups);
+      setFacts(f.facts as Fact[]);
+    } catch {
+      // Backend not reachable — render empties rather than crashing.
+    }
   }, [projectFilter]);
 
-  // Partition facts into self / per-person / orphan buckets. The
-  // person bucket isn't used directly here — PeopleTab does its own
-  // filtering — but counting orphan facts requires knowing who's a
-  // resolved person.
-  const { selfFacts, otherFacts, selfConflicts, otherConflicts } = useMemo(() => {
-    const personNames = new Set(people.map((p) => p.name.toLowerCase()));
-    const isSelf = (subject: string | undefined) =>
-      !subject || subject.toLowerCase() === "self";
-    const isPerson = (subject: string | undefined) =>
-      !!subject && personNames.has(subject.toLowerCase());
+  useEffect(() => {
+    void refreshAll();
+  }, [refreshAll]);
 
+  // ---- mutation handlers --------------------------------------------------
+
+  const handleConfirm = useCallback(
+    async (id: number) => {
+      await confirmFact(id);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleReject = useCallback(
+    async (id: number) => {
+      await rejectFact(id);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleDelete = useCallback(
+    async (id: number) => {
+      await deleteFact(id);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleEditValue = useCallback(
+    async (id: number, value: string) => {
+      await patchFact(id, { value });
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleReassign = useCallback(
+    async (id: number, personId: number | null) => {
+      const target = personId
+        ? people.find((p) => p.id === personId)
+        : null;
+      await patchFact(id, {
+        subject_ref_id: personId,
+        subject_type: personId ? "person" : "self",
+        subject: target ? target.name.toLowerCase() : "self",
+      });
+      await refreshAll();
+    },
+    [people, refreshAll],
+  );
+  const handleResolveAmbiguity = useCallback(
+    async (groupId: number, personId: number) => {
+      await resolveAmbiguityGroup(groupId, personId);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleRenamePerson = useCallback(
+    async (id: number, name: string) => {
+      await renamePerson(id, name);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleDeletePerson = useCallback(
+    async (id: number) => {
+      await deletePerson(id);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleAddRelationship = useCallback(
+    async (id: number, relation: string) => {
+      await addRelationship(id, relation);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleMergePerson = useCallback(
+    async (sourceId: number, intoId: number) => {
+      await mergePeople(sourceId, intoId);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+  const handleCreatePerson = useCallback(
+    async (name: string) => {
+      await createPerson(name);
+      await refreshAll();
+    },
+    [refreshAll],
+  );
+
+  // Partition facts.
+  const { selfFacts, otherFacts, selfConflicts, otherConflicts } = useMemo(() => {
+    const personIds = new Set(people.map((p) => p.id));
+    const isSelf = (f: Fact) =>
+      (f.subject_type ?? "self") === "self" || !f.subject_ref_id;
+    const isPerson = (f: Fact) =>
+      f.subject_ref_id != null && personIds.has(f.subject_ref_id);
     return {
-      selfFacts: facts.filter((f) => isSelf(f.subject)),
-      otherFacts: facts.filter(
-        (f) => !isSelf(f.subject) && !isPerson(f.subject),
-      ),
-      selfConflicts: conflicts.filter((c) => isSelf(c.subject)),
+      selfFacts: facts.filter(isSelf),
+      otherFacts: facts.filter((f) => !isSelf(f) && !isPerson(f)),
+      selfConflicts: conflicts.filter((c) => c.subject === "self"),
       otherConflicts: conflicts.filter(
-        (c) => !isSelf(c.subject) && !isPerson(c.subject),
+        (c) =>
+          c.subject !== "self" &&
+          !people.some((p) => p.name.toLowerCase() === c.subject.toLowerCase()),
       ),
     };
   }, [facts, conflicts, people]);
@@ -114,6 +198,8 @@ const MemoryPage: React.FC = () => {
                 {selfFacts.length} about you • {people.length} people •{" "}
                 {facts.length} facts
                 {conflicts.length > 0 && ` • ${conflicts.length} conflicts`}
+                {ambiguityGroups.length > 0 &&
+                  ` • ${ambiguityGroups.length} ambiguous`}
               </p>
             </div>
           </div>
@@ -166,17 +252,47 @@ const MemoryPage: React.FC = () => {
             </div>
 
             {activeTab === "you" && (
-              <FactsTab facts={selfFacts} conflicts={selfConflicts} />
+              <FactsTab
+                facts={selfFacts}
+                conflicts={selfConflicts}
+                people={people}
+                onConfirm={handleConfirm}
+                onReject={handleReject}
+                onDelete={handleDelete}
+                onEditValue={handleEditValue}
+                onReassign={handleReassign}
+              />
             )}
             {activeTab === "people" && (
               <PeopleTab
                 people={people}
                 facts={facts}
                 relationships={relationships}
+                ambiguityGroups={ambiguityGroups}
+                onConfirm={handleConfirm}
+                onReject={handleReject}
+                onDelete={handleDelete}
+                onEditValue={handleEditValue}
+                onReassign={handleReassign}
+                onResolveAmbiguity={handleResolveAmbiguity}
+                onRenamePerson={handleRenamePerson}
+                onDeletePerson={handleDeletePerson}
+                onAddRelationship={handleAddRelationship}
+                onMergePerson={handleMergePerson}
+                onCreatePerson={handleCreatePerson}
               />
             )}
             {activeTab === "other" && (
-              <FactsTab facts={otherFacts} conflicts={otherConflicts} />
+              <FactsTab
+                facts={otherFacts}
+                conflicts={otherConflicts}
+                people={people}
+                onConfirm={handleConfirm}
+                onReject={handleReject}
+                onDelete={handleDelete}
+                onEditValue={handleEditValue}
+                onReassign={handleReassign}
+              />
             )}
           </div>
         </section>

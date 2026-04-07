@@ -130,6 +130,44 @@ async def test_admin_user_mgmt_full_flow():
 
 
 @pytest.mark.anyio
+async def test_admin_reset_memory_wipes_facts_keeps_users(_fresh_memory):
+    mp = _fresh_memory
+    async with _client() as ac:
+        await ac.post(
+            "/api/v1/auth/bootstrap",
+            json={"username": "alice", "pin": "1234", "password": "password1"},
+        )
+        # Seed some memory state we expect to be wiped.
+        uid = await mp.get_or_create_user("alice")
+        pid = await mp.create_person(uid, "Artie")
+        await mp.add_relationship(uid, pid, "brother")
+        await mp.upsert_fact(
+            user_id=uid, subject="artie", predicate="loves", value="movies",
+            subject_type="person", subject_ref_id=pid, category="preference",
+        )
+
+        # Sanity: facts/people exist before reset.
+        assert len(await mp.list_facts(uid)) >= 1
+        assert len(await mp.list_people(uid)) >= 1
+
+        r = await ac.post("/api/v1/admin/reset-memory")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert "facts" in body["wiped"]
+
+        # Memory tables empty.
+        assert await mp.list_facts(uid) == []
+        assert await mp.list_people(uid) == []
+        assert await mp.list_relationships(uid) == []
+
+        # User survives — admin still logged in.
+        me = await ac.get("/api/v1/auth/me")
+        assert me.status_code == 200
+        assert me.json()["username"] == "alice"
+
+
+@pytest.mark.anyio
 async def test_non_admin_cannot_hit_admin_routes():
     async with _client() as ac:
         await ac.post(

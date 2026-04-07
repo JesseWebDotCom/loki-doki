@@ -63,10 +63,13 @@ CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(owner_user_id, name)
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    -- NOTE: deliberately NO UNIQUE on (owner_user_id, name). Multiple
+    -- people can share a first name (brother Artie, dog Artie, celebrity
+    -- Artie Lange). Disambiguation lives in the orchestrator.
 );
 CREATE INDEX IF NOT EXISTS idx_people_owner ON people(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_people_owner_name ON people(owner_user_id, name);
 
 CREATE TABLE IF NOT EXISTS relationships (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +82,23 @@ CREATE TABLE IF NOT EXISTS relationships (
 );
 CREATE INDEX IF NOT EXISTS idx_relationships_owner ON relationships(owner_user_id);
 
+CREATE TABLE IF NOT EXISTS ambiguity_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    raw_name TEXT NOT NULL,
+    candidate_person_ids TEXT NOT NULL,    -- JSON array of people.id
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ambig_owner ON ambiguity_groups(owner_user_id);
+
+CREATE TABLE IF NOT EXISTS clarification_state (
+    owner_user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    last_asked_at TEXT,
+    turns_since_ask INTEGER NOT NULL DEFAULT 99
+);
+
 CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -89,6 +109,11 @@ CREATE TABLE IF NOT EXISTS facts (
     value TEXT NOT NULL,                    -- e.g. 'Incredibles', 'Jesse'
     category TEXT NOT NULL DEFAULT 'general',
     confidence REAL NOT NULL DEFAULT 0.6,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    last_observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    status TEXT NOT NULL DEFAULT 'active',
+        -- 'pending' | 'active' | 'ambiguous' | 'rejected' | 'superseded'
+    ambiguity_group_id INTEGER REFERENCES ambiguity_groups(id) ON DELETE SET NULL,
     source_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),

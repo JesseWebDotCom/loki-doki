@@ -45,9 +45,20 @@ MAX_REPAIRS = 2
 
 # Capture "my <relation> Name" — covers the most common conversational
 # pattern where the user introduces a person by their relation to them.
+# Case-insensitive on both relation and name (user types "my brother artie").
 _NAME_AFTER_RELATION = re.compile(
-    r"\bmy\s+\w+\s+([A-Z][a-z]+)\b"
+    r"\bmy\s+(\w+)\s+([A-Za-z][a-z]+)\b",
+    re.IGNORECASE,
 )
+
+# Relations the salvage trusts as "this Name is a person, not the user".
+# Same set the orchestrator's disambiguation scoring uses for hints.
+_KNOWN_RELATIONS = {
+    "brother", "sister", "mother", "father", "mom", "dad", "son", "daughter",
+    "wife", "husband", "spouse", "friend", "coworker", "boss", "uncle", "aunt",
+    "cousin", "nephew", "niece", "grandma", "grandpa", "neighbor",
+    "dog", "cat", "pet", "bird", "hamster", "fish",
+}
 
 # Capture "Name <verb>" where the verb is one of the predicates the
 # decomposer most often emits. This catches "Jacques loves Superman"
@@ -79,11 +90,35 @@ def _extract_person_name(text: str) -> Optional[str]:
     """
     if not text:
         return None
-    for pattern in (_NAME_AFTER_RELATION, _NAME_BEFORE_VERB):
-        for match in pattern.finditer(text):
-            name = match.group(1)
-            if name not in _PROPER_NOUN_BLOCKLIST:
-                return name
+    # Prefer the "my <relation> Name" pattern; fall back to "Name <verb>".
+    for match in _NAME_AFTER_RELATION.finditer(text or ""):
+        name = match.group(2)
+        if name.lower() not in {w.lower() for w in _PROPER_NOUN_BLOCKLIST}:
+            return name[:1].upper() + name[1:].lower()
+    for match in _NAME_BEFORE_VERB.finditer(text or ""):
+        name = match.group(1)
+        if name not in _PROPER_NOUN_BLOCKLIST:
+            return name
+    return None
+
+
+def _extract_relation_name_pair(text: str) -> Optional[tuple[str, str]]:
+    """Find a 'my <relation> <Name>' pair in the user input.
+
+    Returns ``(relation, Name)`` only when the relation is one we trust
+    as referring to another person (not "my favorite restaurant"). The
+    salvage uses this to re-attribute self-facts that gemma misclassified
+    when the user clearly mentioned another person.
+    """
+    if not text:
+        return None
+    for match in _NAME_AFTER_RELATION.finditer(text):
+        relation = match.group(1).lower()
+        name = match.group(2)
+        if relation in _KNOWN_RELATIONS and name.lower() not in {
+            w.lower() for w in _PROPER_NOUN_BLOCKLIST
+        }:
+            return relation, name[:1].upper() + name[1:].lower()
     return None
 
 
@@ -144,6 +179,21 @@ def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[di
     ):
         return None
 
+    # Salvage 4: drop self-identity claims that mirror another person
+    # mentioned in the user input. gemma routinely turns "my brother
+    # artie loves movies" into a self-fact `{self, is, artie}` because
+    # it lifts the proper noun out of the wrong clause. If the input
+    # has a "my <relation> Name" pair AND this self-fact's value matches
+    # that name, the claim is noise — drop it.
+    if (
+        subject_type == "self"
+        and predicate_norm in _TAUTOLOGY_PREDICATES
+        and value_norm
+    ):
+        pair = _extract_relation_name_pair(original_input or "")
+        if pair and pair[1].lower() == value_norm.lower():
+            return None
+
     # Salvage 1: self + relationship is nonsense — demote to a plain fact.
     if subject_type == "self" and kind == "relationship":
         out["kind"] = "fact"
@@ -167,6 +217,22 @@ def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[di
                 out["relationship_kind"] = None
                 kind = "fact"
 
+    # Salvage 3: re-attribute self-facts to a person mentioned in the
+    # input. When the user says "my brother artie loves movies" gemma
+    # often emits {self, loves, movies} instead of {person:Artie, loves,
+    # movies}. If the input clearly contains "my <relation> <Name>",
+    # promote this self-fact to a person fact about <Name>. Identity-ish
+    # tautology predicates ("is", "named") are excluded — those are
+    # already handled by Salvage 4 above.
+    if subject_type == "self" and predicate_norm not in _TAUTOLOGY_PREDICATES:
+        pair = _extract_relation_name_pair(original_input or "")
+        if pair:
+            relation, name = pair
+            out["subject_type"] = "person"
+            out["subject_name"] = name
+            subject_type = "person"
+            subject_name = name
+
     return out
 
 
@@ -180,6 +246,7 @@ class LongTermItem(BaseModel):
     kind: Literal["fact", "relationship"] = "fact"
     relationship_kind: Optional[str] = None
     category: str = "general"
+    negates_previous: bool = False
 
     @model_validator(mode="after")
     def _check_consistency(self) -> "LongTermItem":
@@ -281,6 +348,7 @@ REPAIR_ARRAY_SCHEMA: dict = {
             "kind": {"type": "string", "enum": ["fact", "relationship"]},
             "relationship_kind": {"type": ["string", "null"]},
             "category": {"type": "string"},
+            "negates_previous": {"type": "boolean"},
         },
     },
 }

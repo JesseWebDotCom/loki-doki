@@ -24,8 +24,16 @@ from lokidoki.core.inference import InferenceClient, OllamaError
 logger = logging.getLogger(__name__)
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
-from lokidoki.core.orchestrator_memory import persist_long_term_item
-from lokidoki.core.orchestrator_skills import build_synthesis_prompt, run_skills
+from lokidoki.core.orchestrator_memory import (
+    build_clarification_hint,
+    build_silent_confirmations,
+    persist_long_term_item,
+)
+from lokidoki.core.orchestrator_skills import (
+    build_acknowledgment_prompt,
+    build_synthesis_prompt,
+    run_skills,
+)
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
 
@@ -45,6 +53,13 @@ class PipelineEvent:
 
 # Cap on synthesis output tokens — bounds worst-case latency on slow models.
 SYNTHESIS_NUM_PREDICT = 384
+
+# Cap for acknowledgment turns. Sized to fit a warm 1–2 sentence
+# reaction with an optional follow-up question (~25–35 words). Tight
+# enough that even if the model tries to monologue or restate, it gets
+# cut off before doing real damage; loose enough that a genuine
+# friend-style response has room to land.
+ACKNOWLEDGMENT_NUM_PREDICT = 110
 
 # Below this length, force the fast model even if the decomposer says
 # 'thinking'. The 9B upgrade is too expensive for trivial questions.
@@ -131,20 +146,35 @@ class Orchestrator:
         # ``kind='relationship'`` writes an edge in the relationships
         # table on top of the underlying fact. Items are already
         # Pydantic-validated by ``decomposer_repair`` upstream.
+        write_reports: list[dict] = []
+        recent_window_start = (recent[0]["id"] if recent else user_msg_id) or 0
         for item in decomposition.long_term_memory or []:
             try:
                 logger.info("[orchestrator] persist_long_term_item input: %s", item)
-                await persist_long_term_item(
+                report = await persist_long_term_item(
                     self._memory,
                     user_id=user_id,
                     user_msg_id=user_msg_id,
                     item=item or {},
+                    user_input=user_input,
+                    recent_msg_window_start=recent_window_start,
                 )
+                if report:
+                    write_reports.append(report)
                 logger.info("[orchestrator] persist_long_term_item OK: %s", item)
             except Exception:
                 logger.exception(
                     "[orchestrator] persist_long_term_item FAILED for item=%r", item
                 )
+
+        # Emit silent confirmation chips for each successful write. These
+        # render below the assistant response in the chat UI; the spoken
+        # synthesis never restates them.
+        confirmations = build_silent_confirmations(write_reports)
+        for c in confirmations:
+            yield PipelineEvent(
+                phase="silent_confirmation", status="done", data=c
+            )
 
         yield PipelineEvent(
             phase="decomposition",
@@ -201,15 +231,47 @@ class Orchestrator:
             if project:
                 project_prompt = project.get("prompt") or ""
 
-        prompt = build_synthesis_prompt(
-            tone=tone,
-            context=compressed_context,
-            skill_data=compressed_skill_data,
-            query=user_input,
-            user_prompt=self._user_prompt,
-            admin_prompt=self._admin_prompt,
-            project_prompt=project_prompt,
+        clarify_hint = build_clarification_hint(write_reports) or ""
+        if clarify_hint:
+            yield PipelineEvent(
+                phase="clarification_question",
+                status="active",
+                data={"hint": clarify_hint},
+            )
+
+        # Fact-sharing turn detection: the user said something declarative,
+        # the decomposer extracted at least one fact, and every ask is a
+        # direct_chat (no real skill resolved — note: skill_data is always
+        # non-empty for direct_chat asks since run_skills falls back to
+        # 'intent:distilled_query', so we can't gate on it). Route these
+        # through the few-shot acknowledgment prompt with a tight token
+        # cap so gemma can't parrot the input back. Everything else uses
+        # the normal prompt.
+        asks = decomposition.asks or []
+        is_ack_turn = (
+            len(write_reports) > 0
+            and len(asks) > 0
+            and all(a.intent == "direct_chat" for a in asks)
+            and len(user_input) < 200
         )
+
+        if is_ack_turn:
+            prompt = build_acknowledgment_prompt(
+                query=user_input, clarify_hint=clarify_hint,
+            )
+            num_predict = ACKNOWLEDGMENT_NUM_PREDICT
+        else:
+            prompt = build_synthesis_prompt(
+                tone=tone,
+                context=compressed_context,
+                skill_data=compressed_skill_data,
+                query=user_input,
+                user_prompt=self._user_prompt,
+                admin_prompt=self._admin_prompt,
+                project_prompt=project_prompt,
+                clarify_hint=clarify_hint,
+            )
+            num_predict = SYNTHESIS_NUM_PREDICT
 
         response = ""
         synthesis_ms = 0.0
@@ -219,8 +281,8 @@ class Orchestrator:
                 model=synthesis_model,
                 prompt=prompt,
                 keep_alive=keep_alive,
-                num_predict=SYNTHESIS_NUM_PREDICT,
-                temperature=0.4,
+                num_predict=num_predict,
+                temperature=0.7 if is_ack_turn else 0.4,
             ):
                 response += token
                 yield PipelineEvent(

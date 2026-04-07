@@ -90,7 +90,7 @@ DECOMPOSITION_PROMPT = (
     "short_term_memory:{sentiment:str,concern:str},"
     "long_term_memory:[{subject_type:'self'|'person',subject_name:str,"
     "predicate:str,value:str,kind:'fact'|'relationship',"
-    "relationship_kind:str|null,category:str}],"
+    "relationship_kind:str|null,category:str,negates_previous:bool}],"
     "asks:[{ask_id:str,intent:str,distilled_query:str,parameters:{}}]}\n"
     "RULES:\n"
     "- is_course_correction=true if user corrects/refines previous answer\n"
@@ -107,6 +107,9 @@ DECOMPOSITION_PROMPT = (
     "- Use kind='relationship' (and set relationship_kind) when stating how a person relates to the user (brother, coworker, spouse, ...). relationship items must have subject_type='person'.\n"
     "- Capitalize person names (subject_name='Tom', not 'tom').\n"
     "- NEVER emit tautological naming facts like {subject_name:'Tom',predicate:'is',value:'Tom'} — the name is already in subject_name.\n"
+    "- CRITICAL: 'my <relation> <Name> ...' is ALWAYS about <Name>, NEVER about the user. 'my brother artie loves movies' -> person:Artie, NOT self. NEVER emit {self,is,artie} from this input.\n"
+    "- Lowercased input is still valid. 'my brother artie' yields subject_name:'Artie' (capitalize on output).\n"
+    "- Set negates_previous=true ONLY when the user explicitly corrects a prior fact (e.g. 'No, my brother's name is Art, not Artie' -> negates_previous:true). Default false.\n"
     "- Distill each ask into a clean, skill-ready sub-query\n"
 )
 

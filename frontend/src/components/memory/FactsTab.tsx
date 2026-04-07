@@ -9,14 +9,19 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { Search, AlertTriangle } from "lucide-react";
-import type { Fact, FactConflict } from "../../lib/api";
+import type { Fact, FactConflict, Person } from "../../lib/api";
 import { searchFacts } from "../../lib/api";
-import { ConfidenceBar } from "./ConfidenceBar";
+import { FactRow } from "./FactRow";
 
 export interface FactsTabProps {
   facts: Fact[];
   conflicts: FactConflict[];
-  onConfirm?: (candidateId: number) => void;
+  people: Person[];
+  onConfirm: (id: number) => void;
+  onReject: (id: number) => void;
+  onDelete: (id: number) => void;
+  onEditValue: (id: number, value: string) => void;
+  onReassign: (id: number, personId: number | null) => void;
 }
 
 interface SearchHit {
@@ -42,7 +47,12 @@ function groupBySubject(facts: Fact[]): Array<[string, Fact[]]> {
 export const FactsTab: React.FC<FactsTabProps> = ({
   facts,
   conflicts,
+  people,
   onConfirm,
+  onReject,
+  onDelete,
+  onEditValue,
+  onReassign,
 }) => {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
@@ -92,7 +102,7 @@ export const FactsTab: React.FC<FactsTabProps> = ({
                   <button
                     key={cand.id}
                     type="button"
-                    onClick={() => onConfirm?.(cand.id)}
+                    onClick={() => onConfirm(cand.id)}
                     className="px-3 py-1.5 rounded-lg bg-card/60 border border-border/40 hover:border-primary/50 text-xs font-medium"
                   >
                     {cand.value}
@@ -147,18 +157,16 @@ export const FactsTab: React.FC<FactsTabProps> = ({
                 {subject === "self" ? "About you" : subject}
               </h3>
               {rows.map((f) => (
-                <div
+                <FactRow
                   key={f.id ?? `${f.predicate}-${f.value}`}
-                  className="p-3 rounded-xl bg-card/50 border border-border/30 space-y-2"
-                >
-                  <div className="flex items-baseline gap-2 text-sm">
-                    <span className="text-muted-foreground font-mono text-xs">
-                      {f.predicate ?? "states"}
-                    </span>
-                    <span className="font-medium">{f.value ?? f.fact}</span>
-                  </div>
-                  <ConfidenceBar value={f.confidence ?? 0.6} />
-                </div>
+                  fact={f}
+                  people={people}
+                  onConfirm={onConfirm}
+                  onReject={onReject}
+                  onDelete={onDelete}
+                  onEditValue={onEditValue}
+                  onReassign={onReassign}
+                />
               ))}
             </div>
           ))}

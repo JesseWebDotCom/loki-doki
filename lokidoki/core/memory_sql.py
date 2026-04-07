@@ -16,6 +16,7 @@ import sqlite3
 from typing import Optional, Union
 
 from lokidoki.core.confidence import DEFAULT_CONFIDENCE, update_confidence
+from lokidoki.core.memory_contradiction import detect_and_resolve_contradiction
 
 
 def get_or_create_user(conn: sqlite3.Connection, username: str) -> int:
@@ -129,38 +130,70 @@ def upsert_fact(
     subject_type: str = "self",
     subject_ref_id: Optional[int] = None,
     project_id: Optional[int] = None,
-) -> tuple[int, float]:
-    """Insert OR confirm. See MemoryProvider.upsert_fact for the contract."""
+    status: str = "active",
+    ambiguity_group_id: Optional[int] = None,
+    negates_previous: bool = False,
+) -> tuple[int, float, dict]:
+    """Insert OR confirm OR revise. Returns (fact_id, confidence, report).
+
+    The report describes any contradiction handling that happened, so the
+    orchestrator can surface it via silent confirmation / clarification.
+    """
     existing = conn.execute(
-        "SELECT id, confidence FROM facts "
-        "WHERE owner_user_id = ? AND subject = ? AND predicate = ? AND value = ?",
+        "SELECT id, confidence, observation_count FROM facts "
+        "WHERE owner_user_id = ? AND subject = ? AND predicate = ? AND value = ? "
+        "AND status != 'rejected'",
         (user_id, subject, predicate, value),
     ).fetchone()
     if existing:
         new_conf = update_confidence(float(existing["confidence"]), confirmed=True)
         conn.execute(
-            "UPDATE facts SET confidence = ?, updated_at = datetime('now') "
+            "UPDATE facts SET confidence = ?, observation_count = observation_count + 1, "
+            "last_observed_at = datetime('now'), updated_at = datetime('now'), "
+            "status = CASE WHEN status='rejected' THEN 'active' ELSE status END "
             "WHERE id = ?",
             (new_conf, existing["id"]),
         )
         conn.commit()
-        return int(existing["id"]), float(new_conf)
+        return int(existing["id"]), float(new_conf), {
+            "action": "confirmed", "loser_id": None, "loser_value": None, "margin": 0.0,
+        }
+
+    # No exact match — check for a contradicting same-(subject, predicate)
+    # row before inserting. The contradiction handler updates the loser
+    # in-place and returns a report we propagate to the caller.
+    report = detect_and_resolve_contradiction(
+        conn,
+        user_id=user_id,
+        subject=subject,
+        subject_ref_id=subject_ref_id,
+        predicate=predicate,
+        new_value=value,
+        negates_previous=negates_previous,
+    )
 
     cur = conn.execute(
         "INSERT INTO facts "
         "(owner_user_id, subject, subject_type, subject_ref_id, "
-        "predicate, value, category, confidence, source_message_id, project_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "predicate, value, category, confidence, source_message_id, project_id, "
+        "status, ambiguity_group_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             user_id, subject, subject_type, subject_ref_id,
             predicate, value, category,
             DEFAULT_CONFIDENCE, source_message_id, project_id,
+            status, ambiguity_group_id,
         ),
     )
     conn.commit()
-    # TODO(embeddings-perf): when sync-on-write embedding lands, write a
-    # 384-dim vector to vec_facts here. PR3 ships BM25-only by design.
-    return int(cur.lastrowid), DEFAULT_CONFIDENCE
+    return int(cur.lastrowid), DEFAULT_CONFIDENCE, report
+
+
+_FACT_COLS = (
+    "id, subject, subject_type, subject_ref_id, predicate, value, category, "
+    "confidence, observation_count, last_observed_at, status, "
+    "ambiguity_group_id, source_message_id, created_at, updated_at"
+)
 
 
 def list_facts(
@@ -168,21 +201,124 @@ def list_facts(
     user_id: int,
     limit: int,
     project_id: Optional[int] = None,
+    include_statuses: tuple = ("active", "ambiguous"),
 ) -> list[sqlite3.Row]:
+    placeholders = ",".join("?" * len(include_statuses))
     if project_id is not None:
         return conn.execute(
-            "SELECT id, subject, predicate, value, category, confidence, "
-            "       created_at, updated_at FROM facts "
-            "WHERE owner_user_id = ? AND project_id = ? "
+            f"SELECT {_FACT_COLS} FROM facts "
+            f"WHERE owner_user_id = ? AND project_id = ? AND status IN ({placeholders}) "
             "ORDER BY updated_at DESC LIMIT ?",
-            (user_id, project_id, limit),
+            (user_id, project_id, *include_statuses, limit),
         ).fetchall()
     return conn.execute(
-        "SELECT id, subject, predicate, value, category, confidence, "
-        "       created_at, updated_at FROM facts "
-        "WHERE owner_user_id = ? ORDER BY updated_at DESC LIMIT ?",
-        (user_id, limit),
+        f"SELECT {_FACT_COLS} FROM facts "
+        f"WHERE owner_user_id = ? AND status IN ({placeholders}) "
+        "ORDER BY updated_at DESC LIMIT ?",
+        (user_id, *include_statuses, limit),
     ).fetchall()
+
+
+def list_facts_by_status(
+    conn: sqlite3.Connection,
+    user_id: int,
+    statuses: tuple,
+    limit: int = 500,
+) -> list[sqlite3.Row]:
+    placeholders = ",".join("?" * len(statuses))
+    return conn.execute(
+        f"SELECT {_FACT_COLS} FROM facts "
+        f"WHERE owner_user_id = ? AND status IN ({placeholders}) "
+        "ORDER BY updated_at DESC LIMIT ?",
+        (user_id, *statuses, limit),
+    ).fetchall()
+
+
+def get_fact(conn: sqlite3.Connection, user_id: int, fact_id: int) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        f"SELECT {_FACT_COLS} FROM facts WHERE owner_user_id = ? AND id = ?",
+        (user_id, fact_id),
+    ).fetchone()
+
+
+def confirm_fact(conn: sqlite3.Connection, user_id: int, fact_id: int) -> Optional[float]:
+    row = conn.execute(
+        "SELECT confidence FROM facts WHERE owner_user_id = ? AND id = ?",
+        (user_id, fact_id),
+    ).fetchone()
+    if not row:
+        return None
+    new_conf = update_confidence(float(row["confidence"]), confirmed=True)
+    conn.execute(
+        "UPDATE facts SET confidence = ?, observation_count = observation_count + 1, "
+        "last_observed_at = datetime('now'), updated_at = datetime('now'), "
+        "status = CASE WHEN status='rejected' THEN 'active' ELSE status END "
+        "WHERE id = ?",
+        (new_conf, fact_id),
+    )
+    conn.commit()
+    return new_conf
+
+
+def reject_fact(conn: sqlite3.Connection, user_id: int, fact_id: int) -> bool:
+    cur = conn.execute(
+        "UPDATE facts SET status = 'rejected', "
+        "confidence = MAX(?, confidence * 0.3), updated_at = datetime('now') "
+        "WHERE owner_user_id = ? AND id = ?",
+        (MIN_CONF_FLOOR, user_id, fact_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def delete_fact(conn: sqlite3.Connection, user_id: int, fact_id: int) -> bool:
+    cur = conn.execute(
+        "DELETE FROM facts WHERE owner_user_id = ? AND id = ?",
+        (user_id, fact_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def patch_fact(
+    conn: sqlite3.Connection,
+    user_id: int,
+    fact_id: int,
+    *,
+    value: Optional[str] = None,
+    predicate: Optional[str] = None,
+    subject: Optional[str] = None,
+    subject_ref_id: Optional[int] = None,
+    subject_type: Optional[str] = None,
+    status: Optional[str] = None,
+) -> bool:
+    sets = []
+    args: list = []
+    if value is not None:
+        sets.append("value = ?"); args.append(value)
+    if predicate is not None:
+        sets.append("predicate = ?"); args.append(predicate)
+    if subject is not None:
+        sets.append("subject = ?"); args.append(subject)
+    if subject_ref_id is not None:
+        sets.append("subject_ref_id = ?"); args.append(subject_ref_id)
+    if subject_type is not None:
+        sets.append("subject_type = ?"); args.append(subject_type)
+    if status is not None:
+        sets.append("status = ?"); args.append(status)
+    if not sets:
+        return False
+    sets.append("updated_at = datetime('now')")
+    args.extend([user_id, fact_id])
+    cur = conn.execute(
+        f"UPDATE facts SET {', '.join(sets)} WHERE owner_user_id = ? AND id = ?",
+        args,
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+MIN_CONF_FLOOR = 0.05
 
 
 def search_facts(
@@ -195,19 +331,21 @@ def search_facts(
     if project_id is not None:
         return conn.execute(
             "SELECT f.id, f.subject, f.predicate, f.value, f.category, "
-            "       f.confidence, f.created_at, "
+            "       f.confidence, f.last_observed_at, f.status, f.created_at, "
             "       bm25(facts_fts) * (CASE WHEN f.project_id = ? THEN 0.5 ELSE 1.0 END) AS score "
             "FROM facts_fts JOIN facts f ON f.id = facts_fts.rowid "
             "WHERE facts_fts MATCH ? AND f.owner_user_id = ? "
+            "AND f.status IN ('active','ambiguous') "
             "ORDER BY score LIMIT ?",
             (project_id, fts_query, user_id, top_k),
         ).fetchall()
     return conn.execute(
         "SELECT f.id, f.subject, f.predicate, f.value, f.category, "
-        "       f.confidence, f.created_at, "
+        "       f.confidence, f.last_observed_at, f.status, f.created_at, "
         "       bm25(facts_fts) AS score "
         "FROM facts_fts JOIN facts f ON f.id = facts_fts.rowid "
         "WHERE facts_fts MATCH ? AND f.owner_user_id = ? "
+        "AND f.status IN ('active','ambiguous') "
         "ORDER BY score LIMIT ?",
         (fts_query, user_id, top_k),
     ).fetchall()

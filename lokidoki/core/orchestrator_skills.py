@@ -95,9 +95,90 @@ SYNTHESIS_PROMPT_TEMPLATE = (
     "TONE:{tone}\n"
     "CONTEXT:{context}\n"
     "SKILL_DATA:{skill_data}\n"
+    "{clarify_block}"
     "USER_QUERY:{query}\n"
     "RESPOND:"
 )
+
+
+# A small, stable personality so the bot can react with its OWN takes
+# instead of just acknowledging. The few-shot examples below pull from
+# this list — keep them in sync. This is the bare minimum to feel
+# conversational; richer persona belongs in user_prompt / persona tier.
+BOT_INTERESTS = (
+    "movies (especially sci-fi and Pixar), indie music, coffee, hiking, "
+    "video games, fresh bread, dogs, hot weather, and learning random "
+    "trivia"
+)
+
+
+# Acknowledgment-only template used when the user shared a personal fact
+# with no question attached. Small models (gemma4:e2b) famously ignore
+# negative instructions like "don't restate the input", so we instead
+# lean hard on few-shot imitation of *warm* responses that include:
+#   - a genuine reaction
+#   - the bot sharing its own related take (from BOT_INTERESTS)
+#   - sometimes a short follow-up question
+# Plus a banned-replies block with the exact parroting failure modes,
+# and a tight token cap (enforced by num_predict in the orchestrator).
+ACKNOWLEDGMENT_PROMPT_TEMPLATE = (
+    "TASK: The user just shared a personal fact. React like a friend would: "
+    "warm, brief (1–2 sentences), and add YOUR OWN take or a quick follow-up "
+    "question. Do NOT just repeat what they said — bring something fresh.\n"
+    "\n"
+    "YOUR PERSONALITY: You enjoy {interests}. Reference these naturally when "
+    "the topic overlaps — never force it.\n"
+    "\n"
+    "GOOD EXAMPLES (copy this warm style):\n"
+    "USER: my brother artie loves movies\n"
+    "REPLY: Oh nice — your brother sounds fun. I'm a movie person too, "
+    "especially sci-fi. What's his go-to?\n"
+    "\n"
+    "USER: I just got a puppy named Max\n"
+    "REPLY: Aww, congratulations! I'm a sucker for dogs. What breed is he?\n"
+    "\n"
+    "USER: my wife is from Portland\n"
+    "REPLY: Portland's such a great city — the coffee scene alone! Have "
+    "you spent much time there together?\n"
+    "\n"
+    "USER: my coworker Tom plays Halo\n"
+    "REPLY: Halo is a classic — I still hum the theme sometimes. Campaign "
+    "guy or multiplayer?\n"
+    "\n"
+    "USER: I work at a bakery\n"
+    "REPLY: Oh that's the dream — fresh bread is one of life's best smells. "
+    "What's your specialty?\n"
+    "\n"
+    "BANNED REPLIES (these are WRONG — they just echo the user):\n"
+    "USER: my brother artie loves movies\n"
+    "REPLY: Your brother Artie loves movies.       ← BANNED (restates input)\n"
+    "REPLY: That's great! Artie loves movies.      ← BANNED (restates input)\n"
+    "REPLY: Artie loves movies. Got it noted.      ← BANNED (no warmth, restates)\n"
+    "REPLY: Got it — noted.                        ← BANNED (cold, no reaction)\n"
+    "\n"
+    "BANNED STARTS: \"That's\", \"Your <relation>\", \"You said\", any direct "
+    "name+verb echo from the input.\n"
+    "{clarify_block}"
+    "USER: {query}\n"
+    "REPLY:"
+)
+
+
+def build_acknowledgment_prompt(
+    *,
+    query: str,
+    clarify_hint: str = "",
+    interests: str = BOT_INTERESTS,
+) -> str:
+    """Few-shot prompt for fact-sharing turns. See ACKNOWLEDGMENT_PROMPT_TEMPLATE."""
+    clarify_block = (
+        f"FOLLOWUP: After the reply, add ONE short clarifying question. {clarify_hint}\n"
+        if clarify_hint
+        else ""
+    )
+    return ACKNOWLEDGMENT_PROMPT_TEMPLATE.format(
+        query=query, clarify_block=clarify_block, interests=interests,
+    )
 
 
 def build_synthesis_prompt(
@@ -109,10 +190,13 @@ def build_synthesis_prompt(
     user_prompt: str = "",
     admin_prompt: str = "",
     project_prompt: str = "",
+    clarify_hint: str = "",
 ) -> str:
     """Assemble the tiered synthesis prompt (Admin > Project > User > Persona)."""
+    clarify_block = f"CLARIFY:{clarify_hint}\n" if clarify_hint else ""
     prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
         tone=tone, context=context, skill_data=skill_data, query=query,
+        clarify_block=clarify_block,
     )
     prefix_parts: list[str] = []
     if project_prompt:

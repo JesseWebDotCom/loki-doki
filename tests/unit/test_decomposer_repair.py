@@ -156,6 +156,66 @@ class TestCoerceItem:
             })
             assert out is None, f"should drop tautology with predicate={predicate}"
 
+    def test_drops_self_is_name_when_input_references_other_person(self):
+        """gemma misreads 'my brother artie loves movies' as {self,is,artie}.
+
+        The salvage must drop this — the user is NOT named Artie. This
+        is the regression that planted three bogus self-facts in the
+        Memory tab in the live demo.
+        """
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "is", "value": "artie", "kind": "fact",
+                "category": "general",
+            },
+            original_input="my brother artie loves movies",
+        )
+        assert out is None
+
+    def test_self_fact_reattributed_to_person_via_relation_pair(self):
+        """{self, loves, movies} from 'my brother artie loves movies'
+        must be promoted to a person fact about Artie."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "loves", "value": "movies", "kind": "fact",
+                "category": "preference",
+            },
+            original_input="my brother artie loves movies",
+        )
+        assert out is not None
+        assert out["subject_type"] == "person"
+        assert out["subject_name"] == "Artie"
+        assert out["predicate"] == "loves"
+        assert out["value"] == "movies"
+
+    def test_self_fact_unchanged_when_no_relation_pair(self):
+        """A genuine self-fact like 'I love hiking' must NOT be reattributed."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "loves", "value": "hiking", "kind": "fact",
+                "category": "preference",
+            },
+            original_input="I love hiking",
+        )
+        assert out is not None
+        assert out["subject_type"] == "self"
+
+    def test_relation_pair_does_not_match_unknown_relation(self):
+        """'my favorite restaurant Olive Garden' must NOT trigger reattribution."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "loves", "value": "breadsticks", "kind": "fact",
+                "category": "preference",
+            },
+            original_input="my favorite restaurant Olive serves breadsticks",
+        )
+        assert out is not None
+        assert out["subject_type"] == "self"
+
     def test_drops_self_naming_tautology_case_insensitive(self):
         out = coerce_item({
             "subject_type": "person", "subject_name": "tom",

@@ -241,7 +241,10 @@ class MemoryProvider:
         subject_type: str = "self",
         subject_ref_id: Optional[int] = None,
         project_id: Optional[int] = None,
-    ) -> tuple[int, float]:
+        status: str = "active",
+        ambiguity_group_id: Optional[int] = None,
+        negates_previous: bool = False,
+    ) -> tuple[int, float, dict]:
         """Insert a fact OR confirm an existing matching row.
 
         Dedup-and-confirm: a fact is "the same" if (owner, subject,
@@ -263,6 +266,9 @@ class MemoryProvider:
                     subject_type=subject_type,
                     subject_ref_id=subject_ref_id,
                     project_id=project_id,
+                    status=status,
+                    ambiguity_group_id=ambiguity_group_id,
+                    negates_previous=negates_previous,
                 )
             )
 

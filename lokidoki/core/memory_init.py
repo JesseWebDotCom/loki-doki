@@ -33,6 +33,10 @@ FACT_COLUMN_MIGRATIONS = (
     ("subject_type", "TEXT NOT NULL DEFAULT 'self'"),
     ("subject_ref_id", "INTEGER"),
     ("project_id", "INTEGER"),
+    ("observation_count", "INTEGER NOT NULL DEFAULT 1"),
+    ("last_observed_at", "TEXT NOT NULL DEFAULT (datetime('now'))"),
+    ("status", "TEXT NOT NULL DEFAULT 'active'"),
+    ("ambiguity_group_id", "INTEGER"),
 )
 
 SESSION_COLUMN_MIGRATIONS = (

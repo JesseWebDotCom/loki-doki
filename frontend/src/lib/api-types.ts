@@ -77,11 +77,38 @@ export interface Fact {
   fact: string;            // alias of `value` for the legacy UI
   value?: string;
   subject?: string;
+  subject_type?: string;
+  subject_ref_id?: number | null;
   predicate?: string;
   category: string;
   confidence?: number;
+  effective_confidence?: number;
+  observation_count?: number;
+  last_observed_at?: string;
+  status?: "active" | "ambiguous" | "pending" | "rejected" | "superseded" | string;
+  ambiguity_group_id?: number | null;
+  source_message_id?: number | null;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface AmbiguityGroup {
+  id: number;
+  raw_name: string;
+  candidate_person_ids: number[];
+  created_at?: string;
+}
+
+export interface SilentConfirmation {
+  fact_id: number;
+  subject: string;
+  predicate: string;
+  value: string;
+  status: string;
+  person_id?: number | null;
+  ambiguity_group_id?: number | null;
+  contradiction_action?: string;
+  previous_value?: string | null;
 }
 
 /** PR3 people / relationships / conflicts. */
