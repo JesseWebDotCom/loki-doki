@@ -1,22 +1,35 @@
+"""Pipeline coordinator: Augment -> Decompose -> Route -> Synthesize.
+
+PR1 rewrite: the orchestrator no longer owns an in-process SessionMemory.
+It receives a user-scoped ``MemoryProvider`` plus an explicit
+``user_id`` / ``session_id`` per turn, and persists every message and
+extracted fact to that provider as the pipeline runs. There is no more
+hidden global state — call sites must thread ids in.
+
+Skill resolution and prompt assembly live in
+``orchestrator_skills.py`` so this file stays under the 250-line ceiling.
+"""
+from __future__ import annotations
+
 import json
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
-from lokidoki.core.decomposer import Decomposer, DecompositionResult, Ask
-from lokidoki.core.inference import InferenceClient, OllamaError
-from lokidoki.core.memory import SessionMemory
 from lokidoki.core.compression import compress_text
-from lokidoki.core.registry import SkillRegistry
-from lokidoki.core.skill_executor import SkillExecutor, SkillResult
-from lokidoki.core.skill_factory import get_skill_instance
+from lokidoki.core.decomposer import Ask, Decomposer, DecompositionResult
+from lokidoki.core.inference import InferenceClient, OllamaError
+from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
+from lokidoki.core.orchestrator_skills import build_synthesis_prompt, run_skills
+from lokidoki.core.registry import SkillRegistry
+from lokidoki.core.skill_executor import SkillExecutor
 
 
 @dataclass
 class PipelineEvent:
     phase: str
-    status: str  # "active" | "done" | "failed"
+    status: str  # "active" | "done" | "failed" | "streaming"
     data: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -26,37 +39,22 @@ class PipelineEvent:
         return f"data: {json.dumps(self.to_dict())}\n\n"
 
 
-# Token-efficient synthesis prompt (Zero-Markdown)
-SYNTHESIS_PROMPT_TEMPLATE = (
-    "ROLE:conversational assistant. Answer the user query directly and concisely.\n"
-    "RULES:1-3 sentences max unless asked for detail,natural language,no preamble,"
-    "no meta-commentary,cite sources with [src:N] markers when SKILL_DATA is used\n"
-    "TONE:{tone}\n"
-    "CONTEXT:{context}\n"
-    "SKILL_DATA:{skill_data}\n"
-    "USER_QUERY:{query}\n"
-    "RESPOND:"
-)
-
-# Synthesis output cap. 384 tokens ≈ 3-4 short paragraphs — plenty for a chat
-# turn while bounding worst-case latency on slow models.
+# Cap on synthesis output tokens — bounds worst-case latency on slow models.
 SYNTHESIS_NUM_PREDICT = 384
 
-# Length below which a query is forced through the fast model regardless of
-# the decomposer's classification. Short queries don't justify the cost of the
-# bigger "thinking" model, and the decomposer occasionally over-classifies
-# trivial questions as "thinking".
+# Below this length, force the fast model even if the decomposer says
+# 'thinking'. The 9B upgrade is too expensive for trivial questions.
 TRIVIAL_QUERY_CHAR_LIMIT = 120
 
 
 class Orchestrator:
-    """Central pipeline coordinator: Augment -> Decompose -> Route -> Synthesize."""
+    """Coordinator. One instance per process; per-turn state lives on the stack."""
 
     def __init__(
         self,
         decomposer: Decomposer,
         inference_client: InferenceClient,
-        memory: SessionMemory,
+        memory: MemoryProvider,
         model_manager: ModelManager | None = None,
         registry: SkillRegistry | None = None,
         skill_executor: SkillExecutor | None = None,
@@ -77,27 +75,43 @@ class Orchestrator:
         return self._model_manager.policy
 
     async def process(
-        self, user_input: str, available_intents: list[str] | None = None
+        self,
+        user_input: str,
+        *,
+        user_id: int,
+        session_id: int,
+        available_intents: list[str] | None = None,
     ) -> AsyncGenerator[PipelineEvent, None]:
-        """Run the full agentic pipeline, yielding SSE-ready events at each phase."""
-        self._memory.add_message("user", user_input)
+        """Run the full pipeline for one turn, persisting to memory as we go."""
         fast_model = self._model_manager.policy.fast_model
 
-        # Phase 1: Augmentation
-        yield PipelineEvent(phase="augmentation", status="active")
-        context = self._memory.get_recent_context(n=5)
-        relevant_facts = self._memory.search_facts(user_input)
-        yield PipelineEvent(
-            phase="augmentation", status="done",
-            data={"context_messages": len(context), "relevant_facts": len(relevant_facts)},
+        user_msg_id = await self._memory.add_message(
+            user_id=user_id, session_id=session_id, role="user", content=user_input
         )
 
-        # Phase 2: Decomposition
+        # ---- augmentation ------------------------------------------------
+        yield PipelineEvent(phase="augmentation", status="active")
+        recent = await self._memory.get_messages(
+            user_id=user_id, session_id=session_id, limit=5
+        )
+        relevant_facts = await self._memory.search_facts(
+            user_id=user_id, query=user_input, top_k=5
+        )
+        yield PipelineEvent(
+            phase="augmentation",
+            status="done",
+            data={
+                "context_messages": len(recent),
+                "relevant_facts": len(relevant_facts),
+            },
+        )
+
+        # ---- decomposition ----------------------------------------------
         yield PipelineEvent(phase="decomposition", status="active", data={"model": fast_model})
         try:
             decomposition = await self._decomposer.decompose(
                 user_input=user_input,
-                chat_context=context,
+                chat_context=[{"role": m["role"], "content": m["content"]} for m in recent],
                 available_intents=available_intents,
             )
         except OllamaError as e:
@@ -107,12 +121,25 @@ class Orchestrator:
                 model=fast_model,
             )
 
-        self._memory.ingest_decomposition(
-            short_term=decomposition.short_term_memory,
-            long_term=decomposition.long_term_memory,
-        )
+        # Persist any facts the decomposer extracted. Subject defaults to
+        # 'self' since PR1 has no people-resolution yet (PR2).
+        for fact in decomposition.long_term_memory or []:
+            value = (fact or {}).get("fact")
+            category = (fact or {}).get("category", "general")
+            if not value:
+                continue
+            await self._memory.upsert_fact(
+                user_id=user_id,
+                subject="self",  # TODO(people-PR2): resolve subject from text
+                predicate="states",
+                value=value,
+                category=category,
+                source_message_id=user_msg_id,
+            )
+
         yield PipelineEvent(
-            phase="decomposition", status="done",
+            phase="decomposition",
+            status="done",
             data={
                 "model": decomposition.model,
                 "latency_ms": decomposition.latency_ms,
@@ -126,86 +153,24 @@ class Orchestrator:
             },
         )
 
-        # Phase 3: Skill Routing & Parallel Execution
+        # ---- routing -----------------------------------------------------
         skill_data = ""
-        skill_results: dict[str, SkillResult] = {}
         sources: list[dict] = []
         if not decomposition.is_course_correction and decomposition.asks:
-            yield PipelineEvent(
-                phase="routing", status="active",
-                data={"ask_count": len(decomposition.asks)},
+            skill_data, _results, sources, routing_log = await run_skills(
+                decomposition.asks, self._registry, self._executor
             )
-
-            if self._registry:
-                tasks = []
-                for ask in decomposition.asks:
-                    manifest = self._registry.get_skill_by_intent(ask.intent)
-                    if not manifest:
-                        continue
-                    skill_id = manifest["skill_id"]
-                    skill_instance = get_skill_instance(skill_id)
-                    if not skill_instance:
-                        continue
-                    mechs = self._registry.get_mechanisms(skill_id)
-                    params = dict(ask.parameters or {})
-                    # Backstop: the decomposer LLM frequently emits
-                    # `parameters: {}` even when the manifest declares
-                    # required keys. Default every required key to the
-                    # distilled query so skills never see a missing param
-                    # purely because of decomposer omission. Skills can
-                    # still validate semantic correctness internally.
-                    required_params = [
-                        k for k, spec in (manifest.get("parameters") or {}).items()
-                        if isinstance(spec, dict) and spec.get("required")
-                    ]
-                    for key in required_params:
-                        params.setdefault(key, ask.distilled_query)
-                    tasks.append((ask.ask_id, skill_instance, mechs, params))
-
-                if tasks:
-                    skill_results = await self._executor.execute_parallel(tasks)
-
-            parts = []
-            routing_log = []
-            for ask in decomposition.asks:
-                result = skill_results.get(ask.ask_id)
-                if result and result.success:
-                    parts.append(f"{ask.intent}:{json.dumps(result.data)}")
-                    if result.source_url:
-                        sources.append({
-                            "url": result.source_url,
-                            "title": result.source_title or result.source_url,
-                        })
-                    routing_log.append({
-                        "ask_id": ask.ask_id, "intent": ask.intent,
-                        "status": "success", "mechanism": result.mechanism_used,
-                        "latency_ms": result.latency_ms,
-                        "source_url": result.source_url,
-                    })
-                else:
-                    parts.append(f"{ask.intent}:{ask.distilled_query}")
-                    routing_log.append({
-                        "ask_id": ask.ask_id, "intent": ask.intent,
-                        "status": "failed" if result else "no_skill",
-                        "mechanism": result.mechanism_used if result else None,
-                        "latency_ms": result.latency_ms if result else 0,
-                        "mechanism_log": result.mechanism_log if result else [],
-                    })
-
-            skill_data = " | ".join(parts)
             yield PipelineEvent(
-                phase="routing", status="done",
+                phase="routing",
+                status="done",
                 data={
-                    "skills_resolved": sum(1 for r in skill_results.values() if r.success),
-                    "skills_failed": sum(1 for r in skill_results.values() if not r.success),
+                    "skills_resolved": sum(1 for r in routing_log if r["status"] == "success"),
+                    "skills_failed": sum(1 for r in routing_log if r["status"] != "success"),
                     "routing_log": routing_log,
                 },
             )
 
-        # Phase 4: Synthesis — dynamic model selection via ModelManager.
-        # Force fast model for short queries even if decomposer said "thinking";
-        # the upgrade is too expensive to apply on misclassifications of
-        # trivial questions.
+        # ---- synthesis ---------------------------------------------------
         effective_complexity = decomposition.overall_reasoning_complexity
         if len(user_input) < TRIVIAL_QUERY_CHAR_LIMIT and len(decomposition.asks) <= 1:
             effective_complexity = "fast"
@@ -214,33 +179,26 @@ class Orchestrator:
         synthesis_model, keep_alive = self._model_manager.get_model(effective_complexity)
 
         compressed_context = compress_text(
-            " ".join(m["content"] for m in context[-3:])
+            " ".join(m["content"] for m in recent[-3:])
         )
         compressed_skill_data = compress_text(skill_data) if skill_data else "no skill data"
 
-        tone = "empathetic" if self._memory.sentiment.get("sentiment") in ("worried", "frustrated", "sad") else "friendly"
+        sentiment = (decomposition.short_term_memory or {}).get("sentiment", "")
+        tone = "empathetic" if sentiment in ("worried", "frustrated", "sad") else "friendly"
 
-        # Build prompt with tiered prompt hierarchy (Admin > User > Persona)
-        prompt_parts = []
-        if self._user_prompt:
-            prompt_parts.append(f"USER_STYLE:{self._user_prompt}")
-        if self._admin_prompt:
-            prompt_parts.append(f"ADMIN_RULES:{self._admin_prompt}")
-            prompt_parts.append("PRIORITY:Admin>User>Persona. Admin safety rules override all.")
-
-        prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
+        prompt = build_synthesis_prompt(
             tone=tone,
             context=compressed_context,
             skill_data=compressed_skill_data,
             query=user_input,
+            user_prompt=self._user_prompt,
+            admin_prompt=self._admin_prompt,
         )
-        if prompt_parts:
-            prompt = "\n".join(prompt_parts) + "\n" + prompt
 
         response = ""
         synthesis_ms = 0.0
+        t0 = time.perf_counter()
         try:
-            t0 = time.perf_counter()
             async for token in self._inference.generate_stream(
                 model=synthesis_model,
                 prompt=prompt,
@@ -250,20 +208,22 @@ class Orchestrator:
             ):
                 response += token
                 yield PipelineEvent(
-                    phase="synthesis", status="streaming",
-                    data={"delta": token},
+                    phase="synthesis", status="streaming", data={"delta": token}
                 )
             synthesis_ms = (time.perf_counter() - t0) * 1000
         except OllamaError as e:
             if not response:
                 response = f"I couldn't generate a response. {e}"
-            synthesis_ms = (time.perf_counter() - t0) * 1000 if synthesis_ms == 0.0 else synthesis_ms
+            synthesis_ms = (time.perf_counter() - t0) * 1000
             yield PipelineEvent(phase="synthesis", status="failed", data={"error": str(e)})
 
-        self._memory.add_message("assistant", response)
+        await self._memory.add_message(
+            user_id=user_id, session_id=session_id, role="assistant", content=response
+        )
 
         yield PipelineEvent(
-            phase="synthesis", status="done",
+            phase="synthesis",
+            status="done",
             data={
                 "response": response,
                 "model": synthesis_model,

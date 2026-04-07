@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from lokidoki.core import skill_factory
 from lokidoki.core.decomposer import Ask, DecompositionResult
-from lokidoki.core.memory import SessionMemory
+from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
 from lokidoki.core.orchestrator import Orchestrator
 from lokidoki.core.registry import SkillRegistry
@@ -36,7 +36,9 @@ WIKI_API_OK = {
 }
 
 
-def _build_orchestrator(decomp: DecompositionResult, registry: SkillRegistry) -> Orchestrator:
+def _build_orchestrator(
+    decomp: DecompositionResult, registry: SkillRegistry, memory: MemoryProvider
+) -> Orchestrator:
     mock_decomposer = AsyncMock()
     mock_decomposer.decompose = AsyncMock(return_value=decomp)
 
@@ -50,7 +52,7 @@ def _build_orchestrator(decomp: DecompositionResult, registry: SkillRegistry) ->
     return Orchestrator(
         decomposer=mock_decomposer,
         inference_client=mock_inference,
-        memory=SessionMemory(),
+        memory=memory,
         model_manager=ModelManager(
             inference_client=mock_inference,
             policy=ModelPolicy(platform="mac"),
@@ -58,6 +60,14 @@ def _build_orchestrator(decomp: DecompositionResult, registry: SkillRegistry) ->
         registry=registry,
         skill_executor=SkillExecutor(),
     )
+
+
+@pytest.fixture
+async def memory(tmp_path):
+    mp = MemoryProvider(db_path=str(tmp_path / "pipeline.db"))
+    await mp.initialize()
+    yield mp
+    await mp.close()
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +80,7 @@ def _reset_skill_singletons():
 
 
 @pytest.mark.anyio
-async def test_pipeline_routes_wiki_skill_with_empty_decomposer_params():
+async def test_pipeline_routes_wiki_skill_with_empty_decomposer_params(memory):
     """Regression: when the decomposer emits ``parameters: {}`` (as the
     real LLM frequently does), the orchestrator must still successfully
     execute ``knowledge_wiki`` by falling back to ``distilled_query``.
@@ -94,7 +104,9 @@ async def test_pipeline_routes_wiki_skill_with_empty_decomposer_params():
         model="gemma4:e2b",
         latency_ms=10.0,
     )
-    orch = _build_orchestrator(decomp, registry)
+    orch = _build_orchestrator(decomp, registry, memory)
+    uid = await memory.default_user_id()
+    sid = await memory.create_session(uid)
 
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -102,7 +114,9 @@ async def test_pipeline_routes_wiki_skill_with_empty_decomposer_params():
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
         events = []
-        async for event in orch.process("Is Danny McBride still acting?"):
+        async for event in orch.process(
+            "Is Danny McBride still acting?", user_id=uid, session_id=sid
+        ):
             events.append(event)
 
     routing_done = [e for e in events if e.phase == "routing" and e.status == "done"]
@@ -118,7 +132,7 @@ async def test_pipeline_routes_wiki_skill_with_empty_decomposer_params():
 
 
 @pytest.mark.anyio
-async def test_pipeline_wiki_failure_surfaces_in_routing_log():
+async def test_pipeline_wiki_failure_surfaces_in_routing_log(memory):
     """Negative case: when the API genuinely returns no article, the
     failure path should still produce a clean routing_log entry that
     the UI can display (with mechanism_log so the tooltip works)."""
@@ -137,7 +151,9 @@ async def test_pipeline_wiki_failure_surfaces_in_routing_log():
         model="gemma4:e2b",
         latency_ms=10.0,
     )
-    orch = _build_orchestrator(decomp, registry)
+    orch = _build_orchestrator(decomp, registry, memory)
+    uid = await memory.default_user_id()
+    sid = await memory.create_session(uid)
 
     miss_response = MagicMock()
     miss_response.status_code = 200
@@ -145,7 +161,9 @@ async def test_pipeline_wiki_failure_surfaces_in_routing_log():
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=miss_response):
         events = []
-        async for event in orch.process("zzznonexistententity"):
+        async for event in orch.process(
+            "zzznonexistententity", user_id=uid, session_id=sid
+        ):
             events.append(event)
 
     routing_done = [e for e in events if e.phase == "routing" and e.status == "done"]

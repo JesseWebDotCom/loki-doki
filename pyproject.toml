@@ -12,6 +12,7 @@ dependencies = [
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
     "python-multipart>=0.0.24",
+    "sqlite-vec>=0.1.9",
     "uvicorn>=0.44.0",
 ]
 

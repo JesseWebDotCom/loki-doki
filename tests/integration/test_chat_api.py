@@ -3,6 +3,24 @@ import json
 from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
 from lokidoki.main import app
+from lokidoki.api.routes import chat as chat_route
+from lokidoki.core.memory_provider import MemoryProvider
+
+
+@pytest.fixture(autouse=True)
+async def _isolated_memory(tmp_path, monkeypatch):
+    """Each chat-api test gets its own MemoryProvider on a tmp DB so we
+    never write to the real data/lokidoki.db during the suite."""
+    mp = MemoryProvider(db_path=str(tmp_path / "chat_api.db"))
+    await mp.initialize()
+
+    async def _get_mp():
+        return mp
+
+    monkeypatch.setattr(chat_route, "_memory_provider", mp)
+    monkeypatch.setattr(chat_route, "get_memory_provider", _get_mp)
+    yield
+    await mp.close()
 
 
 MOCK_DECOMPOSITION_JSON = json.dumps({
@@ -51,9 +69,10 @@ async def test_chat_endpoint_returns_sse_stream():
 
         # Parse SSE events from response body
         events = _parse_sse_events(response.text)
-        assert len(events) >= 4  # augment active/done, decomp active/done, synth active/done
+        assert len(events) >= 4
 
         phases = [e.get("phase") for e in events]
+        assert "session" in phases  # PR1: chat route emits session id first
         assert "augmentation" in phases
         assert "decomposition" in phases
         assert "synthesis" in phases

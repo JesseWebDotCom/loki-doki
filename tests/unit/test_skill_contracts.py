@@ -15,9 +15,9 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock
 
-from lokidoki.core import orchestrator as orchestrator_module
+from lokidoki.core import orchestrator_skills as orchestrator_module
 from lokidoki.core.decomposer import Ask, DecompositionResult
-from lokidoki.core.memory import SessionMemory
+from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
 from lokidoki.core.orchestrator import Orchestrator
 from lokidoki.core.registry import SkillRegistry
@@ -57,7 +57,9 @@ def _intents_with_required_params(registry: SkillRegistry) -> list[tuple[str, st
     return out
 
 
-def _build_orchestrator(registry: SkillRegistry, decomp: DecompositionResult) -> Orchestrator:
+async def _build_orchestrator(
+    registry: SkillRegistry, decomp: DecompositionResult, memory: MemoryProvider
+) -> tuple[Orchestrator, int, int]:
     mock_decomposer = AsyncMock()
     mock_decomposer.decompose = AsyncMock(return_value=decomp)
 
@@ -69,13 +71,24 @@ def _build_orchestrator(registry: SkillRegistry, decomp: DecompositionResult) ->
     mock_inference.generate_stream = lambda *a, **kw: _stream()
 
     policy = ModelPolicy(platform="mac")
-    return Orchestrator(
+    orch = Orchestrator(
         decomposer=mock_decomposer,
         inference_client=mock_inference,
-        memory=SessionMemory(),
+        memory=memory,
         model_manager=ModelManager(inference_client=mock_inference, policy=policy),
         registry=registry,
     )
+    uid = await memory.default_user_id()
+    sid = await memory.create_session(uid)
+    return orch, uid, sid
+
+
+@pytest.fixture
+async def memory(tmp_path):
+    mp = MemoryProvider(db_path=str(tmp_path / "skill_contracts.db"))
+    await mp.initialize()
+    yield mp
+    await mp.close()
 
 
 def _discover_intents_with_required_params() -> list[tuple[str, str, list[str]]]:
@@ -94,7 +107,7 @@ _DISCOVERED_CONTRACTS = _discover_intents_with_required_params()
     ids=[f"{s}|{i}" for s, i, _ in _DISCOVERED_CONTRACTS] or ["none"],
 )
 async def test_orchestrator_populates_required_skill_params(
-    skill_id, qualified_intent, required, monkeypatch
+    skill_id, qualified_intent, required, monkeypatch, memory
 ):
     """For every (skill, intent) with required params, the orchestrator
     must hand the skill a parameters dict containing each required key,
@@ -125,8 +138,8 @@ async def test_orchestrator_populates_required_skill_params(
         latency_ms=10.0,
     )
 
-    orch = _build_orchestrator(registry, decomp)
-    async for _ in orch.process("raspberry pi"):
+    orch, uid, sid = await _build_orchestrator(registry, decomp, memory)
+    async for _ in orch.process("raspberry pi", user_id=uid, session_id=sid):
         pass
 
     assert capture.last_params is not None, (
@@ -144,7 +157,7 @@ async def test_orchestrator_populates_required_skill_params(
 
 
 @pytest.mark.anyio
-async def test_distilled_query_is_default_for_query_param(monkeypatch):
+async def test_distilled_query_is_default_for_query_param(monkeypatch, memory):
     """Specific guarantee: when a skill needs ``query`` and the decomposer
     omits it, the orchestrator falls back to ``ask.distilled_query``."""
     registry = SkillRegistry()
@@ -171,15 +184,15 @@ async def test_distilled_query_is_default_for_query_param(monkeypatch):
         latency_ms=10.0,
     )
 
-    orch = _build_orchestrator(registry, decomp)
-    async for _ in orch.process("is danny mcbride still acting"):
+    orch, uid, sid = await _build_orchestrator(registry, decomp, memory)
+    async for _ in orch.process("is danny mcbride still acting", user_id=uid, session_id=sid):
         pass
 
     assert capture.last_params == {"query": "is danny mcbride still acting"}
 
 
 @pytest.mark.anyio
-async def test_decomposer_supplied_params_are_not_clobbered(monkeypatch):
+async def test_decomposer_supplied_params_are_not_clobbered(monkeypatch, memory):
     """If the decomposer DOES supply a param, the orchestrator must not
     overwrite it with distilled_query."""
     registry = SkillRegistry()
@@ -205,8 +218,8 @@ async def test_decomposer_supplied_params_are_not_clobbered(monkeypatch):
         latency_ms=10.0,
     )
 
-    orch = _build_orchestrator(registry, decomp)
-    async for _ in orch.process("raw user text"):
+    orch, uid, sid = await _build_orchestrator(registry, decomp, memory)
+    async for _ in orch.process("raw user text", user_id=uid, session_id=sid):
         pass
 
     assert capture.last_params["query"] == "Danny McBride", (
