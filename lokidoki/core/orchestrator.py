@@ -375,14 +375,25 @@ class Orchestrator:
         )
         logger.info("[orchestrator] auto-naming session %s", session_id)
         try:
-            title = await self._inference.generate(
+            raw = await self._inference.generate(
                 model=self._model_manager.policy.fast_model,
                 prompt=prompt,
                 num_predict=20,
                 temperature=0.3,
             )
-            title = title.strip().strip('"').strip("'").splitlines()[0] if title.strip() else ""
-            logger.info("[orchestrator] auto-name raw title for %s: %r", session_id, title)
+            # Pick the first non-empty line; the model sometimes leads with
+            # a blank line which used to make us drop the title entirely.
+            title = ""
+            for line in (raw or "").splitlines():
+                cleaned = line.strip().strip('"').strip("'").strip()
+                if cleaned:
+                    title = cleaned
+                    break
+            # Fallback: trim the user's first prompt to a reasonable label.
+            if not title:
+                fallback = " ".join(first_input.split()[:6]).strip()
+                title = fallback[:60] if fallback else f"Chat {session_id}"
+            logger.info("[orchestrator] auto-name raw title for %s: %r (raw=%r)", session_id, title, raw)
             if title:
                 ok = await self._memory.update_session_title(user_id, session_id, title)
                 logger.info(
