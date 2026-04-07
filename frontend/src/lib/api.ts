@@ -26,6 +26,10 @@ export type {
   SettingsData,
   AskInfo,
   SentimentInfo,
+  Person,
+  Relationship,
+  ConflictCandidate,
+  FactConflict,
 } from "./api-types";
 
 const API_BASE = "/api/v1";
@@ -182,6 +186,38 @@ export async function clearChatMemory() {
   // PR1: persistent storage; clearing is deferred. Keep the function
   // alive so callers compile, but it's a no-op against the real API.
   return { status: "noop" };
+}
+
+// --- PR3: people / relationships / conflicts ----------------------------
+
+export async function getPeople() {
+  return getJson<{ people: import("./api-types").Person[] }>("/memory/people");
+}
+
+export async function getPersonDetail(id: number) {
+  return getJson<{
+    person: import("./api-types").Person;
+    facts: Array<Record<string, any>>;
+  }>(`/memory/people/${id}`);
+}
+
+export async function mergePeople(sourceId: number, intoId: number) {
+  return postJson<{ merged: boolean; source_id: number; into_id: number }>(
+    `/memory/people/${sourceId}/merge`,
+    { into_id: intoId },
+  );
+}
+
+export async function getRelationships() {
+  return getJson<{ relationships: import("./api-types").Relationship[] }>(
+    "/memory/relationships",
+  );
+}
+
+export async function getFactConflicts() {
+  return getJson<{ conflicts: import("./api-types").FactConflict[] }>(
+    "/memory/facts/conflicts",
+  );
 }
 
 export async function getPlatformInfo() {

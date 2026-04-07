@@ -84,6 +84,38 @@ export interface Fact {
   updated_at?: string;
 }
 
+/** PR3 people / relationships / conflicts. */
+export interface Person {
+  id: number;
+  name: string;
+  created_at?: string;
+  fact_count?: number;
+}
+
+export interface Relationship {
+  id: number;
+  relation: string;
+  confidence: number;
+  created_at?: string;
+  person_id: number;
+  person_name: string;
+}
+
+export interface ConflictCandidate {
+  id: number;
+  subject: string;
+  predicate: string;
+  value: string;
+  confidence: number;
+  updated_at?: string;
+}
+
+export interface FactConflict {
+  subject: string;
+  predicate: string;
+  candidates: ConflictCandidate[];
+}
+
 export interface PlatformInfo {
   platform: string;
   fast_model: string;
