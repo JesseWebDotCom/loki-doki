@@ -3,9 +3,12 @@ import { X, Save, Sparkles, RefreshCw } from "lucide-react";
 import {
   adminCreateCharacter,
   adminPatchCharacter,
+  adminResetCharacterToBuiltin,
   type AdminCharacterRow,
 } from "../../lib/api";
 import Avatar, { type AvatarStyle } from "../character/Avatar";
+import AnimatedAvatar from "../character/AnimatedAvatar";
+import type { HeadTiltState } from "../character/useHeadTilt";
 import SchemaField from "../character/SchemaField";
 import {
   COMMON_KEYS,
@@ -68,6 +71,9 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
     bottts: {},
     "toon-head": {},
   });
+  // ----- animation preview -----
+  const [tiltState, setTiltState] = useState<HeadTiltState>("idle");
+  const [manualTilt, setManualTilt] = useState<number | null>(null);
   // ----- io -----
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -146,6 +152,21 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
 
   const handleLucky = () => setSeed(randomSeed());
 
+  const handleResetToBuiltin = async () => {
+    if (!initial || initial.source !== "builtin") return;
+    setSaving(true);
+    setErr(null);
+    try {
+      await adminResetCharacterToBuiltin(initial.id);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleResetStyleOptions = () => {
     setOptionsByStyle((prev) => ({ ...prev, [style]: {} }));
   };
@@ -203,19 +224,11 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
           </button>
         </div>
 
-        {(initial?.source === "builtin" || err) && (
-          <div className="px-6 pt-4 space-y-2 shrink-0">
-            {initial?.source === "builtin" && (
-              <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-[11px] text-amber-300">
-                Builtin characters can&apos;t be edited in place. Saving creates
-                a new admin-source copy with your changes.
-              </div>
-            )}
-            {err && (
-              <div className="rounded-lg border border-red-400/30 bg-red-400/5 p-3 text-[11px] text-red-300">
-                {err}
-              </div>
-            )}
+        {err && (
+          <div className="px-6 pt-4 shrink-0">
+            <div className="rounded-lg border border-red-400/30 bg-red-400/5 p-3 text-[11px] text-red-300">
+              {err}
+            </div>
           </div>
         )}
 
@@ -235,13 +248,89 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
                   "repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, rgba(255,255,255,0.08) 0% 50%) 50% / 24px 24px",
               }}
             >
-              <Avatar
+              <AnimatedAvatar
                 style={style}
                 seed={seed}
+                baseOptions={activeOptions}
                 size={320}
-                options={activeOptions}
+                tiltState={tiltState}
+                manualTiltDeg={manualTilt ?? undefined}
                 className="drop-shadow-lg"
               />
+            </div>
+
+            {/* Animation controls — drives the live preview's
+                 useHeadTilt hook so admins can audition the built-in
+                 tilt states (idle / dozing / sleeping / thinking /
+                 listening / speaking / sick) and manually scrub the
+                 head angle with a slider. */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Animation
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTiltState("still");
+                    setManualTilt(null);
+                  }}
+                  className="text-[9px] font-bold px-2 py-0.5 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-card/40"
+                  title="Stop the running animation and ease the head back to upright"
+                >
+                  ■ Stop
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    "idle",
+                    "dozing",
+                    "sleeping",
+                    "thinking",
+                    "listening",
+                    "speaking",
+                    "sick",
+                  ] as HeadTiltState[]
+                ).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => {
+                      setManualTilt(null);
+                      setTiltState(s);
+                    }}
+                    className={`text-[9px] font-bold py-1 rounded border transition-all ${
+                      tiltState === s && manualTilt === null
+                        ? "border-primary bg-primary/15 text-primary"
+                        : "border-border/30 bg-card/30 hover:border-border/60 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <div className="space-y-1 pt-1">
+                <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground">
+                  <span>Manual tilt</span>
+                  <span>
+                    {manualTilt === null ? "—" : `${manualTilt.toFixed(0)}°`}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={-30}
+                  max={30}
+                  step={1}
+                  value={manualTilt ?? 0}
+                  onChange={(e) => setManualTilt(Number(e.target.value))}
+                  className="w-full accent-primary"
+                />
+                <div className="text-[9px] text-muted-foreground/70 leading-tight">
+                  Dragging the slider overrides the active state. Click a
+                  state button to release.
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -409,6 +498,17 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
 
         {/* Footer */}
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-border/20 shrink-0">
+          {initial?.source === "builtin" && (
+            <button
+              type="button"
+              onClick={handleResetToBuiltin}
+              disabled={saving}
+              className="mr-auto px-4 py-2 rounded-md border border-amber-400/40 text-amber-300 text-xs font-bold hover:bg-amber-400/10 disabled:opacity-50"
+              title="Restore this builtin to its shipped defaults"
+            >
+              Reset to Default
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}

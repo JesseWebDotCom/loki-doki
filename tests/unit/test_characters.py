@@ -80,14 +80,55 @@ class TestCatalogCRUD:
         with pytest.raises(ValueError):
             ops.delete_character(conn, cid)
 
-    def test_builtin_edit_is_copy_on_write(self, conn):
+    def test_builtin_edit_is_in_place(self, conn):
         cid = ops.create_character(conn, name="Default", source="builtin")
-        new_id = ops.edit_character_cow(conn, cid, behavior_prompt="custom")
-        assert new_id != cid
-        assert ops.get_character(conn, cid)["behavior_prompt"] != "custom"
-        copy = ops.get_character(conn, new_id)
-        assert copy["behavior_prompt"] == "custom"
-        assert copy["source"] == "admin"
+        same_id = ops.edit_character(conn, cid, behavior_prompt="custom")
+        assert same_id == cid
+        row = ops.get_character(conn, cid)
+        assert row["behavior_prompt"] == "custom"
+        assert row["source"] == "builtin"
+
+    def test_builtin_edit_survives_seeder_rerun(self, conn):
+        from lokidoki.core import character_seed as seed
+        # Pretend "Loki" is a builtin spec entry (BUILTIN_SPECS ships
+        # one named Loki). Create the row, edit it, re-run the seeder,
+        # confirm the edit is preserved.
+        spec = next(s for s in seed.BUILTIN_SPECS if s["name"] == "Loki")
+        cid = ops.create_character(
+            conn,
+            name=spec["name"],
+            description=spec["description"],
+            behavior_prompt=spec["behavior_prompt"],
+            avatar_style=spec["avatar_style"],
+            avatar_seed=spec["avatar_seed"],
+            avatar_config=spec["avatar_config"],
+            source="builtin",
+        )
+        ops.edit_character(conn, cid, behavior_prompt="user-edited")
+        seed.seed_builtin_if_missing(conn)
+        assert ops.get_character(conn, cid)["behavior_prompt"] == "user-edited"
+
+    def test_reset_builtin_to_spec(self, conn):
+        from lokidoki.core import character_seed as seed
+        spec = next(s for s in seed.BUILTIN_SPECS if s["name"] == "Loki")
+        cid = ops.create_character(
+            conn,
+            name=spec["name"],
+            description="dummy",
+            behavior_prompt="dummy",
+            avatar_style=spec["avatar_style"],
+            avatar_seed="other",
+            source="builtin",
+        )
+        ops.reset_builtin_to_spec(conn, cid)
+        row = ops.get_character(conn, cid)
+        assert row["behavior_prompt"] == spec["behavior_prompt"]
+        assert row["avatar_seed"] == spec["avatar_seed"]
+
+    def test_reset_non_builtin_rejected(self, conn):
+        cid = ops.create_character(conn, name="Loki", source="admin")
+        with pytest.raises(ValueError):
+            ops.reset_builtin_to_spec(conn, cid)
 
 
 class TestUserOverrides:

@@ -494,6 +494,13 @@ export async function adminPatchCharacter(
   return (await r.json()) as { id: number };
 }
 
+export async function adminResetCharacterToBuiltin(characterId: number) {
+  return postJson<{ ok: boolean; id: number }>(
+    `/characters/admin/${characterId}/reset-to-builtin`,
+    {},
+  );
+}
+
 export async function adminDeleteCharacter(characterId: number) {
   const r = await fetch(`${API_BASE}/characters/admin/${characterId}`, {
     method: "DELETE",

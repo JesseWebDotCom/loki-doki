@@ -311,11 +311,10 @@ async def admin_patch(
     _: User = Depends(require_admin),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    """Edit a catalog row.
-
-    Builtin rows go through copy-on-write — the response includes the
-    new row id so the admin UI can swap focus. Admin/user rows are
-    edited in place and return the same id.
+    """Edit a catalog row in place. All sources (builtin/admin/user)
+    are edited directly — copy-on-write was removed; the seeder is
+    insert-if-missing so builtin edits survive reboots. The escape
+    hatch for builtins is ``POST /admin/{id}/reset-to-builtin``.
     """
     fields = body.model_dump(exclude_unset=True)
     if not fields:
@@ -325,7 +324,7 @@ async def admin_patch(
         if ops.get_character(conn, character_id) is None:
             return None
         try:
-            return ops.edit_character_cow(conn, character_id, **fields)
+            return ops.edit_character(conn, character_id, **fields)
         except ValueError as exc:
             return ("err", str(exc))
     result = await memory.run_sync(_go)
@@ -334,6 +333,32 @@ async def admin_patch(
     if isinstance(result, tuple) and result[0] == "err":
         raise HTTPException(status_code=400, detail=result[1])
     return {"id": result}
+
+
+@router.post("/admin/{character_id}/reset-to-builtin")
+async def admin_reset_to_builtin(
+    character_id: int,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Reapply BUILTIN_SPECS to a builtin character. Escape hatch for
+    'I broke Loki, give me the original back'. Per-user overrides
+    survive (they FK on id, not name).
+    """
+    def _go(conn):
+        if ops.get_character(conn, character_id) is None:
+            return ("missing",)
+        try:
+            ops.reset_builtin_to_spec(conn, character_id)
+        except ValueError as exc:
+            return ("err", str(exc))
+        return ("ok",)
+    result = await memory.run_sync(_go)
+    if result == ("missing",):
+        raise HTTPException(status_code=404, detail="character_not_found")
+    if result[0] == "err":
+        raise HTTPException(status_code=400, detail=result[1])
+    return {"ok": True, "id": character_id}
 
 
 @router.delete("/admin/{character_id}")

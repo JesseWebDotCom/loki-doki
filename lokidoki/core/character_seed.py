@@ -79,16 +79,17 @@ BUILTIN_SPECS: tuple[dict, ...] = (
 
 
 def seed_builtin_if_missing(conn: sqlite3.Connection) -> int:
-    """Idempotently upsert the BUILTIN_SPECS catalog. Returns the
+    """Insert any BUILTIN_SPECS rows that don't yet exist. Returns the
     first builtin's id (used as the personality-migration anchor).
 
-    Match key is ``(source='builtin', name)``. If a row already
-    exists for a spec, its mutable fields are updated in place via
-    the storage-layer ``update_character`` (which deliberately
-    bypasses the copy-on-write rule — that rule belongs at the
-    admin-route layer, not internal seeding). Per-user override
-    rows survive untouched because they FK on character ``id``,
-    which is preserved by the upsert.
+    **Insert-if-missing only.** Existing builtin rows (matched by
+    ``(source='builtin', name)``) are left completely untouched so
+    admin edits to a builtin survive reboots. New builtins added to
+    BUILTIN_SPECS in code still get created on the next boot.
+
+    To re-apply a spec on demand (escape hatch for "I broke Loki,
+    give me the original back"), the admin UI calls
+    ``reset_builtin_to_spec`` via the dedicated route.
     """
     first_id: int | None = None
     for spec in BUILTIN_SPECS:
@@ -109,18 +110,8 @@ def seed_builtin_if_missing(conn: sqlite3.Connection) -> int:
             )
         else:
             cid = int(existing["id"])
-            ops.update_character(
-                conn,
-                cid,
-                description=spec["description"],
-                behavior_prompt=spec["behavior_prompt"],
-                avatar_style=spec["avatar_style"],
-                avatar_seed=spec["avatar_seed"],
-                avatar_config=spec["avatar_config"],
-            )
         if first_id is None:
             first_id = cid
-    # ``first_id`` is non-None unless BUILTIN_SPECS is empty.
     assert first_id is not None
     return first_id
 

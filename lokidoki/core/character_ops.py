@@ -181,34 +181,58 @@ def delete_character(conn: sqlite3.Connection, cid: int) -> None:
     conn.commit()
 
 
-def edit_character_cow(
+def edit_character(
     conn: sqlite3.Connection, cid: int, **fields: Any
 ) -> int:
-    """Edit-with-copy-on-write for the admin playground.
+    """Edit a catalog row in place. Works for builtin, admin, and user
+    sources alike — builtins are no longer copy-on-write so admins can
+    tune Loki/Kingston/Luis directly. The seeder is insert-if-missing,
+    so edits survive reboots.
 
-    Builtin rows clone into a new admin-source row with the requested
-    fields applied; admin/user rows update in place.
+    The escape hatch for "I broke Loki, give me the default back" is
+    ``reset_builtin_to_spec`` (admin route).
     """
     row = get_character(conn, cid)
     if row is None:
         raise ValueError(f"character {cid} not found")
+    update_character(conn, cid, **fields)
+    return cid
+
+
+# Backwards-compatibility alias. Older imports / tests still call this.
+edit_character_cow = edit_character
+
+
+def reset_builtin_to_spec(conn: sqlite3.Connection, cid: int) -> None:
+    """Reapply the BUILTIN_SPECS entry for a builtin character.
+
+    Looks up the spec by ``name`` (the seed match key) and writes its
+    canonical fields back over the catalog row. Per-user overrides
+    survive — they FK on id, not name.
+
+    Raises ValueError if the character isn't a builtin or doesn't
+    match any current spec entry.
+    """
+    # Local import to avoid a top-level cycle (character_seed imports
+    # this module).
+    from lokidoki.core.character_seed import BUILTIN_SPECS
+
+    row = get_character(conn, cid)
+    if row is None:
+        raise ValueError(f"character {cid} not found")
     if row["source"] != "builtin":
-        update_character(conn, cid, **fields)
-        return cid
-    base = dict(row)
-    base.update(fields)
-    return create_character(
+        raise ValueError("only builtin characters can be reset")
+    spec = next((s for s in BUILTIN_SPECS if s["name"] == row["name"]), None)
+    if spec is None:
+        raise ValueError(f"no builtin spec for name {row['name']!r}")
+    update_character(
         conn,
-        name=base["name"],
-        description=base.get("description", ""),
-        phonetic_name=base.get("phonetic_name", ""),
-        behavior_prompt=base.get("behavior_prompt", ""),
-        avatar_style=base.get("avatar_style", "bottts"),
-        avatar_seed=base.get("avatar_seed", ""),
-        avatar_config=_coerce_avatar_config(base.get("avatar_config")),
-        voice_id=base.get("voice_id"),
-        wakeword_id=base.get("wakeword_id"),
-        source="admin",
+        cid,
+        description=spec["description"],
+        behavior_prompt=spec["behavior_prompt"],
+        avatar_style=spec["avatar_style"],
+        avatar_seed=spec["avatar_seed"],
+        avatar_config=spec["avatar_config"],
     )
 
 
