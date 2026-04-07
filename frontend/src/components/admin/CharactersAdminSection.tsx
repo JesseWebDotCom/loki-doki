@@ -7,8 +7,9 @@ import {
   type AdminCharacterRow,
 } from "../../lib/api";
 import ConfirmDialog from "../ui/ConfirmDialog";
-import CharacterEditDialog from "./CharacterEditDialog";
+import CharacterPlayground from "./CharacterPlayground";
 import CharacterUserAccessMatrix from "./CharacterUserAccessMatrix";
+import Avatar from "../character/Avatar";
 
 /**
  * Top-level admin section for the character system.
@@ -131,7 +132,18 @@ const CharactersAdminSection: React.FC<Props> = ({ users }) => {
                     key={c.id}
                     className="border-b border-border/10 last:border-0 text-sm"
                   >
-                    <td className="px-4 py-3 font-bold">{c.name}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <Avatar
+                          style={c.avatar_style}
+                          seed={c.avatar_seed || c.name}
+                          size={36}
+                          options={c.avatar_config as Record<string, unknown>}
+                          className="rounded-md overflow-hidden border border-border/30 bg-card/30"
+                        />
+                        <span className="font-bold">{c.name}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs max-w-xs truncate">
                       {c.description || "—"}
                     </td>
@@ -196,7 +208,7 @@ const CharactersAdminSection: React.FC<Props> = ({ users }) => {
       <CharacterUserAccessMatrix users={users} refreshKey={refreshKey} />
 
       {(editing || creating) && (
-        <CharacterEditDialog
+        <CharacterPlayground
           initial={editing}
           onClose={() => {
             setEditing(null);

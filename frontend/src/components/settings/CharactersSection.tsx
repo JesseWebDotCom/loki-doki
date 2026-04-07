@@ -7,6 +7,7 @@ import {
   clearCharacterOverride,
   type CharacterRow,
 } from "../../lib/api";
+import Avatar from "../character/Avatar";
 
 /**
  * Settings → Characters section.
@@ -116,31 +117,37 @@ const CharactersSection: React.FC = () => {
               <button
                 key={c.id}
                 onClick={() => handlePick(c.id)}
-                className={`text-left p-4 rounded-xl border transition-all ${
+                className={`text-left p-4 rounded-xl border transition-all flex gap-3 ${
                   isActive
                     ? "bg-primary/10 border-primary/40 shadow-m2"
                     : "bg-card/50 border-border/30 hover:border-border/60"
                 }`}
               >
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-sm font-bold">{c.name}</div>
-                  {isActive && <Check className="w-4 h-4 text-primary" />}
-                </div>
-                <div className="text-[11px] text-muted-foreground line-clamp-2">
-                  {c.description || "No description."}
-                </div>
-                <div className="mt-2 flex items-center gap-1 text-[10px] font-mono text-muted-foreground/80">
-                  <span className="px-1.5 py-0.5 rounded bg-muted/40">
-                    {c.source}
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-muted/40">
-                    {c.avatar_style}
-                  </span>
-                  {c.has_user_overrides && (
-                    <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary">
-                      customized
+                <Avatar
+                  style={c.avatar_style}
+                  seed={c.avatar_seed || c.name}
+                  size={64}
+                  options={c.avatar_config}
+                  className="rounded-lg overflow-hidden border border-border/30 bg-background/40 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-sm font-bold truncate">{c.name}</div>
+                    {isActive && <Check className="w-4 h-4 text-primary shrink-0" />}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground line-clamp-2">
+                    {c.description || "No description."}
+                  </div>
+                  <div className="mt-2 flex items-center gap-1 text-[10px] font-mono text-muted-foreground/80 flex-wrap">
+                    <span className="px-1.5 py-0.5 rounded bg-muted/40">
+                      {c.source}
                     </span>
-                  )}
+                    {c.has_user_overrides && (
+                      <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+                        customized
+                      </span>
+                    )}
+                  </div>
                 </div>
               </button>
             );

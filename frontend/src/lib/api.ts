@@ -474,6 +474,7 @@ export interface AdminCharacterCreate {
   behavior_prompt?: string;
   avatar_style?: "avataaars" | "bottts" | "toon-head";
   avatar_seed?: string;
+  avatar_config?: Record<string, unknown>;
 }
 
 export async function adminCreateCharacter(body: AdminCharacterCreate) {

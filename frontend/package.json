@@ -11,6 +11,8 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@dicebear/collection": "^9.4.2",
+    "@dicebear/core": "^9.4.2",
     "@fontsource-variable/geist": "^5.2.8",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-context-menu": "^2.2.16",
