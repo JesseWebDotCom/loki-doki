@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Send } from 'lucide-react';
 import { useTTSState } from '../utils/tts';
 import Sidebar from '../components/sidebar/Sidebar';
@@ -69,6 +70,26 @@ const ChatPage: React.FC = () => {
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const tts = useTTSState();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Sidebar (mounted on Settings/Admin/Memory/Dev) routes session
+  // selection here via router state when it has no direct callback.
+  // Pick that up on mount/whenever the state changes, then clear it
+  // so back-nav doesn't reapply the selection.
+  useEffect(() => {
+    const state = location.state as
+      | { selectSessionId?: string; newSession?: boolean; projectId?: number | null }
+      | null;
+    if (!state) return;
+    if (state.selectSessionId) {
+      handleSelectSession(state.selectSessionId);
+    } else if (state.newSession) {
+      handleNewSession(state.projectId ?? undefined);
+    }
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const activeProject = useMemo<ProjectRecord | null>(
     () => (activeProjectId ? projects.find((p) => p.id === activeProjectId) || null : null),

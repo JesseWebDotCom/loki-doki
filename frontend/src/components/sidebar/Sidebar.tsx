@@ -3,7 +3,7 @@ import { Ghost, MessageSquare, Brain, Plus, FolderPlus, ChevronDown, ChevronRigh
 import ExecutionTimeline from './ExecutionTimeline';
 import StatusMetrics from './StatusMetrics';
 import DecompositionPanel from './DecompositionPanel';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   getSessions, 
   deleteSession, 
@@ -49,8 +49,31 @@ const Sidebar: React.FC<SidebarProps> = ({
   onProjectsChanged,
 }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const isChat = location.pathname === '/';
   const isMemory = location.pathname === '/memory';
+
+  // Sidebar is reused on Settings/Admin/Memory/Dev pages, where the
+  // host doesn't pass onSelectSession (only ChatPage does). Without
+  // a fallback, clicking a chat row on those pages was a no-op until
+  // the user manually navigated back to /. Route through the chat
+  // page with router state so ChatPage can pick the session up on
+  // mount and load it.
+  const handleSelectSession = (id: string) => {
+    if (onSelectSession) {
+      onSelectSession(id);
+    } else {
+      navigate('/', { state: { selectSessionId: id } });
+    }
+  };
+
+  const handleNewSessionFallback = (projectId?: number) => {
+    if (onNewSession) {
+      onNewSession(projectId);
+    } else {
+      navigate('/', { state: { newSession: true, projectId: projectId ?? null } });
+    }
+  };
 
   const [sessions, setSessions] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -225,7 +248,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           id={String(session.id)}
                           title={session.title}
                           isActive={currentSessionId === String(session.id)}
-                          onSelect={onSelectSession!}
+                          onSelect={handleSelectSession}
                           onDelete={handleDeleteChat}
                           onRename={handleRenameChat}
                           onMove={handleMoveChat}
@@ -253,7 +276,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               Chats ({globalSessions.length})
             </CollapsibleTrigger>
             <button 
-              onClick={(e) => { e.stopPropagation(); onNewSession?.(); }}
+              onClick={(e) => { e.stopPropagation(); handleNewSessionFallback(); }}
               className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
             >
               <Plus size={14} />
@@ -266,7 +289,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 id={String(session.id)}
                 title={session.title}
                 isActive={currentSessionId === String(session.id)}
-                onSelect={onSelectSession!}
+                onSelect={handleSelectSession}
                 onDelete={handleDeleteChat}
                 onRename={handleRenameChat}
                 onMove={handleMoveChat}

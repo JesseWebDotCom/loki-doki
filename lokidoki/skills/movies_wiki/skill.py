@@ -55,12 +55,22 @@ class WikiMoviesSkill(BaseSkill):
         # article rather than a same-named topic. Text-shape repair
         # on upstream model output — not user-intent classification.
         candidates = _query_candidates(raw_query)
+        # "latest"/"newest"/"recent" means: don't accept the first
+        # film hit — collect every film candidate and return the one
+        # with the highest release year. Otherwise Wikipedia ranks by
+        # generic relevance and returns the original (e.g. Avatar
+        # 2009) instead of the actual newest entry in the franchise.
+        want_latest = bool(
+            re.search(r"\b(latest|newest|most recent|new)\b", raw_query, re.IGNORECASE)
+        )
         logger.info(
-            "[movies_wiki] raw_query=%r candidates=%r", raw_query, candidates,
+            "[movies_wiki] raw_query=%r candidates=%r want_latest=%s",
+            raw_query, candidates, want_latest,
         )
 
         try:
             summary: dict | None = None
+            best_year: int = -1
             tried: list[str] = []
             async with httpx.AsyncClient(
                 timeout=4.0, follow_redirects=True, headers=WIKI_HEADERS,
@@ -124,11 +134,34 @@ class WikiMoviesSkill(BaseSkill):
                         desc = (payload.get("description") or "").lower()
                         extract_low = (payload.get("extract") or "").lower()
                         if "film" in desc or "film" in extract_low[:200]:
+                            if want_latest:
+                                # Title must contain at least one
+                                # non-trivial token from the cleaned
+                                # candidate. Otherwise Wikipedia's
+                                # generic "film" hits (e.g. Hoppers
+                                # 2026) win on year alone and we
+                                # return a totally unrelated movie.
+                                cand_tokens = {
+                                    t for t in re.findall(r"[a-z0-9]+", cand.lower())
+                                    if len(t) > 2 and t not in _STOPWORDS
+                                }
+                                title_low = title.lower()
+                                if cand_tokens and not any(t in title_low for t in cand_tokens):
+                                    tried.append(f"{title}(off-topic)")
+                                    continue
+                                yr = _extract_year(payload.get("extract") or "") or -1
+                                if yr > best_year:
+                                    best_year = yr
+                                    summary = payload
+                                    tried.append(f"{title}✓({yr})")
+                                else:
+                                    tried.append(f"{title}(older {yr})")
+                                continue
                             summary = payload
                             tried.append(f"{title}✓")
                             break
                         tried.append(f"{title}(not-film)")
-                    if summary:
+                    if summary and not want_latest:
                         break
 
             if not summary:
@@ -142,6 +175,17 @@ class WikiMoviesSkill(BaseSkill):
             description = summary.get("description", "") or ""
             year = _extract_year(extract)
             runtime_min = _extract_runtime_min(extract)
+            # The REST summary only ships the lead paragraph, which
+            # often omits running time for unreleased or recent films
+            # (e.g. Avatar: Fire and Ash). Fall back to the raw
+            # wikitext of section 0 — that's the infobox, which has
+            # a `| running time = NNN minutes` field.
+            if runtime_min is None:
+                raw_title = summary.get("title", "").replace(" ", "_")
+                if raw_title:
+                    runtime_min = await _fetch_runtime_from_infobox(raw_title)
+                    if runtime_min is None:
+                        runtime_min = await _scrape_runtime_from_page(raw_title)
             data = {
                 "title": title,
                 "release_date": f"{year}-01-01" if year else "",
@@ -190,16 +234,18 @@ _LEAD_PATTERNS = [
     r"^how long are\s+",
     r"^when did\s+",
     r"^when does\s+",
-    r"^what (?:is|was) the (?:length|runtime|rating|release date|genre|director|cast) of\s+",
+    r"^what (?:is|was) the (?:length|runtime|duration|rating|release date|genre|director|cast) of\s+",
     r"^what (?:is|was)\s+",
     r"^who (?:directed|stars in|is in)\s+",
     r"^tell me about (?:the movie\s+)?",
-    r"^get (?:the )?(?:length|runtime|rating|release date|genre) of (?:the )?",
+    r"^get (?:the )?(?:length|runtime|duration|rating|release date|genre) of (?:the )?",
     r"^get (?:the movie\s+)?",
     r"^show me (?:the movie\s+)?",
+    r"^find (?:the )?(?:length|runtime|duration|rating|release date|genre) of (?:the )?",
     r"^find (?:the movie\s+)?",
     r"^search for (?:the movie\s+)?",
     r"^find movies (?:called|about|named)\s+",
+    r"^(?:the )?(?:length|runtime|duration|rating|release date|genre) of (?:the )?",
 ]
 
 # Filler phrases anywhere in the query that don't help search.
@@ -208,12 +254,19 @@ _FILLER_PATTERNS = [
     r"\bthe newest\b",
     r"\bthe most recent\b",
     r"\bthe new\b",
+    r"\blatest\b",
+    r"\bnewest\b",
     r"\brecent\b",
     r"\bplease\b",
 ]
 
 # Trailing nouns that can be safely dropped after we've stripped
 # everything else (so "avatar movie" → "avatar").
+_STOPWORDS = {
+    "the", "latest", "newest", "recent", "new", "movie", "film", "movies",
+    "films", "and", "of", "for", "with", "from", "about",
+}
+
 _TRAILING_NOUNS = [
     r"\s+movie$",
     r"\s+film$",
@@ -235,13 +288,19 @@ def _query_candidates(raw: str) -> list[str]:
         return []
     out: list[str] = [raw]
 
-    # Pass 1: strip leading question/command prefixes.
+    # Pass 1: strip leading question/command prefixes. Loop until
+    # stable so layered prefixes like "find the duration of the …"
+    # are fully unwound rather than leaving "the duration of …".
     s = raw.lower()
-    for pat in _LEAD_PATTERNS:
-        new = re.sub(pat, "", s, count=1)
-        if new != s:
-            s = new
-            out.append(s.strip())
+    for _ in range(4):
+        before = s
+        for pat in _LEAD_PATTERNS:
+            new = re.sub(pat, "", s, count=1)
+            if new != s:
+                s = new.strip()
+                out.append(s)
+                break
+        if s == before:
             break
 
     # Pass 2: strip filler phrases anywhere.
@@ -325,6 +384,92 @@ def _extract_year(text: str) -> int | None:
 # "with a running time of 162 minutes" or "162-minute". Both are
 # captured by the same loose pattern.
 _RUNTIME_RE = re.compile(r"(\d{2,3})\s*[-\s]*minute", re.IGNORECASE)
+
+
+async def _fetch_runtime_from_infobox(raw_title: str) -> int | None:
+    """Pull running time from the article infobox via parse API.
+
+    The REST summary endpoint only returns the lead paragraph, which
+    omits running time for unreleased or recent films. The MediaWiki
+    parse API exposes raw wikitext for section 0 (the infobox), which
+    has a stable ``| running time = NNN minutes`` field.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=4.0, follow_redirects=True, headers=WIKI_HEADERS,
+        ) as client:
+            r = await client.get(
+                WIKI_SEARCH_URL,
+                params={
+                    "action": "parse",
+                    "page": raw_title,
+                    "prop": "wikitext",
+                    "section": 0,
+                    "format": "json",
+                },
+            )
+            if r.status_code != 200:
+                return None
+            wikitext = (
+                ((r.json() or {}).get("parse") or {}).get("wikitext") or {}
+            ).get("*", "")
+            if not wikitext:
+                return None
+            # Wikipedia film infoboxes use both "running time" and the
+            # shorter "runtime" — Avatar: Fire and Ash uses the latter.
+            m = re.search(
+                r"\|\s*(?:running\s*time|runtime)\s*=\s*[^0-9]*(\d{2,3})",
+                wikitext,
+                re.IGNORECASE,
+            )
+            if not m:
+                return None
+            val = int(m.group(1))
+            return val if 30 <= val <= 360 else None
+    except Exception:
+        logger.exception("[movies_wiki] infobox fetch failed for %r", raw_title)
+        return None
+
+
+async def _scrape_runtime_from_page(raw_title: str) -> int | None:
+    """Last-resort: scrape the rendered article HTML for the infobox.
+
+    The wikitext infobox fetch covers the common case, but some film
+    articles use templated infoboxes (``{{Infobox film}}``) where the
+    running time field is computed at render time and not present as
+    a literal ``| running time = NNN minutes`` line in section 0.
+    The rendered HTML always exposes a ``<th>Running time</th>`` row
+    in the right-column infobox, so we fall back to that.
+    """
+    try:
+        url = f"https://en.wikipedia.org/wiki/{raw_title}"
+        async with httpx.AsyncClient(
+            timeout=4.0, follow_redirects=True, headers=WIKI_HEADERS,
+        ) as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                return None
+            html = r.text
+            # Find the infobox row whose header is "Running time" and
+            # pull the first 2-3 digit minutes value out of the cell
+            # that follows. Wikipedia's HTML uses <th>Running time</th>
+            # then a sibling <td> with the value.
+            m = re.search(
+                r"Running time</th>.*?<td[^>]*>(.*?)</td>",
+                html,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if not m:
+                return None
+            cell = re.sub(r"<[^>]+>", " ", m.group(1))
+            mm = re.search(r"(\d{2,3})\s*minutes?", cell, re.IGNORECASE)
+            if not mm:
+                return None
+            val = int(mm.group(1))
+            return val if 30 <= val <= 360 else None
+    except Exception:
+        logger.exception("[movies_wiki] page scrape failed for %r", raw_title)
+        return None
 
 
 def _extract_runtime_min(text: str) -> int | None:
