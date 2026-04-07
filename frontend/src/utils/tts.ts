@@ -13,9 +13,22 @@ import { VoiceStreamer } from './VoiceStreamer';
 const MUTE_KEY = 'lokidoki.tts.muted';
 
 type Listener = () => void;
+type VisemeListener = (viseme: string) => void;
 
 class TTSController {
-  private streamer = new VoiceStreamer();
+  private currentViseme: string = 'closed';
+  private visemeListeners = new Set<VisemeListener>();
+  private streamer = new VoiceStreamer(
+    (v: string) => {
+      this.currentViseme = v;
+      this.visemeListeners.forEach((fn) => fn(v));
+    },
+    () => {
+      // stream ended — settle on closed mouth
+      this.currentViseme = 'closed';
+      this.visemeListeners.forEach((fn) => fn('closed'));
+    },
+  );
   private speakingKey: string | null = null;
   private pendingKey: string | null = null;
   private abort: AbortController | null = null;
@@ -27,6 +40,13 @@ class TTSController {
   subscribe(fn: Listener) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+  subscribeViseme(fn: VisemeListener) {
+    this.visemeListeners.add(fn);
+    // Push the current value immediately so late subscribers don't
+    // sit on a stale 'closed' until the next phoneme tick.
+    fn(this.currentViseme);
+    return () => this.visemeListeners.delete(fn);
   }
   private emit() { this.listeners.forEach((l) => l()); }
 
@@ -101,5 +121,7 @@ export function useTTSState() {
     toggleMute: () => ttsController.toggleMute(),
     speak: (key: string, text: string) => ttsController.speak(key, text),
     stop: () => ttsController.stop(),
+    subscribeViseme: (fn: (v: string) => void) =>
+      ttsController.subscribeViseme(fn),
   };
 }

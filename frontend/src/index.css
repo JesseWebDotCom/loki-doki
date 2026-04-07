@@ -173,3 +173,14 @@
     min-height: 100vh;
   }
 }
+/* AnimatedAvatar — gentle idle sway. The wrapper is purely
+   transform-based so it never causes a React re-render. */
+@keyframes animated-avatar-sway {
+  0%, 100% { transform: translateY(0) rotate(-1.2deg); }
+  50%      { transform: translateY(-2px) rotate(1.2deg); }
+}
+.animated-avatar-sway {
+  animation: animated-avatar-sway 6s ease-in-out infinite;
+  transform-origin: 50% 80%;
+  display: inline-block;
+}

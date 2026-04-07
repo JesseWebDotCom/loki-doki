@@ -192,14 +192,18 @@ A modern, visual editor inspired by the DiceBear playground, built on **`shadcn/
 - [ ] **REMAINING:** Storage-budget GC (voices unused for N days, prompted before delete).
 - [ ] **REMAINING:** Tests for provisioning failure modes, fallback voice, cancellation cleanup.
 
-### Phase 5: Animated Avatar Integration — ⬜ NOT STARTED (now unblocked)
-*Phase 0 confirmed phoneme events ARE emitted by `audio.py`, so this is no longer blocked on the backend.*
-- [ ] Replace the static `<img>` data-URI render in `Avatar.tsx` with an inline-SVG path (already designed for this — comment in [Avatar.tsx](../frontend/src/components/character/Avatar.tsx) flags it). Inline SVG is needed so we can drive per-element transforms.
-- [ ] `AnimatedAvatar` wrapper component subscribing to the chat SSE stream's phoneme/viseme events from `audio.py`.
-- [ ] Per-style mouth-element selectors — each DiceBear collection names its mouth path differently; need a small per-style map of SVG selector → viseme→transform table.
-- [ ] CSS-driven idle animation (gentle blink, subtle sway) when no audio is playing.
-- [ ] Crossfade transition when switching characters mid-conversation.
-- [ ] Tests: viseme→transform mapping, SSE event handling, idle animation lifecycle.
+### Phase 5: Animated Avatar Integration — 🟡 PARTIAL
+*Phase 0 confirmed phoneme events ARE emitted by `audio.py`. The viseme pipeline is now end-to-end live.*
+**Architecture decision:** stayed with the data-URI `<img>` render path. DiceBear's `createAvatar()` is synchronous JS (no network) so re-deriving the URI on every viseme tick is cheaper than parsing inline SVG and walking it for per-element transforms — and it sidesteps the toon-head dark-background bug that drove the original data-URI choice. Mouth + eye swaps happen at the DiceBear-options layer instead of the SVG layer.
+- [x] Salvaged & adapted from old project (`/Users/jessetorres/Projects/loki-doki`): the IPA→viseme mapping and 38 ms-lead scheduler in [VoiceStreamer.ts](../frontend/src/utils/VoiceStreamer.ts) (already in tree, pre-Phase-5). Old project's `ExpressionResolver.ts`, `AnimatedCharacter.tsx` doze state machine, and the entire RiggingSection / QuantumRigging suite were **scrapped** — they were built for hand-rigged custom SVG (KyleSouthPark) and don't apply to DiceBear's enum-driven mouth/eye system.
+- [x] Viseme→DiceBear-mouth resolver: [visemeMap.ts](../frontend/src/components/character/visemeMap.ts) with verified enum values for `avataaars`, `bottts`, `toon-head` (enum lists pulled directly from each style's `lib/schema.js`). Includes per-style blink-eye fallback (avataaars=`closed`, toon-head=`wink`, bottts=null because none of its eye variants read as blinking).
+- [x] TTSController wiring: [tts.ts](../frontend/src/utils/tts.ts) now constructs `VoiceStreamer` with viseme + end callbacks and exposes `subscribeViseme(fn)`. Subscribers get the current value pushed synchronously on subscribe so first paint is consistent. End-of-stream snaps mouth back to `closed`.
+- [x] [AnimatedAvatar.tsx](../frontend/src/components/character/AnimatedAvatar.tsx) wrapper around the existing `Avatar`: subscribes to the viseme stream, swaps `mouth` (and `eyes` during blink) at viseme cadence by re-deriving DiceBear options, runs an idle blink loop on a randomized ~4.5 s interval, and wears a CSS-keyframe sway on the wrapper div (no React re-render). Drop-in for any place that wants liveness — the static plain `<Avatar>` is still preferred for grid thumbnails to avoid N subscriptions.
+- [x] Idle sway keyframes added to [index.css](../frontend/src/index.css) (`.animated-avatar-sway`, 6 s gentle rotate + translate).
+- [x] Mounted in [ChatPage.tsx](../frontend/src/pages/ChatPage.tsx) as a 28×28 floating widget in the top-right corner of the chat pane. Loads the active character on mount and refetches whenever `dataVersion` bumps (so picking a new character in Settings updates the chat avatar without a reload).
+- [ ] **REMAINING:** Crossfade transition when switching characters mid-conversation (today the swap is a hard cut).
+- [ ] **REMAINING:** Tests for `visemeMap` (style enum coverage) and `AnimatedAvatar` (subscribe/unsubscribe lifecycle, blink-disabled path for bottts).
+- [ ] **REMAINING:** Optional eye-saccade idle (random `looking_left`/`looking_right` shifts) — old project had this; deferred until we see whether the blink+sway alone reads as alive.
 
 ---
 

@@ -12,7 +12,10 @@ import {
   getProjects,
   getSessions,
   updateProject,
+  listCharacters,
+  type CharacterRow,
 } from '../lib/api';
+import AnimatedAvatar from '../components/character/AnimatedAvatar';
 import type {
   PipelineEvent,
   DecompositionData,
@@ -70,6 +73,7 @@ const ChatPage: React.FC = () => {
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const tts = useTTSState();
+  const [activeChar, setActiveChar] = useState<CharacterRow | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -105,6 +109,22 @@ const ChatPage: React.FC = () => {
         setProjects(pRes.projects);
       } catch {
         // backend offline — render empties
+      }
+    })();
+  }, [dataVersion]);
+
+  // Load the active character so the floating AnimatedAvatar can
+  // render its DiceBear identity. Refetched whenever the user picks
+  // a different character in Settings (dataVersion bumps after that
+  // flow saves). Failure is silent — chat still works without an avatar.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await listCharacters();
+        const active = res.characters.find((c) => c.id === res.active_character_id) ?? null;
+        setActiveChar(active);
+      } catch {
+        setActiveChar(null);
       }
     })();
   }, [dataVersion]);
@@ -296,6 +316,19 @@ const ChatPage: React.FC = () => {
       />
 
       <main className="flex-1 flex flex-col relative bg-background shadow-inner">
+        {activeChar && (
+          <div
+            className="absolute top-6 right-6 z-20 w-28 h-28 rounded-2xl bg-card/60 backdrop-blur-md border border-border/40 shadow-m3 flex items-center justify-center pointer-events-none"
+            title={activeChar.name}
+          >
+            <AnimatedAvatar
+              style={activeChar.avatar_style}
+              seed={activeChar.avatar_seed}
+              baseOptions={activeChar.avatar_config as Record<string, unknown>}
+              size={104}
+            />
+          </div>
+        )}
         {activeProject && !currentSessionId ? (
           <ProjectLandingView
             project={activeProject}

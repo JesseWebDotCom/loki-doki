@@ -26,6 +26,26 @@ from typing import Any
 VALID_SOURCES = {"builtin", "admin", "user"}
 VALID_STYLES = {"avataaars", "bottts", "toon-head"}
 
+
+def _coerce_avatar_config(value: Any) -> dict:
+    """Accept whatever shape ``avatar_config`` happens to arrive in.
+
+    The catalog row factory decodes JSON columns into dicts, but PATCH
+    payloads from the admin UI flow in already-parsed too — and the
+    legacy code path called ``json.loads`` unconditionally and 500'd
+    when handed a dict. Normalize once, here.
+    """
+    if value is None or value == "":
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, (str, bytes, bytearray)):
+        try:
+            return json.loads(value) or {}
+        except (ValueError, TypeError):
+            return {}
+    return {}
+
 # Fields a user is allowed to override on top of a catalog row. Voice
 # and wakeword are intentionally excluded — those bind to on-disk
 # assets controlled by the admin asset budget (see schema comment).
@@ -185,7 +205,7 @@ def edit_character_cow(
         behavior_prompt=base.get("behavior_prompt", ""),
         avatar_style=base.get("avatar_style", "bottts"),
         avatar_seed=base.get("avatar_seed", ""),
-        avatar_config=json.loads(base.get("avatar_config") or "{}"),
+        avatar_config=_coerce_avatar_config(base.get("avatar_config")),
         voice_id=base.get("voice_id"),
         wakeword_id=base.get("wakeword_id"),
         source="admin",
