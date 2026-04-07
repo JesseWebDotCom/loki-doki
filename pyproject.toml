@@ -8,10 +8,13 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "fastapi>=0.135.3",
     "httpx>=0.28.1",
+    "passlib[bcrypt]>=1.7.4",
     "pre-commit>=4.5.1",
+    "pyjwt>=2.12.1",
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
     "python-multipart>=0.0.24",
+    "sqlite-vec>=0.1.9",
     "uvicorn>=0.44.0",
 ]
 

@@ -1,88 +1,165 @@
-from fastapi import APIRouter, Query
-from lokidoki.core.sqlite_memory import SQLiteMemoryProvider
-from lokidoki.core.bm25 import BM25Index
-from lokidoki.core.context_restore import ContextRestorer
+"""Memory HTTP routes.
+
+PR2 introduced ``current_user`` scoping. PR3 adds the people /
+relationships / conflicts surface plus the merge endpoint that powers
+the Memory page's deduplication UI. The PR2 routes are unchanged.
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from lokidoki.auth.dependencies import current_user, get_memory
+from lokidoki.auth.users import User
+from lokidoki.core.memory_provider import MemoryProvider
 
 router = APIRouter()
 
-# Module-level singletons (initialized on first use)
-_db: SQLiteMemoryProvider | None = None
-_restorer: ContextRestorer | None = None
-
-
-async def get_db() -> SQLiteMemoryProvider:
-    global _db
-    if _db is None:
-        _db = SQLiteMemoryProvider(db_path="data/lokidoki.db")
-        await _db.initialize()
-    return _db
-
-
-async def get_restorer() -> ContextRestorer:
-    global _restorer
-    if _restorer is None:
-        db = await get_db()
-        bm25 = BM25Index()
-        _restorer = ContextRestorer(db=db, bm25=bm25)
-        await _restorer.rebuild_index()
-    return _restorer
-
 
 @router.get("/facts")
-async def get_facts():
-    """Return all stored long-term facts."""
-    db = await get_db()
-    facts = await db.get_all_facts()
+async def get_facts(
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    facts = await memory.list_facts(user.id, limit=200)
     return {"facts": facts}
 
 
 @router.get("/facts/search")
-async def search_facts(q: str = Query(..., min_length=1)):
-    """Search facts by keyword (BM25-powered)."""
-    restorer = await get_restorer()
-    results = restorer.search_relevant(q, top_k=10)
-    return {"query": q, "results": [{"fact": text, "score": score} for text, score in results]}
-
-
-@router.get("/sessions")
-async def list_sessions():
-    """List all chat session IDs."""
-    db = await get_db()
-    sessions = await db.list_sessions()
-    return {"sessions": sessions}
-
-
-@router.get("/sessions/{session_id}/messages")
-async def get_session_messages(session_id: str, limit: int = Query(50, ge=1, le=500)):
-    """Return messages for a specific session."""
-    db = await get_db()
-    messages = await db.get_messages(session_id, limit=limit)
-    return {"session_id": session_id, "messages": messages}
-
-
-@router.get("/sessions/{session_id}/sentiment")
-async def get_session_sentiment(session_id: str):
-    """Return sentiment for a specific session."""
-    db = await get_db()
-    sentiment = await db.get_sentiment(session_id)
-    return {"session_id": session_id, "sentiment": sentiment}
-
-
-@router.get("/context")
-async def get_restoration_context(q: str = Query("", min_length=0)):
-    """Get cross-chat context restoration data for a new chat."""
-    restorer = await get_restorer()
-    rolling = await restorer.get_rolling_context(limit=5)
-    relevant = restorer.search_relevant(q, top_k=5) if q else []
+async def search_facts(
+    q: str = Query(..., min_length=1),
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    results = await memory.search_facts(user_id=user.id, query=q, top_k=10)
     return {
-        "rolling_context": rolling,
-        "relevant_facts": [{"fact": text, "score": score} for text, score in relevant],
+        "query": q,
+        "results": [
+            {"fact": r["value"], "score": r["score"], "subject": r["subject"]}
+            for r in results
+        ],
     }
 
 
-@router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
-    """Delete a session and its messages."""
-    db = await get_db()
-    await db.delete_session(session_id)
-    return {"status": "deleted", "session_id": session_id}
+@router.get("/sessions")
+async def list_sessions(
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    sessions = await memory.list_sessions(user.id)
+    return {"sessions": [s["id"] for s in sessions], "details": sessions}
+
+
+@router.get("/sessions/{session_id}/messages")
+async def get_session_messages(
+    session_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    messages = await memory.get_messages(
+        user_id=user.id, session_id=session_id, limit=limit
+    )
+    return {"session_id": session_id, "messages": messages}
+
+
+# --- PR3: people / relationships / conflicts ---------------------------
+
+
+class MergeRequest(BaseModel):
+    into_id: int = Field(..., gt=0)
+
+
+@router.get("/people")
+async def list_people(
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    return {"people": await memory.list_people(user.id)}
+
+
+@router.get("/people/{person_id}")
+async def get_person_detail(
+    person_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    person = await memory.get_person(user.id, person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    facts = await memory.list_facts_about_person(user.id, person_id)
+    return {"person": person, "facts": facts}
+
+
+@router.post("/people/{person_id}/merge")
+async def merge_person(
+    person_id: int,
+    body: MergeRequest,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Fold ``person_id`` into ``into_id``. Owner-only.
+
+    The owner check is implicit: ``merge_people`` scopes both ids by
+    ``user_id``, so a foreign person id silently no-ops and we surface
+    a 404 instead of leaking that it exists for someone else.
+    """
+    if person_id == body.into_id:
+        raise HTTPException(status_code=400, detail="cannot_merge_into_self")
+    ok = await memory.merge_people(user.id, person_id, body.into_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="person_not_found")
+    return {"merged": True, "source_id": person_id, "into_id": body.into_id}
+
+
+@router.get("/relationships")
+async def list_relationships(
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    return {"relationships": await memory.list_relationships(user.id)}
+
+
+@router.get("/facts/conflicts")
+async def list_fact_conflicts(
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Facts where the same (subject, predicate) has multiple values.
+
+    Returned grouped by ``(subject, predicate)`` so the frontend can
+    render each conflict as a single resolvable card.
+    """
+    rows = await memory.list_fact_conflicts(user.id)
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        key = (row["subject"], row["predicate"])
+        groups.setdefault(key, []).append(row)
+    return {
+        "conflicts": [
+            {
+                "subject": subject,
+                "predicate": predicate,
+                "candidates": candidates,
+            }
+            for (subject, predicate), candidates in groups.items()
+        ]
+    }
+
+
+@router.get("/context")
+async def get_restoration_context(
+    q: str = Query("", min_length=0),
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    rolling = await memory.list_facts(user.id, limit=5)
+    relevant = (
+        await memory.search_facts(user_id=user.id, query=q, top_k=5) if q else []
+    )
+    return {
+        "rolling_context": rolling,
+        "relevant_facts": [
+            {"fact": r["value"], "score": r["score"]} for r in relevant
+        ],
+    }

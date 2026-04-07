@@ -3,6 +3,39 @@ import json
 from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
 from lokidoki.main import app
+from lokidoki.core.memory_provider import MemoryProvider
+from lokidoki.core import memory_singleton
+from lokidoki.core import memory_user_ops  # noqa: F401  bind helpers
+from lokidoki.auth.dependencies import current_user, get_memory
+from lokidoki.auth.users import User
+
+
+@pytest.fixture(autouse=True)
+async def _isolated_memory(tmp_path):
+    """Each chat-api test gets its own MemoryProvider on a tmp DB and
+    a stub authenticated user, bypassing the real auth flow."""
+    mp = MemoryProvider(db_path=str(tmp_path / "chat_api.db"))
+    await mp.initialize()
+    uid = await mp.get_or_create_user("tester")
+    memory_singleton.set_memory_provider(mp)
+
+    fake_user = User(
+        id=uid, username="tester", role="admin", status="active",
+        last_password_auth_at=None,
+    )
+
+    async def _override_user():
+        return fake_user
+
+    async def _override_memory():
+        return mp
+
+    app.dependency_overrides[current_user] = _override_user
+    app.dependency_overrides[get_memory] = _override_memory
+    yield
+    app.dependency_overrides.clear()
+    memory_singleton.set_memory_provider(None)
+    await mp.close()
 
 
 MOCK_DECOMPOSITION_JSON = json.dumps({
@@ -51,9 +84,10 @@ async def test_chat_endpoint_returns_sse_stream():
 
         # Parse SSE events from response body
         events = _parse_sse_events(response.text)
-        assert len(events) >= 4  # augment active/done, decomp active/done, synth active/done
+        assert len(events) >= 4
 
         phases = [e.get("phase") for e in events]
+        assert "session" in phases  # PR1: chat route emits session id first
         assert "augmentation" in phases
         assert "decomposition" in phases
         assert "synthesis" in phases

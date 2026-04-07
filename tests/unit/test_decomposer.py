@@ -14,7 +14,14 @@ VALID_LLM_RESPONSE = json.dumps({
         "concern": "weather for outdoor plans"
     },
     "long_term_memory": [
-        {"category": "preference", "fact": "User enjoys hiking"}
+        {
+            "subject_type": "self",
+            "subject_name": "",
+            "predicate": "enjoys",
+            "value": "hiking",
+            "kind": "fact",
+            "category": "preference",
+        }
     ],
     "asks": [
         {
@@ -111,14 +118,17 @@ class TestDecomposer:
 
     @pytest.mark.anyio
     async def test_decompose_extracts_long_term_facts(self, decomposer):
-        """Test that long-term memory facts are extracted."""
+        """PR3: long-term memory items are structured (subject/predicate/value)."""
         decomposer._client.generate = AsyncMock(return_value=VALID_LLM_RESPONSE)
 
         result = await decomposer.decompose("I love hiking")
 
         assert len(result.long_term_memory) == 1
-        assert result.long_term_memory[0]["category"] == "preference"
-        assert result.long_term_memory[0]["fact"] == "User enjoys hiking"
+        item = result.long_term_memory[0]
+        assert item["subject_type"] == "self"
+        assert item["predicate"] == "enjoys"
+        assert item["value"] == "hiking"
+        assert item["kind"] == "fact"
 
     @pytest.mark.anyio
     async def test_decompose_uses_schema_constrained_output(self, decomposer):

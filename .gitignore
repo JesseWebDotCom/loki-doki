@@ -43,6 +43,9 @@ develop-eggs/
 .installed.cfg
 lib/
 lib64/
+# Frontend src/lib is application code, NOT a Python package dir.
+!frontend/src/lib/
+!frontend/src/lib/**
 .eggs/
 *.egg-link
 MANIFEST
