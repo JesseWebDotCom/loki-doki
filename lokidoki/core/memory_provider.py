@@ -27,25 +27,11 @@ dispatch + lifecycle so it stays under the 250-line CLAUDE.md ceiling.
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import sqlite3
 
 from lokidoki.core import memory_sql as sql
-from lokidoki.core.memory_schema import (
-    CORE_SCHEMA,
-    EMBEDDING_DIM,
-    FTS_SCHEMA,
-    vec_schema,
-)
-
-logger = logging.getLogger(__name__)
-
-_USER_COLUMN_MIGRATIONS = (
-    ("password_hash", "TEXT"),
-    ("status", "TEXT NOT NULL DEFAULT 'active'"),
-    ("last_password_auth_at", "INTEGER"),
-)
+from lokidoki.core.memory_init import open_and_migrate
 
 
 class MemoryProvider:
@@ -60,54 +46,11 @@ class MemoryProvider:
     # ---- lifecycle -------------------------------------------------------
 
     async def initialize(self) -> None:
-        """Open the connection and ensure the schema exists.
-
-        Idempotent: safe to call on every app start. Will NOT delete an
-        existing database file — only adds missing tables.
-        """
+        """Open the connection and ensure the schema exists. Idempotent."""
         os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
-        await asyncio.to_thread(self._open_and_migrate)
-
-    def _open_and_migrate(self) -> None:
-        conn = sqlite3.connect(self._db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-
-        # Try to load sqlite-vec. Any failure (extension loading
-        # disabled, missing dylib, version mismatch) → warn and degrade.
-        try:
-            import sqlite_vec  # noqa: WPS433
-            conn.enable_load_extension(True)
-            sqlite_vec.load(conn)
-            conn.enable_load_extension(False)
-            self._vec_loaded = True
-        except Exception as exc:
-            logger.warning(
-                "sqlite-vec failed to load (%s); continuing with FTS5/BM25 only",
-                exc,
-            )
-            self._vec_loaded = False
-
-        conn.executescript(CORE_SCHEMA)
-        # Idempotent column migrations for users table (PR2 add-on cols).
-        # Wrap each ALTER in try/except for the "duplicate column" case so
-        # existing PR1 databases upgrade in place.
-        for col, decl in _USER_COLUMN_MIGRATIONS:
-            try:
-                conn.execute(f"ALTER TABLE users ADD COLUMN {col} {decl}")
-            except sqlite3.OperationalError as exc:
-                if "duplicate column" not in str(exc).lower():
-                    raise
-        conn.executescript(FTS_SCHEMA)
-        if self._vec_loaded:
-            try:
-                conn.executescript(vec_schema(EMBEDDING_DIM))
-            except sqlite3.Error as exc:
-                logger.warning("vec_facts creation failed (%s); disabling vec", exc)
-                self._vec_loaded = False
-        conn.commit()
-        self._conn = conn
+        self._conn, self._vec_loaded = await asyncio.to_thread(
+            open_and_migrate, self._db_path
+        )
 
     async def close(self) -> None:
         if self._conn is not None:
@@ -203,6 +146,8 @@ class MemoryProvider:
         value: str,
         category: str = "general",
         source_message_id: int | None = None,
+        subject_type: str = "self",
+        subject_ref_id: int | None = None,
     ) -> tuple[int, float]:
         """Insert a fact OR confirm an existing matching row.
 
@@ -222,6 +167,8 @@ class MemoryProvider:
                     value=value,
                     category=category,
                     source_message_id=source_message_id,
+                    subject_type=subject_type,
+                    subject_ref_id=subject_ref_id,
                 )
             )
 
@@ -233,12 +180,23 @@ class MemoryProvider:
     async def search_facts(
         self, *, user_id: int, query: str, top_k: int = 10
     ) -> list[dict]:
-        """FTS5/BM25 ranked search over facts.value, scoped to user."""
+        """Hybrid BM25 + (optional) cosine search over facts, scoped to user.
+
+        See ``memory_search.hybrid_search_facts`` for the blend rule.
+        Falls back to BM25 only when no fact embeddings exist for this
+        user, which is the PR3 default.
+        """
+        from lokidoki.core.memory_search import hybrid_search_facts
+
         if not query.strip():
             return []
-        fts_query = sql.fts_escape(query)
         async with self._lock:
-            rows = await asyncio.to_thread(
-                sql.search_facts, self._conn, user_id, fts_query, top_k
+            return await asyncio.to_thread(
+                lambda: hybrid_search_facts(
+                    self._conn,
+                    user_id=user_id,
+                    query=query,
+                    top_k=top_k,
+                    vec_enabled=self._vec_loaded,
+                )
             )
-        return [dict(r) for r in rows]

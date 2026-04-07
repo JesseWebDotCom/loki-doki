@@ -4,6 +4,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from lokidoki.core.decomposer_repair import (
+    REPAIR_ARRAY_SCHEMA,
+    LongTermItem,
+    repair_long_term_memory,
+)
 from lokidoki.core.inference import InferenceClient, OllamaError
 
 
@@ -49,16 +54,13 @@ DECOMPOSITION_SCHEMA: dict = {
                 "concern": {"type": "string"},
             },
         },
+        # PR3: structured long_term_memory items. Subject is flattened
+        # into subject_type/subject_name (instead of a sum-type) because
+        # Ollama's schema-constrained decoder is unreliable on oneOf.
+        # See decomposer_repair.LongTermItem for the canonical shape.
         "long_term_memory": {
             "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["category", "fact"],
-                "properties": {
-                    "category": {"type": "string"},
-                    "fact": {"type": "string"},
-                },
-            },
+            "items": REPAIR_ARRAY_SCHEMA["items"],
         },
         "asks": {
             "type": "array",
@@ -89,9 +91,17 @@ DECOMPOSITION_PROMPT = (
     "- is_course_correction=true if user corrects/refines previous answer\n"
     "- overall_reasoning_complexity=\"thinking\" if query needs deep analysis, math, or multi-step logic\n"
     "- Map intents to AVAILABLE_INTENTS when possible, else use \"direct_chat\"\n"
-    "- Extract sentiment and long-term facts about user identity/preferences/relationships\n"
+    "- long_term_memory items are structured: subject_type 'self'|'person',"
+    " subject_name (person's name or empty for self), predicate, value,"
+    " kind 'fact'|'relationship', relationship_kind (only when kind='relationship')\n"
+    "- Use kind='relationship' when the user states a relation (brother, daughter, spouse, ...)\n"
     "- Distill each ask into a clean, skill-ready sub-query\n"
 )
+
+
+# Repair-loop knobs. Bounded so a stuck repair loop can't blow the
+# pipeline budget — each retry shares the decomposer's timeout.
+REPAIR_NUM_PREDICT = 384
 
 
 class Decomposer:
@@ -135,7 +145,35 @@ class Decomposer:
             return self._fallback_result(user_input, latency_ms)
         latency_ms = (time.perf_counter() - t0) * 1000
 
-        return self._parse_response(raw, user_input, latency_ms)
+        result = self._parse_response(raw, user_input, latency_ms)
+        # Run the Pydantic repair loop on long_term_memory. The primary
+        # call's items are dicts (or absent); after this they're a list
+        # of validated dicts that the orchestrator can trust.
+        validated = await repair_long_term_memory(
+            result.long_term_memory,
+            original_input=user_input,
+            repair_call=self._repair_call,
+        )
+        result.long_term_memory = [item.model_dump() for item in validated]
+        return result
+
+    async def _repair_call(self, prompt: str, schema: dict) -> str:
+        """Closure used by ``repair_long_term_memory``.
+
+        Reuses the decomposer's own model + timeout so a stuck repair
+        request can't outlive the parent budget. Schema-constrained
+        decode keeps the array shape stable.
+        """
+        return await asyncio.wait_for(
+            self._client.generate(
+                model=self._model,
+                prompt=prompt,
+                format_schema=schema,
+                temperature=0.0,
+                num_predict=REPAIR_NUM_PREDICT,
+            ),
+            timeout=self._timeout_s,
+        )
 
     def _build_prompt(
         self,

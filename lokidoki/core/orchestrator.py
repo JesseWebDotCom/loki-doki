@@ -21,6 +21,7 @@ from lokidoki.core.decomposer import Ask, Decomposer, DecompositionResult
 from lokidoki.core.inference import InferenceClient, OllamaError
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
+from lokidoki.core.orchestrator_memory import persist_long_term_item
 from lokidoki.core.orchestrator_skills import build_synthesis_prompt, run_skills
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
@@ -121,20 +122,17 @@ class Orchestrator:
                 model=fast_model,
             )
 
-        # Persist any facts the decomposer extracted. Subject defaults to
-        # 'self' since PR1 has no people-resolution yet (PR2).
-        for fact in decomposition.long_term_memory or []:
-            value = (fact or {}).get("fact")
-            category = (fact or {}).get("category", "general")
-            if not value:
-                continue
-            await self._memory.upsert_fact(
+        # Persist decomposer-extracted facts. PR3 ships structured items:
+        # ``subject_type`` selects 'self' vs a person row, and
+        # ``kind='relationship'`` writes an edge in the relationships
+        # table on top of the underlying fact. Items are already
+        # Pydantic-validated by ``decomposer_repair`` upstream.
+        for item in decomposition.long_term_memory or []:
+            await persist_long_term_item(
+                self._memory,
                 user_id=user_id,
-                subject="self",  # TODO(people-PR2): resolve subject from text
-                predicate="states",
-                value=value,
-                category=category,
-                source_message_id=user_msg_id,
+                user_msg_id=user_msg_id,
+                item=item or {},
             )
 
         yield PipelineEvent(

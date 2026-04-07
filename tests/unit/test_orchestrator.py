@@ -17,7 +17,11 @@ MOCK_DECOMPOSITION = DecompositionResult(
     is_course_correction=False,
     overall_reasoning_complexity="fast",
     short_term_memory={"sentiment": "curious", "concern": "weather"},
-    long_term_memory=[{"category": "preference", "fact": "Likes hiking"}],
+    long_term_memory=[{
+        "subject_type": "self", "subject_name": "",
+        "predicate": "likes", "value": "Likes hiking",
+        "kind": "fact", "category": "preference",
+    }],
     asks=[
         Ask(ask_id="ask_001", intent="weather_owm.get_forecast",
             distilled_query="Weather today?", parameters={"location": "home"})
@@ -287,6 +291,71 @@ class TestOrchestrator:
             pass
 
         assert captured["model"] == "gemma4:e2b"
+
+
+class TestPR3PersonResolution:
+    """End-to-end exit-criterion check from MEMORY_ROADMAP.md."""
+
+    @pytest.mark.anyio
+    async def test_brother_mark_creates_one_person_one_rel_two_facts(
+        self, memory, user_session
+    ):
+        from lokidoki.core import memory_people_ops  # noqa: F401  bind methods
+
+        uid, sid = user_session
+
+        decomp = DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": ""},
+            long_term_memory=[
+                {
+                    "subject_type": "person", "subject_name": "Mark",
+                    "predicate": "is", "value": "brother",
+                    "kind": "relationship", "relationship_kind": "brother",
+                },
+                {
+                    "subject_type": "person", "subject_name": "Mark",
+                    "predicate": "location", "value": "Denver", "kind": "fact",
+                },
+                {
+                    "subject_type": "person", "subject_name": "Mark",
+                    "predicate": "occupation", "value": "plumber", "kind": "fact",
+                },
+            ],
+            asks=[Ask(ask_id="ask_001", intent="direct_chat",
+                       distilled_query="my brother Mark lives in Denver and works as a plumber")],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        )
+
+        mock_decomposer = AsyncMock()
+        mock_decomposer.decompose = AsyncMock(return_value=decomp)
+        mock_inference = AsyncMock()
+        mock_inference.generate_stream = _make_stream("ok")
+        policy = ModelPolicy(platform="mac")
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=memory,
+            model_manager=ModelManager(inference_client=mock_inference, policy=policy),
+        )
+
+        async for _ in orch.process(
+            "my brother Mark lives in Denver and works as a plumber",
+            user_id=uid, session_id=sid,
+        ):
+            pass
+
+        people = await memory.list_people(uid)
+        assert len(people) == 1 and people[0]["name"] == "Mark"
+        rels = await memory.list_relationships(uid)
+        assert len(rels) == 1 and rels[0]["relation"] == "brother"
+        person_facts = await memory.list_facts_about_person(uid, people[0]["id"])
+        # The relationship item also writes a fact row (predicate=is, value=brother),
+        # plus location and occupation. Three rows total on the person.
+        values = sorted(f["value"] for f in person_facts)
+        assert values == ["Denver", "brother", "plumber"]
 
 
 class TestPipelineEvent:

@@ -92,6 +92,8 @@ def upsert_fact(
     value: str,
     category: str,
     source_message_id: int | None,
+    subject_type: str = "self",
+    subject_ref_id: int | None = None,
 ) -> tuple[int, float]:
     """Insert OR confirm. See MemoryProvider.upsert_fact for the contract."""
     existing = conn.execute(
@@ -111,16 +113,18 @@ def upsert_fact(
 
     cur = conn.execute(
         "INSERT INTO facts "
-        "(owner_user_id, subject, predicate, value, category, confidence, source_message_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "(owner_user_id, subject, subject_type, subject_ref_id, "
+        "predicate, value, category, confidence, source_message_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
-            user_id, subject, predicate, value, category,
+            user_id, subject, subject_type, subject_ref_id,
+            predicate, value, category,
             DEFAULT_CONFIDENCE, source_message_id,
         ),
     )
     conn.commit()
-    # TODO(embeddings): write a 384-dim zero vector to vec_facts here
-    # once the real embedder lands. PR1 leaves vec_facts empty by design.
+    # TODO(embeddings-perf): when sync-on-write embedding lands, write a
+    # 384-dim vector to vec_facts here. PR3 ships BM25-only by design.
     return int(cur.lastrowid), DEFAULT_CONFIDENCE
 
 

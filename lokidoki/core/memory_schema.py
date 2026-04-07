@@ -34,7 +34,7 @@ of the schema works fine.
 """
 from __future__ import annotations
 
-EMBEDDING_DIM = 384  # TODO(embeddings): wire to real model in PR2
+EMBEDDING_DIM = 384  # TODO(embeddings-perf): wire to real model when sync-on-write becomes a bottleneck
 
 CORE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -73,14 +73,18 @@ CREATE TABLE IF NOT EXISTS relationships (
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
     relation TEXT NOT NULL,                 -- e.g. 'brother', 'coworker'
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    confidence REAL NOT NULL DEFAULT 0.6,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(owner_user_id, person_id, relation)
 );
 CREATE INDEX IF NOT EXISTS idx_relationships_owner ON relationships(owner_user_id);
 
 CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    subject TEXT NOT NULL,                  -- e.g. 'self', 'Billy'
+    subject TEXT NOT NULL,                  -- 'self' or lowercased person name (also indexed by FTS)
+    subject_type TEXT NOT NULL DEFAULT 'self',  -- 'self' | 'person'  (PR3)
+    subject_ref_id INTEGER REFERENCES people(id) ON DELETE CASCADE, -- people.id when subject_type='person'
     predicate TEXT NOT NULL,                -- e.g. 'likes', 'is_named'
     value TEXT NOT NULL,                    -- e.g. 'Incredibles', 'Jesse'
     category TEXT NOT NULL DEFAULT 'general',
@@ -96,6 +100,7 @@ CREATE TABLE IF NOT EXISTS facts (
 );
 CREATE INDEX IF NOT EXISTS idx_facts_owner ON facts(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_facts_owner_spv ON facts(owner_user_id, subject, predicate, value);
+CREATE INDEX IF NOT EXISTS idx_facts_person ON facts(owner_user_id, subject_ref_id);
 
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
