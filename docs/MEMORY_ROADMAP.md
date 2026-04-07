@@ -1,7 +1,28 @@
-# Memory System Roadmap — PR2 & PR3
+# Memory System Roadmap — PR3 (PR1 + PR2 done)
 
-PR1 (this branch) wired persistent storage and fixed the empty Memory page.
-PR2 and PR3 finish the system. Read this entire doc before starting either.
+PR1 wired persistent storage and fixed the empty Memory page.
+PR2 (✅ landed on `worktree-pr1-memory-rewrite`) added real per-user auth,
+the bootstrap wizard, admin user management, and rewired chat/memory
+routes to a `current_user` dependency. PR3 is the only section still
+outstanding — read it end-to-end before starting.
+
+## PR2 — DONE
+
+Shipped:
+- `lokidoki/auth/{passwords,tokens,users,dependencies}.py`
+- `lokidoki/api/routes/{auth,admin}.py`
+- `lokidoki/api/middleware/bootstrap_gate.py`
+- `lokidoki/core/memory_singleton.py`, `memory_user_ops.py`
+- Schema additions: `password_hash`, `status`, `last_password_auth_at`,
+  `app_secrets`, `user_sentiment` (idempotent ALTER migrations)
+- Frontend: `AuthProvider`, `BootstrapGate`, `WizardPage`, `LoginPage`,
+  `AdminPage`, `AdminPasswordPrompt`
+- 9 new pytest auth integration tests, 6 new vitest tests; all green
+  (pytest 205, vitest 9, `npm run build` green)
+- All `TODO(auth-PR2)` and `TODO(sentiment-PR2)` markers cleared
+- Default-user seeding deleted from `memory_provider.py`
+
+PR3 markers (`TODO(people-PR2)`, `TODO(embeddings)`) intentionally left.
 
 ## Context
 
@@ -37,7 +58,7 @@ Architectural decisions already locked in (do not relitigate):
 - **File size**: 250-line cap per CLAUDE.md. Split aggressively.
 - **TDD**: tests first, watch fail, implement, watch pass. Mandatory.
 
-## PR2 — Auth, Users, Admin
+## PR2 — Auth, Users, Admin (✅ shipped — kept for reference)
 
 ### Schema additions
 
@@ -228,11 +249,11 @@ Frontend (vitest):
 - Don't switch SQLite drivers. PR1's `sqlite3 + asyncio.to_thread + Lock` choice is intentional (sqlite-vec needs `enable_load_extension`).
 - Don't delete the `default user` seeding until PR2's bootstrap flow is fully working end-to-end with tests passing.
 
-## Greppable PR1 markers to clear
+## Greppable markers still to clear (PR3)
 
 ```
-TODO(auth-PR2)        — PR2
-TODO(sentiment-PR2)   — PR2
 TODO(people-PR2)      — PR3 (misnamed, but that's fine; grep for it)
 TODO(embeddings)      — PR3 (or deferred to TODO(embeddings-perf))
 ```
+
+(`TODO(auth-PR2)` and `TODO(sentiment-PR2)` were cleared in PR2.)

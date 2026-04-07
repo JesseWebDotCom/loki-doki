@@ -40,9 +40,23 @@ CORE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
-    pin_hash TEXT,                          -- TODO(auth-PR2): bcrypt hash
+    pin_hash TEXT,                          -- bcrypt hash of PIN (PR2)
+    password_hash TEXT,                     -- bcrypt hash of admin password (nullable)
     role TEXT NOT NULL DEFAULT 'user',      -- 'admin' | 'user'
+    status TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'disabled' | 'deleted'
+    last_password_auth_at INTEGER,          -- unix seconds; admin freshness window
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS app_secrets (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_sentiment (
+    owner_user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    sentiment TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS people (

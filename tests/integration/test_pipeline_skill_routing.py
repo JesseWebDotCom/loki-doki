@@ -105,7 +105,7 @@ async def test_pipeline_routes_wiki_skill_with_empty_decomposer_params(memory):
         latency_ms=10.0,
     )
     orch = _build_orchestrator(decomp, registry, memory)
-    uid = await memory.default_user_id()
+    uid = await memory.get_or_create_user("default")
     sid = await memory.create_session(uid)
 
     mock_response = MagicMock()
@@ -152,7 +152,7 @@ async def test_pipeline_wiki_failure_surfaces_in_routing_log(memory):
         latency_ms=10.0,
     )
     orch = _build_orchestrator(decomp, registry, memory)
-    uid = await memory.default_user_id()
+    uid = await memory.get_or_create_user("default")
     sid = await memory.create_session(uid)
 
     miss_response = MagicMock()

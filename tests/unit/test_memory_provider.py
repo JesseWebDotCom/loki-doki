@@ -24,12 +24,12 @@ async def memory(tmp_path):
 class TestUserScoping:
     @pytest.mark.anyio
     async def test_default_user_seeded(self, memory):
-        uid = await memory.default_user_id()
+        uid = await memory.get_or_create_user("default")
         assert uid == 1  # PR1 default user is always id=1
 
     @pytest.mark.anyio
     async def test_two_users_facts_are_isolated(self, memory):
-        u1 = await memory.default_user_id()
+        u1 = await memory.get_or_create_user("default")
         u2 = await memory.get_or_create_user("alice")
         assert u1 != u2
 
@@ -47,7 +47,7 @@ class TestUserScoping:
 
     @pytest.mark.anyio
     async def test_two_users_messages_are_isolated(self, memory):
-        u1 = await memory.default_user_id()
+        u1 = await memory.get_or_create_user("default")
         u2 = await memory.get_or_create_user("alice")
         s1 = await memory.create_session(u1)
         s2 = await memory.create_session(u2)
@@ -62,7 +62,7 @@ class TestUserScoping:
 
     @pytest.mark.anyio
     async def test_fact_search_is_user_scoped(self, memory):
-        u1 = await memory.default_user_id()
+        u1 = await memory.get_or_create_user("default")
         u2 = await memory.get_or_create_user("alice")
         await memory.upsert_fact(
             user_id=u1, subject="self", predicate="likes", value="raspberry pi"
@@ -81,7 +81,7 @@ class TestUserScoping:
 class TestFactDedupAndConfirm:
     @pytest.mark.anyio
     async def test_repeat_confirms_existing_row(self, memory):
-        uid = await memory.default_user_id()
+        uid = await memory.get_or_create_user("default")
         id1, c1 = await memory.upsert_fact(
             user_id=uid, subject="self", predicate="likes", value="hiking"
         )
@@ -95,7 +95,7 @@ class TestFactDedupAndConfirm:
     @pytest.mark.anyio
     async def test_distinct_values_coexist_for_conflict_ui(self, memory):
         """PR3's conflict UI needs the storage layer to keep both rows."""
-        uid = await memory.default_user_id()
+        uid = await memory.get_or_create_user("default")
         id1, _ = await memory.upsert_fact(
             user_id=uid, subject="Billy", predicate="favorite_movie", value="Incredibles"
         )
@@ -110,7 +110,7 @@ class TestFactDedupAndConfirm:
 class TestFTS5Search:
     @pytest.mark.anyio
     async def test_more_relevant_fact_ranks_higher(self, memory):
-        uid = await memory.default_user_id()
+        uid = await memory.get_or_create_user("default")
         await memory.upsert_fact(
             user_id=uid, subject="self", predicate="likes",
             value="raspberry pi single board computers",
@@ -129,7 +129,7 @@ class TestFTS5Search:
     @pytest.mark.anyio
     async def test_search_handles_fts_operator_in_query(self, memory):
         """A bare ``AND`` from a user must not crash the FTS5 parser."""
-        uid = await memory.default_user_id()
+        uid = await memory.get_or_create_user("default")
         await memory.upsert_fact(
             user_id=uid, subject="self", predicate="likes", value="hiking AND camping",
         )

@@ -3,23 +3,38 @@ import json
 from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
 from lokidoki.main import app
-from lokidoki.api.routes import chat as chat_route
 from lokidoki.core.memory_provider import MemoryProvider
+from lokidoki.core import memory_singleton
+from lokidoki.core import memory_user_ops  # noqa: F401  bind helpers
+from lokidoki.auth.dependencies import current_user, get_memory
+from lokidoki.auth.users import User
 
 
 @pytest.fixture(autouse=True)
-async def _isolated_memory(tmp_path, monkeypatch):
-    """Each chat-api test gets its own MemoryProvider on a tmp DB so we
-    never write to the real data/lokidoki.db during the suite."""
+async def _isolated_memory(tmp_path):
+    """Each chat-api test gets its own MemoryProvider on a tmp DB and
+    a stub authenticated user, bypassing the real auth flow."""
     mp = MemoryProvider(db_path=str(tmp_path / "chat_api.db"))
     await mp.initialize()
+    uid = await mp.get_or_create_user("tester")
+    memory_singleton.set_memory_provider(mp)
 
-    async def _get_mp():
+    fake_user = User(
+        id=uid, username="tester", role="admin", status="active",
+        last_password_auth_at=None,
+    )
+
+    async def _override_user():
+        return fake_user
+
+    async def _override_memory():
         return mp
 
-    monkeypatch.setattr(chat_route, "_memory_provider", mp)
-    monkeypatch.setattr(chat_route, "get_memory_provider", _get_mp)
+    app.dependency_overrides[current_user] = _override_user
+    app.dependency_overrides[get_memory] = _override_memory
     yield
+    app.dependency_overrides.clear()
+    memory_singleton.set_memory_provider(None)
     await mp.close()
 
 

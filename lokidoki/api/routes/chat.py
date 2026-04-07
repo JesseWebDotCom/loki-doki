@@ -1,25 +1,24 @@
-"""Chat HTTP route.
+"""Chat HTTP route — PR2: real per-user auth.
 
-PR1 wires the chat endpoint directly to the new MemoryProvider. Each
-turn:
-  1. resolves the default user (PR1) — TODO(auth-PR2): use real auth
+Each turn:
+  1. resolves the authenticated current user
   2. creates a new session row if the client didn't pass session_id
   3. streams pipeline events back as SSE
   4. the orchestrator persists user message, extracted facts, and
-     assistant reply via the provider as it runs
-
-The provider is a process singleton initialised lazily on first request
-and reused across calls. Tests can override ``get_memory_provider``.
+     assistant reply via the shared MemoryProvider singleton
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
+from lokidoki.auth.dependencies import current_user, get_memory
+from lokidoki.auth.users import User
 from lokidoki.core.decomposer import Decomposer
 from lokidoki.core.inference import InferenceClient
 from lokidoki.core.memory_provider import MemoryProvider
+from lokidoki.core.memory_singleton import get_memory_provider  # noqa: F401 (test patch)
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
 from lokidoki.core.orchestrator import Orchestrator
 from lokidoki.core.registry import SkillRegistry
@@ -30,17 +29,6 @@ router = APIRouter()
 _registry = SkillRegistry(skills_dir="lokidoki/skills")
 _registry.scan()
 _model_policy = ModelPolicy()
-
-_memory_provider: MemoryProvider | None = None
-
-
-async def get_memory_provider() -> MemoryProvider:
-    """Lazy singleton accessor. Patched in tests."""
-    global _memory_provider
-    if _memory_provider is None:
-        _memory_provider = MemoryProvider(db_path="data/lokidoki.db")
-        await _memory_provider.initialize()
-    return _memory_provider
 
 
 def get_inference_client() -> InferenceClient:
@@ -61,10 +49,13 @@ class ChatRequest(BaseModel):
 
 
 @router.post("")
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
     """Process a chat message through the agentic pipeline, streaming SSE events."""
-    memory = await get_memory_provider()
-    user_id = await memory.default_user_id()  # TODO(auth-PR2): real user
+    user_id = user.id
     session_id = request.session_id or await memory.create_session(user_id)
 
     client = get_inference_client()
@@ -81,7 +72,6 @@ async def chat(request: ChatRequest):
 
     async def event_stream():
         try:
-            # First event tells the client which session id was assigned.
             yield f'data: {{"phase":"session","status":"ready","data":{{"session_id":{session_id}}}}}\n\n'
             async for event in orchestrator.process(
                 request.message,
@@ -97,10 +87,12 @@ async def chat(request: ChatRequest):
 
 
 @router.get("/memory")
-async def get_memory_state():
-    """Return the default user's recent messages and facts (PR1 shim)."""
-    memory = await get_memory_provider()
-    user_id = await memory.default_user_id()
+async def get_memory_state(
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Return the current user's recent messages, sentiment, and facts."""
+    user_id = user.id
     sessions = await memory.list_sessions(user_id)
     messages: list[dict] = []
     if sessions:
@@ -108,11 +100,8 @@ async def get_memory_state():
             user_id=user_id, session_id=sessions[0]["id"], limit=50
         )
     facts = await memory.list_facts(user_id, limit=50)
-    return {
-        "messages": messages,
-        "sentiment": {},  # TODO(sentiment-PR2): re-add per-session sentiment store
-        "facts": facts,
-    }
+    sentiment = await memory.get_sentiment(user_id)
+    return {"messages": messages, "sentiment": sentiment, "facts": facts}
 
 
 @router.get("/skills")
@@ -133,6 +122,22 @@ async def get_platform():
 
 
 @router.delete("/memory")
-async def clear_memory():
-    """No-op in PR1 — sessions are persistent. TODO(auth-PR2): per-user clear."""
-    return {"status": "noop", "note": "persistent storage; deferred to PR2"}
+async def clear_memory(
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Wipe the current user's chat sessions/messages."""
+    await memory.clear_user_chat(user.id)
+    return {"status": "ok"}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    deleted = await memory.delete_session(user.id, session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="session_not_found")
+    return {"status": "ok"}

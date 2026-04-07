@@ -49,7 +49,7 @@ async def memory(tmp_path):
 
 @pytest.fixture
 async def user_session(memory):
-    user_id = await memory.default_user_id()
+    user_id = await memory.get_or_create_user("default")
     session_id = await memory.create_session(user_id)
     return user_id, session_id
 

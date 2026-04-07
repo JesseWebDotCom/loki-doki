@@ -17,9 +17,9 @@ and push every blocking call through ``asyncio.to_thread``. The
 provider is process-singleton (instantiated once at app startup), which
 matches SQLite's "serialized" threading guidance.
 
-PR1 only seeds a single ``default`` user with id=1. PR2 adds the real
-auth flow. All bootstrap-gate / PIN / session-token concerns are
-explicitly out of scope here — see TODO(auth-PR2) markers.
+PR2 wires real auth on top: this provider is now strictly multi-user
+and exposes only generic user CRUD. The bootstrap wizard, PIN/password
+hashing, and JWT cookie machinery live in ``lokidoki/auth/*``.
 
 The actual SQL lives in ``memory_sql.py``; this file is just async
 dispatch + lifecycle so it stays under the 250-line CLAUDE.md ceiling.
@@ -41,7 +41,11 @@ from lokidoki.core.memory_schema import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_USERNAME = "default"  # TODO(auth-PR2): replace with real users
+_USER_COLUMN_MIGRATIONS = (
+    ("password_hash", "TEXT"),
+    ("status", "TEXT NOT NULL DEFAULT 'active'"),
+    ("last_password_auth_at", "INTEGER"),
+)
 
 
 class MemoryProvider:
@@ -63,7 +67,6 @@ class MemoryProvider:
         """
         os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
         await asyncio.to_thread(self._open_and_migrate)
-        await self._ensure_default_user()
 
     def _open_and_migrate(self) -> None:
         conn = sqlite3.connect(self._db_path, check_same_thread=False)
@@ -87,6 +90,15 @@ class MemoryProvider:
             self._vec_loaded = False
 
         conn.executescript(CORE_SCHEMA)
+        # Idempotent column migrations for users table (PR2 add-on cols).
+        # Wrap each ALTER in try/except for the "duplicate column" case so
+        # existing PR1 databases upgrade in place.
+        for col, decl in _USER_COLUMN_MIGRATIONS:
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
         conn.executescript(FTS_SCHEMA)
         if self._vec_loaded:
             try:
@@ -108,30 +120,27 @@ class MemoryProvider:
 
     # ---- users -----------------------------------------------------------
 
-    async def _ensure_default_user(self) -> None:
-        """Seed a single default user (id=1) if the users table is empty.
-
-        TODO(auth-PR2): drop this and gate on bootstrap wizard.
-        """
-        async with self._lock:
-            row = await asyncio.to_thread(
-                lambda: self._conn.execute("SELECT COUNT(*) FROM users").fetchone()
-            )
-            if row[0] == 0:
-                await asyncio.to_thread(
-                    lambda: self._conn.execute(
-                        "INSERT INTO users (username, role) VALUES (?, 'admin')",
-                        (DEFAULT_USERNAME,),
-                    )
-                )
-                await asyncio.to_thread(self._conn.commit)
-
     async def get_or_create_user(self, username: str) -> int:
         async with self._lock:
             return await asyncio.to_thread(sql.get_or_create_user, self._conn, username)
 
-    async def default_user_id(self) -> int:
-        return await self.get_or_create_user(DEFAULT_USERNAME)
+    async def count_users(self) -> int:
+        async with self._lock:
+            row = await asyncio.to_thread(
+                lambda: self._conn.execute(
+                    "SELECT COUNT(*) FROM users WHERE status != 'deleted'"
+                ).fetchone()
+            )
+        return int(row[0])
+
+    async def run_sync(self, fn):
+        """Acquire lock and run a sync function with the connection."""
+        async with self._lock:
+            return await asyncio.to_thread(fn, self._conn)
+
+    # Per-user sentiment / session helpers live in memory_user_ops.py
+    # to keep this file under the 250-line cap. They're imported and
+    # bound as bound methods at module load time below.
 
     # ---- sessions --------------------------------------------------------
 

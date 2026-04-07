@@ -1,6 +1,22 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from lokidoki.main import app
+from lokidoki.core import memory_singleton
+from lokidoki.core.memory_provider import MemoryProvider
+
+
+@pytest.fixture(autouse=True)
+async def _bootstrap_gate_satisfied(tmp_path):
+    """The bootstrap gate middleware blocks all API routes when no users
+    exist. /api/v1/tests doesn't authenticate, but it still has to clear
+    the gate, so seed an isolated tmp DB with a single user."""
+    mp = MemoryProvider(db_path=str(tmp_path / "runner.db"))
+    await mp.initialize()
+    await mp.get_or_create_user("dev")
+    memory_singleton.set_memory_provider(mp)
+    yield
+    memory_singleton.set_memory_provider(None)
+    await mp.close()
 
 @pytest.mark.anyio
 async def test_run_tests_endpoint():

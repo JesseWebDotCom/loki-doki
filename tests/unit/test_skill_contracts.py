@@ -78,7 +78,7 @@ async def _build_orchestrator(
         model_manager=ModelManager(inference_client=mock_inference, policy=policy),
         registry=registry,
     )
-    uid = await memory.default_user_id()
+    uid = await memory.get_or_create_user("default")
     sid = await memory.create_session(uid)
     return orch, uid, sid
 
