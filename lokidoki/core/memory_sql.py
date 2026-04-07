@@ -11,7 +11,9 @@ PR1, so any new query MUST keep the same shape.
 """
 from __future__ import annotations
 
+from __future__ import annotations
 import sqlite3
+from typing import Optional, Union
 
 from lokidoki.core.confidence import DEFAULT_CONFIDENCE, update_confidence
 
@@ -27,21 +29,53 @@ def get_or_create_user(conn: sqlite3.Connection, username: str) -> int:
     return int(cur.lastrowid)
 
 
-def create_session(conn: sqlite3.Connection, user_id: int, title: str) -> int:
+def create_session(
+    conn: sqlite3.Connection, user_id: int, title: str, project_id: Optional[int] = None
+) -> int:
     cur = conn.execute(
-        "INSERT INTO sessions (owner_user_id, title) VALUES (?, ?)",
-        (user_id, title),
+        "INSERT INTO sessions (owner_user_id, title, project_id) VALUES (?, ?, ?)",
+        (user_id, title, project_id),
     )
     conn.commit()
     return int(cur.lastrowid)
 
 
-def list_sessions(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
+def list_sessions(
+    conn: sqlite3.Connection, user_id: int, project_id: Optional[int] = None
+) -> list[sqlite3.Row]:
+    if project_id is not None:
+        return conn.execute(
+            "SELECT id, title, project_id, created_at FROM sessions "
+            "WHERE owner_user_id = ? AND project_id = ? ORDER BY id DESC",
+            (user_id, project_id),
+        ).fetchall()
     return conn.execute(
-        "SELECT id, title, created_at FROM sessions "
+        "SELECT id, title, project_id, created_at FROM sessions "
         "WHERE owner_user_id = ? ORDER BY id DESC",
         (user_id,),
     ).fetchall()
+
+
+def update_session_title(
+    conn: sqlite3.Connection, user_id: int, session_id: int, title: str
+) -> bool:
+    cur = conn.execute(
+        "UPDATE sessions SET title = ? WHERE id = ? AND owner_user_id = ?",
+        (title, session_id, user_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def move_session_to_project(
+    conn: sqlite3.Connection, user_id: int, session_id: int, project_id: Optional[int]
+) -> bool:
+    cur = conn.execute(
+        "UPDATE sessions SET project_id = ? WHERE id = ? AND owner_user_id = ?",
+        (project_id, session_id, user_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def add_message(
@@ -66,7 +100,7 @@ def get_messages(
     *,
     user_id: int,
     session_id: int,
-    limit: int | None,
+    limit: int ,
 ) -> list[sqlite3.Row]:
     if limit:
         rows = conn.execute(
@@ -91,9 +125,10 @@ def upsert_fact(
     predicate: str,
     value: str,
     category: str,
-    source_message_id: int | None,
+    source_message_id: Optional[int],
     subject_type: str = "self",
-    subject_ref_id: int | None = None,
+    subject_ref_id: Optional[int] = None,
+    project_id: Optional[int] = None,
 ) -> tuple[int, float]:
     """Insert OR confirm. See MemoryProvider.upsert_fact for the contract."""
     existing = conn.execute(
@@ -114,12 +149,12 @@ def upsert_fact(
     cur = conn.execute(
         "INSERT INTO facts "
         "(owner_user_id, subject, subject_type, subject_ref_id, "
-        "predicate, value, category, confidence, source_message_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "predicate, value, category, confidence, source_message_id, project_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             user_id, subject, subject_type, subject_ref_id,
             predicate, value, category,
-            DEFAULT_CONFIDENCE, source_message_id,
+            DEFAULT_CONFIDENCE, source_message_id, project_id,
         ),
     )
     conn.commit()
@@ -129,8 +164,19 @@ def upsert_fact(
 
 
 def list_facts(
-    conn: sqlite3.Connection, user_id: int, limit: int
+    conn: sqlite3.Connection,
+    user_id: int,
+    limit: int,
+    project_id: Optional[int] = None,
 ) -> list[sqlite3.Row]:
+    if project_id is not None:
+        return conn.execute(
+            "SELECT id, subject, predicate, value, category, confidence, "
+            "       created_at, updated_at FROM facts "
+            "WHERE owner_user_id = ? AND project_id = ? "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (user_id, project_id, limit),
+        ).fetchall()
     return conn.execute(
         "SELECT id, subject, predicate, value, category, confidence, "
         "       created_at, updated_at FROM facts "
@@ -140,8 +186,22 @@ def list_facts(
 
 
 def search_facts(
-    conn: sqlite3.Connection, user_id: int, fts_query: str, top_k: int
+    conn: sqlite3.Connection,
+    user_id: int,
+    fts_query: str,
+    top_k: int,
+    project_id: Optional[int] = None,
 ) -> list[sqlite3.Row]:
+    if project_id is not None:
+        return conn.execute(
+            "SELECT f.id, f.subject, f.predicate, f.value, f.category, "
+            "       f.confidence, f.created_at, "
+            "       bm25(facts_fts) * (CASE WHEN f.project_id = ? THEN 0.5 ELSE 1.0 END) AS score "
+            "FROM facts_fts JOIN facts f ON f.id = facts_fts.rowid "
+            "WHERE facts_fts MATCH ? AND f.owner_user_id = ? "
+            "ORDER BY score LIMIT ?",
+            (project_id, fts_query, user_id, top_k),
+        ).fetchall()
     return conn.execute(
         "SELECT f.id, f.subject, f.predicate, f.value, f.category, "
         "       f.confidence, f.created_at, "
@@ -151,6 +211,67 @@ def search_facts(
         "ORDER BY score LIMIT ?",
         (fts_query, user_id, top_k),
     ).fetchall()
+
+
+def create_project(
+    conn: sqlite3.Connection,
+    user_id: int,
+    name: str,
+    description: str = "",
+    prompt: str = "",
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO projects (owner_user_id, name, description, prompt) "
+        "VALUES (?, ?, ?, ?)",
+        (user_id, name, description, prompt),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def list_projects(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, name, description, prompt, created_at FROM projects "
+        "WHERE owner_user_id = ? ORDER BY name ASC",
+        (user_id,),
+    ).fetchall()
+
+
+def get_project(
+    conn: sqlite3.Connection, user_id: int, project_id: int
+) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, name, description, prompt, created_at FROM projects "
+        "WHERE id = ? AND owner_user_id = ?",
+        (project_id, user_id),
+    ).fetchone()
+
+
+def update_project(
+    conn: sqlite3.Connection,
+    user_id: int,
+    project_id: int,
+    name: str,
+    description: str,
+    prompt: str,
+) -> bool:
+    cur = conn.execute(
+        "UPDATE projects SET name = ?, description = ?, prompt = ? "
+        "WHERE id = ? AND owner_user_id = ?",
+        (name, description, prompt, project_id, user_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def delete_project(conn: sqlite3.Connection, user_id: int, project_id: int) -> bool:
+    # NOTE: ON DELETE SET NULL on sessions and facts handles the cleanup
+    cur = conn.execute(
+        "DELETE FROM projects WHERE id = ? AND owner_user_id = ?",
+        (project_id, user_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def search_messages(

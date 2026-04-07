@@ -12,7 +12,7 @@ from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core import memory_user_ops  # noqa: F401  side-effect: bind methods
 from lokidoki.core import memory_people_ops  # noqa: F401  side-effect: bind PR3 people helpers
 
-_provider: MemoryProvider | None = None
+_provider: MemoryProvider  = None
 _init_lock = asyncio.Lock()
 
 
@@ -28,7 +28,7 @@ async def get_memory_provider() -> MemoryProvider:
         return _provider
 
 
-def set_memory_provider(mp: MemoryProvider | None) -> None:
+def set_memory_provider(mp: MemoryProvider ) -> None:
     """Test hook: replace the singleton (or clear with None)."""
     global _provider
     _provider = mp

@@ -4,10 +4,10 @@ All sync helpers take a sqlite3.Connection. Async wrappers go through
 MemoryProvider.run_sync so they share the singleton lock.
 """
 from __future__ import annotations
-
 import sqlite3
 import time
 from dataclasses import dataclass
+from typing import Optional, Union, List
 
 from lokidoki.auth import passwords
 from lokidoki.core.memory_provider import MemoryProvider
@@ -19,7 +19,7 @@ class User:
     username: str
     role: str
     status: str
-    last_password_auth_at: int | None
+    last_password_auth_at: Optional[int]
 
     @property
     def is_admin(self) -> bool:
@@ -29,7 +29,7 @@ class User:
 _USER_COLS = "id, username, role, status, last_password_auth_at"
 
 
-def _row_to_user(row: sqlite3.Row | None) -> User | None:
+def _row_to_user(row: Optional[sqlite3.Row]) -> Optional[User]:
     if row is None:
         return None
     return User(
@@ -45,14 +45,14 @@ def _row_to_user(row: sqlite3.Row | None) -> User | None:
     )
 
 
-def _get_by_id(conn: sqlite3.Connection, user_id: int) -> User | None:
+def _get_by_id(conn: sqlite3.Connection, user_id: int) -> Optional[User]:
     row = conn.execute(
         f"SELECT {_USER_COLS} FROM users WHERE id = ?", (user_id,)
     ).fetchone()
     return _row_to_user(row)
 
 
-def _get_by_username(conn: sqlite3.Connection, username: str) -> User | None:
+def _get_by_username(conn: sqlite3.Connection, username: str) -> Optional[User]:
     row = conn.execute(
         f"SELECT {_USER_COLS} FROM users WHERE username = ?", (username,)
     ).fetchone()
@@ -65,7 +65,7 @@ def _create(
     username: str,
     pin_hash: str,
     role: str,
-    password_hash: str | None,
+    password_hash: Optional[str],
 ) -> int:
     cur = conn.execute(
         "INSERT INTO users (username, pin_hash, password_hash, role, status) "
@@ -76,15 +76,15 @@ def _create(
     return int(cur.lastrowid)
 
 
-async def get_user(memory: MemoryProvider, user_id: int) -> User | None:
+async def get_user(memory: MemoryProvider, user_id: int) -> Optional[User]:
     return await memory.run_sync(lambda c: _get_by_id(c, user_id))
 
 
-async def get_user_by_username(memory: MemoryProvider, username: str) -> User | None:
+async def get_user_by_username(memory: MemoryProvider, username: str) -> Optional[User]:
     return await memory.run_sync(lambda c: _get_by_username(c, username))
 
 
-async def get_pin_hash(memory: MemoryProvider, user_id: int) -> str | None:
+async def get_pin_hash(memory: MemoryProvider, user_id: int) -> Optional[str]:
     def _q(c: sqlite3.Connection):
         row = c.execute(
             "SELECT pin_hash FROM users WHERE id = ?", (user_id,)
@@ -93,7 +93,7 @@ async def get_pin_hash(memory: MemoryProvider, user_id: int) -> str | None:
     return await memory.run_sync(_q)
 
 
-async def get_password_hash(memory: MemoryProvider, user_id: int) -> str | None:
+async def get_password_hash(memory: MemoryProvider, user_id: int) -> Optional[str]:
     def _q(c: sqlite3.Connection):
         row = c.execute(
             "SELECT password_hash FROM users WHERE id = ?", (user_id,)
@@ -108,7 +108,7 @@ async def create_user(
     username: str,
     pin: str,
     role: str = "user",
-    password: str | None = None,
+    password: Optional[str] = None,
 ) -> User:
     passwords.validate_pin(pin)
     if password is not None:
@@ -125,7 +125,7 @@ async def create_user(
     return await memory.run_sync(_do)
 
 
-async def list_users(memory: MemoryProvider) -> list[User]:
+async def list_users(memory: MemoryProvider) -> List[User]:
     def _q(c: sqlite3.Connection):
         rows = c.execute(
             f"SELECT {_USER_COLS} FROM users WHERE status != 'deleted' "

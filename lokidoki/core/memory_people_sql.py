@@ -58,7 +58,7 @@ def list_people(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
 
 def get_person(
     conn: sqlite3.Connection, user_id: int, person_id: int
-) -> sqlite3.Row | None:
+) -> sqlite3.Row :
     return conn.execute(
         "SELECT id, name, created_at FROM people "
         "WHERE owner_user_id = ? AND id = ?",

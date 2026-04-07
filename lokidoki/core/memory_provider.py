@@ -6,7 +6,7 @@ schema) deleted in this PR. Everything goes through one provider that:
 
 - creates the schema on startup if missing (does NOT delete data/lokidoki.db)
 - enforces user-scoping on every read and write
-- keeps facts and messages searchable via FTS5 external-content
+- keeps facts and messages searchable via FTS5 external-contentfrom typing import Optional, Union
 - optionally writes 384-dim fact embeddings into a sqlite-vec ``vec0``
   table; if sqlite-vec fails to load at startup, we WARN and continue
   with FTS5/BM25-only search.
@@ -24,7 +24,7 @@ hashing, and JWT cookie machinery live in ``lokidoki/auth/*``.
 The actual SQL lives in ``memory_sql.py``; this file is just async
 dispatch + lifecycle so it stays under the 250-line CLAUDE.md ceiling.
 """
-from __future__ import annotations
+from typing import Optional, Union
 
 import asyncio
 import os
@@ -39,7 +39,7 @@ class MemoryProvider:
 
     def __init__(self, db_path: str = "data/lokidoki.db"):
         self._db_path = db_path
-        self._conn: sqlite3.Connection | None = None
+        self._conn: Optional[sqlite3.Connection] = None
         self._lock = asyncio.Lock()
         self._vec_loaded = False
 
@@ -87,14 +87,89 @@ class MemoryProvider:
 
     # ---- sessions --------------------------------------------------------
 
-    async def create_session(self, user_id: int, title: str = "") -> int:
+    async def create_session(
+        self, user_id: int, title: str = "", project_id: Optional[int] = None
+    ) -> int:
         async with self._lock:
-            return await asyncio.to_thread(sql.create_session, self._conn, user_id, title)
+            return await asyncio.to_thread(
+                sql.create_session, self._conn, user_id, title, project_id
+            )
 
-    async def list_sessions(self, user_id: int) -> list[dict]:
+    async def list_sessions(
+        self, user_id: int, project_id: Optional[int] = None
+    ) -> list[dict]:
         async with self._lock:
-            rows = await asyncio.to_thread(sql.list_sessions, self._conn, user_id)
+            rows = await asyncio.to_thread(
+                sql.list_sessions, self._conn, user_id, project_id
+            )
         return [dict(r) for r in rows]
+
+    async def update_session_title(
+        self, user_id: int, session_id: int, title: str
+    ) -> bool:
+        async with self._lock:
+            return await asyncio.to_thread(
+                sql.update_session_title, self._conn, user_id, session_id, title
+            )
+
+    async def move_session_to_project(
+        self, user_id: int, session_id: int, project_id: Optional[int]
+    ) -> bool:
+        async with self._lock:
+            return await asyncio.to_thread(
+                sql.move_session_to_project,
+                self._conn,
+                user_id,
+                session_id,
+                project_id,
+            )
+
+    # ---- projects --------------------------------------------------------
+
+    async def create_project(
+        self, user_id: int, name: str, description: str = "", prompt: str = ""
+    ) -> int:
+        async with self._lock:
+            return await asyncio.to_thread(
+                sql.create_project, self._conn, user_id, name, description, prompt
+            )
+
+    async def list_projects(self, user_id: int) -> list[dict]:
+        async with self._lock:
+            rows = await asyncio.to_thread(sql.list_projects, self._conn, user_id)
+        return [dict(r) for r in rows]
+
+    async def get_project(self, user_id: int, project_id: int) -> Optional[dict]:
+        async with self._lock:
+            row = await asyncio.to_thread(
+                sql.get_project, self._conn, user_id, project_id
+            )
+        return dict(row) if row else None
+
+    async def update_project(
+        self,
+        user_id: int,
+        project_id: int,
+        name: str,
+        description: str,
+        prompt: str,
+    ) -> bool:
+        async with self._lock:
+            return await asyncio.to_thread(
+                sql.update_project,
+                self._conn,
+                user_id,
+                project_id,
+                name,
+                description,
+                prompt,
+            )
+
+    async def delete_project(self, user_id: int, project_id: int) -> bool:
+        async with self._lock:
+            return await asyncio.to_thread(
+                sql.delete_project, self._conn, user_id, project_id
+            )
 
     # ---- messages --------------------------------------------------------
 
@@ -113,7 +188,7 @@ class MemoryProvider:
             )
 
     async def get_messages(
-        self, *, user_id: int, session_id: int, limit: int | None = None
+        self, *, user_id: int, session_id: int, limit: Optional[int] = None
     ) -> list[dict]:
         async with self._lock:
             rows = await asyncio.to_thread(
@@ -145,9 +220,10 @@ class MemoryProvider:
         predicate: str,
         value: str,
         category: str = "general",
-        source_message_id: int | None = None,
+        source_message_id: Optional[int] = None,
         subject_type: str = "self",
-        subject_ref_id: int | None = None,
+        subject_ref_id: Optional[int] = None,
+        project_id: Optional[int] = None,
     ) -> tuple[int, float]:
         """Insert a fact OR confirm an existing matching row.
 
@@ -169,16 +245,24 @@ class MemoryProvider:
                     source_message_id=source_message_id,
                     subject_type=subject_type,
                     subject_ref_id=subject_ref_id,
+                    project_id=project_id,
                 )
             )
 
-    async def list_facts(self, user_id: int, limit: int = 100) -> list[dict]:
+    async def list_facts(
+        self,
+        user_id: int,
+        limit: int = 100,
+        project_id: Optional[int] = None,
+    ) -> list[dict]:
         async with self._lock:
-            rows = await asyncio.to_thread(sql.list_facts, self._conn, user_id, limit)
+            rows = await asyncio.to_thread(
+                sql.list_facts, self._conn, user_id, limit, project_id
+            )
         return [dict(r) for r in rows]
 
     async def search_facts(
-        self, *, user_id: int, query: str, top_k: int = 10
+        self, *, user_id: int, query: str, top_k: int = 10, project_id: Optional[int] = None
     ) -> list[dict]:
         """Hybrid BM25 + (optional) cosine search over facts, scoped to user.
 
@@ -198,5 +282,6 @@ class MemoryProvider:
                     query=query,
                     top_k=top_k,
                     vec_enabled=self._vec_loaded,
+                    project_id=project_id,
                 )
             )

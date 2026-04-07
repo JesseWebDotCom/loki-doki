@@ -7,7 +7,7 @@ plain async functions taking the registry, executor, and ask list.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional, Tuple, Dict, List
 
 from lokidoki.core.decomposer import Ask
 from lokidoki.core.registry import SkillRegistry
@@ -16,10 +16,10 @@ from lokidoki.core.skill_factory import get_skill_instance
 
 
 async def run_skills(
-    asks: list[Ask],
-    registry: SkillRegistry | None,
+    asks: List[Ask],
+    registry: Optional[SkillRegistry],
     executor: SkillExecutor,
-) -> tuple[str, dict[str, SkillResult], list[dict], list[dict]]:
+) -> Tuple[str, Dict[str, SkillResult], List[dict], List[dict]]:
     """Resolve and execute skills for a list of Asks.
 
     Returns ``(skill_data_for_prompt, results_by_ask, sources, routing_log)``.
@@ -108,17 +108,20 @@ def build_synthesis_prompt(
     query: str,
     user_prompt: str = "",
     admin_prompt: str = "",
+    project_prompt: str = "",
 ) -> str:
-    """Assemble the tiered synthesis prompt (Admin > User > Persona)."""
+    """Assemble the tiered synthesis prompt (Admin > Project > User > Persona)."""
     prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
         tone=tone, context=context, skill_data=skill_data, query=query,
     )
     prefix_parts: list[str] = []
+    if project_prompt:
+        prefix_parts.append(f"PROJECT_CONTEXT:{project_prompt}")
     if user_prompt:
         prefix_parts.append(f"USER_STYLE:{user_prompt}")
     if admin_prompt:
         prefix_parts.append(f"ADMIN_RULES:{admin_prompt}")
-        prefix_parts.append("PRIORITY:Admin>User>Persona. Admin safety rules override all.")
+        prefix_parts.append("PRIORITY:Admin>Project>User>Persona. Admin safety rules override all.")
     if prefix_parts:
         prompt = "\n".join(prefix_parts) + "\n" + prompt
     return prompt

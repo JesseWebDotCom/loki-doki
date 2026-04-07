@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional, Union, Tuple, List
 from lokidoki.core.inference import InferenceClient
 from lokidoki.core.platform import detect_platform, get_model_preset
 
@@ -11,7 +12,7 @@ class ModelPolicy:
     """
     fast_model: str = ""
     thinking_model: str = ""
-    fast_keep_alive: int | str = -1
+    fast_keep_alive: Union[int, str] = -1
     thinking_keep_alive: str = "5m"
     platform: str = ""
 
@@ -25,7 +26,7 @@ class ModelPolicy:
             self.fast_keep_alive = preset["fast_keep_alive"]
             self.thinking_keep_alive = preset["thinking_keep_alive"]
 
-    def select(self, complexity: str) -> tuple[str, int | str]:
+    def select(self, complexity: str) -> Tuple[str, Union[int, str]]:
         """Select model and keep_alive based on reasoning complexity."""
         if complexity == "thinking":
             return self.thinking_model, self.thinking_keep_alive
@@ -38,7 +39,7 @@ class ModelManager:
     def __init__(
         self,
         inference_client: InferenceClient,
-        policy: ModelPolicy | None = None,
+        policy: Optional[ModelPolicy] = None,
     ):
         self._client = inference_client
         self._policy = policy or ModelPolicy()
@@ -47,7 +48,7 @@ class ModelManager:
     def policy(self) -> ModelPolicy:
         return self._policy
 
-    def get_model(self, complexity: str) -> tuple[str, int | str]:
+    def get_model(self, complexity: str) -> Tuple[str, Union[int, str]]:
         """Get the appropriate model for a given reasoning complexity."""
         return self._policy.select(complexity)
 

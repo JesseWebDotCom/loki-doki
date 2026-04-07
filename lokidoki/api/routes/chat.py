@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
+from typing import Optional, Union
 
 from lokidoki.auth.dependencies import current_user, get_memory
 from lokidoki.auth.users import User
@@ -38,7 +39,8 @@ def get_inference_client() -> InferenceClient:
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: int | None = None
+    session_id: Optional[int] = None
+    project_id: Optional[int] = None
 
     @field_validator("message")
     @classmethod
@@ -56,7 +58,9 @@ async def chat(
 ):
     """Process a chat message through the agentic pipeline, streaming SSE events."""
     user_id = user.id
-    session_id = request.session_id or await memory.create_session(user_id)
+    session_id = request.session_id or await memory.create_session(
+        user_id, project_id=request.project_id
+    )
 
     client = get_inference_client()
     model_manager = ModelManager(inference_client=client, policy=_model_policy)
@@ -77,6 +81,7 @@ async def chat(
                 request.message,
                 user_id=user_id,
                 session_id=session_id,
+                project_id=request.project_id,
                 available_intents=_registry.get_all_intents(),
             ):
                 yield event.to_sse()
@@ -88,20 +93,47 @@ async def chat(
 
 @router.get("/memory")
 async def get_memory_state(
+    project_id: Optional[int] = None,
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
     """Return the current user's recent messages, sentiment, and facts."""
     user_id = user.id
-    sessions = await memory.list_sessions(user_id)
+    sessions = await memory.list_sessions(user_id, project_id=project_id)
     messages: list[dict] = []
     if sessions:
+        # If project_id provided, messages come from the most recent session in that project
         messages = await memory.get_messages(
             user_id=user_id, session_id=sessions[0]["id"], limit=50
         )
-    facts = await memory.list_facts(user_id, limit=50)
+    facts = await memory.list_facts(user_id, limit=50) # TODO: filter facts by project_id?
     sentiment = await memory.get_sentiment(user_id)
-    return {"messages": messages, "sentiment": sentiment, "facts": facts}
+    return {"messages": messages, "sentiment": sentiment, "facts": facts, "sessions": sessions}
+
+
+class SessionUpdate(BaseModel):
+    title: Optional[str] = None
+    project_id: Optional[int] = None
+
+
+@router.patch("/sessions/{session_id}")
+async def patch_session(
+    session_id: int,
+    request: SessionUpdate,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Update session title or move to a different project."""
+    if request.title is not None:
+        await memory.update_session_title(user.id, session_id, request.title)
+    if request.project_id is not None:
+        # project_id=-1 or similar could mean 'move out of project' (NULL)
+        # but for now let's assume valid int or None.
+        # Actually in JSON None usually means "don't change" if optional.
+        # Let's use a convention: project_id: 0 means "remove from project".
+        pid = None if request.project_id == 0 else request.project_id
+        await memory.move_session_to_project(user.id, session_id, pid)
+    return {"status": "ok"}
 
 
 @router.get("/skills")

@@ -44,7 +44,7 @@ class SkillRegistry:
         """Return all qualified intents across registered skills."""
         return list(self._intent_index.keys())
 
-    def get_skill_by_intent(self, qualified_intent: str) -> dict | None:
+    def get_skill_by_intent(self, qualified_intent: str) -> dict :
         """Look up a skill manifest by its qualified intent (e.g. 'weather_owm.get_weather')."""
         skill_id = self._intent_index.get(qualified_intent)
         if skill_id is None:

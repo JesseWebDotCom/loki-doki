@@ -11,13 +11,13 @@ from lokidoki.skills.smarthome_mock.skill import SmartHomeMockSkill
 _skill_instances: dict[str, BaseSkill] = {}
 
 
-def get_skill_instance(skill_id: str, config: dict | None = None) -> BaseSkill | None:
+def get_skill_instance(skill_id: str, config: dict  = None) -> BaseSkill :
     """Return a skill instance by skill_id, creating if needed."""
     if skill_id in _skill_instances:
         return _skill_instances[skill_id]
 
     config = config or {}
-    skill: BaseSkill | None = None
+    skill: BaseSkill  = None
 
     if skill_id == "datetime_local":
         skill = DateTimeSkill()

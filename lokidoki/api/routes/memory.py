@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from typing import Optional, Union
 
 from lokidoki.auth.dependencies import current_user, get_memory
 from lokidoki.auth.users import User
@@ -18,10 +19,11 @@ router = APIRouter()
 
 @router.get("/facts")
 async def get_facts(
+    project_id: Optional[int] = None,
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    facts = await memory.list_facts(user.id, limit=200)
+    facts = await memory.list_facts(user.id, limit=200, project_id=project_id)
     return {"facts": facts}
 
 
@@ -43,10 +45,11 @@ async def search_facts(
 
 @router.get("/sessions")
 async def list_sessions(
+    project_id: Optional[int] = None,
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    sessions = await memory.list_sessions(user.id)
+    sessions = await memory.list_sessions(user.id, project_id=project_id)
     return {"sessions": [s["id"] for s in sessions], "details": sessions}
 
 

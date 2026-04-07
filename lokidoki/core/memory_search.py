@@ -18,14 +18,25 @@ single very-low BM25 score would always lose to cosine.
 from __future__ import annotations
 
 import sqlite3
+from typing import Optional, Union, List, Dict
 
 from lokidoki.core.memory_sql import fts_escape
 
 
 def _bm25_search(
-    conn: sqlite3.Connection, user_id: int, fts_query: str, limit: int
-) -> list[sqlite3.Row]:
+    conn: sqlite3.Connection, user_id: int, fts_query: str, limit: int, project_id: Optional[int] = None
+) -> List[sqlite3.Row]:
     """BM25 over facts_fts. Lower score = better match (FTS5 convention)."""
+    if project_id is not None:
+        return conn.execute(
+            "SELECT f.id, f.subject, f.subject_type, f.subject_ref_id, "
+            "       f.predicate, f.value, f.category, f.confidence, "
+            "       f.created_at, bm25(facts_fts) * (CASE WHEN f.project_id = ? THEN 0.5 ELSE 1.0 END) AS score "
+            "FROM facts_fts JOIN facts f ON f.id = facts_fts.rowid "
+            "WHERE facts_fts MATCH ? AND f.owner_user_id = ? "
+            "ORDER BY score LIMIT ?",
+            (project_id, fts_query, user_id, limit),
+        ).fetchall()
     return conn.execute(
         "SELECT f.id, f.subject, f.subject_type, f.subject_ref_id, "
         "       f.predicate, f.value, f.category, f.confidence, "
@@ -69,6 +80,7 @@ def hybrid_search_facts(
     query: str,
     top_k: int = 10,
     vec_enabled: bool = False,
+    project_id: Optional[int] = None,
 ) -> list[dict]:
     """Public entry point: returns ranked dicts.
 
@@ -80,7 +92,7 @@ def hybrid_search_facts(
         return []
     fts_query = fts_escape(query)
 
-    bm25_rows = _bm25_search(conn, user_id, fts_query, top_k * 2)
+    bm25_rows = _bm25_search(conn, user_id, fts_query, top_k * 2, project_id=project_id)
     if not bm25_rows:
         return []
 

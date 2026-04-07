@@ -93,11 +93,16 @@ export async function sendChatMessage(
   message: string,
   onEvent: (event: PipelineEvent) => void,
   sessionId?: number,
+  projectId?: number,
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: sessionId ?? null }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId ?? null,
+      project_id: projectId ?? null,
+    }),
   });
   if (!response.ok || !response.body) {
     throw new Error(`Chat request failed: ${response.status}`);
@@ -150,10 +155,11 @@ export async function getSessionMessages(sessionId: string | number) {
   );
 }
 
-export async function getFacts() {
+export async function getFacts(projectId?: number) {
   // The backend returns the new (subject/predicate/value) shape; we
   // alias `value` -> `fact` so the legacy MemoryPage UI keeps rendering.
-  const r = await getJson<{ facts: Array<Record<string, any>> }>("/memory/facts");
+  const qs = projectId != null ? `?project_id=${projectId}` : "";
+  const r = await getJson<{ facts: Array<Record<string, any>> }>(`/memory/facts${qs}`);
   return {
     facts: r.facts.map((f) => ({
       ...f,
@@ -170,16 +176,64 @@ export async function searchFacts(q: string) {
 }
 
 export async function getSessions() {
-  const r = await getJson<{ sessions: Array<number | string>; details?: unknown }>(
+  const r = await getJson<{ sessions: Array<number | string>; details?: any[] }>(
     "/memory/sessions",
   );
-  return { sessions: r.sessions.map(String) };
+  return { sessions: r.sessions.map(String), details: r.details };
 }
 
 export async function deleteSession(sessionId: string | number) {
-  // PR1: server-side delete is deferred to PR2's auth work; the route
-  // doesn't exist yet. Resolve to a no-op so the UI button doesn't blow up.
-  return { status: "noop", session_id: String(sessionId) };
+  const r = await fetch(`${API_BASE}/chat/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`/chat/sessions/${sessionId}: ${r.status}`);
+  return (await r.json()) as { status: string };
+}
+
+export async function updateSession(
+  sessionId: string | number,
+  update: { title?: string; project_id?: number },
+) {
+  const r = await fetch(`${API_BASE}/chat/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+  });
+  if (!r.ok) throw new Error(`/chat/sessions/${sessionId}: ${r.status}`);
+  return (await r.json()) as { status: string };
+}
+
+export async function getProjects() {
+  return getJson<{ projects: any[] }>("/projects");
+}
+
+export async function createProject(project: {
+  name: string;
+  description: string;
+  prompt: string;
+}) {
+  return postJson<{ id: number; status: string }>("/projects", project);
+}
+
+export async function updateProject(
+  id: number,
+  project: { name: string; description: string; prompt: string },
+) {
+  const r = await fetch(`${API_BASE}/projects/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(project),
+  });
+  if (!r.ok) throw new Error(`/projects/${id}: ${r.status}`);
+  return (await r.json()) as { status: string };
+}
+
+export async function deleteProject(id: number) {
+  const r = await fetch(`${API_BASE}/projects/${id}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`/projects/${id}: ${r.status}`);
+  return (await r.json()) as { status: string };
 }
 
 export async function clearChatMemory() {

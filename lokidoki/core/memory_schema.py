@@ -91,7 +91,8 @@ CREATE TABLE IF NOT EXISTS facts (
     confidence REAL NOT NULL DEFAULT 0.6,
     source_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL
     -- NOTE: deliberately NOT UNIQUE on (owner, subject, predicate, value).
     -- Conflicting rows with same (owner, subject, predicate) and DIFFERENT
     -- value must coexist so PR3's conflict UI has something to resolve.
@@ -106,9 +107,22 @@ CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title TEXT NOT NULL DEFAULT '',
+    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_user_id);
+-- idx_sessions_project is created in memory_init AFTER project_id column
+-- migration so pre-projects DBs can upgrade cleanly.
+
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    prompt TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_user_id);
 
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

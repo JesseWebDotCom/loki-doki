@@ -1,7 +1,7 @@
 import copy
 import json
 import os
-
+from typing import Optional, Tuple, Dict
 from lokidoki.core.skill_executor import BaseSkill, MechanismResult
 
 DEFAULT_DEVICES = {
@@ -41,7 +41,7 @@ class SmartHomeMockSkill(BaseSkill):
         with open(self._state_path, "w") as f:
             json.dump(self._devices, f, indent=2)
 
-    def _find_device(self, query: str) -> tuple[str, dict] | None:
+    def _find_device(self, query: str) -> Optional[Tuple[str, Dict]]:
         """Find a device by fuzzy name match."""
         query_lower = query.lower()
         # Exact id match

@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal, Optional, Union, List, Tuple, Dict
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -69,7 +69,7 @@ _PROPER_NOUN_BLOCKLIST = {
 }
 
 
-def _extract_person_name(text: str | None) -> str | None:
+def _extract_person_name(text: str) -> Optional[str]:
     """Best-effort person-name extraction from the original user input.
 
     Used only as a last-ditch salvage when the decomposer emitted a
@@ -90,7 +90,7 @@ def _extract_person_name(text: str | None) -> str | None:
 _TAUTOLOGY_PREDICATES = {"is", "named", "is_named", "name", "called", "is_called"}
 
 
-def coerce_item(item: dict, original_input: str | None = None) -> dict | None:
+def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[dict]:
     """Pre-validation salvage for the most common gemma misshapes.
 
     Returns ``None`` to signal that the item should be dropped (for
@@ -178,7 +178,7 @@ class LongTermItem(BaseModel):
     predicate: str = Field(min_length=1)
     value: str = Field(min_length=1)
     kind: Literal["fact", "relationship"] = "fact"
-    relationship_kind: str | None = None
+    relationship_kind: Optional[str] = None
     category: str = "general"
 
     @model_validator(mode="after")
@@ -198,10 +198,10 @@ class LongTermItem(BaseModel):
 
 
 def parse_items(
-    raw_items: list[Any] | None,
+    raw_items: list[Any],
     *,
-    original_input: str | None = None,
-) -> tuple[list[LongTermItem], list[dict]]:
+    original_input: Optional[str] = None,
+) -> Tuple[List[LongTermItem], List[dict]]:
     """Validate raw decomposer items. Returns ``(good, errors)``.
 
     Each item is run through ``coerce_item`` first so the most common
@@ -290,7 +290,7 @@ RepairCall = Callable[[str, dict], Awaitable[str]]
 
 
 async def repair_long_term_memory(
-    raw_items: list[Any] | None,
+    raw_items: list[Any] ,
     *,
     original_input: str,
     repair_call: RepairCall,

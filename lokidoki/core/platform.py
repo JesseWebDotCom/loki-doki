@@ -67,7 +67,7 @@ PLATFORM_MODELS = {
 }
 
 
-def get_model_preset(plat: str | None = None) -> dict:
+def get_model_preset(plat: str  = None) -> dict:
     """Return model preset dict for the given or detected platform."""
     if plat is None:
         plat = detect_platform()

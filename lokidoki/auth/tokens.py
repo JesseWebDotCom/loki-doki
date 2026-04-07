@@ -12,6 +12,7 @@ import os
 import secrets
 import sqlite3
 import time
+from typing import Optional, Union, List, Any
 
 import jwt
 
@@ -54,7 +55,7 @@ async def sign_token(memory: MemoryProvider, user_id: int) -> str:
     return jwt.encode(payload, secret, algorithm=ALGO)
 
 
-async def verify_token(memory: MemoryProvider, token: str) -> int | None:
+async def verify_token(memory: MemoryProvider, token: str) -> Optional[int]:
     try:
         secret = await get_secret(memory)
         payload = jwt.decode(token, secret, algorithms=[ALGO])

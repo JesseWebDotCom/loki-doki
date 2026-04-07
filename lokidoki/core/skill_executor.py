@@ -18,7 +18,7 @@ class MechanismResult:
 class SkillResult:
     success: bool
     data: dict = field(default_factory=dict)
-    mechanism_used: str | None = None
+    mechanism_used: str  = None
     mechanism_log: list[dict] = field(default_factory=list)
     source_url: str = ""
     source_title: str = ""

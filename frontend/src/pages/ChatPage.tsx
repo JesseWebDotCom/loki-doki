@@ -39,6 +39,7 @@ const ChatPage: React.FC = () => {
   const [pipeline, setPipeline] = useState<PipelineState>(INITIAL_PIPELINE);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
+  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
 
   const handleEvent = useCallback((event: PipelineEvent) => {
     setPipeline(prev => {
@@ -83,7 +84,7 @@ const ChatPage: React.FC = () => {
     setPipeline({ ...INITIAL_PIPELINE, phase: 'augmentation', streamingResponse: '' });
 
     try {
-      await sendChatMessage(input, handleEvent);
+      await sendChatMessage(input, handleEvent, currentSessionId ? Number(currentSessionId) : undefined, activeProjectId || undefined);
 
       setPipeline(prev => {
         if (prev.synthesis?.response) {
@@ -110,12 +111,13 @@ const ChatPage: React.FC = () => {
     }
   };
 
-  const handleNewSession = () => {
+  const handleNewSession = (projectId?: number) => {
     setMessages([
-      { role: 'assistant', content: 'New session started. System ready.', timestamp: new Date().toLocaleTimeString() }
+      { role: 'assistant', content: projectId ? `New project-scoped chat started. System ready.` : 'New chat started. System ready.', timestamp: new Date().toLocaleTimeString() }
     ]);
     setPipeline(INITIAL_PIPELINE);
     setCurrentSessionId(undefined);
+    setActiveProjectId(projectId || null);
   };
 
   const handleSelectSession = async (sessionId: string) => {

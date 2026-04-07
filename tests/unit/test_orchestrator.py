@@ -220,7 +220,7 @@ class TestOrchestrator:
         prompt = captured["prompt"]
         assert "ADMIN_RULES:NO PROFANITY" in prompt
         assert "USER_STYLE:Be funny" in prompt
-        assert "PRIORITY:Admin>User>Persona" in prompt
+        assert "PRIORITY:Admin>Project>User>Persona" in prompt
 
     @pytest.mark.anyio
     async def test_synthesis_emits_streaming_deltas(self, orchestrator, user_session):

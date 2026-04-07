@@ -28,7 +28,7 @@ async def list_people(self: MemoryProvider, user_id: int) -> list[dict]:
 
 async def get_person(
     self: MemoryProvider, user_id: int, person_id: int
-) -> dict | None:
+) -> dict :
     async with self._lock:
         row = await self._run_thread_unlocked(
             psql.get_person, user_id, person_id

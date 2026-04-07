@@ -17,6 +17,7 @@ import { FactsTab } from "../components/memory/FactsTab";
 import {
   getFacts,
   getPeople,
+  getProjects,
   getRelationships,
   getFactConflicts,
 } from "../lib/api";
@@ -35,27 +36,39 @@ const MemoryPage: React.FC = () => {
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
   const [conflicts, setConflicts] = useState<FactConflict[]>([]);
+  const [projects, setProjects] = useState<Array<{ id: number; name: string }>>([]);
+  const [projectFilter, setProjectFilter] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
-      // Parallel fetch — all four endpoints are independent and the
-      // header counts need them all anyway.
       try {
-        const [p, r, f, c] = await Promise.all([
+        const [p, r, c, pr] = await Promise.all([
           getPeople(),
           getRelationships(),
-          getFacts(),
           getFactConflicts(),
+          getProjects(),
         ]);
         setPeople(p.people);
         setRelationships(r.relationships);
-        setFacts(f.facts as Fact[]);
         setConflicts(c.conflicts);
+        setProjects(pr.projects as Array<{ id: number; name: string }>);
       } catch {
         // Backend not reachable — render empties rather than crashing.
       }
     })();
   }, []);
+
+  // Refetch facts whenever the project filter changes.
+  useEffect(() => {
+    (async () => {
+      try {
+        const f = await getFacts(projectFilter ?? undefined);
+        setFacts(f.facts as Fact[]);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [projectFilter]);
 
   // Partition facts into self / per-person / orphan buckets. The
   // person bucket isn't used directly here — PeopleTab does its own
@@ -108,6 +121,26 @@ const MemoryPage: React.FC = () => {
 
         <section className="p-10 flex-1">
           <div className="max-w-4xl mx-auto space-y-8">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                Scope
+              </span>
+              <select
+                value={projectFilter ?? ""}
+                onChange={(e) =>
+                  setProjectFilter(e.target.value ? Number(e.target.value) : null)
+                }
+                className="bg-card border border-border/20 rounded-lg px-3 py-1.5 text-xs font-medium text-foreground focus:outline-none focus:border-primary/40"
+              >
+                <option value="">All memories</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div
               className="flex gap-2 border-b border-border/10 pb-2"
               role="tablist"

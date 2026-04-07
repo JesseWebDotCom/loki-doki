@@ -47,7 +47,7 @@ async def persist_long_term_item(
     subject_type = item.get("subject_type", "self")
     subject_name = (item.get("subject_name") or "").strip()
 
-    person_id: int | None = None
+    person_id: int  = None
     if subject_type == "person" and subject_name:
         person_id = await memory.find_or_create_person(user_id, subject_name)
         fact_subject = subject_name.lower()

@@ -32,6 +32,11 @@ USER_COLUMN_MIGRATIONS = (
 FACT_COLUMN_MIGRATIONS = (
     ("subject_type", "TEXT NOT NULL DEFAULT 'self'"),
     ("subject_ref_id", "INTEGER"),
+    ("project_id", "INTEGER"),
+)
+
+SESSION_COLUMN_MIGRATIONS = (
+    ("project_id", "INTEGER"),
 )
 
 RELATIONSHIP_COLUMN_MIGRATIONS = (
@@ -79,6 +84,15 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
     _add_columns(conn, "users", USER_COLUMN_MIGRATIONS)
     _add_columns(conn, "facts", FACT_COLUMN_MIGRATIONS)
     _add_columns(conn, "relationships", RELATIONSHIP_COLUMN_MIGRATIONS)
+    _add_columns(conn, "sessions", SESSION_COLUMN_MIGRATIONS)
+    # Indexes that depend on migrated columns must run AFTER _add_columns
+    # so pre-projects DBs can upgrade without crashing on missing columns.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_facts_project ON facts(project_id)"
+    )
     conn.executescript(FTS_SCHEMA)
     if vec_loaded:
         try:

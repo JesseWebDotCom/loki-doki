@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from typing import Optional
 
 from fastapi import Cookie, Depends, HTTPException, status
 
@@ -18,7 +19,7 @@ async def get_memory() -> MemoryProvider:
 
 
 async def current_user(
-    lokidoki_session: str | None = Cookie(default=None),
+    lokidoki_session: Optional[str] = Cookie(default=None),
     memory: MemoryProvider = Depends(get_memory),
 ) -> User:
     # If no users exist, the bootstrap gate middleware should have

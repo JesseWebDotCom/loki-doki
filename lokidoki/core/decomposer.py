@@ -134,8 +134,8 @@ class Decomposer:
     async def decompose(
         self,
         user_input: str,
-        chat_context: list[dict] | None = None,
-        available_intents: list[str] | None = None,
+        chat_context: list[dict]  = None,
+        available_intents: list[str]  = None,
     ) -> DecompositionResult:
         """Decompose user input into structured Asks via the LLM."""
         prompt = self._build_prompt(user_input, chat_context, available_intents)
@@ -201,8 +201,8 @@ class Decomposer:
     def _build_prompt(
         self,
         user_input: str,
-        chat_context: list[dict] | None,
-        available_intents: list[str] | None,
+        chat_context: list[dict] ,
+        available_intents: list[str] ,
     ) -> str:
         parts = [DECOMPOSITION_PROMPT]
 

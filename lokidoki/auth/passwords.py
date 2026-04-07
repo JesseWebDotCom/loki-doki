@@ -12,6 +12,7 @@ import time
 from collections import defaultdict, deque
 
 import bcrypt
+from typing import Optional, Union, List, Dict
 
 # We use the ``bcrypt`` package directly rather than passlib's CryptContext
 # because passlib's runtime version probe trips on bcrypt 5.x and emits a
@@ -37,7 +38,7 @@ def hash_secret(plain: str) -> str:
     return bcrypt.hashpw(_to_bytes(plain), bcrypt.gensalt()).decode("utf-8")
 
 
-def verify_secret(plain: str, hashed: str | None) -> bool:
+def verify_secret(plain: str, hashed: Optional[str]) -> bool:
     if not hashed:
         return False
     try:
@@ -74,7 +75,7 @@ async def check_rate_limit(user_id: int) -> bool:
         return True
 
 
-def reset_rate_limit(user_id: int | None = None) -> None:
+def reset_rate_limit(user_id: Optional[int] = None) -> None:
     """Test hook."""
     if user_id is None:
         _attempts.clear()

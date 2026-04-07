@@ -14,14 +14,14 @@ from __future__ import annotations
 import json
 import logging
 import time
-
-logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional, Union, List, Dict
 
 from lokidoki.core.compression import compress_text
 from lokidoki.core.decomposer import Ask, Decomposer, DecompositionResult
 from lokidoki.core.inference import InferenceClient, OllamaError
+
+logger = logging.getLogger(__name__)
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
 from lokidoki.core.orchestrator_memory import persist_long_term_item
@@ -59,9 +59,9 @@ class Orchestrator:
         decomposer: Decomposer,
         inference_client: InferenceClient,
         memory: MemoryProvider,
-        model_manager: ModelManager | None = None,
-        registry: SkillRegistry | None = None,
-        skill_executor: SkillExecutor | None = None,
+        model_manager: ModelManager  = None,
+        registry: SkillRegistry  = None,
+        skill_executor: SkillExecutor  = None,
         admin_prompt: str = "",
         user_prompt: str = "",
     ):
@@ -84,7 +84,8 @@ class Orchestrator:
         *,
         user_id: int,
         session_id: int,
-        available_intents: list[str] | None = None,
+        project_id: Optional[int] = None,
+        available_intents: Optional[list[str]] = None,
     ) -> AsyncGenerator[PipelineEvent, None]:
         """Run the full pipeline for one turn, persisting to memory as we go."""
         fast_model = self._model_manager.policy.fast_model
@@ -99,7 +100,7 @@ class Orchestrator:
             user_id=user_id, session_id=session_id, limit=5
         )
         relevant_facts = await self._memory.search_facts(
-            user_id=user_id, query=user_input, top_k=5
+            user_id=user_id, query=user_input, top_k=5, project_id=project_id
         )
         yield PipelineEvent(
             phase="augmentation",
@@ -194,6 +195,12 @@ class Orchestrator:
         sentiment = (decomposition.short_term_memory or {}).get("sentiment", "")
         tone = "empathetic" if sentiment in ("worried", "frustrated", "sad") else "friendly"
 
+        project_prompt = ""
+        if project_id:
+            project = await self._memory.get_project(user_id, project_id)
+            if project:
+                project_prompt = project.get("prompt") or ""
+
         prompt = build_synthesis_prompt(
             tone=tone,
             context=compressed_context,
@@ -201,6 +208,7 @@ class Orchestrator:
             query=user_input,
             user_prompt=self._user_prompt,
             admin_prompt=self._admin_prompt,
+            project_prompt=project_prompt,
         )
 
         response = ""
@@ -229,6 +237,10 @@ class Orchestrator:
             user_id=user_id, session_id=session_id, role="assistant", content=response
         )
 
+        # ---- post-process -----------------------------------------------
+        if not recent:  # First turn auto-naming
+            await self._auto_name_session(user_id, session_id, user_input)
+
         yield PipelineEvent(
             phase="synthesis",
             status="done",
@@ -241,3 +253,24 @@ class Orchestrator:
                 "platform": self._model_manager.policy.platform,
             },
         )
+
+    async def _auto_name_session(self, user_id: int, session_id: int, first_input: str):
+        """Generate a 3-5 word title for the session based on the first prompt."""
+        prompt = (
+            f"Summarize the following short user prompt into a 3-5 word title. "
+            f"Output ONLY the title, no quotes or preamble.\n\n"
+            f"PROMPT: {first_input}\n"
+            f"TITLE:"
+        )
+        try:
+            title = await self._inference.generate(
+                model=self._model_manager.policy.fast_model,
+                prompt=prompt,
+                num_predict=20,
+                temperature=0.3,
+            )
+            title = title.strip().strip('"').strip("'")
+            if title:
+                await self._memory.update_session_title(user_id, session_id, title)
+        except Exception:
+            logger.exception("[orchestrator] auto-naming failed")

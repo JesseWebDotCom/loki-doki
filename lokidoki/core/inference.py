@@ -1,5 +1,6 @@
+from __future__ import annotations
 import json
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional, Union
 
 import httpx
 
@@ -20,11 +21,11 @@ class InferenceClient:
         self,
         model: str,
         prompt: str,
-        keep_alive: int | str = -1,
+        keep_alive: Union[int, str] = -1,
         json_mode: bool = False,
-        num_predict: int | None = None,
-        format_schema: dict | None = None,
-        temperature: float | None = None,
+        num_predict: Optional[int] = None,
+        format_schema: Optional[dict] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         """Send a prompt to Ollama and return the response text.
 
@@ -79,9 +80,9 @@ class InferenceClient:
         self,
         model: str,
         prompt: str,
-        keep_alive: int | str = -1,
-        num_predict: int | None = None,
-        temperature: float | None = None,
+        keep_alive: Union[int, str] = -1,
+        num_predict: Optional[int] = None,
+        temperature: Optional[float] = None,
     ) -> AsyncIterator[str]:
         """Stream tokens from Ollama as they are generated.
 
