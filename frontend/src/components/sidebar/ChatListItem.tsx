@@ -12,21 +12,23 @@ interface ChatListItemProps {
   id: string;
   title?: string;
   isActive: boolean;
-  onSelect: (id: string) => void;
-  onDelete: (id: string) => void;
-  onRename: (id: string, newTitle: string) => void;
-  onMove: (id: string, projectId: number | null) => void;
+  onSelect?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onRename?: (id: string, newTitle: string) => void;
+  onMove?: (id: string, projectId: number | null) => void;
   projects: any[];
 }
+
+const NOOP = () => {};
 
 const ChatListItem: React.FC<ChatListItemProps> = ({
   id,
   title,
   isActive,
-  onSelect,
-  onDelete,
-  onRename,
-  onMove,
+  onSelect = NOOP,
+  onDelete = NOOP,
+  onRename = NOOP,
+  onMove = NOOP,
   projects,
 }) => {
   const [isEditing, setIsEditing] = useState(false);

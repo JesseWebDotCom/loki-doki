@@ -80,6 +80,29 @@
   --sidebar-ring: oklch(0.59 0.11 225.82);
 }
 
+/* Project swatches — single source of truth for the project icon
+   palette. ProjectModal / ProjectListItem / ProjectLandingView all
+   read these via var(--ld-swatch-N). Storage saves the token name
+   (e.g. "swatch-3"), so re-theming the app re-tints every project.
+
+   These live in :root (NOT @theme) because Tailwind v4 only emits
+   @theme entries that match a known namespace; arbitrary custom
+   properties get dropped from the compiled CSS. */
+:root {
+  --ld-swatch-1:  oklch(0.62 0.20 264);  /* blue       */
+  --ld-swatch-2:  oklch(0.55 0.20 290);  /* purple     */
+  --ld-swatch-3:  oklch(0.65 0.22 330);  /* magenta    */
+  --ld-swatch-4:  oklch(0.62 0.23 020);  /* red        */
+  --ld-swatch-5:  oklch(0.70 0.18 050);  /* orange     */
+  --ld-swatch-6:  oklch(0.78 0.16 090);  /* amber      */
+  --ld-swatch-7:  oklch(0.75 0.18 140);  /* lime       */
+  --ld-swatch-8:  oklch(0.65 0.18 160);  /* emerald    */
+  --ld-swatch-9:  oklch(0.70 0.13 200);  /* teal       */
+  --ld-swatch-10: oklch(0.65 0.15 230);  /* sky        */
+  --ld-swatch-11: oklch(0.55 0.10 280);  /* indigo     */
+  --ld-swatch-12: oklch(0.60 0.02 280);  /* slate      */
+}
+
 @theme {
   --color-onyx: #0c0d0e;
   --color-onyx-1: #131416;
@@ -87,7 +110,8 @@
 
   --color-electric: #3b82f6;
   --color-material-purple: oklch(0.55 0.20 290);
-  
+
+
   --font-sans: var(--font-primary);
   --font-roboto: Roboto, Inter, system-ui, sans-serif;
   --font-merriweather: Merriweather, serif;

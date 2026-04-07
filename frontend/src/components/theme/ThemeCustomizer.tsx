@@ -119,7 +119,7 @@ const ThemeCustomizer: React.FC = () => {
         {pickerOpen && createPortal(
           <div 
             id="palette-portal"
-            className="fixed z-[100] w-[480px] bg-card/95 backdrop-blur-2xl border border-border/10 rounded-[2rem] p-8 shadow-m4 animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-300 origin-bottom"
+            className="fixed z-[100] w-[480px] bg-card/95 backdrop-blur-2xl border border-border/10 rounded-[2rem] p-8 shadow-m4"
             style={{ 
                 bottom: `${pickerAnchor.bottom}px`, 
                 left: `${Math.max(12, Math.min(window.innerWidth - 492, pickerAnchor.left - 240))}px`
@@ -210,7 +210,7 @@ const ThemeCustomizer: React.FC = () => {
         {radiusOpen && createPortal(
           <div 
             id="radius-portal"
-            className="fixed z-[100] w-48 bg-card/95 backdrop-blur-2xl border border-border/10 rounded-2xl p-2 shadow-m4 animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-300 origin-bottom"
+            className="fixed z-[100] w-48 bg-card/95 backdrop-blur-2xl border border-border/10 rounded-2xl p-2 shadow-m4"
             style={{ 
                 bottom: `${radiusAnchor.bottom}px`, 
                 left: `${Math.max(12, Math.min(window.innerWidth - 204, radiusAnchor.left - 96))}px`
@@ -266,7 +266,7 @@ const ThemeCustomizer: React.FC = () => {
         {styleOpen && createPortal(
           <div 
             id="style-portal"
-            className="fixed z-[100] w-48 bg-card/95 backdrop-blur-2xl border border-border/10 rounded-2xl p-2 shadow-m4 animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-300 origin-bottom"
+            className="fixed z-[100] w-48 bg-card/95 backdrop-blur-2xl border border-border/10 rounded-2xl p-2 shadow-m4"
             style={{ 
                 bottom: `${styleAnchor.bottom}px`, 
                 left: `${Math.max(12, Math.min(window.innerWidth - 204, styleAnchor.left - 96))}px`

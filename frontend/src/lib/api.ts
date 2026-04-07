@@ -203,22 +203,33 @@ export async function updateSession(
   return (await r.json()) as { status: string };
 }
 
-export async function getProjects() {
-  return getJson<{ projects: any[] }>("/projects");
-}
-
-export async function createProject(project: {
+export interface ProjectRecord {
+  id: number;
   name: string;
   description: string;
   prompt: string;
-}) {
+  icon: string;
+  icon_color: string;
+  created_at?: string;
+}
+
+export interface ProjectInput {
+  name: string;
+  description: string;
+  prompt: string;
+  icon: string;
+  icon_color: string;
+}
+
+export async function getProjects() {
+  return getJson<{ projects: ProjectRecord[] }>("/projects");
+}
+
+export async function createProject(project: ProjectInput) {
   return postJson<{ id: number; status: string }>("/projects", project);
 }
 
-export async function updateProject(
-  id: number,
-  project: { name: string; description: string; prompt: string },
-) {
+export async function updateProject(id: number, project: ProjectInput) {
   const r = await fetch(`${API_BASE}/projects/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

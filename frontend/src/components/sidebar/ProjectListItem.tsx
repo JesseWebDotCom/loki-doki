@@ -1,5 +1,5 @@
 import React from 'react';
-import { Folder, MoreVertical, Trash2, Edit3 } from 'lucide-react';
+import { MoreVertical, Trash2, Edit3 } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -7,18 +7,14 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { getIconComponent, swatchVar } from '@/lib/projectPalette';
+import type { ProjectRecord } from '@/lib/api';
 
 interface ProjectListItemProps {
-  project: {
-    id: number;
-    name: string;
-    description: string;
-    prompt: string;
-  };
+  project: ProjectRecord;
   isActive: boolean;
   onSelect: (id: number) => void;
-  onEdit: (project: any) => void;
+  onEdit: (project: ProjectRecord) => void;
   onDelete: (id: number) => void;
 }
 
@@ -32,9 +28,6 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
   return (
     <ContextMenu>
       <ContextMenuTrigger>
-        <TooltipProvider delayDuration={300}>
-        <Tooltip>
-          <TooltipTrigger asChild>
             <div
               onClick={() => onSelect(project.id)}
               className={cn(
@@ -45,20 +38,24 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
               )}
             >
               <div className="flex items-center gap-2 overflow-hidden flex-1">
-                <Folder size={14} className={isActive ? "text-primary" : "text-muted-foreground/50"} />
+                {(() => {
+                  const Icon = getIconComponent(project.icon);
+                  return (
+                    <div
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
+                      style={{
+                        color: swatchVar(project.icon_color),
+                        backgroundColor: `color-mix(in oklch, ${swatchVar(project.icon_color)} 14%, transparent)`,
+                      }}
+                    >
+                      <Icon size={12} />
+                    </div>
+                  );
+                })()}
                 <span className="truncate font-bold">{project.name}</span>
               </div>
               <MoreVertical size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
             </div>
-          </TooltipTrigger>
-          {project.description && (
-            <TooltipContent side="right" className="max-w-[200px]">
-              <p className="font-bold mb-1">{project.name}</p>
-              <p className="text-xs">{project.description}</p>
-            </TooltipContent>
-          )}
-        </Tooltip>
-        </TooltipProvider>
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onClick={() => onEdit(project)}>

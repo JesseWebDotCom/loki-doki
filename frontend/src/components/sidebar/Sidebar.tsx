@@ -29,9 +29,23 @@ interface SidebarProps {
   onNewSession?: (projectId?: number) => void;
   onSelectSession?: (sessionId: string) => void;
   currentSessionId?: string;
+  activeProjectId?: number | null;
+  onSelectProject?: (projectId: number | null) => void;
+  projectsVersion?: number;
+  onProjectsChanged?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ phase, pipeline, onNewSession, onSelectSession, currentSessionId }) => {
+const Sidebar: React.FC<SidebarProps> = ({
+  phase,
+  pipeline,
+  onNewSession,
+  onSelectSession,
+  currentSessionId,
+  activeProjectId: activeProjectIdProp,
+  onSelectProject,
+  projectsVersion = 0,
+  onProjectsChanged,
+}) => {
   const location = useLocation();
   const isChat = location.pathname === '/';
   const isSettings = location.pathname === '/settings';
@@ -56,7 +70,7 @@ const Sidebar: React.FC<SidebarProps> = ({ phase, pipeline, onNewSession, onSele
 
   useEffect(() => {
     loadData();
-  }, [isChat]);
+  }, [isChat, projectsVersion]);
 
   const loadData = async () => {
     try {
@@ -69,7 +83,7 @@ const Sidebar: React.FC<SidebarProps> = ({ phase, pipeline, onNewSession, onSele
     }
   };
 
-  const handleCreateProject = async (data: { name: string; description: string; prompt: string }) => {
+  const handleCreateProject = async (data: any) => {
     if (editingProject) {
       await updateProject(editingProject.id, data);
     } else {
@@ -77,12 +91,14 @@ const Sidebar: React.FC<SidebarProps> = ({ phase, pipeline, onNewSession, onSele
     }
     setEditingProject(null);
     loadData();
+    onProjectsChanged?.();
   };
 
   const handleDeleteProject = async (id: number) => {
     if (confirm('Are you sure you want to delete this project? Everything inside will be moved out.')) {
       await deleteProject(id);
       loadData();
+      onProjectsChanged?.();
     }
   };
 
@@ -102,7 +118,14 @@ const Sidebar: React.FC<SidebarProps> = ({ phase, pipeline, onNewSession, onSele
     loadData();
   };
 
-  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
+  // Either driven by parent (ChatPage lifts it for the landing view) or
+  // managed locally (e.g. on the Memory page where Sidebar is reused).
+  const [localActiveProjectId, setLocalActiveProjectId] = useState<number | null>(null);
+  const activeProjectId = activeProjectIdProp ?? localActiveProjectId;
+  const setActiveProjectId = (id: number | null) => {
+    if (onSelectProject) onSelectProject(id);
+    else setLocalActiveProjectId(id);
+  };
 
   // Global chats are those without a project_id
   const globalSessions = sessions.filter(s => !s.project_id);
@@ -199,12 +222,6 @@ const Sidebar: React.FC<SidebarProps> = ({ phase, pipeline, onNewSession, onSele
                   />
                   {isExpanded && (
                     <div className="ml-4 pl-2 border-l border-border/20 space-y-1 mt-1">
-                      <button 
-                         onClick={() => onNewSession?.(project.id)}
-                         className="flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-[10px] font-bold text-primary bg-primary/5 hover:bg-primary/10 transition-all border border-transparent hover:border-primary/20"
-                      >
-                        <Plus size={10} /> New Chat in Project
-                      </button>
                       {projectChats.map(session => (
                         <ChatListItem 
                           key={session.id}

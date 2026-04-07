@@ -127,11 +127,24 @@ class MemoryProvider:
     # ---- projects --------------------------------------------------------
 
     async def create_project(
-        self, user_id: int, name: str, description: str = "", prompt: str = ""
+        self,
+        user_id: int,
+        name: str,
+        description: str = "",
+        prompt: str = "",
+        icon: str = "Folder",
+        icon_color: str = "swatch-1",
     ) -> int:
         async with self._lock:
             return await asyncio.to_thread(
-                sql.create_project, self._conn, user_id, name, description, prompt
+                sql.create_project,
+                self._conn,
+                user_id,
+                name,
+                description,
+                prompt,
+                icon,
+                icon_color,
             )
 
     async def list_projects(self, user_id: int) -> list[dict]:
@@ -153,6 +166,8 @@ class MemoryProvider:
         name: str,
         description: str,
         prompt: str,
+        icon: str = "Folder",
+        icon_color: str = "swatch-1",
     ) -> bool:
         async with self._lock:
             return await asyncio.to_thread(
@@ -163,6 +178,8 @@ class MemoryProvider:
                 name,
                 description,
                 prompt,
+                icon,
+                icon_color,
             )
 
     async def delete_project(self, user_id: int, project_id: int) -> bool:

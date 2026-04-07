@@ -39,6 +39,14 @@ SESSION_COLUMN_MIGRATIONS = (
     ("project_id", "INTEGER"),
 )
 
+# Projects gain icon + icon_color so the UI can render a per-project
+# avatar. icon_color stores a CSS-var token (e.g. "swatch-1") rather
+# than a raw hex so theming controls the actual color.
+PROJECT_COLUMN_MIGRATIONS = (
+    ("icon", "TEXT NOT NULL DEFAULT 'Folder'"),
+    ("icon_color", "TEXT NOT NULL DEFAULT 'swatch-1'"),
+)
+
 RELATIONSHIP_COLUMN_MIGRATIONS = (
     ("confidence", "REAL NOT NULL DEFAULT 0.6"),
 )
@@ -85,6 +93,9 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
     _add_columns(conn, "facts", FACT_COLUMN_MIGRATIONS)
     _add_columns(conn, "relationships", RELATIONSHIP_COLUMN_MIGRATIONS)
     _add_columns(conn, "sessions", SESSION_COLUMN_MIGRATIONS)
+    # `projects` table may not exist yet on very old DBs; CORE_SCHEMA
+    # creates it idempotently above, so this ALTER is always safe.
+    _add_columns(conn, "projects", PROJECT_COLUMN_MIGRATIONS)
     # Indexes that depend on migrated columns must run AFTER _add_columns
     # so pre-projects DBs can upgrade without crashing on missing columns.
     conn.execute(

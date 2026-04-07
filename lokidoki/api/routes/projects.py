@@ -14,12 +14,16 @@ class ProjectCreate(BaseModel):
     name: str
     description: str = ""
     prompt: str = ""
+    icon: str = "Folder"
+    icon_color: str = "swatch-1"
 
 
 class ProjectUpdate(BaseModel):
     name: str
     description: str
     prompt: str
+    icon: str = "Folder"
+    icon_color: str = "swatch-1"
 
 
 @router.post("")
@@ -29,7 +33,12 @@ async def create_project(
     memory: MemoryProvider = Depends(get_memory),
 ):
     project_id = await memory.create_project(
-        user.id, request.name, request.description, request.prompt
+        user.id,
+        request.name,
+        request.description,
+        request.prompt,
+        request.icon,
+        request.icon_color,
     )
     return {"id": project_id, "status": "ok"}
 
@@ -63,7 +72,13 @@ async def update_project(
     memory: MemoryProvider = Depends(get_memory),
 ):
     updated = await memory.update_project(
-        user.id, project_id, request.name, request.description, request.prompt
+        user.id,
+        project_id,
+        request.name,
+        request.description,
+        request.prompt,
+        request.icon,
+        request.icon_color,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="project_not_found")

@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     prompt TEXT NOT NULL DEFAULT '',
+    icon TEXT NOT NULL DEFAULT 'Folder',           -- lucide-react icon name
+    icon_color TEXT NOT NULL DEFAULT 'swatch-1',   -- token from --ld-swatch-N
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_user_id);

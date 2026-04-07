@@ -22,6 +22,30 @@ class TestProjectCRUD:
         assert len(projects) == 1
         assert projects[0]["name"] == "Alpha"
         assert projects[0]["prompt"] == "system prompt"
+        # defaults populate icon + icon_color
+        assert projects[0]["icon"] == "Folder"
+        assert projects[0]["icon_color"] == "swatch-1"
+
+    @pytest.mark.anyio
+    async def test_create_with_icon_and_color(self, memory):
+        uid = await memory.get_or_create_user("default")
+        pid = await memory.create_project(
+            uid, "Alpha", "d", "p", icon="Briefcase", icon_color="swatch-5"
+        )
+        got = await memory.get_project(uid, pid)
+        assert got["icon"] == "Briefcase"
+        assert got["icon_color"] == "swatch-5"
+
+    @pytest.mark.anyio
+    async def test_update_persists_icon_and_color(self, memory):
+        uid = await memory.get_or_create_user("default")
+        pid = await memory.create_project(uid, "Alpha", "", "")
+        await memory.update_project(
+            uid, pid, "Alpha", "", "", icon="Rocket", icon_color="swatch-7"
+        )
+        got = await memory.get_project(uid, pid)
+        assert got["icon"] == "Rocket"
+        assert got["icon_color"] == "swatch-7"
 
     @pytest.mark.anyio
     async def test_get_project(self, memory):

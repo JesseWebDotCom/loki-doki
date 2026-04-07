@@ -1,9 +1,25 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Send } from 'lucide-react';
 import Sidebar from '../components/sidebar/Sidebar';
 import ChatWindow from '../components/chat/ChatWindow';
-import { sendChatMessage, getSessionMessages } from '../lib/api';
-import type { PipelineEvent, DecompositionData, SynthesisData, SourceInfo, RoutingData } from '../lib/api';
+import ProjectLandingView from '../components/projects/ProjectLandingView';
+import ProjectModal from '../components/sidebar/ProjectModal';
+import {
+  sendChatMessage,
+  getSessionMessages,
+  getProjects,
+  getSessions,
+  updateProject,
+} from '../lib/api';
+import type {
+  PipelineEvent,
+  DecompositionData,
+  SynthesisData,
+  SourceInfo,
+  RoutingData,
+  ProjectRecord,
+  ProjectInput,
+} from '../lib/api';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -40,6 +56,50 @@ const ChatPage: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [projectChats, setProjectChats] = useState<any[]>([]);
+  const [isEditingProject, setIsEditingProject] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0);
+
+  const activeProject = useMemo<ProjectRecord | null>(
+    () => (activeProjectId ? projects.find((p) => p.id === activeProjectId) || null : null),
+    [activeProjectId, projects],
+  );
+
+  // Fetch projects + project-scoped sessions whenever the project changes
+  // or after a save bumps dataVersion.
+  useEffect(() => {
+    (async () => {
+      try {
+        const pRes = await getProjects();
+        setProjects(pRes.projects);
+      } catch {
+        // backend offline — render empties
+      }
+    })();
+  }, [dataVersion]);
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      setProjectChats([]);
+      return;
+    }
+    (async () => {
+      try {
+        const s = await getSessions();
+        setProjectChats((s.details || []).filter((c: any) => c.project_id === activeProjectId));
+      } catch {
+        setProjectChats([]);
+      }
+    })();
+  }, [activeProjectId, dataVersion, currentSessionId]);
+
+  const handleSaveProject = async (data: ProjectInput) => {
+    if (!activeProject) return;
+    await updateProject(activeProject.id, data);
+    setIsEditingProject(false);
+    setDataVersion((v) => v + 1);
+  };
 
   const handleEvent = useCallback((event: PipelineEvent) => {
     setPipeline(prev => {
@@ -146,10 +206,29 @@ const ChatPage: React.FC = () => {
         onNewSession={handleNewSession}
         onSelectSession={handleSelectSession}
         currentSessionId={currentSessionId}
+        activeProjectId={activeProjectId}
+        onSelectProject={(id) => {
+          setActiveProjectId(id);
+          // Switching project view clears the active chat so the
+          // landing view (or new-chat flow) takes over.
+          setCurrentSessionId(undefined);
+        }}
+        projectsVersion={dataVersion}
+        onProjectsChanged={() => setDataVersion((v) => v + 1)}
       />
 
       <main className="flex-1 flex flex-col relative bg-background shadow-inner">
-        <ChatWindow messages={messages} pipeline={pipeline} />
+        {activeProject && !currentSessionId ? (
+          <ProjectLandingView
+            project={activeProject}
+            chats={projectChats}
+            onNewChat={() => handleNewSession(activeProject.id)}
+            onEditProject={() => setIsEditingProject(true)}
+            onSelectChat={handleSelectSession}
+          />
+        ) : (
+          <ChatWindow messages={messages} pipeline={pipeline} />
+        )}
 
         <div className="p-10 bg-background/50 backdrop-blur-xl border-t border-border/20">
           <div className="max-w-4xl mx-auto relative group">
@@ -180,6 +259,14 @@ const ChatPage: React.FC = () => {
           </div>
         </div>
       </main>
+
+      <ProjectModal
+        isOpen={isEditingProject}
+        onClose={() => setIsEditingProject(false)}
+        onSubmit={handleSaveProject}
+        initialData={activeProject || null}
+        title="Edit Project"
+      />
     </div>
   );
 };

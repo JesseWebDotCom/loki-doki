@@ -213,17 +213,22 @@ def search_facts(
     ).fetchall()
 
 
+_PROJECT_COLS = "id, name, description, prompt, icon, icon_color, created_at"
+
+
 def create_project(
     conn: sqlite3.Connection,
     user_id: int,
     name: str,
     description: str = "",
     prompt: str = "",
+    icon: str = "Folder",
+    icon_color: str = "swatch-1",
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO projects (owner_user_id, name, description, prompt) "
-        "VALUES (?, ?, ?, ?)",
-        (user_id, name, description, prompt),
+        "INSERT INTO projects (owner_user_id, name, description, prompt, icon, icon_color) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, name, description, prompt, icon, icon_color),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -231,7 +236,7 @@ def create_project(
 
 def list_projects(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT id, name, description, prompt, created_at FROM projects "
+        f"SELECT {_PROJECT_COLS} FROM projects "
         "WHERE owner_user_id = ? ORDER BY name ASC",
         (user_id,),
     ).fetchall()
@@ -241,7 +246,7 @@ def get_project(
     conn: sqlite3.Connection, user_id: int, project_id: int
 ) -> Optional[sqlite3.Row]:
     return conn.execute(
-        "SELECT id, name, description, prompt, created_at FROM projects "
+        f"SELECT {_PROJECT_COLS} FROM projects "
         "WHERE id = ? AND owner_user_id = ?",
         (project_id, user_id),
     ).fetchone()
@@ -254,11 +259,14 @@ def update_project(
     name: str,
     description: str,
     prompt: str,
+    icon: str = "Folder",
+    icon_color: str = "swatch-1",
 ) -> bool:
     cur = conn.execute(
-        "UPDATE projects SET name = ?, description = ?, prompt = ? "
+        "UPDATE projects SET name = ?, description = ?, prompt = ?, "
+        "icon = ?, icon_color = ? "
         "WHERE id = ? AND owner_user_id = ?",
-        (name, description, prompt, project_id, user_id),
+        (name, description, prompt, icon, icon_color, project_id, user_id),
     )
     conn.commit()
     return cur.rowcount > 0
