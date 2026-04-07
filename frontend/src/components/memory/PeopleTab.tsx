@@ -10,6 +10,7 @@ import React, { useMemo, useState } from "react";
 import { User, ChevronDown, ChevronRight, Edit3, Trash2, GitMerge, Plus } from "lucide-react";
 import type { Fact, Person, Relationship, AmbiguityGroup } from "../../lib/api";
 import { FactRow } from "./FactRow";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 export interface PeopleTabProps {
   people: Person[];
@@ -66,6 +67,7 @@ export const PeopleTab: React.FC<PeopleTabProps> = ({
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [newPersonName, setNewPersonName] = useState("");
+  const [personPendingDelete, setPersonPendingDelete] = useState<Person | null>(null);
 
   const ambiguousFacts = useMemo(
     () => facts.filter((f) => f.status === "ambiguous"),
@@ -219,11 +221,7 @@ export const PeopleTab: React.FC<PeopleTabProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => {
-                        if (confirm(`Delete ${person.name}? Their facts will cascade.`)) {
-                          onDeletePerson(person.id);
-                        }
-                      }}
+                      onClick={() => setPersonPendingDelete(person)}
                       className="text-[11px] flex items-center gap-1 px-2 py-1 rounded-md bg-red-400/10 border border-red-400/30 text-red-400 hover:bg-red-400/20"
                     >
                       <Trash2 size={11} /> Delete
@@ -254,6 +252,23 @@ export const PeopleTab: React.FC<PeopleTabProps> = ({
           );
         })
       )}
+
+      <ConfirmDialog
+        open={!!personPendingDelete}
+        title="Delete person?"
+        description={
+          personPendingDelete
+            ? `${personPendingDelete.name} and all of their facts will be deleted. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (personPendingDelete) onDeletePerson(personPendingDelete.id);
+          setPersonPendingDelete(null);
+        }}
+        onCancel={() => setPersonPendingDelete(null)}
+      />
     </div>
   );
 };

@@ -12,6 +12,7 @@ import React, { useState } from "react";
 import { Check, X, Edit3, Trash2, AlertTriangle } from "lucide-react";
 import type { Fact, Person } from "../../lib/api";
 import { ConfidenceBar } from "./ConfidenceBar";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 export interface FactRowProps {
   fact: Fact;
@@ -38,6 +39,7 @@ export const FactRow: React.FC<FactRowProps> = ({
 }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(fact.value ?? fact.fact ?? "");
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const id = fact.id ?? 0;
   const eff =
@@ -166,15 +168,26 @@ export const FactRow: React.FC<FactRowProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (confirm("Delete this fact permanently?")) onDelete(id);
-          }}
+          onClick={() => setConfirmOpen(true)}
           title="Delete"
           className="p-1 rounded hover:bg-red-400/10 text-red-400"
         >
           <Trash2 size={13} />
         </button>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete fact?"
+        description="This fact will be permanently removed. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          setConfirmOpen(false);
+          onDelete(id);
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 };

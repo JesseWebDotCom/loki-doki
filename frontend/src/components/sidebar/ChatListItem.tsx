@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { MessageSquare, MoreVertical, Trash2, Edit3, FolderInput } from 'lucide-react';
 import {
   ContextMenu,
@@ -6,6 +7,12 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 interface ChatListItemProps {
@@ -33,6 +40,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(title || id);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleRenameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,13 +48,64 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
     setIsEditing(false);
   };
 
+  // Stop React-synthetic-event propagation so menu clicks don't also
+  // trigger the row's onClick (which would call onSelect and navigate
+  // away from the rename input). Radix portals don't bubble in the DOM
+  // but React synthetic events still bubble through the component tree.
+  const handleRename = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditTitle(title || id);
+    // Defer state flip past Radix's "restore focus to trigger" step on
+    // menu close. Without this, the trigger button receives focus AFTER
+    // the input mounts, which immediately blurs and cancels the rename.
+    requestAnimationFrame(() => setIsEditing(true));
+  };
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmOpen(true);
+  };
+  const handleMove = (e: React.MouseEvent, projectId: number) => {
+    e.stopPropagation();
+    onMove(id, projectId);
+  };
+
+  const renderItems = (Item: React.ElementType) => (
+    <>
+      <Item onClick={handleRename}>
+        <Edit3 className="mr-2 h-3.5 w-3.5" />
+        <span>Rename</span>
+      </Item>
+      <Item className="text-destructive focus:text-destructive" onClick={handleDelete}>
+        <Trash2 className="mr-2 h-3.5 w-3.5" />
+        <span>Delete</span>
+      </Item>
+      {projects.length > 0 && (
+        <>
+          <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-t mt-1">
+            Move to Project
+          </div>
+          {projects.map((p) => (
+            <Item key={p.id} onClick={(e: React.MouseEvent) => handleMove(e, p.id)}>
+              <FolderInput className="mr-2 h-3.5 w-3.5" />
+              <span>{p.name}</span>
+            </Item>
+          ))}
+          <Item onClick={(e: React.MouseEvent) => handleMove(e, 0)}>
+            <FolderInput className="mr-2 h-3.5 w-3.5" />
+            <span>No Project</span>
+          </Item>
+        </>
+      )}
+    </>
+  );
+
   return (
     <ContextMenu>
-      <ContextMenuTrigger>
+      <ContextMenuTrigger asChild>
         <div
           onClick={() => !isEditing && onSelect(id)}
           className={cn(
-            "group flex items-center justify-between px-3 py-2 rounded-lg text-xs cursor-pointer transition-all border",
+            "group flex items-center justify-between pl-3 pr-1 py-2 rounded-lg text-xs cursor-pointer transition-all border",
             isActive
               ? "bg-primary/10 text-primary border-primary/20 shadow-sm"
               : "text-muted-foreground hover:bg-card/50 border-transparent"
@@ -55,12 +114,29 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
           <div className="flex items-center gap-2 overflow-hidden flex-1">
             <MessageSquare size={14} className={isActive ? "text-primary" : "text-muted-foreground/50"} />
             {isEditing ? (
-              <form onSubmit={handleRenameSubmit} className="flex-1">
+              <form onSubmit={handleRenameSubmit} className="flex-1" onClick={(e) => e.stopPropagation()}>
                 <input
                   autoFocus
+                  ref={(el) => {
+                    if (el && !el.dataset.selected) {
+                      el.select();
+                      el.dataset.selected = 'true';
+                    }
+                  }}
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  onBlur={() => setIsEditing(false)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setIsEditing(false);
+                  }}
+                  onBlur={() => {
+                    // Commit on blur (clicking elsewhere) so the user
+                    // doesn't lose their edit silently.
+                    if (editTitle.trim() && editTitle !== title) {
+                      onRename(id, editTitle.trim());
+                    }
+                    setIsEditing(false);
+                  }}
                   className="bg-transparent border-none outline-none w-full text-xs text-foreground"
                 />
               </form>
@@ -68,38 +144,42 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
               <span className="truncate font-medium">{title || id}</span>
             )}
           </div>
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity ml-2">
-            <MoreVertical size={12} className="text-muted-foreground" />
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                className="opacity-60 hover:opacity-100 data-[state=open]:opacity-100 transition-opacity p-1 rounded hover:bg-card/80 text-muted-foreground hover:text-primary"
+                aria-label="Chat actions"
+              >
+                <MoreVertical size={12} className="text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              onClick={(e) => e.stopPropagation()}
+              onCloseAutoFocus={(e) => e.preventDefault()}
+            >
+              {renderItems(DropdownMenuItem)}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onClick={() => setIsEditing(true)}>
-          <Edit3 className="mr-2 h-3.5 w-3.5" />
-          <span>Rename</span>
-        </ContextMenuItem>
-        <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onDelete(id)}>
-          <Trash2 className="mr-2 h-3.5 w-3.5" />
-          <span>Delete</span>
-        </ContextMenuItem>
-        {projects.length > 0 && (
-          <>
-            <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-t mt-1">
-              Move to Project
-            </div>
-            {projects.map((p) => (
-              <ContextMenuItem key={p.id} onClick={() => onMove(id, p.id)}>
-                <FolderInput className="mr-2 h-3.5 w-3.5" />
-                <span>{p.name}</span>
-              </ContextMenuItem>
-            ))}
-            <ContextMenuItem onClick={() => onMove(id, 0)}>
-                <FolderInput className="mr-2 h-3.5 w-3.5" />
-                <span>No Project</span>
-            </ContextMenuItem>
-          </>
-        )}
+      <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
+        {renderItems(ContextMenuItem)}
       </ContextMenuContent>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete chat?"
+        description={`"${title || id}" will be permanently deleted. This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          setConfirmOpen(false);
+          onDelete(id);
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </ContextMenu>
   );
 };

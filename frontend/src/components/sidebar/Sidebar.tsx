@@ -23,6 +23,7 @@ import ChatListItem from './ChatListItem';
 import ProjectListItem from './ProjectListItem';
 import ProjectModal from './ProjectModal';
 import ProfileMenu from './ProfileMenu';
+import ConfirmDialog from '../ui/ConfirmDialog';
 
 interface SidebarProps {
   phase: PipelineState['phase'];
@@ -59,6 +60,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<any>(null);
+  const [projectPendingDelete, setProjectPendingDelete] = useState<any>(null);
 
   useEffect(() => {
     localStorage.setItem('ld-show-chats', String(showChats));
@@ -94,12 +96,18 @@ const Sidebar: React.FC<SidebarProps> = ({
     onProjectsChanged?.();
   };
 
-  const handleDeleteProject = async (id: number) => {
-    if (confirm('Are you sure you want to delete this project? Everything inside will be moved out.')) {
-      await deleteProject(id);
-      loadData();
-      onProjectsChanged?.();
-    }
+  const handleDeleteProject = (id: number) => {
+    const project = projects.find((p) => p.id === id) ?? { id, name: `Project ${id}` };
+    setProjectPendingDelete(project);
+  };
+
+  const confirmDeleteProject = async () => {
+    if (!projectPendingDelete) return;
+    const id = projectPendingDelete.id;
+    setProjectPendingDelete(null);
+    await deleteProject(id);
+    loadData();
+    onProjectsChanged?.();
   };
 
   const handleRenameChat = async (id: string, title: string) => {
@@ -311,6 +319,16 @@ const Sidebar: React.FC<SidebarProps> = ({
         onSubmit={handleCreateProject}
         initialData={editingProject}
         title={editingProject ? "Edit Project" : "New Project"}
+      />
+
+      <ConfirmDialog
+        open={!!projectPendingDelete}
+        title="Delete project?"
+        description={projectPendingDelete ? `"${projectPendingDelete.name}" will be deleted. Chats inside will be moved out, not deleted.` : ''}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDeleteProject}
+        onCancel={() => setProjectPendingDelete(null)}
       />
     </aside>
   );
