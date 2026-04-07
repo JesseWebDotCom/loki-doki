@@ -105,6 +105,8 @@ DECOMPOSITION_PROMPT = (
     "    {subject_type:'person',subject_name:'Jacques',predicate:'loves',value:'Superman',kind:'fact',relationship_kind:null,category:'preference'}\n"
     "    {subject_type:'person',subject_name:'Jacques',predicate:'is',value:'coworker',kind:'relationship',relationship_kind:'coworker',category:'relationship'}\n"
     "- Use kind='relationship' (and set relationship_kind) when stating how a person relates to the user (brother, coworker, spouse, ...). relationship items must have subject_type='person'.\n"
+    "- Capitalize person names (subject_name='Tom', not 'tom').\n"
+    "- NEVER emit tautological naming facts like {subject_name:'Tom',predicate:'is',value:'Tom'} — the name is already in subject_name.\n"
     "- Distill each ask into a clean, skill-ready sub-query\n"
 )
 

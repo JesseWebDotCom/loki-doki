@@ -86,7 +86,12 @@ async def run_skills(
 SYNTHESIS_PROMPT_TEMPLATE = (
     "ROLE:conversational assistant. Answer the user query directly and concisely.\n"
     "RULES:1-3 sentences max unless asked for detail,natural language,no preamble,"
-    "no meta-commentary,cite sources with [src:N] markers when SKILL_DATA is used\n"
+    "no meta-commentary,cite sources with [src:N] markers when SKILL_DATA is used."
+    "NEVER restate or paraphrase the user's input back to them — they just said it."
+    " If the user shared a fact (e.g. 'My coworker Tom loves Halo'),"
+    " acknowledge briefly with something fresh ('Got it — noted.' / a relevant"
+    " follow-up question / a short genuine reaction). Do NOT reply with"
+    " 'That's great! Your coworker Tom loves Halo.' style echoes.\n"
     "TONE:{tone}\n"
     "CONTEXT:{context}\n"
     "SKILL_DATA:{skill_data}\n"

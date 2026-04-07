@@ -1,20 +1,18 @@
 /**
- * MemoryPage — PR3 rewrite.
+ * MemoryPage — three tabs: You / People / Other.
  *
- * Three tabs (People / Relationships / Facts) plus a conflicts callout
- * surfaced inside the Facts tab. The page is the only stateful piece;
- * each tab is a presentational component in ``components/memory/``.
+ * - **You** holds self facts (subject = "self") and conflicts on those.
+ * - **People** is one expandable card per resolved person, with their
+ *   relationship to the user and every fact about them nested inside.
+ * - **Other** catches facts whose subject is neither "self" nor a known
+ *   person — orphans the orchestrator hasn't bound to a person row yet.
  *
- * The tab buttons are roll-your-own rather than a shadcn ``Tabs``
- * import: the project's ``components/ui`` only ships ``Badge`` +
- * ``tooltip`` and pulling shadcn's CLI for one component is more churn
- * than it's worth — see ConfidenceBar.tsx for the same call.
+ * The page is the only stateful piece; each tab is presentational.
  */
-import React, { useEffect, useState } from "react";
-import { Brain, Users, Network, Database } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Brain, User, Users, Database } from "lucide-react";
 import Sidebar from "../components/sidebar/Sidebar";
 import { PeopleTab } from "../components/memory/PeopleTab";
-import { RelationshipsTab } from "../components/memory/RelationshipsTab";
 import { FactsTab } from "../components/memory/FactsTab";
 import {
   getFacts,
@@ -29,10 +27,10 @@ import type {
   FactConflict,
 } from "../lib/api";
 
-type TabId = "people" | "relationships" | "facts";
+type TabId = "you" | "people" | "other";
 
 const MemoryPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabId>("people");
+  const [activeTab, setActiveTab] = useState<TabId>("you");
   const [people, setPeople] = useState<Person[]>([]);
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -41,7 +39,7 @@ const MemoryPage: React.FC = () => {
   useEffect(() => {
     (async () => {
       // Parallel fetch — all four endpoints are independent and the
-      // header ("X facts, Y people") needs them all anyway.
+      // header counts need them all anyway.
       try {
         const [p, r, f, c] = await Promise.all([
           getPeople(),
@@ -59,15 +57,33 @@ const MemoryPage: React.FC = () => {
     })();
   }, []);
 
+  // Partition facts into self / per-person / orphan buckets. The
+  // person bucket isn't used directly here — PeopleTab does its own
+  // filtering — but counting orphan facts requires knowing who's a
+  // resolved person.
+  const { selfFacts, otherFacts, selfConflicts, otherConflicts } = useMemo(() => {
+    const personNames = new Set(people.map((p) => p.name.toLowerCase()));
+    const isSelf = (subject: string | undefined) =>
+      !subject || subject.toLowerCase() === "self";
+    const isPerson = (subject: string | undefined) =>
+      !!subject && personNames.has(subject.toLowerCase());
+
+    return {
+      selfFacts: facts.filter((f) => isSelf(f.subject)),
+      otherFacts: facts.filter(
+        (f) => !isSelf(f.subject) && !isPerson(f.subject),
+      ),
+      selfConflicts: conflicts.filter((c) => isSelf(c.subject)),
+      otherConflicts: conflicts.filter(
+        (c) => !isSelf(c.subject) && !isPerson(c.subject),
+      ),
+    };
+  }, [facts, conflicts, people]);
+
   const tabs: Array<{ id: TabId; label: string; icon: React.ReactNode; count: number }> = [
+    { id: "you", label: "You", icon: <User size={14} />, count: selfFacts.length },
     { id: "people", label: "People", icon: <Users size={14} />, count: people.length },
-    {
-      id: "relationships",
-      label: "Relationships",
-      icon: <Network size={14} />,
-      count: relationships.length,
-    },
-    { id: "facts", label: "Facts", icon: <Database size={14} />, count: facts.length },
+    { id: "other", label: "Other", icon: <Database size={14} />, count: otherFacts.length },
   ];
 
   return (
@@ -82,8 +98,9 @@ const MemoryPage: React.FC = () => {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Memory</h1>
               <p className="text-muted-foreground text-sm font-medium">
-                {people.length} people • {relationships.length} relationships •{" "}
-                {facts.length} facts{conflicts.length > 0 && ` • ${conflicts.length} conflicts`}
+                {selfFacts.length} about you • {people.length} people •{" "}
+                {facts.length} facts
+                {conflicts.length > 0 && ` • ${conflicts.length} conflicts`}
               </p>
             </div>
           </div>
@@ -115,12 +132,18 @@ const MemoryPage: React.FC = () => {
               ))}
             </div>
 
-            {activeTab === "people" && <PeopleTab people={people} />}
-            {activeTab === "relationships" && (
-              <RelationshipsTab relationships={relationships} />
+            {activeTab === "you" && (
+              <FactsTab facts={selfFacts} conflicts={selfConflicts} />
             )}
-            {activeTab === "facts" && (
-              <FactsTab facts={facts} conflicts={conflicts} />
+            {activeTab === "people" && (
+              <PeopleTab
+                people={people}
+                facts={facts}
+                relationships={relationships}
+              />
+            )}
+            {activeTab === "other" && (
+              <FactsTab facts={otherFacts} conflicts={otherConflicts} />
             )}
           </div>
         </section>

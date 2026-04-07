@@ -136,6 +136,33 @@ class TestCoerceItem:
         # 'Supergirl' is blocklisted — should fall back to self.
         assert out["subject_type"] == "self"
 
+    def test_titlecases_lowercase_person_name(self):
+        # gemma sometimes lowercases proper nouns. UIs and dedupe paths
+        # downstream rely on canonical capitalization, so normalize here.
+        out = coerce_item({
+            "subject_type": "person", "subject_name": "tom",
+            "predicate": "loves", "value": "Halo", "kind": "fact",
+        })
+        assert out["subject_name"] == "Tom"
+
+    def test_drops_tautological_self_naming_fact(self):
+        # "Tom is Tom" / "Tom named Tom" — gemma loves emitting these
+        # alongside the real fact. They're noise. coerce_item returns
+        # None to signal drop.
+        for predicate in ("is", "named", "is_named", "name"):
+            out = coerce_item({
+                "subject_type": "person", "subject_name": "Tom",
+                "predicate": predicate, "value": "Tom", "kind": "fact",
+            })
+            assert out is None, f"should drop tautology with predicate={predicate}"
+
+    def test_drops_self_naming_tautology_case_insensitive(self):
+        out = coerce_item({
+            "subject_type": "person", "subject_name": "tom",
+            "predicate": "is", "value": "TOM", "kind": "fact",
+        })
+        assert out is None
+
     def test_strips_whitespace_in_string_fields(self):
         out = coerce_item({
             "subject_type": " self ", "subject_name": " ",

@@ -81,31 +81,39 @@ function renderPage() {
 }
 
 describe("MemoryPage", () => {
-  it("renders people from the mocked API", async () => {
+  it("opens on the You tab with self facts visible", async () => {
     renderPage();
-    expect(await screen.findByText("Mark")).toBeTruthy();
+    // Self fact ('electrician') is visible immediately because You is
+    // the default tab.
+    expect(await screen.findByText(/electrician/)).toBeTruthy();
+    // Section header inside the FactsTab grouping (distinct from the
+    // page header's "X about you" count line).
+    expect(screen.getByRole("heading", { name: /About you/i })).toBeTruthy();
+  });
+
+  it("switches to People tab and renders one card per person", async () => {
+    renderPage();
+    await screen.findByText(/electrician/);
+    fireEvent.click(screen.getByRole("tab", { name: /people/i }));
+    expect(await screen.findByTestId("people-list")).toBeTruthy();
+    expect(screen.getByText("Mark")).toBeTruthy();
     expect(screen.getByText("Mira")).toBeTruthy();
-    expect(screen.getByTestId("people-grid")).toBeTruthy();
   });
 
-  it("switches to relationships tab and renders rows", async () => {
+  it("expands a person card to reveal their nested facts and relationship", async () => {
     renderPage();
+    await screen.findByText(/electrician/);
+    fireEvent.click(screen.getByRole("tab", { name: /people/i }));
     await screen.findByText("Mark");
-    fireEvent.click(screen.getByRole("tab", { name: /relationships/i }));
-    expect(await screen.findByTestId("relationships-list")).toBeTruthy();
+    // Relationship badge renders on the collapsed card.
     expect(screen.getByText(/brother/i)).toBeTruthy();
+    // Mark's nested fact is hidden until expanded.
+    expect(screen.queryByText(/Denver/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { expanded: false, name: /Mark/ }));
+    expect(await screen.findByText(/Denver/)).toBeTruthy();
   });
 
-  it("switches to facts tab and renders grouped facts", async () => {
-    renderPage();
-    await screen.findByText("Mark");
-    fireEvent.click(screen.getByRole("tab", { name: /facts/i }));
-    expect(await screen.findByTestId("facts-grouped")).toBeTruthy();
-    expect(screen.getByText(/About you/i)).toBeTruthy();
-    expect(screen.getByText(/electrician/)).toBeTruthy();
-  });
-
-  it("renders the conflicts callout when conflicts are present", async () => {
+  it("renders the conflicts callout on the You tab when self conflicts exist", async () => {
     mocked.getFactConflicts.mockResolvedValueOnce({
       conflicts: [
         {
@@ -119,8 +127,6 @@ describe("MemoryPage", () => {
       ],
     });
     renderPage();
-    await screen.findByText("Mark");
-    fireEvent.click(screen.getByRole("tab", { name: /facts/i }));
     expect(await screen.findByTestId("conflicts-callout")).toBeTruthy();
     expect(screen.getByRole("button", { name: "blue" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "green" })).toBeTruthy();
@@ -128,8 +134,7 @@ describe("MemoryPage", () => {
 
   it("debounces fact search and only calls searchFacts after typing settles", async () => {
     renderPage();
-    await screen.findByText("Mark");
-    fireEvent.click(screen.getByRole("tab", { name: /facts/i }));
+    await screen.findByText(/electrician/);
     const input = await screen.findByLabelText("search facts");
     fireEvent.change(input, { target: { value: "ras" } });
     fireEvent.change(input, { target: { value: "rasp" } });

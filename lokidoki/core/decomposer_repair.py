@@ -87,15 +87,25 @@ def _extract_person_name(text: str | None) -> str | None:
     return None
 
 
-def coerce_item(item: dict, original_input: str | None = None) -> dict:
+_TAUTOLOGY_PREDICATES = {"is", "named", "is_named", "name", "called", "is_called"}
+
+
+def coerce_item(item: dict, original_input: str | None = None) -> dict | None:
     """Pre-validation salvage for the most common gemma misshapes.
 
-    Operates on a shallow copy so we don't mutate decomposer output the
-    caller may still be logging. The transforms are intentionally
-    conservative — each one preserves at least the predicate/value pair
-    so no fact is silently dropped:
+    Returns ``None`` to signal that the item should be dropped (for
+    structurally-noise items the model emits alongside real facts).
+    Otherwise returns a shallow-copied, normalized dict.
+
+    Transforms (each conservative — preserves predicate/value where it
+    matters so no real fact is silently dropped):
 
     - strip whitespace from string fields
+    - title-case ``subject_name`` so "tom" becomes "Tom" (canonical
+      capitalization is required by dedupe and the people table)
+    - drop tautological self-naming facts ("Tom is Tom", "Tom named
+      Tom") — gemma emits these alongside the real fact and they're
+      pure noise
     - ``self`` + ``kind='relationship'`` → demote to ``kind='fact'``
       (relationships semantically require a person target)
     - ``person`` + empty ``subject_name`` → try to extract a name from
@@ -111,9 +121,28 @@ def coerce_item(item: dict, original_input: str | None = None) -> dict:
         if isinstance(v, str):
             out[key] = v.strip()
 
+    # Canonicalize person-name capitalization. gemma frequently lowercases
+    # proper nouns ("tom"); the UI and dedupe path both want "Tom".
+    raw_name = out.get("subject_name") or ""
+    if raw_name:
+        out["subject_name"] = raw_name[:1].upper() + raw_name[1:]
+
     subject_type = out.get("subject_type") or "self"
     subject_name = out.get("subject_name") or ""
     kind = out.get("kind") or "fact"
+
+    # Drop tautological self-naming facts: "Tom is Tom", "Tom named Tom".
+    # gemma emits these as redundant siblings to the real fact; storing
+    # them clutters the people view with garbage like "isTom".
+    predicate_norm = (out.get("predicate") or "").lower().replace(" ", "_")
+    value_norm = (out.get("value") or "").strip()
+    if (
+        subject_type == "person"
+        and predicate_norm in _TAUTOLOGY_PREDICATES
+        and value_norm.lower() == subject_name.lower()
+        and subject_name
+    ):
+        return None
 
     # Salvage 1: self + relationship is nonsense — demote to a plain fact.
     if subject_type == "self" and kind == "relationship":
@@ -196,6 +225,9 @@ def parse_items(
             })
             continue
         coerced = coerce_item(item, original_input=original_input)
+        if coerced is None:
+            # coerce_item signaled drop (e.g. tautological self-naming).
+            continue
         try:
             good.append(LongTermItem.model_validate(coerced))
         except ValidationError as exc:
