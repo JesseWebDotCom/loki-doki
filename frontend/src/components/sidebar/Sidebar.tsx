@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Ghost, MessageSquare, Settings, Brain, Plus, FolderPlus, ChevronDown, ChevronRight } from 'lucide-react';
+import { Ghost, MessageSquare, Brain, Plus, FolderPlus, ChevronDown, ChevronRight } from 'lucide-react';
 import ExecutionTimeline from './ExecutionTimeline';
 import StatusMetrics from './StatusMetrics';
 import DecompositionPanel from './DecompositionPanel';
@@ -22,6 +22,7 @@ import {
 import ChatListItem from './ChatListItem';
 import ProjectListItem from './ProjectListItem';
 import ProjectModal from './ProjectModal';
+import ProfileMenu from './ProfileMenu';
 
 interface SidebarProps {
   phase: PipelineState['phase'];
@@ -48,7 +49,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const location = useLocation();
   const isChat = location.pathname === '/';
-  const isSettings = location.pathname === '/settings';
   const isMemory = location.pathname === '/memory';
 
   const [sessions, setSessions] = useState<any[]>([]);
@@ -176,17 +176,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Brain size={18} />
           <span className="text-sm tracking-tight">Memory</span>
         </Link>
-        <Link
-          to="/settings"
-          className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 border ${
-            isSettings
-              ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold'
-              : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
-          }`}
-        >
-          <Settings size={18} />
-          <span className="text-sm tracking-tight">Configuration</span>
-        </Link>
       </nav>
 
       {/* Main Content Area (Scrollable) */}
@@ -311,7 +300,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <ProjectModal 
+      {/* Profile (bottom-left) */}
+      <div className="pt-3 mt-2 border-t border-sidebar-border/40">
+        <ProfileMenu />
+      </div>
+
+      <ProjectModal
         isOpen={isProjectModalOpen}
         onClose={() => setIsProjectModalOpen(false)}
         onSubmit={handleCreateProject}

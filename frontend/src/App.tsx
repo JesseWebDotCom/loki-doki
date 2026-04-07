@@ -7,6 +7,7 @@ import MemoryPage from './pages/MemoryPage';
 import WizardPage from './pages/WizardPage';
 import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
+import DevPage from './pages/DevPage';
 import { AuthProvider } from './auth/AuthProvider';
 import { BootstrapGate } from './components/BootstrapGate';
 
@@ -23,6 +24,7 @@ const App: React.FC = () => {
               <Route path="/wizard" element={<WizardPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/admin" element={<AdminPage />} />
+              <Route path="/dev" element={<DevPage />} />
             </Routes>
           </BootstrapGate>
         </AuthProvider>

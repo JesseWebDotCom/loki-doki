@@ -7,6 +7,8 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { ShieldCheck, Users } from "lucide-react";
+import Sidebar from "../components/sidebar/Sidebar";
 import { useAuth } from "../auth/useAuth";
 import { AdminPasswordPrompt } from "../components/AdminPasswordPrompt";
 
@@ -85,84 +87,128 @@ const AdminPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] p-8 text-neutral-100">
-      <h1 className="mb-6 text-2xl font-bold">Admin · Users</h1>
-      {error && (
-        <div className="mb-4 rounded border border-red-900 bg-red-950/40 p-2 text-sm text-red-300">
-          {error}
-        </div>
-      )}
-      <table className="w-full max-w-3xl border-separate border-spacing-y-1">
-        <thead className="text-left text-xs uppercase text-neutral-400">
-          <tr>
-            <th className="pl-3">User</th>
-            <th>Role</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr
-              key={u.id}
-              className="bg-[#171717] text-sm"
-              data-testid={`admin-row-${u.id}`}
-            >
-              <td className="rounded-l-md px-3 py-2">{u.username}</td>
-              <td>
-                <span className="rounded bg-violet-500/20 px-2 py-0.5 text-xs text-violet-300">
-                  {u.role}
+    <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
+      <Sidebar phase="idle" />
+
+      <main className="flex-1 flex flex-col relative bg-background shadow-inner overflow-y-auto">
+        <header className="p-10 border-b border-border/10">
+          <div className="max-w-4xl mx-auto flex items-center gap-4">
+            <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20 text-primary shadow-m2">
+              <ShieldCheck size={28} />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">Admin Panel</h1>
+              <p className="text-muted-foreground text-sm font-medium">Manage users, roles, and access.</p>
+            </div>
+          </div>
+        </header>
+
+        <section className="p-10 flex-1">
+          <div className="max-w-4xl mx-auto space-y-12">
+            {error && (
+              <div className="rounded-xl border border-red-400/30 bg-red-400/5 p-4 text-sm text-red-300">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b border-border/10 pb-4">
+                <Users className="text-primary w-5 h-5" />
+                <h2 className="text-xl font-bold tracking-tight">Users</h2>
+                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 ml-2">
+                  {users.length}
                 </span>
-              </td>
-              <td>
-                <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">
-                  {u.status}
-                </span>
-              </td>
-              <td className="rounded-r-md py-2 pr-3">
-                <div className="flex flex-wrap gap-1">
-                  {u.status === "active" ? (
-                    <button
-                      onClick={() => act(u.id, "disable")}
-                      className="rounded bg-neutral-800 px-2 py-1 text-xs hover:bg-neutral-700"
-                    >
-                      Disable
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => act(u.id, "enable")}
-                      className="rounded bg-neutral-800 px-2 py-1 text-xs hover:bg-neutral-700"
-                    >
-                      Enable
-                    </button>
-                  )}
-                  {u.role === "admin" ? (
-                    <button
-                      onClick={() => act(u.id, "demote")}
-                      className="rounded bg-neutral-800 px-2 py-1 text-xs hover:bg-neutral-700"
-                    >
-                      Demote
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => act(u.id, "promote")}
-                      className="rounded bg-neutral-800 px-2 py-1 text-xs hover:bg-neutral-700"
-                    >
-                      Promote
-                    </button>
-                  )}
-                  <button
-                    onClick={() => act(u.id, "delete")}
-                    className="rounded bg-red-900/60 px-2 py-1 text-xs hover:bg-red-800"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </div>
+
+              <div className="rounded-xl border border-border/30 bg-card/50 overflow-hidden shadow-m1">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border/20">
+                      <th className="px-4 py-3">User</th>
+                      <th className="px-4 py-3">Role</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((u) => (
+                      <tr
+                        key={u.id}
+                        className="border-b border-border/10 last:border-0 text-sm hover:bg-card/30 transition-colors"
+                        data-testid={`admin-row-${u.id}`}
+                      >
+                        <td className="px-4 py-3 font-bold">{u.username}</td>
+                        <td className="px-4 py-3">
+                          <span className="rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary uppercase tracking-widest">
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest border ${
+                            u.status === "active"
+                              ? "bg-green-400/10 text-green-400 border-green-400/20"
+                              : "bg-muted/30 text-muted-foreground border-border/30"
+                          }`}>
+                            {u.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1.5 justify-end">
+                            {u.status === "active" ? (
+                              <button
+                                onClick={() => act(u.id, "disable")}
+                                className="rounded-md border border-border/40 bg-card/50 px-2.5 py-1 text-xs font-bold hover:bg-card hover:border-border/70 transition-all"
+                              >
+                                Disable
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => act(u.id, "enable")}
+                                className="rounded-md border border-border/40 bg-card/50 px-2.5 py-1 text-xs font-bold hover:bg-card hover:border-border/70 transition-all"
+                              >
+                                Enable
+                              </button>
+                            )}
+                            {u.role === "admin" ? (
+                              <button
+                                onClick={() => act(u.id, "demote")}
+                                className="rounded-md border border-border/40 bg-card/50 px-2.5 py-1 text-xs font-bold hover:bg-card hover:border-border/70 transition-all"
+                              >
+                                Demote
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => act(u.id, "promote")}
+                                className="rounded-md border border-border/40 bg-card/50 px-2.5 py-1 text-xs font-bold hover:bg-card hover:border-border/70 transition-all"
+                              >
+                                Promote
+                              </button>
+                            )}
+                            <button
+                              onClick={() => act(u.id, "delete")}
+                              className="rounded-md border border-red-400/30 bg-red-400/10 px-2.5 py-1 text-xs font-bold text-red-400 hover:bg-red-400/20 transition-all"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {users.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-muted-foreground italic">
+                          No users found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
       {pendingAction && (
         <AdminPasswordPrompt
           onSuccess={async () => {

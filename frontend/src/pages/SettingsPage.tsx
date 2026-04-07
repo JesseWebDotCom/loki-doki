@@ -55,7 +55,7 @@ const SettingsPage: React.FC = () => {
               <Settings size={28} />
             </div>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">System Configuration</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
               <p className="text-muted-foreground text-sm font-medium">Manage your LokiDoki core parameters and aesthetic.</p>
             </div>
           </div>
