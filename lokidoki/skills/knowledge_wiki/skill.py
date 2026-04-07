@@ -4,6 +4,8 @@ import httpx
 from lokidoki.core.skill_executor import BaseSkill, MechanismResult
 
 WIKI_API_URL = "https://en.wikipedia.org/w/api.php"
+USER_AGENT = "LokiDoki/0.1 (https://github.com/lokidoki; local assistant) httpx"
+HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 
 
 class WikipediaSkill(BaseSkill):
@@ -25,7 +27,7 @@ class WikipediaSkill(BaseSkill):
             return MechanismResult(success=False, error="Query parameter required")
 
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0, headers=HEADERS) as client:
                 response = await client.get(
                     WIKI_API_URL,
                     params={
@@ -69,7 +71,7 @@ class WikipediaSkill(BaseSkill):
             return MechanismResult(success=False, error="Query parameter required")
 
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0, headers=HEADERS) as client:
                 # First search for the article
                 search_resp = await client.get(
                     WIKI_API_URL,
@@ -82,6 +84,9 @@ class WikipediaSkill(BaseSkill):
                     },
                 )
 
+            if search_resp.status_code != 200:
+                return MechanismResult(success=False, error=f"Wikipedia search error: {search_resp.status_code}")
+
             results = search_resp.json().get("query", {}).get("search", [])
             if not results:
                 return MechanismResult(success=False, error="No search results found")
@@ -89,7 +94,7 @@ class WikipediaSkill(BaseSkill):
             title = results[0]["title"]
             page_url = f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"
 
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0, headers=HEADERS, follow_redirects=True) as client:
                 page_resp = await client.get(page_url)
 
             # Simple HTML text extraction (strip tags)

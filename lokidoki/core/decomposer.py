@@ -1,6 +1,9 @@
 import asyncio
 import json
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -85,16 +88,23 @@ DECOMPOSITION_PROMPT = (
     "OUTPUT:valid JSON only, no markdown, no explanation.\n"
     "SCHEMA:{is_course_correction:bool,overall_reasoning_complexity:\"fast\"|\"thinking\","
     "short_term_memory:{sentiment:str,concern:str},"
-    "long_term_memory:[{category:str,fact:str}],"
+    "long_term_memory:[{subject_type:'self'|'person',subject_name:str,"
+    "predicate:str,value:str,kind:'fact'|'relationship',"
+    "relationship_kind:str|null,category:str}],"
     "asks:[{ask_id:str,intent:str,distilled_query:str,parameters:{}}]}\n"
     "RULES:\n"
     "- is_course_correction=true if user corrects/refines previous answer\n"
     "- overall_reasoning_complexity=\"thinking\" if query needs deep analysis, math, or multi-step logic\n"
     "- Map intents to AVAILABLE_INTENTS when possible, else use \"direct_chat\"\n"
-    "- long_term_memory items are structured: subject_type 'self'|'person',"
-    " subject_name (person's name or empty for self), predicate, value,"
-    " kind 'fact'|'relationship', relationship_kind (only when kind='relationship')\n"
-    "- Use kind='relationship' when the user states a relation (brother, daughter, spouse, ...)\n"
+    "- Extract every durable fact the user states into long_term_memory.\n"
+    "- predicate and value are REQUIRED and non-empty for every item.\n"
+    "- Self facts: subject_type='self', subject_name='', kind='fact'.\n"
+    "  Example: 'I love coffee' -> {subject_type:'self',subject_name:'',predicate:'loves',value:'coffee',kind:'fact',relationship_kind:null,category:'preference'}\n"
+    "- Person facts: subject_type='person', subject_name=<the person's name>, kind='fact'.\n"
+    "  Example: 'My coworker Jacques loves Superman' yields TWO items:\n"
+    "    {subject_type:'person',subject_name:'Jacques',predicate:'loves',value:'Superman',kind:'fact',relationship_kind:null,category:'preference'}\n"
+    "    {subject_type:'person',subject_name:'Jacques',predicate:'is',value:'coworker',kind:'relationship',relationship_kind:'coworker',category:'relationship'}\n"
+    "- Use kind='relationship' (and set relationship_kind) when stating how a person relates to the user (brother, coworker, spouse, ...). relationship items must have subject_type='person'.\n"
     "- Distill each ask into a clean, skill-ready sub-query\n"
 )
 
@@ -145,7 +155,13 @@ class Decomposer:
             return self._fallback_result(user_input, latency_ms)
         latency_ms = (time.perf_counter() - t0) * 1000
 
+        logger.info("[decomposer] raw LLM output: %s", raw)
         result = self._parse_response(raw, user_input, latency_ms)
+        logger.info(
+            "[decomposer] parsed long_term_memory (pre-repair, %d items): %s",
+            len(result.long_term_memory or []),
+            result.long_term_memory,
+        )
         # Run the Pydantic repair loop on long_term_memory. The primary
         # call's items are dicts (or absent); after this they're a list
         # of validated dicts that the orchestrator can trust.
@@ -155,6 +171,11 @@ class Decomposer:
             repair_call=self._repair_call,
         )
         result.long_term_memory = [item.model_dump() for item in validated]
+        logger.info(
+            "[decomposer] validated long_term_memory (post-repair, %d items): %s",
+            len(result.long_term_memory),
+            result.long_term_memory,
+        )
         return result
 
     async def _repair_call(self, prompt: str, schema: dict) -> str:

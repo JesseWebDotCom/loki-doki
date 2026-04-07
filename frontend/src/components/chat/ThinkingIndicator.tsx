@@ -80,7 +80,7 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
     : PHASE_ORDER.indexOf(currentPhase as keyof typeof PHASE_CONFIG);
   const activeConfig = isCompleted
     ? PHASE_CONFIG.synthesis
-    : PHASE_CONFIG[currentPhase as keyof typeof PHASE_CONFIG];
+    : PHASE_CONFIG[currentPhase as keyof typeof PHASE_CONFIG] ?? PHASE_CONFIG.augmentation;
   const ActiveIcon = activeConfig?.icon;
 
   return (

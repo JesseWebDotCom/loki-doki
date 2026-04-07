@@ -13,6 +13,7 @@ import pytest
 
 from lokidoki.core.decomposer_repair import (
     LongTermItem,
+    coerce_item,
     parse_items,
     repair_long_term_memory,
 )
@@ -75,6 +76,101 @@ class TestParseItems:
         assert len(good) == 1
         assert len(errors) == 2
         assert errors[1]["errors"][0]["msg"] == "item must be an object"
+
+
+class TestCoerceItem:
+    """Pre-validation salvage covers gemma's two most common misshapes."""
+
+    def test_self_relationship_demotes_to_fact(self):
+        out = coerce_item({
+            "subject_type": "self", "subject_name": "",
+            "predicate": "is_excited_to_see", "value": "the supergirl movie",
+            "kind": "relationship", "relationship_kind": "excited_to_see",
+        })
+        assert out["kind"] == "fact"
+        assert out["relationship_kind"] is None
+
+    def test_person_without_name_recovers_from_input(self):
+        out = coerce_item(
+            {
+                "subject_type": "person", "subject_name": "",
+                "predicate": "loves", "value": "everything superman",
+                "kind": "fact",
+            },
+            original_input="My coworker Jacques loves everything superman",
+        )
+        assert out["subject_type"] == "person"
+        assert out["subject_name"] == "Jacques"
+
+    def test_person_without_name_demotes_to_self_when_unrecoverable(self):
+        out = coerce_item(
+            {
+                "subject_type": "person", "subject_name": "",
+                "predicate": "loves", "value": "coffee", "kind": "fact",
+            },
+            original_input="they love coffee",
+        )
+        assert out["subject_type"] == "self"
+
+    def test_person_relationship_without_name_demotes_to_self_fact(self):
+        out = coerce_item(
+            {
+                "subject_type": "person", "subject_name": "",
+                "predicate": "is", "value": "coworker",
+                "kind": "relationship", "relationship_kind": "coworker",
+            },
+            original_input="i have a coworker",
+        )
+        assert out["subject_type"] == "self"
+        assert out["kind"] == "fact"
+        assert out["relationship_kind"] is None
+
+    def test_blocklist_skips_franchise_words(self):
+        out = coerce_item(
+            {
+                "subject_type": "person", "subject_name": "",
+                "predicate": "is", "value": "great", "kind": "fact",
+            },
+            original_input="The new Supergirl trailer looks good",
+        )
+        # 'Supergirl' is blocklisted — should fall back to self.
+        assert out["subject_type"] == "self"
+
+    def test_strips_whitespace_in_string_fields(self):
+        out = coerce_item({
+            "subject_type": " self ", "subject_name": " ",
+            "predicate": " loves ", "value": " coffee ", "kind": " fact ",
+        })
+        assert out["subject_type"] == "self"
+        assert out["predicate"] == "loves"
+        assert out["value"] == "coffee"
+
+
+class TestParseItemsCoercion:
+    def test_self_relationship_lands_as_fact(self):
+        good, errors = parse_items(
+            [{
+                "subject_type": "self", "predicate": "is_excited_to_see",
+                "value": "supergirl movie", "kind": "relationship",
+                "relationship_kind": "excited_to_see",
+            }],
+            original_input="im so excited to see the supergirl movie",
+        )
+        assert errors == []
+        assert len(good) == 1
+        assert good[0].kind == "fact"
+
+    def test_person_no_name_recovered(self):
+        good, errors = parse_items(
+            [{
+                "subject_type": "person", "predicate": "loves",
+                "value": "everything superman", "kind": "fact",
+            }],
+            original_input="My coworker Jacques loves everything superman",
+        )
+        assert errors == []
+        assert len(good) == 1
+        assert good[0].subject_name == "Jacques"
 
 
 class TestRepairLoop:
@@ -173,8 +269,15 @@ class TestFixtures:
     def test_person_fact_fixture(self):
         assert "Denver" in _load("person_fact.txt")
 
-    def test_malformed_fixture_is_actually_malformed(self):
+    def test_malformed_fixture_is_salvaged_by_coercion(self):
+        # The fixture is gemma's classic misshape: person+relationship with
+        # no name and no relationship_kind. Pre-coercion this dropped on
+        # the floor; the salvage pass now demotes it to a self fact so the
+        # predicate/value pair survives.
         raw = json.loads(_load("malformed.txt"))
         good, errors = parse_items(raw)
-        assert good == []
-        assert len(errors) == 1
+        assert errors == []
+        assert len(good) == 1
+        assert good[0].subject_type == "self"
+        assert good[0].kind == "fact"
+        assert good[0].value == "plumber"

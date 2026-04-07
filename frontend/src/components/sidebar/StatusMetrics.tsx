@@ -55,8 +55,8 @@ const StatusMetrics: React.FC<StatusMetricsProps> = ({ pipeline }) => {
             System Status
           </div>
           <div className="text-xs text-gray-400 leading-snug font-medium italic">
-            {pipeline?.phase !== 'idle'
-              ? `Processing: ${pipeline?.phase} phase active`
+            {pipeline?.phase && pipeline.phase !== 'idle'
+              ? `Processing: ${pipeline.phase} phase active`
               : 'Pipeline idle. Ready for input.'}
           </div>
         </div>

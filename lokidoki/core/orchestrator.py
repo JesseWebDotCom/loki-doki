@@ -12,7 +12,10 @@ Skill resolution and prompt assembly live in
 from __future__ import annotations
 
 import json
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
@@ -128,12 +131,19 @@ class Orchestrator:
         # table on top of the underlying fact. Items are already
         # Pydantic-validated by ``decomposer_repair`` upstream.
         for item in decomposition.long_term_memory or []:
-            await persist_long_term_item(
-                self._memory,
-                user_id=user_id,
-                user_msg_id=user_msg_id,
-                item=item or {},
-            )
+            try:
+                logger.info("[orchestrator] persist_long_term_item input: %s", item)
+                await persist_long_term_item(
+                    self._memory,
+                    user_id=user_id,
+                    user_msg_id=user_msg_id,
+                    item=item or {},
+                )
+                logger.info("[orchestrator] persist_long_term_item OK: %s", item)
+            except Exception:
+                logger.exception(
+                    "[orchestrator] persist_long_term_item FAILED for item=%r", item
+                )
 
         yield PipelineEvent(
             phase="decomposition",

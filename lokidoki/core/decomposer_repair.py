@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -33,6 +34,111 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 logger = logging.getLogger(__name__)
 
 MAX_REPAIRS = 2
+
+# Heuristics used by ``coerce_item`` to recover items the model returned
+# in a not-quite-valid shape. gemma4:e2b routinely produces person facts
+# with the name omitted ("subject_type:'person', subject_name:''") even
+# though the user message clearly contains a proper noun, and tags
+# self-statements as relationships ("I'm excited" -> kind='relationship').
+# Both shapes used to be dropped wholesale by the repair loop. We salvage
+# them so the user's facts actually land in memory.
+
+# Capture "my <relation> Name" — covers the most common conversational
+# pattern where the user introduces a person by their relation to them.
+_NAME_AFTER_RELATION = re.compile(
+    r"\bmy\s+\w+\s+([A-Z][a-z]+)\b"
+)
+
+# Capture "Name <verb>" where the verb is one of the predicates the
+# decomposer most often emits. This catches "Jacques loves Superman"
+# even when no relation precedes the name.
+_NAME_BEFORE_VERB = re.compile(
+    r"\b([A-Z][a-z]+)\s+(?:is|are|was|were|loves|likes|hates|works|lives|has|had|owns)\b"
+)
+
+# Words that look like proper nouns but aren't people. Extend as needed —
+# false positives here just cause us to fall back to a 'self' fact, which
+# is recoverable, whereas false negatives drop the fact entirely.
+_PROPER_NOUN_BLOCKLIST = {
+    "I", "Im", "Ive", "Id", "Ill",
+    "Supergirl", "Superman", "Batman", "Spiderman",
+    "Monday", "Tuesday", "Wednesday", "Thursday",
+    "Friday", "Saturday", "Sunday",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+}
+
+
+def _extract_person_name(text: str | None) -> str | None:
+    """Best-effort person-name extraction from the original user input.
+
+    Used only as a last-ditch salvage when the decomposer emitted a
+    person fact without a ``subject_name``. Returns ``None`` if nothing
+    plausible is found — the caller then demotes the item to a 'self'
+    fact rather than dropping it.
+    """
+    if not text:
+        return None
+    for pattern in (_NAME_AFTER_RELATION, _NAME_BEFORE_VERB):
+        for match in pattern.finditer(text):
+            name = match.group(1)
+            if name not in _PROPER_NOUN_BLOCKLIST:
+                return name
+    return None
+
+
+def coerce_item(item: dict, original_input: str | None = None) -> dict:
+    """Pre-validation salvage for the most common gemma misshapes.
+
+    Operates on a shallow copy so we don't mutate decomposer output the
+    caller may still be logging. The transforms are intentionally
+    conservative — each one preserves at least the predicate/value pair
+    so no fact is silently dropped:
+
+    - strip whitespace from string fields
+    - ``self`` + ``kind='relationship'`` → demote to ``kind='fact'``
+      (relationships semantically require a person target)
+    - ``person`` + empty ``subject_name`` → try to extract a name from
+      ``original_input``; if that fails, demote to a ``self`` fact
+    """
+    if not isinstance(item, dict):
+        return item
+    out = dict(item)
+
+    for key in ("subject_type", "subject_name", "predicate", "value",
+                "kind", "relationship_kind", "category"):
+        v = out.get(key)
+        if isinstance(v, str):
+            out[key] = v.strip()
+
+    subject_type = out.get("subject_type") or "self"
+    subject_name = out.get("subject_name") or ""
+    kind = out.get("kind") or "fact"
+
+    # Salvage 1: self + relationship is nonsense — demote to a plain fact.
+    if subject_type == "self" and kind == "relationship":
+        out["kind"] = "fact"
+        out["relationship_kind"] = None
+        kind = "fact"
+
+    # Salvage 2: person without a name. Try to recover the name from the
+    # original user input, otherwise demote to a 'self' fact.
+    if subject_type == "person" and not subject_name:
+        recovered = _extract_person_name(original_input)
+        if recovered:
+            out["subject_name"] = recovered
+            subject_name = recovered
+        else:
+            out["subject_type"] = "self"
+            out["subject_name"] = ""
+            subject_type = "self"
+            # A relationship needs a person target — demote here too.
+            if kind == "relationship":
+                out["kind"] = "fact"
+                out["relationship_kind"] = None
+                kind = "fact"
+
+    return out
 
 
 class LongTermItem(BaseModel):
@@ -64,8 +170,16 @@ class LongTermItem(BaseModel):
 
 def parse_items(
     raw_items: list[Any] | None,
+    *,
+    original_input: str | None = None,
 ) -> tuple[list[LongTermItem], list[dict]]:
     """Validate raw decomposer items. Returns ``(good, errors)``.
+
+    Each item is run through ``coerce_item`` first so the most common
+    gemma misshapes (self+relationship, person without name) get
+    salvaged into valid facts instead of being kicked into the repair
+    loop. ``original_input`` is forwarded so name extraction can fall
+    back to the user's actual message text.
 
     ``errors`` entries each look like
     ``{"index": int, "item": <raw>, "errors": [pydantic err...]}``
@@ -81,11 +195,12 @@ def parse_items(
                 "errors": [{"loc": (), "msg": "item must be an object"}],
             })
             continue
+        coerced = coerce_item(item, original_input=original_input)
         try:
-            good.append(LongTermItem.model_validate(item))
+            good.append(LongTermItem.model_validate(coerced))
         except ValidationError as exc:
             errors.append({
-                "index": i, "item": item, "errors": exc.errors(),
+                "index": i, "item": coerced, "errors": exc.errors(),
             })
     return good, errors
 
@@ -157,7 +272,7 @@ async def repair_long_term_memory(
     inject it instead of importing the inference client directly so
     this module stays trivially unit-testable with a fake call.
     """
-    good, pending_errors = parse_items(raw_items)
+    good, pending_errors = parse_items(raw_items, original_input=original_input)
     attempt = 0
     while pending_errors and attempt < max_repairs:
         attempt += 1
@@ -172,7 +287,7 @@ async def repair_long_term_memory(
                 "decomposer repair attempt %d failed: %s", attempt, exc
             )
             break
-        new_good, pending_errors = parse_items(repaired)
+        new_good, pending_errors = parse_items(repaired, original_input=original_input)
         good.extend(new_good)
 
     if pending_errors:
