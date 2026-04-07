@@ -7,6 +7,13 @@
     "budget_tokens": 500
   },
   "intents": ["control_device", "get_device_status"],
+  "description": "In-memory mock smart-home controller for testing. Pretends to control lights, locks, and a thermostat — no real hardware. Replace with home_assistant when you have one set up.",
+  "examples": [
+    "turn on the living room light",
+    "lock the front door",
+    "set the thermostat to 72",
+    "what's the status of the bedroom light"
+  ],
   "parameters": {
     "device": {"type": "string", "required": true},
     "action": {"type": "string", "required": false}

@@ -392,6 +392,115 @@ export async function getSettings() {
   return getJson<import("./api-types").SettingsData>("/settings");
 }
 
+// ---- skills config -------------------------------------------------------
+
+export interface SkillConfigField {
+  key: string;
+  type: "string" | "secret" | "number" | "integer" | "boolean";
+  label?: string;
+  description?: string;
+  required?: boolean;
+  default?: unknown;
+}
+
+export interface SkillConfigSchema {
+  global: SkillConfigField[];
+  user: SkillConfigField[];
+}
+
+export interface SkillSummary {
+  skill_id: string;
+  name: string;
+  description: string;
+  intents: string[];
+  examples: string[];
+  config_schema: SkillConfigSchema;
+  // For secret fields, the value is { _set: boolean }; otherwise the raw value.
+  global: Record<string, unknown>;
+  user: Record<string, unknown>;
+  // Combined effective state. True only when admin toggle, user
+  // toggle, and required-config check all pass. Disabled skills are
+  // skipped by the orchestrator at chat time.
+  enabled: boolean;
+  // True when required config is satisfied — independent of toggles.
+  config_ok: boolean;
+  missing_required: string[];
+  // Why the skill is disabled, if it is. Null when enabled.
+  disabled_reason: "global_toggle" | "user_toggle" | "config" | null;
+  // Raw admin/user manual switches.
+  toggle: { global: boolean; user: boolean };
+}
+
+export async function listSkills() {
+  return getJson<{ skills: SkillSummary[] }>("/skills");
+}
+
+export async function setSkillGlobal(
+  skillId: string,
+  key: string,
+  value: unknown,
+) {
+  const r = await fetch(`${API_BASE}/skills/${skillId}/config/global`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!r.ok) throw new Error(`set global ${skillId}.${key}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function setSkillUser(
+  skillId: string,
+  key: string,
+  value: unknown,
+) {
+  const r = await fetch(`${API_BASE}/skills/${skillId}/config/user`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!r.ok) throw new Error(`set user ${skillId}.${key}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function deleteSkillUser(skillId: string, key: string) {
+  const r = await fetch(
+    `${API_BASE}/skills/${skillId}/config/user/${encodeURIComponent(key)}`,
+    { method: "DELETE" },
+  );
+  if (!r.ok) throw new Error(`delete user ${skillId}.${key}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function setSkillToggleGlobal(skillId: string, enabled: boolean) {
+  const r = await fetch(`${API_BASE}/skills/${skillId}/toggle/global`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!r.ok) throw new Error(`toggle global ${skillId}: ${r.status}`);
+  return (await r.json()) as { ok: boolean; enabled: boolean };
+}
+
+export async function setSkillToggleUser(skillId: string, enabled: boolean) {
+  const r = await fetch(`${API_BASE}/skills/${skillId}/toggle/user`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!r.ok) throw new Error(`toggle user ${skillId}: ${r.status}`);
+  return (await r.json()) as { ok: boolean; enabled: boolean };
+}
+
+export async function deleteSkillGlobal(skillId: string, key: string) {
+  const r = await fetch(
+    `${API_BASE}/skills/${skillId}/config/global/${encodeURIComponent(key)}`,
+    { method: "DELETE" },
+  );
+  if (!r.ok) throw new Error(`delete global ${skillId}.${key}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
 export async function saveSettings(settings: import("./api-types").SettingsData) {
   return postJson<{ status: string }>("/settings", settings);
 }

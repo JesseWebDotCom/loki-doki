@@ -11,6 +11,12 @@ from typing import Any, Optional, Tuple, Dict, List
 
 from lokidoki.core.decomposer import Ask
 from lokidoki.core.registry import SkillRegistry
+from lokidoki.core.skill_config import (
+    compute_skill_state,
+    get_global_toggle,
+    get_merged_config,
+    get_user_toggle,
+)
 from lokidoki.core.skill_executor import SkillExecutor, SkillResult
 from lokidoki.core.skill_factory import get_skill_instance
 
@@ -47,16 +53,36 @@ async def run_skills(
     asks: List[Ask],
     registry: Optional[SkillRegistry],
     executor: SkillExecutor,
+    *,
+    user_id: Optional[int] = None,
+    memory: Any = None,
 ) -> Tuple[str, Dict[str, SkillResult], List[dict], List[dict]]:
     """Resolve and execute skills for a list of Asks.
 
     Returns ``(skill_data_for_prompt, results_by_ask, sources, routing_log)``.
+
+    When ``memory`` is provided we load each skill's merged
+    global+user config and inject it into the parameters dict under
+    the reserved ``_config`` key. Skills that need config (weather
+    API key, default location, etc.) read from there; older skills
+    that don't reference it are unaffected. We deliberately do NOT
+    rebuild the skill instance per user — instances are singletons
+    for caching, and per-call config injection avoids cache thrash.
     """
     skill_results: dict[str, SkillResult] = {}
     sources: list[dict] = []
+    # Asks that resolved to a skill but were skipped because the
+    # skill is off — either manually toggled off (admin or user) or
+    # auto-disabled because required config is unset. Stored as
+    # ``{ask_id: {"reason": str, "missing_config": [keys]}}`` so the
+    # routing log carries enough detail for the UI to explain why.
+    disabled_asks: dict[str, dict] = {}
 
     if registry:
         tasks: list[tuple[str, Any, Any, dict]] = []
+        # Cache config per skill_id within a single turn so multi-ask
+        # turns hitting the same skill don't re-query the DB.
+        config_cache: dict[str, dict] = {}
         for ask in asks:
             manifest = registry.get_skill_by_intent(ask.intent)
             if not manifest:
@@ -66,17 +92,73 @@ async def run_skills(
             if not instance:
                 continue
             mechs = registry.get_mechanisms(skill_id)
-            params = dict(ask.parameters or {})
-            # Backstop: decomposer frequently emits parameters={} even
-            # when the manifest declares required keys. Default every
-            # required key to the distilled query so skills never fail
-            # purely on omission.
+            # Treat empty strings the same as missing — the
+            # decomposer occasionally emits {"location": ""} which
+            # would otherwise defeat the backstop chain below.
+            params = {
+                k: v for k, v in (ask.parameters or {}).items()
+                if not (isinstance(v, str) and not v.strip())
+            }
             required = [
                 k for k, spec in (manifest.get("parameters") or {}).items()
                 if isinstance(spec, dict) and spec.get("required")
             ]
+
+            # Inject merged skill config (global + user) BEFORE the
+            # distilled-query backstop so a user-provided default
+            # (e.g. weather "location" config) wins over the noisy
+            # phrase the decomposer would otherwise hand us.
+            if memory is not None:
+                if skill_id not in config_cache:
+                    def _load_state(c, sid=skill_id):
+                        return (
+                            get_merged_config(c, user_id, sid),
+                            get_global_toggle(c, sid),
+                            (
+                                get_user_toggle(c, user_id, sid)
+                                if user_id is not None
+                                else True
+                            ),
+                        )
+
+                    config_cache[skill_id] = await memory.run_sync(_load_state)
+                merged, g_tog, u_tog = config_cache[skill_id]
+                params["_config"] = merged
+            else:
+                params.setdefault("_config", {})
+                merged, g_tog, u_tog = params["_config"], True, True
+
+            # Backstop chain (in order of preference) for any required
+            # param the decomposer left blank:
+            #   1. matching key in merged skill config
+            #   2. ask.distilled_query (last resort — usually noisy)
             for key in required:
-                params.setdefault(key, ask.distilled_query)
+                if key in params:
+                    continue
+                if isinstance(merged, dict) and key in merged and merged[key]:
+                    params[key] = merged[key]
+                    continue
+                params[key] = ask.distilled_query
+
+            # Gate on the combined effective state. A skill that is
+            # toggled off (by admin or user) OR missing required
+            # config is treated as if it weren't registered for this
+            # turn — the synthesis layer falls back to direct chat.
+            # We do NOT silently send a half-configured request and
+            # let it 401; the routing log captures the real reason.
+            state = compute_skill_state(
+                merged_config=merged,
+                schema=manifest.get("config_schema") or {},
+                global_toggle=g_tog,
+                user_toggle=u_tog,
+            )
+            if not state["enabled"]:
+                disabled_asks[ask.ask_id] = {
+                    "reason": state["disabled_reason"],
+                    "missing_config": state["missing_required"],
+                }
+                continue
+
             tasks.append((ask.ask_id, instance, mechs, params))
 
         if tasks:
@@ -100,12 +182,21 @@ async def run_skills(
             })
         else:
             parts.append(f"{ask.intent}:{ask.distilled_query}")
+            disabled = disabled_asks.get(ask.ask_id)
+            if disabled:
+                status = "disabled"
+            elif result:
+                status = "failed"
+            else:
+                status = "no_skill"
             routing_log.append({
                 "ask_id": ask.ask_id, "intent": ask.intent,
-                "status": "failed" if result else "no_skill",
+                "status": status,
                 "mechanism": result.mechanism_used if result else None,
                 "latency_ms": result.latency_ms if result else 0,
                 "mechanism_log": result.mechanism_log if result else [],
+                "disabled_reason": (disabled or {}).get("reason"),
+                "missing_config": (disabled or {}).get("missing_config", []),
             })
 
     return " | ".join(parts), skill_results, sources, routing_log

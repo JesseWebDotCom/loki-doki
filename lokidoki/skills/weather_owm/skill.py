@@ -20,28 +20,47 @@ class WeatherSkill(BaseSkill):
         raise ValueError(f"Unknown mechanism: {method}")
 
     async def _owm_api(self, parameters: dict) -> MechanismResult:
+        # Per-call config tier (orchestrator merges global+user before
+        # calling). Falls back to the value baked in at __init__ time
+        # so unit tests that pass api_key= directly still work.
+        cfg = parameters.get("_config") or {}
+        api_key = cfg.get("owm_api_key") or self._api_key
+        # Orchestrator already resolved decomposer-param → user
+        # config → backstop into params["location"], so a single read
+        # is enough here.
         location = parameters.get("location")
         if not location:
             return MechanismResult(success=False, error="Location parameter required")
+        if not api_key:
+            return MechanismResult(success=False, error="OWM API key not configured")
 
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(
                     OWM_BASE_URL,
-                    params={"q": location, "appid": self._api_key, "units": "metric"},
+                    params={"q": location, "appid": api_key, "units": "metric"},
                 )
 
             if response.status_code != 200:
                 return MechanismResult(success=False, error=f"OWM API error: {response.status_code}")
 
             data = response.json()
+            from lokidoki.skills.weather_openmeteo.skill import _format_lead
+            display = data.get("name", location)
+            temp = data["main"]["temp"]
+            condition = data["weather"][0]["description"]
             weather = {
-                "location": data.get("name", location),
-                "temperature": data["main"]["temp"],
+                "location": display,
+                "temperature": temp,
                 "feels_like": data["main"]["feels_like"],
                 "humidity": data["main"]["humidity"],
-                "condition": data["weather"][0]["description"],
+                "condition": condition,
                 "wind_speed": data["wind"]["speed"],
+                # Pre-formatted one-liner so the orchestrator's
+                # verbatim fast-path can return it directly without
+                # a synthesis round-trip. See weather_openmeteo for
+                # the full rationale.
+                "lead": _format_lead(display, temp, condition),
             }
 
             # Cache the result

@@ -29,7 +29,7 @@ const ProfileMenu: React.FC = () => {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-transparent hover:bg-card/50 hover:border-sidebar-border/50 transition-all duration-300 group focus:outline-none focus:bg-card/50 focus:border-sidebar-border/50"
+          className="w-full flex items-center gap-3 px-2 py-2.5 rounded-lg border border-transparent hover:bg-card/50 hover:border-sidebar-border/50 transition-all duration-300 group focus:outline-none focus:bg-card/50 focus:border-sidebar-border/50"
           aria-label="Open profile menu"
         >
           <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm shadow-m1 group-hover:scale-105 transition-transform">

@@ -7,6 +7,13 @@
     "budget_tokens": 1000
   },
   "intents": ["search_knowledge", "get_summary"],
+  "description": "Looks up factual summaries from Wikipedia. Best for definitions, biographies, places, and historical events.",
+  "examples": [
+    "who is Alan Turing",
+    "what is the Eiffel Tower",
+    "tell me about black holes",
+    "summarize the French Revolution"
+  ],
   "parameters": {
     "query": {"type": "string", "required": true}
   },

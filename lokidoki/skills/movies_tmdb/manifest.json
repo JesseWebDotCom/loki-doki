@@ -7,8 +7,33 @@
     "budget_tokens": 1000
   },
   "intents": ["get_movie_detail", "search_movies"],
+  "description": "Movie details and search powered by The Movie Database (TMDB). Requires a free API key from themoviedb.org.",
+  "examples": [
+    "tell me about the movie Inception",
+    "when did The Matrix come out",
+    "search for movies called Dune"
+  ],
   "parameters": {
     "query": {"type": "string", "required": true}
+  },
+  "config_schema": {
+    "global": [
+      {
+        "key": "tmdb_api_key",
+        "type": "secret",
+        "label": "TMDB API key",
+        "description": "Server-wide key for The Movie Database.",
+        "required": true
+      }
+    ],
+    "user": [
+      {
+        "key": "tmdb_api_key",
+        "type": "secret",
+        "label": "Your TMDB API key (optional)",
+        "description": "Overrides the global key for your account."
+      }
+    ]
   },
   "mechanisms": [
     {

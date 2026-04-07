@@ -3,6 +3,13 @@
   "name": "Local Date & Time",
   "is_searchable": false,
   "intents": ["get_datetime", "get_timezone"],
+  "description": "Reads the system clock to answer date and time questions. No network required.",
+  "examples": [
+    "what time is it",
+    "what's today's date",
+    "what day of the week is it",
+    "what time is it in Tokyo"
+  ],
   "parameters": {
     "timezone": {"type": "string", "required": false}
   },

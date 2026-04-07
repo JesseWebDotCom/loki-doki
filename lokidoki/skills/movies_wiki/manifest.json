@@ -1,0 +1,38 @@
+{
+  "skill_id": "movies_wiki",
+  "name": "Movies (Wikipedia, free, no key)",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 1000
+  },
+  "intents": ["get_movie_detail", "search_movies"],
+  "description": "Look up movies — title, year, a short overview, and runtime when available — via Wikipedia's free REST search and summary endpoints. No API key required. Search-first strategy with film-only filtering keeps it off non-movie articles.",
+  "examples": [
+    "tell me about the movie inception",
+    "when did the matrix come out",
+    "search for movies called dune",
+    "how long is the latest avatar movie"
+  ],
+  "parameters": {
+    "query": {"type": "string", "required": true}
+  },
+  "config_schema": {
+    "global": [],
+    "user": []
+  },
+  "mechanisms": [
+    {
+      "method": "wiki_api",
+      "priority": 1,
+      "timeout_ms": 4000,
+      "requires_internet": true
+    },
+    {
+      "method": "local_cache",
+      "priority": 2,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}

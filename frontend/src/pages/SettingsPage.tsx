@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/sidebar/Sidebar';
 import ThemeCustomizer from '../components/theme/ThemeCustomizer';
 import ThemeShowcase from '../components/theme/ThemeShowcase';
+import SkillsSection from '../components/settings/SkillsSection';
 import { Settings, Volume2, Cpu, Save, Check, Mic, Info } from 'lucide-react';
 import { getPlatformInfo, getSettings, saveSettings } from '../lib/api';
 import type { PlatformInfo, SettingsData } from '../lib/api';
@@ -159,6 +160,8 @@ const SettingsPage: React.FC = () => {
                 </div>
               </label>
             </div>
+
+            <SkillsSection />
 
             {/* Theme Selection */}
             <div className="space-y-6 text-center">

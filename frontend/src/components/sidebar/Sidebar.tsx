@@ -146,9 +146,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-80 border-r border-sidebar-border bg-sidebar flex flex-col p-6 h-screen select-none shadow-m4 z-20 overflow-hidden">
+    <aside className="w-80 border-r border-sidebar-border bg-sidebar flex flex-col px-3 py-6 h-screen select-none shadow-m4 z-20 overflow-hidden">
       {/* Branding */}
-      <div className="flex items-center gap-3 mb-10 px-2 group">
+      <div className="flex items-center gap-3 mb-10 px-1 group">
         <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform shadow-m2 text-primary">
           <Ghost className="w-6 h-6" />
         </div>
@@ -164,7 +164,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       <nav className="space-y-2 mb-6">
         <Link
           to="/"
-          className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 border ${
+          className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-300 border ${
             isChat
               ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold'
               : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
@@ -175,7 +175,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </Link>
         <Link
           to="/memory"
-          className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 border ${
+          className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-300 border ${
             isMemory
               ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold'
               : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
@@ -191,7 +191,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         
         {/* Projects Section */}
         <Collapsible open={showProjects} onOpenChange={setShowProjects}>
-          <div className="flex items-center justify-between px-2 mb-2">
+          <div className="flex items-center justify-between px-1 mb-2">
             <CollapsibleTrigger className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-foreground transition-all">
               {showProjects ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
               Projects ({projects.length})
@@ -203,7 +203,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <FolderPlus size={14} />
             </button>
           </div>
-          <CollapsibleContent className="space-y-1 px-2">
+          <CollapsibleContent className="space-y-1 px-1">
             {projects.map(project => {
               const projectChats = sessions.filter(s => s.project_id === project.id);
               const isExpanded = activeProjectId === project.id;

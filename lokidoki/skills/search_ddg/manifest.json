@@ -7,6 +7,12 @@
     "budget_tokens": 1500
   },
   "intents": ["search_web", "search_news"],
+  "description": "General web search via DuckDuckGo. Use it for current events, news, or anything not covered by Wikipedia.",
+  "examples": [
+    "search the web for raspberry pi 5 reviews",
+    "what's the latest news about NASA",
+    "find recipes for sourdough bread"
+  ],
   "parameters": {
     "query": {"type": "string", "required": true}
   },

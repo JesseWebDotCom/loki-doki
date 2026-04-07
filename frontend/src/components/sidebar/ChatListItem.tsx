@@ -105,7 +105,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
         <div
           onClick={() => !isEditing && onSelect(id)}
           className={cn(
-            "group flex items-center justify-between pl-3 pr-1 py-2 rounded-lg text-xs cursor-pointer transition-all border",
+            "group flex items-center justify-between pl-2 pr-1 py-2 rounded-lg text-xs cursor-pointer transition-all border",
             isActive
               ? "bg-primary/10 text-primary border-primary/20 shadow-sm"
               : "text-muted-foreground hover:bg-card/50 border-transparent"

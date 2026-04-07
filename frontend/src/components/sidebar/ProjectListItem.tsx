@@ -31,7 +31,7 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
             <div
               onClick={() => onSelect(project.id)}
               className={cn(
-                "group flex items-center justify-between px-3 py-2 rounded-lg text-xs cursor-pointer transition-all border",
+                "group flex items-center justify-between px-2 py-2 rounded-lg text-xs cursor-pointer transition-all border",
                 isActive
                   ? "bg-primary/10 text-primary border-primary/20 shadow-sm"
                   : "text-muted-foreground hover:bg-card/50 border-transparent"

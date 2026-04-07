@@ -217,7 +217,8 @@ class Orchestrator:
         skill_results: dict = {}
         if not decomposition.is_course_correction and decomposition.asks:
             skill_data, skill_results, sources, routing_log = await run_skills(
-                decomposition.asks, self._registry, self._executor
+                decomposition.asks, self._registry, self._executor,
+                user_id=user_id, memory=self._memory,
             )
             yield PipelineEvent(
                 phase="routing",
@@ -343,6 +344,28 @@ class Orchestrator:
                 response = f"I couldn't generate a response. {e}"
             synthesis_ms = (time.perf_counter() - t0) * 1000
             yield PipelineEvent(phase="synthesis", status="failed", data={"error": str(e)})
+
+        # Defensive: small models occasionally stream zero tokens on
+        # noisy/contradictory prompts (e.g. a verbatim ask whose
+        # skill failed). The frontend renders an empty assistant
+        # turn as "No response received" — give the user something
+        # actionable instead so the chat stays usable.
+        if not response.strip():
+            failed_intents = [
+                e.get("intent") for e in (routing_log or [])
+                if e.get("status") in ("disabled", "failed", "no_skill")
+            ]
+            if failed_intents:
+                response = (
+                    "I couldn't get a result from "
+                    f"{failed_intents[0]} just now. "
+                    "If this is a setup issue you can configure or enable "
+                    "the skill in Settings → Skills."
+                )
+            else:
+                response = (
+                    "Sorry — I drew a blank on that one. Could you rephrase?"
+                )
 
         await self._memory.add_message(
             user_id=user_id, session_id=session_id, role="assistant", content=response

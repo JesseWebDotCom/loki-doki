@@ -53,6 +53,56 @@ CREATE TABLE IF NOT EXISTS app_secrets (
     value TEXT NOT NULL
 );
 
+-- Per-skill configuration.
+--
+-- Two tiers, same shape:
+--   * skill_config_global: admin-set values that apply to every user
+--     (e.g. an OpenWeatherMap API key the admin pays for).
+--   * skill_config_user: per-user overrides or personal inputs
+--     (e.g. each user's default zip code, or a user's own API key that
+--     shadows the admin's global one).
+--
+-- Lookup at skill-execute time merges {global ← user} so user values
+-- always win. Values are stored as TEXT; numeric/bool fields declared
+-- in a skill's manifest config_schema are JSON-decoded in the Python
+-- layer, never parsed in SQL.
+CREATE TABLE IF NOT EXISTS skill_config_global (
+    skill_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (skill_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS skill_config_user (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, skill_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_skill_cfg_user ON skill_config_user(user_id, skill_id);
+
+-- Manual enable/disable toggles, distinct from the auto-disabled
+-- "missing required config" state. Both tiers default to "enabled"
+-- when no row exists, so admins/users only need to write a row when
+-- they want to override the default. The orchestrator AND-merges:
+--   effective = admin_toggle AND user_toggle AND config_satisfied
+CREATE TABLE IF NOT EXISTS skill_enabled_global (
+    skill_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS skill_enabled_user (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, skill_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_sentiment (
     owner_user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     sentiment TEXT NOT NULL DEFAULT '{}',

@@ -21,17 +21,19 @@ class TMDBSkill(BaseSkill):
         raise ValueError(f"Unknown mechanism: {method}")
 
     async def _tmdb_api(self, parameters: dict) -> MechanismResult:
+        cfg = parameters.get("_config") or {}
+        api_key = cfg.get("tmdb_api_key") or self._api_key
         query = parameters.get("query")
         if not query:
             return MechanismResult(success=False, error="Query parameter required")
-        if not self._api_key:
+        if not api_key:
             return MechanismResult(success=False, error="TMDB API key not configured")
 
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 response = await client.get(
                     TMDB_SEARCH_URL,
-                    params={"api_key": self._api_key, "query": query},
+                    params={"api_key": api_key, "query": query},
                 )
 
             if response.status_code != 200:

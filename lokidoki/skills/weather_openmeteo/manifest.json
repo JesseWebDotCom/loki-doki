@@ -1,0 +1,46 @@
+{
+  "skill_id": "weather_openmeteo",
+  "name": "Open-Meteo (free, no key)",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 1000
+  },
+  "intents": ["get_weather", "get_forecast"],
+  "description": "Current conditions and short-term forecast from Open-Meteo. Free, no API key required. Supports city names and US zip codes.",
+  "examples": [
+    "what's the weather in Seattle",
+    "is it going to rain today",
+    "weather in 06461",
+    "how cold is it in Tokyo right now"
+  ],
+  "parameters": {
+    "location": {"type": "string", "required": true}
+  },
+  "config_schema": {
+    "global": [],
+    "user": [
+      {
+        "key": "location",
+        "type": "string",
+        "label": "Default location",
+        "description": "City or US zip used when you ask about weather without naming a place (e.g. 'is it going to rain today'). Required — without this the skill cannot answer location-less queries.",
+        "required": true
+      }
+    ]
+  },
+  "mechanisms": [
+    {
+      "method": "open_meteo",
+      "priority": 1,
+      "timeout_ms": 4000,
+      "requires_internet": true
+    },
+    {
+      "method": "local_cache",
+      "priority": 2,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}
