@@ -133,50 +133,92 @@ A modern, visual editor inspired by the DiceBear playground, built on **`shadcn/
 
 ## 6. Phased Implementation Plan
 
-### Phase 0: Audit & Design
-- [ ] Inventory existing TTS / voice / wake-word code in [lokidoki/](../lokidoki/) as **reference only** — existing code may be unoptimized or broken; do not assume it is load-bearing.
-- [ ] Determine the best design and reuse only what genuinely fits. Rewrite freely where the existing implementation is weak.
-- [ ] Confirm Piper phoneme event support in the current `audio.py` SSE pipeline (blocks Phase 5).
-- [ ] Confirm DiceBear collection names exactly (`avataaars`, `bottts`, `toon-head`).
+> **Status legend:** ✅ shipped · 🟡 partial · ⬜ not started · 🚫 blocked
 
-### Phase 1: Data & API Foundation
-- [ ] Implement SQLite tables for `characters`, `voices`, and `wakewords` per §3.
-- [ ] Add `settings.active_character_id`.
-- [ ] Build FastAPI routes for Character CRUD (admin-gated).
-- [ ] Update `orchestrator.py` to inject the active character's `behavior_prompt` into the **synthesis** system prompt only. Wire the Settings → Bot Personality (Tier 2) read to flow from the active character.
-- [ ] Migration: seed any existing user Tier 2 personality text into a `user`-source character.
-- [ ] Tests (TDD-first): fixture characters, CRUD round-trip, orchestrator injection assertions, decomposer-pollution regression test.
+### Phase 0: Audit & Design — ✅ DONE
+- [x] Inventory existing TTS / voice / wake-word code in [lokidoki/](../lokidoki/).
+- [x] Confirm Piper phoneme event support — `audio.py:122-137` already yields `phonemes` + `samples_per_phoneme` per chunk. **Phase 5 unblocked from the backend side.**
+- [x] Confirm DiceBear collection names — `avataaars`, `bottts`, `toonHead` (camelCase JS export, kebab-case `toon-head` URL/storage form). Single mapping point lives in `frontend/src/components/character/Avatar.tsx`.
+- [x] Confirm legacy "personality" plumbing — `data/settings.json:user_prompt` flows through `Orchestrator(user_prompt=…)` into the **synthesis** prompt builder only; decomposer never sees it.
 
-### Phase 2: Voice & WakeWord Engine (prerequisite for full Phase 1 provisioning UX)
-- [ ] Implement a `VoiceRegistry` to track installation status of Piper models.
-- [ ] Add `OpenWakeWord` integration layer to backend.
-- [ ] Create an "Admin > Audio Assets" tab for uploading `.tflite` files and installing Piper voices.
-- [ ] Tests: mock voice registry; no-network provisioning paths; `.tflite` validation.
+### Phase 1: Data & API Foundation — ✅ DONE
+- [x] SQLite tables: `characters`, `voices`, `wakewords`, `character_overrides_user`, `character_settings_user`, `character_enabled_global`, `character_enabled_user` ([memory_schema.py](../lokidoki/core/memory_schema.py)).
+- [x] Two-tier shape mirrors `skill_config_*` — admin-managed catalog + per-user overrides + per-user active pointer + per-user access flags.
+- [x] CRUD ops in [character_ops.py](../lokidoki/core/character_ops.py): create/get/list/update/delete, builtin copy-on-write, override UPSERT/clear, active-character resolution with visible-builtin fallback.
+- [x] Access tier in [character_access.py](../lokidoki/core/character_access.py): global enable + per-user enable, batch `filter_visible_ids`, `list_user_access_matrix`.
+- [x] FastAPI routes ([characters.py](../lokidoki/api/routes/characters.py)) under `/api/v1/characters`:
+  - `GET /` (visible list + active id), `GET /active`, `POST /active` (403 if not visible)
+  - `PUT /{id}/override`, `DELETE /{id}/override`
+  - Admin: `GET /admin/catalog`, `POST /admin`, `PATCH /admin/{id}` (cow), `DELETE /admin/{id}`
+  - Admin access: `POST /admin/{id}/enable`, `GET /admin/users/{uid}/access`, `POST /admin/users/{uid}/characters/{cid}/enable`
+- [x] Orchestrator wiring — `chat.py` resolves the active character per-user and passes its merged `behavior_prompt` as `user_prompt=` to `Orchestrator`. Synthesis-only injection is preserved by existing `orchestrator_skills.py` structure (decomposer never receives it).
+- [x] Idempotent builtin seeding + first-boot personality migration ([character_seed.py](../lokidoki/core/character_seed.py)). Runs in `MemoryProvider.initialize`. Migration gated by `app_secrets` flag.
+- [x] Legacy-table cleanup in `memory_init.py` (drops empty pre-Phase-1 `characters`/`wakewords` tables that lacked the new columns).
+- [x] Tests: 22 unit tests in [test_characters.py](../tests/unit/test_characters.py) covering schema, CRUD, copy-on-write, override merge, active-pointer fallback, access tiers, batch visibility, deleted-active fallback.
 
-### Phase 3: React Character Playground (Admin)
-- [ ] Integrate `@dicebear/core` and collections in the frontend.
-- [ ] Build the `CharacterEditor` component with live SVG preview.
-- [ ] Add controls for voice/wakeword mapping.
-- [ ] Implement the Onyx Material aesthetic via `shadcn/ui` primitives.
-- [ ] Tests: component rendering, seed reproducibility, copy-on-write of `builtin` characters.
+### Phase 2: Voice & WakeWord Engine — ⬜ NOT STARTED
+*Prerequisite for Phase 4's full provisioning UX. Schema tables already exist (empty); the asset registry layer + admin UI is the gap.*
+- [ ] `VoiceRegistry` service tracking Piper model installation status (`installed`/`missing`/`downloading`) on disk + DB.
+- [ ] Piper voice download pipeline (URL → `data/voices/{id}.onnx` → checksum verify → mark `installed`).
+- [ ] `OpenWakeWord` integration layer for `.tflite` model loading.
+- [ ] Admin endpoint: `.tflite` upload with size cap + magic-byte validation + controlled storage dir.
+- [ ] **Admin → Audio Assets** tab in the frontend for installing Piper voices and uploading wake words.
+- [ ] Surface voice/wakeword binding fields in [CharacterPlayground.tsx](../frontend/src/components/admin/CharacterPlayground.tsx) (currently deferred — placeholder noted in the "voice (Phase 2)" tagline).
+- [ ] Tests: mock VoiceRegistry, no-network provisioning paths, `.tflite` magic-byte validation, storage budget enforcement.
 
-### Phase 4: User Selection & Provisioning
-- [ ] Build the user-facing "Character Picker" in Settings.
-- [ ] Implement the "One-Click Install" logic (backend handles parallel downloads of voice/wakeword).
-- [ ] Add UI feedback (progress bars, retry, cancel) for downloading assets.
-- [ ] Implement the deferred-intro fallback rule.
-- [ ] Tests: provisioning failure modes, fallback voice behavior, cancellation cleanup.
+### Phase 3: React Character Playground (Admin) — ✅ DONE
+- [x] Integrated `@dicebear/core` + `@dicebear/collection` in the frontend.
+- [x] Reusable [Avatar.tsx](../frontend/src/components/character/Avatar.tsx) — schema-aware option filtering (prevents cross-style key contamination — was the v1 toon-head bug), `toDataUri()` + `<img>` rendering with `object-contain` letterbox, error fallback placeholder.
+- [x] Schema introspection module [styleSchemas.ts](../frontend/src/components/character/styleSchemas.ts) — flattens each style's `schema.js` into a uniform `SchemaField[]` shape.
+- [x] Generic [SchemaField.tsx](../frontend/src/components/character/SchemaField.tsx) renderer — boolean toggle, integer slider, color-array swatches, enum-array single-select chips.
+- [x] Three-pane [CharacterPlayground.tsx](../frontend/src/components/admin/CharacterPlayground.tsx): live preview (320px) + style picker + seed/Lucky controls · prompt editor · schema-driven options panel grouped Common / Style-specific.
+- [x] Per-style option memory — switching styles preserves each style's settings independently (`optionsByStyle: { avataaars, bottts, "toon-head" }`).
+- [x] Auto-bump `*Probability` to 100 when user single-selects an enum that has a probability companion (so picking `accessories: round` actually shows glasses, not 10%-of-the-time glasses).
+- [x] Light checkered preview backdrop so styles with no default `backgroundColor` (toon-head) are visible.
+- [x] Onyx Material aesthetic via existing tokens (`bg-card`, `border-border`, `bg-primary`, `shadow-m{1..4}`).
+- [x] Admin catalog table ([CharactersAdminSection.tsx](../frontend/src/components/admin/CharactersAdminSection.tsx)) with real 36px avatars, global on/off toggle, edit (cow), delete (blocked on builtins via `ConfirmDialog`).
+- [x] Per-user access matrix ([CharacterUserAccessMatrix.tsx](../frontend/src/components/admin/CharacterUserAccessMatrix.tsx)) — allow/deny/inherit per character per user.
+- [ ] **REMAINING:** Voice/wakeword binding fields (blocked on Phase 2).
+- [ ] **REMAINING:** Component-level frontend tests (none yet — only the backend has unit tests).
+- [ ] **OPTIONAL POLISH:** Custom hex color picker in `SchemaField` (currently swatch-only from each schema's default palette); specialized two-value enum renderer for fields like `backgroundType` (currently uses the generic enum-array control).
 
-### Phase 5: Animated Avatar Integration
-- [ ] **Blocked until Phase 0 confirms phoneme events.**
-- [ ] Replace static avatar with an `AnimatedAvatar` component.
-- [ ] Use SSE events from `audio.py` (visemes/phonemes) to drive simple CSS/SVG animations.
-- [ ] Final polish on transitions when switching characters.
+### Phase 4: User Selection & Provisioning — 🟡 PARTIAL
+- [x] User-facing **Character Picker** in Settings ([CharactersSection.tsx](../frontend/src/components/settings/CharactersSection.tsx)) — card grid with 64px live avatars, click to set active, per-user behavior_prompt textarea override + reset-to-catalog button.
+- [x] Visibility-filtered list — `GET /api/v1/characters` only returns characters visible to the calling user (admin global toggle AND per-user override).
+- [x] Per-user override UI for `behavior_prompt`. (Schema supports overriding `name`, `phonetic_name`, `description`, `behavior_prompt`, `avatar_style`, `avatar_seed`, `avatar_config` — only `behavior_prompt` is exposed in the user UI today. Easy to extend.)
+- [ ] **REMAINING:** "One-Click Install" provisioning flow (download voice + wakeword for the picked character) — blocked on Phase 2's `VoiceRegistry`.
+- [ ] **REMAINING:** UI feedback for asset downloads — progress bars, retry, cancel.
+- [ ] **REMAINING:** Deferred-intro fallback rule — if the picked character's voice isn't installed yet, use the global system voice for general TTS but defer the "I am [X]" introduction.
+- [ ] **REMAINING:** Storage-budget GC (voices unused for N days, prompted before delete).
+- [ ] **REMAINING:** Tests for provisioning failure modes, fallback voice, cancellation cleanup.
+
+### Phase 5: Animated Avatar Integration — ⬜ NOT STARTED (now unblocked)
+*Phase 0 confirmed phoneme events ARE emitted by `audio.py`, so this is no longer blocked on the backend.*
+- [ ] Replace the static `<img>` data-URI render in `Avatar.tsx` with an inline-SVG path (already designed for this — comment in [Avatar.tsx](../frontend/src/components/character/Avatar.tsx) flags it). Inline SVG is needed so we can drive per-element transforms.
+- [ ] `AnimatedAvatar` wrapper component subscribing to the chat SSE stream's phoneme/viseme events from `audio.py`.
+- [ ] Per-style mouth-element selectors — each DiceBear collection names its mouth path differently; need a small per-style map of SVG selector → viseme→transform table.
+- [ ] CSS-driven idle animation (gentle blink, subtle sway) when no audio is playing.
+- [ ] Crossfade transition when switching characters mid-conversation.
+- [ ] Tests: viseme→transform mapping, SSE event handling, idle animation lifecycle.
 
 ---
 
 ## 7. Open Questions / Verification
-- [ ] Does the current `audio.py` SSE pipeline emit per-phoneme timing events from Piper? (Blocks Phase 5.)
-- [ ] Do `@dicebear/collection` package exports include `toon-head` under that exact name, or does it need a different identifier?
-- [ ] What is the on-disk storage budget for voices on the target Pi 5 SD card configuration?
-- [ ] Default `builtin` character set: how many ship in v1, and who designs them?
+
+### Resolved
+- [x] **Does `audio.py` emit per-phoneme timing events?** Yes — `audio.py:122-137` yields `{audio_pcm, sample_rate, phonemes, samples_per_phoneme}`. Phase 5 unblocked.
+- [x] **DiceBear collection name for `toon-head`?** Package exports as `toonHead` (camelCase). We store as `toon-head` (kebab-case, matching DiceBear's URL convention) and map at the single boundary in `Avatar.tsx`.
+
+### Still open
+- [ ] **On-disk storage budget for voices on Pi 5.** Drives Phase 4's GC policy default. Needs hardware validation against the target SD card configuration.
+- [x] **Default builtin character set — how many ship in v1?** Three, one per shipped DiceBear style. All seeded idempotently by name in [character_seed.py:BUILTIN_SPECS](../lokidoki/core/character_seed.py) — re-running the seed updates the catalog row in place without breaking per-user overrides (FK on `id`, not `name`).
+
+  | Name | Style | Seed | Notes |
+  | :--- | :--- | :--- | :--- |
+  | **Loki** | `bottts` | `Ryker` | `baseColor=["00cc66"]` (computer/terminal green body). Friendly, warm, playful default. |
+  | **Kingston** | `toon-head` | `Kingston` | Cartoon companion, soft encouraging tone. |
+  | **Luis** | `avataaars` | `Luis` | Human-style assistant, plain & approachable. |
+
+  Reference renders match the DiceBear playground URLs `https://api.dicebear.com/9.x/{style}/svg?seed={seed}` exactly (the JS SDK uses the same seed → identical output). Editing any of these in the admin UI triggers copy-on-write into a new `admin`-source row, so the canonical builtin specs above remain whatever this table says on every reboot.
+- [ ] **Should `voice_id` / `wakeword_id` be user-overridable?** Currently NO (per [character_ops.py:USER_OVERRIDABLE](../lokidoki/core/character_ops.py)) — those bind to admin-controlled on-disk assets and would break the storage-budget rules. Worth revisiting once Phase 2 lands.
+- [ ] **Per-project character override** — schema deliberately leaves room (§3.1 future scope). Decide if/when to add `projects.character_id` FK once Phase 4 provisioning settles.

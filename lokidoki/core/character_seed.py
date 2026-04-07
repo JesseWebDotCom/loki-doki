@@ -25,31 +25,104 @@ import sqlite3
 from lokidoki.core import character_ops as ops
 
 SETTINGS_FILE = "data/settings.json"
-DEFAULT_BUILTIN_NAME = "Loki"
-DEFAULT_BUILTIN_PROMPT = (
-    "You are LokiDoki, a friendly local assistant. Be concise, warm, "
-    "and a little playful. Speak in plain language."
-)
 MIGRATION_FLAG = "character_personality_migrated_v1"
+
+# Three builtin personas, one per DiceBear style we ship. Seeded
+# idempotently by ``name`` so reboots refresh the spec without
+# duplicating rows or breaking per-user overrides (which FK on id,
+# not name). Editing one of these in the admin UI triggers
+# copy-on-write into a new ``admin``-source row, so the canonical
+# builtin spec stays whatever this list says.
+#
+# ``avatar_seed`` mirrors the DiceBear playground URL the user
+# picked (e.g. https://api.dicebear.com/9.x/bottts/svg?seed=Ryker)
+# so the rendered identity matches that exact preview.
+BUILTIN_SPECS: tuple[dict, ...] = (
+    {
+        "name": "Loki",
+        "description": "Mischievous helper bot.",
+        "behavior_prompt": (
+            "You are LokiDoki, a friendly local assistant. Be concise, "
+            "warm, and a little playful. Speak in plain language."
+        ),
+        "avatar_style": "bottts",
+        "avatar_seed": "Ryker",
+        # Computer/terminal green for the bot body. ``baseColor`` is
+        # the bottts schema's body-tint option; passing a 1-element
+        # array forces the seed PRNG to always pick this hue.
+        "avatar_config": {"baseColor": ["00cc66"]},
+    },
+    {
+        "name": "Kingston",
+        "description": "Cartoon companion with a soft voice.",
+        "behavior_prompt": (
+            "You are Kingston, a cheerful cartoon companion. Speak "
+            "in a warm, encouraging tone. Keep answers short and "
+            "use everyday language."
+        ),
+        "avatar_style": "toon-head",
+        "avatar_seed": "Kingston",
+        "avatar_config": {},
+    },
+    {
+        "name": "Luis",
+        "description": "Friendly human-style assistant.",
+        "behavior_prompt": (
+            "You are Luis, a thoughtful human-style assistant. Be "
+            "approachable and clear. Prefer plain answers over jargon."
+        ),
+        "avatar_style": "avataaars",
+        "avatar_seed": "Luis",
+        "avatar_config": {},
+    },
+)
 
 
 def seed_builtin_if_missing(conn: sqlite3.Connection) -> int:
-    """Ensure at least one builtin character exists. Returns its id."""
-    row = conn.execute(
-        "SELECT id FROM characters WHERE source = 'builtin' "
-        "ORDER BY id ASC LIMIT 1"
-    ).fetchone()
-    if row is not None:
-        return int(row["id"])
-    return ops.create_character(
-        conn,
-        name=DEFAULT_BUILTIN_NAME,
-        description="The default LokiDoki personality.",
-        behavior_prompt=DEFAULT_BUILTIN_PROMPT,
-        avatar_style="bottts",
-        avatar_seed="loki-default",
-        source="builtin",
-    )
+    """Idempotently upsert the BUILTIN_SPECS catalog. Returns the
+    first builtin's id (used as the personality-migration anchor).
+
+    Match key is ``(source='builtin', name)``. If a row already
+    exists for a spec, its mutable fields are updated in place via
+    the storage-layer ``update_character`` (which deliberately
+    bypasses the copy-on-write rule — that rule belongs at the
+    admin-route layer, not internal seeding). Per-user override
+    rows survive untouched because they FK on character ``id``,
+    which is preserved by the upsert.
+    """
+    first_id: int | None = None
+    for spec in BUILTIN_SPECS:
+        existing = conn.execute(
+            "SELECT id FROM characters WHERE source = 'builtin' AND name = ?",
+            (spec["name"],),
+        ).fetchone()
+        if existing is None:
+            cid = ops.create_character(
+                conn,
+                name=spec["name"],
+                description=spec["description"],
+                behavior_prompt=spec["behavior_prompt"],
+                avatar_style=spec["avatar_style"],
+                avatar_seed=spec["avatar_seed"],
+                avatar_config=spec["avatar_config"],
+                source="builtin",
+            )
+        else:
+            cid = int(existing["id"])
+            ops.update_character(
+                conn,
+                cid,
+                description=spec["description"],
+                behavior_prompt=spec["behavior_prompt"],
+                avatar_style=spec["avatar_style"],
+                avatar_seed=spec["avatar_seed"],
+                avatar_config=spec["avatar_config"],
+            )
+        if first_id is None:
+            first_id = cid
+    # ``first_id`` is non-None unless BUILTIN_SPECS is empty.
+    assert first_id is not None
+    return first_id
 
 
 def _migration_done(conn: sqlite3.Connection) -> bool:
