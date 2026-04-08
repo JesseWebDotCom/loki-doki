@@ -39,11 +39,14 @@ export interface DecompositionData {
 export interface RoutingLogEntry {
   ask_id: string;
   intent: string;
-  status: "success" | "failed" | "no_skill" | string;
+  status: "success" | "failed" | "no_skill" | "disabled" | string;
+  skill_id?: string | null;
   mechanism: string | null;
   latency_ms: number;
   source_url?: string | null;
   mechanism_log?: Array<Record<string, unknown>>;
+  disabled_reason?: string | null;
+  missing_config?: string[];
 }
 
 export interface RoutingData {

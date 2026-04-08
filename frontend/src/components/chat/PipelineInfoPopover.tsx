@@ -9,7 +9,8 @@
  * it, so we hide it behind an icon next to the timestamp and only
  * surface it on hover.
  */
-import React, { useRef, useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Info, Brain, Route, Sparkles, Layers, Copy, Check } from "lucide-react";
 import type { PipelineState } from "../../pages/ChatPage";
 import { formatDuration } from "../../lib/utils";
@@ -21,6 +22,22 @@ interface Props {
 const PipelineInfoPopover: React.FC<Props> = ({ pipeline }) => {
   const [hover, setHover] = useState(false);
   const [copied, setCopied] = useState(false);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!hover || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const POPOVER_W = 320;
+    const MARGIN = 8;
+    // Anchor popover's right edge to the icon's right edge, clamped to viewport.
+    let left = rect.right - POPOVER_W;
+    if (left < MARGIN) left = MARGIN;
+    if (left + POPOVER_W > window.innerWidth - MARGIN) {
+      left = window.innerWidth - POPOVER_W - MARGIN;
+    }
+    setPos({ top: rect.bottom + 4, left });
+  }, [hover]);
   // Small grace window so the user can move the mouse from the icon
   // into the popover without it slamming shut between them.
   const hideTimer = useRef<number | null>(null);
@@ -75,6 +92,7 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline }) => {
 
   return (
     <div
+      ref={triggerRef}
       className="relative inline-flex items-center"
       onMouseEnter={enter}
       onMouseLeave={leave}
@@ -86,9 +104,10 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline }) => {
       >
         <Info size={12} />
       </button>
-      {hover && (
+      {hover && pos && createPortal(
         <div
-          className="absolute z-40 top-full right-0 w-72 p-3 rounded-xl border border-border/60 bg-card text-foreground shadow-m4"
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: 320, zIndex: 9999 }}
+          className="p-3 rounded-xl border border-border/60 bg-card text-foreground shadow-m4"
           onMouseEnter={enter}
           onMouseLeave={leave}
         >
@@ -136,33 +155,75 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline }) => {
               value={synthMs > 0 ? formatDuration(synthMs) : ""}
             />
           </div>
-          {pipeline.routing && pipeline.routing.routing_log.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-border/30 flex flex-col gap-1">
-              {pipeline.routing.routing_log.map((entry) => {
+          <div className="mt-2 pt-2 border-t border-border/30 flex flex-col gap-1">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
+              Skills
+            </div>
+            {!pipeline.routing || pipeline.routing.routing_log.length === 0 ? (
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-gray-500" />
+                <span className="text-muted-foreground italic">
+                  No skills called — answered from model knowledge
+                </span>
+              </div>
+            ) : (
+              pipeline.routing.routing_log.map((entry) => {
                 const ok = entry.status === "success";
                 const noSkill = entry.status === "no_skill";
-                const dot = ok ? "bg-green-500" : noSkill ? "bg-gray-500" : "bg-red-500";
+                const disabled = entry.status === "disabled";
+                const dot = ok
+                  ? "bg-green-500"
+                  : noSkill
+                    ? "bg-gray-500"
+                    : disabled
+                      ? "bg-amber-500"
+                      : "bg-red-500";
+                const skillName = entry.skill_id || (noSkill ? "no match" : "—");
+                const statusLabel = ok
+                  ? "ok"
+                  : noSkill
+                    ? "no skill"
+                    : disabled
+                      ? "disabled"
+                      : "failed";
                 return (
-                  <div key={entry.ask_id} className="flex items-center gap-2 text-[10px]">
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
-                    <span className="font-mono text-muted-foreground truncate">
+                  <div key={entry.ask_id} className="flex flex-col gap-0.5 text-[10px]">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+                      <span className="font-mono text-foreground/90 truncate">
+                        {skillName}
+                      </span>
+                      <span className="font-mono text-muted-foreground/70 shrink-0">
+                        [{statusLabel}]
+                      </span>
+                      <span className="ml-auto font-mono text-muted-foreground/70 shrink-0">
+                        {entry.latency_ms ? formatDuration(entry.latency_ms) : "—"}
+                      </span>
+                    </div>
+                    <div className="pl-3.5 font-mono text-muted-foreground/70 truncate">
                       {entry.intent}
                       {entry.mechanism ? ` · ${entry.mechanism}` : ""}
-                    </span>
-                    <span className="ml-auto font-mono text-muted-foreground/70 shrink-0">
-                      {entry.latency_ms ? formatDuration(entry.latency_ms) : "—"}
-                    </span>
+                    </div>
+                    {disabled && entry.disabled_reason && (
+                      <div className="pl-3.5 text-amber-500/80 italic truncate">
+                        {entry.disabled_reason}
+                        {entry.missing_config && entry.missing_config.length > 0
+                          ? ` (missing: ${entry.missing_config.join(", ")})`
+                          : ""}
+                      </div>
+                    )}
                   </div>
                 );
-              })}
-            </div>
-          )}
+              })
+            )}
+          </div>
           {pipeline.decomposition && (
             <div className="mt-2 pt-2 border-t border-border/30 text-[10px] text-muted-foreground font-mono">
               {pipeline.decomposition.model} · {pipeline.decomposition.reasoning_complexity}
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

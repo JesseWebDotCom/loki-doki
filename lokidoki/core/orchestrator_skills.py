@@ -77,6 +77,10 @@ async def run_skills(
     # ``{ask_id: {"reason": str, "missing_config": [keys]}}`` so the
     # routing log carries enough detail for the UI to explain why.
     disabled_asks: dict[str, dict] = {}
+    # Track resolved skill_id per ask so the routing log can name the
+    # skill that was (or would have been) called. Populated even for
+    # disabled asks; remains absent when no manifest matched the intent.
+    ask_skill_ids: dict[str, str] = {}
 
     if registry:
         tasks: list[tuple[str, Any, Any, dict]] = []
@@ -88,6 +92,7 @@ async def run_skills(
             if not manifest:
                 continue
             skill_id = manifest["skill_id"]
+            ask_skill_ids[ask.ask_id] = skill_id
             instance = get_skill_instance(skill_id)
             if not instance:
                 continue
@@ -177,6 +182,7 @@ async def run_skills(
                 })
             routing_log.append({
                 "ask_id": ask.ask_id, "intent": ask.intent, "status": "success",
+                "skill_id": ask_skill_ids.get(ask.ask_id),
                 "mechanism": result.mechanism_used, "latency_ms": result.latency_ms,
                 "source_url": result.source_url,
             })
@@ -192,6 +198,7 @@ async def run_skills(
             routing_log.append({
                 "ask_id": ask.ask_id, "intent": ask.intent,
                 "status": status,
+                "skill_id": ask_skill_ids.get(ask.ask_id),
                 "mechanism": result.mechanism_used if result else None,
                 "latency_ms": result.latency_ms if result else 0,
                 "mechanism_log": result.mechanism_log if result else [],
