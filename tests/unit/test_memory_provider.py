@@ -21,6 +21,92 @@ async def memory(tmp_path):
     await mp.close()
 
 
+class TestEmbeddings:
+    """Coverage for the bge-small embedder + hybrid retrieval."""
+
+    @pytest.mark.anyio
+    async def test_upsert_writes_vec_facts_row(self, memory):
+        u = await memory.get_or_create_user("default")
+        await memory.upsert_fact(
+            user_id=u, subject="self", predicate="loves", value="raspberry pi"
+        )
+
+        def _check(conn):
+            row = conn.execute(
+                "SELECT vf.fact_id FROM vec_facts vf "
+                "JOIN facts f ON f.id = vf.fact_id "
+                "WHERE f.owner_user_id = ?",
+                (u,),
+            ).fetchone()
+            return row
+
+        row = await memory.run_sync(_check)
+        # vec_facts may not exist if sqlite-vec failed to load — in
+        # that case the test still passes (the provider degrades to
+        # BM25-only and the row is simply absent).
+        if memory.vec_enabled:
+            assert row is not None
+
+    @pytest.mark.anyio
+    async def test_hybrid_search_returns_results_with_vectors(self, memory):
+        u = await memory.get_or_create_user("default")
+        await memory.upsert_fact(
+            user_id=u, subject="self", predicate="loves", value="raspberry pi"
+        )
+        await memory.upsert_fact(
+            user_id=u, subject="self", predicate="loves", value="kayaking"
+        )
+        results = await memory.search_facts(user_id=u, query="raspberry pi")
+        assert len(results) >= 1
+        assert results[0]["value"] == "raspberry pi"
+
+    @pytest.mark.anyio
+    async def test_backfill_embeds_pre_existing_facts(self, memory, tmp_path):
+        """Facts written before the embedder existed must get embedded
+        on the next provider startup. We simulate this by writing a row
+        directly into facts (no vec_facts row), then closing + reopening
+        the provider — initialize() should backfill it."""
+        u = await memory.get_or_create_user("default")
+
+        def _raw_insert(conn):
+            conn.execute(
+                "INSERT INTO facts (owner_user_id, subject, predicate, value) "
+                "VALUES (?, 'self', 'enjoys', 'tea')",
+                (u,),
+            )
+            conn.commit()
+        await memory.run_sync(_raw_insert)
+
+        # Confirm the row is present but has no vec_facts entry.
+        def _missing(conn):
+            return conn.execute(
+                "SELECT COUNT(*) FROM facts f "
+                "LEFT JOIN vec_facts vf ON vf.fact_id = f.id "
+                "WHERE vf.fact_id IS NULL AND f.value = 'tea'"
+            ).fetchone()[0]
+        if memory.vec_enabled:
+            assert (await memory.run_sync(_missing)) == 1
+
+        await memory.close()
+
+        # Reopen — initialize() runs backfill.
+        mp2 = MemoryProvider(db_path=memory._db_path)
+        await mp2.initialize()
+        try:
+            if mp2.vec_enabled:
+                async def _has_vec():
+                    def _do(conn):
+                        return conn.execute(
+                            "SELECT COUNT(*) FROM vec_facts vf "
+                            "JOIN facts f ON f.id = vf.fact_id "
+                            "WHERE f.value = 'tea'"
+                        ).fetchone()[0]
+                    return await mp2.run_sync(_do)
+                assert (await _has_vec()) == 1
+        finally:
+            await mp2.close()
+
+
 class TestNewSchemaFields:
     """Coverage for the kind/valid_from/valid_to/entity additions."""
 

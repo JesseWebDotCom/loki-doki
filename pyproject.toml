@@ -17,6 +17,7 @@ dependencies = [
     "pytest-cov>=7.1.0",
     "python-multipart>=0.0.24",
     "sqlite-vec>=0.1.9",
+    "fastembed>=0.4.2",
     "uvicorn>=0.44.0",
 ]
 

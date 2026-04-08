@@ -134,6 +134,7 @@ def upsert_fact(
     ambiguity_group_id: Optional[int] = None,
     negates_previous: bool = False,
     kind: str = "fact",
+    embedding: Optional[list] = None,
 ) -> tuple[int, float, dict]:
     """Insert OR confirm OR revise. Returns (fact_id, confidence, report).
 
@@ -186,8 +187,23 @@ def upsert_fact(
             status, ambiguity_group_id,
         ),
     )
+    fact_id = int(cur.lastrowid)
+    # Embedding is optional so the provider can decide whether to embed
+    # (e.g. skipped in tests, or when sqlite-vec failed to load). When
+    # supplied we write into vec_facts in the same transaction so the
+    # vector is durable with the fact. Failure here is non-fatal —
+    # search degrades to BM25-only for this row.
+    if embedding is not None:
+        try:
+            import json as _json
+            conn.execute(
+                "INSERT INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
+                (fact_id, _json.dumps(embedding)),
+            )
+        except sqlite3.Error:
+            pass  # vec_facts unavailable or write failed; not a hard error
     conn.commit()
-    return int(cur.lastrowid), DEFAULT_CONFIDENCE, report
+    return fact_id, DEFAULT_CONFIDENCE, report
 
 
 _FACT_COLS = (

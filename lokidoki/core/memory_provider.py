@@ -57,6 +57,67 @@ class MemoryProvider:
         # pure schema layer).
         from lokidoki.core.character_seed import run_seed
         await asyncio.to_thread(run_seed, self._conn)
+        # Backfill embeddings for any active facts that don't have a
+        # vec_facts row yet. Idempotent — runs every startup but only
+        # touches rows that have never been embedded. Bounded so a
+        # cold start with thousands of facts doesn't pin the CPU; the
+        # remainder rolls over into subsequent boots.
+        if self._vec_loaded:
+            try:
+                await self._backfill_embeddings(max_rows=500)
+            except Exception:  # noqa: BLE001 — never block startup
+                import logging
+                logging.getLogger(__name__).exception(
+                    "[memory] embedding backfill failed; continuing"
+                )
+
+    async def _backfill_embeddings(self, *, max_rows: int) -> None:
+        """Embed up to ``max_rows`` active facts that have no vec_facts row.
+
+        Reads + writes go through the same connection lock as the rest
+        of the provider. Embedding inference happens outside the lock
+        in a thread so the event loop stays responsive.
+        """
+        def _missing(conn):
+            rows = conn.execute(
+                "SELECT f.id, f.subject, f.predicate, f.value "
+                "FROM facts f LEFT JOIN vec_facts vf ON vf.fact_id = f.id "
+                "WHERE vf.fact_id IS NULL AND f.status IN ('active','ambiguous') "
+                "LIMIT ?",
+                (max_rows,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+        async with self._lock:
+            rows = await asyncio.to_thread(_missing, self._conn)
+        if not rows:
+            return
+
+        from lokidoki.core.embedder import get_embedder
+        sentences = [f"{r['subject']} {r['predicate']} {r['value']}".strip() for r in rows]
+        vectors = await asyncio.to_thread(
+            lambda: get_embedder().embed_passages(sentences)
+        )
+
+        import json as _json
+
+        def _write(conn):
+            for r, vec in zip(rows, vectors):
+                try:
+                    conn.execute(
+                        "INSERT INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
+                        (int(r["id"]), _json.dumps(vec)),
+                    )
+                except Exception:
+                    continue
+            conn.commit()
+
+        async with self._lock:
+            await asyncio.to_thread(_write, self._conn)
+        import logging
+        logging.getLogger(__name__).info(
+            "[memory] backfilled %d embeddings", len(rows)
+        )
 
     async def close(self) -> None:
         if self._conn is not None:
@@ -260,6 +321,24 @@ class MemoryProvider:
         for the same (owner, subject, predicate) coexist as separate
         rows so PR3's conflict UI has something to resolve.
         """
+        # Compute the embedding outside the DB lock so we don't block
+        # other writers during the ~50ms inference. ``embed_passages``
+        # is sync; route through ``to_thread`` to keep the event loop
+        # responsive. We embed a "subject predicate value" sentence so
+        # the vector captures the full semantic context, not just the
+        # value. Skipped when sqlite-vec failed to load — the SQL writer
+        # treats embedding=None as "BM25-only for this row".
+        embedding: Optional[list] = None
+        if self._vec_loaded:
+            try:
+                from lokidoki.core.embedder import get_embedder
+                sentence = f"{subject} {predicate} {value}".strip()
+                embedding = await asyncio.to_thread(
+                    lambda: get_embedder().embed_passages([sentence])[0]
+                )
+            except Exception:  # noqa: BLE001 — degrade, never crash a write
+                embedding = None
+
         async with self._lock:
             return await asyncio.to_thread(
                 lambda: sql.upsert_fact(
@@ -277,6 +356,7 @@ class MemoryProvider:
                     ambiguity_group_id=ambiguity_group_id,
                     negates_previous=negates_previous,
                     kind=kind,
+                    embedding=embedding,
                 )
             )
 
