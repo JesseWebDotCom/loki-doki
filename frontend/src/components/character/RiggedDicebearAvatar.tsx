@@ -33,7 +33,7 @@ import {
   mouthForViseme,
   type Viseme,
 } from "./visemeMap";
-import { splitDicebearSvg } from "./splitDicebearSvg";
+import { applyBotttsBlinkOverlay, splitDicebearSvg } from "./splitDicebearSvg";
 import { filterOptionsForStyle } from "./styleSchemas";
 
 const STYLE_MAP: Partial<Record<AvatarStyle, Style<object>>> = {
@@ -113,8 +113,13 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
 
   const blinkEye = blinkEyeFor(style);
   const defaultEye = defaultEyeFor(style);
-  if (blinking && blinkEye) {
-    effectiveOptions.eyes = [blinkEye];
+  // Sentinels (prefix `__`) are not real DiceBear enum values — they
+  // mean "this style needs an SVG post-process to blink" (see bottts).
+  // Skip the eyes override in that case; the overlay runs below.
+  const blinkViaOverride =
+    blinking && blinkEye != null && !blinkEye.startsWith("__");
+  if (blinkViaOverride) {
+    effectiveOptions.eyes = [blinkEye as string];
     effectiveOptions.eyesProbability = 100;
   } else if (defaultEye && !("eyes" in (baseOptions ?? {}))) {
     effectiveOptions.eyes = [defaultEye];
@@ -141,12 +146,22 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [style, seed, optionsKey]);
 
+  // Bottts has no closed-eye DiceBear variant — patch the rendered
+  // SVG with custom closed-eye bars when the blink loop fires.
+  const processedSvg = useMemo(() => {
+    if (!svgString) return null;
+    if (style === "bottts" && blinking) {
+      return applyBotttsBlinkOverlay(svgString);
+    }
+    return svgString;
+  }, [svgString, style, blinking]);
+
   // Run the splitter. Memoized on the SVG string — splitter is
   // pure-ish (DOMParser + string ops, no side effects).
   const split = useMemo(() => {
-    if (!svgString) return null;
-    return splitDicebearSvg(svgString, style);
-  }, [svgString, style]);
+    if (!processedSvg) return null;
+    return splitDicebearSvg(processedSvg, style);
+  }, [processedSvg, style]);
 
   const wrapperStyle: React.CSSProperties = size
     ? { width: size, height: size, display: "inline-block" }

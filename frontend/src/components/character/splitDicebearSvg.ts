@@ -343,6 +343,49 @@ function splitBottts(doc: Document, viewBox: string): SplitResult {
   };
 }
 
+// ---------- bottts blink overlay ----------
+
+/**
+ * applyBotttsBlinkOverlay — replace the contents of bottts' eyes group
+ * with two horizontal closed-eye bars (the `-_-` look). Bottts ships
+ * no closed-eye variant in DiceBear, so we patch the rendered SVG.
+ *
+ * The eyes group is placed by bottts at `<g transform="translate(38
+ * 76)">` (see @dicebear/bottts/lib/index.js). The eye component's
+ * local frame is the 104-wide box used by every entry in
+ * components/eyes.js, with eye centers near y=24-30 and x∈[15..38] /
+ * x∈[66..89]. The bars below sit on those centers.
+ */
+const BOTTTS_BLINK_BARS =
+  '<rect x="10" y="22" width="28" height="6" rx="3" fill="#000" fill-opacity=".8"/>' +
+  '<rect x="66" y="22" width="28" height="6" rx="3" fill="#000" fill-opacity=".8"/>';
+
+export function applyBotttsBlinkOverlay(svgString: string): string {
+  if (typeof DOMParser === "undefined") return svgString;
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(svgString, "image/svg+xml");
+  } catch {
+    return svgString;
+  }
+  const eyesGroup = doc.querySelector('g[transform="translate(38 76)"]');
+  if (!eyesGroup) return svgString;
+  // Wipe whatever DiceBear rendered and inject the closed bars.
+  while (eyesGroup.firstChild) eyesGroup.removeChild(eyesGroup.firstChild);
+  // innerHTML on SVG elements is supported in modern browsers; fall
+  // back to a sentinel-and-string-replace if not.
+  try {
+    (eyesGroup as unknown as { innerHTML: string }).innerHTML =
+      BOTTTS_BLINK_BARS;
+  } catch {
+    return svgString.replace(
+      /<g transform="translate\(38 76\)">[\s\S]*?<\/g>/,
+      `<g transform="translate(38 76)">${BOTTTS_BLINK_BARS}</g>`,
+    );
+  }
+  return serialize(doc.documentElement);
+}
+
 // ---------- public entry ----------
 
 export function splitDicebearSvg(

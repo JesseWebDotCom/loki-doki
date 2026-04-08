@@ -67,9 +67,12 @@ const MAPS: Record<AvatarStyle, StyleVisemeMap> = {
       b: "grill01",
       m: "grill01",
     },
-    // bottts eyes are mostly LED frames; none read as "blinking" so
-    // we skip blink animation for bottts (null disables it).
-    blinkEye: null,
+    // bottts ships no closed-eye variant — every eye is an open LED
+    // frame. The sentinel "__overlay__" enables the idle blink loop
+    // but tells the renderer to skip the DiceBear `eyes` override and
+    // instead overlay custom closed-eye bars on the rendered SVG
+    // (see applyBotttsBlinkOverlay in splitDicebearSvg).
+    blinkEye: "__overlay__",
     defaultEye: null,
   },
   "toon-head": {
