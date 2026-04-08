@@ -7,10 +7,8 @@ import {
   type AdminCharacterRow,
 } from "../../lib/api";
 import Avatar, { type AvatarStyle } from "../character/Avatar";
-import AnimatedAvatar from "../character/AnimatedAvatar";
 import RiggedDicebearAvatar from "../character/RiggedDicebearAvatar";
 import type { HeadTiltState } from "../character/useHeadTilt";
-import { headRigFor } from "../character/headRig";
 import SchemaField from "../character/SchemaField";
 import {
   COMMON_KEYS,
@@ -76,40 +74,6 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
   // ----- animation preview -----
   const [tiltState, setTiltState] = useState<HeadTiltState>("idle");
   const [manualTilt, setManualTilt] = useState<number | null>(null);
-  // Avataaars-rigged A/B preview toggle. When true, the live preview
-  // swaps to AvataaarsAnimatedAvatar (Pablo Stanley's original
-  // avataaars artwork via the `avataaars` npm package, with a real
-  // rigid head <g> via path-split) instead of AnimatedAvatar
-  // (DiceBear + pixel-mask rig). Doesn't affect what gets saved.
-  const [riggedPreview, setRiggedPreview] = useState(false);
-  // ----- live rig tuning (per-style scratch values for the playground) -----
-  const [rigDebug, setRigDebug] = useState(false);
-  const [rigByStyle, setRigByStyle] = useState<
-    Record<AvatarStyle, { pivotY: number; neckTopY: number; bulgeRadius: number; torsoTopY: number }>
-  >(() => ({
-    avataaars: {
-      pivotY: headRigFor("avataaars").pivotY,
-      neckTopY: headRigFor("avataaars").neckTopY,
-      bulgeRadius: headRigFor("avataaars").bulgeRadius,
-      torsoTopY: headRigFor("avataaars").torsoTopY,
-    },
-    bottts: {
-      pivotY: headRigFor("bottts").pivotY,
-      neckTopY: headRigFor("bottts").neckTopY,
-      bulgeRadius: headRigFor("bottts").bulgeRadius,
-      torsoTopY: headRigFor("bottts").torsoTopY,
-    },
-    "toon-head": {
-      pivotY: headRigFor("toon-head").pivotY,
-      neckTopY: headRigFor("toon-head").neckTopY,
-      bulgeRadius: headRigFor("toon-head").bulgeRadius,
-      torsoTopY: headRigFor("toon-head").torsoTopY,
-    },
-  }));
-  const currentRig = rigByStyle[style];
-  const styleViewH = headRigFor(style).viewH;
-  const setRigField = (field: "pivotY" | "neckTopY" | "bulgeRadius" | "torsoTopY", value: number) =>
-    setRigByStyle((prev) => ({ ...prev, [style]: { ...prev[style], [field]: value } }));
   // ----- io -----
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -284,42 +248,16 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
                   "repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, rgba(255,255,255,0.08) 0% 50%) 50% / 24px 24px",
               }}
             >
-              {riggedPreview ? (
-                <RiggedDicebearAvatar
-                  style={style}
-                  seed={seed}
-                  baseOptions={activeOptions}
-                  size={320}
-                  tiltState={tiltState}
-                  manualTiltDeg={manualTilt ?? undefined}
-                  className="drop-shadow-lg"
-                />
-              ) : (
-                <AnimatedAvatar
-                  style={style}
-                  seed={seed}
-                  baseOptions={activeOptions}
-                  size={320}
-                  tiltState={tiltState}
-                  manualTiltDeg={manualTilt ?? undefined}
-                  rigOverride={currentRig}
-                  debugRig={rigDebug}
-                  className="drop-shadow-lg"
-                />
-              )}
-            </div>
-            {/* A/B toggle: swap the live preview to the BigHeads
-                 (rigid-head) renderer. Save logic is unaffected — this
-                 only changes what's drawn in the preview frame. */}
-            <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={riggedPreview}
-                onChange={(e) => setRiggedPreview(e.target.checked)}
-                className="accent-primary"
+              <RiggedDicebearAvatar
+                style={style}
+                seed={seed}
+                baseOptions={activeOptions}
+                size={320}
+                tiltState={tiltState}
+                manualTiltDeg={manualTilt ?? undefined}
+                className="drop-shadow-lg"
               />
-              Rigged avataaars preview (real head rotation)
-            </label>
+            </div>
 
             {/* Animation controls — drives the live preview's
                  useHeadTilt hook so admins can audition the built-in
@@ -392,59 +330,6 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
                   Dragging the slider overrides the active state. Click a
                   state button to release.
                 </div>
-              </div>
-            </div>
-
-            {/* Live head-rig tuning. The three knobs (pivotY,
-                 bulgeRadius, torsoTopY) are the only per-style values
-                 that need calibrating. Toggle the debug overlay to
-                 see them as a red dot/circle/dashed line on top of
-                 the avatar. When dialed in, copy the numbers shown
-                 here into headRig.ts. Values are per-style and live
-                 in component state — they reset on close. */}
-            <div className="space-y-2 pt-2 border-t border-border/20">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  Head Rig · {style}
-                </label>
-                <label className="flex items-center gap-1.5 text-[9px] font-bold text-muted-foreground hover:text-foreground cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={rigDebug}
-                    onChange={(e) => setRigDebug(e.target.checked)}
-                    className="accent-primary"
-                  />
-                  Debug overlay
-                </label>
-              </div>
-              {(
-                [
-                  { key: "pivotY" as const, label: "pivotY (shoulder)", min: 0, max: styleViewH },
-                  { key: "neckTopY" as const, label: "neckTopY (jaw)", min: 0, max: styleViewH },
-                  { key: "bulgeRadius" as const, label: "bulgeRadius", min: 0, max: Math.round(styleViewH / 3) },
-                  { key: "torsoTopY" as const, label: "torsoTopY", min: 0, max: styleViewH },
-                ]
-              ).map((spec) => (
-                <div key={spec.key} className="space-y-0.5">
-                  <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground">
-                    <span>{spec.label}</span>
-                    <span>{currentRig[spec.key]}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={spec.min}
-                    max={spec.max}
-                    step={1}
-                    value={currentRig[spec.key]}
-                    onChange={(e) => setRigField(spec.key, Number(e.target.value))}
-                    className="w-full accent-primary"
-                  />
-                </div>
-              ))}
-              <div className="text-[9px] font-mono text-muted-foreground/70 leading-tight pt-1">
-                viewBox 0 0 {headRigFor(style).viewW} {styleViewH}. When
-                dialed in, hand these values back so they can be baked
-                into headRig.ts.
               </div>
             </div>
 

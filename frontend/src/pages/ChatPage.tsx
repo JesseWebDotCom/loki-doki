@@ -15,7 +15,7 @@ import {
   listCharacters,
   type CharacterRow,
 } from '../lib/api';
-import AnimatedAvatar from '../components/character/AnimatedAvatar';
+import RiggedDicebearAvatar from '../components/character/RiggedDicebearAvatar';
 import type {
   PipelineEvent,
   DecompositionData,
@@ -113,7 +113,7 @@ const ChatPage: React.FC = () => {
     })();
   }, [dataVersion]);
 
-  // Load the active character so the floating AnimatedAvatar can
+  // Load the active character so the floating RiggedDicebearAvatar can
   // render its DiceBear identity. Refetched whenever the user picks
   // a different character in Settings (dataVersion bumps after that
   // flow saves). Failure is silent — chat still works without an avatar.
@@ -321,7 +321,7 @@ const ChatPage: React.FC = () => {
             className="absolute top-6 right-6 z-20 w-28 h-28 rounded-2xl bg-card/60 backdrop-blur-md border border-border/40 shadow-m3 flex items-center justify-center pointer-events-none"
             title={activeChar.name}
           >
-            <AnimatedAvatar
+            <RiggedDicebearAvatar
               style={activeChar.avatar_style}
               seed={activeChar.avatar_seed}
               baseOptions={activeChar.avatar_config as Record<string, unknown>}
