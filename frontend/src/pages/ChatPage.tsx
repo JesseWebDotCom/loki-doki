@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Send } from 'lucide-react';
 import { useTTSState } from '../utils/tts';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 import Sidebar from '../components/sidebar/Sidebar';
 import ChatWindow from '../components/chat/ChatWindow';
 import ChatWelcomeView from '../components/chat/ChatWelcomeView';
@@ -64,6 +65,8 @@ const INITIAL_PIPELINE: PipelineState = {
 };
 
 const ChatPage: React.FC = () => {
+  const [chatTitle, setChatTitle] = useState('Chat');
+  useDocumentTitle(chatTitle);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [pipeline, setPipeline] = useState<PipelineState>(INITIAL_PIPELINE);
@@ -220,6 +223,25 @@ const ChatPage: React.FC = () => {
       }
     })();
   }, [activeProjectId, dataVersion, currentSessionId]);
+
+  // Reflect the active chat in the browser tab title.
+  useEffect(() => {
+    if (!currentSessionId) {
+      setChatTitle('Chat');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await getSessions();
+        const match = (s.details || []).find((c: any) => String(c.id) === String(currentSessionId));
+        if (!cancelled) setChatTitle(match?.title || 'Chat');
+      } catch {
+        if (!cancelled) setChatTitle('Chat');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentSessionId, dataVersion]);
 
   const handleSaveProject = async (data: ProjectInput) => {
     if (!activeProject) return;

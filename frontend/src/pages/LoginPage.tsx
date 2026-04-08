@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
+import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 const card =
   "w-full max-w-md rounded-xl border border-neutral-800 bg-[#171717] p-8 shadow-2xl";
@@ -12,6 +13,7 @@ const btn =
   "w-full rounded-md bg-violet-500 px-4 py-2 font-semibold text-white hover:bg-violet-400 disabled:opacity-50";
 
 const LoginPage: React.FC = () => {
+  useDocumentTitle('Sign in');
   const { login } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");

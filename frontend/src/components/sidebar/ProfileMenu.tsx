@@ -35,27 +35,28 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
       <DropdownMenuTrigger asChild>
         {compact ? (
           <button
-            className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm shadow-m1 hover:scale-105 transition-transform focus:outline-none"
+            className="w-8 h-8 flex items-center justify-center rounded-md text-primary hover:bg-card/50 transition-colors focus:outline-none"
             aria-label="Open profile menu"
             title={username}
           >
-            {currentUser ? initial : <User size={16} />}
+            <span className="w-5 h-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[10px]">
+              {currentUser ? initial : <User size={10} />}
+            </span>
           </button>
         ) : (
         <button
-          className="w-full flex items-center gap-3 px-2 py-2.5 rounded-lg border border-transparent hover:bg-card/50 hover:border-sidebar-border/50 transition-all duration-300 group focus:outline-none focus:bg-card/50 focus:border-sidebar-border/50"
+          className="w-full flex items-center rounded-md hover:bg-card/50 transition-colors group focus:outline-none"
           aria-label="Open profile menu"
         >
-          <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm shadow-m1 group-hover:scale-105 transition-transform">
-            {currentUser ? initial : <User size={16} />}
-          </div>
-          <div className="flex-1 text-left min-w-0">
-            <div className="text-sm font-bold text-sidebar-foreground truncate">{username}</div>
-            <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
-              {role}
-            </div>
-          </div>
-          <ChevronUp size={14} className="text-muted-foreground group-hover:text-foreground transition-colors" />
+          <span className="w-8 h-8 flex items-center justify-center text-primary shrink-0">
+            <span className="w-5 h-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[10px]">
+              {currentUser ? initial : <User size={10} />}
+            </span>
+          </span>
+          <span className="flex-1 ml-1 text-left min-w-0 text-xs font-medium text-sidebar-foreground truncate">
+            {username}
+          </span>
+          <ChevronUp size={12} className="mr-2 text-muted-foreground group-hover:text-foreground transition-colors" />
         </button>
         )}
       </DropdownMenuTrigger>
@@ -72,10 +73,12 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
             <span>Admin Panel</span>
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem onSelect={() => navigate('/dev')}>
-          <Wrench size={16} />
-          <span>Dev Tools</span>
-        </DropdownMenuItem>
+        {isAdmin && (
+          <DropdownMenuItem onSelect={() => navigate('/dev')}>
+            <Wrench size={16} />
+            <span>Dev Tools</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={handleLogout} className="focus:bg-destructive/10 focus:text-destructive">
           <LogOut size={16} />

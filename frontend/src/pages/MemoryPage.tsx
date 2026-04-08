@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Brain, User, Users, Database } from "lucide-react";
 import Sidebar from "../components/sidebar/Sidebar";
+import { useDocumentTitle } from "../lib/useDocumentTitle";
 import { PeopleTab } from "../components/memory/PeopleTab";
 import { FactsTab } from "../components/memory/FactsTab";
 import {
@@ -37,6 +38,7 @@ import type {
 type TabId = "you" | "people" | "other";
 
 const MemoryPage: React.FC = () => {
+  useDocumentTitle('Memory');
   const [activeTab, setActiveTab] = useState<TabId>("you");
   const [people, setPeople] = useState<Person[]>([]);
   const [relationships, setRelationships] = useState<Relationship[]>([]);

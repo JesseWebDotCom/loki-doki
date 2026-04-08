@@ -4,8 +4,6 @@ import {
   Brain,
   Plus,
   FolderPlus,
-  ChevronDown,
-  ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
   PenLine,
@@ -169,48 +167,43 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // ---------------- Collapsed (icon-only rail) ----------------
   if (collapsed) {
-    const railBtn =
-      'w-11 h-11 flex items-center justify-center rounded-lg border transition-all';
+    const slot =
+      'w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0';
     return (
       <aside
-        className="border-r border-sidebar-border bg-sidebar flex flex-col items-center px-2 py-4 h-screen select-none shadow-m4 z-20 overflow-hidden transition-[width] duration-300 ease-in-out"
-        style={{ width: '4rem' }}
+        className="border-r border-sidebar-border bg-sidebar flex flex-col px-2 py-3 h-screen select-none shadow-m4 z-20 overflow-hidden transition-[width] duration-300 ease-in-out"
+        style={{ width: '3rem' }}
       >
-        {/* Logo + hover-swap toggle */}
         <button
           onClick={() => setCollapsed(false)}
           title="Expand sidebar"
           aria-label="Expand sidebar"
-          className="group relative w-11 h-11 mb-6 flex items-center justify-center rounded-lg bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 transition-colors"
+          className={`group relative mb-4 text-primary hover:bg-card/50 ${slot}`}
         >
-          <Ghost className="w-6 h-6 transition-opacity duration-150 group-hover:opacity-0" />
-          <PanelLeftOpen className="w-6 h-6 absolute opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+          <Ghost size={16} className="transition-opacity duration-150 group-hover:opacity-0" />
+          <PanelLeftOpen size={16} className="absolute opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
         </button>
-        <nav className="space-y-2 flex-1">
+        <nav className="space-y-0.5 flex-1">
           <button
             onClick={() => handleNewSessionFallback()}
-            title="New Chat"
-            className={`${railBtn} ${
-              isChat
-                ? 'bg-primary/10 border-primary/20 text-primary'
-                : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-primary'
+            title="New Session"
+            className={`${slot} ${
+              isChat ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-primary'
             }`}
           >
-            <PenLine size={20} />
+            <PenLine size={16} />
           </button>
           <Link
             to="/memory"
             title="Memory"
-            className={`${railBtn} ${
-              isMemory
-                ? 'bg-primary/10 border-primary/20 text-primary'
-                : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
+            className={`${slot} ${
+              isMemory ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
             }`}
           >
-            <Brain size={20} />
+            <Brain size={16} />
           </Link>
         </nav>
-        <div className="pt-3 mt-2 border-t border-sidebar-border/40 w-full flex justify-center">
+        <div className="pt-2 mt-1 border-t border-sidebar-border/40 -mx-2 px-2">
           <ProfileMenu compact />
         </div>
       </aside>
@@ -220,66 +213,62 @@ const Sidebar: React.FC<SidebarProps> = ({
   // ---------------- Expanded ----------------
   return (
     <aside
-      className="border-r border-sidebar-border bg-sidebar flex flex-col px-3 py-6 h-screen select-none shadow-m4 z-20 overflow-hidden transition-[width] duration-300 ease-in-out"
-      style={{ width: '20rem' }}
+      className="border-r border-sidebar-border bg-sidebar flex flex-col px-2 py-3 h-screen select-none shadow-m4 z-20 overflow-hidden transition-[width] duration-300 ease-in-out"
+      style={{ width: '15rem' }}
     >
-      {/* Branding + collapse toggle */}
-      <div className="flex items-center gap-3 mb-10 px-1 group">
-        <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 group-hover:scale-110 transition-transform shadow-m2 text-primary">
-          <Ghost className="w-7 h-7" />
+      {/* Branding + collapse toggle. Ghost icon sits in the same w-8 h-8 slot
+          as every nav row so collapsing the rail leaves it visually pinned. */}
+      <div className="flex items-center mb-4 group">
+        <div className="w-8 h-8 flex items-center justify-center text-primary shrink-0">
+          <Ghost size={16} />
         </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-xl font-bold tracking-tight text-sidebar-foreground font-sans">
-            LokiDoki
-          </h2>
-          <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-            Agentic Core v0.2
-          </div>
-        </div>
+        <h2 className="flex-1 ml-1 text-sm font-bold tracking-tight text-sidebar-foreground">
+          lokidoki
+        </h2>
         <button
           onClick={() => setCollapsed(true)}
           title="Collapse sidebar"
-          className="p-1.5 rounded-md text-muted-foreground hover:bg-card/50 hover:text-foreground transition-all"
+          className="w-8 h-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-card/50 hover:text-foreground transition-colors"
         >
-          <PanelLeftClose size={18} />
+          <PanelLeftClose size={16} />
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="space-y-2 mb-6">
+      {/* Navigation. Each row is w-full but the icon stays in a fixed 32px slot
+          flush to the left edge, matching the collapsed rail exactly. */}
+      <nav className="space-y-0.5 mb-4">
         <button
           type="button"
           onClick={() => handleNewSessionFallback()}
-          className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-300 border ${
-            isChat
-              ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold'
-              : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
+          className={`w-full flex items-center rounded-md transition-colors text-xs font-medium ${
+            isChat ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
-          <PenLine size={20} />
-          <span className="text-base tracking-tight">New Chat</span>
+          <span className="w-8 h-8 flex items-center justify-center shrink-0">
+            <PenLine size={16} />
+          </span>
+          <span className="ml-1">New Session</span>
         </button>
         <Link
           to="/memory"
-          className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-300 border ${
-            isMemory
-              ? 'bg-primary/10 border-primary/20 text-primary shadow-sm font-bold'
-              : 'border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground'
+          className={`flex items-center rounded-md transition-colors text-xs font-medium ${
+            isMemory ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
-          <Brain size={20} />
-          <span className="text-base tracking-tight">Memory</span>
+          <span className="w-8 h-8 flex items-center justify-center shrink-0">
+            <Brain size={16} />
+          </span>
+          <span className="ml-1">Memory</span>
         </Link>
       </nav>
 
       {/* Main Content Area (Scrollable) */}
-      <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pb-6">
+      <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 pb-4">
         {/* Projects Section */}
         <Collapsible open={showProjects} onOpenChange={setShowProjects}>
-          <div className="flex items-center justify-between px-1 mb-2">
-            <CollapsibleTrigger className="flex items-center gap-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest hover:text-foreground transition-all">
-              {showProjects ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              Projects ({projects.length})
+          <div className="flex items-center justify-between px-2 mb-1">
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider hover:text-foreground transition-all">
+              Projects
             </CollapsibleTrigger>
             <button
               onClick={(e) => {
@@ -287,9 +276,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                 setEditingProject(null);
                 setIsProjectModalOpen(true);
               }}
-              className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
+              className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
             >
-              <FolderPlus size={14} />
+              <FolderPlus size={12} />
             </button>
           </div>
           <CollapsibleContent className="space-y-1 px-1">
@@ -341,19 +330,18 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Chats Section */}
         <Collapsible open={showChats} onOpenChange={setShowChats}>
-          <div className="flex items-center justify-between px-2 mb-2">
-            <CollapsibleTrigger className="flex items-center gap-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest hover:text-foreground transition-all">
-              {showChats ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              Chats ({globalSessions.length})
+          <div className="flex items-center justify-between px-2 mb-1">
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider hover:text-foreground transition-all">
+              Recents
             </CollapsibleTrigger>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 handleNewSessionFallback();
               }}
-              className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
+              className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
             >
-              <Plus size={14} />
+              <Plus size={12} />
             </button>
           </div>
           <CollapsibleContent className="space-y-1 px-2">
@@ -380,7 +368,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Profile (bottom-left) */}
-      <div className="pt-3 mt-2 border-t border-sidebar-border/40">
+      <div className="pt-2 mt-1 border-t border-sidebar-border/40">
         <ProfileMenu />
       </div>
 
