@@ -16,6 +16,7 @@ import {
   type CharacterRow,
 } from '../lib/api';
 import RiggedDicebearAvatar from '../components/character/RiggedDicebearAvatar';
+import type { HeadTiltState } from '../components/character/useHeadTilt';
 import type {
   PipelineEvent,
   DecompositionData,
@@ -76,6 +77,32 @@ const ChatPage: React.FC = () => {
   const [activeChar, setActiveChar] = useState<CharacterRow | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Idle-state ticker for the character avatar. We don't need a dense
+  // requestAnimationFrame loop here — the avatar only changes between
+  // idle/dozing/sleeping at 30s/90s thresholds, so a 5s interval is plenty.
+  // `lastActivity` resets whenever something interesting happens (input
+  // typed, message sent, generation in flight, TTS playback), and the
+  // characterState memo derives thinking/speaking/idle/dozing/sleeping
+  // from that.
+  const [now, setNow] = useState(() => Date.now());
+  const [lastActivity, setLastActivity] = useState(() => Date.now());
+  useEffect(() => {
+    setLastActivity(Date.now());
+  }, [isProcessing, tts.speakingKey, messages.length, input]);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 5000);
+    return () => window.clearInterval(id);
+  }, []);
+  const characterState: HeadTiltState = isProcessing
+    ? 'thinking'
+    : tts.speakingKey
+      ? 'speaking'
+      : now - lastActivity > 90_000
+        ? 'sleeping'
+        : now - lastActivity > 30_000
+          ? 'dozing'
+          : 'idle';
 
   // Sidebar (mounted on Settings/Admin/Memory/Dev) routes session
   // selection here via router state when it has no direct callback.
@@ -315,17 +342,18 @@ const ChatPage: React.FC = () => {
         onProjectsChanged={() => setDataVersion((v) => v + 1)}
       />
 
-      <main className="flex-1 flex flex-col relative bg-background shadow-inner">
+      <main className={`flex-1 flex flex-col relative bg-background shadow-inner transition-[padding] duration-300 ${activeChar ? 'pr-[380px]' : ''}`}>
         {activeChar && (
           <div
-            className="absolute top-6 right-6 z-20 w-28 h-28 rounded-2xl bg-card/60 backdrop-blur-md border border-border/40 shadow-m3 flex items-center justify-center pointer-events-none"
+            className="absolute right-10 top-1/2 -translate-y-1/2 z-20 w-[336px] h-[336px] flex items-center justify-center pointer-events-none"
             title={activeChar.name}
           >
             <RiggedDicebearAvatar
               style={activeChar.avatar_style}
               seed={activeChar.avatar_seed}
               baseOptions={activeChar.avatar_config as Record<string, unknown>}
-              size={104}
+              size={312}
+              tiltState={characterState}
             />
           </div>
         )}
@@ -338,7 +366,12 @@ const ChatPage: React.FC = () => {
             onSelectChat={handleSelectSession}
           />
         ) : (
-          <ChatWindow messages={messages} pipeline={pipeline} />
+          <ChatWindow
+            messages={messages}
+            pipeline={pipeline}
+            activeChar={activeChar}
+            characterState={characterState}
+          />
         )}
 
         <div className="p-10 bg-background/50 backdrop-blur-xl border-t border-border/20">

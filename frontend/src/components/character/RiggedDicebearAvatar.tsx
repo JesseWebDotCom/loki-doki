@@ -83,9 +83,14 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
     const unsubV = ttsController.subscribeViseme((v) => {
       setViseme((v || "closed") as Viseme);
     });
-    const unsubS = ttsController.subscribe(() => {
+    const syncSpeaking = () => {
       setIsSpeaking(ttsController.speakingMessageKey() != null);
-    });
+    };
+    // Sync once immediately so an avatar mounted *while* TTS is already
+    // playing picks up the speaking flag without waiting for the next
+    // emit (which only fires on state transitions).
+    syncSpeaking();
+    const unsubS = ttsController.subscribe(syncSpeaking);
     return () => {
       unsubV();
       unsubS();

@@ -20,6 +20,7 @@ interface MessageProps {
   confirmations?: SilentConfirmation[];
   clarification?: string;
   messageKey?: string;
+  avatar?: React.ReactNode;
 }
 
 /**
@@ -78,6 +79,7 @@ const MessageItem: React.FC<MessageProps> = ({
   confirmations = [],
   clarification,
   messageKey,
+  avatar,
 }) => {
   const isUser = role === 'user';
   const tts = useTTSState();
@@ -91,7 +93,8 @@ const MessageItem: React.FC<MessageProps> = ({
   const isActive = isSpeaking || isPending;
 
   return (
-    <div className={`flex w-full mb-8 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex w-full mb-8 items-start gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      {!isUser && avatar}
       <div className={`max-w-[85%] sm:max-w-[80%] rounded-2xl px-6 py-4 border transition-all duration-300 shadow-m3 ${
         isUser
           ? 'bg-primary/10 border-primary/20 text-foreground'

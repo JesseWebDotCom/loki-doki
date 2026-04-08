@@ -157,12 +157,24 @@ export class VoiceStreamer {
     const tick = () => {
       if (!this.ctx) return;
       const now = this.ctx.currentTime;
+      // Drain every entry whose time is now in the past, but only emit
+      // the MOST RECENT one to React. Reason: React 18 batches multiple
+      // setState calls inside a single sync block, so firing several
+      // visemes back-to-back per frame (which happens whenever rAF is
+      // even slightly delayed) collapses to the last one anyway and
+      // visibly looks like the mouth froze partway through the line.
+      // Emitting only the latest gives a smooth one-update-per-frame
+      // stream and never loses the trailing shape.
+      let latestDue: string | null = null;
       while (
         this.timelineIdx < this.timeline.length &&
         this.timeline[this.timelineIdx].t <= now
       ) {
-        this.onVisemeChange(this.timeline[this.timelineIdx].v);
+        latestDue = this.timeline[this.timelineIdx].v;
         this.timelineIdx++;
+      }
+      if (latestDue !== null) {
+        this.onVisemeChange(latestDue);
       }
       if (
         !this.isStreamActive &&

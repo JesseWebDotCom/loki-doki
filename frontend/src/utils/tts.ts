@@ -24,9 +24,19 @@ class TTSController {
       this.visemeListeners.forEach((fn) => fn(v));
     },
     () => {
-      // stream ended — settle on closed mouth
+      // Audio playback (not just the network read) is fully done.
+      // Settle the mouth on closed AND release the speakingKey here —
+      // not in speak()'s finally, which fires the moment the network
+      // read loop completes. The AudioContext keeps playing scheduled
+      // chunks long after that, so clearing speakingKey on network-done
+      // would freeze every avatar's mouth and the stop-button mid-line.
       this.currentViseme = 'closed';
       this.visemeListeners.forEach((fn) => fn('closed'));
+      if (this.speakingKey || this.pendingKey) {
+        this.speakingKey = null;
+        this.pendingKey = null;
+        this.emit();
+      }
     },
   );
   private speakingKey: string | null = null;
@@ -39,6 +49,9 @@ class TTSController {
 
   subscribe(fn: Listener) {
     this.listeners.add(fn);
+    // Push current state immediately so a late subscriber doesn't sit
+    // on stale defaults until the next emit. Mirrors subscribeViseme.
+    fn();
     return () => this.listeners.delete(fn);
   }
   subscribeViseme(fn: VisemeListener) {
@@ -82,7 +95,9 @@ class TTSController {
       if ((err as DOMException)?.name !== 'AbortError') {
         console.error('[tts] stream failed', err);
       }
-    } finally {
+      // Only clear keys on actual failure/abort. Successful network
+      // completion leaves speakingKey set until the streamer's onEnd
+      // callback fires (audio playback fully drained).
       if (this.speakingKey === messageKey || this.pendingKey === messageKey) {
         this.speakingKey = null;
         this.pendingKey = null;
