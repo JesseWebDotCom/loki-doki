@@ -106,6 +106,14 @@ const AVATAAARS_BODY_PATH =
   "a72 72 0 0 0-72-72" +
   "Z";
 
+// ----- bottts constants -----
+// Bottts is a 180x180 robot. We don't split it; the whole avatar
+// rotates as one rigid piece pivoting at the bottom center, so the
+// bot rocks side to side from its base. Everything goes into the
+// headFeatures layer; body/clothes/headSkin/backHair are empty.
+const BOTTTS_PIVOT_X = 90;
+const BOTTTS_PIVOT_Y = 180;
+
 // ----- toon-head constants -----
 // Head circle bottom meets the neck/body at body-local y≈590, x≈384.
 const TOONHEAD_PIVOT_X = 384;
@@ -307,6 +315,34 @@ function splitToonHead(doc: Document, viewBox: string): SplitResult {
   };
 }
 
+function splitBottts(doc: Document, viewBox: string): SplitResult {
+  // No anatomical split — bottts rotates as one piece. Drop the
+  // entire inner content into headFeatures so it gets the rotation
+  // transform; leave body/clothes/headSkin/backHair empty.
+  const svg = doc.documentElement;
+  const outerMaskGroup = svg.querySelector('g[mask="url(#viewboxMask)"]');
+  if (!outerMaskGroup) {
+    return { riggable: false, viewBox, inner: svg.innerHTML };
+  }
+  const defs = Array.from(svg.children)
+    .filter((c) => c.tagName === "defs" || c.tagName === "mask")
+    .map(serialize)
+    .join("");
+  const inner = Array.from(outerMaskGroup.children).map(serialize).join("");
+  return {
+    riggable: true,
+    viewBox,
+    defs,
+    backHair: "",
+    body: "",
+    headSkin: "",
+    clothes: "",
+    headFeatures: inner,
+    pivotX: BOTTTS_PIVOT_X,
+    pivotY: BOTTTS_PIVOT_Y,
+  };
+}
+
 // ---------- public entry ----------
 
 export function splitDicebearSvg(
@@ -328,6 +364,7 @@ export function splitDicebearSvg(
   try {
     if (style === "avataaars") return splitAvataaars(doc, viewBox);
     if (style === "toon-head") return splitToonHead(doc, viewBox);
+    if (style === "bottts") return splitBottts(doc, viewBox);
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error("[splitDicebearSvg] failed", style, e);

@@ -23,7 +23,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createAvatar, type Style } from "@dicebear/core";
-import { avataaars, toonHead } from "@dicebear/collection";
+import { avataaars, bottts, toonHead } from "@dicebear/collection";
 import { type AvatarStyle } from "./Avatar";
 import { ttsController } from "../../utils/tts";
 import { useHeadTilt, type HeadTiltState } from "./useHeadTilt";
@@ -38,6 +38,7 @@ import { filterOptionsForStyle } from "./styleSchemas";
 
 const STYLE_MAP: Partial<Record<AvatarStyle, Style<object>>> = {
   avataaars: avataaars as unknown as Style<object>,
+  bottts: bottts as unknown as Style<object>,
   "toon-head": toonHead as unknown as Style<object>,
 };
 
