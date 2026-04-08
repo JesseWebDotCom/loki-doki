@@ -114,7 +114,7 @@ class TestFormatMemoryBlock:
         assert "FACTS:" in block
         assert "3 days ago" in block
         assert "biodome was pretty good" in block
-        assert "PAST_TURNS:" not in block
+        assert "FROM_OLDER_SESSIONS" not in block
 
     def test_messages_only(self):
         block = format_memory_block(
@@ -125,7 +125,7 @@ class TestFormatMemoryBlock:
             }],
             now=NOW,
         )
-        assert "PAST_TURNS:" in block
+        assert "FROM_OLDER_SESSIONS" in block
         assert "5 days ago" in block
         assert "ryan reynolds" in block
         assert "FACTS:" not in block
@@ -144,7 +144,7 @@ class TestFormatMemoryBlock:
             now=NOW,
         )
         assert "FACTS:" in block
-        assert "PAST_TURNS:" in block
+        assert "FROM_OLDER_SESSIONS" in block
         assert "yesterday" in block
         assert "2 days ago" in block
 

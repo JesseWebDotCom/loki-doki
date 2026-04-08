@@ -270,9 +270,14 @@ class TestWikiMovies:
             new_callable=AsyncMock,
             side_effect=[empty_search, empty_search, good_search, good_summary],
         ) as mock_get:
+            # Note: avoid "latest/newest/most recent" wording — that
+            # flips the skill into want_latest mode which token-matches
+            # the candidate against the hit title. The Inception fixture
+            # would never match an avatar candidate, and this test is
+            # exercising candidate-reduction, not the latest-year ranker.
             res = await skill.execute_mechanism(
                 "wiki_api",
-                {"query": "how long is the latest avatar movie"},
+                {"query": "how long is the avatar movie"},
             )
         assert res.success is True
         assert mock_get.call_count >= 3

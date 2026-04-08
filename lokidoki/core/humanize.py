@@ -136,8 +136,8 @@ def format_memory_block(
         when = relative_time(m.get("created_at"), now=now)
         snippet = content if len(content) <= 140 else content[:137] + "..."
         msg_lines.append(
-            f"- {when} you said: \"{snippet}\"" if when
-            else f"- you said: \"{snippet}\""
+            f"- {when}, in an earlier chat, you said: \"{snippet}\"" if when
+            else f"- in an earlier chat you said: \"{snippet}\""
         )
 
     if not fact_lines and not msg_lines:
@@ -148,7 +148,11 @@ def format_memory_block(
         parts.append("FACTS:")
         parts.extend(fact_lines)
     if msg_lines:
-        parts.append("PAST_TURNS:")
+        # Header makes the boundary explicit so the synthesizer never
+        # treats these as part of the current conversation. These are
+        # BM25 hits from OLDER sessions; if you reference one, frame it
+        # as "a while back" — never as "what we were just talking about".
+        parts.append("FROM_OLDER_SESSIONS (not the current chat):")
         parts.extend(msg_lines)
     return "\n".join(parts)
 

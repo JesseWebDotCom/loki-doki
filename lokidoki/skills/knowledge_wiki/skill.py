@@ -27,6 +27,59 @@ HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 # chars; anything past 8k is almost certainly a parse failure.
 LEAD_CHAR_CAP = 8000
 
+# Soft cap for the verbatim path. The decomposer marks short factual
+# lookups as response_shape=verbatim, which means the orchestrator emits
+# our ``lead`` straight to the user with no synthesis filter. A full
+# Wikipedia lead is 5+ paragraphs and reads as a wall of text in chat,
+# so we trim to the first couple of sentences. The full extract still
+# ships in the data dict; downstream synthesis can read more if it
+# needs to.
+VERBATIM_LEAD_CHAR_CAP = 600
+
+
+def _trim_to_sentences(text: str, char_cap: int) -> str:
+    """Return the first whole sentences of ``text`` within ``char_cap``.
+
+    We never split mid-sentence — better to under-fill the budget than
+    leave the user with a dangling clause. Falls back to the raw cap +
+    ellipsis when no sentence boundary fits.
+    """
+    text = (text or "").strip()
+    if len(text) <= char_cap:
+        return text
+    window = text[:char_cap]
+    # Walk backward for the last sentence-ending punctuation followed by
+    # a space (or end-of-window). This avoids cutting on abbreviations
+    # like "U.S." mid-token.
+    cut = -1
+    for i in range(len(window) - 1, 0, -1):
+        if window[i - 1] in ".!?" and (i == len(window) or window[i] == " "):
+            cut = i
+            break
+    if cut > 0:
+        return window[:cut].strip()
+    return window.rsplit(" ", 1)[0] + "…"
+
+# Junk title patterns we never want to surface as the canonical answer
+# for a "who/what is X" question. "List of …" pages are aggregations,
+# disambiguation pages are menus, and category/portal/template pages are
+# meta. Wikipedia search ranks these high for short generic queries
+# (e.g. "who is the current us president" → "List of presidents …"),
+# so we have to filter them client-side.
+_JUNK_TITLE_PREFIXES = ("list of ", "lists of ", "category:", "portal:", "template:", "wikipedia:")
+_JUNK_TITLE_SUBSTRINGS = ("(disambiguation)", "(disambiguation page)")
+
+
+def _is_junk_title(title: str) -> bool:
+    low = (title or "").lower()
+    if not low:
+        return True
+    if any(low.startswith(p) for p in _JUNK_TITLE_PREFIXES):
+        return True
+    if any(s in low for s in _JUNK_TITLE_SUBSTRINGS):
+        return True
+    return False
+
 
 def _page_url(title: str) -> str:
     return f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"
@@ -148,16 +201,49 @@ class WikipediaSkill(BaseSkill):
             return MechanismResult(success=False, error="Query parameter required")
 
         try:
+            # Two-step lookup: the decomposer hands us natural-language
+            # phrases ("who is the active US president", typos and all),
+            # not canonical Wikipedia page titles. ``titles=`` requires
+            # an exact title match and returns ``missing`` for anything
+            # else, so we resolve the canonical title via the search
+            # endpoint first, then fetch the extract by that title.
             async with httpx.AsyncClient(timeout=5.0, headers=HEADERS) as client:
+                search_resp = await client.get(
+                    WIKI_API_URL,
+                    params={
+                        "action": "query",
+                        "list": "search",
+                        "srsearch": query,
+                        "format": "json",
+                        # Pull a handful so we can walk past junk titles
+                        # ("List of …", disambig, etc.) instead of being
+                        # stuck with whatever Wikipedia ranked first.
+                        "srlimit": 5,
+                    },
+                )
+                if search_resp.status_code != 200:
+                    return MechanismResult(
+                        success=False,
+                        error=f"Wikipedia search error: {search_resp.status_code}",
+                    )
+                results = search_resp.json().get("query", {}).get("search", [])
+                resolved_title = next(
+                    (r["title"] for r in results if not _is_junk_title(r.get("title", ""))),
+                    None,
+                )
+                if not resolved_title:
+                    return MechanismResult(success=False, error="No Wikipedia article found")
+
                 response = await client.get(
                     WIKI_API_URL,
                     params={
                         "action": "query",
-                        "titles": query,
+                        "titles": resolved_title,
                         "prop": "extracts",
                         "exintro": True,
                         "explaintext": True,
                         "format": "json",
+                        "redirects": 1,
                     },
                 )
 
@@ -169,12 +255,22 @@ class WikipediaSkill(BaseSkill):
                 if page_id == "-1" or "missing" in page:
                     return MechanismResult(success=False, error="No Wikipedia article found")
 
-                title = page.get("title", query)
-                lead = (page.get("extract") or "").strip()
-                if len(lead) > LEAD_CHAR_CAP:
-                    lead = lead[:LEAD_CHAR_CAP].rsplit(" ", 1)[0] + "…"
+                title = page.get("title", resolved_title)
+                full_lead = (page.get("extract") or "").strip()
+                if len(full_lead) > LEAD_CHAR_CAP:
+                    full_lead = full_lead[:LEAD_CHAR_CAP].rsplit(" ", 1)[0] + "…"
+                # Verbatim path gets a sentence-bounded trim so we don't
+                # dump 5 paragraphs of Wikipedia history at the user for
+                # what was a one-line factual question.
+                lead = _trim_to_sentences(full_lead, VERBATIM_LEAD_CHAR_CAP)
                 url = _page_url(title)
-                data = {"title": title, "lead": lead, "sections": [], "url": url}
+                data = {
+                    "title": title,
+                    "lead": lead,
+                    "extract": full_lead,
+                    "sections": [],
+                    "url": url,
+                }
 
                 self._cache[query.lower()] = data
 

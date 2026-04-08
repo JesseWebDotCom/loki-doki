@@ -42,11 +42,18 @@ class TestWikipediaSkill:
     async def test_mediawiki_api_success(self):
         """Test successful MediaWiki JSON API call."""
         skill = WikipediaSkill()
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = WIKI_API_RESPONSE
+        mock_search = MagicMock()
+        mock_search.status_code = 200
+        mock_search.json.return_value = WIKI_SEARCH_RESPONSE
+        mock_extract = MagicMock()
+        mock_extract.status_code = 200
+        mock_extract.json.return_value = WIKI_API_RESPONSE
 
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
+        with patch(
+            "httpx.AsyncClient.get",
+            new_callable=AsyncMock,
+            side_effect=[mock_search, mock_extract],
+        ):
             result = await skill.execute_mechanism("mediawiki_api", {"query": "Raspberry Pi"})
 
         assert result.success is True
@@ -61,11 +68,11 @@ class TestWikipediaSkill:
     async def test_mediawiki_api_no_results(self):
         """Test handling when no Wikipedia pages match."""
         skill = WikipediaSkill()
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"query": {"pages": {"-1": {"missing": ""}}}}
+        mock_search = MagicMock()
+        mock_search.status_code = 200
+        mock_search.json.return_value = {"query": {"search": []}}
 
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_search):
             result = await skill.execute_mechanism("mediawiki_api", {"query": "xyznonexistent"})
 
         assert result.success is False
@@ -126,11 +133,18 @@ class TestWikipediaSkill:
     async def test_mediawiki_api_caches_result(self):
         """Test that API results are cached."""
         skill = WikipediaSkill()
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = WIKI_API_RESPONSE
+        mock_search = MagicMock()
+        mock_search.status_code = 200
+        mock_search.json.return_value = WIKI_SEARCH_RESPONSE
+        mock_extract = MagicMock()
+        mock_extract.status_code = 200
+        mock_extract.json.return_value = WIKI_API_RESPONSE
 
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
+        with patch(
+            "httpx.AsyncClient.get",
+            new_callable=AsyncMock,
+            side_effect=[mock_search, mock_extract],
+        ):
             await skill.execute_mechanism("mediawiki_api", {"query": "Raspberry Pi"})
 
         assert "raspberry pi" in skill._cache

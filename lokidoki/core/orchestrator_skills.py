@@ -128,10 +128,14 @@ async def run_skills(
 
                     config_cache[skill_id] = await memory.run_sync(_load_state)
                 merged, g_tog, u_tog = config_cache[skill_id]
-                params["_config"] = merged
+                # Only forward _config when there's actually something
+                # to forward. Skills read it via ``parameters.get("_config")
+                # or {}``, so an empty dict is just noise — and worse, it
+                # pollutes the params shape that contract tests assert on.
+                if merged:
+                    params["_config"] = merged
             else:
-                params.setdefault("_config", {})
-                merged, g_tog, u_tog = params["_config"], True, True
+                merged, g_tog, u_tog = params.get("_config") or {}, True, True
 
             # Backstop chain (in order of preference) for any required
             # param the decomposer left blank:

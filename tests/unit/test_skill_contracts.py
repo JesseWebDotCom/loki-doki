@@ -139,6 +139,24 @@ async def test_orchestrator_populates_required_skill_params(
     )
 
     orch, uid, sid = await _build_orchestrator(registry, decomp, memory)
+
+    # Skills with required config (API keys, default location, etc.)
+    # are gated off by ``compute_skill_state`` until that config is
+    # populated. The contract under test is parameter merging, not
+    # gating — so seed every required config key with a stub value.
+    from lokidoki.core.skill_config import set_global_value, set_user_value
+    schema = registry.skills[skill_id].get("config_schema") or {}
+    for entry in schema.get("global", []) or []:
+        if entry.get("required"):
+            await memory.run_sync(
+                lambda c, k=entry["key"]: set_global_value(c, skill_id, k, "stub")
+            )
+    for entry in schema.get("user", []) or []:
+        if entry.get("required"):
+            await memory.run_sync(
+                lambda c, k=entry["key"]: set_user_value(c, uid, skill_id, k, "stub")
+            )
+
     async for _ in orch.process("raspberry pi", user_id=uid, session_id=sid):
         pass
 

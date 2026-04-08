@@ -30,6 +30,15 @@ class Ask:
     # and context-window failure modes. The decomposer chooses; the
     # orchestrator never inspects the user's words to decide.
     response_shape: str = "synthesized"
+    # True when the answer depends on fresh, post-training-cutoff
+    # world-state (current officeholders, today's weather, this year's
+    # events, "latest", "right now", etc.). The orchestrator uses this
+    # signal to force grounding through a knowledge skill even when the
+    # decomposer routed to direct_chat — preventing the synthesizer from
+    # confidently emitting stale training data ("Joe Biden is the
+    # president"). Default false: the vast majority of turns are not
+    # time-sensitive.
+    requires_current_data: bool = False
 
 
 @dataclass
@@ -78,7 +87,13 @@ DECOMPOSITION_SCHEMA: dict = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["ask_id", "intent", "distilled_query", "response_shape"],
+                "required": [
+                    "ask_id",
+                    "intent",
+                    "distilled_query",
+                    "response_shape",
+                    "requires_current_data",
+                ],
                 "properties": {
                     "ask_id": {"type": "string"},
                     "intent": {"type": "string"},
@@ -88,6 +103,7 @@ DECOMPOSITION_SCHEMA: dict = {
                         "type": "string",
                         "enum": ["verbatim", "synthesized"],
                     },
+                    "requires_current_data": {"type": "boolean"},
                 },
             },
         },
@@ -105,7 +121,8 @@ DECOMPOSITION_PROMPT = (
     "predicate:str,value:str,kind:'fact'|'preference'|'event'|'advice'|'relationship',"
     "relationship_kind:str|null,category:str,negates_previous:bool}],"
     "asks:[{ask_id:str,intent:str,distilled_query:str,parameters:{},"
-    "response_shape:\"verbatim\"|\"synthesized\"}]}\n"
+    "response_shape:\"verbatim\"|\"synthesized\","
+    "requires_current_data:bool}]}\n"
     "RULES:\n"
     "- is_course_correction=true if user corrects/refines previous answer\n"
     "- overall_reasoning_complexity=\"thinking\" if query needs deep analysis, math, or multi-step logic\n"
@@ -151,6 +168,28 @@ DECOMPOSITION_PROMPT = (
     " opinion, multi-source reasoning, follow-ups, anything where the"
     " skill data is raw input that still needs the assistant's voice."
     " When in doubt, choose \"synthesized\".\n"
+    "- requires_current_data=true when the answer depends on fresh,"
+    " post-training-cutoff world-state: who is the CURRENT/active X,"
+    " what is happening TODAY/this week/this year, the LATEST/newest X,"
+    " what's the weather/score/price RIGHT NOW, who won the most"
+    " recent election. The defining test: would your training-data"
+    " answer be wrong or stale by the time the user reads it? Default"
+    " false. Pure definitional/historical/biographical questions are"
+    " false (\"who was Alan Turing\", \"what is the Eiffel Tower\","
+    " \"when did WWII end\"). The orchestrator uses this to force a"
+    " grounded knowledge lookup so synthesis cannot fall back on stale"
+    " training data.\n"
+    "- FOLLOW-UPS: when USER_INPUT is a short clarifier on the prior"
+    " turn (\"since when\", \"why\", \"how long\", \"where\", \"and then?\","
+    " \"really?\", \"who else\", \"more\") AND RECENT_CONTEXT already"
+    " contains the assistant's answer it refers to, route to"
+    " intent=\"direct_chat\" with response_shape=\"synthesized\". Do NOT"
+    " re-route to a knowledge skill — the answer is already in"
+    " context, synthesis just needs to extend it. Distill the query as"
+    " the resolved standalone question (e.g. \"since when\" after a"
+    " \"Trump is president\" turn -> distilled_query=\"when did Trump"
+    " become president\"), but keep intent=direct_chat so the"
+    " orchestrator reuses the existing context instead of re-querying.\n"
 )
 
 
@@ -285,7 +324,21 @@ class Decomposer:
             )
 
         if chat_context:
-            ctx = " | ".join(f"{m['role']}:{m['content']}" for m in chat_context[-5:])
+            # Compress assistant turns aggressively. A prior verbatim
+            # wiki dump can be 2000+ chars; left raw it drowns the 2B
+            # model's effective context and the decomposer ends up
+            # ignoring RECENT_CONTEXT entirely (which is exactly how
+            # follow-ups like "since when" get re-routed as fresh
+            # standalone queries instead of being answered from the
+            # answer the assistant just gave). User turns stay verbatim
+            # — they're short and they ARE the question being decomposed.
+            def _compress(m: dict) -> str:
+                content = (m.get("content") or "").strip().replace("\n", " ")
+                if m.get("role") == "assistant" and len(content) > 240:
+                    content = content[:240].rsplit(" ", 1)[0] + "…"
+                return f"{m['role']}:{content}"
+
+            ctx = " | ".join(_compress(m) for m in chat_context[-5:])
             parts.append(f"RECENT_CONTEXT:{ctx}")
 
         parts.append(f"USER_INPUT:{user_input}")
@@ -311,6 +364,7 @@ class Decomposer:
                         if a.get("response_shape") in ("verbatim", "synthesized")
                         else "synthesized"
                     ),
+                    requires_current_data=bool(a.get("requires_current_data", False)),
                 )
                 for i, a in enumerate(data.get("asks", []))
             ]

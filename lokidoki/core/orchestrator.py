@@ -134,8 +134,15 @@ class Orchestrator:
         past_messages_raw = await self._memory.search_messages(
             user_id=user_id, query=user_input, top_k=8
         )
+        # Hard-exclude the current session: BM25 hits from this same
+        # session are NOT "older chats" — surfacing them as such causes
+        # the synthesizer to confuse cross-session memory with
+        # in-conversation context (the "we were just talking about
+        # movies" hallucination). Older sessions only.
         past_messages = [
-            m for m in past_messages_raw if int(m["id"]) not in recent_ids
+            m for m in past_messages_raw
+            if int(m["id"]) not in recent_ids
+            and int(m.get("session_id") or 0) != session_id
         ][:4]
 
         # Recent emotional arc — used to nudge tone in the synthesis prompt.
@@ -298,11 +305,45 @@ class Orchestrator:
             },
         )
 
+        # ---- current-events grounding upgrade ---------------------------
+        # When the decomposer flagged an ask as requires_current_data=true
+        # but routed it to direct_chat anyway, force-upgrade the intent to
+        # the wiki knowledge lookup so synthesis runs on grounded data
+        # instead of the small model's stale training. This is the
+        # structured-field path mandated by CLAUDE.md (no regex/keyword
+        # sniffing of user_input in code) — the decomposer emits the
+        # signal, the orchestrator just branches on it.
+        wiki_search_intent = "knowledge_wiki.search_knowledge"
+        wiki_available = (
+            self._registry is not None
+            and self._registry.get_skill_by_intent(wiki_search_intent) is not None
+        )
+        if wiki_available:
+            for a in decomposition.asks:
+                if a.requires_current_data and a.intent == "direct_chat":
+                    logger.info(
+                        "[orchestrator] upgrading ask %s direct_chat -> %s "
+                        "(requires_current_data)",
+                        a.ask_id, wiki_search_intent,
+                    )
+                    a.intent = wiki_search_intent
+                    # Synthesize the wiki result rather than dumping it
+                    # verbatim — current-events answers usually need a
+                    # tight one-liner, not the full article lead.
+                    a.response_shape = "synthesized"
+
         # ---- routing -----------------------------------------------------
         skill_data = ""
         sources: list[dict] = []
         skill_results: dict = {}
-        if not decomposition.is_course_correction and decomposition.asks:
+        # Course corrections used to short-circuit routing here, but
+        # that broke the case where the user re-asks a fresh factual
+        # question as a correction ("no, the *current* one") — the
+        # corrected ask still needs grounding from a knowledge skill.
+        # Run skills whenever there are asks; the empty-asks case
+        # (pure conversational correction with nothing to look up) is
+        # still handled below by the no-skill synthesis path.
+        if decomposition.asks:
             skill_data, skill_results, sources, routing_log = await run_skills(
                 decomposition.asks, self._registry, self._executor,
                 user_id=user_id, memory=self._memory,
@@ -513,10 +554,9 @@ class Orchestrator:
                 if cleaned:
                     title = cleaned
                     break
-            # Fallback: trim the user's first prompt to a reasonable label.
-            if not title:
-                fallback = " ".join(first_input.split()[:6]).strip()
-                title = fallback[:60] if fallback else f"Chat {session_id}"
+            # If the model returned nothing usable, leave the existing
+            # session title alone — never clobber a user-set title with
+            # a fallback derived from the first prompt.
             logger.info("[orchestrator] auto-name raw title for %s: %r (raw=%r)", session_id, title, raw)
             if title:
                 ok = await self._memory.update_session_title(user_id, session_id, title)

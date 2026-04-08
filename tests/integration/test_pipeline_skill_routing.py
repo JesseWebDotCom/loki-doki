@@ -26,13 +26,16 @@ from lokidoki.skills.knowledge_wiki.skill import WikipediaSkill
 
 WIKI_API_OK = {
     "query": {
+        # The wiki skill does a search-then-fetch flow, but tests reuse
+        # one mock dict for both calls — so we ship both shapes here.
+        "search": [{"title": "Danny McBride"}],
         "pages": {
             "12345": {
                 "pageid": 12345,
                 "title": "Danny McBride",
                 "extract": "Daniel Richard McBride is an American actor and comedian.",
             }
-        }
+        },
     }
 }
 
@@ -217,13 +220,14 @@ async def test_pipeline_definitional_query_uses_fast_path(memory):
     mock_response.status_code = 200
     mock_response.json.return_value = {
         "query": {
+            "search": [{"title": "Corey Feldman"}],
             "pages": {
                 "98765": {
                     "pageid": 98765,
                     "title": "Corey Feldman",
                     "extract": "Corey Scott Feldman is an American actor and musician.",
                 }
-            }
+            },
         }
     }
 
@@ -274,10 +278,13 @@ async def test_pipeline_synthesized_shape_does_not_use_fast_path(memory):
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = {
-        "query": {"pages": {"98765": {
-            "pageid": 98765, "title": "Corey Feldman",
-            "extract": "Corey Scott Feldman is an American actor and musician.",
-        }}}
+        "query": {
+            "search": [{"title": "Corey Feldman"}],
+            "pages": {"98765": {
+                "pageid": 98765, "title": "Corey Feldman",
+                "extract": "Corey Scott Feldman is an American actor and musician.",
+            }},
+        }
     }
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response):
