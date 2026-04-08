@@ -60,5 +60,5 @@ async def verify_token(memory: MemoryProvider, token: str) -> Optional[int]:
         secret = await get_secret(memory)
         payload = jwt.decode(token, secret, algorithms=[ALGO])
         return int(payload["sub"])
-    except Exception:
+    except (jwt.InvalidTokenError, KeyError, ValueError):
         return None

@@ -43,7 +43,8 @@ def verify_secret(plain: str, hashed: Optional[str]) -> bool:
         return False
     try:
         return bcrypt.checkpw(_to_bytes(plain), hashed.encode("utf-8"))
-    except Exception:
+    except (ValueError, TypeError):
+        # ValueError: malformed hash; TypeError: wrong-type input.
         return False
 
 

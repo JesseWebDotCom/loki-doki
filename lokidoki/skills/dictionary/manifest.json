@@ -1,0 +1,18 @@
+{
+  "skill_id": "dictionary",
+  "name": "Dictionary",
+  "description": "Word definitions, parts of speech, examples, and pronunciation via dictionaryapi.dev (free).",
+  "is_searchable": true,
+  "intents": ["define_word", "lookup_definition"],
+  "examples": [
+    "define ephemeral",
+    "what does serendipity mean",
+    "definition of ostensibly"
+  ],
+  "parameters": {
+    "word": {"type": "string", "required": true}
+  },
+  "mechanisms": [
+    {"method": "dictionaryapi_dev", "priority": 1, "timeout_ms": 4000, "requires_internet": true}
+  ]
+}

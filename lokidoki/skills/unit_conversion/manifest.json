@@ -1,0 +1,21 @@
+{
+  "skill_id": "unit_conversion",
+  "name": "Unit Conversion",
+  "description": "Converts between common units of length, weight, volume, temperature, and time. Offline.",
+  "is_searchable": false,
+  "intents": ["convert_units"],
+  "examples": [
+    "convert 5 miles to kilometers",
+    "how many ounces in a liter",
+    "convert 100 fahrenheit to celsius",
+    "25 lbs in kg"
+  ],
+  "parameters": {
+    "value": {"type": "number", "required": true},
+    "from_unit": {"type": "string", "required": true},
+    "to_unit": {"type": "string", "required": true}
+  },
+  "mechanisms": [
+    {"method": "table_lookup", "priority": 1, "timeout_ms": 100, "requires_internet": false}
+  ]
+}

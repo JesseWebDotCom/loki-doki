@@ -105,14 +105,14 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
         <div
           onClick={() => !isEditing && onSelect(id)}
           className={cn(
-            "group flex items-center justify-between pl-2 pr-1 py-2 rounded-lg text-xs cursor-pointer transition-all border",
+            "group flex items-center justify-between pl-2 pr-1 py-2 rounded-lg text-sm cursor-pointer transition-all border",
             isActive
               ? "bg-primary/10 text-primary border-primary/20 shadow-sm"
               : "text-muted-foreground hover:bg-card/50 border-transparent"
           )}
         >
           <div className="flex items-center gap-2 overflow-hidden flex-1">
-            <MessageSquare size={14} className={isActive ? "text-primary" : "text-muted-foreground/50"} />
+            <MessageSquare size={16} className={isActive ? "text-primary" : "text-muted-foreground/50"} />
             {isEditing ? (
               <form onSubmit={handleRenameSubmit} className="flex-1" onClick={(e) => e.stopPropagation()}>
                 <input
@@ -141,7 +141,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
                 />
               </form>
             ) : (
-              <span className="truncate font-medium">{title || id}</span>
+              <span className="truncate font-medium text-sm">{title || id}</span>
             )}
           </div>
           <DropdownMenu>
@@ -149,10 +149,10 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
-                className="opacity-60 hover:opacity-100 data-[state=open]:opacity-100 transition-opacity p-1 rounded hover:bg-card/80 text-muted-foreground hover:text-primary"
+                className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity p-1 rounded hover:bg-card/80 text-muted-foreground hover:text-primary"
                 aria-label="Chat actions"
               >
-                <MoreVertical size={12} className="text-muted-foreground" />
+                <MoreVertical size={14} className="text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent

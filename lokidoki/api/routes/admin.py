@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from typing import Optional
 
@@ -22,7 +22,7 @@ class CreateUserRequest(BaseModel):
 
 
 class ResetPinRequest(BaseModel):
-    new_pin: str
+    new_pin: str = Field(..., min_length=4, max_length=64)
 
 
 def _serialize(u: User) -> dict:

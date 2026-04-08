@@ -1,0 +1,19 @@
+{
+  "skill_id": "calculator",
+  "name": "Calculator",
+  "description": "Evaluates math expressions: arithmetic, percentages, exponents, parens, common functions. Offline.",
+  "is_searchable": false,
+  "intents": ["calculate", "compute_math"],
+  "examples": [
+    "what is 15% of 240",
+    "calculate (3 + 4) * 12",
+    "what's the square root of 144",
+    "23 * 47"
+  ],
+  "parameters": {
+    "expression": {"type": "string", "required": true}
+  },
+  "mechanisms": [
+    {"method": "safe_eval", "priority": 1, "timeout_ms": 200, "requires_internet": false}
+  ]
+}

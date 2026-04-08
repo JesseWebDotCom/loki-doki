@@ -13,6 +13,7 @@ import CharactersAdminSection from "../components/admin/CharactersAdminSection";
 import Sidebar from "../components/sidebar/Sidebar";
 import { useAuth } from "../auth/useAuth";
 import { AdminPasswordPrompt } from "../components/AdminPasswordPrompt";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { getSettings, saveSettings } from "../lib/api";
 import type { SettingsData } from "../lib/api";
 
@@ -57,6 +58,9 @@ const AdminPage: React.FC = () => {
   const [newPerson, setNewPerson] = useState("");
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [adminPromptSaved, setAdminPromptSaved] = useState(false);
+  const [personPendingDelete, setPersonPendingDelete] = useState<number | null>(null);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetResultMsg, setResetResultMsg] = useState<string | null>(null);
 
   useEffect(() => {
     void getSettings().then(setSettings).catch(() => {});
@@ -118,14 +122,13 @@ const AdminPage: React.FC = () => {
     }
   }, [selectedUser, newPerson, loadUserMemory]);
 
-  const adminDeletePerson = useCallback(
-    async (personId: number) => {
-      if (!confirm("Delete this person and cascade their facts?")) return;
-      const r = await api(`/api/v1/admin/people/${personId}`, { method: "DELETE" });
-      if (r.ok && selectedUser) void loadUserMemory(selectedUser.id);
-    },
-    [selectedUser, loadUserMemory],
-  );
+  const confirmDeletePerson = useCallback(async () => {
+    if (personPendingDelete == null) return;
+    const personId = personPendingDelete;
+    setPersonPendingDelete(null);
+    const r = await api(`/api/v1/admin/people/${personId}`, { method: "DELETE" });
+    if (r.ok && selectedUser) void loadUserMemory(selectedUser.id);
+  }, [personPendingDelete, selectedUser, loadUserMemory]);
 
   const refresh = useCallback(async () => {
     const r = await api("/api/v1/admin/users");
@@ -150,14 +153,8 @@ const AdminPage: React.FC = () => {
     void refresh();
   }, [refresh]);
 
-  const handleResetMemory = useCallback(async () => {
-    const confirmed = confirm(
-      "Wipe ALL memory? This deletes every fact, person, relationship, " +
-      "ambiguity group, session, and message for every user.\n\n" +
-      "Users, projects, and admin login are preserved.\n\n" +
-      "This cannot be undone.",
-    );
-    if (!confirmed) return;
+  const performResetMemory = useCallback(async () => {
+    setResetConfirmOpen(false);
     const fn = async () => {
       const r = await api("/api/v1/admin/reset-memory", { method: "POST" });
       if (r.status === 403) {
@@ -174,7 +171,9 @@ const AdminPage: React.FC = () => {
       const data = (await r.json()) as { wiped: Record<string, number> };
       const total = Object.values(data.wiped).reduce((s, n) => s + (n || 0), 0);
       setError(null);
-      alert(`Memory wiped: ${total} rows across ${Object.keys(data.wiped).length} tables.`);
+      setResetResultMsg(
+        `Memory wiped: ${total} rows across ${Object.keys(data.wiped).length} tables.`,
+      );
       if (selectedUser) void loadUserMemory(selectedUser.id);
       void refresh();
     };
@@ -404,7 +403,7 @@ const AdminPage: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => void handleResetMemory()}
+                  onClick={() => setResetConfirmOpen(true)}
                   className="shrink-0 rounded-md border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-400/20 transition-all"
                 >
                   Reset Memory
@@ -463,7 +462,7 @@ const AdminPage: React.FC = () => {
                           </span>
                           <button
                             type="button"
-                            onClick={() => void adminDeletePerson(p.id)}
+                            onClick={() => setPersonPendingDelete(p.id)}
                             className="p-1 rounded hover:bg-red-400/10 text-red-400"
                           >
                             <Trash2 size={11} />
@@ -543,6 +542,36 @@ const AdminPage: React.FC = () => {
           </div>
         </section>
       </main>
+
+      <ConfirmDialog
+        open={personPendingDelete != null}
+        title="Delete person?"
+        description="Delete this person and cascade their facts? This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => void confirmDeletePerson()}
+        onCancel={() => setPersonPendingDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        title="Wipe ALL memory?"
+        description="Deletes every fact, person, relationship, ambiguity group, session, and message for every user. Users, projects, and admin login are preserved. This cannot be undone."
+        confirmLabel="Wipe Memory"
+        destructive
+        onConfirm={() => void performResetMemory()}
+        onCancel={() => setResetConfirmOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={!!resetResultMsg}
+        title="Memory wiped"
+        description={resetResultMsg ?? ''}
+        confirmLabel="OK"
+        hideCancel
+        onConfirm={() => setResetResultMsg(null)}
+        onCancel={() => setResetResultMsg(null)}
+      />
 
       {pendingAction && (
         <AdminPasswordPrompt

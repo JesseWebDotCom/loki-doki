@@ -1,0 +1,16 @@
+{
+  "skill_id": "jokes",
+  "name": "Jokes",
+  "description": "Family-friendly jokes via icanhazdadjoke (free, no key).",
+  "is_searchable": false,
+  "intents": ["tell_joke"],
+  "examples": [
+    "tell me a joke",
+    "say something funny",
+    "tell me a dad joke"
+  ],
+  "parameters": {},
+  "mechanisms": [
+    {"method": "icanhazdadjoke", "priority": 1, "timeout_ms": 4000, "requires_internet": true}
+  ]
+}

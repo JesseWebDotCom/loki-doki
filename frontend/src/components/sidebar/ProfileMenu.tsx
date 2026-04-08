@@ -11,7 +11,12 @@ import {
 } from '../ui/dropdown-menu';
 import { useAuth } from '../../auth/useAuth';
 
-const ProfileMenu: React.FC = () => {
+interface ProfileMenuProps {
+  /** Render only the avatar button (for collapsed sidebar rail). */
+  compact?: boolean;
+}
+
+const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -28,6 +33,15 @@ const ProfileMenu: React.FC = () => {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
+        {compact ? (
+          <button
+            className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm shadow-m1 hover:scale-105 transition-transform focus:outline-none"
+            aria-label="Open profile menu"
+            title={username}
+          >
+            {currentUser ? initial : <User size={16} />}
+          </button>
+        ) : (
         <button
           className="w-full flex items-center gap-3 px-2 py-2.5 rounded-lg border border-transparent hover:bg-card/50 hover:border-sidebar-border/50 transition-all duration-300 group focus:outline-none focus:bg-card/50 focus:border-sidebar-border/50"
           aria-label="Open profile menu"
@@ -43,6 +57,7 @@ const ProfileMenu: React.FC = () => {
           </div>
           <ChevronUp size={14} className="text-muted-foreground group-hover:text-foreground transition-colors" />
         </button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="w-64">
         <DropdownMenuLabel>Account</DropdownMenuLabel>

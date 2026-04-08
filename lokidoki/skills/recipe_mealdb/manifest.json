@@ -1,0 +1,19 @@
+{
+  "skill_id": "recipe_mealdb",
+  "name": "Recipes (TheMealDB)",
+  "description": "Recipe lookup, search by name or main ingredient. Free, no key.",
+  "is_searchable": true,
+  "intents": ["find_recipe", "lookup_recipe"],
+  "examples": [
+    "how do I make chicken parmesan",
+    "recipe for beef stew",
+    "recipes with salmon"
+  ],
+  "parameters": {
+    "query": {"type": "string", "required": true},
+    "by_ingredient": {"type": "boolean", "required": false}
+  },
+  "mechanisms": [
+    {"method": "themealdb", "priority": 1, "timeout_ms": 5000, "requires_internet": true}
+  ]
+}
