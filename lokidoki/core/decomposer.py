@@ -298,6 +298,7 @@ DECOMPOSITION_PROMPT = (
     "- referent_anchor is an optional short anchor phrase when the model can identify the referent mention but not resolve it canonically.\n"
     "- For speculative or tentative plans, set durability='tentative' and set any related long_term_memory items to memory_priority='low'.\n"
     "- If the user is talking about seeing a named movie today/tonight/this weekend or asks when it is playing, use referent_type='media' and capability_need='current_media'.\n"
+    "- If the user combines a companion or outing detail with a named movie (for example going with a friend, partner, sibling, or brother to see a movie), the MOVIE is still the primary referent for the ask. Keep companion details out of capability routing. Emit referent_type='media' and capability_need='current_media' when the user is deciding whether to see that movie in theaters or asks if it is still playing.\n"
     "- When KNOWN_SUBJECTS includes entities, use them to resolve short media follow-ups like 'what time is it playing' or 'what's the full name'.\n"
     "- FOLLOW-UPS: when USER_INPUT is a short clarifier on the prior"
     " turn (\"since when\", \"why\", \"how long\", \"where\", \"and then?\","

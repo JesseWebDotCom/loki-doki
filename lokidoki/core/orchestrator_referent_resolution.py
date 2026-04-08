@@ -10,12 +10,15 @@ from lokidoki.core.model_manager import ModelManager
 from lokidoki.core.orchestrator_skills import execute_capability_lookup
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
+from lokidoki.core.skill_executor import SkillResult
 
 
 AUTO_RESOLVE_SCORE = 5.0
 AUTO_RESOLVE_MARGIN = 1.0
 FALLBACK_MARGIN = 1.0
 FALLBACK_NUM_PREDICT = 96
+DEFAULT_MEDIA_CAPABILITY = "current_media"
+INFER_QUERY_NUM_PREDICT = 80
 
 
 @dataclass
@@ -82,7 +85,10 @@ class ReferentResolver:
         session_candidates = list(session_cache.get("resolved_referents") or [])
 
         for ask in asks:
-            if not getattr(ask, "needs_referent_resolution", False):
+            if not (
+                getattr(ask, "needs_referent_resolution", False)
+                or self._should_force_resolution(ask, session_candidates)
+            ):
                 out.append(EnrichedAsk(ask=ask))
                 continue
 
@@ -97,6 +103,17 @@ class ReferentResolver:
             candidates.sort(key=lambda c: c.score, reverse=True)
 
             resolution = self._resolve_from_candidates(candidates)
+            if self._should_try_anchor_before_accepting(ask, resolution):
+                anchored = await self._resolve_via_anchor_capabilities(
+                    ask=ask,
+                    user_id=user_id,
+                    memory=memory,
+                    candidates=candidates,
+                )
+                if anchored is not None:
+                    candidates.append(anchored)
+                    candidates.sort(key=lambda c: c.score, reverse=True)
+                    resolution = self._resolve_from_candidates(candidates)
             if resolution.status != "resolved" and getattr(ask, "capability_need", "none") != "none":
                 looked_up = await self._resolve_via_capability(
                     ask=ask,
@@ -105,6 +122,33 @@ class ReferentResolver:
                 )
                 if looked_up is not None:
                     candidates.append(looked_up)
+                    candidates.sort(key=lambda c: c.score, reverse=True)
+                    resolution = self._resolve_from_candidates(candidates)
+            if resolution.status != "resolved":
+                anchored = await self._resolve_via_anchor_capabilities(
+                    ask=ask,
+                    user_id=user_id,
+                    memory=memory,
+                    candidates=candidates,
+                )
+                if anchored is not None:
+                    candidates.append(anchored)
+                    candidates.sort(key=lambda c: c.score, reverse=True)
+                    resolution = self._resolve_from_candidates(candidates)
+            if resolution.status != "resolved" and self._should_try_inferred_query(
+                ask=ask,
+                candidates=candidates,
+                session_candidates=session_candidates,
+            ):
+                inferred = await self._resolve_via_inferred_query(
+                    user_input=user_input,
+                    ask=ask,
+                    recent=recent,
+                    user_id=user_id,
+                    memory=memory,
+                )
+                if inferred is not None:
+                    candidates.append(inferred)
                     candidates.sort(key=lambda c: c.score, reverse=True)
                     resolution = self._resolve_from_candidates(candidates)
 
@@ -121,6 +165,15 @@ class ReferentResolver:
                 resolution=resolution,
                 enriched_query=self._enrich_query(ask, resolution),
             )
+            self._apply_resolution_upgrades(ask, resolution)
+            await self._repair_followup_capability(
+                user_input=user_input,
+                ask=ask,
+                resolution=resolution,
+                recent=recent,
+                session_candidates=session_candidates,
+            )
+            enriched.enriched_query = self._enrich_query(ask, resolution)
             out.append(enriched)
             if resolution.chosen_candidate is not None:
                 session_candidates.insert(0, resolution.chosen_candidate)
@@ -248,7 +301,7 @@ class ReferentResolver:
             return None
         looked_up = await execute_capability_lookup(
             category=getattr(ask, "capability_need", "none"),
-            query=ask.distilled_query,
+            query=self._capability_query(ask),
             registry=self._registry,
             executor=self._executor,
             memory=memory,
@@ -281,6 +334,70 @@ class ReferentResolver:
             score=8.0,
             metadata={"lookup": looked_up},
         )
+
+    async def _resolve_via_anchor_capabilities(
+        self,
+        *,
+        ask: Ask,
+        user_id: Optional[int],
+        memory: Any,
+        candidates: list[ReferentCandidate],
+    ) -> Optional[ReferentCandidate]:
+        anchor = (getattr(ask, "referent_anchor", "") or "").strip()
+        if not anchor:
+            return None
+        if any(c.source == "capability_lookup" for c in candidates):
+            return None
+        for category in self._anchor_capability_candidates(ask):
+            looked_up = await execute_capability_lookup(
+                category=category,
+                query=self._capability_query(ask),
+                registry=self._registry,
+                executor=self._executor,
+                memory=memory,
+                user_id=user_id,
+            )
+            if not looked_up:
+                continue
+            candidate = self._candidate_from_lookup(ask, looked_up)
+            if candidate is not None:
+                return candidate
+        return None
+
+    async def _resolve_via_inferred_query(
+        self,
+        *,
+        user_input: str,
+        ask: Ask,
+        recent: list[dict],
+        user_id: Optional[int],
+        memory: Any,
+    ) -> Optional[ReferentCandidate]:
+        inferred = await self._infer_lookup_query(
+            user_input=user_input,
+            ask=ask,
+            recent=recent,
+        )
+        if not inferred:
+            return None
+        category = inferred.get("capability_need") or getattr(ask, "capability_need", "none")
+        query = (inferred.get("lookup_query") or "").strip()
+        if not category or category == "none" or not query:
+            return None
+        looked_up = await execute_capability_lookup(
+            category=category,
+            query=query,
+            registry=self._registry,
+            executor=self._executor,
+            memory=memory,
+            user_id=user_id,
+        )
+        if not looked_up:
+            return None
+        candidate = self._candidate_from_lookup(ask, looked_up)
+        if candidate is None:
+            return None
+        return candidate
 
     async def _resolve_with_fallback(
         self,
@@ -336,6 +453,107 @@ class ReferentResolver:
             clarification_hint=hint or "Could you clarify what you mean?",
         )
 
+    async def _infer_lookup_query(
+        self,
+        *,
+        user_input: str,
+        ask: Ask,
+        recent: list[dict],
+    ) -> dict[str, str]:
+        if self._inference is None:
+            return {}
+        schema = {
+            "type": "object",
+            "required": ["lookup_query", "capability_need"],
+            "properties": {
+                "lookup_query": {"type": "string"},
+                "capability_need": {
+                    "type": "string",
+                    "enum": ["current_media", "web_search", "encyclopedic", "none"],
+                },
+            },
+        }
+        recent_lines = [f"{m.get('role')}: {m.get('content')}" for m in recent[-4:]]
+        prompt = (
+            "ROLE:infer a grounded lookup query for an unresolved referential ask.\n"
+            "OUTPUT:valid JSON only.\n"
+            f"USER_INPUT:{user_input}\n"
+            f"DISTILLED_QUERY:{ask.distilled_query}\n"
+            f"REFERENT_TYPE:{getattr(ask, 'referent_type', 'unknown')}\n"
+            f"REFERENT_SCOPE:{','.join(getattr(ask, 'referent_scope', []) or [])}\n"
+            f"REFERENT_ANCHOR:{getattr(ask, 'referent_anchor', '')}\n"
+            f"DURABILITY:{getattr(ask, 'durability', 'durable')}\n"
+            f"RECENT:{' | '.join(recent_lines)}\n"
+            "Infer the best short lookup query only when there is a likely named thing to ground. "
+            "Use current_media for likely movies in theaters, web_search for products/places/events, "
+            "encyclopedic for stable well-known entities, else none.\n"
+        )
+        raw = await self._inference.generate(
+            model=self._model_manager.policy.fast_model,
+            prompt=prompt,
+            keep_alive=self._model_manager.policy.fast_keep_alive,
+            format_schema=schema,
+            temperature=0.0,
+            num_predict=INFER_QUERY_NUM_PREDICT,
+        )
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return {}
+        return {
+            "lookup_query": str(data.get("lookup_query") or "").strip(),
+            "capability_need": str(data.get("capability_need") or "none").strip(),
+        }
+
+    def _candidate_from_lookup(
+        self,
+        ask: Ask,
+        looked_up: dict,
+    ) -> Optional[ReferentCandidate]:
+        data = looked_up.get("data") or {}
+        canonical = (
+            data.get("title")
+            or data.get("name")
+            or data.get("heading")
+            or ""
+        )
+        if not canonical:
+            showtimes = data.get("showtimes") or []
+            if showtimes:
+                canonical = (showtimes[0] or {}).get("title") or ""
+        if not canonical:
+            return None
+        skill_id = looked_up.get("skill_id") or looked_up.get("intent") or "capability"
+        return ReferentCandidate(
+            candidate_id=f"cap:{skill_id}:{canonical.lower()}",
+            type=self._resolved_candidate_type(ask, looked_up),
+            display_name=canonical,
+            canonical_name=canonical,
+            source="capability_lookup",
+            source_ref=looked_up.get("intent") or str(skill_id),
+            score=8.0,
+            metadata={"lookup": looked_up},
+        )
+
+    def candidate_from_skill_result(
+        self,
+        ask: Ask,
+        result: SkillResult,
+        *,
+        skill_id: str = "",
+        intent: str = "",
+    ) -> Optional[ReferentCandidate]:
+        if not result or not result.success:
+            return None
+        return self._candidate_from_lookup(
+            ask,
+            {
+                "skill_id": skill_id,
+                "intent": intent,
+                "data": result.data or {},
+            },
+        )
+
     def _build_fallback_prompt(
         self,
         *,
@@ -365,9 +583,213 @@ class ReferentResolver:
             return ""
         canonical = resolution.chosen_candidate.canonical_name
         capability = getattr(ask, "capability_need", "none")
-        if capability == "current_media":
+        if (
+            capability == "current_media"
+            or (
+                resolution.chosen_candidate.type == "media"
+                and getattr(ask, "durability", "durable") == "tentative"
+            )
+        ):
             return f"showtimes for {canonical}"
         return canonical
+
+    def _apply_resolution_upgrades(
+        self,
+        ask: Ask,
+        resolution: ReferentResolution,
+    ) -> None:
+        chosen = resolution.chosen_candidate
+        if chosen is None:
+            return
+        if (
+            chosen.type == "media"
+            and getattr(ask, "capability_need", "none") == "none"
+            and (
+                getattr(ask, "durability", "durable") == "tentative"
+                or getattr(ask, "needs_referent_resolution", False)
+            )
+        ):
+            ask.capability_need = DEFAULT_MEDIA_CAPABILITY
+            ask.requires_current_data = True
+            if getattr(ask, "knowledge_source", "none") == "none":
+                ask.knowledge_source = "web"
+            if getattr(ask, "referent_type", "unknown") == "unknown":
+                ask.referent_type = "media"
+
+    async def _repair_followup_capability(
+        self,
+        *,
+        user_input: str,
+        ask: Ask,
+        resolution: ReferentResolution,
+        recent: list[dict],
+        session_candidates: list[ReferentCandidate],
+    ) -> None:
+        chosen = resolution.chosen_candidate
+        if chosen is None or chosen.type != "media":
+            return
+        if getattr(ask, "capability_need", "none") != "none":
+            return
+        if not self._should_try_followup_capability_repair(ask, session_candidates):
+            return
+
+        inferred = await self._infer_lookup_query(
+            user_input=user_input,
+            ask=ask,
+            recent=recent,
+        )
+        capability = (inferred.get("capability_need") or "none").strip()
+        if capability == "none":
+            return
+
+        ask.capability_need = capability
+        if capability == DEFAULT_MEDIA_CAPABILITY:
+            ask.requires_current_data = True
+            ask.referent_type = "media"
+            ask.knowledge_source = "web"
+        elif capability == "web_search":
+            ask.requires_current_data = True
+            if getattr(ask, "knowledge_source", "none") == "none":
+                ask.knowledge_source = "web"
+        elif capability == "encyclopedic" and getattr(ask, "knowledge_source", "none") == "none":
+            ask.knowledge_source = "encyclopedic"
+
+    def _anchor_capability_candidates(self, ask: Ask) -> list[str]:
+        seen: list[str] = []
+
+        def _push(category: str) -> None:
+            if category and category not in seen:
+                seen.append(category)
+
+        target = getattr(ask, "referent_type", "unknown")
+        scope = list(getattr(ask, "referent_scope", []) or [])
+        declared = getattr(ask, "capability_need", "none")
+
+        if declared != "none":
+            _push(declared)
+        if (
+            getattr(ask, "durability", "durable") == "tentative"
+            and bool((getattr(ask, "referent_anchor", "") or "").strip())
+        ):
+            _push(DEFAULT_MEDIA_CAPABILITY)
+        if target == "media" or "media" in scope:
+            _push(DEFAULT_MEDIA_CAPABILITY)
+        if target == "entity" or "entity" in scope:
+            _push("encyclopedic")
+            _push("web_search")
+        if (
+            target in ("place", "product", "event")
+            or any(s in ("place", "product", "event") for s in scope)
+        ):
+            _push("web_search")
+        return seen
+
+    @staticmethod
+    def _should_try_anchor_before_accepting(
+        ask: Ask,
+        resolution: ReferentResolution,
+    ) -> bool:
+        chosen = resolution.chosen_candidate
+        if resolution.status != "resolved" or chosen is None:
+            return False
+        if not (getattr(ask, "referent_anchor", "") or "").strip():
+            return False
+        if chosen.type != "person":
+            return False
+        if chosen.source != "long_term_memory":
+            return False
+        return getattr(ask, "context_source", "none") in ("recent_context", "external")
+
+    def _resolved_candidate_type(self, ask: Ask, looked_up: dict) -> str:
+        if looked_up.get("intent", "").startswith("movies_showtimes."):
+            return "media"
+        if getattr(ask, "capability_need", "none") == DEFAULT_MEDIA_CAPABILITY:
+            return "media"
+        declared = getattr(ask, "referent_type", "unknown")
+        if declared != "unknown":
+            return declared
+        return "entity"
+
+    @staticmethod
+    def _capability_query(ask: Ask) -> str:
+        anchor = (getattr(ask, "referent_anchor", "") or "").strip()
+        if anchor and not ReferentResolver._prefer_distilled_query_for_lookup(ask):
+            return anchor
+        return ask.distilled_query
+
+    @staticmethod
+    def _prefer_distilled_query_for_lookup(ask: Ask) -> bool:
+        scope = list(getattr(ask, "referent_scope", []) or [])
+        return (
+            getattr(ask, "durability", "durable") == "tentative"
+            and getattr(ask, "capability_need", "none") == "none"
+            and "media" not in scope
+        )
+
+    @staticmethod
+    def _should_force_resolution(
+        ask: Ask,
+        session_candidates: list[ReferentCandidate],
+    ) -> bool:
+        return (
+            (
+                getattr(ask, "referent_status", "none") == "unresolved"
+                and getattr(ask, "durability", "durable") == "tentative"
+                and getattr(ask, "capability_need", "none") == "none"
+            )
+            or (
+                bool(session_candidates)
+                and getattr(ask, "intent", "direct_chat") == "direct_chat"
+                and getattr(ask, "response_shape", "synthesized") == "synthesized"
+                and getattr(ask, "context_source", "none") in ("recent_context", "long_term_memory")
+                and len((getattr(ask, "distilled_query", "") or "").split()) <= 6
+                and (
+                    getattr(ask, "referent_type", "unknown") != "unknown"
+                    or bool(getattr(ask, "referent_scope", []) or [])
+                    or getattr(ask, "referent_status", "none") == "unresolved"
+                )
+            )
+        )
+
+    @staticmethod
+    def _should_try_inferred_query(
+        *,
+        ask: Ask,
+        candidates: list[ReferentCandidate],
+        session_candidates: list[ReferentCandidate],
+    ) -> bool:
+        if getattr(ask, "intent", "direct_chat") != "direct_chat":
+            return False
+        if getattr(ask, "response_shape", "synthesized") != "synthesized":
+            return False
+        if not candidates and not session_candidates:
+            return True
+        if getattr(ask, "capability_need", "none") != "none":
+            return True
+        if getattr(ask, "durability", "durable") == "tentative":
+            return True
+        scope = set(getattr(ask, "referent_scope", []) or [])
+        return bool(scope.intersection({"media", "entity", "place", "product", "event"}))
+
+    @staticmethod
+    def _should_try_followup_capability_repair(
+        ask: Ask,
+        session_candidates: list[ReferentCandidate],
+    ) -> bool:
+        if not session_candidates:
+            return False
+        if getattr(ask, "intent", "direct_chat") != "direct_chat":
+            return False
+        if getattr(ask, "context_source", "none") not in ("recent_context", "long_term_memory"):
+            return False
+        if len((getattr(ask, "distilled_query", "") or "").split()) > 6:
+            return False
+        scope = set(getattr(ask, "referent_scope", []) or [])
+        return (
+            getattr(ask, "referent_type", "unknown") == "media"
+            or "media" in scope
+            or getattr(ask, "referent_status", "none") == "unresolved"
+        )
 
     @staticmethod
     def _type_matches(ask: Ask, cand_type: str) -> bool:

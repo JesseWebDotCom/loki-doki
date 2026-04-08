@@ -36,6 +36,8 @@ from lokidoki.core.orchestrator_skills import (
     build_synthesis_prompt,
     pick_active_skill_intent,
     run_skills,
+    try_capability_failure_fast_path,
+    try_grounded_fast_path,
     try_verbatim_fast_path,
 )
 from lokidoki.core.registry import SkillRegistry
@@ -481,6 +483,34 @@ class Orchestrator:
                 resolved_asks, self._registry, self._executor,
                 user_id=user_id, memory=self._memory,
             )
+            resolved_cache = session_cache.setdefault("resolved_referents", [])
+            for ask in resolved_asks:
+                result = skill_results.get(ask.ask_id)
+                if not (result and result.success):
+                    continue
+                skill_id = ""
+                if self._registry is not None:
+                    manifest = self._registry.get_skill_by_intent(ask.intent)
+                    if manifest:
+                        skill_id = manifest.get("skill_id", "")
+                candidate = self._referent_resolver.candidate_from_skill_result(
+                    ask,
+                    result,
+                    skill_id=skill_id,
+                    intent=ask.intent,
+                )
+                if candidate is not None:
+                    resolved_cache.insert(0, candidate)
+            if resolved_cache:
+                deduped = []
+                seen = set()
+                for cand in resolved_cache:
+                    key = f"{cand.type}:{cand.canonical_name.lower()}"
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    deduped.append(cand)
+                session_cache["resolved_referents"] = deduped[:8]
             yield PipelineEvent(
                 phase="routing",
                 status="done",
@@ -516,6 +546,64 @@ class Orchestrator:
                     "sources": sources,
                     "platform": self._model_manager.policy.platform,
                     "fast_path": True,
+                },
+            )
+            return
+
+        grounded_fast = try_grounded_fast_path(resolved_asks, skill_results)
+        if grounded_fast is not None:
+            response, fast_latency_ms = grounded_fast
+            yield PipelineEvent(
+                phase="synthesis",
+                status="active",
+                data={"fast_path": True, "grounded_fast_path": True},
+            )
+            await self._memory.add_message(
+                user_id=user_id, session_id=session_id, role="assistant", content=response,
+            )
+            if is_first_turn:
+                await self._auto_name_session(user_id, session_id, user_input)
+            yield PipelineEvent(
+                phase="synthesis",
+                status="done",
+                data={
+                    "response": response,
+                    "model": "fast_path",
+                    "latency_ms": fast_latency_ms,
+                    "tone": "neutral",
+                    "sources": sources,
+                    "platform": self._model_manager.policy.platform,
+                    "fast_path": True,
+                    "grounded_fast_path": True,
+                },
+            )
+            return
+
+        capability_failure = try_capability_failure_fast_path(resolved_asks, routing_log)
+        if capability_failure is not None:
+            response = capability_failure
+            yield PipelineEvent(
+                phase="synthesis",
+                status="active",
+                data={"fast_path": True, "capability_failure_fast_path": True},
+            )
+            await self._memory.add_message(
+                user_id=user_id, session_id=session_id, role="assistant", content=response,
+            )
+            if is_first_turn:
+                await self._auto_name_session(user_id, session_id, user_input)
+            yield PipelineEvent(
+                phase="synthesis",
+                status="done",
+                data={
+                    "response": response,
+                    "model": "fast_path",
+                    "latency_ms": 0.0,
+                    "tone": "neutral",
+                    "sources": sources,
+                    "platform": self._model_manager.policy.platform,
+                    "fast_path": True,
+                    "capability_failure_fast_path": True,
                 },
             )
             return
@@ -585,6 +673,7 @@ class Orchestrator:
                 past_messages=past_messages,
                 people=people_rows,
                 relationships=relationships,
+                resolved_referents=session_cache.get("resolved_referents") or [],
             )
             prompt = build_synthesis_prompt(
                 tone=tone,

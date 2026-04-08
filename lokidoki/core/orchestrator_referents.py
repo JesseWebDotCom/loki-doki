@@ -20,6 +20,19 @@ def _recent_referents(recent: Iterable[dict], *, limit: int = 3) -> list[str]:
     return lines
 
 
+def _resolved_referents(candidates: Iterable[object], *, limit: int = 4) -> list[str]:
+    lines: list[str] = []
+    for cand in list(candidates)[:limit]:
+        canonical = (getattr(cand, "canonical_name", "") or "").strip()
+        ctype = (getattr(cand, "type", "") or "").strip()
+        source = (getattr(cand, "source", "") or "").strip()
+        if canonical:
+            prefix = f"{ctype}: " if ctype else ""
+            suffix = f" ({source})" if source else ""
+            lines.append(f"- {prefix}{canonical}{suffix}")
+    return lines
+
+
 def _memory_people(people: Iterable[dict], relationships: Iterable[dict], *, limit: int = 4) -> list[str]:
     names = {int(p["id"]): (p.get("name") or "").strip() for p in people if p.get("id") is not None}
     lines: list[str] = []
@@ -61,8 +74,14 @@ def build_referent_block(
     past_messages: Iterable[dict],
     people: Iterable[dict],
     relationships: Iterable[dict],
+    resolved_referents: Iterable[object] = (),
 ) -> str:
     sections: list[str] = []
+
+    resolved_lines = _resolved_referents(resolved_referents)
+    if resolved_lines:
+        sections.append("RESOLVED_REFERENTS:")
+        sections.extend(resolved_lines)
 
     recent_lines = _recent_referents(recent)
     if recent_lines:

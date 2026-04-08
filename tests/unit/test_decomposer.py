@@ -380,6 +380,17 @@ class TestDecomposer:
         assert "weather_owm.get_forecast" in prompt
         assert "knowledge_wiki.search" in prompt
 
+    @pytest.mark.anyio
+    async def test_build_prompt_includes_mixed_companion_movie_rule(self, decomposer):
+        decomposer._client.generate = AsyncMock(return_value=VALID_LLM_RESPONSE)
+
+        await decomposer.decompose("maybe i'll go with my brother and see avatar tonight")
+
+        call_args = decomposer._client.generate.call_args
+        prompt = call_args.kwargs.get("prompt") or call_args[0][1]
+        assert "MOVIE is still the primary referent" in prompt
+        assert "capability_need='current_media'" in prompt
+
 
 class TestAskDataclass:
     def test_ask_creation(self):

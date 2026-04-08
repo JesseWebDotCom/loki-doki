@@ -671,6 +671,406 @@ class TestStructuredRoutingAndMemory:
         assert rr.data["asks"][0]["resolution_status"] == "resolved"
         assert capture["query"] == "showtimes for Avatar: Fire and Ash"
 
+    @pytest.mark.anyio
+    async def test_current_media_success_uses_grounded_fast_path(
+        self, memory, user_session, monkeypatch
+    ):
+        uid, sid = user_session
+        from lokidoki.core.registry import SkillRegistry
+
+        reg = SkillRegistry()
+        reg.scan()
+        await memory.run_sync(
+            lambda c: skill_config.set_user_value(
+                c, uid, "movies_showtimes", "default_location", "Brooklyn, NY"
+            )
+        )
+
+        class _CapSkill:
+            async def execute_mechanism(self, method, parameters):
+                from lokidoki.core.skill_executor import MechanismResult
+                return MechanismResult(
+                    success=True,
+                    data={
+                        "lead": "Avatar: Fire and Ash is still playing tonight.",
+                        "showtimes": [
+                            {"title": "Avatar: Fire and Ash", "snippet": "7:00pm at Alamo Drafthouse", "url": "https://example.com/a"},
+                            {"title": "Avatar: Fire and Ash", "snippet": "9:45pm at Regal", "url": "https://example.com/b"},
+                        ],
+                    },
+                    source_url="https://example.com/a",
+                    source_title="Showtimes",
+                )
+
+        monkeypatch.setattr(orchestrator_skills_module, "get_skill_instance", lambda sid, config=None: _CapSkill())
+
+        decomp = DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": ""},
+            long_term_memory=[],
+            asks=[Ask(
+                ask_id="ask_1",
+                intent="movies_showtimes.get_showtimes",
+                distilled_query="showtimes for Avatar: Fire and Ash",
+                referent_type="media",
+                capability_need="current_media",
+                requires_current_data=True,
+                response_shape="synthesized",
+            )],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        )
+
+        mock_decomposer = AsyncMock()
+        mock_decomposer.decompose = AsyncMock(return_value=decomp)
+        mock_inference = AsyncMock()
+        mock_inference.generate_stream = _make_stream("I can check that for you")
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=memory,
+            registry=reg,
+            model_manager=ModelManager(inference_client=mock_inference, policy=ModelPolicy(platform="mac")),
+        )
+
+        events = []
+        async for event in orch.process("is it still playing in theaters", user_id=uid, session_id=sid):
+            events.append(event)
+
+        synthesis_done = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+        assert synthesis_done.data["fast_path"] is True
+        assert synthesis_done.data["grounded_fast_path"] is True
+        assert "still playing tonight" in synthesis_done.data["response"]
+        assert "7:00pm" in synthesis_done.data["response"]
+
+    @pytest.mark.anyio
+    async def test_mixed_brother_plus_avatar_turn_upgrades_to_current_media_via_anchor(
+        self, memory, user_session, monkeypatch
+    ):
+        uid, sid = user_session
+        from lokidoki.core.registry import SkillRegistry
+
+        reg = SkillRegistry()
+        reg.scan()
+        await memory.run_sync(
+            lambda c: skill_config.set_user_value(
+                c, uid, "movies_showtimes", "default_location", "Brooklyn, NY"
+            )
+        )
+
+        capture = {}
+
+        class _CapSkill:
+            async def execute_mechanism(self, method, parameters):
+                capture.update(parameters)
+                from lokidoki.core.skill_executor import MechanismResult
+                return MechanismResult(
+                    success=True,
+                    data={
+                        "lead": "Avatar: Fire and Ash: 7:00pm tonight.",
+                        "title": "Avatar: Fire and Ash",
+                        "showtimes": [{"title": "Avatar: Fire and Ash", "snippet": "7:00pm tonight.", "url": "https://example.com"}],
+                    },
+                    source_url="https://example.com",
+                    source_title="Showtimes",
+                )
+
+        monkeypatch.setattr(orchestrator_skills_module, "get_skill_instance", lambda sid, config=None: _CapSkill())
+
+        decomp = DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": "none"},
+            long_term_memory=[{
+                "subject_type": "self",
+                "predicate": "will go to the theater with",
+                "value": "my borther",
+                "kind": "event",
+                "category": "event",
+                "memory_priority": "low",
+            }],
+            asks=[Ask(
+                ask_id="ask_1",
+                intent="direct_chat",
+                distilled_query="maybe I'll go to the theater tonight with my borther and see avatar",
+                response_shape="synthesized",
+                requires_current_data=False,
+                knowledge_source="none",
+                context_source="recent_context",
+                referent_type="unknown",
+                durability="tentative",
+                needs_referent_resolution=True,
+                capability_need="none",
+                referent_status="unresolved",
+                referent_scope=["person", "event"],
+                referent_anchor="avatar",
+            )],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        )
+
+        mock_decomposer = AsyncMock()
+        mock_decomposer.decompose = AsyncMock(return_value=decomp)
+        mock_inference = AsyncMock()
+        mock_inference.generate_stream = _make_stream("placeholder")
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=memory,
+            registry=reg,
+            model_manager=ModelManager(inference_client=mock_inference, policy=ModelPolicy(platform="mac")),
+        )
+
+        events = []
+        async for event in orch.process(decomp.asks[0].distilled_query, user_id=uid, session_id=sid):
+            events.append(event)
+
+        rr = next(e for e in events if e.phase == "referent_resolution" and e.status == "done")
+        routing = next(e for e in events if e.phase == "routing" and e.status == "done")
+        synthesis = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+
+        assert rr.data["asks"][0]["resolution_status"] == "resolved"
+        assert rr.data["asks"][0]["resolution_source"] == "capability_lookup"
+        assert rr.data["asks"][0]["enriched_query"] == "showtimes for Avatar: Fire and Ash"
+        assert routing.data["routing_log"][0]["intent"] == "movies_showtimes.get_showtimes"
+        assert capture["query"] == "showtimes for Avatar: Fire and Ash"
+        assert "7:00pm" in synthesis.data["response"]
+
+    @pytest.mark.anyio
+    async def test_capability_falls_through_to_next_provider_when_first_fails(
+        self, memory, user_session, monkeypatch, tmp_path
+    ):
+        uid, sid = user_session
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        for skill_id, intent in (("alpha_media", "lookup_media"), ("beta_media", "lookup_media")):
+            d = skills_dir / skill_id
+            d.mkdir()
+            (d / "__init__.py").write_text("")
+            (d / "manifest.json").write_text(
+                __import__("json").dumps({
+                    "skill_id": skill_id,
+                    "name": skill_id,
+                    "intents": [intent],
+                    "categories": ["current_media"],
+                    "parameters": {"query": {"type": "string", "required": True}},
+                    "mechanisms": [{"method": "api", "priority": 1, "timeout_ms": 1000, "requires_internet": True}],
+                })
+            )
+
+        from lokidoki.core.registry import SkillRegistry
+
+        reg = SkillRegistry(skills_dir=str(skills_dir))
+        reg.scan()
+
+        class _FailSkill:
+            async def execute_mechanism(self, method, parameters):
+                from lokidoki.core.skill_executor import MechanismResult
+                return MechanismResult(success=False, error="provider failed")
+
+        class _PassSkill:
+            async def execute_mechanism(self, method, parameters):
+                from lokidoki.core.skill_executor import MechanismResult
+                return MechanismResult(
+                    success=True,
+                    data={
+                        "lead": "Avatar: Fire and Ash: 7:00pm tonight.",
+                        "title": "Avatar: Fire and Ash",
+                    },
+                    source_url="https://example.com",
+                    source_title="Fallback provider",
+                )
+
+        def _get_instance(skill_id, config=None):
+            return _FailSkill() if skill_id == "alpha_media" else _PassSkill()
+
+        monkeypatch.setattr(orchestrator_skills_module, "get_skill_instance", _get_instance)
+
+        decomp = DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": ""},
+            long_term_memory=[],
+            asks=[Ask(
+                ask_id="ask_1",
+                intent="alpha_media.lookup_media",
+                distilled_query="what time is it playing",
+                referent_type="media",
+                capability_need="current_media",
+                requires_current_data=True,
+                response_shape="synthesized",
+            )],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        )
+
+        mock_decomposer = AsyncMock()
+        mock_decomposer.decompose = AsyncMock(return_value=decomp)
+        mock_inference = AsyncMock()
+        mock_inference.generate_stream = _make_stream("placeholder")
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=memory,
+            registry=reg,
+            model_manager=ModelManager(inference_client=mock_inference, policy=ModelPolicy(platform="mac")),
+        )
+
+        events = []
+        async for event in orch.process("what time is it playing", user_id=uid, session_id=sid):
+            events.append(event)
+
+        routing = next(e for e in events if e.phase == "routing" and e.status == "done")
+        synthesis = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+        assert routing.data["routing_log"][0]["intent"] == "beta_media.lookup_media"
+        assert routing.data["routing_log"][0]["status"] == "success"
+        assert "7:00pm" in synthesis.data["response"]
+
+    @pytest.mark.anyio
+    async def test_current_media_rejects_generic_web_result_and_does_not_surface_nonsense(
+        self, memory, user_session, monkeypatch, tmp_path
+    ):
+        uid, sid = user_session
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        for skill_id, intent in (("alpha_media", "lookup_media"), ("beta_media", "lookup_media")):
+            d = skills_dir / skill_id
+            d.mkdir()
+            (d / "__init__.py").write_text("")
+            (d / "manifest.json").write_text(
+                __import__("json").dumps({
+                    "skill_id": skill_id,
+                    "name": skill_id,
+                    "intents": [intent],
+                    "categories": ["current_media"],
+                    "parameters": {"query": {"type": "string", "required": True}},
+                    "mechanisms": [{"method": "api", "priority": 1, "timeout_ms": 1000, "requires_internet": True}],
+                })
+            )
+
+        from lokidoki.core.registry import SkillRegistry
+
+        reg = SkillRegistry(skills_dir=str(skills_dir))
+        reg.scan()
+
+        class _GenericSkill:
+            async def execute_mechanism(self, method, parameters):
+                from lokidoki.core.skill_executor import MechanismResult
+                return MechanismResult(
+                    success=True,
+                    data={"heading": "Phil Mickelson", "abstract": "Won't be in Augusta this year."},
+                    source_url="https://example.com",
+                    source_title="Unrelated generic result",
+                )
+
+        monkeypatch.setattr(orchestrator_skills_module, "get_skill_instance", lambda sid, config=None: _GenericSkill())
+
+        decomp = DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": ""},
+            long_term_memory=[],
+            asks=[Ask(
+                ask_id="ask_1",
+                intent="alpha_media.lookup_media",
+                distilled_query="is it still playing",
+                referent_type="media",
+                capability_need="current_media",
+                requires_current_data=True,
+                response_shape="synthesized",
+                referent_anchor="Avatar",
+            )],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        )
+
+        mock_decomposer = AsyncMock()
+        mock_decomposer.decompose = AsyncMock(return_value=decomp)
+        mock_inference = AsyncMock()
+        mock_inference.generate_stream = _make_stream("fallback synthesis")
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=memory,
+            registry=reg,
+            model_manager=ModelManager(inference_client=mock_inference, policy=ModelPolicy(platform="mac")),
+        )
+
+        events = []
+        async for event in orch.process("is it still playing", user_id=uid, session_id=sid):
+            events.append(event)
+
+        routing = next(e for e in events if e.phase == "routing" and e.status == "done")
+        synthesis = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+        assert routing.data["routing_log"][0]["status"] != "success"
+        assert "Phil Mickelson" not in synthesis.data["response"]
+        assert "showtimes for Avatar" in synthesis.data["response"]
+
+    @pytest.mark.anyio
+    async def test_current_media_uses_media_anchor_for_query_when_resolution_is_missing(
+        self, memory, user_session, monkeypatch
+    ):
+        uid, sid = user_session
+        from lokidoki.core.registry import SkillRegistry
+
+        reg = SkillRegistry()
+        reg.scan()
+        await memory.run_sync(
+            lambda c: skill_config.set_user_value(
+                c, uid, "movies_showtimes", "default_location", "Milford, CT"
+            )
+        )
+
+        capture = {}
+
+        class _CapSkill:
+            async def execute_mechanism(self, method, parameters):
+                capture.update(parameters)
+                from lokidoki.core.skill_executor import MechanismResult
+                return MechanismResult(success=False, error="No showtimes found")
+
+        monkeypatch.setattr(orchestrator_skills_module, "get_skill_instance", lambda sid, config=None: _CapSkill())
+
+        decomp = DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": ""},
+            long_term_memory=[],
+            asks=[Ask(
+                ask_id="ask_1",
+                intent="movies_showtimes.get_showtimes",
+                distilled_query="is it still playing",
+                referent_type="media",
+                capability_need="current_media",
+                requires_current_data=True,
+                response_shape="synthesized",
+                referent_anchor="Avatar",
+            )],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        )
+
+        mock_decomposer = AsyncMock()
+        mock_decomposer.decompose = AsyncMock(return_value=decomp)
+        mock_inference = AsyncMock()
+        mock_inference.generate_stream = _make_stream("placeholder")
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=memory,
+            registry=reg,
+            model_manager=ModelManager(inference_client=mock_inference, policy=ModelPolicy(platform="mac")),
+        )
+
+        events = []
+        async for event in orch.process("is it still playing", user_id=uid, session_id=sid):
+            events.append(event)
+
+        synthesis = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+        assert capture["query"] == "showtimes for Avatar"
+        assert "Avatar" in synthesis.data["response"]
+
 
 class TestPipelineEvent:
     def test_event_serialization(self):

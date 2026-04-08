@@ -66,3 +66,26 @@ class TestMovieShowtimesSkill:
     async def test_local_cache_miss(self, skill):
         result = await skill.execute_mechanism("local_cache", {"query": "missing"})
         assert result.success is False
+
+    @pytest.mark.anyio
+    async def test_rejects_promotional_results_without_concrete_times(self, skill):
+        html = """
+        <html><body>
+          <a class="result__a" href="//example.com/fandango">Find Showtimes Near You - Skip the Lines at the Theater</a>
+          <a class="result__snippet">Find movies, showtimes, and theaters near you. Buy tickets fast and reserve your seats with Fandango in 06461.</a>
+        </body></html>
+        """
+        response = _mk_response(200, html)
+
+        with patch("lokidoki.skills.movies_showtimes.skill.httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__ = AsyncMock(
+                return_value=MagicMock(post=AsyncMock(return_value=response))
+            )
+            mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
+            result = await skill.execute_mechanism(
+                "ddg_showtimes",
+                {"query": "Avatar tonight", "_config": {"default_location": "Milford, CT"}},
+            )
+
+        assert result.success is False
+        assert "No showtimes found" in result.error

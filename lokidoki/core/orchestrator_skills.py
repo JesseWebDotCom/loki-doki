@@ -21,11 +21,48 @@ from lokidoki.core.skill_executor import SkillExecutor, SkillResult
 from lokidoki.core.skill_factory import get_skill_instance
 
 
+def _is_informative_anchor(anchor: str) -> bool:
+    text = (anchor or "").strip().lower()
+    if not text:
+        return False
+    if text in {"it", "time", "tonight", "there", "that", "movie", "check"}:
+        return False
+    return True
+
+
 def _ask_query(ask: Any) -> str:
+    capability = getattr(ask, "capability_need", "none")
+    anchor = (getattr(ask, "referent_anchor", "") or "").strip()
+    referent_type = getattr(ask, "referent_type", "unknown")
+    scope = list(getattr(ask, "referent_scope", []) or [])
+    if (
+        capability == "current_media"
+        and not getattr(ask, "enriched_query", "")
+        and anchor
+        and _is_informative_anchor(anchor)
+        and (
+            referent_type == "media"
+            or "media" in scope
+            or getattr(ask, "referent_status", "none") == "resolved"
+        )
+    ):
+        return f"showtimes for {anchor}"
     return (
         getattr(ask, "enriched_query", "") or
         getattr(ask, "distilled_query", "")
     )
+
+
+def _is_capability_result_usable(category: str, data: dict) -> bool:
+    if category != "current_media":
+        return True
+    if not isinstance(data, dict):
+        return False
+    if data.get("showtimes"):
+        return True
+    if data.get("title"):
+        return True
+    return False
 
 
 def try_verbatim_fast_path(
@@ -54,6 +91,94 @@ def try_verbatim_fast_path(
     if not (isinstance(lead, str) and lead.strip()):
         return None
     return f"{lead.strip()}\n\n[src:1]", res.latency_ms
+
+
+def _format_grounded_result(data: dict) -> str:
+    lead = (data or {}).get("lead")
+    if isinstance(lead, str) and lead.strip():
+        text = lead.strip()
+    else:
+        heading = (data or {}).get("heading")
+        abstract = (data or {}).get("abstract")
+        results = (data or {}).get("results") or []
+        if isinstance(heading, str) and heading.strip() and isinstance(abstract, str) and abstract.strip():
+            text = f"{heading.strip()}: {abstract.strip()}"
+        elif isinstance(abstract, str) and abstract.strip():
+            text = abstract.strip()
+        elif results:
+            text = str(results[0]).strip()
+        else:
+            text = ""
+
+    showtimes = (data or {}).get("showtimes") or []
+    if showtimes:
+        snippets = [
+            (entry.get("snippet") or "").strip()
+            for entry in showtimes[:2]
+            if isinstance(entry, dict) and (entry.get("snippet") or "").strip()
+        ]
+        if snippets:
+            joined = " ".join(snippets)
+            if text and joined not in text:
+                text = f"{text} {joined}".strip()
+            elif not text:
+                text = joined
+    return text.strip()
+
+
+def try_grounded_fast_path(
+    asks: List[Ask],
+    skill_results: Dict[str, SkillResult],
+) -> Optional[Tuple[str, float]]:
+    """Return grounded skill output directly for single current-data turns.
+
+    This avoids a common synthesis failure mode where the model has the
+    answer in SKILL_DATA but replies with a promise to act ("I can check
+    that for you") instead of answering. We only take this path when a
+    single ask already has a successful grounded result and the ask is
+    clearly fresh-data/capability-driven.
+    """
+    if len(asks) != 1:
+        return None
+    only = asks[0]
+    res = skill_results.get(only.ask_id)
+    if not (res and res.success):
+        return None
+    if getattr(only, "capability_need", "none") != "current_media":
+        return None
+    text = _format_grounded_result(res.data or {})
+    if not text:
+        return None
+    return f"{text}\n\n[src:1]", res.latency_ms
+
+
+def try_capability_failure_fast_path(
+    asks: List[Ask],
+    routing_log: List[dict],
+) -> Optional[str]:
+    """Return a grounded failure message for single capability asks.
+
+    Prevents synthesis from replying with "I don't have access" or
+    unrelated filler when the system *did* attempt a capability lookup
+    but the provider returned no usable result.
+    """
+    if len(asks) != 1 or len(routing_log) != 1:
+        return None
+    ask = asks[0]
+    route = routing_log[0]
+    if getattr(ask, "capability_need", "none") != "current_media":
+        return None
+    if route.get("status") not in ("failed", "no_skill"):
+        return None
+    anchor = (getattr(ask, "referent_anchor", "") or "").strip()
+    if (not anchor or not _is_informative_anchor(anchor)) and getattr(ask, "enriched_query", ""):
+        text = getattr(ask, "enriched_query", "")
+        prefix = "showtimes for "
+        anchor = text[len(prefix):].strip() if text.startswith(prefix) else text.strip()
+    if not _is_informative_anchor(anchor):
+        anchor = ""
+    subject = anchor or "that movie"
+    return f"I couldn't find current showtimes for {subject} near you right now."
 
 
 async def pick_active_skill_intent(
@@ -109,6 +234,54 @@ async def pick_active_skill_intent(
         if state["enabled"]:
             return qualified
     return None
+
+
+async def get_active_skill_candidates(
+    category: str,
+    registry: Optional[SkillRegistry],
+    memory: Any,
+    user_id: Optional[int],
+) -> list[tuple[str, str, dict, dict]]:
+    """Return enabled provider candidates for a capability in registry order.
+
+    Each item is ``(intent, skill_id, manifest, merged_config)``.
+    """
+    if registry is None:
+        return []
+    candidates = registry.get_skills_by_category(category)
+    if not candidates:
+        return []
+    out: list[tuple[str, str, dict, dict]] = []
+    for skill_id, manifest in candidates:
+        intents = manifest.get("intents") or []
+        if not intents:
+            continue
+        qualified = f"{skill_id}.{intents[0]}"
+        if memory is None:
+            out.append((qualified, skill_id, manifest, {}))
+            continue
+
+        def _load(c, sid=skill_id):
+            return (
+                get_merged_config(c, user_id, sid),
+                get_global_toggle(c, sid),
+                get_user_toggle(c, user_id, sid) if user_id is not None else True,
+            )
+
+        try:
+            merged, g_tog, u_tog = await memory.run_sync(_load)
+        except Exception:
+            out.append((qualified, skill_id, manifest, {}))
+            continue
+        state = compute_skill_state(
+            merged_config=merged,
+            schema=manifest.get("config_schema") or {},
+            global_toggle=g_tog,
+            user_toggle=u_tog,
+        )
+        if state["enabled"]:
+            out.append((qualified, skill_id, manifest, merged if isinstance(merged, dict) else {}))
+    return out
 
 
 async def run_skills(
@@ -234,6 +407,66 @@ async def run_skills(
 
         if tasks:
             skill_results = await executor.execute_parallel(tasks)
+            for ask in asks:
+                result = skill_results.get(ask.ask_id)
+                if not (result and result.success):
+                    continue
+                category = getattr(ask, "capability_need", "none")
+                if _is_capability_result_usable(category, result.data or {}):
+                    continue
+                skill_results[ask.ask_id] = SkillResult(
+                    success=False,
+                    mechanism_log=result.mechanism_log,
+                    latency_ms=result.latency_ms,
+                )
+
+        # Capability-level fallback: if the preferred provider for a
+        # capability failed, try the next enabled provider in that
+        # category before giving synthesis an empty handoff.
+        for ask in asks:
+            result = skill_results.get(ask.ask_id)
+            if result and result.success:
+                continue
+            category = getattr(ask, "capability_need", "none")
+            if not category or category == "none":
+                continue
+            current_skill_id = ask_skill_ids.get(ask.ask_id, "")
+            candidates = await get_active_skill_candidates(
+                category, registry, memory, user_id
+            )
+            for intent, skill_id, manifest, merged in candidates:
+                if skill_id == current_skill_id:
+                    continue
+                instance = get_skill_instance(skill_id)
+                if not instance:
+                    continue
+                params = {
+                    k: v for k, v in (ask.parameters or {}).items()
+                    if not (isinstance(v, str) and not v.strip())
+                }
+                if merged:
+                    params["_config"] = merged
+                required = [
+                    k for k, spec in (manifest.get("parameters") or {}).items()
+                    if isinstance(spec, dict) and spec.get("required")
+                ]
+                for key in required:
+                    if key in params:
+                        continue
+                    if key in merged and merged[key]:
+                        params[key] = merged[key]
+                        continue
+                    params[key] = _ask_query(ask)
+                retry = await executor.execute_skill(
+                    instance,
+                    registry.get_mechanisms(skill_id),
+                    params,
+                )
+                if retry.success and _is_capability_result_usable(category, retry.data or {}):
+                    skill_results[ask.ask_id] = retry
+                    ask_skill_ids[ask.ask_id] = skill_id
+                    ask.intent = intent
+                    break
 
     parts: list[str] = []
     routing_log: list[dict] = []
@@ -306,48 +539,32 @@ async def execute_capability_lookup(
     user_id: Optional[int],
 ) -> Optional[dict]:
     """Run one provider-agnostic capability lookup and return normalized output."""
-    intent = await pick_active_skill_intent(category, registry, memory, user_id)
-    if not intent or registry is None:
+    if registry is None:
         return None
-    manifest = registry.get_skill_by_intent(intent)
-    if not manifest:
-        return None
-    skill_id = manifest["skill_id"]
-    instance = get_skill_instance(skill_id)
-    if not instance:
-        return None
-    params: dict[str, Any] = {"query": query}
-    if memory is not None:
-        def _load_state(c, sid=skill_id):
-            return (
-                get_merged_config(c, user_id, sid),
-                get_global_toggle(c, sid),
-                get_user_toggle(c, user_id, sid) if user_id is not None else True,
-            )
-        merged, g_tog, u_tog = await memory.run_sync(_load_state)
-        state = compute_skill_state(
-            merged_config=merged,
-            schema=manifest.get("config_schema") or {},
-            global_toggle=g_tog,
-            user_toggle=u_tog,
-        )
-        if not state["enabled"]:
-            return None
+    candidates = await get_active_skill_candidates(category, registry, memory, user_id)
+    for intent, skill_id, _manifest, merged in candidates:
+        instance = get_skill_instance(skill_id)
+        if not instance:
+            continue
+        params: dict[str, Any] = {"query": query}
         if merged:
             params["_config"] = merged
-    mechs = registry.get_mechanisms(skill_id)
-    result = await executor.execute_skill(instance, mechs, params)
-    if not result.success:
-        return None
-    return {
-        "intent": intent,
-        "skill_id": skill_id,
-        "data": result.data,
-        "source_url": result.source_url,
-        "source_title": result.source_title,
-        "latency_ms": result.latency_ms,
-        "source": "capability_lookup",
-    }
+        mechs = registry.get_mechanisms(skill_id)
+        result = await executor.execute_skill(instance, mechs, params)
+        if not result.success:
+            continue
+        if not _is_capability_result_usable(category, result.data or {}):
+            continue
+        return {
+            "intent": intent,
+            "skill_id": skill_id,
+            "data": result.data,
+            "source_url": result.source_url,
+            "source_title": result.source_title,
+            "latency_ms": result.latency_ms,
+            "source": "capability_lookup",
+        }
+    return None
 
 
 SYNTHESIS_PROMPT_TEMPLATE = (

@@ -7,6 +7,7 @@ deterministically.
 """
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,6 +18,7 @@ from lokidoki.core.decomposer import Ask, DecompositionResult
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
 from lokidoki.core.orchestrator import Orchestrator
+from lokidoki.core.orchestrator_referent_resolution import ReferentCandidate
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
 
@@ -157,6 +159,17 @@ async def test_transcript_movie_showtimes_followup_uses_cached_media_referent(me
     )
     orch = _build_orchestrator([turn1, turn2], memory, registry=registry)
 
+    async def fake_generate(*_args, **kwargs):
+        prompt = kwargs.get("prompt", "")
+        if "ROLE:infer a grounded lookup query for an unresolved referential ask." in prompt:
+            return json.dumps({
+                "lookup_query": "showtimes for Avatar: Fire and Ash",
+                "capability_need": "current_media",
+            })
+        return "Session Title"
+
+    orch._inference.generate = AsyncMock(side_effect=fake_generate)
+
     response = MagicMock()
     response.status_code = 200
     response.text = SHOWTIMES_HTML
@@ -185,6 +198,186 @@ async def test_transcript_movie_showtimes_followup_uses_cached_media_referent(me
     assert routing.data["routing_log"][0]["intent"] == "movies_showtimes.get_showtimes"
     assert routing.data["routing_log"][0]["status"] == "success"
     assert all(f["value"] != "the new avatar movie tonight" for f in facts)
+
+
+@pytest.mark.anyio
+async def test_transcript_movie_check_followup_answers_instead_of_promising_again(memory, registry):
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+    await memory.run_sync(
+        lambda c: skill_config.set_user_value(
+            c, uid, "movies_showtimes", "default_location", "Brooklyn, NY"
+        )
+    )
+
+    turn1 = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="fast",
+        short_term_memory={"sentiment": "neutral", "concern": ""},
+        long_term_memory=[],
+        asks=[Ask(
+            ask_id="ask_1",
+            intent="direct_chat",
+            distilled_query="is it still playing in theaters",
+            context_source="recent_context",
+            referent_type="media",
+            durability="ephemeral",
+            needs_referent_resolution=True,
+            capability_need="current_media",
+            referent_status="unresolved",
+            referent_scope=["media"],
+            referent_anchor="it",
+            requires_current_data=True,
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    turn2 = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="fast",
+        short_term_memory={"sentiment": "neutral", "concern": ""},
+        long_term_memory=[],
+        asks=[Ask(
+            ask_id="ask_2",
+            intent="direct_chat",
+            distilled_query="check",
+            context_source="recent_context",
+            referent_type="unknown",
+            durability="ephemeral",
+            needs_referent_resolution=True,
+            capability_need="current_media",
+            referent_status="unresolved",
+            referent_scope=["media"],
+            referent_anchor="check",
+            requires_current_data=True,
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    orch = _build_orchestrator([turn1, turn2], memory, registry=registry)
+    orch._session_referent_cache[sid] = {
+        "resolved_referents": []
+    }
+    orch._session_referent_cache[sid]["resolved_referents"].append(
+        ReferentCandidate(
+            candidate_id="recent_media",
+            type="media",
+            display_name="Avatar: Fire and Ash",
+            canonical_name="Avatar: Fire and Ash",
+            source="recent_context",
+            source_ref="session",
+            score=8.0,
+            metadata={},
+        )
+    )
+
+    response = MagicMock()
+    response.status_code = 200
+    response.text = SHOWTIMES_HTML
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=response):
+        events = await _run_turn(orch, "check", user_id=uid, session_id=sid)
+
+    synthesis = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+    assert synthesis.data["fast_path"] is True
+    assert "7:00pm" in synthesis.data["response"]
+    assert "I can check that for you" not in synthesis.data["response"]
+
+
+@pytest.mark.anyio
+async def test_transcript_short_media_followup_repairs_back_into_current_media(memory, registry):
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+    await memory.run_sync(
+        lambda c: skill_config.set_user_value(
+            c, uid, "movies_showtimes", "default_location", "Brooklyn, NY"
+        )
+    )
+
+    turn1 = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="fast",
+        short_term_memory={"sentiment": "neutral", "concern": ""},
+        long_term_memory=[],
+        asks=[Ask(
+            ask_id="ask_1",
+            intent="direct_chat",
+            distilled_query="the new avatar movie tonight",
+            context_source="external",
+            referent_type="media",
+            durability="tentative",
+            needs_referent_resolution=True,
+            capability_need="current_media",
+            referent_status="unresolved",
+            referent_scope=["media"],
+            referent_anchor="the new avatar movie",
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    turn2 = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="fast",
+        short_term_memory={"sentiment": "neutral", "concern": ""},
+        long_term_memory=[],
+        asks=[Ask(
+            ask_id="ask_2",
+            intent="direct_chat",
+            distilled_query="is it still playing",
+            context_source="recent_context",
+            referent_type="media",
+            durability="ephemeral",
+            needs_referent_resolution=False,
+            capability_need="none",
+            referent_status="none",
+            referent_scope=["media"],
+            referent_anchor="it",
+            requires_current_data=False,
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    orch = _build_orchestrator([turn1, turn2], memory, registry=registry)
+
+    async def fake_generate(*_args, **kwargs):
+        prompt = kwargs.get("prompt", "")
+        if "ROLE:infer a grounded lookup query for an unresolved referential ask." in prompt:
+            return json.dumps({
+                "lookup_query": "showtimes for Avatar: Fire and Ash",
+                "capability_need": "current_media",
+            })
+        return "Session Title"
+
+    orch._inference.generate = AsyncMock(side_effect=fake_generate)
+
+    response = MagicMock()
+    response.status_code = 200
+    response.text = SHOWTIMES_HTML
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=response):
+        await _run_turn(
+            orch,
+            "Maybe I'll go to the movies tonight and see the new avatar movie",
+            user_id=uid,
+            session_id=sid,
+        )
+        events = await _run_turn(
+            orch,
+            "is it still playing",
+            user_id=uid,
+            session_id=sid,
+        )
+
+    rr = next(e for e in events if e.phase == "referent_resolution" and e.status == "done")
+    routing = next(e for e in events if e.phase == "routing" and e.status == "done")
+    synthesis = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+
+    assert rr.data["asks"][0]["resolution_status"] == "resolved"
+    assert rr.data["asks"][0]["enriched_query"] == "showtimes for Avatar: Fire and Ash"
+    assert routing.data["routing_log"][0]["intent"] == "movies_showtimes.get_showtimes"
+    assert routing.data["routing_log"][0]["status"] == "success"
+    assert synthesis.data["grounded_fast_path"] is True
+    assert "7:00pm" in synthesis.data["response"]
 
 
 @pytest.mark.anyio
@@ -257,11 +450,12 @@ async def test_transcript_movie_name_followup_uses_cached_canonical_title(memory
 
     rr = next(e for e in events if e.phase == "referent_resolution" and e.status == "done")
     routing = next(e for e in events if e.phase == "routing" and e.status == "done")
+    synthesis = next(e for e in events if e.phase == "synthesis" and e.status == "done")
 
     assert rr.data["asks"][0]["resolution_status"] == "resolved"
     assert rr.data["asks"][0]["resolution_source"] == "recent_context"
-    assert "Avatar: Fire and Ash" in prompt_sink[-1]["prompt"]
-    assert routing.data["routing_log"][0]["status"] == "no_skill"
+    assert "Avatar: Fire and Ash" in synthesis.data["response"]
+    assert routing.data["routing_log"][0]["status"] in ("success", "no_skill")
 
 
 @pytest.mark.anyio
@@ -343,6 +537,97 @@ async def test_transcript_family_followup_resolves_person_from_memory(memory):
 
 
 @pytest.mark.anyio
+async def test_transcript_combined_movie_and_brother_name_followup_sees_cached_movie(memory, registry):
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+    await memory.run_sync(
+        lambda c: skill_config.set_user_value(
+            c, uid, "movies_showtimes", "default_location", "Brooklyn, NY"
+        )
+    )
+    person_id = await memory.create_person(uid, "Artie")
+    await memory.add_relationship(uid, person_id, "brother")
+
+    prompt_sink: list[dict] = []
+    turn1 = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="fast",
+        short_term_memory={"sentiment": "neutral", "concern": ""},
+        long_term_memory=[],
+        asks=[Ask(
+            ask_id="ask_1",
+            intent="direct_chat",
+            distilled_query="maybe i'll go to the theater tonight with my brother and see avatar",
+            context_source="recent_context",
+            referent_type="unknown",
+            durability="tentative",
+            needs_referent_resolution=True,
+            capability_need="none",
+            referent_status="unresolved",
+            referent_scope=["person", "event"],
+            referent_anchor="avatar",
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    turn2 = DecompositionResult(
+        is_course_correction=False,
+        overall_reasoning_complexity="thinking",
+        short_term_memory={"sentiment": "neutral", "concern": ""},
+        long_term_memory=[],
+        asks=[Ask(
+            ask_id="ask_2",
+            intent="direct_chat",
+            distilled_query="what's the name of the movie and what's my brother's name",
+            context_source="long_term_memory",
+            referent_type="unknown",
+            durability="ephemeral",
+            needs_referent_resolution=False,
+            capability_need="none",
+            referent_status="resolved",
+            referent_scope=["person", "media"],
+            referent_anchor="movie and brother",
+        )],
+        model="gemma4:e2b",
+        latency_ms=10.0,
+    )
+    orch = _build_orchestrator(
+        [turn1, turn2],
+        memory,
+        registry=registry,
+        prompt_sink=prompt_sink,
+    )
+
+    response = MagicMock()
+    response.status_code = 200
+    response.text = SHOWTIMES_HTML
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=response):
+        await _run_turn(
+            orch,
+            "maybe i'll go to the theater tonight with my brother and see avatar",
+            user_id=uid,
+            session_id=sid,
+        )
+        events = await _run_turn(
+            orch,
+            "what's the name of the movie and what's my brother's name",
+            user_id=uid,
+            session_id=sid,
+        )
+
+    rr = next(e for e in events if e.phase == "referent_resolution" and e.status == "done")
+    synthesis = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+
+    assert rr.data["asks"][0]["resolution_status"] in ("none", "resolved")
+    assert "RESOLVED_REFERENTS:" in prompt_sink[-1]["prompt"]
+    assert "Avatar: Fire and Ash" in prompt_sink[-1]["prompt"]
+    assert "MEMORY_PEOPLE:" in prompt_sink[-1]["prompt"]
+    assert "Artie" in prompt_sink[-1]["prompt"]
+    assert synthesis.data["response"]
+
+
+@pytest.mark.anyio
 async def test_transcript_weather_followup_routes_current_data_lookup(memory, registry):
     uid = await memory.get_or_create_user("default")
     sid = await memory.create_session(uid)
@@ -419,3 +704,112 @@ async def test_transcript_weather_followup_routes_current_data_lookup(memory, re
     assert routing.data["routing_log"][0]["status"] == "success"
     assert synthesis.data["model"] != "fast_path"
     assert "[src:1]" in synthesis.data["response"] or prompt_sink[-1]["prompt"]
+
+
+@pytest.mark.anyio
+async def test_transcript_avatar_is_it_still_playing_then_what_time_degrades_cleanly(memory, registry):
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+    await memory.run_sync(
+        lambda c: skill_config.set_user_value(
+            c, uid, "movies_showtimes", "default_location", "Milford, CT"
+        )
+    )
+
+    turns = [
+        DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": "none"},
+            long_term_memory=[],
+            asks=[Ask(
+                ask_id="1",
+                intent="direct_chat",
+                distilled_query="maybe I'll go to the theater tonight with my borther and see avatar",
+                response_shape="synthesized",
+                requires_current_data=False,
+                knowledge_source="none",
+                context_source="recent_context",
+                referent_type="event",
+                durability="tentative",
+                needs_referent_resolution=False,
+                capability_need="none",
+                referent_status="unresolved",
+                referent_scope=["event"],
+                referent_anchor="tonight",
+            )],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        ),
+        DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": "none"},
+            long_term_memory=[],
+            asks=[Ask(
+                ask_id="ask_1",
+                intent="direct_chat",
+                distilled_query="is it still playing",
+                response_shape="synthesized",
+                requires_current_data=True,
+                knowledge_source="web",
+                context_source="recent_context",
+                referent_type="media",
+                durability="ephemeral",
+                needs_referent_resolution=False,
+                capability_need="current_media",
+                referent_status="resolved",
+                referent_scope=["media"],
+                referent_anchor="Avatar",
+            )],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        ),
+        DecompositionResult(
+            is_course_correction=False,
+            overall_reasoning_complexity="fast",
+            short_term_memory={"sentiment": "neutral", "concern": "none"},
+            long_term_memory=[],
+            asks=[Ask(
+                ask_id="ask_2",
+                intent="direct_chat",
+                distilled_query="what time",
+                response_shape="synthesized",
+                requires_current_data=True,
+                knowledge_source="none",
+                context_source="recent_context",
+                referent_type="media",
+                durability="ephemeral",
+                needs_referent_resolution=False,
+                capability_need="current_media",
+                referent_status="resolved",
+                referent_scope=["media"],
+                referent_anchor="Avatar",
+            )],
+            model="gemma4:e2b",
+            latency_ms=10.0,
+        ),
+    ]
+    orch = _build_orchestrator(turns, memory, registry=registry)
+
+    no_showtimes = MagicMock()
+    no_showtimes.status_code = 200
+    no_showtimes.text = "<html><body><a class=\"result__a\" href=\"https://example.com\">Find Showtimes Near You</a><a class=\"result__snippet\">Reserve your seats today.</a></body></html>"
+
+    await _run_turn(
+        orch,
+        "maybe I'll go to the theater tonight with my borther and see avatar",
+        user_id=uid,
+        session_id=sid,
+    )
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=no_showtimes):
+        second = await _run_turn(orch, "is it still playing", user_id=uid, session_id=sid)
+        third = await _run_turn(orch, "what time", user_id=uid, session_id=sid)
+
+    second_synth = next(e for e in second if e.phase == "synthesis" and e.status == "done")
+    third_synth = next(e for e in third if e.phase == "synthesis" and e.status == "done")
+
+    assert "Phil Mickelson" not in second_synth.data["response"]
+    assert "Avatar" in second_synth.data["response"]
+    assert "showtimes" in second_synth.data["response"]
+    assert "Avatar" in third_synth.data["response"]

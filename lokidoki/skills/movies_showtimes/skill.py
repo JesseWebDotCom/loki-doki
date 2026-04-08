@@ -16,6 +16,7 @@ import httpx
 from lokidoki.core.skill_executor import BaseSkill, MechanismResult
 
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
+TIME_PATTERN = re.compile(r"\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b", re.IGNORECASE)
 
 
 def _search_query(raw_query: str, default_location: str = "") -> str:
@@ -53,6 +54,8 @@ def _extract_results(html: str) -> list[dict]:
         if idx < len(snippets):
             snippet = re.sub(r"<[^>]+>", "", snippets[idx]).strip()
         if not title:
+            continue
+        if not TIME_PATTERN.search(snippet):
             continue
         out.append({
             "title": title,
