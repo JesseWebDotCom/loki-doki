@@ -175,10 +175,31 @@ async def run_skills(
 
     parts: list[str] = []
     routing_log: list[dict] = []
+    # Sources are 1-indexed for the [src:N] citation marker the
+    # frontend renderer expects (regex \[src:(\d+)\]). The model needs
+    # to see the literal numeric label inline in SKILL_DATA — without
+    # it, gemma improvises labels like "[src:knowledge_wiki.search_
+    # knowledge]" which the renderer can't parse and we ship raw text
+    # to the user. This counter increments only for successful skills
+    # that contribute a source URL, so the indices line up with the
+    # ``sources`` array the frontend receives.
+    src_index = 0
     for ask in asks:
         result = skill_results.get(ask.ask_id)
         if result and result.success:
-            parts.append(f"{ask.intent}:{json.dumps(result.data)}")
+            # Format: "[src:N] {json_data}" — no intent prefix. The
+            # intent name (e.g. "knowledge_wiki.search_knowledge") used
+            # to be included for "context", but gemma kept copying it
+            # as the citation label, producing unparseable
+            # "[src:knowledge_wiki.search_knowledge]" tags. Removing it
+            # leaves only one thing in SKILL_DATA that looks like a
+            # source label, which is the literal numeric tag we want
+            # the model to copy.
+            if result.source_url:
+                src_index += 1
+                parts.append(f"[src:{src_index}] {json.dumps(result.data)}")
+            else:
+                parts.append(json.dumps(result.data))
             if result.source_url:
                 sources.append({
                     "url": result.source_url,
@@ -227,7 +248,9 @@ SYNTHESIS_PROMPT_TEMPLATE = (
     "name a specific movie. \"what should I cook\" → name a specific dish. "
     "\"give me ideas\" → list 2-3 concrete options.\n"
     "RULES:1-3 sentences max unless asked for detail,natural language,no preamble,"
-    "no meta-commentary,cite sources with [src:N] markers when SKILL_DATA is used."
+    "no meta-commentary,cite sources by COPYING the literal [src:N] tag from"
+    " SKILL_DATA verbatim — N is always a number (1, 2, 3). NEVER invent your"
+    " own label content like [src:wikipedia] or [src:skill_name]."
     " NEVER restate or paraphrase the user's input back to them — they just said it."
     " If the user shared a fact (e.g. 'My coworker Tom loves Halo'),"
     " acknowledge briefly with something fresh ('Got it — noted.' / a short"

@@ -85,6 +85,14 @@ _PROPER_NOUN_BLOCKLIST = {
     "Friday", "Saturday", "Sunday",
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
+    # Country / region / org abbreviations spaCy tags as PROPN. Without
+    # these, "who is the current us president" gets salvaged into
+    # {person:Us, is, president} and pollutes the people table.
+    "US", "USA", "UK", "EU", "UN", "USSR", "UAE", "PRC", "ROC", "DPRK",
+    "America", "Britain", "England", "Europe", "Asia", "Africa",
+    # Role nouns frequently mis-tagged as PROPN at sentence start.
+    "President", "Prime", "Minister", "Senator", "Governor", "Mayor",
+    "King", "Queen", "Prince", "Princess", "Duke", "Duchess",
 }
 _BLOCKLIST_LOWER = {w.lower() for w in _PROPER_NOUN_BLOCKLIST}
 
@@ -163,6 +171,27 @@ def _extract_relation_name_pair(text: str) -> Optional[tuple[str, str]]:
     return None
 
 
+def _looks_like_person_token(text: str) -> bool:
+    """Reject things that *grammatically* look like names but obviously
+    aren't. Catches the "US" → "Us" failure where spaCy tags a country
+    abbreviation as PROPN and the salvage cheerfully writes it as a
+    person row.
+
+    Rules:
+      - Must be at least 3 characters (no "I", "U", "X").
+      - Must not be all-caps in the source (NASA, USA, FBI, NATO are
+        organizations, not people).
+      - Must not be a single token that's exclusively uppercase consonants
+        (likely an abbreviation even if mixed-case in our store).
+    """
+    cleaned = (text or "").strip()
+    if len(cleaned) < 3:
+        return False
+    if cleaned.isupper():
+        return False
+    return True
+
+
 def _extract_person_name(text: str) -> Optional[str]:
     """Best-effort person name from user input.
 
@@ -177,8 +206,17 @@ def _extract_person_name(text: str) -> Optional[str]:
         return None
     doc = _parse(text)
     for tok in doc:
-        if tok.pos_ == "PROPN" and tok.text.lower() not in _BLOCKLIST_LOWER:
-            return _titlecase_name(tok.text)
+        if tok.pos_ != "PROPN":
+            continue
+        if tok.text.lower() in _BLOCKLIST_LOWER:
+            continue
+        # Reject country/org abbreviations the blocklist might miss.
+        # The check is on the SOURCE token (preserves original case),
+        # not the titlecased output, so "US" gets caught even though
+        # _titlecase_name would lowercase it to "Us".
+        if not _looks_like_person_token(tok.text):
+            continue
+        return _titlecase_name(tok.text)
     return None
 
 

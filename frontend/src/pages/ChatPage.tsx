@@ -82,6 +82,10 @@ const ChatPage: React.FC = () => {
   const [activeChar, setActiveChar] = useState<CharacterRow | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  // Keeps the chat input focused across send-cycles and session
+  // changes — without this the user has to click back into the box
+  // every turn (and after starting a new chat).
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Idle-state ticker for the character avatar. We don't need a dense
   // requestAnimationFrame loop here — the avatar only changes between
@@ -95,6 +99,15 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     setLastActivity(Date.now());
   }, [isProcessing, tts.speakingKey, messages.length, input]);
+  // Refocus the chat input whenever a send cycle finishes or the
+  // session changes. Effects run after DOM commit, so the input is
+  // guaranteed to be re-enabled by the time .focus() runs — which
+  // is why setTimeout(0) inside the send handler was unreliable.
+  useEffect(() => {
+    if (!isProcessing) {
+      inputRef.current?.focus();
+    }
+  }, [isProcessing, currentSessionId]);
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(id);
@@ -354,6 +367,10 @@ const ChatPage: React.FC = () => {
       setPipeline({ ...INITIAL_PIPELINE });
     } finally {
       setIsProcessing(false);
+      // Refocus is handled by the useEffect below — it watches
+      // isProcessing transitioning back to false and runs AFTER
+      // React has re-enabled the input. Doing it inline here would
+      // race the disabled→enabled prop swap and silently no-op.
     }
   };
 
@@ -362,6 +379,10 @@ const ChatPage: React.FC = () => {
     setPipeline(INITIAL_PIPELINE);
     setCurrentSessionId(undefined);
     setActiveProjectId(projectId || null);
+    // Same reason as above — defer to the effect that watches
+    // isProcessing/currentSessionId so focus lands AFTER the
+    // re-render rather than before.
+    inputRef.current?.focus();
   };
 
   const handleSelectSession = async (sessionId: string) => {
@@ -450,6 +471,8 @@ const ChatPage: React.FC = () => {
         <div className="p-10 bg-background/50 backdrop-blur-xl border-t border-border/20">
           <div className="max-w-4xl mx-auto relative group">
             <input
+              ref={inputRef}
+              autoFocus
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}

@@ -39,6 +39,7 @@ export const AdminPasswordPrompt: React.FC<{
           type="password"
           value={pwd}
           onChange={(e) => setPwd(e.target.value)}
+          autoFocus
           className="mb-4 w-full rounded-md border border-neutral-700 bg-[#0A0A0A] px-3 py-2 text-neutral-100 focus:border-violet-400 focus:outline-none"
           data-testid="admin-prompt-input"
         />

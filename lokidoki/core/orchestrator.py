@@ -318,19 +318,30 @@ class Orchestrator:
             self._registry is not None
             and self._registry.get_skill_by_intent(wiki_search_intent) is not None
         )
-        if wiki_available:
-            for a in decomposition.asks:
-                if a.requires_current_data and a.intent == "direct_chat":
-                    logger.info(
-                        "[orchestrator] upgrading ask %s direct_chat -> %s "
-                        "(requires_current_data)",
-                        a.ask_id, wiki_search_intent,
-                    )
-                    a.intent = wiki_search_intent
-                    # Synthesize the wiki result rather than dumping it
-                    # verbatim — current-events answers usually need a
-                    # tight one-liner, not the full article lead.
-                    a.response_shape = "synthesized"
+        for a in decomposition.asks:
+            if not a.requires_current_data:
+                continue
+            # Upgrade direct_chat to wiki so synthesis gets grounding.
+            if a.intent == "direct_chat" and wiki_available:
+                logger.info(
+                    "[orchestrator] upgrading ask %s direct_chat -> %s "
+                    "(requires_current_data)",
+                    a.ask_id, wiki_search_intent,
+                )
+                a.intent = wiki_search_intent
+            # Force synthesis regardless of how the decomposer routed
+            # the ask. The verbatim path returns the first 1-2 sentences
+            # of the wiki lead, which for current-events queries is the
+            # institutional definition ("The president is the head of
+            # state…"), NOT the current officeholder. Synthesis runs the
+            # 9B model over the full extract and pulls the actual fact.
+            if a.response_shape == "verbatim":
+                logger.info(
+                    "[orchestrator] forcing ask %s verbatim -> synthesized "
+                    "(requires_current_data)",
+                    a.ask_id,
+                )
+                a.response_shape = "synthesized"
 
         # ---- routing -----------------------------------------------------
         skill_data = ""
@@ -491,6 +502,24 @@ class Orchestrator:
         # skill failed). The frontend renders an empty assistant
         # turn as "No response received" — give the user something
         # actionable instead so the chat stays usable.
+        # Sanitize citation tags. The frontend renderer's regex is
+        # ``\[src:(\d+)\]`` — non-numeric labels render as raw text and
+        # look like a bug. The synthesis prompt + numbered SKILL_DATA
+        # already steer the model toward [src:N], but small models
+        # occasionally improvise ([src:wikipedia], [src:knowledge_wiki.
+        # search_knowledge]). Map any non-numeric label to [src:1] when
+        # we have at least one source, otherwise drop the tag entirely.
+        # We never invent a source we don't have.
+        import re as _re
+
+        def _fix_src(match: _re.Match) -> str:
+            inner = match.group(1).strip()
+            if inner.isdigit():
+                return match.group(0)
+            return "[src:1]" if sources else ""
+
+        response = _re.sub(r"\[src:([^\]]*)\]", _fix_src, response)
+
         if not response.strip():
             failed_intents = [
                 e.get("intent") for e in (routing_log or [])

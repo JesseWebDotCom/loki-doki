@@ -186,7 +186,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <nav className="space-y-0.5 flex-1">
           <button
             onClick={() => handleNewSessionFallback()}
-            title="New Session"
+            title="New Chat"
             className={`${slot} ${
               isChat ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-primary'
             }`}
@@ -247,7 +247,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <span className="w-8 h-8 flex items-center justify-center shrink-0">
             <PenLine size={16} />
           </span>
-          <span className="ml-1">New Session</span>
+          <span className="ml-1">New Chat</span>
         </button>
         <Link
           to="/memory"

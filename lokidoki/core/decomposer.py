@@ -85,6 +85,14 @@ DECOMPOSITION_SCHEMA: dict = {
         },
         "asks": {
             "type": "array",
+            # The decomposer must emit at least one ask per turn — every
+            # user input has a response need. Without this constraint
+            # the 2B model occasionally returns asks=[] for bare
+            # factual questions, which left the orchestrator with no
+            # routing target and the synthesizer free to fabricate
+            # from stale training data. minItems is enforced by Ollama's
+            # structured-output decoder.
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "required": [
@@ -368,6 +376,37 @@ class Decomposer:
                 )
                 for i, a in enumerate(data.get("asks", []))
             ]
+
+            # Belt-and-suspenders for the empty-asks failure mode. Even
+            # with minItems:1 in the schema, the model occasionally
+            # ignores the constraint when the structured decoder hits
+            # an early termination. We'd rather route the raw input
+            # through the wiki upgrade hook than hand the synthesizer
+            # an empty ask list and watch it hallucinate from training
+            # data. requires_current_data=True is intentional: a turn
+            # the decomposer couldn't structure is exactly the kind of
+            # turn synthesis is most likely to fabricate on.
+            #
+            # EXCEPTION: pure meta-corrections ("no, I meant the other
+            # thing") legitimately have no asks — they're conversational
+            # steering, not questions. The course-correction flag is
+            # the structured signal for that case, so we trust it and
+            # leave asks empty when it's set.
+            is_correction = bool(data.get("is_course_correction", False))
+            if not asks and not is_correction:
+                logger.warning(
+                    "[decomposer] empty asks for %r — synthesizing fallback "
+                    "direct_chat ask with requires_current_data=True",
+                    original_input,
+                )
+                asks = [
+                    Ask(
+                        ask_id="ask_000",
+                        intent="direct_chat",
+                        distilled_query=original_input,
+                        requires_current_data=True,
+                    )
+                ]
 
             return DecompositionResult(
                 is_course_correction=data.get("is_course_correction", False),

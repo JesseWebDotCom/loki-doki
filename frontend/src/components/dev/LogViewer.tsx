@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pause, Play, Trash2, Filter } from 'lucide-react';
+import { Pause, Play, Trash2, Filter, Copy, Check } from 'lucide-react';
 
 type LogRecord = {
   id: number;
@@ -25,6 +25,9 @@ const LogViewer: React.FC<{ height?: string }> = ({ height = 'h-96' }) => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  // Brief checkmark after a successful copy. Auto-clears so the
+  // copy button reverts to its idle icon without needing user input.
+  const [justCopied, setJustCopied] = useState(false);
 
   useEffect(() => {
     // EventSource auto-reconnects on transient failures. credentials
@@ -66,6 +69,36 @@ const LogViewer: React.FC<{ height?: string }> = ({ height = 'h-96' }) => {
       )
     : records;
 
+  // Copy whatever the user is currently *seeing* — i.e. the filtered
+  // view, not the full record buffer. Matches the mental model: "I
+  // filtered to errors, I want the errors." Falls back to the legacy
+  // execCommand path for non-secure-context dev servers where
+  // navigator.clipboard is undefined.
+  const handleCopy = async () => {
+    const text = filtered
+      .map((r) => `${new Date(r.ts * 1000).toISOString()} ${r.level} ${r.logger}: ${r.message}`)
+      .join('\n');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setJustCopied(true);
+      window.setTimeout(() => setJustCopied(false), 1500);
+    } catch {
+      // Swallow — clipboard failures are non-fatal and the user will
+      // notice the missing checkmark.
+    }
+  };
+
   return (
     <div className="rounded-xl border border-border/30 bg-card/50 shadow-m1 overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border/20 bg-background/40">
@@ -86,6 +119,15 @@ const LogViewer: React.FC<{ height?: string }> = ({ height = 'h-96' }) => {
           title={paused ? 'Resume' : 'Pause'}
         >
           {paused ? <Play size={12} /> : <Pause size={12} />}
+        </button>
+        <button
+          type="button"
+          onClick={handleCopy}
+          disabled={filtered.length === 0}
+          className="p-1 rounded hover:bg-card/80 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+          title={`Copy ${filtered.length} log line${filtered.length === 1 ? '' : 's'}`}
+        >
+          {justCopied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
         </button>
         <button
           type="button"
