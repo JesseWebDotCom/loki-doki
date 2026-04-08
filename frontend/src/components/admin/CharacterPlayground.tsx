@@ -291,6 +291,8 @@ const CharacterPlayground: React.FC<Props> = ({ initial, onClose, onSaved }) => 
                     "listening",
                     "speaking",
                     "sick",
+                    "angry",
+                    "sad",
                   ] as HeadTiltState[]
                 ).map((s) => (
                   <button

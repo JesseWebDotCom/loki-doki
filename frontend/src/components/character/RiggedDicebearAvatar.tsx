@@ -30,11 +30,14 @@ import { useHeadTilt, type HeadTiltState } from "./useHeadTilt";
 import {
   blinkEyeFor,
   defaultEyeFor,
+  lookUpEyeFor,
   mouthForViseme,
   type Viseme,
 } from "./visemeMap";
 import { applyBotttsBlinkOverlay, splitDicebearSvg } from "./splitDicebearSvg";
 import { filterOptionsForStyle } from "./styleSchemas";
+import { faceForState } from "./faceForState";
+import BotttsSparks from "./BotttsSparks";
 
 const STYLE_MAP: Partial<Record<AvatarStyle, Style<object>>> = {
   avataaars: avataaars as unknown as Style<object>,
@@ -65,23 +68,36 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
   manualTiltDeg,
 }) => {
   const [viseme, setViseme] = useState<Viseme>("closed");
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [blinking, setBlinking] = useState(false);
   const blinkTimer = useRef<number | null>(null);
-  const headDeg = useHeadTilt(tiltState, manualTiltDeg);
+  const anim = useHeadTilt(tiltState, manualTiltDeg);
+  const headDeg = anim.headDeg;
 
-  // Subscribe to TTS visemes.
+  // Subscribe to TTS visemes AND speaking state. We need both: the
+  // viseme stream tells us *which* mouth shape to draw during a
+  // phoneme, and the speaking-key listener tells us *whether* TTS is
+  // active at all (the viseme stream emits transient `closed` frames
+  // between phonemes that we don't want to confuse with "not talking").
   useEffect(() => {
-    const unsub = ttsController.subscribeViseme((v) => {
+    const unsubV = ttsController.subscribeViseme((v) => {
       setViseme((v || "closed") as Viseme);
     });
+    const unsubS = ttsController.subscribe(() => {
+      setIsSpeaking(ttsController.speakingMessageKey() != null);
+    });
     return () => {
-      unsub();
+      unsubV();
+      unsubS();
     };
   }, []);
 
-  // Idle blink loop.
+  // Idle blink loop. Suppressed while dozing/sleeping — those states
+  // run their own scripted blink sequence via the animation hook, and
+  // a random blink on top would fight it.
   useEffect(() => {
     if (!blinkEyeFor(style)) return;
+    if (tiltState === "dozing" || tiltState === "sleeping") return;
     let cancelled = false;
     const schedule = () => {
       if (cancelled) return;
@@ -101,30 +117,93 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
       cancelled = true;
       if (blinkTimer.current != null) window.clearTimeout(blinkTimer.current);
     };
-  }, [style]);
+  }, [style, tiltState]);
 
-  // Compose effective DiceBear options. Mirrors AnimatedAvatar's logic
-  // so the rigged preview behaves like the existing renderer except
-  // for the rigid head.
+  // Compose effective DiceBear options.
+  //
+  // Precedence (highest wins) for each face channel — mouth, eyes,
+  // eyebrows — applied independently:
+  //
+  //   1. Lipsync / blink   (only when actively speaking or blinking)
+  //   2. Sleep snore mouth (only while sleeping)
+  //   3. Behavioral state face profile (sick / listening / thinking)
+  //   4. User's `baseOptions` selection from the editor
+  //   5. Style default eye (for blink fallback consistency)
+  //
+  // Critical bug fix: previous logic ALWAYS clobbered `baseOptions.mouth`
+  // (and `eyes`) with the viseme value, even when TTS wasn't speaking
+  // and no animation was running — so changing the mouth dropdown in
+  // the editor visibly did nothing. We now only override these when
+  // there's a real reason to.
   const effectiveOptions: Record<string, unknown> = { ...(baseOptions ?? {}) };
-  const mouth = mouthForViseme(style, viseme);
-  effectiveOptions.mouth = [mouth];
-  effectiveOptions.mouthProbability = 100;
+  const stateFace = faceForState(tiltState, style);
+  // The user's editor selection always wins over state-face profiles.
+  // We only apply a stateFace channel when the user hasn't picked
+  // their own value for that channel. (sleep snore + live TTS lipsync
+  // still override — those are involuntary.)
+  const userSetMouth = "mouth" in (baseOptions ?? {});
+  const userSetEyes = "eyes" in (baseOptions ?? {});
+  const userSetEyebrows = "eyebrows" in (baseOptions ?? {});
+
+  // ---- mouth ----
+  if (anim.sleepMouth) {
+    // Snore cycle takes precedence over everything.
+    const v: Viseme = anim.sleepMouthOpen ? "o" : "closed";
+    effectiveOptions.mouth = [mouthForViseme(style, v)];
+    effectiveOptions.mouthProbability = 100;
+  } else if (isSpeaking) {
+    // Live lipsync. Use whatever viseme the TTS stream emitted last.
+    effectiveOptions.mouth = [mouthForViseme(style, viseme)];
+    effectiveOptions.mouthProbability = 100;
+  } else if (stateFace?.mouth && !userSetMouth) {
+    effectiveOptions.mouth = [stateFace.mouth];
+    effectiveOptions.mouthProbability = 100;
+  }
+  // else: leave whatever the user picked in baseOptions intact.
 
   const blinkEye = blinkEyeFor(style);
   const defaultEye = defaultEyeFor(style);
+  // Eyes-closed sources, in order of precedence:
+  //   1. anim.eyesClosed — scripted close from dozing/sleeping
+  //   2. blinking        — random idle blink loop
+  // Both route through the same DiceBear `eyes` override (or the
+  // bottts SVG overlay below), so the renderer doesn't care which
+  // channel triggered the close.
+  const eyesShouldClose = anim.eyesClosed || blinking;
   // Sentinels (prefix `__`) are not real DiceBear enum values — they
   // mean "this style needs an SVG post-process to blink" (see bottts).
   // Skip the eyes override in that case; the overlay runs below.
   const blinkViaOverride =
-    blinking && blinkEye != null && !blinkEye.startsWith("__");
+    eyesShouldClose && blinkEye != null && !blinkEye.startsWith("__");
+  // Thinking eye-look hint. Only applies when eyes are NOT closing
+  // (you can't roll closed eyes). Per-style mapping in visemeMap.
+  const lookUpEye = !eyesShouldClose && anim.eyeHint === "lookUpLeft"
+    ? lookUpEyeFor(style)
+    : null;
+
+  // ---- eyes ----
   if (blinkViaOverride) {
     effectiveOptions.eyes = [blinkEye as string];
     effectiveOptions.eyesProbability = 100;
-  } else if (defaultEye && !("eyes" in (baseOptions ?? {}))) {
+  } else if (lookUpEye) {
+    effectiveOptions.eyes = [lookUpEye];
+    effectiveOptions.eyesProbability = 100;
+  } else if (stateFace?.eyes && !userSetEyes) {
+    effectiveOptions.eyes = [stateFace.eyes];
+    effectiveOptions.eyesProbability = 100;
+  } else if (defaultEye && !userSetEyes) {
+    // Style default — only when the user hasn't picked their own.
     effectiveOptions.eyes = [defaultEye];
     effectiveOptions.eyesProbability = 100;
   }
+  // else: leave whatever the user picked in baseOptions intact.
+
+  // ---- eyebrows ----
+  if (stateFace?.eyebrows && !userSetEyebrows) {
+    effectiveOptions.eyebrows = [stateFace.eyebrows];
+    effectiveOptions.eyebrowsProbability = 100;
+  }
+  // else: leave whatever the user picked in baseOptions intact.
 
   // Render the underlying DiceBear SVG. Memoized on the option set so
   // unrelated re-renders (rotation tick) don't re-run DiceBear.
@@ -147,14 +226,15 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
   }, [style, seed, optionsKey]);
 
   // Bottts has no closed-eye DiceBear variant — patch the rendered
-  // SVG with custom closed-eye bars when the blink loop fires.
+  // SVG with custom closed-eye bars whenever eyes should be closed
+  // (random blink OR scripted dozing/sleeping close).
   const processedSvg = useMemo(() => {
     if (!svgString) return null;
-    if (style === "bottts" && blinking) {
+    if (style === "bottts" && eyesShouldClose) {
       return applyBotttsBlinkOverlay(svgString);
     }
     return svgString;
-  }, [svgString, style, blinking]);
+  }, [svgString, style, eyesShouldClose]);
 
   // Run the splitter. Memoized on the SVG string — splitter is
   // pure-ish (DOMParser + string ops, no side effects).
@@ -163,9 +243,37 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
     return splitDicebearSvg(processedSvg, style);
   }, [processedSvg, style]);
 
-  const wrapperStyle: React.CSSProperties = size
-    ? { width: size, height: size, display: "inline-block" }
-    : { width: "100%", height: "100%", display: "inline-block" };
+  // Behavioral filter effects:
+  //   - sleeping → desaturate to grayscale
+  //   - sick     → sickly green tint (sepia + hue rotate towards green)
+  // Both ease over 600ms so transitions don't snap.
+  let wrapperFilter = "none";
+  if (anim.grayscale) {
+    wrapperFilter = "grayscale(1)";
+  } else if (tiltState === "sick") {
+    wrapperFilter =
+      "sepia(0.55) hue-rotate(55deg) saturate(1.6) brightness(0.95)";
+  }
+  const wrapperStyle: React.CSSProperties = {
+    ...(size
+      ? { width: size, height: size }
+      : { width: "100%", height: "100%" }),
+    display: "inline-block",
+    position: "relative",
+  };
+  // Filter is applied to the SVG (not the wrapper) so the sick green
+  // tint doesn't recolor the bottts spark overlay.
+  const svgFilterStyle: React.CSSProperties = {
+    width: "100%",
+    height: "100%",
+    display: "block",
+    position: "relative",
+    zIndex: 1,
+    filter: wrapperFilter,
+    transition: "filter 600ms ease",
+  };
+  // Bottts gets decorative sparks behind the head when sick.
+  const showSparks = tiltState === "sick" && style === "bottts";
 
   if (!split) {
     return <div className={className} style={wrapperStyle} />;
@@ -206,10 +314,11 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
 
   return (
     <div className={className} style={wrapperStyle}>
+      {showSparks && <BotttsSparks />}
       <svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox={split.viewBox}
-        style={{ width: "100%", height: "100%", display: "block" }}
+        style={svgFilterStyle}
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     </div>

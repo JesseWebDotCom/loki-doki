@@ -108,3 +108,30 @@ export function blinkEyeFor(style: AvatarStyle): string | null {
 export function defaultEyeFor(style: AvatarStyle): string | null {
   return MAPS[style].defaultEye;
 }
+
+/**
+ * lookUpEyeFor — eye variant for the "thinking, looking up-left" hint.
+ *
+ * DiceBear doesn't ship a true look-up-left variant for any of these
+ * styles; we pick the closest "eyes pointed up / not engaged" option:
+ *   - avataaars: `eyeRoll` (pupils rolled upward)
+ *   - toon-head: `humble`  (upward-arc eyes — reads as eyes-half-up)
+ *   - bottts:    null      (LED frames have no gaze direction)
+ *
+ * Renderer falls through to the default eye when null.
+ */
+export function lookUpEyeFor(style: AvatarStyle): string | null {
+  switch (style) {
+    case "avataaars":
+      return "eyeRoll";
+    case "toon-head":
+      // toon-head's `humble` reads as closed (upward arcs look like
+      // shut eyes), and there's no genuine gaze-up variant. Fall back
+      // to the default open eye + tilt-only thinking pose.
+      return null;
+    case "bottts":
+      return null;
+    default:
+      return null;
+  }
+}
