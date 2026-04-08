@@ -60,12 +60,16 @@ export type SplitResult =
     };
 
 // ----- avataaars constants -----
-// Original skin path bounds (translated frame, post `<g transform="translate(8)">`).
-// The chin line — where the head outline meets the neck rect top — is
-// at body-local y=180.61 across x ∈ [108, 156]. Pivot at the center of
-// that line. After translate(8), viewBox x adds 8 → pivotX = 132.
+// Pivot at the BASE of the neck (where the neck rect meets the body U)
+// so the entire neck rectangle sits ABOVE the pivot and rotates with
+// the head. Putting the pivot at the chin (y=180.61) instead made the
+// neck swing OPPOSITE to the head — visually a "sliding" neck base —
+// because rotation flips direction across the pivot point.
+//
+// In the inner translate(8) frame: the neck rect bottom is at body-
+// local (100, 199.01); after translate(8) → viewBox (132, 199.01).
 const AVATAAARS_PIVOT_X = 132;
-const AVATAAARS_PIVOT_Y = 180.61;
+const AVATAAARS_PIVOT_Y = 199.01;
 
 // HEAD path (head circle + neck rect extended down to y=210 for
 // rotation overhang). Coordinates are in pre-translate (translate(8))
