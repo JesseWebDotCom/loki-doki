@@ -1,47 +1,84 @@
 /**
  * Per-style head-tilt rig.
  *
- * AnimatedAvatar renders the same DiceBear data-URI twice, stacked:
- *   - body layer  : full image, masked to HIDE the head region
- *   - head layer  : full image, masked to SHOW only the head region,
- *                   and rotated around a neck pivot
+ * Coordinates are in each DiceBear style's NATIVE viewBox pixels (not
+ * percentages) because the rig SVG renders inside the same viewBox as
+ * the avatar content. Three knobs per style:
  *
- * Because both layers share an identical ``src``, the seam at the
- * neck is invisible by construction (the pixels match exactly). When
- * the head rotates, only the head image sweeps; the torso never
- * moves. That body-stays-planted, head-only-tilts cue is what reads
- * as "alive" — it's the look DiceBear can't give us natively.
+ *   pivot{X,Y}   — rotation center (the throat). Head <g> rotates
+ *                  around this point.
+ *   bulgeRadius  — circle around the pivot. The head mask = top rect
+ *                  + this circle, so the neck region is covered by a
+ *                  rotation-invariant disc no matter how far the head
+ *                  tilts.
+ *   torsoTopY    — top edge of the body's rectangular mask. A few
+ *                  px ABOVE pivotY so the head's rect (0..pivotY) and
+ *                  the torso's rect (torsoTopY..viewH) overlap inside
+ *                  the bulge zone, eliminating any 1px antialias gap.
  *
- * The only style-specific knobs are *where* the neck is in the
- * viewBox and where the head should pivot from. ``neckPercent`` is
- * the vertical line (0–100, % from top) that splits head from body.
- * ``pivotY`` is the rotation origin (we lift it slightly above the
- * neck so the chin sweeps less than the crown — keeps the seam tight
- * even at ±8°). ``featherPercent`` is the half-width of the soft
- * mask gradient that hides any residual ghost at the seam.
- *
- * Toon-head's viewBox is essentially head-only, so its neck line
- * sits very low and the body region is just the small shoulder nub.
+ * The numbers below match the loki-doki-animator rig (which the user
+ * said was closer to right) for avataaars and toon-head, and were
+ * derived empirically for bottts (which the animator didn't ship).
  */
 import type { AvatarStyle } from "./Avatar";
 
 export type HeadRig = {
-  /** Vertical split between body (above) and head (below=hidden). 0-100 from top. */
-  neckPercent: number;
-  /** Rotation origin Y, 0-100 from top. ~3% above neckPercent. */
+  viewW: number;
+  viewH: number;
+  pivotX: number;
+  // pivotY = SHOULDER line. Body starts here.
   pivotY: number;
-  /** Half-width of the soft seam blend, in percent of full height. */
-  featherPercent: number;
+  // neckTopY = JAW line. Head ends here. The head <g> rotates rigidly
+  // around (pivotX, neckTopY); the band [neckTopY, pivotY) is the
+  // neck, which shears (skewX) with its bottom planted at the shoulder.
+  neckTopY: number;
+  bulgeRadius: number;
+  torsoTopY: number;
 };
 
+// Pivot lives at the BASE of the neck (where neck meets shoulders),
+// not the throat. Real head tilts pivot from the neck base. The torso
+// rectangle starts AT the pivot line (no exposed strip above it) so
+// the body layer never renders any static chin/jaw/neck pixels behind
+// the rotated head. The head rect (0..pivotY) carries the entire head
+// PLUS the neck — the neck is part of the head and rotates with it.
+// The bulge circle is only there to cover the few px below the pivot
+// where the neck meets the shoulders, so the seam at the pivot line
+// stays hidden when the head rotates around it.
 const RIGS: Record<AvatarStyle, HeadRig> = {
-  // Avataaars: human bust. Neck sits a touch above middle.
-  avataaars: { neckPercent: 52, pivotY: 49, featherPercent: 4 },
-  // Bottts: robot. Head/body split is roughly mid-image.
-  bottts: { neckPercent: 48, pivotY: 45, featherPercent: 4 },
-  // Toon-head: head-only viewBox. The whole top is head; only the
-  // last ~22% is shoulder/neck nub.
-  "toon-head": { neckPercent: 78, pivotY: 75, featherPercent: 5 },
+  // 280x280. Pivot above the shirt collar so the collar V-tabs fall
+  // in the torso region, not the head rect.
+  avataaars: {
+    viewW: 280,
+    viewH: 280,
+    pivotX: 140,
+    pivotY: 180,
+    neckTopY: 160,
+    bulgeRadius: 18,
+    torsoTopY: 180,
+  },
+  // 180x180. Thin robot neck around y=115.
+  bottts: {
+    viewW: 180,
+    viewH: 180,
+    pivotX: 90,
+    pivotY: 115,
+    neckTopY: 100,
+    bulgeRadius: 14,
+    torsoTopY: 115,
+  },
+  // 768x768. Pivot at the base of the toon-head neck nub. Bulge
+  // tightened so the small neck-corner pixels stay in the static
+  // torso layer instead of getting swept into the head group.
+  "toon-head": {
+    viewW: 768,
+    viewH: 768,
+    pivotX: 384,
+    pivotY: 620,
+    neckTopY: 555,
+    bulgeRadius: 60,
+    torsoTopY: 620,
+  },
 };
 
 export const headRigFor = (style: AvatarStyle): HeadRig =>
