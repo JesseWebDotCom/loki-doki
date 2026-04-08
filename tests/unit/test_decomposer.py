@@ -71,6 +71,41 @@ def decomposer():
 
 class TestDecomposer:
     @pytest.mark.anyio
+    async def test_known_subjects_renders_into_prompt(self, decomposer):
+        """The closed-world subject registry must reach the LLM prompt
+        so gemma can bind pronouns to real referents instead of 'self'."""
+        captured = {}
+
+        async def fake_generate(**kwargs):
+            captured.update(kwargs)
+            return VALID_LLM_RESPONSE
+
+        decomposer._client.generate = AsyncMock(side_effect=fake_generate)
+        await decomposer.decompose(
+            "tell me about him",
+            known_subjects={"self": "Jesse", "people": ["Tom", "Camilla"]},
+        )
+        prompt = captured["prompt"]
+        assert "KNOWN_SUBJECTS:" in prompt
+        assert "self=Jesse" in prompt
+        assert "Tom" in prompt
+        assert "Camilla" in prompt
+
+    @pytest.mark.anyio
+    async def test_known_subjects_omitted_when_not_provided(self, decomposer):
+        """Backwards compat: callers without a registry still work, and
+        no KNOWN_SUBJECTS block leaks into the prompt."""
+        captured = {}
+
+        async def fake_generate(**kwargs):
+            captured.update(kwargs)
+            return VALID_LLM_RESPONSE
+
+        decomposer._client.generate = AsyncMock(side_effect=fake_generate)
+        await decomposer.decompose("hello")
+        assert "KNOWN_SUBJECTS:" not in captured["prompt"]
+
+    @pytest.mark.anyio
     async def test_decompose_single_ask(self, decomposer):
         """Test decomposition of a simple single-intent query."""
         decomposer._client.generate = AsyncMock(return_value=VALID_LLM_RESPONSE)

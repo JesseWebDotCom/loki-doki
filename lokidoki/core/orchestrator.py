@@ -104,6 +104,7 @@ class Orchestrator:
         session_id: int,
         project_id: Optional[int] = None,
         available_intents: Optional[list[str]] = None,
+        user_display_name: Optional[str] = None,
     ) -> AsyncGenerator[PipelineEvent, None]:
         """Run the full pipeline for one turn, persisting to memory as we go."""
         fast_model = self._model_manager.policy.fast_model
@@ -181,11 +182,35 @@ class Orchestrator:
 
         # ---- decomposition ----------------------------------------------
         yield PipelineEvent(phase="decomposition", status="active", data={"model": fast_model})
+
+        # Build the closed-world subject registry for this turn. The
+        # decomposer uses it to bind pronouns to a known referent
+        # instead of defaulting to 'self' (which silently corrupts the
+        # user's profile when the user is asking about a third party —
+        # see the Trump bug). Best-effort: if list_people fails for any
+        # reason, fall back to a self-only registry rather than
+        # blocking the turn.
+        try:
+            people_rows = await self._memory.list_people(user_id)
+            known_people = [
+                (r.get("name") or "").strip()
+                for r in people_rows
+                if (r.get("name") or "").strip()
+            ]
+        except Exception:
+            logger.exception("[orchestrator] list_people failed; using empty registry")
+            known_people = []
+        known_subjects = {
+            "self": user_display_name or "the user",
+            "people": known_people,
+        }
+
         try:
             decomposition = await self._decomposer.decompose(
                 user_input=user_input,
                 chat_context=[{"role": m["role"], "content": m["content"]} for m in recent],
                 available_intents=available_intents,
+                known_subjects=known_subjects,
             )
         except OllamaError as e:
             yield PipelineEvent(phase="decomposition", status="failed", data={"error": str(e)})

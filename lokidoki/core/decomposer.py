@@ -136,6 +136,9 @@ DECOMPOSITION_PROMPT = (
     "- Capitalize person names (subject_name='Tom', not 'tom'). Same for entity names.\n"
     "- NEVER emit tautological naming facts like {subject_name:'Tom',predicate:'is',value:'Tom'} — the name is already in subject_name.\n"
     "- CRITICAL: 'my <relation> <Name> ...' is ALWAYS about <Name>, NEVER about the user. 'my brother artie loves movies' -> person:Artie, NOT self. NEVER emit {self,is,artie} from this input.\n"
+    "- SUBJECT RESOLUTION: every long_term_memory item's subject must resolve to a real referent. When KNOWN_SUBJECTS is provided it lists the closed-world set of valid subjects (the user under 'self', plus known people). Bind pronouns ('he','she','they','him','her','them') to the most recent compatible referent in RECENT_CONTEXT or KNOWN_SUBJECTS. NEVER bind a third-person pronoun to 'self' — 'self' is reserved for claims the user makes IN FIRST PERSON ('I ...', 'my ...', 'we ...').\n"
+    "- QUESTIONS yield NO long_term_memory items unless the user is ALSO asserting a fact in the same sentence. 'how long has he been president' -> long_term_memory:[]. 'I love coffee, what's the best bean?' -> one self preference item. When in doubt about whether a clause is a claim or a question, prefer emitting nothing over guessing.\n"
+    "- If a pronoun has no clear referent in RECENT_CONTEXT or KNOWN_SUBJECTS, emit NO item for that claim. Silence is always safer than fabricating a subject.\n"
     "- Lowercased input is still valid. 'my brother artie' yields subject_name:'Artie' (capitalize on output).\n"
     "- Set negates_previous=true ONLY when the user explicitly corrects a prior fact (e.g. 'No, my brother's name is Art, not Artie' -> negates_previous:true). Default false.\n"
     "- Distill each ask into a clean, skill-ready sub-query\n"
@@ -176,9 +179,28 @@ class Decomposer:
         user_input: str,
         chat_context: list[dict]  = None,
         available_intents: list[str]  = None,
+        known_subjects: dict  = None,
     ) -> DecompositionResult:
-        """Decompose user input into structured Asks via the LLM."""
-        prompt = self._build_prompt(user_input, chat_context, available_intents)
+        """Decompose user input into structured Asks via the LLM.
+
+        ``known_subjects`` is the closed-world subject registry the
+        orchestrator builds for each turn. Shape::
+
+            {
+                "self": "<the user's display name>",
+                "people": ["Tom", "Camilla", ...],   # known people rows
+            }
+
+        When provided it is rendered into the prompt under a
+        ``KNOWN_SUBJECTS:`` block so the decomposer can bind pronouns
+        against a real candidate set instead of defaulting to ``self``.
+        Optional for backwards compatibility — callers without a
+        registry (tests, scripts) still work; they just lose the
+        pronoun-resolution lift.
+        """
+        prompt = self._build_prompt(
+            user_input, chat_context, available_intents, known_subjects
+        )
 
         t0 = time.perf_counter()
         try:
@@ -243,6 +265,7 @@ class Decomposer:
         user_input: str,
         chat_context: list[dict] ,
         available_intents: list[str] ,
+        known_subjects: dict  = None,
     ) -> str:
         parts = [DECOMPOSITION_PROMPT]
 
@@ -250,6 +273,16 @@ class Decomposer:
             parts.append(f"AVAILABLE_INTENTS:{','.join(available_intents)}")
         else:
             parts.append("AVAILABLE_INTENTS:direct_chat")
+
+        if known_subjects:
+            # Closed-world subject registry. Compact, single-line format
+            # to keep the token cost low — gemma sees this on every turn.
+            self_name = (known_subjects.get("self") or "the user").strip() or "the user"
+            people = known_subjects.get("people") or []
+            people_str = ",".join(p for p in people if p) if people else ""
+            parts.append(
+                f"KNOWN_SUBJECTS:self={self_name}|people=[{people_str}]"
+            )
 
         if chat_context:
             ctx = " | ".join(f"{m['role']}:{m['content']}" for m in chat_context[-5:])

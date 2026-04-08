@@ -97,6 +97,7 @@ async def chat(
                 session_id=session_id,
                 project_id=request.project_id,
                 available_intents=_registry.get_all_intents(),
+                user_display_name=user.username,
             ):
                 yield event.to_sse()
         finally:
