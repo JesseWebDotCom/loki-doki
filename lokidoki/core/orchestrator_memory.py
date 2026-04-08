@@ -157,6 +157,10 @@ async def persist_long_term_item(
     subject_name = (item.get("subject_name") or "").strip()
     negates_previous = bool(item.get("negates_previous", False))
     kind = item.get("kind") or "fact"
+    memory_priority = (item.get("memory_priority") or "normal").strip().lower()
+
+    if memory_priority == "low":
+        return {}
 
     # The garbage-name guard lives in decomposer_repair.coerce_item — that
     # is the single chokepoint every decomposer item passes through. We
@@ -237,6 +241,7 @@ async def persist_long_term_item(
         "predicate": predicate,
         "value": value,
         "kind": kind,
+        "memory_priority": memory_priority,
         "status": fact_status,
         "ambiguity_group_id": ambiguity_group_id,
         "candidate_ids": candidate_ids,

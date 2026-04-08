@@ -21,6 +21,13 @@ from lokidoki.core.skill_executor import SkillExecutor, SkillResult
 from lokidoki.core.skill_factory import get_skill_instance
 
 
+def _ask_query(ask: Any) -> str:
+    return (
+        getattr(ask, "enriched_query", "") or
+        getattr(ask, "distilled_query", "")
+    )
+
+
 def try_verbatim_fast_path(
     asks: List[Ask],
     skill_results: Dict[str, SkillResult],
@@ -47,6 +54,61 @@ def try_verbatim_fast_path(
     if not (isinstance(lead, str) and lead.strip()):
         return None
     return f"{lead.strip()}\n\n[src:1]", res.latency_ms
+
+
+async def pick_active_skill_intent(
+    category: str,
+    registry: Optional[SkillRegistry],
+    memory: Any,
+    user_id: Optional[int],
+) -> Optional[str]:
+    """Resolve a capability ("web_search", "encyclopedia") to the
+    qualified intent of the first *active* skill the user has installed
+    for it. Honors the same global toggle + user toggle + required
+    config gates as ``run_skills``, so a skill that is toggled off or
+    missing an API key is skipped — the orchestrator does NOT route to
+    a skill it knows will be filtered out downstream.
+    Returns ``None`` when no installed skill in the category is usable.
+    The orchestrator falls back to a different category (or no upgrade)
+    in that case. No skill IDs are hardcoded in routing code: this
+    helper is the single seam between the decomposer's capability hint
+    and whatever skills happen to be installed today.
+    """
+    if registry is None:
+        return None
+    candidates = registry.get_skills_by_category(category)
+    if not candidates:
+        return None
+    for skill_id, manifest in candidates:
+        intents = manifest.get("intents") or []
+        if not intents:
+            continue
+        qualified = f"{skill_id}.{intents[0]}"
+        if memory is None:
+            return qualified
+
+        def _load(c, sid=skill_id):
+            return (
+                get_merged_config(c, user_id, sid),
+                get_global_toggle(c, sid),
+                get_user_toggle(c, user_id, sid) if user_id is not None else True,
+            )
+
+        try:
+            merged, g_tog, u_tog = await memory.run_sync(_load)
+        except Exception:
+            # If we can't read state for any reason, prefer to surface
+            # the candidate rather than silently dropping the upgrade.
+            return qualified
+        state = compute_skill_state(
+            merged_config=merged,
+            schema=manifest.get("config_schema") or {},
+            global_toggle=g_tog,
+            user_toggle=u_tog,
+        )
+        if state["enabled"]:
+            return qualified
+    return None
 
 
 async def run_skills(
@@ -147,7 +209,7 @@ async def run_skills(
                 if isinstance(merged, dict) and key in merged and merged[key]:
                     params[key] = merged[key]
                     continue
-                params[key] = ask.distilled_query
+                params[key] = _ask_query(ask)
 
             # Gate on the combined effective state. A skill that is
             # toggled off (by admin or user) OR missing required
@@ -212,7 +274,7 @@ async def run_skills(
                 "source_url": result.source_url,
             })
         else:
-            parts.append(f"{ask.intent}:{ask.distilled_query}")
+            parts.append(f"{ask.intent}:{_ask_query(ask)}")
             disabled = disabled_asks.get(ask.ask_id)
             if disabled:
                 status = "disabled"
@@ -232,6 +294,60 @@ async def run_skills(
             })
 
     return " | ".join(parts), skill_results, sources, routing_log
+
+
+async def execute_capability_lookup(
+    *,
+    category: str,
+    query: str,
+    registry: Optional[SkillRegistry],
+    executor: SkillExecutor,
+    memory: Any,
+    user_id: Optional[int],
+) -> Optional[dict]:
+    """Run one provider-agnostic capability lookup and return normalized output."""
+    intent = await pick_active_skill_intent(category, registry, memory, user_id)
+    if not intent or registry is None:
+        return None
+    manifest = registry.get_skill_by_intent(intent)
+    if not manifest:
+        return None
+    skill_id = manifest["skill_id"]
+    instance = get_skill_instance(skill_id)
+    if not instance:
+        return None
+    params: dict[str, Any] = {"query": query}
+    if memory is not None:
+        def _load_state(c, sid=skill_id):
+            return (
+                get_merged_config(c, user_id, sid),
+                get_global_toggle(c, sid),
+                get_user_toggle(c, user_id, sid) if user_id is not None else True,
+            )
+        merged, g_tog, u_tog = await memory.run_sync(_load_state)
+        state = compute_skill_state(
+            merged_config=merged,
+            schema=manifest.get("config_schema") or {},
+            global_toggle=g_tog,
+            user_toggle=u_tog,
+        )
+        if not state["enabled"]:
+            return None
+        if merged:
+            params["_config"] = merged
+    mechs = registry.get_mechanisms(skill_id)
+    result = await executor.execute_skill(instance, mechs, params)
+    if not result.success:
+        return None
+    return {
+        "intent": intent,
+        "skill_id": skill_id,
+        "data": result.data,
+        "source_url": result.source_url,
+        "source_title": result.source_title,
+        "latency_ms": result.latency_ms,
+        "source": "capability_lookup",
+    }
 
 
 SYNTHESIS_PROMPT_TEMPLATE = (
@@ -260,6 +376,7 @@ SYNTHESIS_PROMPT_TEMPLATE = (
     " already given the answer — never instead of it.\n"
     "TONE:{tone}{arc_block}\n"
     "{memory_block}"
+    "{referent_block}"
     "RECENT_TURNS:{context}\n"
     "SKILL_DATA:{skill_data}\n"
     "{clarify_block}"
@@ -365,6 +482,7 @@ def build_synthesis_prompt(
     sentiment_arc: str = "",
     character_name: str = "Loki",
     seed_hint: str = "",
+    referent_block: str = "",
 ) -> str:
     """Assemble the tiered synthesis prompt (Admin > Project > User > Persona).
 
@@ -389,6 +507,11 @@ def build_synthesis_prompt(
         if memory_block.strip()
         else ""
     )
+    referent_section = (
+        f"{referent_block}\n"
+        if referent_block.strip()
+        else ""
+    )
     prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
         tone=tone,
         arc_block=arc_block,
@@ -397,6 +520,7 @@ def build_synthesis_prompt(
         query=query,
         clarify_block=clarify_block,
         memory_block=memory_section,
+        referent_block=referent_section,
         character_name=character_name or "Loki",
     )
     prefix_parts: list[str] = []

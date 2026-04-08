@@ -28,7 +28,12 @@ VALID_LLM_RESPONSE = json.dumps({
             "ask_id": "ask_001",
             "intent": "weather_owm.get_forecast",
             "distilled_query": "What is the weather today?",
-            "parameters": {"location": "current_location"}
+            "parameters": {"location": "current_location"},
+            "context_source": "external",
+            "referent_type": "event",
+            "durability": "ephemeral",
+            "needs_referent_resolution": False,
+            "capability_need": "web_search",
         }
     ]
 })
@@ -43,13 +48,46 @@ MULTI_ASK_RESPONSE = json.dumps({
             "ask_id": "ask_001",
             "intent": "weather_owm.get_forecast",
             "distilled_query": "Weekend weather forecast",
-            "parameters": {"location": "current_location"}
+            "parameters": {"location": "current_location"},
+            "context_source": "external",
+            "referent_type": "event",
+            "durability": "ephemeral",
+            "needs_referent_resolution": False,
+            "capability_need": "web_search",
         },
         {
             "ask_id": "ask_002",
             "intent": "knowledge_wiki.search",
             "distilled_query": "Best hiking trails nearby",
-            "parameters": {"query": "hiking trails"}
+            "parameters": {"query": "hiking trails"},
+            "context_source": "external",
+            "referent_type": "entity",
+            "durability": "ephemeral",
+            "needs_referent_resolution": False,
+            "capability_need": "encyclopedic",
+        }
+    ]
+})
+
+STRUCTURED_ROUTING_RESPONSE = json.dumps({
+    "is_course_correction": False,
+    "overall_reasoning_complexity": "fast",
+    "short_term_memory": {"sentiment": "neutral", "concern": "none"},
+    "long_term_memory": [],
+    "asks": [
+        {
+            "ask_id": "ask_001",
+            "intent": "direct_chat",
+            "distilled_query": "What is the full name of the movie?",
+            "parameters": {},
+            "response_shape": "synthesized",
+            "requires_current_data": False,
+            "knowledge_source": "none",
+            "context_source": "recent_context",
+            "referent_type": "media",
+            "durability": "ephemeral",
+            "needs_referent_resolution": True,
+            "capability_need": "none",
         }
     ]
 })
@@ -83,13 +121,14 @@ class TestDecomposer:
         decomposer._client.generate = AsyncMock(side_effect=fake_generate)
         await decomposer.decompose(
             "tell me about him",
-            known_subjects={"self": "Jesse", "people": ["Tom", "Camilla"]},
+            known_subjects={"self": "Jesse", "people": ["Tom", "Camilla"], "entities": ["Avatar: Fire and Ash"]},
         )
         prompt = captured["prompt"]
         assert "KNOWN_SUBJECTS:" in prompt
         assert "self=Jesse" in prompt
         assert "Tom" in prompt
         assert "Camilla" in prompt
+        assert "Avatar: Fire and Ash" in prompt
 
     @pytest.mark.anyio
     async def test_known_subjects_omitted_when_not_provided(self, decomposer):
@@ -118,6 +157,11 @@ class TestDecomposer:
         assert len(result.asks) == 1
         assert result.asks[0].intent == "weather_owm.get_forecast"
         assert result.asks[0].distilled_query == "What is the weather today?"
+        assert result.asks[0].context_source == "external"
+        assert result.asks[0].referent_type == "event"
+        assert result.asks[0].durability == "ephemeral"
+        assert result.asks[0].needs_referent_resolution is False
+        assert result.asks[0].capability_need == "web_search"
 
     @pytest.mark.anyio
     async def test_decompose_multi_ask(self, decomposer):
@@ -257,6 +301,47 @@ class TestDecomposer:
         assert result.overall_reasoning_complexity == "fast"  # default fallback
 
     @pytest.mark.anyio
+    async def test_decompose_parses_structured_routing_fields(self, decomposer):
+        decomposer._client.generate = AsyncMock(return_value=STRUCTURED_ROUTING_RESPONSE)
+
+        result = await decomposer.decompose("whats the name")
+
+        ask = result.asks[0]
+        assert ask.context_source == "recent_context"
+        assert ask.referent_type == "media"
+        assert ask.durability == "ephemeral"
+        assert ask.needs_referent_resolution is True
+        assert ask.capability_need == "none"
+
+    @pytest.mark.anyio
+    async def test_decompose_defaults_structured_routing_fields(self, decomposer):
+        partial = json.dumps({
+            "is_course_correction": False,
+            "overall_reasoning_complexity": "fast",
+            "short_term_memory": {"sentiment": "neutral", "concern": ""},
+            "long_term_memory": [],
+            "asks": [{
+                "ask_id": "ask_001",
+                "intent": "direct_chat",
+                "distilled_query": "hello",
+                "parameters": {},
+                "response_shape": "synthesized",
+                "requires_current_data": False,
+                "knowledge_source": "none",
+            }],
+        })
+        decomposer._client.generate = AsyncMock(return_value=partial)
+
+        result = await decomposer.decompose("hello")
+
+        ask = result.asks[0]
+        assert ask.context_source == "none"
+        assert ask.referent_type == "unknown"
+        assert ask.durability == "durable"
+        assert ask.needs_referent_resolution is False
+        assert ask.capability_need == "none"
+
+    @pytest.mark.anyio
     async def test_build_prompt_includes_user_input(self, decomposer):
         """Test that the prompt sent to the LLM contains the user input."""
         decomposer._client.generate = AsyncMock(return_value=VALID_LLM_RESPONSE)
@@ -306,6 +391,11 @@ class TestAskDataclass:
         )
         assert ask.ask_id == "ask_001"
         assert ask.parameters["location"] == "home"
+        assert ask.context_source == "none"
+        assert ask.referent_type == "unknown"
+        assert ask.durability == "durable"
+        assert ask.needs_referent_resolution is False
+        assert ask.capability_need == "none"
 
     def test_ask_default_parameters(self):
         ask = Ask(ask_id="ask_001", intent="direct_chat", distilled_query="hello")

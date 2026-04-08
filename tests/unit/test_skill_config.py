@@ -10,6 +10,7 @@ from lokidoki.core import skill_config as cfg
 from lokidoki.core.decomposer import Ask
 from lokidoki.core.memory_init import open_and_migrate
 from lokidoki.core.orchestrator_skills import run_skills
+from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
 
 
@@ -254,6 +255,22 @@ class TestComputeState:
             global_toggle=False, user_toggle=True,
         )
         assert s["disabled_reason"] == "global_toggle"
+
+    def test_movies_showtimes_requires_default_location_in_real_manifest(self):
+        reg = SkillRegistry()
+        reg.scan()
+        manifest = reg.skills["movies_showtimes"]
+
+        s = cfg.compute_skill_state(
+            merged_config={},
+            schema=manifest.get("config_schema") or {},
+            global_toggle=True,
+            user_toggle=True,
+        )
+
+        assert s["enabled"] is False
+        assert s["disabled_reason"] == "config"
+        assert s["missing_required"] == ["default_location"]
 
 
 class TestRunSkillsDisabled:

@@ -11,6 +11,7 @@ Skill resolution and prompt assembly live in
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -29,9 +30,11 @@ from lokidoki.core.orchestrator_memory import (
     build_silent_confirmations,
     persist_long_term_item,
 )
+from lokidoki.core.orchestrator_referent_resolution import ReferentResolver
 from lokidoki.core.orchestrator_skills import (
     build_acknowledgment_prompt,
     build_synthesis_prompt,
+    pick_active_skill_intent,
     run_skills,
     try_verbatim_fast_path,
 )
@@ -67,6 +70,41 @@ ACKNOWLEDGMENT_NUM_PREDICT = 110
 TRIVIAL_QUERY_CHAR_LIMIT = 120
 
 
+def _normalize_memory_priority_for_turn(item: dict, asks: list[Ask]) -> dict:
+    """Downgrade fragile self-memory writes on ephemeral lookup turns."""
+    out = dict(item or {})
+    if not asks:
+        return out
+    if (out.get("memory_priority") or "normal") != "normal":
+        return out
+    if (out.get("subject_type") or "self") != "self":
+        return out
+    if (out.get("kind") or "fact") not in ("fact", "preference", "event"):
+        return out
+
+    if asks and all(
+        getattr(getattr(a, "resolution", None), "status", "none") != "resolved"
+        and getattr(a, "needs_referent_resolution", False)
+        for a in asks
+    ):
+        out["memory_priority"] = "low"
+        return out
+
+    if all(
+        getattr(a, "durability", "durable") == "ephemeral"
+        and getattr(a, "context_source", "none") != "none"
+        for a in asks
+    ):
+        out["memory_priority"] = "low"
+    elif all(
+        getattr(a, "requires_current_data", False)
+        or getattr(a, "capability_need", "none") != "none"
+        for a in asks
+    ):
+        out["memory_priority"] = "low"
+    return out
+
+
 class Orchestrator:
     """Coordinator. One instance per process; per-turn state lives on the stack."""
 
@@ -91,6 +129,13 @@ class Orchestrator:
         self._admin_prompt = admin_prompt
         self._user_prompt = user_prompt
         self._character_name = character_name or "Loki"
+        self._referent_resolver = ReferentResolver(
+            inference_client=inference_client,
+            model_manager=self._model_manager,
+            registry=registry,
+            executor=self._executor,
+        )
+        self._session_referent_cache: dict[int, dict] = {}
 
     @property
     def policy(self) -> ModelPolicy:
@@ -115,15 +160,19 @@ class Orchestrator:
 
         # ---- augmentation ------------------------------------------------
         yield PipelineEvent(phase="augmentation", status="active")
-        recent = await self._memory.get_messages(
-            user_id=user_id, session_id=session_id, limit=5
+        recent, relevant_facts, past_messages_raw, sentiment_recent, people_rows = await asyncio.gather(
+            self._memory.get_messages(user_id=user_id, session_id=session_id, limit=5),
+            self._memory.search_facts(
+                user_id=user_id, query=user_input, top_k=5, project_id=project_id
+            ),
+            self._memory.search_messages(user_id=user_id, query=user_input, top_k=8),
+            self._memory.get_recent_sentiment(user_id, limit=5),
+            self._memory.list_people(user_id),
         )
+        relationships = await self._memory.list_relationships(user_id)
         # `recent` includes the user message we just inserted above, so
         # the first turn of a brand-new session has exactly 1 item.
         is_first_turn = len(recent) <= 1
-        relevant_facts = await self._memory.search_facts(
-            user_id=user_id, query=user_input, top_k=5, project_id=project_id
-        )
         # Hybrid semantic search over the user's past USER-role messages.
         # Skips the messages we just included in `recent` so the
         # synthesizer doesn't see the same content twice. This is the
@@ -131,9 +180,6 @@ class Orchestrator:
         # call the bot can't reference older sessions even though every
         # message is embedded.
         recent_ids = {int(m["id"]) for m in recent if m.get("id") is not None}
-        past_messages_raw = await self._memory.search_messages(
-            user_id=user_id, query=user_input, top_k=8
-        )
         # Hard-exclude the current session: BM25 hits from this same
         # session are NOT "older chats" — surfacing them as such causes
         # the synthesizer to confuse cross-session memory with
@@ -146,7 +192,6 @@ class Orchestrator:
         ][:4]
 
         # Recent emotional arc — used to nudge tone in the synthesis prompt.
-        sentiment_recent = await self._memory.get_recent_sentiment(user_id, limit=5)
         from lokidoki.core.humanize import aggregate_sentiment_arc
         sentiment_arc = aggregate_sentiment_arc(sentiment_recent)
 
@@ -198,7 +243,6 @@ class Orchestrator:
         # reason, fall back to a self-only registry rather than
         # blocking the turn.
         try:
-            people_rows = await self._memory.list_people(user_id)
             known_people = [
                 (r.get("name") or "").strip()
                 for r in people_rows
@@ -210,6 +254,12 @@ class Orchestrator:
         known_subjects = {
             "self": user_display_name or "the user",
             "people": known_people,
+            "entities": [
+                (f.get("subject") or "").strip()
+                for f in relevant_facts
+                if (f.get("subject_type") or "") == "entity"
+                and (f.get("subject") or "").strip()
+            ][:6],
         }
 
         try:
@@ -254,6 +304,39 @@ class Orchestrator:
         ):
             decomposition.long_term_memory = []
 
+        # ---- referent resolution ---------------------------------------
+        yield PipelineEvent(phase="referent_resolution", status="active")
+        session_cache = self._session_referent_cache.setdefault(session_id, {})
+        resolved_asks = await self._referent_resolver.resolve_asks(
+            user_input=user_input,
+            asks=decomposition.asks or [],
+            recent=recent,
+            relevant_facts=relevant_facts,
+            past_messages=past_messages,
+            people=people_rows,
+            relationships=relationships,
+            known_entities=known_subjects["entities"],
+            session_cache=session_cache,
+            user_id=user_id,
+            memory=self._memory,
+        )
+        yield PipelineEvent(
+            phase="referent_resolution",
+            status="done",
+            data={
+                "asks": [
+                    {
+                        "ask_id": a.ask_id,
+                        "resolution_status": getattr(a.resolution, "status", "none"),
+                        "resolution_source": getattr(a.resolution, "source", "none"),
+                        "candidate_count": len(getattr(a.resolution, "candidates", []) or []),
+                        "enriched_query": getattr(a, "enriched_query", "") or a.distilled_query,
+                    }
+                    for a in resolved_asks
+                ]
+            },
+        )
+
         # Persist decomposer-extracted facts. PR3 ships structured items:
         # ``subject_type`` selects 'self' vs a person row, and
         # ``kind='relationship'`` writes an edge in the relationships
@@ -263,6 +346,10 @@ class Orchestrator:
         recent_window_start = (recent[0]["id"] if recent else user_msg_id) or 0
         for item in decomposition.long_term_memory or []:
             try:
+                item = _normalize_memory_priority_for_turn(
+                    item,
+                    resolved_asks,
+                )
                 logger.info("[orchestrator] persist_long_term_item input: %s", item)
                 report = await persist_long_term_item(
                     self._memory,
@@ -305,37 +392,68 @@ class Orchestrator:
             },
         )
 
-        # ---- current-events grounding upgrade ---------------------------
-        # When the decomposer flagged an ask as requires_current_data=true
-        # but routed it to direct_chat anyway, force-upgrade the intent to
-        # the wiki knowledge lookup so synthesis runs on grounded data
-        # instead of the small model's stale training. This is the
-        # structured-field path mandated by CLAUDE.md (no regex/keyword
-        # sniffing of user_input in code) — the decomposer emits the
-        # signal, the orchestrator just branches on it.
-        wiki_search_intent = "knowledge_wiki.search_knowledge"
-        wiki_available = (
-            self._registry is not None
-            and self._registry.get_skill_by_intent(wiki_search_intent) is not None
-        )
+        # ---- knowledge-source routing upgrade ---------------------------
+        # Capability-based, NOT skill-id-based. The decomposer emits a
+        # structured `knowledge_source` ("encyclopedic" | "web" | "none")
+        # and `requires_current_data` flag; the orchestrator resolves
+        # those to whichever active skill the user has installed for
+        # the matching category via the registry. No skill IDs live in
+        # this file — installing Brave/Kagi instead of DDG, or swapping
+        # Wikipedia for an offline knowledge base, requires zero
+        # orchestrator changes. CLAUDE.md mandates the structured-field
+        # path: the decomposer classifies, the orchestrator branches.
+        WEB = "web_search"
+        ENC = "encyclopedia"
+        CURRENT_MEDIA = "current_media"
+
+        async def _resolve(category: str) -> Optional[str]:
+            return await pick_active_skill_intent(
+                category, self._registry, self._memory, user_id
+            )
+
         for a in decomposition.asks:
-            if not a.requires_current_data:
-                continue
-            # Upgrade direct_chat to wiki so synthesis gets grounding.
-            if a.intent == "direct_chat" and wiki_available:
-                logger.info(
-                    "[orchestrator] upgrading ask %s direct_chat -> %s "
-                    "(requires_current_data)",
-                    a.ask_id, wiki_search_intent,
+            target: Optional[str] = None
+            if getattr(a, "capability_need", "none") == "web_search":
+                target = await _resolve(WEB) or await _resolve(ENC)
+            elif getattr(a, "capability_need", "none") == "encyclopedic":
+                target = await _resolve(ENC) or await _resolve(WEB)
+            elif getattr(a, "capability_need", "none") == "current_media":
+                target = (
+                    await _resolve(CURRENT_MEDIA)
+                    or await _resolve(WEB)
+                    or await _resolve(ENC)
                 )
-                a.intent = wiki_search_intent
-            # Force synthesis regardless of how the decomposer routed
-            # the ask. The verbatim path returns the first 1-2 sentences
-            # of the wiki lead, which for current-events queries is the
-            # institutional definition ("The president is the head of
-            # state…"), NOT the current officeholder. Synthesis runs the
-            # 9B model over the full extract and pulls the actual fact.
-            if a.response_shape == "verbatim":
+            elif a.knowledge_source == "web":
+                target = await _resolve(WEB) or await _resolve(ENC)
+            elif a.knowledge_source == "encyclopedic":
+                target = await _resolve(ENC) or await _resolve(WEB)
+            elif a.requires_current_data:
+                # Decomposer flagged fresh-data need but didn't tag a
+                # source. Prefer web (fresher) over encyclopedia
+                # (stale by definition for current events).
+                target = await _resolve(WEB) or await _resolve(ENC)
+
+            if target and target != a.intent:
+                # Override when the decomposer explicitly classified the
+                # source. Otherwise only upgrade unrouted direct_chat,
+                # so an explicit decomposer routing to a niche skill
+                # (weather, calendar, ...) isn't clobbered.
+                explicit = a.knowledge_source in ("web", "encyclopedic")
+                if explicit or a.intent == "direct_chat":
+                    logger.info(
+                        "[orchestrator] upgrading ask %s %s -> %s "
+                        "(knowledge_source=%s, capability_need=%s, requires_current_data=%s)",
+                        a.ask_id, a.intent, target,
+                        a.knowledge_source, getattr(a, "capability_need", "none"), a.requires_current_data,
+                    )
+                    a.intent = target
+
+            # Current-events queries always need synthesis, never the
+            # verbatim fast-path: the first sentence of an encyclopedia
+            # lead is the institutional definition ("The president is
+            # the head of state…"), not the actual current fact. The
+            # 9B synthesizer pulls the answer from the full extract.
+            if a.requires_current_data and a.response_shape == "verbatim":
                 logger.info(
                     "[orchestrator] forcing ask %s verbatim -> synthesized "
                     "(requires_current_data)",
@@ -343,10 +461,14 @@ class Orchestrator:
                 )
                 a.response_shape = "synthesized"
 
+        for enriched in resolved_asks:
+            enriched.ask.intent = enriched.intent
+
         # ---- routing -----------------------------------------------------
         skill_data = ""
         sources: list[dict] = []
         skill_results: dict = {}
+        routing_log: list[dict] = []
         # Course corrections used to short-circuit routing here, but
         # that broke the case where the user re-asks a fresh factual
         # question as a correction ("no, the *current* one") — the
@@ -354,9 +476,9 @@ class Orchestrator:
         # Run skills whenever there are asks; the empty-asks case
         # (pure conversational correction with nothing to look up) is
         # still handled below by the no-skill synthesis path.
-        if decomposition.asks:
+        if resolved_asks:
             skill_data, skill_results, sources, routing_log = await run_skills(
-                decomposition.asks, self._registry, self._executor,
+                resolved_asks, self._registry, self._executor,
                 user_id=user_id, memory=self._memory,
             )
             yield PipelineEvent(
@@ -374,7 +496,7 @@ class Orchestrator:
         # and the skill returned a `lead` field, return that text
         # directly with a [src:1] marker and skip the 9B model. The
         # decomposer is the classifier here — see try_verbatim_fast_path.
-        fast = try_verbatim_fast_path(decomposition.asks, skill_results)
+        fast = try_verbatim_fast_path(resolved_asks, skill_results)
         if fast is not None:
             response, fast_latency_ms = fast
             yield PipelineEvent(phase="synthesis", status="active", data={"fast_path": True})
@@ -451,9 +573,18 @@ class Orchestrator:
             num_predict = ACKNOWLEDGMENT_NUM_PREDICT
         else:
             from lokidoki.core.humanize import format_memory_block
+            from lokidoki.core.orchestrator_referents import build_referent_block
+
             memory_block = format_memory_block(
                 facts=relevant_facts,
                 past_messages=past_messages,
+            )
+            referent_block = build_referent_block(
+                recent=recent,
+                relevant_facts=relevant_facts,
+                past_messages=past_messages,
+                people=people_rows,
+                relationships=relationships,
             )
             prompt = build_synthesis_prompt(
                 tone=tone,
@@ -468,6 +599,7 @@ class Orchestrator:
                 sentiment_arc=sentiment_arc,
                 character_name=self._character_name,
                 seed_hint=seed_hint,
+                referent_block=referent_block,
             )
             num_predict = SYNTHESIS_NUM_PREDICT
 
@@ -575,6 +707,10 @@ class Orchestrator:
                 temperature=0.3,
                 think=False,
             )
+            if asyncio.iscoroutine(raw):
+                raw = await raw
+            if not isinstance(raw, str):
+                raw = str(raw or "")
             # Pick the first non-empty line; the model sometimes leads with
             # a blank line which used to make us drop the title entirely.
             title = ""

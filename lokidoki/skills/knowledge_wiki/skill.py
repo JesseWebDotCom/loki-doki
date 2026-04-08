@@ -70,6 +70,57 @@ _JUNK_TITLE_PREFIXES = ("list of ", "lists of ", "category:", "portal:", "templa
 _JUNK_TITLE_SUBSTRINGS = ("(disambiguation)", "(disambiguation page)")
 
 
+# Stopwords excluded from the title-overlap relevance check below.
+# Anything shorter than 4 chars is also dropped, so we don't need to
+# enumerate every short word — this list is just the high-frequency
+# 4+ char words that would otherwise leak through.
+_OVERLAP_STOPWORDS = frozenset({
+    "what", "when", "where", "which", "while", "with", "from", "into",
+    "that", "this", "they", "them", "their", "there", "about", "have",
+    "does", "did", "tell", "give", "show", "know", "like", "want",
+    "your", "yours", "mine", "ours", "some", "many", "much", "more",
+    "most", "just", "also", "than", "then", "such", "very", "really",
+    "really", "here", "thing", "stuff", "kind", "type",
+})
+
+
+def _query_tokens(query: str) -> set[str]:
+    """Significant (4+ char, non-stopword) lowercase tokens for the
+    title-overlap relevance check. Used to reject Wikipedia search hits
+    that share no real terms with the user's query — Wikipedia's search
+    will happily return ``Anthropic`` (the company) for ``anthropic
+    mythos``, and we'd rather fail than ground synthesis on the wrong
+    article."""
+    out: set[str] = set()
+    cur: list[str] = []
+    for ch in (query or "").lower():
+        if ch.isalnum():
+            cur.append(ch)
+        else:
+            if cur:
+                tok = "".join(cur)
+                if len(tok) >= 4 and tok not in _OVERLAP_STOPWORDS:
+                    out.add(tok)
+                cur = []
+    if cur:
+        tok = "".join(cur)
+        if len(tok) >= 4 and tok not in _OVERLAP_STOPWORDS:
+            out.add(tok)
+    return out
+
+
+def _title_matches_query(title: str, query: str) -> bool:
+    """Cheap relevance gate. A resolved title is acceptable if it shares
+    at least one significant token with the query, OR the query is so
+    short/generic that no token survived filtering (in which case we
+    trust Wikipedia's ranking and don't second-guess it)."""
+    q_tokens = _query_tokens(query)
+    if not q_tokens:
+        return True
+    t_tokens = _query_tokens(title)
+    return bool(q_tokens & t_tokens)
+
+
 def _is_junk_title(title: str) -> bool:
     low = (title or "").lower()
     if not low:
@@ -228,11 +279,24 @@ class WikipediaSkill(BaseSkill):
                     )
                 results = search_resp.json().get("query", {}).get("search", [])
                 resolved_title = next(
-                    (r["title"] for r in results if not _is_junk_title(r.get("title", ""))),
+                    (
+                        r["title"] for r in results
+                        if not _is_junk_title(r.get("title", ""))
+                        and _title_matches_query(r.get("title", ""), query)
+                    ),
                     None,
                 )
                 if not resolved_title:
-                    return MechanismResult(success=False, error="No Wikipedia article found")
+                    # Wikipedia returned hits but none share any real
+                    # term with the query — almost always means the
+                    # topic isn't on Wikipedia and the user wanted a
+                    # web search instead. Fail loudly so the routing
+                    # log shows it instead of grounding synthesis on
+                    # an unrelated article.
+                    return MechanismResult(
+                        success=False,
+                        error="No relevant Wikipedia article found",
+                    )
 
                 response = await client.get(
                     WIKI_API_URL,

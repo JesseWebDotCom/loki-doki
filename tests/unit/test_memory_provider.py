@@ -7,7 +7,9 @@ Coverage:
 - FTS5/BM25 search ranks more-relevant facts higher
 - search results are scoped to the calling user
 """
+import asyncio
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from lokidoki.core.confidence import DEFAULT_CONFIDENCE
 from lokidoki.core.memory_provider import MemoryProvider
@@ -94,6 +96,8 @@ class TestEmbeddings:
         await mp2.initialize()
         try:
             if mp2.vec_enabled:
+                await asyncio.wait_for(mp2._background_backfill_task, timeout=5.0)
+
                 async def _has_vec():
                     def _do(conn):
                         return conn.execute(
@@ -105,6 +109,41 @@ class TestEmbeddings:
                 assert (await _has_vec()) == 1
         finally:
             await mp2.close()
+
+    @pytest.mark.anyio
+    async def test_initialize_schedules_backfill_in_background(self, tmp_path):
+        mp = MemoryProvider(db_path=str(tmp_path / "provider-bg.db"))
+        started = asyncio.Event()
+        released = asyncio.Event()
+
+        async def fake_backfill(*, max_rows: int):
+            started.set()
+            await released.wait()
+
+        async def fake_backfill_messages(*, max_rows: int):
+            started.set()
+            await released.wait()
+
+        with patch("lokidoki.core.memory_provider.open_and_migrate") as open_and_migrate, \
+             patch("lokidoki.core.character_seed.run_seed") as run_seed:
+            from lokidoki.core.memory_init import open_and_migrate as real_open_and_migrate
+
+            conn, vec_loaded = real_open_and_migrate(str(tmp_path / "provider-bg-real.db"))
+            open_and_migrate.return_value = (conn, vec_loaded)
+            run_seed.return_value = None
+            mp._backfill_embeddings = fake_backfill
+            mp._backfill_message_embeddings = fake_backfill_messages
+
+            await mp.initialize()
+            if not vec_loaded:
+                await mp.close()
+                return
+
+            assert mp._background_backfill_task is not None
+
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            released.set()
+            await mp.close()
 
 
 class TestMessageEmbeddings:

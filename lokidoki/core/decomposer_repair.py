@@ -719,6 +719,7 @@ class LongTermItem(BaseModel):
     relationship_kind: Optional[str] = None
     category: str = "general"
     negates_previous: bool = False
+    memory_priority: Literal["low", "normal", "high"] = "normal"
 
     @model_validator(mode="after")
     def _check_consistency(self) -> "LongTermItem":
@@ -878,6 +879,10 @@ REPAIR_ARRAY_SCHEMA: dict = {
             "relationship_kind": {"type": ["string", "null"]},
             "category": {"type": "string"},
             "negates_previous": {"type": "boolean"},
+            "memory_priority": {
+                "type": "string",
+                "enum": ["low", "normal", "high"],
+            },
         },
     },
 }

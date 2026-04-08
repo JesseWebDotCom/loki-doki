@@ -51,6 +51,20 @@ class SkillRegistry:
             return None
         return self.skills.get(skill_id)
 
+    def get_skills_by_category(self, category: str) -> list[tuple[str, dict]]:
+        """Return ``(skill_id, manifest)`` for every skill that declares
+        ``category`` in its manifest ``categories`` list, in registry
+        scan order. Used by the orchestrator to resolve a capability
+        ("web_search", "encyclopedia") to whichever skill the user has
+        installed for it — no skill IDs are hardcoded in routing code.
+        """
+        out: list[tuple[str, dict]] = []
+        for sid, manifest in self.skills.items():
+            cats = manifest.get("categories") or []
+            if category in cats:
+                out.append((sid, manifest))
+        return out
+
     def get_mechanisms(self, skill_id: str) -> list[dict]:
         """Return mechanisms for a skill, sorted by priority (ascending)."""
         manifest = self.skills.get(skill_id)

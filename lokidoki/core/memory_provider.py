@@ -29,9 +29,12 @@ from typing import Optional, Union
 import asyncio
 import os
 import sqlite3
+import logging
 
 from lokidoki.core import memory_sql as sql
 from lokidoki.core.memory_init import open_and_migrate
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryProvider:
@@ -42,6 +45,7 @@ class MemoryProvider:
         self._conn: Optional[sqlite3.Connection] = None
         self._lock = asyncio.Lock()
         self._vec_loaded = False
+        self._background_backfill_task: Optional[asyncio.Task] = None
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -57,20 +61,20 @@ class MemoryProvider:
         # pure schema layer).
         from lokidoki.core.character_seed import run_seed
         await asyncio.to_thread(run_seed, self._conn)
-        # Backfill embeddings for any active facts that don't have a
-        # vec_facts row yet. Idempotent — runs every startup but only
-        # touches rows that have never been embedded. Bounded so a
-        # cold start with thousands of facts doesn't pin the CPU; the
-        # remainder rolls over into subsequent boots.
         if self._vec_loaded:
-            try:
-                await self._backfill_embeddings(max_rows=500)
-                await self._backfill_message_embeddings(max_rows=500)
-            except Exception:  # noqa: BLE001 — never block startup
-                import logging
-                logging.getLogger(__name__).exception(
-                    "[memory] embedding backfill failed; continuing"
-                )
+            self._background_backfill_task = asyncio.create_task(
+                self._run_background_backfill()
+            )
+
+    async def _run_background_backfill(self) -> None:
+        """Backfill embeddings after startup without blocking readiness."""
+        try:
+            await self._backfill_embeddings(max_rows=500)
+            await self._backfill_message_embeddings(max_rows=500)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — never block startup
+            logger.exception("[memory] embedding backfill failed; continuing")
 
     async def _backfill_embeddings(self, *, max_rows: int) -> None:
         """Embed up to ``max_rows`` active facts that have no vec_facts row.
@@ -172,6 +176,13 @@ class MemoryProvider:
         )
 
     async def close(self) -> None:
+        if self._background_backfill_task is not None:
+            self._background_backfill_task.cancel()
+            try:
+                await self._background_backfill_task
+            except asyncio.CancelledError:
+                pass
+            self._background_backfill_task = None
         if self._conn is not None:
             await asyncio.to_thread(self._conn.close)
             self._conn = None

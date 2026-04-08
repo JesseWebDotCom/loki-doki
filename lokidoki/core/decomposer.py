@@ -39,6 +39,33 @@ class Ask:
     # president"). Default false: the vast majority of turns are not
     # time-sensitive.
     requires_current_data: bool = False
+    # Which kind of external lookup the answer needs, if any. The
+    # decomposer is the sole classifier — orchestrator code never
+    # inspects user_input. Values:
+    #   "encyclopedic" — stable, definitional facts a Wikipedia-class
+    #                    source covers well (history, biography,
+    #                    geography, established science/works).
+    #   "web"          — anything novel, niche, branded, slang, very
+    #                    recent, or where Wikipedia coverage is
+    #                    uncertain. The orchestrator routes this to
+    #                    whichever active web-search skill the user
+    #                    has installed (DDG, Brave, Kagi, ...).
+    #   "none"         — chitchat, follow-ups answerable from existing
+    #                    context, opinions, no external lookup needed.
+    # The orchestrator resolves this to a real skill via the registry's
+    # capability lookup — no skill IDs are hardcoded.
+    knowledge_source: str = "none"
+    # Structured routing fields used downstream for capability-based
+    # upgrades and referent resolution. Defaults preserve backwards
+    # compatibility for callers/tests that still emit the older shape.
+    context_source: str = "none"
+    referent_type: str = "unknown"
+    durability: str = "durable"
+    needs_referent_resolution: bool = False
+    capability_need: str = "none"
+    referent_status: str = "none"
+    referent_scope: list[str] = field(default_factory=list)
+    referent_anchor: str = ""
 
 
 @dataclass
@@ -101,6 +128,15 @@ DECOMPOSITION_SCHEMA: dict = {
                     "distilled_query",
                     "response_shape",
                     "requires_current_data",
+                    "knowledge_source",
+                    "context_source",
+                    "referent_type",
+                    "durability",
+                    "needs_referent_resolution",
+                    "capability_need",
+                    "referent_status",
+                    "referent_scope",
+                    "referent_anchor",
                 ],
                 "properties": {
                     "ask_id": {"type": "string"},
@@ -112,6 +148,39 @@ DECOMPOSITION_SCHEMA: dict = {
                         "enum": ["verbatim", "synthesized"],
                     },
                     "requires_current_data": {"type": "boolean"},
+                    "knowledge_source": {
+                        "type": "string",
+                        "enum": ["encyclopedic", "web", "none"],
+                    },
+                    "context_source": {
+                        "type": "string",
+                        "enum": ["recent_context", "long_term_memory", "external", "none"],
+                    },
+                    "referent_type": {
+                        "type": "string",
+                        "enum": ["person", "entity", "event", "media", "unknown"],
+                    },
+                    "durability": {
+                        "type": "string",
+                        "enum": ["ephemeral", "tentative", "durable"],
+                    },
+                    "needs_referent_resolution": {"type": "boolean"},
+                    "capability_need": {
+                        "type": "string",
+                        "enum": ["encyclopedic", "web_search", "current_media", "none"],
+                    },
+                    "referent_status": {
+                        "type": "string",
+                        "enum": ["resolved", "unresolved", "none"],
+                    },
+                    "referent_scope": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["person", "media", "entity", "place", "product", "event"],
+                        },
+                    },
+                    "referent_anchor": {"type": "string"},
                 },
             },
         },
@@ -127,10 +196,19 @@ DECOMPOSITION_PROMPT = (
     "short_term_memory:{sentiment:str,concern:str},"
     "long_term_memory:[{subject_type:'self'|'person'|'entity',subject_name:str,"
     "predicate:str,value:str,kind:'fact'|'preference'|'event'|'advice'|'relationship',"
-    "relationship_kind:str|null,category:str,negates_previous:bool}],"
+    "relationship_kind:str|null,category:str,negates_previous:bool,memory_priority:'low'|'normal'|'high'}],"
     "asks:[{ask_id:str,intent:str,distilled_query:str,parameters:{},"
     "response_shape:\"verbatim\"|\"synthesized\","
-    "requires_current_data:bool}]}\n"
+    "requires_current_data:bool,"
+    "knowledge_source:\"encyclopedic\"|\"web\"|\"none\","
+    "context_source:\"recent_context\"|\"long_term_memory\"|\"external\"|\"none\","
+    "referent_type:\"person\"|\"entity\"|\"event\"|\"media\"|\"unknown\","
+    "durability:\"ephemeral\"|\"tentative\"|\"durable\","
+    "needs_referent_resolution:bool,"
+    "capability_need:\"encyclopedic\"|\"web_search\"|\"current_media\"|\"none\","
+    "referent_status:\"resolved\"|\"unresolved\"|\"none\","
+    "referent_scope:[\"person\"|\"media\"|\"entity\"|\"place\"|\"product\"|\"event\"],"
+    "referent_anchor:str}]}\n"
     "RULES:\n"
     "- is_course_correction=true if user corrects/refines previous answer\n"
     "- overall_reasoning_complexity=\"thinking\" if query needs deep analysis, math, or multi-step logic\n"
@@ -161,11 +239,12 @@ DECOMPOSITION_PROMPT = (
     "- Capitalize person names (subject_name='Tom', not 'tom'). Same for entity names.\n"
     "- NEVER emit tautological naming facts like {subject_name:'Tom',predicate:'is',value:'Tom'} — the name is already in subject_name.\n"
     "- CRITICAL: 'my <relation> <Name> ...' is ALWAYS about <Name>, NEVER about the user. 'my brother artie loves movies' -> person:Artie, NOT self. NEVER emit {self,is,artie} from this input.\n"
-    "- SUBJECT RESOLUTION: every long_term_memory item's subject must resolve to a real referent. When KNOWN_SUBJECTS is provided it lists the closed-world set of valid subjects (the user under 'self', plus known people). Bind pronouns ('he','she','they','him','her','them') to the most recent compatible referent in RECENT_CONTEXT or KNOWN_SUBJECTS. NEVER bind a third-person pronoun to 'self' — 'self' is reserved for claims the user makes IN FIRST PERSON ('I ...', 'my ...', 'we ...').\n"
+    "- SUBJECT RESOLUTION: every long_term_memory item's subject must resolve to a real referent. When KNOWN_SUBJECTS is provided it lists the closed-world set of valid subjects (the user under 'self', plus known people and entities). Bind pronouns ('he','she','they','him','her','them') and short referential follow-ups to the most recent compatible referent in RECENT_CONTEXT or KNOWN_SUBJECTS. NEVER bind a third-person pronoun to 'self' — 'self' is reserved for claims the user makes IN FIRST PERSON ('I ...', 'my ...', 'we ...').\n"
     "- QUESTIONS yield NO long_term_memory items unless the user is ALSO asserting a fact in the same sentence. 'how long has he been president' -> long_term_memory:[]. 'I love coffee, what's the best bean?' -> one self preference item. When in doubt about whether a clause is a claim or a question, prefer emitting nothing over guessing.\n"
     "- If a pronoun has no clear referent in RECENT_CONTEXT or KNOWN_SUBJECTS, emit NO item for that claim. Silence is always safer than fabricating a subject.\n"
     "- Lowercased input is still valid. 'my brother artie' yields subject_name:'Artie' (capitalize on output).\n"
     "- Set negates_previous=true ONLY when the user explicitly corrects a prior fact (e.g. 'No, my brother's name is Art, not Artie' -> negates_previous:true). Default false.\n"
+    "- memory_priority='high' for durable identity/relationship facts that should definitely persist, 'normal' for ordinary durable facts/preferences, 'low' for speculative, tentative, or passing mentions that may help this turn but should not become durable memory by default.\n"
     "- Distill each ask into a clean, skill-ready sub-query\n"
     "- response_shape=\"verbatim\" when the user is asking for a direct"
     " factual lookup that a knowledge skill can answer with its own"
@@ -187,6 +266,39 @@ DECOMPOSITION_PROMPT = (
     " \"when did WWII end\"). The orchestrator uses this to force a"
     " grounded knowledge lookup so synthesis cannot fall back on stale"
     " training data.\n"
+    "- knowledge_source classifies WHAT KIND of external lookup the"
+    " answer needs. The orchestrator maps this to whichever active"
+    " skill the user has installed for that capability — you do NOT"
+    " name skills, you name the kind of source.\n"
+    "  * \"encyclopedic\" — stable definitional facts a Wikipedia-class"
+    " source covers well: historical figures, geography, established"
+    " science, biographies, dictionary-style \"who/what is X\" where X"
+    " is well-known and not recent. Examples: Alan Turing, the Eiffel"
+    " Tower, the French Revolution, photosynthesis, mitochondria.\n"
+    "  * \"web\" — anything novel, niche, branded, slang, fictional or"
+    " fan-made, very recent, or where you are NOT confident a"
+    " Wikipedia article exists for the exact topic the user named."
+    " Examples: a brand-new product, an indie game, an internet"
+    " phenomenon, a tutorial or recipe, a niche community, anything"
+    " coined in the last few years, anything where the user uses"
+    " unusual or made-up phrasing. requires_current_data=true ALWAYS"
+    " implies knowledge_source=\"web\".\n"
+    "  * \"none\" — chitchat, emotional turns, opinions, follow-ups"
+    " answerable from RECENT_CONTEXT, pure preference questions, no"
+    " external lookup would help. Pair with intent=\"direct_chat\".\n"
+    "- WHEN UNSURE between \"encyclopedic\" and \"web\", choose \"web\"."
+    " Web search covers Wikipedia anyway; the reverse is not true.\n"
+    "- context_source tells the orchestrator where the answer should come from: recent_context, long_term_memory, external, or none.\n"
+    "- referent_type tells the orchestrator what kind of thing the user is referring to: person, entity, event, media, or unknown.\n"
+    "- durability classifies the ask itself: ephemeral for one-off lookups/chitchat, tentative for maybe/probably-style plans, durable for stable preferences or facts.\n"
+    "- needs_referent_resolution=true when the user is referring back to something implicit in recent context or memory and the answer depends on resolving that referent correctly.\n"
+    "- capability_need tells the orchestrator what capability family to resolve through the registry: encyclopedic, web_search, current_media, or none.\n"
+    "- referent_status='unresolved' when the referent is still implicit and must be resolved downstream; prefer this over guessing.\n"
+    "- referent_scope is a coarse typed hint list for downstream candidate generation: person, media, entity, place, product, event.\n"
+    "- referent_anchor is an optional short anchor phrase when the model can identify the referent mention but not resolve it canonically.\n"
+    "- For speculative or tentative plans, set durability='tentative' and set any related long_term_memory items to memory_priority='low'.\n"
+    "- If the user is talking about seeing a named movie today/tonight/this weekend or asks when it is playing, use referent_type='media' and capability_need='current_media'.\n"
+    "- When KNOWN_SUBJECTS includes entities, use them to resolve short media follow-ups like 'what time is it playing' or 'what's the full name'.\n"
     "- FOLLOW-UPS: when USER_INPUT is a short clarifier on the prior"
     " turn (\"since when\", \"why\", \"how long\", \"where\", \"and then?\","
     " \"really?\", \"who else\", \"more\") AND RECENT_CONTEXT already"
@@ -236,6 +348,7 @@ class Decomposer:
             {
                 "self": "<the user's display name>",
                 "people": ["Tom", "Camilla", ...],   # known people rows
+                "entities": ["Avatar: Fire and Ash", ...],
             }
 
         When provided it is rendered into the prompt under a
@@ -326,9 +439,11 @@ class Decomposer:
             # to keep the token cost low — gemma sees this on every turn.
             self_name = (known_subjects.get("self") or "the user").strip() or "the user"
             people = known_subjects.get("people") or []
+            entities = known_subjects.get("entities") or []
             people_str = ",".join(p for p in people if p) if people else ""
+            entity_str = ",".join(e for e in entities if e) if entities else ""
             parts.append(
-                f"KNOWN_SUBJECTS:self={self_name}|people=[{people_str}]"
+                f"KNOWN_SUBJECTS:self={self_name}|people=[{people_str}]|entities=[{entity_str}]"
             )
 
         if chat_context:
@@ -373,6 +488,42 @@ class Decomposer:
                         else "synthesized"
                     ),
                     requires_current_data=bool(a.get("requires_current_data", False)),
+                    knowledge_source=(
+                        a.get("knowledge_source")
+                        if a.get("knowledge_source") in ("encyclopedic", "web", "none")
+                        else "none"
+                    ),
+                    context_source=(
+                        a.get("context_source")
+                        if a.get("context_source") in ("recent_context", "long_term_memory", "external", "none")
+                        else "none"
+                    ),
+                    referent_type=(
+                        a.get("referent_type")
+                        if a.get("referent_type") in ("person", "entity", "event", "media", "unknown")
+                        else "unknown"
+                    ),
+                    durability=(
+                        a.get("durability")
+                        if a.get("durability") in ("ephemeral", "tentative", "durable")
+                        else "durable"
+                    ),
+                    needs_referent_resolution=bool(a.get("needs_referent_resolution", False)),
+                    capability_need=(
+                        a.get("capability_need")
+                        if a.get("capability_need") in ("encyclopedic", "web_search", "current_media", "none")
+                        else "none"
+                    ),
+                    referent_status=(
+                        a.get("referent_status")
+                        if a.get("referent_status") in ("resolved", "unresolved", "none")
+                        else "none"
+                    ),
+                    referent_scope=[
+                        s for s in (a.get("referent_scope") or [])
+                        if s in ("person", "media", "entity", "place", "product", "event")
+                    ],
+                    referent_anchor=str(a.get("referent_anchor") or ""),
                 )
                 for i, a in enumerate(data.get("asks", []))
             ]
@@ -405,6 +556,15 @@ class Decomposer:
                         intent="direct_chat",
                         distilled_query=original_input,
                         requires_current_data=True,
+                        knowledge_source="web",
+                        context_source="external",
+                        referent_type="unknown",
+                        durability="ephemeral",
+                        needs_referent_resolution=False,
+                        capability_need="web_search",
+                        referent_status="unresolved",
+                        referent_scope=[],
+                        referent_anchor="",
                     )
                 ]
 

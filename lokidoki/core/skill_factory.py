@@ -6,6 +6,7 @@ from lokidoki.skills.search_ddg.skill import DuckDuckGoSkill
 from lokidoki.skills.tvshows_tvmaze.skill import TVMazeSkill
 from lokidoki.skills.movies_tmdb.skill import TMDBSkill
 from lokidoki.skills.movies_wiki.skill import WikiMoviesSkill
+from lokidoki.skills.movies_showtimes.skill import MovieShowtimesSkill
 from lokidoki.skills.weather_openmeteo.skill import OpenMeteoSkill
 from lokidoki.skills.smarthome_mock.skill import SmartHomeMockSkill
 from lokidoki.skills.calculator.skill import CalculatorSkill
@@ -41,6 +42,8 @@ def get_skill_instance(skill_id: str, config: dict  = None) -> BaseSkill :
         skill = TMDBSkill(api_key=config.get("tmdb_api_key", ""))
     elif skill_id == "movies_wiki":
         skill = WikiMoviesSkill()
+    elif skill_id == "movies_showtimes":
+        skill = MovieShowtimesSkill()
     elif skill_id == "weather_openmeteo":
         skill = OpenMeteoSkill()
     elif skill_id == "smarthome_mock":

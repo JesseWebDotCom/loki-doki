@@ -7,6 +7,7 @@
     "budget_tokens": 1000
   },
   "intents": ["search_knowledge", "get_summary"],
+  "categories": ["encyclopedia"],
   "description": "Looks up factual summaries from Wikipedia. Best for definitions, biographies, places, and historical events.",
   "examples": [
     "who is Alan Turing",
