@@ -118,6 +118,26 @@ const FACE: Partial<Record<HeadTiltState, StateMap>> = {
     },
   },
 
+  // Startled reaction. Wide eyes, open mouth, raised brows. Used as
+  // a transient click-feedback pose — the caller flips back to the
+  // ambient state on a timer.
+  shocked: {
+    avataaars: {
+      mouth: "screamOpen",
+      eyes: "surprised",
+      eyebrows: "raisedExcited",
+    },
+    "toon-head": {
+      mouth: "agape",
+      eyes: "wide",
+      eyebrows: "raised",
+    },
+    bottts: {
+      mouth: "square02",
+      eyes: "roundFrame02",
+    },
+  },
+
   // Thinking pose. Mouth pursed/serious, brows furrowed-up.
   // We deliberately do NOT set `eyes` for toon-head: every "looking"
   // variant in toon-head reads as closed/half-closed and breaks the

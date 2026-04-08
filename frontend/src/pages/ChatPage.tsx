@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Send } from 'lucide-react';
 import { useTTSState } from '../utils/tts';
 import Sidebar from '../components/sidebar/Sidebar';
 import ChatWindow from '../components/chat/ChatWindow';
+import ChatWelcomeView from '../components/chat/ChatWelcomeView';
 import ProjectLandingView from '../components/projects/ProjectLandingView';
 import ProjectModal from '../components/sidebar/ProjectModal';
 import {
@@ -15,8 +16,10 @@ import {
   listCharacters,
   type CharacterRow,
 } from '../lib/api';
-import RiggedDicebearAvatar from '../components/character/RiggedDicebearAvatar';
+import CharacterFrame from '../components/character/CharacterFrame';
 import type { HeadTiltState } from '../components/character/useHeadTilt';
+import { useCharacterMode } from '../utils/characterMode';
+import { useAuth } from '../auth/useAuth';
 import type {
   PipelineEvent,
   DecompositionData,
@@ -61,9 +64,7 @@ const INITIAL_PIPELINE: PipelineState = {
 };
 
 const ChatPage: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'LokiDoki Core initialized. System ready for agentic orchestration.', timestamp: new Date().toLocaleTimeString() }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [pipeline, setPipeline] = useState<PipelineState>(INITIAL_PIPELINE);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -74,6 +75,7 @@ const ChatPage: React.FC = () => {
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const tts = useTTSState();
+  const { currentUser } = useAuth();
   const [activeChar, setActiveChar] = useState<CharacterRow | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -94,15 +96,63 @@ const ChatPage: React.FC = () => {
     const id = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(id);
   }, []);
-  const characterState: HeadTiltState = isProcessing
-    ? 'thinking'
-    : tts.speakingKey
-      ? 'speaking'
-      : now - lastActivity > 90_000
-        ? 'sleeping'
-        : now - lastActivity > 30_000
-          ? 'dozing'
-          : 'idle';
+  // Transient shock pose, triggered by clicking the avatar. Auto-clears
+  // on a timer so the character returns to whatever ambient state the
+  // pipeline/idle logic would otherwise produce.
+  const [isShocked, setIsShocked] = useState(false);
+  const shockTimer = useRef<number | null>(null);
+  const handleShock = useCallback(() => {
+    setIsShocked(true);
+    setLastActivity(Date.now());
+    if (shockTimer.current != null) window.clearTimeout(shockTimer.current);
+    shockTimer.current = window.setTimeout(() => {
+      setIsShocked(false);
+      shockTimer.current = null;
+    }, 900);
+  }, []);
+  useEffect(() => () => {
+    if (shockTimer.current != null) window.clearTimeout(shockTimer.current);
+  }, []);
+
+  // Character display mode lives in a shared store so the avatar's
+  // hover toolbar AND the Settings → Character section both write to
+  // the same source of truth. Fullscreen is reserved for a future
+  // iteration — for now it falls back to the docked layout.
+  const [characterMode, setCharacterMode] = useCharacterMode();
+
+  // In mini mode each assistant message gets its own avatar, but only
+  // ONE is awake at a time: the message currently being TTS-spoken
+  // (so replaying an old response wakes that one), or — when nothing
+  // is playing — the latest assistant message. All others sleep.
+  const activeAssistantKey = useMemo<string | null>(() => {
+    // While a turn is in flight, the LIVE ThinkingIndicator owns the
+    // mini character — no past message should also show one, or we'd
+    // get two avatars on screen at once.
+    if (isProcessing) return null;
+    // Pending wins immediately on Play click — speakingKey only flips
+    // once onPlaybackStart fires, which can lag a few hundred ms behind
+    // the click while the first audio chunk arrives. Without this,
+    // every other mini avatar would briefly stay awake until playback
+    // actually started.
+    if (tts.pendingKey) return tts.pendingKey;
+    if (tts.speakingKey) return tts.speakingKey;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return `msg-${i}`;
+    }
+    return null;
+  }, [isProcessing, tts.pendingKey, tts.speakingKey, messages]);
+
+  const characterState: HeadTiltState = isShocked
+    ? 'shocked'
+    : isProcessing
+      ? 'thinking'
+      : tts.speakingKey
+        ? 'speaking'
+        : now - lastActivity > 90_000
+          ? 'sleeping'
+          : now - lastActivity > 30_000
+            ? 'dozing'
+            : 'idle';
 
   // Sidebar (mounted on Settings/Admin/Memory/Dev) routes session
   // selection here via router state when it has no direct callback.
@@ -286,9 +336,7 @@ const ChatPage: React.FC = () => {
   };
 
   const handleNewSession = (projectId?: number) => {
-    setMessages([
-      { role: 'assistant', content: projectId ? `New project-scoped chat started. System ready.` : 'New chat started. System ready.', timestamp: new Date().toLocaleTimeString() }
-    ]);
+    setMessages([]);
     setPipeline(INITIAL_PIPELINE);
     setCurrentSessionId(undefined);
     setActiveProjectId(projectId || null);
@@ -302,9 +350,7 @@ const ChatPage: React.FC = () => {
     setActiveProjectId(null);
     setCurrentSessionId(sessionId);
     setPipeline(INITIAL_PIPELINE);
-    setMessages([
-      { role: 'assistant', content: 'Loading session…', timestamp: new Date().toLocaleTimeString() }
-    ]);
+    setMessages([]);
     try {
       const res = await getSessionMessages(sessionId);
       const loaded: Message[] = (res.messages || []).map((m: any) => ({
@@ -312,14 +358,10 @@ const ChatPage: React.FC = () => {
         content: m.content,
         timestamp: m.created_at?.split('T')[1]?.slice(0, 8) || '',
       }));
-      setMessages(loaded.length > 0 ? loaded : [
-        { role: 'assistant', content: 'Empty session loaded.', timestamp: new Date().toLocaleTimeString() }
-      ]);
+      setMessages(loaded);
     } catch (err) {
       console.error('[ChatPage] failed to load session messages', sessionId, err);
-      setMessages([
-        { role: 'assistant', content: `Failed to load session: ${err instanceof Error ? err.message : 'unknown error'}`, timestamp: new Date().toLocaleTimeString() }
-      ]);
+      setMessages([]);
     }
   };
 
@@ -342,18 +384,19 @@ const ChatPage: React.FC = () => {
         onProjectsChanged={() => setDataVersion((v) => v + 1)}
       />
 
-      <main className={`flex-1 flex flex-col relative bg-background shadow-inner transition-[padding] duration-300 ${activeChar ? 'pr-[380px]' : ''}`}>
-        {activeChar && (
+      <main className={`flex-1 flex flex-col relative bg-background shadow-inner transition-[padding] duration-300 ${activeChar && characterMode === 'docked' ? 'pr-[380px]' : ''}`}>
+        {activeChar && characterMode === 'docked' && (
           <div
-            className="absolute right-10 top-1/2 -translate-y-1/2 z-20 w-[336px] h-[336px] flex items-center justify-center pointer-events-none"
+            className="absolute right-10 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center"
             title={activeChar.name}
           >
-            <RiggedDicebearAvatar
-              style={activeChar.avatar_style}
-              seed={activeChar.avatar_seed}
-              baseOptions={activeChar.avatar_config as Record<string, unknown>}
+            <CharacterFrame
+              character={activeChar}
               size={312}
-              tiltState={characterState}
+              state={characterState}
+              mode={characterMode}
+              onModeChange={setCharacterMode}
+              onShock={handleShock}
             />
           </div>
         )}
@@ -365,12 +408,20 @@ const ChatPage: React.FC = () => {
             onEditProject={() => setIsEditingProject(true)}
             onSelectChat={handleSelectSession}
           />
+        ) : messages.length === 0 && !isProcessing ? (
+          <ChatWelcomeView activeChar={activeChar} />
         ) : (
           <ChatWindow
             messages={messages}
             pipeline={pipeline}
             activeChar={activeChar}
             characterState={characterState}
+            characterMode={characterMode}
+            onCharacterModeChange={setCharacterMode}
+            onCharacterShock={handleShock}
+            activeAssistantKey={activeAssistantKey}
+            assistantName={activeChar?.name}
+            userName={currentUser?.username}
           />
         )}
 
@@ -381,7 +432,7 @@ const ChatPage: React.FC = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Interact with the LokiDoki agentic pipeline..."
+              placeholder={activeChar ? `Chat with ${activeChar.name}…` : 'Chat with your character…'}
               disabled={isProcessing}
               className="w-full bg-card/50 border border-border/50 rounded-2xl py-5 pl-8 pr-16 focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/5 transition-all placeholder-gray-700 shadow-m4 text-lg font-medium disabled:opacity-50"
             />
@@ -394,13 +445,6 @@ const ChatPage: React.FC = () => {
             </button>
           </div>
 
-          <div className="text-center mt-6 flex items-center justify-center gap-4">
-            <span className="h-[1px] w-12 bg-border/50" />
-            <div className="text-[10px] text-muted-foreground uppercase tracking-[0.4em] font-bold font-sans">
-              Onyx Material Orchestration
-            </div>
-            <span className="h-[1px] w-12 bg-border/50" />
-          </div>
         </div>
       </main>
 

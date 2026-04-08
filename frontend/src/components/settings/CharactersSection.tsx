@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { User, Check, RotateCcw, Save } from "lucide-react";
+import { User, Check, RotateCcw, Save, Minimize2, Columns2, Maximize2 } from "lucide-react";
 import {
   listCharacters,
   setActiveCharacter,
@@ -8,6 +8,7 @@ import {
   type CharacterRow,
 } from "../../lib/api";
 import Avatar from "../character/Avatar";
+import { useCharacterMode, type CharacterMode } from "../../utils/characterMode";
 
 /**
  * Settings → Characters section.
@@ -18,7 +19,14 @@ import Avatar from "../character/Avatar";
  * locally without touching the catalog. Avatar customization and the
  * full Character Playground come in Phase 3.
  */
+const MODE_OPTIONS: { value: CharacterMode; label: string; icon: React.ReactNode; hint: string }[] = [
+  { value: "mini", label: "Mini", icon: <Minimize2 className="w-4 h-4" />, hint: "Inline beside each response" },
+  { value: "docked", label: "Docked", icon: <Columns2 className="w-4 h-4" />, hint: "Large in the right column" },
+  { value: "fullscreen", label: "Fullscreen", icon: <Maximize2 className="w-4 h-4" />, hint: "Coming soon" },
+];
+
 const CharactersSection: React.FC = () => {
+  const [characterMode, setCharacterMode] = useCharacterMode();
   const [characters, setCharacters] = useState<CharacterRow[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [draftPrompt, setDraftPrompt] = useState<string>("");
@@ -102,6 +110,33 @@ const CharactersSection: React.FC = () => {
         global catalog; you can override the behavior prompt just for
         yourself.
       </p>
+
+      <div className="space-y-2">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Display mode
+        </div>
+        <div className="flex items-center gap-2">
+          {MODE_OPTIONS.map((opt) => {
+            const active = characterMode === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setCharacterMode(opt.value)}
+                title={opt.hint}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition text-xs font-semibold ${
+                  active
+                    ? "bg-primary/15 border-primary/40 text-primary shadow-m1"
+                    : "bg-card border-border/40 text-muted-foreground hover:text-primary hover:border-primary/30"
+                }`}
+              >
+                {opt.icon}
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {loading ? (
         <div className="text-xs text-muted-foreground">Loading characters…</div>

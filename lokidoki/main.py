@@ -14,8 +14,30 @@ import subprocess
 app = FastAPI(title="LokiDoki Core")
 app.add_middleware(BootstrapGateMiddleware)
 
-# In-memory bootstrap status for SSE
-bootstrap_queue = asyncio.Queue()
+# In-memory bootstrap status for SSE.
+#
+# We need TWO things that a single shared queue can't give us:
+#   1. Replay — bootstrap runs once at server startup, but the user
+#      may open /bootstrap mid-run, after it's finished, or reload the
+#      page. Every fresh client must see the full event timeline,
+#      otherwise it sits forever waiting for messages that already
+#      flew past.
+#   2. Multiple concurrent viewers — a single shared Queue is drained
+#      by ONE consumer; a second tab would silently swallow events
+#      from the first or vice-versa.
+#
+# So we keep an append-only history list AND a set of per-client
+# subscriber queues. `emit_bootstrap` records to history and fans out
+# to every live subscriber. New connections replay history first, then
+# either tail live updates or close immediately if bootstrap is done.
+bootstrap_history: list[dict] = []
+bootstrap_subscribers: set[asyncio.Queue] = set()
+bootstrap_done: bool = False
+
+async def emit_bootstrap(evt: dict) -> None:
+    bootstrap_history.append(evt)
+    for q in list(bootstrap_subscribers):
+        await q.put(evt)
 
 # Ensure static directory exists
 os.makedirs("lokidoki/static", exist_ok=True)
@@ -38,8 +60,8 @@ async def run_command_with_logs(cmd: str, cwd: str = "."):
         line = await process.stdout.readline()
         if not line:
             break
-        await bootstrap_queue.put({"type": "log", "message": line.decode().strip()})
-    
+        await emit_bootstrap({"type": "log", "message": line.decode().strip()})
+
     await process.wait()
     return process.returncode
 
@@ -57,23 +79,26 @@ BOOTSTRAP_STEPS = [
 
 async def run_bootstrap():
     """Performs full-stack bootstrap orchestration."""
+    global bootstrap_done
     steps = BOOTSTRAP_STEPS
 
     for step_id, label, cmd in steps:
-        await bootstrap_queue.put({"type": "step_start", "step_id": step_id, "message": label})
-        
+        await emit_bootstrap({"type": "step_start", "step_id": step_id, "message": label})
+
         # Determine working directory for frontend steps
         cwd = "frontend" if "frontend" in step_id else "."
-        
-        rc = await run_command_with_logs(cmd, cwd=cwd)
-        
-        if rc == 0:
-            await bootstrap_queue.put({"type": "step_done", "step_id": step_id})
-        else:
-            await bootstrap_queue.put({"type": "step_failed", "step_id": step_id, "message": f"Orchestration failed at {step_id}."})
-            return # Halt on failure
 
-    await bootstrap_queue.put({"type": "complete", "message": "Pipeline operational."})
+        rc = await run_command_with_logs(cmd, cwd=cwd)
+
+        if rc == 0:
+            await emit_bootstrap({"type": "step_done", "step_id": step_id})
+        else:
+            await emit_bootstrap({"type": "step_failed", "step_id": step_id, "message": f"Orchestration failed at {step_id}."})
+            bootstrap_done = True  # halted, but no further events coming
+            return
+
+    await emit_bootstrap({"type": "complete", "message": "Pipeline operational."})
+    bootstrap_done = True
 
 @app.on_event("startup")
 async def startup_event():
@@ -87,14 +112,33 @@ async def get_bootstrap():
 @app.get("/api/v1/bootstrap/status")
 async def bootstrap_status(request: Request):
     async def event_generator():
-        while True:
-            if await request.is_disconnected():
-                break
-            message = await bootstrap_queue.get()
-            yield f"data: {json.dumps(message)}\n\n"
-            bootstrap_queue.task_done()
-            if message.get("type") == "complete":
-                break
+        # 1. Replay everything that has happened so far. A reload or
+        #    late connection must catch up before tailing live events,
+        #    otherwise the client sits at whatever state it last saw.
+        for evt in list(bootstrap_history):
+            yield f"data: {json.dumps(evt)}\n\n"
+
+        # 2. If bootstrap already finished, history already contains
+        #    the terminal `complete` (or `step_failed`) event — just
+        #    close the stream. The client closes its EventSource on
+        #    receiving `complete`, so this is the natural exit.
+        if bootstrap_done:
+            return
+
+        # 3. Otherwise subscribe for live updates with our own queue
+        #    so multiple viewers can each receive every event.
+        q: asyncio.Queue = asyncio.Queue()
+        bootstrap_subscribers.add(q)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                message = await q.get()
+                yield f"data: {json.dumps(message)}\n\n"
+                if message.get("type") == "complete":
+                    break
+        finally:
+            bootstrap_subscribers.discard(q)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # Include routers

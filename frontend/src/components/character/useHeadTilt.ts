@@ -40,7 +40,8 @@ export type HeadTiltState =
   | "speaking"
   | "sick"
   | "angry"
-  | "sad";
+  | "sad"
+  | "shocked";
 
 /** Hint to the renderer about a non-default eye direction. The
  *  renderer maps this to a per-style DiceBear eye variant; styles
@@ -77,6 +78,8 @@ const SMOOTHING: Record<HeadTiltState, number> = {
   angry: 0.20,
   // Loose so the sob bobs feel weighted, not flicky.
   sad: 0.07,
+  // Snap-back jolt — shock should arrive almost instantly.
+  shocked: 0.35,
 };
 
 // ---------- doze/sleep phase machine ----------
@@ -302,10 +305,66 @@ export function useHeadTilt(
               2.4 * Math.sin((2 * Math.PI * t) / 22000) +
               0.9 * Math.sin((2 * Math.PI * t) / 13700 + 1.3);
             break;
-          case "thinking":
-            // Small fixed lean. Renderer also gets the eye-up hint.
-            target = -8;
+          case "thinking": {
+            // Looping think pose: lean → hold (random) → return →
+            // pause (random) → repeat. Reusing dozeRef as a tiny
+            // phase machine — same pattern as dozing/sleeping but
+            // with only two visible phases. The eye-up hint is gated
+            // on the lean+hold phases so the eyes only roll up while
+            // the head is actually tilted.
+            if (!dozeRef.current || dozeRef.current.state !== "thinking") {
+              dozeRef.current = {
+                state: "thinking",
+                phase: "tilting",
+                phaseStart: t,
+                phaseDur: 700, // ease-in to the lean
+                phaseSmoothing: 0.07,
+                tiltDeg: -8,
+                blinksLeft: 0,
+              };
+            }
+            const ctx = dozeRef.current;
+            if (t - ctx.phaseStart >= ctx.phaseDur) {
+              ctx.phaseStart = t;
+              switch (ctx.phase) {
+                case "tilting":
+                  // Hold the leaned think pose for a random beat.
+                  ctx.phase = "tiltedHold";
+                  ctx.phaseDur = 1800 + Math.random() * 2600; // 1.8..4.4s
+                  ctx.phaseSmoothing = null;
+                  break;
+                case "tiltedHold":
+                  // Return upright.
+                  ctx.phase = "returning";
+                  ctx.phaseDur = 600;
+                  ctx.phaseSmoothing = null;
+                  break;
+                case "returning":
+                  // Brief upright pause before thinking again.
+                  ctx.phase = "gap";
+                  ctx.phaseDur = 500 + Math.random() * 1500; // 0.5..2.0s
+                  ctx.phaseSmoothing = null;
+                  break;
+                case "gap":
+                default:
+                  // Re-roll a slightly varied lean each cycle so it
+                  // doesn't read as a fixed pose.
+                  ctx.phase = "tilting";
+                  ctx.phaseDur = 700;
+                  ctx.phaseSmoothing = 0.07;
+                  ctx.tiltDeg = -(6 + Math.random() * 5); // -6..-11°
+                  break;
+              }
+            }
+            target =
+              ctx.phase === "tilting" || ctx.phase === "tiltedHold"
+                ? ctx.tiltDeg
+                : 0;
+            if (ctx.phaseSmoothing != null) {
+              phaseSmoothing = ctx.phaseSmoothing;
+            }
             break;
+          }
           case "listening":
             target = 2 * Math.sin((2 * Math.PI * t) / 4500);
             break;
@@ -322,6 +381,13 @@ export function useHeadTilt(
             // angry smoothing reads it as shake, not wobble.
             target =
               5 + 1.6 * Math.sin((2 * Math.PI * t) / 240);
+            break;
+          case "shocked":
+            // Quick recoil — head jerks back. Combined with the
+            // wide-eyes / open-mouth face profile in faceForState,
+            // this reads as a startled reaction. Auto-revert is the
+            // caller's responsibility (set on a timer in ChatPage).
+            target = -14;
             break;
           case "sad":
             // Sob bobs. Forward droop with a slow rhythmic dip
@@ -366,9 +432,17 @@ export function useHeadTilt(
       const sleepMouthOpen =
         sleepMouth && Math.floor(t / 1500) % 2 === 0;
 
-      // Thinking gets the eye-up hint; everything else clears it.
+      // Thinking gets the eye-up hint, but only while the head is
+      // actually leaned (tilting/tiltedHold phases) — not during the
+      // upright return/gap so the eyes drop back to neutral between
+      // think beats.
+      const inThinkLean =
+        st === "thinking" &&
+        dozeRef.current?.state === "thinking" &&
+        (dozeRef.current.phase === "tilting" ||
+          dozeRef.current.phase === "tiltedHold");
       const eyeHint: EyeVariantHint =
-        manual === undefined && st === "thinking" ? "lookUpLeft" : null;
+        manual === undefined && inThinkLean ? "lookUpLeft" : null;
 
       setSnapshot({
         headDeg: nextHead,

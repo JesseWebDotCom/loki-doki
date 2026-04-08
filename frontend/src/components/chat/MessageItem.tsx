@@ -11,6 +11,8 @@ import {
   TooltipProvider,
 } from '../ui/tooltip';
 import type { SourceInfo, SilentConfirmation } from '../../lib/api';
+import type { PipelineState } from '../../pages/ChatPage';
+import PipelineInfoPopover from './PipelineInfoPopover';
 
 interface MessageProps {
   role: 'user' | 'assistant';
@@ -21,6 +23,9 @@ interface MessageProps {
   clarification?: string;
   messageKey?: string;
   avatar?: React.ReactNode;
+  assistantName?: string;
+  userName?: string;
+  pipeline?: PipelineState;
 }
 
 /**
@@ -80,6 +85,9 @@ const MessageItem: React.FC<MessageProps> = ({
   clarification,
   messageKey,
   avatar,
+  assistantName,
+  userName,
+  pipeline,
 }) => {
   const isUser = role === 'user';
   const tts = useTTSState();
@@ -102,9 +110,10 @@ const MessageItem: React.FC<MessageProps> = ({
       }`}>
         <div className="flex items-center gap-2 mb-3 opacity-70">
           <span className={`text-[10px] font-bold uppercase tracking-widest ${isUser ? 'text-primary' : 'text-muted-foreground'}`}>
-            {role}
+            {isUser ? (userName || 'user') : (assistantName || 'assistant')}
           </span>
           <span className="text-[10px] text-muted-foreground/40 font-mono italic">{timestamp}</span>
+          {!isUser && pipeline && <PipelineInfoPopover pipeline={pipeline} />}
           {!isUser && myKey && (
             <div className="ml-auto flex items-center gap-1">
               <button

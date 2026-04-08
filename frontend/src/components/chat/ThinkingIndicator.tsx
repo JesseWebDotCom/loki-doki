@@ -5,6 +5,8 @@ import { formatDuration } from '../../lib/utils';
 
 interface ThinkingIndicatorProps {
   pipeline: PipelineState;
+  avatar?: React.ReactNode;
+  assistantName?: string;
 }
 
 const PHASE_CONFIG = {
@@ -16,7 +18,7 @@ const PHASE_CONFIG = {
 
 const PHASE_ORDER: Array<keyof typeof PHASE_CONFIG> = ['augmentation', 'decomposition', 'routing', 'synthesis'];
 
-const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
+const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline, avatar, assistantName }) => {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const currentPhase = pipeline.phase;
@@ -84,12 +86,13 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline }) => {
   const ActiveIcon = activeConfig?.icon;
 
   return (
-    <div className={`flex w-full justify-start ${isCompleted ? 'mb-2' : 'mb-8'}`}>
+    <div className={`flex w-full justify-start items-start gap-3 ${isCompleted ? 'mb-2' : 'mb-8'}`}>
+      {avatar}
       <div className="max-w-[80%] rounded-2xl px-6 py-4 border border-border/40 bg-card/50 backdrop-blur-sm">
         {!isCompleted && (
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              assistant
+              {assistantName || 'assistant'}
             </span>
           </div>
         )}

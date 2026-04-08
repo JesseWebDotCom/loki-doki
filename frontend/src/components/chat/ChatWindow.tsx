@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import MessageItem from './MessageItem';
 import ThinkingIndicator from './ThinkingIndicator';
-import RiggedDicebearAvatar from '../character/RiggedDicebearAvatar';
+import CharacterFrame, { type CharacterMode } from '../character/CharacterFrame';
 import type { HeadTiltState } from '../character/useHeadTilt';
 import type { CharacterRow } from '../../lib/api';
 import type { PipelineState, Message } from '../../pages/ChatPage';
@@ -11,18 +11,39 @@ interface ChatWindowProps {
   pipeline?: PipelineState;
   activeChar?: CharacterRow | null;
   characterState?: HeadTiltState;
+  characterMode?: CharacterMode;
+  onCharacterModeChange?: (m: CharacterMode) => void;
+  onCharacterShock?: () => void;
+  activeAssistantKey?: string | null;
+  assistantName?: string;
+  userName?: string;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ messages, pipeline, activeChar, characterState }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({
+  messages,
+  pipeline,
+  activeChar,
+  characterState,
+  characterMode,
+  onCharacterModeChange,
+  onCharacterShock,
+  activeAssistantKey,
+  assistantName,
+  userName,
+}) => {
+  // Per-message mini avatars only render in mini mode. Docked mode
+  // shows the big right-column avatar instead, and rendering both at
+  // once wastes a lot of DiceBear cycles.
   const renderAvatar = (state: HeadTiltState) =>
-    activeChar ? (
-      <div className="shrink-0 w-16 h-16 rounded-2xl bg-card/60 border border-border/30 shadow-m2 flex items-center justify-center overflow-hidden">
-        <RiggedDicebearAvatar
-          style={activeChar.avatar_style}
-          seed={activeChar.avatar_seed}
-          baseOptions={activeChar.avatar_config as Record<string, unknown>}
+    activeChar && characterMode === 'mini' && onCharacterModeChange && onCharacterShock ? (
+      <div className="shrink-0">
+        <CharacterFrame
+          character={activeChar}
           size={60}
-          tiltState={state}
+          state={state}
+          mode={characterMode}
+          onModeChange={onCharacterModeChange}
+          onShock={onCharacterShock}
         />
       </div>
     ) : null;
@@ -42,17 +63,33 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, pipeline, activeChar,
       className="flex-1 overflow-y-auto p-12 space-y-4 scroll-smooth scrollbar-hide bg-background"
     >
       <div className="max-w-4xl mx-auto">
-        {messages.map((msg, idx) => (
-          <React.Fragment key={idx}>
-            {msg.pipeline && <ThinkingIndicator pipeline={msg.pipeline} />}
-            <MessageItem
-              {...msg}
-              messageKey={`msg-${idx}`}
-              avatar={msg.role === 'assistant' ? renderAvatar(characterState ?? 'idle') : undefined}
-            />
-          </React.Fragment>
-        ))}
-        {isThinking && <ThinkingIndicator pipeline={pipeline} />}
+        {messages.map((msg, idx) => {
+          const myKey = `msg-${idx}`;
+          // Mini mode renders ONE avatar in the whole chat, attached
+          // to whichever assistant message is currently active (the
+          // one being TTS-played, or the latest if nothing is playing).
+          // Every other message gets no avatar at all so the column
+          // doesn't fill up with sleeping faces.
+          const isActive = msg.role === 'assistant' && myKey === activeAssistantKey;
+          return (
+            <React.Fragment key={idx}>
+              <MessageItem
+                {...msg}
+                messageKey={myKey}
+                avatar={isActive ? renderAvatar(characterState ?? 'idle') : undefined}
+                assistantName={assistantName}
+                userName={userName}
+              />
+            </React.Fragment>
+          );
+        })}
+        {isThinking && (
+          <ThinkingIndicator
+            pipeline={pipeline}
+            avatar={renderAvatar(characterState ?? 'thinking')}
+            assistantName={assistantName}
+          />
+        )}
         {isThinking && pipeline?.streamingResponse && (
           <MessageItem
             role="assistant"
@@ -60,6 +97,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, pipeline, activeChar,
             timestamp=""
             sources={[]}
             avatar={renderAvatar(characterState ?? 'thinking')}
+            assistantName={assistantName}
+            userName={userName}
           />
         )}
       </div>

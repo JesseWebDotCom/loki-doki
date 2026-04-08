@@ -149,12 +149,20 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
   const userSetMouth = "mouth" in (baseOptions ?? {});
   const userSetEyes = "eyes" in (baseOptions ?? {});
   const userSetEyebrows = "eyebrows" in (baseOptions ?? {});
+  // `shocked` is a transient click-feedback reaction. Like sleep snore
+  // it's involuntary, so it overrides the user's mouth/eyes/eyebrows
+  // picks AND beats live TTS lipsync — otherwise clicking the avatar
+  // mid-response would only jerk the head with no facial reaction.
+  const isShockedOverride = tiltState === "shocked" && stateFace != null;
 
   // ---- mouth ----
   if (anim.sleepMouth) {
     // Snore cycle takes precedence over everything.
     const v: Viseme = anim.sleepMouthOpen ? "o" : "closed";
     effectiveOptions.mouth = [mouthForViseme(style, v)];
+    effectiveOptions.mouthProbability = 100;
+  } else if (isShockedOverride && stateFace?.mouth) {
+    effectiveOptions.mouth = [stateFace.mouth];
     effectiveOptions.mouthProbability = 100;
   } else if (isSpeaking) {
     // Live lipsync. Use whatever viseme the TTS stream emitted last.
@@ -187,7 +195,10 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
     : null;
 
   // ---- eyes ----
-  if (blinkViaOverride) {
+  if (isShockedOverride && stateFace?.eyes) {
+    effectiveOptions.eyes = [stateFace.eyes];
+    effectiveOptions.eyesProbability = 100;
+  } else if (blinkViaOverride) {
     effectiveOptions.eyes = [blinkEye as string];
     effectiveOptions.eyesProbability = 100;
   } else if (lookUpEye) {
@@ -204,7 +215,10 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
   // else: leave whatever the user picked in baseOptions intact.
 
   // ---- eyebrows ----
-  if (stateFace?.eyebrows && !userSetEyebrows) {
+  if (isShockedOverride && stateFace?.eyebrows) {
+    effectiveOptions.eyebrows = [stateFace.eyebrows];
+    effectiveOptions.eyebrowsProbability = 100;
+  } else if (stateFace?.eyebrows && !userSetEyebrows) {
     effectiveOptions.eyebrows = [stateFace.eyebrows];
     effectiveOptions.eyebrowsProbability = 100;
   }
