@@ -86,10 +86,10 @@ const MAPS: Record<AvatarStyle, StyleVisemeMap> = {
       b: "smile",
       m: "smile",
     },
-    // toon-head has no both-eye-closed variant. `wink` only closes
-    // one eye, which looks broken as an idle blink, so we disable
-    // blink for this style entirely (matches bottts policy).
-    blinkEye: null,
+    // toon-head's `bow` eye is two downward arcs over both eye
+    // sockets — i.e. the `^_^` closed-eye look. Perfect blink frame.
+    // (`wink` only closes one eye and reads as broken for idle blinks.)
+    blinkEye: "bow",
     defaultEye: "happy",
   },
 };
