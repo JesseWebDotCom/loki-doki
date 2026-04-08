@@ -12,6 +12,36 @@ import { VoiceStreamer } from './VoiceStreamer';
 
 const MUTE_KEY = 'lokidoki.tts.muted';
 
+/**
+ * Strip markdown so Piper doesn't literally pronounce "asterisk" around
+ * **bold** spans, read backticks, or spell out link syntax. Operates on
+ * the raw assistant text right before it's handed to the streamer.
+ */
+function stripMarkdownForSpeech(text: string): string {
+  return text
+    // fenced + inline code → keep contents, drop the fences
+    .replace(/```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    // images ![alt](url) → alt
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // links [text](url) → text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    // bold/italic **x**, __x__, *x*, _x_
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(?=\S)([^*_]+?)(?<=\S)\1/g, '$2')
+    // strikethrough ~~x~~
+    .replace(/~~(.*?)~~/g, '$1')
+    // headings / blockquotes / list bullets at line start
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    // citation markers like [src:3]
+    .replace(/\[src:\d+\]/gi, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 type Listener = () => void;
 type VisemeListener = (viseme: string) => void;
 
@@ -76,14 +106,15 @@ class TTSController {
   pendingMessageKey() { return this.pendingKey; }
 
   async speak(messageKey: string, text: string) {
-    if (this.muted || !text.trim()) return;
+    const spoken = stripMarkdownForSpeech(text);
+    if (this.muted || !spoken.trim()) return;
     this.stop();
     this.pendingKey = messageKey;
     this.emit();
 
     this.abort = new AbortController();
     try {
-      await this.streamer.stream(text, {
+      await this.streamer.stream(spoken, {
         signal: this.abort.signal,
         onPlaybackStart: () => {
           this.pendingKey = null;
