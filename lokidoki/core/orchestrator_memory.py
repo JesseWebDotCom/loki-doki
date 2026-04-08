@@ -205,6 +205,24 @@ async def persist_long_term_item(
     subject_type = item.get("subject_type", "self")
     subject_name = (item.get("subject_name") or "").strip()
     negates_previous = bool(item.get("negates_previous", False))
+    kind = item.get("kind") or "fact"
+
+    # Defense-in-depth: refuse to persist obviously-broken person/entity
+    # subject names. The decomposer_repair coerce_item path *should*
+    # have caught these, but we mirror the guard here so any future
+    # call site (e.g. a direct API ingestion path) can't bypass it
+    # and pollute the people table with question fragments like
+    # "Who Is Craig Nelson And".
+    if subject_type in ("person", "entity") and subject_name:
+        parts = subject_name.split()
+        question_words = {"who", "what", "where", "when", "why", "how", "which"}
+        if len(parts) > 3 or any(
+            p.lower().strip(".,!?;:") in question_words for p in parts
+        ):
+            logger.info(
+                "[orchestrator_memory] dropping garbage subject_name=%r", subject_name
+            )
+            return {}
 
     person_id: Optional[int] = None
     ambiguity_group_id: Optional[int] = None
@@ -222,6 +240,12 @@ async def persist_long_term_item(
         fact_subject = subject_name.lower()
         if ambiguity_group_id is not None:
             fact_status = "ambiguous"
+    elif subject_type == "entity" and subject_name:
+        # Entities are named non-person things (movies, books, places).
+        # No people row, no disambiguation — just stamp the lowercased
+        # name as the subject. Dedup happens on (subject, predicate, value)
+        # exactly the same way as person/self.
+        fact_subject = subject_name.lower()
     else:
         subject_type = "self"
         fact_subject = "self"
@@ -238,6 +262,7 @@ async def persist_long_term_item(
         status=fact_status,
         ambiguity_group_id=ambiguity_group_id,
         negates_previous=negates_previous,
+        kind=kind,
     )
 
     rel_kind = (item.get("relationship_kind") or "").strip()
@@ -262,11 +287,20 @@ async def persist_long_term_item(
             except Exception:
                 logger.exception("[orchestrator_memory] add_relationship failed")
 
+    if subject_type == "person":
+        subject_label = subject_name
+    elif subject_type == "entity":
+        subject_label = subject_name
+    else:
+        subject_label = "you"
+
     return {
         "fact_id": fact_id,
-        "subject_label": subject_name if subject_type == "person" else "you",
+        "subject_label": subject_label,
+        "subject_type": subject_type,
         "predicate": predicate,
         "value": value,
+        "kind": kind,
         "status": fact_status,
         "ambiguity_group_id": ambiguity_group_id,
         "candidate_ids": candidate_ids,

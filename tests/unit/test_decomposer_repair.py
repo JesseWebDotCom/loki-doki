@@ -64,6 +64,39 @@ class TestLongTermItem:
                 "predicate": "x", "value": "y", "kind": "fact",
             })
 
+    def test_entity_fact_validates(self):
+        # Entities are named non-person things (movies, books, places).
+        # They MUST have a subject_name; the subject_ref_id is null
+        # (no people row), and persistence stores subject = lowercased name.
+        item = LongTermItem.model_validate({
+            "subject_type": "entity", "subject_name": "Biodome",
+            "predicate": "was", "value": "pretty good", "kind": "preference",
+        })
+        assert item.subject_type == "entity"
+        assert item.subject_name == "Biodome"
+        assert item.kind == "preference"
+
+    def test_entity_subject_requires_name(self):
+        with pytest.raises(Exception):
+            LongTermItem.model_validate({
+                "subject_type": "entity", "subject_name": "",
+                "predicate": "is", "value": "great", "kind": "preference",
+            })
+
+    def test_kind_enum_accepts_taxonomy(self):
+        for kind in ("fact", "preference", "event", "advice"):
+            LongTermItem.model_validate({
+                "subject_type": "self", "subject_name": "",
+                "predicate": "p", "value": "v", "kind": kind,
+            })
+
+    def test_kind_enum_rejects_unknown(self):
+        with pytest.raises(Exception):
+            LongTermItem.model_validate({
+                "subject_type": "self", "subject_name": "",
+                "predicate": "p", "value": "v", "kind": "garbage",
+            })
+
 
 class TestParseItems:
     def test_partition_good_and_bad(self):
@@ -133,8 +166,12 @@ class TestCoerceItem:
             },
             original_input="The new Supergirl trailer looks good",
         )
-        # 'Supergirl' is blocklisted — should fall back to self.
-        assert out["subject_type"] == "self"
+        # 'Supergirl' is blocklisted, so the salvage demotes to self.
+        # Then the bare-copula guard kicks in: predicate `is` + value
+        # `great` + no first-person leader + no recoverable entity =
+        # noise. The fragment is correctly dropped — the user never
+        # claimed THEY were great.
+        assert out is None
 
     def test_titlecases_lowercase_person_name(self):
         # gemma sometimes lowercases proper nouns. UIs and dedupe paths
@@ -222,6 +259,155 @@ class TestCoerceItem:
             "predicate": "is", "value": "TOM", "kind": "fact",
         })
         assert out is None
+
+    def test_bare_copula_self_fragment_dropped_when_no_entity(self):
+        """`{self, was, pretty good}` from a context with no recoverable
+        named entity is unsalvageable noise — must drop."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "was", "value": "pretty good", "kind": "fact",
+            },
+            original_input="it was pretty good honestly",
+        )
+        assert out is None
+
+    def test_bare_copula_self_fragment_promoted_to_entity(self):
+        """The Biodome regression. `{self, was, pretty good}` extracted
+        from "biodome was pretty good" must be promoted to an entity
+        fact about Biodome, NOT stored as a self claim."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "was", "value": "pretty good", "kind": "fact",
+            },
+            original_input="biodome was pretty good",
+        )
+        assert out is not None
+        assert out["subject_type"] == "entity"
+        assert out["subject_name"].lower() == "biodome"
+        assert out["value"] == "pretty good"
+        assert out["kind"] == "preference"
+
+    def test_bare_copula_self_fragment_promoted_for_multiword_entity(self):
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "was", "value": "amazing", "kind": "fact",
+            },
+            original_input="St Elmos Fire was amazing",
+        )
+        assert out is not None
+        assert out["subject_type"] == "entity"
+        assert "Elmos" in out["subject_name"]
+
+    def test_self_fragment_with_entity_in_value_dropped(self):
+        """`{self, was, the movie biodome}` — object→value inversion.
+        Can't safely promote (we don't know which token is the entity),
+        so the only correct move is to drop the fragment entirely."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "was", "value": "the movie biodome", "kind": "fact",
+            },
+            original_input="biodome was the movie biodome",
+        )
+        assert out is None
+
+    def test_tautology_caught_after_name_recovery(self):
+        """gemma emits {person, "", is, "artie"} from "my brother artie
+        loves movies". Salvage 2 fills in subject_name="Artie", then
+        the FINAL tautology pass must drop {Artie, is, "artie"}."""
+        out = coerce_item(
+            {
+                "subject_type": "person", "subject_name": "",
+                "predicate": "is", "value": "artie",
+                "kind": "relationship", "relationship_kind": "brother",
+            },
+            original_input="My brother artie loves movies",
+        )
+        assert out is None
+
+    def test_entity_recovery_rejects_phrase_with_embedded_copula(self):
+        """The greedy-regex bug. "Who is craig nelson and is he related"
+        used to capture "Who is craig nelson and" as the entity prefix
+        because of the SECOND `is` later in the sentence. The post-filter
+        must reject any captured phrase containing copulas/question words."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "is", "value": "Craig Nelson", "kind": "fact",
+            },
+            original_input="Who is craig nelson and is he related to judd nelson",
+        )
+        assert out is None
+
+    def test_drops_garbage_person_name_with_question_words(self):
+        """gemma sometimes lifts an entire question fragment into
+        subject_name. 'Who Is Craig Nelson And' is not a person."""
+        out = coerce_item(
+            {
+                "subject_type": "person",
+                "subject_name": "Who Is Craig Nelson And",
+                "predicate": "is", "value": "Craig Nelson", "kind": "fact",
+            },
+            original_input="who is craig nelson and judd nelson",
+        )
+        assert out is None
+
+    def test_drops_garbage_person_name_too_long(self):
+        out = coerce_item(
+            {
+                "subject_type": "person",
+                "subject_name": "Mark Smith The Plumber From Denver",
+                "predicate": "lives", "value": "Denver", "kind": "fact",
+            },
+            original_input="...",
+        )
+        assert out is None
+
+    def test_drops_self_with_proper_noun_value(self):
+        """Subject/object inversion: {self, is_related_to, Judd Nelson}
+        is not about the user. Drop unless the input clearly anchors
+        to first person."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "is_related_to", "value": "Judd Nelson",
+                "kind": "fact",
+            },
+            original_input="st elmos fire features judd nelson",
+        )
+        assert out is None
+
+    def test_self_with_proper_noun_value_kept_when_first_person(self):
+        """`I met Judd Nelson` -> {self, met, Judd Nelson} is legit."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "met", "value": "Judd Nelson", "kind": "event",
+            },
+            original_input="I met Judd Nelson at a coffee shop",
+        )
+        assert out is not None
+        assert out["subject_type"] == "self"
+        assert out["value"] == "Judd Nelson"
+
+    def test_legit_self_past_tense_not_dropped(self):
+        """`I was happy yesterday` -> `{self, was, happy}` is a real
+        self-claim. The bare-copula guard must not strip it just because
+        the predicate is `was`. The first-person leader in the input is
+        the signal we trust."""
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "was", "value": "happy", "kind": "fact",
+            },
+            original_input="I was happy yesterday",
+        )
+        assert out is not None
+        assert out["subject_type"] == "self"
+        assert out["value"] == "happy"
 
     def test_strips_whitespace_in_string_fields(self):
         out = coerce_item({

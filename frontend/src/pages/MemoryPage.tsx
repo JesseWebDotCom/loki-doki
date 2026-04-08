@@ -158,13 +158,16 @@ const MemoryPage: React.FC = () => {
     [refreshAll],
   );
 
-  // Partition facts.
+  // Partition facts. The decomposer now emits three subject_types:
+  // 'self' (about the user), 'person' (FK into people), 'entity' (a
+  // named non-person thing the user mentioned: a movie, place, etc).
+  // Entities live in the "Other" tab so they don't pollute "About You".
   const { selfFacts, otherFacts, selfConflicts, otherConflicts } = useMemo(() => {
     const personIds = new Set(people.map((p) => p.id));
-    const isSelf = (f: Fact) =>
-      (f.subject_type ?? "self") === "self" || !f.subject_ref_id;
+    const isSelf = (f: Fact) => (f.subject_type ?? "self") === "self";
     const isPerson = (f: Fact) =>
-      f.subject_ref_id != null && personIds.has(f.subject_ref_id);
+      f.subject_type === "person" ||
+      (f.subject_ref_id != null && personIds.has(f.subject_ref_id));
     return {
       selfFacts: facts.filter(isSelf),
       otherFacts: facts.filter((f) => !isSelf(f) && !isPerson(f)),

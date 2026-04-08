@@ -77,9 +77,12 @@ export interface Fact {
   fact: string;            // alias of `value` for the legacy UI
   value?: string;
   subject?: string;
-  subject_type?: string;
+  /** 'self' (the user) | 'person' (FK people) | 'entity' (named thing) */
+  subject_type?: "self" | "person" | "entity" | string;
   subject_ref_id?: number | null;
   predicate?: string;
+  /** Memory taxonomy: fact | preference | event | advice | relationship */
+  kind?: "fact" | "preference" | "event" | "advice" | "relationship" | string;
   category: string;
   confidence?: number;
   effective_confidence?: number;
@@ -88,6 +91,10 @@ export interface Fact {
   status?: "active" | "ambiguous" | "pending" | "rejected" | "superseded" | string;
   ambiguity_group_id?: number | null;
   source_message_id?: number | null;
+  /** When this claim became true (defaults to insert time). */
+  valid_from?: string;
+  /** When this claim was superseded; null = currently true. */
+  valid_to?: string | null;
   created_at?: string;
   updated_at?: string;
 }

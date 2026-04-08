@@ -77,6 +77,14 @@ _PROPER_NOUN_BLOCKLIST = {
     "Friday", "Saturday", "Sunday",
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
+    # Pronouns and demonstratives — can't be entity names. Capitalized
+    # forms like "It", "That", "This" appear at the start of sentences
+    # and would otherwise pollute the named-entity recovery.
+    "It", "That", "This", "These", "Those", "He", "She", "They",
+    "We", "Us", "Them", "Here", "There",
+    # Question words — gemma sometimes lifts these as a "person name"
+    # when the user asked a lookup question like "Who is X?".
+    "Who", "What", "Where", "When", "Why", "How", "Which",
 }
 
 
@@ -124,6 +132,146 @@ def _extract_relation_name_pair(text: str) -> Optional[tuple[str, str]]:
 
 _TAUTOLOGY_PREDICATES = {"is", "named", "is_named", "name", "called", "is_called"}
 
+# Bare copulas. When the decomposer emits a self-fact whose predicate is
+# one of these AND the value is a short evaluative fragment, the claim
+# is almost always extraction garbage from a sentence like "biodome was
+# pretty good" — the user's review of a movie that got mis-attributed
+# to the user themselves. Drop these unless the salvage can promote
+# them to an entity fact.
+_BARE_COPULAS = {"is", "was", "were", "be", "are", "been", "being"}
+
+# Bigrams the decomposer often emits as "subject" leakage when it failed
+# to identify the real subject — these are sentence fragments, not
+# entities. Used by the entity salvage to refuse promoting garbage.
+_FRAGMENT_VALUE_PREFIXES = {
+    "the movie", "the book", "the game", "the show", "the song",
+    "the album", "the film",
+}
+
+# Question words that should never appear inside a person name. gemma
+# sometimes lifts an entire question fragment ("Who is Craig Nelson and")
+# into subject_name when it failed to parse the user's lookup query.
+_QUESTION_WORDS = {"who", "what", "where", "when", "why", "how", "which"}
+
+
+def _is_garbage_person_name(name: str) -> bool:
+    """Reject sentence-fragment 'names' that gemma lifted from questions.
+
+    Real person names are 1–3 words, none of which are question words.
+    Anything longer is a parser failure and storing it pollutes the
+    people table forever.
+    """
+    if not name:
+        return True
+    parts = name.strip().split()
+    if len(parts) > 3:
+        return True
+    if any(p.lower().strip(".,!?;:") in _QUESTION_WORDS for p in parts):
+        return True
+    return False
+
+
+def _looks_like_proper_noun(value: str) -> bool:
+    """Is ``value`` a bare Capitalized proper noun (1-3 words, title case)?
+
+    Used to detect subject/object inversions like ``{self, is_related_to,
+    Judd Nelson}`` where the real fact is about the proper noun.
+    """
+    if not value:
+        return False
+    parts = value.strip().split()
+    if not 1 <= len(parts) <= 3:
+        return False
+    # Every word starts uppercase. Tolerate trailing punctuation.
+    for p in parts:
+        cleaned = p.strip(".,!?;:'\"")
+        if not cleaned or not cleaned[0].isupper():
+            return False
+        # Reject all-caps shouting (HALO, NASA) — keeps "Judd Nelson"
+        # but not "I" or single letters.
+        if len(cleaned) < 2:
+            return False
+    return True
+
+
+_COPULA_RE_TOKENS = {"is", "was", "were", "are", "am", "be", "been", "being"}
+
+
+def _extract_named_entity(text: str) -> Optional[str]:
+    """Best-effort named-entity extraction from a user message.
+
+    Used to promote bare-copula self-fragments into entity facts. We
+    prefer 'X was/is <value>' patterns where X is a Capitalized phrase
+    (movie/book title), then fall back to any leading capitalized run.
+
+    Returns the entity name in title case, or None when nothing
+    plausible is found.
+
+    Robust against the greedy-regex bug: if a captured phrase contains
+    embedded copulas or question words ("Who is craig nelson and"
+    captured before a SECOND `is`), we reject it. Real entity names
+    do not contain copulas.
+    """
+    if not text:
+        return None
+    # Lazy quantifier on the inner repetition so the engine prefers the
+    # shortest phrase ending in a copula, not the longest. Combined with
+    # the post-filter below this is robust to inputs with multiple
+    # copulas.
+    m = re.search(
+        r"\b((?:[Tt]he\s+|[Aa]\s+|[Aa]n\s+)?[A-Za-z][a-zA-Z0-9'\-]*"
+        r"(?:\s+[A-Za-z0-9][a-zA-Z0-9'\-]*){0,4}?)\s+(?:is|was|were|are)\b",
+        text,
+    )
+    if not m:
+        return None
+    candidate = m.group(1).strip()
+    if candidate.lower() in {w.lower() for w in _PROPER_NOUN_BLOCKLIST}:
+        return None
+    # Post-filter: reject phrases that contain copulas or question
+    # words. Real entity names ("The Lord of the Rings", "St Elmos
+    # Fire") don't have either.
+    candidate_tokens = {t.lower().strip(".,!?;:") for t in candidate.split()}
+    if candidate_tokens & _COPULA_RE_TOKENS:
+        return None
+    if candidate_tokens & _QUESTION_WORDS:
+        return None
+    return _titlecase_phrase(candidate)
+
+
+_FIRST_PERSON_LEADERS = {
+    "i", "im", "i'm", "ive", "i've", "id", "i'd", "ill", "i'll",
+    "me", "my", "we", "were", "our", "us", "myself",
+}
+
+
+def _input_is_first_person(text: str) -> bool:
+    """Does the user input clearly anchor to the speaker themselves?
+
+    Used by the bare-copula guard to avoid nuking legitimate self-claims
+    like "I was happy yesterday". A leading first-person pronoun is the
+    strongest signal that the claim really is about the user, even if
+    gemma stripped it from the structured item.
+    """
+    if not text:
+        return False
+    first_word = text.strip().split(maxsplit=1)[0].lower().strip(".,!?;:")
+    return first_word in _FIRST_PERSON_LEADERS
+
+
+def _titlecase_phrase(phrase: str) -> str:
+    """Title-case a phrase but keep small connector words lowercase."""
+    small = {"the", "a", "an", "of", "and", "or", "in", "on"}
+    parts = phrase.split()
+    out: list[str] = []
+    for i, w in enumerate(parts):
+        wl = w.lower()
+        if i > 0 and wl in small:
+            out.append(wl)
+        else:
+            out.append(wl[:1].upper() + wl[1:])
+    return " ".join(out)
+
 
 def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[dict]:
     """Pre-validation salvage for the most common gemma misshapes.
@@ -165,6 +313,17 @@ def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[di
     subject_type = out.get("subject_type") or "self"
     subject_name = out.get("subject_name") or ""
     kind = out.get("kind") or "fact"
+
+    # Garbage-name guard. When the decomposer lifts a question fragment
+    # like "Who Is Craig Nelson And" into subject_name, drop the item
+    # entirely. Only fires when subject_name is non-empty AND looks
+    # like garbage — empty names go through Salvage 2's recovery path.
+    if (
+        subject_type in ("person", "entity")
+        and subject_name
+        and _is_garbage_person_name(subject_name)
+    ):
+        return None
 
     # Drop tautological self-naming facts: "Tom is Tom", "Tom named Tom".
     # gemma emits these as redundant siblings to the real fact; storing
@@ -233,17 +392,103 @@ def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[di
             subject_type = "person"
             subject_name = name
 
+    # Salvage 4b: drop self-facts whose value is a sentence-fragment
+    # prefix like "the movie biodome". These are extraction artifacts
+    # — the model put the entire object phrase into the value slot.
+    # We can't safely promote (we don't know which token is the entity
+    # vs which is the descriptor), so dropping is the only correct
+    # move. Runs before Salvage 5 so a bogus value can't be carried
+    # along into an entity fact.
+    if subject_type == "self":
+        v_low = value_norm.lower()
+        for prefix in _FRAGMENT_VALUE_PREFIXES:
+            if v_low.startswith(prefix + " ") or v_low == prefix:
+                return None
+
+    # Salvage 5: bare-copula entity promotion. The Biodome bug — gemma
+    # turns "biodome was pretty good" into {self, was, pretty good}
+    # (subject lost) or {self, was, biodome} (object→value inversion).
+    # If the predicate is a bare copula AND the user input contains a
+    # named entity in a "<Entity> was/is ..." pattern, promote the
+    # claim to an entity fact about that entity. If no entity is
+    # recoverable AND the input doesn't lead with a first-person
+    # pronoun, drop — the fragment is unsalvageable noise. We never
+    # drop a self-claim that the user clearly anchored to themselves
+    # ("I was happy yesterday"); only the orphaned fragments where
+    # the subject is missing entirely.
+    if subject_type == "self" and predicate_norm in _BARE_COPULAS:
+        entity = _extract_named_entity(original_input or "")
+        if entity and entity.lower() != value_norm.lower():
+            out["subject_type"] = "entity"
+            out["subject_name"] = entity
+            # Normalize the predicate to "was" so dedup works across
+            # tense variations gemma emits inconsistently.
+            out["predicate"] = "was" if predicate_norm in {"was", "were", "been"} else "is"
+            # Default kind for evaluative claims about entities.
+            if (out.get("kind") or "fact") == "fact":
+                out["kind"] = "preference"
+            return out
+        if not _input_is_first_person(original_input or ""):
+            return None
+
+    # Salvage 5b: subject/object inversion for proper-noun values. When
+    # gemma emits {self, is_related_to, Judd Nelson} from a sentence
+    # about a movie that features Judd Nelson, the value is a clean
+    # Capitalized proper noun and the claim is NOT about the user. We
+    # can't always tell which entity it belongs to without more context,
+    # so the safe move is to drop. Only fires when the input doesn't
+    # lead with a first-person pronoun (so "I met Judd Nelson" survives).
+    if (
+        subject_type == "self"
+        and _looks_like_proper_noun(value_norm)
+        and not _input_is_first_person(original_input or "")
+    ):
+        return None
+
+    # Final tautology pass. The earlier tautology check ran before
+    # Salvage 2 had a chance to recover subject_name from the input,
+    # so {person, "", is, "artie"} would slip through and only later
+    # become {person, "Artie", is, "artie"}. Re-check after every
+    # salvage has had its chance to fill subject_name.
+    final_subject_name = (out.get("subject_name") or "").strip()
+    final_subject_type = out.get("subject_type") or "self"
+    final_predicate = (out.get("predicate") or "").lower().replace(" ", "_")
+    final_value = (out.get("value") or "").strip()
+    if (
+        final_subject_type in ("person", "entity")
+        and final_predicate in _TAUTOLOGY_PREDICATES
+        and final_subject_name
+        and final_value.lower() == final_subject_name.lower()
+    ):
+        return None
+
     return out
 
 
 class LongTermItem(BaseModel):
-    """One structured fact extracted by the decomposer."""
+    """One structured fact extracted by the decomposer.
 
-    subject_type: Literal["self", "person"] = "self"
+    Subject types:
+      - ``self``    — a claim about the user themselves
+      - ``person``  — a claim about another human (resolves to people row)
+      - ``entity``  — a claim about a named non-person thing the user
+                      mentioned (a movie, book, place, song, product, ...).
+                      Stored without a people row, with subject = the
+                      entity's lowercased name.
+
+    Kinds (memory taxonomy, borrowed from MemPalace's halls):
+      - ``fact``         — a static, definitional claim
+      - ``preference``   — likes/dislikes/opinions
+      - ``event``        — something that happened at a point in time
+      - ``advice``       — recommendations or solutions
+      - ``relationship`` — explicit edge in the people graph (person only)
+    """
+
+    subject_type: Literal["self", "person", "entity"] = "self"
     subject_name: str = ""
     predicate: str = Field(min_length=1)
     value: str = Field(min_length=1)
-    kind: Literal["fact", "relationship"] = "fact"
+    kind: Literal["fact", "preference", "event", "advice", "relationship"] = "fact"
     relationship_kind: Optional[str] = None
     category: str = "general"
     negates_previous: bool = False
@@ -252,6 +497,8 @@ class LongTermItem(BaseModel):
     def _check_consistency(self) -> "LongTermItem":
         if self.subject_type == "person" and not self.subject_name.strip():
             raise ValueError("subject_name required when subject_type='person'")
+        if self.subject_type == "entity" and not self.subject_name.strip():
+            raise ValueError("subject_name required when subject_type='entity'")
         if self.kind == "relationship":
             if not (self.relationship_kind or "").strip():
                 raise ValueError(
@@ -341,11 +588,14 @@ REPAIR_ARRAY_SCHEMA: dict = {
         "type": "object",
         "required": ["subject_type", "predicate", "value", "kind"],
         "properties": {
-            "subject_type": {"type": "string", "enum": ["self", "person"]},
+            "subject_type": {"type": "string", "enum": ["self", "person", "entity"]},
             "subject_name": {"type": "string"},
             "predicate": {"type": "string"},
             "value": {"type": "string"},
-            "kind": {"type": "string", "enum": ["fact", "relationship"]},
+            "kind": {
+                "type": "string",
+                "enum": ["fact", "preference", "event", "advice", "relationship"],
+            },
             "relationship_kind": {"type": ["string", "null"]},
             "category": {"type": "string"},
             "negates_previous": {"type": "boolean"},

@@ -250,6 +250,7 @@ class MemoryProvider:
         status: str = "active",
         ambiguity_group_id: Optional[int] = None,
         negates_previous: bool = False,
+        kind: str = "fact",
     ) -> tuple[int, float, dict]:
         """Insert a fact OR confirm an existing matching row.
 
@@ -275,6 +276,7 @@ class MemoryProvider:
                     status=status,
                     ambiguity_group_id=ambiguity_group_id,
                     negates_previous=negates_previous,
+                    kind=kind,
                 )
             )
 

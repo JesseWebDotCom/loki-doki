@@ -152,11 +152,12 @@ CREATE TABLE IF NOT EXISTS clarification_state (
 CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    subject TEXT NOT NULL,                  -- 'self' or lowercased person name (also indexed by FTS)
-    subject_type TEXT NOT NULL DEFAULT 'self',  -- 'self' | 'person'  (PR3)
-    subject_ref_id INTEGER REFERENCES people(id) ON DELETE CASCADE, -- people.id when subject_type='person'
+    subject TEXT NOT NULL,                  -- 'self' or lowercased person/entity name (also indexed by FTS)
+    subject_type TEXT NOT NULL DEFAULT 'self',  -- 'self' | 'person' | 'entity'
+    subject_ref_id INTEGER REFERENCES people(id) ON DELETE CASCADE, -- people.id when subject_type='person'; NULL for self/entity
     predicate TEXT NOT NULL,                -- e.g. 'likes', 'is_named'
     value TEXT NOT NULL,                    -- e.g. 'Incredibles', 'Jesse'
+    kind TEXT NOT NULL DEFAULT 'fact',      -- 'fact'|'preference'|'event'|'advice'|'relationship' (memory taxonomy)
     category TEXT NOT NULL DEFAULT 'general',
     confidence REAL NOT NULL DEFAULT 0.6,
     observation_count INTEGER NOT NULL DEFAULT 1,
@@ -165,6 +166,8 @@ CREATE TABLE IF NOT EXISTS facts (
         -- 'pending' | 'active' | 'ambiguous' | 'rejected' | 'superseded'
     ambiguity_group_id INTEGER REFERENCES ambiguity_groups(id) ON DELETE SET NULL,
     source_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    valid_from TEXT NOT NULL DEFAULT (datetime('now')),  -- when this claim became true
+    valid_to TEXT,                                       -- when superseded; NULL = currently true
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL

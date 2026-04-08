@@ -37,6 +37,13 @@ FACT_COLUMN_MIGRATIONS = (
     ("last_observed_at", "TEXT NOT NULL DEFAULT (datetime('now'))"),
     ("status", "TEXT NOT NULL DEFAULT 'active'"),
     ("ambiguity_group_id", "INTEGER"),
+    # Memory taxonomy + temporal anchoring. `kind` lets the UI group facts
+    # by type (preference vs event vs advice). `valid_from`/`valid_to`
+    # turn supersede into a temporal range query — old beliefs aren't
+    # destroyed, just bounded — so we can answer "what was true in March".
+    ("kind", "TEXT NOT NULL DEFAULT 'fact'"),
+    ("valid_from", "TEXT NOT NULL DEFAULT (datetime('now'))"),
+    ("valid_to", "TEXT"),
 )
 
 SESSION_COLUMN_MIGRATIONS = (

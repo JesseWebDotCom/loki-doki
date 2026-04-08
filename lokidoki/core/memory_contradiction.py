@@ -80,9 +80,12 @@ def detect_and_resolve_contradiction(
 
     if negates_previous:
         # Explicit "no, it's X not Y" — mark every conflicting active row
-        # as superseded so the new write becomes the sole truth.
+        # as superseded so the new write becomes the sole truth. Stamp
+        # valid_to=now so temporal queries can answer "what was true
+        # before this correction?".
         conn.execute(
-            "UPDATE facts SET status = 'superseded', updated_at = datetime('now') "
+            "UPDATE facts SET status = 'superseded', "
+            "valid_to = datetime('now'), updated_at = datetime('now') "
             "WHERE owner_user_id = ? AND id IN ({})".format(
                 ",".join("?" * len(rows))
             ),

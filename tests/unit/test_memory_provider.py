@@ -21,6 +21,87 @@ async def memory(tmp_path):
     await mp.close()
 
 
+class TestNewSchemaFields:
+    """Coverage for the kind/valid_from/valid_to/entity additions."""
+
+    @pytest.mark.anyio
+    async def test_kind_defaults_to_fact(self, memory):
+        u = await memory.get_or_create_user("default")
+        await memory.upsert_fact(
+            user_id=u, subject="self", predicate="likes", value="coffee"
+        )
+        rows = await memory.list_facts(u)
+        assert rows[0]["kind"] == "fact"
+
+    @pytest.mark.anyio
+    async def test_kind_persisted_when_provided(self, memory):
+        u = await memory.get_or_create_user("default")
+        await memory.upsert_fact(
+            user_id=u, subject="self", predicate="loves", value="halo",
+            kind="preference",
+        )
+        rows = await memory.list_facts(u)
+        assert rows[0]["kind"] == "preference"
+
+    @pytest.mark.anyio
+    async def test_valid_from_set_on_insert(self, memory):
+        u = await memory.get_or_create_user("default")
+        await memory.upsert_fact(
+            user_id=u, subject="self", predicate="lives", value="austin"
+        )
+        rows = await memory.list_facts(u)
+        assert rows[0]["valid_from"]  # non-empty timestamp string
+        assert rows[0]["valid_to"] is None  # currently true
+
+    @pytest.mark.anyio
+    async def test_supersede_stamps_valid_to(self, memory):
+        """negates_previous=True should both mark the loser superseded
+        AND stamp valid_to so temporal queries can answer 'what was true
+        before this correction?'."""
+        u = await memory.get_or_create_user("default")
+        await memory.upsert_fact(
+            user_id=u, subject="self", predicate="name", value="Jess"
+        )
+        await memory.upsert_fact(
+            user_id=u, subject="self", predicate="name", value="Jesse",
+            negates_previous=True,
+        )
+        # Pull all rows directly so we see superseded ones too.
+        def _all(conn):
+            return [
+                dict(r) for r in conn.execute(
+                    "SELECT value, status, valid_to FROM facts "
+                    "WHERE owner_user_id = ? ORDER BY id",
+                    (u,),
+                ).fetchall()
+            ]
+        rows = await memory.run_sync(_all)
+        loser = next(r for r in rows if r["value"] == "Jess")
+        winner = next(r for r in rows if r["value"] == "Jesse")
+        assert loser["status"] == "superseded"
+        assert loser["valid_to"]  # stamped
+        assert winner["valid_to"] is None  # currently true
+
+    @pytest.mark.anyio
+    async def test_entity_subject_persisted_without_person_row(self, memory):
+        """Entity facts (movies, books, places) carry subject_type='entity'
+        and have NO subject_ref_id — they're not in the people table."""
+        u = await memory.get_or_create_user("default")
+        await memory.upsert_fact(
+            user_id=u,
+            subject="biodome",
+            subject_type="entity",
+            predicate="was",
+            value="pretty good",
+            kind="preference",
+        )
+        rows = await memory.list_facts(u)
+        assert rows[0]["subject_type"] == "entity"
+        assert rows[0]["subject"] == "biodome"
+        assert rows[0]["subject_ref_id"] is None
+        assert rows[0]["kind"] == "preference"
+
+
 class TestUserScoping:
     @pytest.mark.anyio
     async def test_default_user_seeded(self, memory):

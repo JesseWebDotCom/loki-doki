@@ -133,6 +133,7 @@ def upsert_fact(
     status: str = "active",
     ambiguity_group_id: Optional[int] = None,
     negates_previous: bool = False,
+    kind: str = "fact",
 ) -> tuple[int, float, dict]:
     """Insert OR confirm OR revise. Returns (fact_id, confidence, report).
 
@@ -175,12 +176,12 @@ def upsert_fact(
     cur = conn.execute(
         "INSERT INTO facts "
         "(owner_user_id, subject, subject_type, subject_ref_id, "
-        "predicate, value, category, confidence, source_message_id, project_id, "
+        "predicate, value, kind, category, confidence, source_message_id, project_id, "
         "status, ambiguity_group_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             user_id, subject, subject_type, subject_ref_id,
-            predicate, value, category,
+            predicate, value, kind, category,
             DEFAULT_CONFIDENCE, source_message_id, project_id,
             status, ambiguity_group_id,
         ),
@@ -190,9 +191,10 @@ def upsert_fact(
 
 
 _FACT_COLS = (
-    "id, subject, subject_type, subject_ref_id, predicate, value, category, "
+    "id, subject, subject_type, subject_ref_id, predicate, value, kind, category, "
     "confidence, observation_count, last_observed_at, status, "
-    "ambiguity_group_id, source_message_id, created_at, updated_at"
+    "ambiguity_group_id, source_message_id, valid_from, valid_to, "
+    "created_at, updated_at"
 )
 
 
