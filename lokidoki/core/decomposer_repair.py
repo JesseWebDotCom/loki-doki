@@ -276,6 +276,66 @@ def _extract_named_entity(text: str) -> Optional[str]:
     return None
 
 
+# Token sets for the closed-world self-anchor guard. We use spaCy's
+# tokenization (lower_) to inspect — these are linguistic data lookups,
+# not regex pattern matches against user intent. The guard answers a
+# strictly grammatical question: "does this input anchor a claim to the
+# speaker themselves?" That's a property of the surface tokens, which
+# is exactly what spaCy's tokenizer is for.
+_FIRST_PERSON_PRONOUNS = {
+    "i", "me", "my", "myself", "mine", "im", "ive", "id", "ill",
+    "we", "us", "our", "ours", "ourselves",
+}
+_THIRD_PERSON_PRONOUNS = {
+    "he", "him", "his", "himself",
+    "she", "her", "hers", "herself",
+    "they", "them", "their", "theirs", "themselves",
+}
+
+
+def _input_self_anchor(text: str) -> tuple[bool, bool]:
+    """Inspect grammatical anchoring of ``text`` to the speaker.
+
+    Returns ``(has_first_person, has_third_person)``. Used by the
+    closed-world self-anchor guard in ``coerce_item`` to drop ``self``
+    claims that the input cannot possibly be about — e.g. "how long has
+    HE been president" extracted as a fact about the user.
+
+    spaCy's tokenizer handles contractions (I'm → 'I', "'m'), apostrophes,
+    and case folding correctly. We compare against ``tok.lower_`` so the
+    sets stay small and human-readable.
+    """
+    if not text:
+        return (False, False)
+    has_first = False
+    has_third = False
+    for tok in _parse(text):
+        # Require spaCy to tag the token as a pronoun OR a possessive
+        # determiner ("my", "his", "their" — tagged DET / PRP$). And for
+        # PRON, require an argument-role dependency (subject/object/etc.)
+        # rather than a noun modifier. This is the critical filter that
+        # prevents "us" in lowercase "us presidential terms" from firing
+        # the first-person branch — spaCy still tags lowercase "us" as
+        # PRON, but its dep is `nmod` (modifying "terms"), not a real
+        # pronoun argument role. A true first-person "us" would be
+        # nsubj/dobj/pobj/etc. POS+dep together avoid both the acronym
+        # case AND the need to enumerate context words.
+        if tok.pos_ == "PRON":
+            if tok.dep_ not in (
+                "nsubj", "nsubjpass", "dobj", "iobj", "pobj",
+                "attr", "obj", "obl", "expl",
+            ):
+                continue
+        elif tok.pos_ != "DET":
+            continue
+        low = tok.lower_.strip("'.,!?;:\"")
+        if low in _FIRST_PERSON_PRONOUNS:
+            has_first = True
+        elif low in _THIRD_PERSON_PRONOUNS:
+            has_third = True
+    return has_first, has_third
+
+
 _FIRST_PERSON_LEADERS = {
     "i", "im", "i'm", "ive", "i've", "id", "i'd", "ill", "i'll",
     "me", "my", "we", "were", "our", "us", "myself",
@@ -523,6 +583,35 @@ def coerce_item(
         out["subject_name"] = entity_pool[0]
         subject_name = entity_pool[0]
         subject_type = "entity"
+
+    # Closed-world self-anchor guard. A `self` claim is only valid when
+    # the source input grammatically anchors something to the speaker —
+    # i.e. contains a first-person pronoun ("I", "me", "my", "we", ...).
+    # When the input has third-person pronouns ("he", "she", "they") and
+    # NO first-person anchor, any surviving `self` item is almost
+    # certainly a referent the decomposer failed to resolve. The Trump
+    # bug is the canonical case: "how long has HE been president" →
+    # gemma emits {self, became, president in January 2017}, which would
+    # silently corrupt the user's profile. Drop instead.
+    #
+    # Runs after every upstream salvage so legitimate self-claims that
+    # were mis-typed by gemma (e.g. {person, "", loves, coffee} from "I
+    # love coffee" → demoted to self by Salvage 2) still survive: the
+    # input has "I", so the guard does not fire.
+    #
+    # We deliberately do NOT drop on third-person alone — sentences like
+    # "I went to the store with him" are legitimate self-claims that
+    # mention a third party. Both signals must be present (third-person
+    # AND no first-person) for the guard to fire.
+    if (out.get("subject_type") or "self") == "self" and original_input:
+        has_first, has_third = _input_self_anchor(original_input)
+        if has_third and not has_first:
+            logger.info(
+                "[coerce_item] dropping self item — input has third-person "
+                "pronouns and no first-person anchor: %r",
+                original_input,
+            )
+            return None
 
     # Final tautology pass. The earlier tautology check ran before
     # Salvage 2 had a chance to recover subject_name from the input,

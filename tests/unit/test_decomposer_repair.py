@@ -187,6 +187,11 @@ class TestCoerceItem:
         assert out["subject_name"] == "Jacques"
 
     def test_person_without_name_demotes_to_self_when_unrecoverable(self):
+        # "they love coffee" — no recoverable name, AND third-person pronoun
+        # with no first-person anchor. The closed-world self-anchor guard
+        # drops this entirely: we cannot attribute "loves coffee" to the
+        # user just because we failed to resolve "they". Better to lose
+        # the fact than corrupt the user's profile.
         out = coerce_item(
             {
                 "subject_type": "person", "subject_name": "",
@@ -194,6 +199,40 @@ class TestCoerceItem:
             },
             original_input="they love coffee",
         )
+        assert out is None
+
+    def test_self_dropped_when_input_is_third_person_question(self):
+        """The Donald Trump bug. User asks 'how long has he been president,
+        has he exceeded the term limit' — gemma extracts {self, became,
+        president in January 2017}. Input has third-person pronouns and
+        no first-person anchor, so the self-anchor guard must drop it
+        rather than corrupt the user's profile with someone else's facts.
+        """
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "became", "value": "president in January 2017",
+                "kind": "event",
+            },
+            original_input=(
+                "so how long has he been president, how long are us "
+                "presidential terms, and has he exceeded that"
+            ),
+        )
+        assert out is None
+
+    def test_self_anchor_guard_does_not_break_first_person_claims(self):
+        # Belt: "I love coffee" has a first-person anchor, so the guard
+        # must NOT fire even if other tokens are present. Regression
+        # against an over-eager guard.
+        out = coerce_item(
+            {
+                "subject_type": "self", "subject_name": "",
+                "predicate": "loves", "value": "coffee", "kind": "preference",
+            },
+            original_input="I love coffee",
+        )
+        assert out is not None
         assert out["subject_type"] == "self"
 
     def test_person_relationship_without_name_demotes_to_self_fact(self):
