@@ -26,6 +26,7 @@ class InferenceClient:
         num_predict: Optional[int] = None,
         format_schema: Optional[dict] = None,
         temperature: Optional[float] = None,
+        think: Optional[bool] = None,
     ) -> str:
         """Send a prompt to Ollama and return the response text.
 
@@ -46,6 +47,14 @@ class InferenceClient:
             "stream": False,
             "keep_alive": keep_alive,
         }
+        # gemma4 family ships with `thinking` capability — without
+        # explicitly disabling it, free-form generation burns the
+        # entire num_predict budget on internal <think> tokens and
+        # never emits a visible response. Constrained-output paths
+        # (format_schema) sidestep this because the schema forces real
+        # tokens, but synthesis prompts must pass think=False.
+        if think is not None:
+            payload["think"] = think
         if format_schema is not None:
             payload["format"] = format_schema
         elif json_mode:
@@ -83,6 +92,7 @@ class InferenceClient:
         keep_alive: Union[int, str] = -1,
         num_predict: Optional[int] = None,
         temperature: Optional[float] = None,
+        think: Optional[bool] = None,
     ) -> AsyncIterator[str]:
         """Stream tokens from Ollama as they are generated.
 
@@ -97,6 +107,11 @@ class InferenceClient:
             "stream": True,
             "keep_alive": keep_alive,
         }
+        # See ``generate`` above for the rationale — gemma4's thinking
+        # capability eats the entire num_predict budget on the streaming
+        # path too, just silently. Synthesis MUST pass think=False.
+        if think is not None:
+            payload["think"] = think
         options: dict = {}
         if num_predict is not None:
             options["num_predict"] = num_predict

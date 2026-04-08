@@ -404,6 +404,10 @@ class Orchestrator:
                 keep_alive=keep_alive,
                 num_predict=num_predict,
                 temperature=0.7 if is_ack_turn else 0.4,
+                # gemma4 family has built-in thinking; without this
+                # the model burns the entire num_predict on internal
+                # <think> tokens and streams nothing visible.
+                think=False,
             ):
                 response += token
                 yield PipelineEvent(
@@ -474,6 +478,7 @@ class Orchestrator:
                 prompt=prompt,
                 num_predict=20,
                 temperature=0.3,
+                think=False,
             )
             # Pick the first non-empty line; the model sometimes leads with
             # a blank line which used to make us drop the title entirely.
