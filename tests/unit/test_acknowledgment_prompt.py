@@ -182,7 +182,9 @@ async def test_orchestrator_uses_ack_prompt_for_fact_turn(memory, user_session):
     assert "warm, friendly conversational assistant" in captured["prompt"]
     assert "Now respond" in captured["prompt"]
     # The general synthesis template should NOT be in the prompt.
-    assert "ROLE:conversational assistant" not in captured["prompt"]
+    # ``RECENT_TURNS:`` is uniquely the general template's landmark
+    # (the ack template uses few-shot examples instead).
+    assert "RECENT_TURNS:" not in captured["prompt"]
     # And the cap is the ack one.
     assert captured["num_predict"] == ACKNOWLEDGMENT_NUM_PREDICT
     # CRITICAL: the user's input must not be duplicated in the few-shot.
@@ -220,7 +222,9 @@ async def test_orchestrator_uses_general_prompt_for_question(memory, user_sessio
     async for _ in orch.process("what's 2+2?", user_id=uid, session_id=sid):
         pass
 
-    assert "ROLE:conversational assistant" in captured["prompt"]
+    # Landmarks of the new general (memory-aware) synthesis template.
+    assert "RECENT_TURNS:" in captured["prompt"]
+    assert "USER_QUERY:" in captured["prompt"]
     assert "GOOD EXAMPLES" not in captured["prompt"]
     assert captured["num_predict"] == SYNTHESIS_NUM_PREDICT
 

@@ -80,6 +80,7 @@ class Orchestrator:
         skill_executor: SkillExecutor  = None,
         admin_prompt: str = "",
         user_prompt: str = "",
+        character_name: str = "Loki",
     ):
         self._decomposer = decomposer
         self._inference = inference_client
@@ -89,6 +90,7 @@ class Orchestrator:
         self._executor = skill_executor or SkillExecutor()
         self._admin_prompt = admin_prompt
         self._user_prompt = user_prompt
+        self._character_name = character_name or "Loki"
 
     @property
     def policy(self) -> ModelPolicy:
@@ -121,12 +123,59 @@ class Orchestrator:
         relevant_facts = await self._memory.search_facts(
             user_id=user_id, query=user_input, top_k=5, project_id=project_id
         )
+        # Hybrid semantic search over the user's past USER-role messages.
+        # Skips the messages we just included in `recent` so the
+        # synthesizer doesn't see the same content twice. This is the
+        # "remember when we talked about X" capability — without this
+        # call the bot can't reference older sessions even though every
+        # message is embedded.
+        recent_ids = {int(m["id"]) for m in recent if m.get("id") is not None}
+        past_messages_raw = await self._memory.search_messages(
+            user_id=user_id, query=user_input, top_k=8
+        )
+        past_messages = [
+            m for m in past_messages_raw if int(m["id"]) not in recent_ids
+        ][:4]
+
+        # Recent emotional arc — used to nudge tone in the synthesis prompt.
+        sentiment_recent = await self._memory.get_recent_sentiment(user_id, limit=5)
+        from lokidoki.core.humanize import aggregate_sentiment_arc
+        sentiment_arc = aggregate_sentiment_arc(sentiment_recent)
+
+        # Proactive seed: on the first turn of a brand-new session for an
+        # existing user, surface ONE recent unresolved thread the bot
+        # could organically follow up on. Skipped on the very first
+        # session (no history to draw from). The seed is a hint, not a
+        # command — the synthesizer decides whether to actually use it.
+        seed_hint = ""
+        if is_first_turn:
+            seed_facts = await self._memory.list_facts(user_id, limit=3)
+            if seed_facts:
+                from lokidoki.core.humanize import _fact_phrase, relative_time
+                cands = []
+                for f in seed_facts:
+                    phrase = _fact_phrase(f)
+                    when = relative_time(
+                        f.get("valid_from") or f.get("last_observed_at")
+                    )
+                    if phrase and when and when not in ("just now", "today"):
+                        cands.append(f"{when} {phrase}")
+                if cands:
+                    seed_hint = (
+                        "If it fits naturally, you may organically follow up on "
+                        "one of these recent threads (only if relevant — never "
+                        f"force it): {cands[0]}"
+                    )
+
         yield PipelineEvent(
             phase="augmentation",
             status="done",
             data={
                 "context_messages": len(recent),
                 "relevant_facts": len(relevant_facts),
+                "past_messages": len(past_messages),
+                "sentiment_arc": sentiment_arc,
+                "has_seed": bool(seed_hint),
             },
         )
 
@@ -144,6 +193,19 @@ class Orchestrator:
                 asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
                 model=fast_model,
             )
+
+        # Append the decomposer's per-turn sentiment reading to the
+        # time-series log. The synthesis prompt's "arc" block reads
+        # back from this log on the NEXT turn (already fetched above
+        # before this write, so the current turn's reading doesn't
+        # bias its own tone — that would be tautological).
+        st = (decomposition.short_term_memory or {}) if decomposition else {}
+        await self._memory.append_sentiment_log(
+            user_id,
+            sentiment=str(st.get("sentiment", "")),
+            concern=str(st.get("concern", "")),
+            source_message_id=user_msg_id,
+        )
 
         # Verbatim turns are lookups, not statements. gemma routinely
         # mis-parses "Who is Corey Feldman?" as a fact ({person:"Who",
@@ -311,6 +373,11 @@ class Orchestrator:
             )
             num_predict = ACKNOWLEDGMENT_NUM_PREDICT
         else:
+            from lokidoki.core.humanize import format_memory_block
+            memory_block = format_memory_block(
+                facts=relevant_facts,
+                past_messages=past_messages,
+            )
             prompt = build_synthesis_prompt(
                 tone=tone,
                 context=compressed_context,
@@ -320,6 +387,10 @@ class Orchestrator:
                 admin_prompt=self._admin_prompt,
                 project_prompt=project_prompt,
                 clarify_hint=clarify_hint,
+                memory_block=memory_block,
+                sentiment_arc=sentiment_arc,
+                character_name=self._character_name,
+                seed_hint=seed_hint,
             )
             num_predict = SYNTHESIS_NUM_PREDICT
 

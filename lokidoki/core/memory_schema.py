@@ -109,6 +109,21 @@ CREATE TABLE IF NOT EXISTS user_sentiment (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Per-turn sentiment log. user_sentiment above is a single-row JSON
+-- snapshot of the latest decomposer output; this table is the time
+-- series so the synthesizer can reason about an emotional ARC ("user
+-- has been frustrated for three turns") instead of just the current
+-- turn's reading. Append-only, indexed by owner+time, never edited.
+CREATE TABLE IF NOT EXISTS sentiment_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sentiment TEXT NOT NULL,
+    concern TEXT NOT NULL DEFAULT '',
+    source_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sentiment_log_owner ON sentiment_log(owner_user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

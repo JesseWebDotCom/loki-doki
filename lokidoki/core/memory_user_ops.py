@@ -62,7 +62,52 @@ async def clear_user_chat(self: MemoryProvider, user_id: int) -> None:
     await self.run_sync(_do)
 
 
+async def append_sentiment_log(
+    self: MemoryProvider,
+    user_id: int,
+    *,
+    sentiment: str,
+    concern: str = "",
+    source_message_id: int | None = None,
+) -> None:
+    """Append one row to the per-turn sentiment time series."""
+    if not sentiment or not sentiment.strip():
+        return
+
+    def _do(c):
+        c.execute(
+            "INSERT INTO sentiment_log (owner_user_id, sentiment, concern, source_message_id) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, sentiment.strip().lower(), concern or "", source_message_id),
+        )
+        c.commit()
+
+    await self.run_sync(_do)
+
+
+async def get_recent_sentiment(
+    self: MemoryProvider, user_id: int, *, limit: int = 5
+) -> list[dict]:
+    """Return the user's last N sentiment_log rows, newest first.
+
+    Used by the synthesis prompt to inject an emotional ARC into the
+    tone block — a single off-mood turn isn't enough to act on, but
+    "the user has been frustrated for three turns" is.
+    """
+    def _q(c):
+        rows = c.execute(
+            "SELECT sentiment, concern, created_at FROM sentiment_log "
+            "WHERE owner_user_id = ? ORDER BY id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    return await self.run_sync(_q)
+
+
 MemoryProvider.get_sentiment = get_sentiment           # type: ignore[attr-defined]
 MemoryProvider.set_sentiment = set_sentiment           # type: ignore[attr-defined]
 MemoryProvider.delete_session = delete_session         # type: ignore[attr-defined]
 MemoryProvider.clear_user_chat = clear_user_chat       # type: ignore[attr-defined]
+MemoryProvider.append_sentiment_log = append_sentiment_log     # type: ignore[attr-defined]
+MemoryProvider.get_recent_sentiment = get_recent_sentiment     # type: ignore[attr-defined]

@@ -72,6 +72,7 @@ async def chat(
         lambda conn: character_ops.get_active_character_for_user(conn, user_id)
     )
     behavior_prompt = (resolved or {}).get("behavior_prompt", "") if resolved else ""
+    character_name = (resolved or {}).get("name", "Loki") if resolved else "Loki"
 
     client = get_inference_client()
     model_manager = ModelManager(inference_client=client, policy=_model_policy)
@@ -84,6 +85,7 @@ async def chat(
         registry=_registry,
         skill_executor=SkillExecutor(),
         user_prompt=behavior_prompt,
+        character_name=character_name,
     )
 
     async def event_stream():

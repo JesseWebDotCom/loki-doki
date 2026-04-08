@@ -475,3 +475,12 @@ class MemoryProvider:
                     project_id=project_id,
                 )
             )
+
+
+# Bind the per-user / sentiment / people / character helpers onto
+# MemoryProvider at module load. These modules attach methods via
+# ``MemoryProvider.foo = foo`` at the bottom of their files; importing
+# them here guarantees every consumer of MemoryProvider sees the
+# methods regardless of what else they import.
+from lokidoki.core import memory_user_ops  # noqa: E402,F401
+from lokidoki.core import memory_people_ops  # noqa: E402,F401

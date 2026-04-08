@@ -203,16 +203,23 @@ async def run_skills(
 
 
 SYNTHESIS_PROMPT_TEMPLATE = (
-    "ROLE:conversational assistant. Answer the user query directly and concisely.\n"
+    "ROLE:You are {character_name}, a warm conversational friend who actually "
+    "remembers this user. You have access to FACTS the user told you in the "
+    "past and PAST_TURNS where they said things — use them when relevant the "
+    "way a real friend would (\"didn't you mention X?\", \"how did Y go?\"), "
+    "but never recite the whole list. Pick at most one or two memories that "
+    "actually fit the moment.\n"
     "RULES:1-3 sentences max unless asked for detail,natural language,no preamble,"
     "no meta-commentary,cite sources with [src:N] markers when SKILL_DATA is used."
-    "NEVER restate or paraphrase the user's input back to them — they just said it."
+    " NEVER restate or paraphrase the user's input back to them — they just said it."
     " If the user shared a fact (e.g. 'My coworker Tom loves Halo'),"
     " acknowledge briefly with something fresh ('Got it — noted.' / a relevant"
     " follow-up question / a short genuine reaction). Do NOT reply with"
-    " 'That's great! Your coworker Tom loves Halo.' style echoes.\n"
-    "TONE:{tone}\n"
-    "CONTEXT:{context}\n"
+    " 'That's great! Your coworker Tom loves Halo.' style echoes."
+    " NEVER quote a memory verbatim — paraphrase naturally.\n"
+    "TONE:{tone}{arc_block}\n"
+    "{memory_block}"
+    "RECENT_TURNS:{context}\n"
     "SKILL_DATA:{skill_data}\n"
     "{clarify_block}"
     "USER_QUERY:{query}\n"
@@ -313,21 +320,54 @@ def build_synthesis_prompt(
     admin_prompt: str = "",
     project_prompt: str = "",
     clarify_hint: str = "",
+    memory_block: str = "",
+    sentiment_arc: str = "",
+    character_name: str = "Loki",
+    seed_hint: str = "",
 ) -> str:
-    """Assemble the tiered synthesis prompt (Admin > Project > User > Persona)."""
+    """Assemble the tiered synthesis prompt (Admin > Project > User > Persona).
+
+    New parameters:
+      - ``memory_block``    : pre-formatted FACTS + PAST_TURNS block from
+        ``humanize.format_memory_block``. Empty string omits the block.
+      - ``sentiment_arc``   : a single descriptor like "stressed" derived
+        from the user's recent sentiment_log window. Empty = neutral.
+      - ``character_name``  : the active character's display name; gets
+        injected into the ROLE line so the bot speaks as itself.
+      - ``seed_hint``       : optional one-liner instructing the model to
+        organically reference an unresolved past thread (proactive seed).
+    """
     clarify_block = f"CLARIFY:{clarify_hint}\n" if clarify_hint else ""
+    arc_block = (
+        f" (recent emotional arc: {sentiment_arc} — be sensitive to this)"
+        if sentiment_arc
+        else ""
+    )
+    memory_section = (
+        f"WHAT_YOU_REMEMBER_ABOUT_THE_USER:\n{memory_block}\n"
+        if memory_block.strip()
+        else ""
+    )
     prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
-        tone=tone, context=context, skill_data=skill_data, query=query,
+        tone=tone,
+        arc_block=arc_block,
+        context=context,
+        skill_data=skill_data,
+        query=query,
         clarify_block=clarify_block,
+        memory_block=memory_section,
+        character_name=character_name or "Loki",
     )
     prefix_parts: list[str] = []
+    if seed_hint:
+        prefix_parts.append(f"SEED_HINT:{seed_hint}")
     if project_prompt:
         prefix_parts.append(f"PROJECT_CONTEXT:{project_prompt}")
     if user_prompt:
-        prefix_parts.append(f"USER_STYLE:{user_prompt}")
+        prefix_parts.append(f"PERSONA:{user_prompt}")
     if admin_prompt:
         prefix_parts.append(f"ADMIN_RULES:{admin_prompt}")
-        prefix_parts.append("PRIORITY:Admin>Project>User>Persona. Admin safety rules override all.")
+        prefix_parts.append("PRIORITY:Admin>Project>Persona>Memory. Admin safety rules override all.")
     if prefix_parts:
         prompt = "\n".join(prefix_parts) + "\n" + prompt
     return prompt
