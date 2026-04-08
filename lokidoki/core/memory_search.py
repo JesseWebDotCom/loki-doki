@@ -69,6 +69,104 @@ def _user_has_vectors(conn: sqlite3.Connection, user_id: int) -> bool:
 RRF_K = 60  # standard constant from the original RRF paper
 
 
+def _bm25_search_messages(
+    conn: sqlite3.Connection, user_id: int, fts_query: str, limit: int
+) -> List[sqlite3.Row]:
+    """BM25 over messages_fts for the user's own user-role turns.
+
+    We restrict to ``role='user'`` here so the index never returns
+    assistant text — same rationale as not embedding assistants.
+    """
+    return conn.execute(
+        "SELECT m.id, m.session_id, m.role, m.content, m.created_at, "
+        "       bm25(messages_fts) AS score "
+        "FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid "
+        "WHERE messages_fts MATCH ? AND m.owner_user_id = ? AND m.role = 'user' "
+        "ORDER BY score LIMIT ?",
+        (fts_query, user_id, limit),
+    ).fetchall()
+
+
+def _user_has_message_vectors(conn: sqlite3.Connection, user_id: int) -> bool:
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM vec_messages vm "
+            "JOIN messages m ON m.id = vm.message_id "
+            "WHERE m.owner_user_id = ? LIMIT 1",
+            (user_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return False
+    return row is not None
+
+
+def _vec_search_messages(
+    conn: sqlite3.Connection, user_id: int, query_vec: list, limit: int
+) -> List[sqlite3.Row]:
+    import json as _json
+    qjson = _json.dumps(query_vec)
+    try:
+        return conn.execute(
+            "SELECT m.id, m.session_id, m.role, m.content, m.created_at, "
+            "       vm.distance AS score "
+            "FROM vec_messages vm JOIN messages m ON m.id = vm.message_id "
+            "WHERE vm.embedding MATCH ? AND k = ? "
+            "AND m.owner_user_id = ? AND m.role = 'user' "
+            "ORDER BY vm.distance",
+            (qjson, limit, user_id),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+
+def hybrid_search_messages(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    query: str,
+    top_k: int = 10,
+    vec_enabled: bool = False,
+) -> list[dict]:
+    """Hybrid BM25+vector search over user-role messages.
+
+    Same RRF blend rule as ``hybrid_search_facts``. Returns dicts
+    with ``id, session_id, role, content, created_at, score`` so the
+    UI can link straight back to the source session.
+    """
+    if not query.strip():
+        return []
+    fts_query = fts_escape(query)
+
+    candidate_k = max(top_k * 2, 10)
+    bm25_rows = _bm25_search_messages(conn, user_id, fts_query, candidate_k)
+
+    use_vec = vec_enabled and _user_has_message_vectors(conn, user_id)
+    vec_rows: List[sqlite3.Row] = []
+    if use_vec:
+        try:
+            from lokidoki.core.embedder import get_embedder
+            qvec = get_embedder().embed_query(query)
+            vec_rows = _vec_search_messages(conn, user_id, qvec, candidate_k)
+        except Exception:  # noqa: BLE001
+            vec_rows = []
+
+    if not bm25_rows and not vec_rows:
+        return []
+    if not vec_rows:
+        ranked = [(r, -float(r["score"])) for r in bm25_rows[:top_k]]
+    elif not bm25_rows:
+        ranked = [(r, -float(r["score"])) for r in vec_rows[:top_k]]
+    else:
+        ranked = _rrf_fuse(bm25_rows, vec_rows, top_k)
+
+    out: list[dict] = []
+    for row, score in ranked:
+        d = dict(row)
+        d["score"] = float(score)
+        out.append(d)
+    return out
+
+
 def _vec_search(
     conn: sqlite3.Connection,
     user_id: int,

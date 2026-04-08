@@ -65,6 +65,7 @@ class MemoryProvider:
         if self._vec_loaded:
             try:
                 await self._backfill_embeddings(max_rows=500)
+                await self._backfill_message_embeddings(max_rows=500)
             except Exception:  # noqa: BLE001 — never block startup
                 import logging
                 logging.getLogger(__name__).exception(
@@ -116,7 +117,58 @@ class MemoryProvider:
             await asyncio.to_thread(_write, self._conn)
         import logging
         logging.getLogger(__name__).info(
-            "[memory] backfilled %d embeddings", len(rows)
+            "[memory] backfilled %d fact embeddings", len(rows)
+        )
+
+    async def _backfill_message_embeddings(self, *, max_rows: int) -> None:
+        """Embed up to ``max_rows`` user-role messages with no vec_messages row.
+
+        Same shape as ``_backfill_embeddings`` but for the messages
+        table. Only user-role rows are embedded — assistant turns
+        never go in.
+        """
+        def _missing(conn):
+            try:
+                rows = conn.execute(
+                    "SELECT m.id, m.content FROM messages m "
+                    "LEFT JOIN vec_messages vm ON vm.message_id = m.id "
+                    "WHERE vm.message_id IS NULL AND m.role = 'user' "
+                    "AND m.content != '' LIMIT ?",
+                    (max_rows,),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+            return [dict(r) for r in rows]
+
+        async with self._lock:
+            rows = await asyncio.to_thread(_missing, self._conn)
+        if not rows:
+            return
+
+        from lokidoki.core.embedder import get_embedder
+        sentences = [r["content"] for r in rows]
+        vectors = await asyncio.to_thread(
+            lambda: get_embedder().embed_passages(sentences)
+        )
+
+        import json as _json
+
+        def _write(conn):
+            for r, vec in zip(rows, vectors):
+                try:
+                    conn.execute(
+                        "INSERT INTO vec_messages (message_id, embedding) VALUES (?, ?)",
+                        (int(r["id"]), _json.dumps(vec)),
+                    )
+                except Exception:
+                    continue
+            conn.commit()
+
+        async with self._lock:
+            await asyncio.to_thread(_write, self._conn)
+        import logging
+        logging.getLogger(__name__).info(
+            "[memory] backfilled %d message embeddings", len(rows)
         )
 
     async def close(self) -> None:
@@ -260,6 +312,21 @@ class MemoryProvider:
     async def add_message(
         self, *, user_id: int, session_id: int, role: str, content: str
     ) -> int:
+        # Embed user-role messages so the verbatim semantic search
+        # ("what did we decide about auth") works. Assistant turns are
+        # NOT embedded — they dilute the index with model paraphrases
+        # and we never search them. Embedding happens outside the DB
+        # lock so the ~50ms inference doesn't block other writers.
+        embedding: Optional[list] = None
+        if self._vec_loaded and role == "user" and content.strip():
+            try:
+                from lokidoki.core.embedder import get_embedder
+                embedding = await asyncio.to_thread(
+                    lambda: get_embedder().embed_passages([content])[0]
+                )
+            except Exception:  # noqa: BLE001 — degrade silently
+                embedding = None
+
         async with self._lock:
             return await asyncio.to_thread(
                 lambda: sql.add_message(
@@ -268,6 +335,7 @@ class MemoryProvider:
                     session_id=session_id,
                     role=role,
                     content=content,
+                    embedding=embedding,
                 )
             )
 
@@ -285,14 +353,25 @@ class MemoryProvider:
     async def search_messages(
         self, *, user_id: int, query: str, top_k: int = 10
     ) -> list[dict]:
+        """Hybrid BM25 + vector search over user-role messages.
+
+        Falls back to BM25 only when vec_messages is unpopulated for
+        this user (e.g. before the backfill catches up).
+        """
+        from lokidoki.core.memory_search import hybrid_search_messages
+
         if not query.strip():
             return []
-        fts_query = sql.fts_escape(query)
         async with self._lock:
-            rows = await asyncio.to_thread(
-                sql.search_messages, self._conn, user_id, fts_query, top_k
+            return await asyncio.to_thread(
+                lambda: hybrid_search_messages(
+                    self._conn,
+                    user_id=user_id,
+                    query=query,
+                    top_k=top_k,
+                    vec_enabled=self._vec_loaded,
+                )
             )
-        return [dict(r) for r in rows]
 
     # ---- facts -----------------------------------------------------------
 

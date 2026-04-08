@@ -40,6 +40,17 @@ async def _wipe_user_memory(memory: MemoryProvider, user_id: int) -> None:
     Messages are preserved — they're the source we're re-extracting from.
     """
     def _do(conn):
+        # Clear vec_facts rows for this user FIRST. vec0 virtual tables
+        # don't honor SQLite FK cascade, so deleting facts without
+        # this leaves orphan vector rows behind.
+        try:
+            conn.execute(
+                "DELETE FROM vec_facts WHERE fact_id IN ("
+                "SELECT id FROM facts WHERE owner_user_id = ?)",
+                (user_id,),
+            )
+        except Exception:
+            pass
         conn.execute("DELETE FROM facts WHERE owner_user_id = ?", (user_id,))
         conn.execute("DELETE FROM relationships WHERE owner_user_id = ?", (user_id,))
         conn.execute("DELETE FROM ambiguity_groups WHERE owner_user_id = ?", (user_id,))

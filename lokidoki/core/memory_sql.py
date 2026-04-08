@@ -86,14 +86,28 @@ def add_message(
     session_id: int,
     role: str,
     content: str,
+    embedding: Optional[list] = None,
 ) -> int:
     cur = conn.execute(
         "INSERT INTO messages (session_id, owner_user_id, role, content) "
         "VALUES (?, ?, ?, ?)",
         (session_id, user_id, role, content),
     )
+    message_id = int(cur.lastrowid)
+    # Optional vector write — only user-role messages get embedded
+    # (the provider gates this), and only when sqlite-vec is loaded.
+    # Failure here is non-fatal; search degrades to FTS5-only.
+    if embedding is not None:
+        try:
+            import json as _json
+            conn.execute(
+                "INSERT INTO vec_messages (message_id, embedding) VALUES (?, ?)",
+                (message_id, _json.dumps(embedding)),
+            )
+        except sqlite3.Error:
+            pass
     conn.commit()
-    return int(cur.lastrowid)
+    return message_id
 
 
 def get_messages(

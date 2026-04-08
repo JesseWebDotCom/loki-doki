@@ -9,8 +9,9 @@
  * (PeopleTab / FactsTab / MemoryPage) owns refetch logic.
  */
 import React, { useState } from "react";
-import { Check, X, Edit3, Trash2, AlertTriangle } from "lucide-react";
+import { Check, X, Edit3, Trash2, AlertTriangle, MessageSquare } from "lucide-react";
 import type { Fact, Person } from "../../lib/api";
+import { getMessage, type SourceMessage } from "../../lib/api";
 import { ConfidenceBar } from "./ConfidenceBar";
 import ConfirmDialog from "../ui/ConfirmDialog";
 
@@ -40,8 +41,30 @@ export const FactRow: React.FC<FactRowProps> = ({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(fact.value ?? fact.fact ?? "");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [source, setSource] = useState<SourceMessage | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
 
   const id = fact.id ?? 0;
+  const sourceId = fact.source_message_id;
+
+  const toggleSource = async () => {
+    if (source) {
+      setSource(null);
+      return;
+    }
+    if (!sourceId) return;
+    setSourceLoading(true);
+    setSourceError(null);
+    try {
+      const { message } = await getMessage(sourceId);
+      setSource(message);
+    } catch {
+      setSourceError("Source message not found");
+    } finally {
+      setSourceLoading(false);
+    }
+  };
   const eff =
     fact.effective_confidence != null ? fact.effective_confidence : fact.confidence ?? 0.6;
   const isAmbiguous = fact.status === "ambiguous" && fact.ambiguity_group_id != null;
@@ -174,7 +197,45 @@ export const FactRow: React.FC<FactRowProps> = ({
         >
           <Trash2 size={13} />
         </button>
+        {sourceId != null && (
+          <button
+            type="button"
+            onClick={toggleSource}
+            title={source ? "Hide source message" : "View source message"}
+            className={`p-1 rounded ml-auto ${
+              source
+                ? "bg-primary/10 text-primary"
+                : "hover:bg-primary/10 text-muted-foreground"
+            }`}
+          >
+            <MessageSquare size={13} />
+          </button>
+        )}
       </div>
+
+      {(source || sourceLoading || sourceError) && (
+        <div className="text-[11px] border-t border-border/10 pt-2 space-y-1">
+          <div className="text-muted-foreground font-bold uppercase tracking-wider text-[9px]">
+            Source message
+          </div>
+          {sourceLoading && (
+            <div className="text-muted-foreground italic">Loading…</div>
+          )}
+          {sourceError && (
+            <div className="text-red-400">{sourceError}</div>
+          )}
+          {source && (
+            <div className="bg-card/40 rounded px-2 py-1.5 border border-border/20">
+              <div className="text-foreground/90 whitespace-pre-wrap">
+                {source.content}
+              </div>
+              <div className="text-muted-foreground text-[9px] mt-1">
+                {source.role} · {new Date(source.created_at).toLocaleString()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmOpen}

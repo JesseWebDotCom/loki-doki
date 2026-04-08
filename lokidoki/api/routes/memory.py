@@ -79,6 +79,33 @@ async def get_session_messages(
     return {"session_id": session_id, "messages": messages}
 
 
+@router.get("/messages/{message_id}")
+async def get_message(
+    message_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Fetch a single message by id, scoped to the current user.
+
+    Used by the Memory tab's source-message viewer: every fact carries
+    a ``source_message_id`` pointing at the user turn it was extracted
+    from. Clicking the fact loads the verbatim source so you can
+    audit and debug bad extractions.
+    """
+    def _do(conn):
+        row = conn.execute(
+            "SELECT id, session_id, role, content, created_at "
+            "FROM messages WHERE id = ? AND owner_user_id = ?",
+            (message_id, user.id),
+        ).fetchone()
+        return dict(row) if row else None
+
+    message = await memory.run_sync(_do)
+    if message is None:
+        raise HTTPException(status_code=404, detail="message_not_found")
+    return {"message": message}
+
+
 # --- PR3: people / relationships / conflicts ---------------------------
 
 

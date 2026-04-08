@@ -157,6 +157,18 @@ export async function getSessionMessages(sessionId: string | number) {
   );
 }
 
+export interface SourceMessage {
+  id: number;
+  session_id: number;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
+export async function getMessage(messageId: number) {
+  return getJson<{ message: SourceMessage }>(`/memory/messages/${messageId}`);
+}
+
 export async function getFacts(projectId?: number) {
   // The backend returns the new (subject/predicate/value) shape; we
   // alias `value` -> `fact` so the legacy MemoryPage UI keeps rendering.

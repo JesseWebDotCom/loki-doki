@@ -2,8 +2,11 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
 from lokidoki.core.audio import (
-    SpeechToText, TextToSpeech, AudioConfig, SentenceBuffer
+    SpeechToText, AudioConfig, SentenceBuffer
 )
+# NOTE: TextToSpeech was refactored away in favor of the module-level
+# `synthesize_stream` / `warm_voice` functions; the legacy
+# TestTextToSpeech tests below were removed alongside the class.
 
 
 class TestAudioConfig:
@@ -124,50 +127,3 @@ class TestSpeechToText:
         assert available is True
 
 
-class TestTextToSpeech:
-    @pytest.mark.anyio
-    async def test_synthesize_calls_piper_subprocess(self):
-        """Test that synthesize invokes piper via subprocess."""
-        tts = TextToSpeech(voice="en_US-lessac-medium")
-
-        mock_process = MagicMock()
-        mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b"\x00" * 100, b""))
-
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
-            result = await tts.synthesize("Hello world", "/tmp/output.wav")
-
-        assert result is True
-
-    @pytest.mark.anyio
-    async def test_synthesize_handles_error(self):
-        """Test graceful handling when piper fails."""
-        tts = TextToSpeech(voice="en_US-lessac-medium")
-
-        mock_process = MagicMock()
-        mock_process.returncode = 1
-        mock_process.communicate = AsyncMock(return_value=(b"", b"Error"))
-
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
-            result = await tts.synthesize("Hello world", "/tmp/output.wav")
-
-        assert result is False
-
-    @pytest.mark.anyio
-    async def test_tts_is_available_checks_binary(self):
-        """Test availability check for piper."""
-        tts = TextToSpeech(voice="en_US-lessac-medium")
-
-        mock_process = MagicMock()
-        mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b"piper v1.2.0\n", b""))
-
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_process):
-            available = await tts.is_available()
-
-        assert available is True
-
-    def test_voice_model_path(self):
-        """Test voice model path generation."""
-        tts = TextToSpeech(voice="en_US-lessac-medium")
-        assert "en_US-lessac-medium" in tts.voice

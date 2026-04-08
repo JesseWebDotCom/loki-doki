@@ -372,7 +372,13 @@ END;
 
 
 def vec_schema(dim: int = EMBEDDING_DIM) -> str:
-    """vec0 virtual table DDL for fact embeddings.
+    """vec0 virtual table DDL for fact AND message embeddings.
+
+    Two virtual tables, both 384-dim:
+      - ``vec_facts``    : one row per row in ``facts``
+      - ``vec_messages`` : one row per user-role row in ``messages``
+                           (assistant turns are not embedded — they
+                           dilute the index and we don't search them)
 
     Separate function so the provider can choose not to call it when
     sqlite-vec failed to load at runtime.
@@ -380,6 +386,10 @@ def vec_schema(dim: int = EMBEDDING_DIM) -> str:
     return f"""
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_facts USING vec0(
         fact_id INTEGER PRIMARY KEY,
+        embedding FLOAT[{dim}]
+    );
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_messages USING vec0(
+        message_id INTEGER PRIMARY KEY,
         embedding FLOAT[{dim}]
     );
     """

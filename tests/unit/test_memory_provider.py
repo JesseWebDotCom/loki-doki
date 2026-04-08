@@ -107,6 +107,75 @@ class TestEmbeddings:
             await mp2.close()
 
 
+class TestMessageEmbeddings:
+    """Coverage for vec_messages and hybrid message search."""
+
+    @pytest.mark.anyio
+    async def test_user_message_gets_embedded(self, memory):
+        u = await memory.get_or_create_user("default")
+        s = await memory.create_session(u)
+        await memory.add_message(
+            user_id=u, session_id=s, role="user", content="hello world"
+        )
+        if not memory.vec_enabled:
+            return
+        def _check(conn):
+            return conn.execute(
+                "SELECT COUNT(*) FROM vec_messages vm "
+                "JOIN messages m ON m.id = vm.message_id "
+                "WHERE m.owner_user_id = ?",
+                (u,),
+            ).fetchone()[0]
+        assert (await memory.run_sync(_check)) == 1
+
+    @pytest.mark.anyio
+    async def test_assistant_message_not_embedded(self, memory):
+        """Assistant turns dilute the index — never embed them."""
+        u = await memory.get_or_create_user("default")
+        s = await memory.create_session(u)
+        await memory.add_message(
+            user_id=u, session_id=s, role="assistant", content="some reply"
+        )
+        if not memory.vec_enabled:
+            return
+        def _check(conn):
+            return conn.execute(
+                "SELECT COUNT(*) FROM vec_messages vm "
+                "JOIN messages m ON m.id = vm.message_id "
+                "WHERE m.owner_user_id = ?",
+                (u,),
+            ).fetchone()[0]
+        assert (await memory.run_sync(_check)) == 0
+
+    @pytest.mark.anyio
+    async def test_search_messages_returns_user_turn(self, memory):
+        u = await memory.get_or_create_user("default")
+        s = await memory.create_session(u)
+        await memory.add_message(
+            user_id=u, session_id=s, role="user",
+            content="should we use postgres or sqlite for the auth db",
+        )
+        await memory.add_message(
+            user_id=u, session_id=s, role="user", content="what time is it",
+        )
+        results = await memory.search_messages(
+            user_id=u, query="postgres auth", top_k=5
+        )
+        assert len(results) >= 1
+        assert "postgres" in results[0]["content"]
+
+    @pytest.mark.anyio
+    async def test_search_messages_excludes_other_users(self, memory):
+        u1 = await memory.get_or_create_user("default")
+        u2 = await memory.get_or_create_user("alice")
+        s1 = await memory.create_session(u1)
+        s2 = await memory.create_session(u2)
+        await memory.add_message(user_id=u1, session_id=s1, role="user", content="alpha bravo")
+        await memory.add_message(user_id=u2, session_id=s2, role="user", content="alpha bravo")
+        u1_results = await memory.search_messages(user_id=u1, query="alpha bravo")
+        assert len(u1_results) == 1
+
+
 class TestNewSchemaFields:
     """Coverage for the kind/valid_from/valid_to/entity additions."""
 
