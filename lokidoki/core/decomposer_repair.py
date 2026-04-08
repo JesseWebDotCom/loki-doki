@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+from functools import lru_cache
 from typing import Any, Awaitable, Callable, Literal, Optional, Union, List, Tuple, Dict
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -35,21 +35,38 @@ logger = logging.getLogger(__name__)
 
 MAX_REPAIRS = 2
 
-# Heuristics used by ``coerce_item`` to recover items the model returned
-# in a not-quite-valid shape. gemma4:e2b routinely produces person facts
-# with the name omitted ("subject_type:'person', subject_name:''") even
-# though the user message clearly contains a proper noun, and tags
-# self-statements as relationships ("I'm excited" -> kind='relationship').
-# Both shapes used to be dropped wholesale by the repair loop. We salvage
-# them so the user's facts actually land in memory.
 
-# Capture "my <relation> Name" — covers the most common conversational
-# pattern where the user introduces a person by their relation to them.
-# Case-insensitive on both relation and name (user types "my brother artie").
-_NAME_AFTER_RELATION = re.compile(
-    r"\bmy\s+(\w+)\s+([A-Za-z][a-z]+)\b",
-    re.IGNORECASE,
-)
+# spaCy is a hard dependency (see pyproject.toml). We use it as a
+# structural validator on the decomposer's output: when the LLM claims a
+# token is a person/entity name, we POS-tag the original user input and
+# verify the token is actually tagged PROPN (or NOUN). This is the
+# principled fix for sentence-initial capitalization ambiguity — "In was
+# terrified by Insidious" tags "In" as ADP and "Insidious" as PROPN
+# regardless of position, so we get the right answer without enumerating
+# stopwords or playing capitalization games. Loaded once at import time;
+# the model is ~15MB and tagging a short user turn is sub-millisecond.
+import spacy  # type: ignore
+
+# Full pipeline: tagger + parser + ner + lemmatizer. We use the dep parse
+# for relation/name detection ("my brother artie" → artie nsubj with
+# brother as compound child), the lemmatizer for relation matching
+# ("brothers" → "brother"), and the POS tagger for the source-anchor
+# guard. NER is kept enabled so the entity-recovery salvage can use
+# spaCy's named-entity spans for multi-word movie/book titles.
+_NLP = spacy.load("en_core_web_sm")
+
+
+@lru_cache(maxsize=128)
+def _parse(text: str):
+    """Parse + cache. coerce_item calls multiple helpers per item, all
+    against the same ``original_input`` — caching avoids re-parsing the
+    same string several times per turn."""
+    return _NLP(text)
+
+
+# Vocabulary sets — these are linguistic data, not regex. Same shape as
+# spaCy's own STOP_WORDS lists; lokidoki keeps them inline so we can tune
+# them without forking spaCy's vocab.
 
 # Relations the salvage trusts as "this Name is a person, not the user".
 # Same set the orchestrator's disambiguation scoring uses for hints.
@@ -60,73 +77,108 @@ _KNOWN_RELATIONS = {
     "dog", "cat", "pet", "bird", "hamster", "fish",
 }
 
-# Capture "Name <verb>" where the verb is one of the predicates the
-# decomposer most often emits. This catches "Jacques loves Superman"
-# even when no relation precedes the name.
-_NAME_BEFORE_VERB = re.compile(
-    r"\b([A-Z][a-z]+)\s+(?:is|are|was|were|loves|likes|hates|works|lives|has|had|owns)\b"
-)
-
-# Words that look like proper nouns but aren't people. Extend as needed —
-# false positives here just cause us to fall back to a 'self' fact, which
-# is recoverable, whereas false negatives drop the fact entirely.
+# Words that look like proper nouns but aren't people. False positives
+# here cause us to fall back to a 'self' fact, which is recoverable.
 _PROPER_NOUN_BLOCKLIST = {
-    "I", "Im", "Ive", "Id", "Ill",
     "Supergirl", "Superman", "Batman", "Spiderman",
     "Monday", "Tuesday", "Wednesday", "Thursday",
     "Friday", "Saturday", "Sunday",
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
-    # Pronouns and demonstratives — can't be entity names. Capitalized
-    # forms like "It", "That", "This" appear at the start of sentences
-    # and would otherwise pollute the named-entity recovery.
-    "It", "That", "This", "These", "Those", "He", "She", "They",
-    "We", "Us", "Them", "Here", "There",
-    # Question words — gemma sometimes lifts these as a "person name"
-    # when the user asked a lookup question like "Who is X?".
-    "Who", "What", "Where", "When", "Why", "How", "Which",
 }
+_BLOCKLIST_LOWER = {w.lower() for w in _PROPER_NOUN_BLOCKLIST}
 
 
-def _extract_person_name(text: str) -> Optional[str]:
-    """Best-effort person-name extraction from the original user input.
+def _is_propn_in_source(token: str, source: str) -> bool:
+    """True if ``token`` is a plausible name occurrence in ``source``.
 
-    Used only as a last-ditch salvage when the decomposer emitted a
-    person fact without a ``subject_name``. Returns ``None`` if nothing
-    plausible is found — the caller then demotes the item to a 'self'
-    fact rather than dropping it.
+    Two acceptance signals (either is sufficient):
+      1. Tagged as PROPN/NOUN by spaCy somewhere in the source. Catches
+         "Camilla" even at sentence-start position 0.
+      2. Appears mid-sentence with a capital first letter. Catches entity
+         names that spaCy's tagger flips to ADJ because they're also
+         real English words ("Insidious", "Wicked", "Frozen") — the user
+         typing them capitalized mid-sentence is the strongest signal.
+
+    Either signal catches the legitimate cases; neither catches "In" at
+    position 0 (auto-capitalized stopword), which is the failure mode
+    this guard exists to prevent.
     """
-    if not text:
-        return None
-    # Prefer the "my <relation> Name" pattern; fall back to "Name <verb>".
-    for match in _NAME_AFTER_RELATION.finditer(text or ""):
-        name = match.group(2)
-        if name.lower() not in {w.lower() for w in _PROPER_NOUN_BLOCKLIST}:
-            return name[:1].upper() + name[1:].lower()
-    for match in _NAME_BEFORE_VERB.finditer(text or ""):
-        name = match.group(1)
-        if name not in _PROPER_NOUN_BLOCKLIST:
-            return name
-    return None
+    if not token or not source:
+        return False
+    token_lower = token.lower()
+    for tok in _parse(source):
+        if tok.text.lower() != token_lower:
+            continue
+        if tok.pos_ in ("PROPN", "NOUN"):
+            return True
+        if not tok.is_sent_start and tok.text and tok.text[0].isupper():
+            return True
+    return False
+
+
+def _titlecase_name(name: str) -> str:
+    """Canonicalize a single-word person name to title case."""
+    return name[:1].upper() + name[1:].lower()
 
 
 def _extract_relation_name_pair(text: str) -> Optional[tuple[str, str]]:
-    """Find a 'my <relation> <Name>' pair in the user input.
+    """Find a 'my <relation> <Name>' pair via spaCy's dep parse.
 
-    Returns ``(relation, Name)`` only when the relation is one we trust
-    as referring to another person (not "my favorite restaurant"). The
-    salvage uses this to re-attribute self-facts that gemma misclassified
-    when the user clearly mentioned another person.
+    Two patterns cover the common cases:
+      1. ``My brother Mark`` — ``brother`` is a NOUN with ``Mark`` as an
+         ``appos`` child. Works for properly-capitalized names.
+      2. ``my brother artie loves`` — ``artie`` is parsed as the ``nsubj``
+         of the verb, with ``brother`` as a ``compound`` child. spaCy
+         handles this even when the name is lowercased.
+
+    Returns ``(relation_lemma, TitleCasedName)`` or None. Only fires when
+    the relation lemma is in ``_KNOWN_RELATIONS`` so "my favorite
+    restaurant Olive" is not mistaken for a person introduction.
     """
     if not text:
         return None
-    for match in _NAME_AFTER_RELATION.finditer(text):
-        relation = match.group(1).lower()
-        name = match.group(2)
-        if relation in _KNOWN_RELATIONS and name.lower() not in {
-            w.lower() for w in _PROPER_NOUN_BLOCKLIST
-        }:
-            return relation, name[:1].upper() + name[1:].lower()
+    doc = _parse(text)
+
+    # Pattern 1: relation NOUN with appos child
+    for tok in doc:
+        if tok.pos_ != "NOUN" or tok.lemma_.lower() not in _KNOWN_RELATIONS:
+            continue
+        for child in tok.children:
+            if child.dep_ == "appos" and child.pos_ in ("PROPN", "NOUN"):
+                if child.text.lower() in _BLOCKLIST_LOWER:
+                    continue
+                return tok.lemma_.lower(), _titlecase_name(child.text)
+
+    # Pattern 2: nsubj with relation as compound child
+    for tok in doc:
+        if tok.dep_ != "nsubj" or tok.pos_ not in ("PROPN", "NOUN"):
+            continue
+        if tok.text.lower() in _BLOCKLIST_LOWER:
+            continue
+        for child in tok.children:
+            if child.dep_ == "compound" and child.lemma_.lower() in _KNOWN_RELATIONS:
+                return child.lemma_.lower(), _titlecase_name(tok.text)
+
+    return None
+
+
+def _extract_person_name(text: str) -> Optional[str]:
+    """Best-effort person name from user input.
+
+    Strategy: relation pattern first (highest precision), then any
+    standalone PROPN that isn't blocklisted. Returns None when nothing
+    plausible is found — the caller then demotes the item to 'self'.
+    """
+    pair = _extract_relation_name_pair(text)
+    if pair:
+        return pair[1]
+    if not text:
+        return None
+    doc = _parse(text)
+    for tok in doc:
+        if tok.pos_ == "PROPN" and tok.text.lower() not in _BLOCKLIST_LOWER:
+            return _titlecase_name(tok.text)
     return None
 
 
@@ -194,49 +246,34 @@ def _looks_like_proper_noun(value: str) -> bool:
     return True
 
 
-_COPULA_RE_TOKENS = {"is", "was", "were", "are", "am", "be", "been", "being"}
-
-
 def _extract_named_entity(text: str) -> Optional[str]:
-    """Best-effort named-entity extraction from a user message.
+    """Find a named entity that's the subject of a copula in ``text``.
 
-    Used to promote bare-copula self-fragments into entity facts. We
-    prefer 'X was/is <value>' patterns where X is a Capitalized phrase
-    (movie/book title), then fall back to any leading capitalized run.
-
-    Returns the entity name in title case, or None when nothing
-    plausible is found.
-
-    Robust against the greedy-regex bug: if a captured phrase contains
-    embedded copulas or question words ("Who is craig nelson and"
-    captured before a SECOND `is`), we reject it. Real entity names
-    do not contain copulas.
+    Used by the bare-copula salvage to promote ``{self, was, pretty good}``
+    extracted from "biodome was pretty good" into an entity fact about
+    Biodome. The dep parse gives us a clean signal: a NOUN/PROPN whose
+    ``dep_`` is ``nsubj`` and whose head's ``lemma_`` is "be". Multi-word
+    entities ("St Elmos Fire") are reconstructed from the subject's
+    ``compound`` children. Returns title-cased name or None.
     """
     if not text:
         return None
-    # Lazy quantifier on the inner repetition so the engine prefers the
-    # shortest phrase ending in a copula, not the longest. Combined with
-    # the post-filter below this is robust to inputs with multiple
-    # copulas.
-    m = re.search(
-        r"\b((?:[Tt]he\s+|[Aa]\s+|[Aa]n\s+)?[A-Za-z][a-zA-Z0-9'\-]*"
-        r"(?:\s+[A-Za-z0-9][a-zA-Z0-9'\-]*){0,4}?)\s+(?:is|was|were|are)\b",
-        text,
-    )
-    if not m:
-        return None
-    candidate = m.group(1).strip()
-    if candidate.lower() in {w.lower() for w in _PROPER_NOUN_BLOCKLIST}:
-        return None
-    # Post-filter: reject phrases that contain copulas or question
-    # words. Real entity names ("The Lord of the Rings", "St Elmos
-    # Fire") don't have either.
-    candidate_tokens = {t.lower().strip(".,!?;:") for t in candidate.split()}
-    if candidate_tokens & _COPULA_RE_TOKENS:
-        return None
-    if candidate_tokens & _QUESTION_WORDS:
-        return None
-    return _titlecase_phrase(candidate)
+    doc = _parse(text)
+    for tok in doc:
+        if tok.dep_ != "nsubj" or tok.pos_ not in ("PROPN", "NOUN"):
+            continue
+        if tok.head.lemma_ != "be":
+            continue
+        # Reconstruct the full noun span: compound children + the head.
+        compounds = [c.text for c in tok.children if c.dep_ == "compound"]
+        parts = compounds + [tok.text]
+        candidate = " ".join(parts)
+        if candidate.lower() in _BLOCKLIST_LOWER:
+            continue
+        if any(p.lower() in _QUESTION_WORDS for p in parts):
+            continue
+        return _titlecase_phrase(candidate)
+    return None
 
 
 _FIRST_PERSON_LEADERS = {
@@ -273,7 +310,11 @@ def _titlecase_phrase(phrase: str) -> str:
     return " ".join(out)
 
 
-def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[dict]:
+def coerce_item(
+    item: dict,
+    original_input: Optional[str] = None,
+    entity_pool: Optional[list[str]] = None,
+) -> Optional[dict]:
     """Pre-validation salvage for the most common gemma misshapes.
 
     Returns ``None`` to signal that the item should be dropped (for
@@ -324,6 +365,28 @@ def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[di
         and _is_garbage_person_name(subject_name)
     ):
         return None
+
+    # Source-anchor guard. A real person/entity name was typed by the
+    # user; verify the token actually appears in the original input AND
+    # is POS-tagged as a proper noun there. This catches the "In was
+    # terrified by Insidious" failure mode where gemma lifted "In" (a
+    # sentence-initial typo for "I") as a person — spaCy tags "In" as
+    # ADP and "Insidious" as PROPN regardless of position, so we get the
+    # right answer without enumerating stopwords or playing capitalization
+    # games. Falls back to the legacy capitalization-anchor check when
+    # spaCy isn't installed (dev environments, CI without the model).
+    if (
+        subject_type in ("person", "entity")
+        and subject_name
+        and original_input
+    ):
+        first_token = subject_name.strip().split()[0] if subject_name.strip() else ""
+        if first_token and not _is_propn_in_source(first_token, original_input):
+            logger.info(
+                "[coerce_item] dropping subject_name=%r — not POS=PROPN in source",
+                subject_name,
+            )
+            return None
 
     # Drop tautological self-naming facts: "Tom is Tom", "Tom named Tom".
     # gemma emits these as redundant siblings to the real fact; storing
@@ -445,6 +508,22 @@ def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[di
     ):
         return None
 
+    # Salvage 6: entity item with no subject_name. gemma routinely
+    # emits the entity name in a SIBLING item's value field — e.g. for
+    # "Camilla was terrified by Insidious" it emits one person item with
+    # value="Insidious" and a separate entity item with no subject_name
+    # at all. ``parse_items`` builds an ``entity_pool`` from sibling
+    # values that look PROPN in the source, and we borrow the first
+    # plausible candidate here.
+    if (
+        out.get("subject_type") == "entity"
+        and not (out.get("subject_name") or "").strip()
+        and entity_pool
+    ):
+        out["subject_name"] = entity_pool[0]
+        subject_name = entity_pool[0]
+        subject_type = "entity"
+
     # Final tautology pass. The earlier tautology check ran before
     # Salvage 2 had a chance to recover subject_name from the input,
     # so {person, "", is, "artie"} would slip through and only later
@@ -461,6 +540,27 @@ def coerce_item(item: dict, original_input: Optional[str] = None) -> Optional[di
         and final_value.lower() == final_subject_name.lower()
     ):
         return None
+
+    # Final POS validation. Salvages 2 and 3 fill subject_name from regex
+    # matches against the user input — those regexes are dumb and happily
+    # extract "in" from "my sister in law Camilla" as a name. Re-run the
+    # spaCy POS check on the *final* subject_name so anything tagged as
+    # ADP/DET/AUX/PRON/etc. gets dropped no matter which salvage put it
+    # there. The earlier check in this function still fires for the common
+    # case (subject_name present from gemma) so we don't pay the spaCy
+    # cost twice on the happy path.
+    if (
+        final_subject_type in ("person", "entity")
+        and final_subject_name
+        and original_input
+    ):
+        first_token = final_subject_name.strip().split()[0] if final_subject_name.strip() else ""
+        if first_token and not _is_propn_in_source(first_token, original_input):
+            logger.info(
+                "[coerce_item] dropping post-salvage subject_name=%r — not POS=PROPN in source",
+                final_subject_name,
+            )
+            return None
 
     return out
 
@@ -511,6 +611,52 @@ class LongTermItem(BaseModel):
         return self
 
 
+def _harvest_entity_candidates(items: list[Any], original_input: Optional[str]) -> list[str]:
+    """Collect plausible entity names from a batch of decomposer items.
+
+    The "Insidious bug" cause: gemma emits two items for "Camilla was
+    terrified by Insidious" — a person item with ``value='Insidious'``
+    and a sibling entity item with NO ``subject_name``. The entity item
+    fails validation in isolation, but the sibling has the name we need.
+
+    Verification criterion: the candidate must appear in ``original_input``
+    as a capitalized token NOT at sentence-start position. spaCy's POS
+    tagger is unreliable here because many entity names are also real
+    English adjectives ("Insidious", "Wicked", "Frozen"); the tagger
+    flips them to ADJ. Mid-sentence capitalization is a stronger signal
+    than POS for this case — the user typed it as a name on purpose.
+    """
+    if not original_input:
+        return []
+    doc = _parse(original_input)
+    # Build the set of token texts that appear capitalized AND not at
+    # sentence-start (so we don't accept "In" from "In was terrified...").
+    cap_midsentence: set[str] = set()
+    for tok in doc:
+        if tok.is_sent_start:
+            continue
+        if tok.text and tok.text[0].isupper():
+            cap_midsentence.add(tok.text.lower())
+
+    pool: list[str] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        v = (item.get("value") or "").strip()
+        if not v:
+            continue
+        # Reject multi-word descriptive values like "a scary movie".
+        parts = v.split()
+        if not 1 <= len(parts) <= 4:
+            continue
+        first = parts[0]
+        if first.lower() in _BLOCKLIST_LOWER:
+            continue
+        if first.lower() in cap_midsentence and v not in pool:
+            pool.append(v)
+    return pool
+
+
 def parse_items(
     raw_items: list[Any],
     *,
@@ -528,6 +674,10 @@ def parse_items(
     ``{"index": int, "item": <raw>, "errors": [pydantic err...]}``
     so the repair-prompt builder can quote them back to the model.
     """
+    # Pre-pass: build a pool of entity-name candidates harvested from
+    # sibling items' value fields. Used by coerce_item to fill in an
+    # entity item that gemma left without a subject_name.
+    entity_pool = _harvest_entity_candidates(raw_items or [], original_input)
     good: list[LongTermItem] = []
     errors: list[dict] = []
     for i, item in enumerate(raw_items or []):
@@ -538,7 +688,9 @@ def parse_items(
                 "errors": [{"loc": (), "msg": "item must be an object"}],
             })
             continue
-        coerced = coerce_item(item, original_input=original_input)
+        coerced = coerce_item(
+            item, original_input=original_input, entity_pool=entity_pool,
+        )
         if coerced is None:
             # coerce_item signaled drop (e.g. tautological self-naming).
             continue

@@ -275,7 +275,10 @@ export const PeopleTab: React.FC<PeopleTabProps> = ({
 
 const RELATION_OPTIONS = [
   "brother", "sister", "mother", "father", "wife", "husband",
-  "son", "daughter", "friend", "coworker", "boss", "neighbor", "pet",
+  "son", "daughter", "partner", "roommate",
+  "brother-in-law", "sister-in-law", "mother-in-law", "father-in-law",
+  "son-in-law", "daughter-in-law",
+  "friend", "coworker", "boss", "neighbor", "pet",
 ];
 
 const RelationshipPicker: React.FC<{

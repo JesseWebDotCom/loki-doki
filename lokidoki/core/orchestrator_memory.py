@@ -31,7 +31,6 @@ async def _score_candidate(
     memory: MemoryProvider,
     user_id: int,
     person: dict,
-    user_input: str,
     relationship_hint: Optional[str],
     recent_msg_window_start: int,
 ) -> float:
@@ -43,12 +42,15 @@ async def _score_candidate(
     )
     score += float(refs) * 0.5
 
-    # Relationship match: if the user said "my brother Artie" and this
-    # candidate has a 'brother' relationship row, that's a strong signal.
+    # Relationship match: the decomposer emits relationship_kind on every
+    # person item when the user named the relation in the same sentence
+    # ('my brother Artie' -> relationship_kind='brother'). If a candidate
+    # already has that relation on file, that's a strong bind signal.
     if relationship_hint:
         rels = await memory.list_relationships(user_id)
+        hint_low = relationship_hint.lower()
         for r in rels:
-            if r["person_id"] == person["id"] and r["relation"].lower() == relationship_hint.lower():
+            if r["person_id"] == person["id"] and r["relation"].lower() == hint_low:
                 score += 3.0
                 break
 
@@ -57,62 +59,12 @@ async def _score_candidate(
     return score
 
 
-_RELATION_WORDS = {
-    "brother", "sister", "mother", "father", "mom", "dad", "son", "daughter",
-    "wife", "husband", "spouse", "friend", "coworker", "boss", "uncle", "aunt",
-    "cousin", "nephew", "niece", "grandma", "grandpa", "neighbor", "dog", "cat",
-    "pet",
-}
-
-
-def _extract_relationship_hint(user_input: str, name: str) -> Optional[str]:
-    """Find a relation word that precedes the name in the user message.
-
-    "my brother Artie" -> 'brother'. "Artie" alone -> None.
-    """
-    if not user_input or not name:
-        return None
-    low = user_input.lower()
-    name_low = name.lower()
-    idx = low.find(name_low)
-    if idx <= 0:
-        return None
-    prefix = low[:idx].strip().split()
-    for word in reversed(prefix[-4:]):
-        cleaned = word.strip(",.;:!?")
-        if cleaned in _RELATION_WORDS:
-            return cleaned
-    return None
-
-
-def _extract_relationship_from_input(user_input: str, name: str) -> Optional[str]:
-    """Like ``_extract_relationship_hint`` but matches 'my <relation> <name>'.
-
-    Used as a salvage after binding a person fact: if the input clearly
-    carries "my brother artie", return 'brother' so the orchestrator can
-    auto-create the relationship edge. Case-insensitive on both sides.
-    """
-    if not user_input or not name:
-        return None
-    import re as _re
-
-    pattern = _re.compile(
-        rf"\bmy\s+(\w+)\s+{_re.escape(name)}\b",
-        _re.IGNORECASE,
-    )
-    m = pattern.search(user_input)
-    if not m:
-        return None
-    relation = m.group(1).lower()
-    return relation if relation in _RELATION_WORDS else None
-
-
 async def _resolve_person(
     memory: MemoryProvider,
     *,
     user_id: int,
     name: str,
-    user_input: str,
+    relationship_hint: Optional[str],
     recent_msg_window_start: int,
 ) -> tuple[Optional[int], Optional[int], list[int]]:
     """Pick the right person row, or flag as ambiguous.
@@ -133,11 +85,10 @@ async def _resolve_person(
         return int(candidates[0]["id"]), None, [int(candidates[0]["id"])]
 
     # Multiple candidates — score them.
-    relationship_hint = _extract_relationship_hint(user_input, name)
     scored: list[tuple[float, dict]] = []
     for c in candidates:
         s = await _score_candidate(
-            memory, user_id, c, user_input, relationship_hint, recent_msg_window_start
+            memory, user_id, c, relationship_hint, recent_msg_window_start
         )
         scored.append((s, c))
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -207,22 +158,16 @@ async def persist_long_term_item(
     negates_previous = bool(item.get("negates_previous", False))
     kind = item.get("kind") or "fact"
 
-    # Defense-in-depth: refuse to persist obviously-broken person/entity
-    # subject names. The decomposer_repair coerce_item path *should*
-    # have caught these, but we mirror the guard here so any future
-    # call site (e.g. a direct API ingestion path) can't bypass it
-    # and pollute the people table with question fragments like
-    # "Who Is Craig Nelson And".
-    if subject_type in ("person", "entity") and subject_name:
-        parts = subject_name.split()
-        question_words = {"who", "what", "where", "when", "why", "how", "which"}
-        if len(parts) > 3 or any(
-            p.lower().strip(".,!?;:") in question_words for p in parts
-        ):
-            logger.info(
-                "[orchestrator_memory] dropping garbage subject_name=%r", subject_name
-            )
-            return {}
+    # The garbage-name guard lives in decomposer_repair.coerce_item — that
+    # is the single chokepoint every decomposer item passes through. We
+    # used to mirror it here as defense-in-depth, but the duplicate was a
+    # keyword list (`who/what/where/...`) that drifted out of sync. The
+    # structured decomposer output is now the source of truth.
+
+    # Structured relationship hint from the decomposer. The 2B model is
+    # responsible for extracting "my <relation> Name" into a typed field
+    # — orchestrator code does NOT regex the user input.
+    relationship_hint = (item.get("relationship_kind") or "").strip() or None
 
     person_id: Optional[int] = None
     ambiguity_group_id: Optional[int] = None
@@ -234,7 +179,7 @@ async def persist_long_term_item(
             memory,
             user_id=user_id,
             name=subject_name,
-            user_input=user_input,
+            relationship_hint=relationship_hint,
             recent_msg_window_start=recent_msg_window_start,
         )
         fact_subject = subject_name.lower()
@@ -265,27 +210,18 @@ async def persist_long_term_item(
         kind=kind,
     )
 
-    rel_kind = (item.get("relationship_kind") or "").strip()
-    if (
-        item.get("kind") == "relationship"
-        and person_id is not None
-        and rel_kind
-    ):
-        await memory.add_relationship(user_id, person_id, rel_kind)
-
-    # Inferred-relationship salvage. The decomposer is small and rarely
-    # emits a separate relationship item, even when the user clearly says
-    # "my brother artie loves movies". If we just bound a fact to a
-    # person AND the user input contains a "my <relation> <Name>" pair
-    # whose Name matches the bound person, auto-create the relationship
-    # so the brother edge actually shows up in the People tab.
-    if person_id is not None and subject_name:
-        pair = _extract_relationship_from_input(user_input, subject_name)
-        if pair:
-            try:
-                await memory.add_relationship(user_id, person_id, pair)
-            except Exception:
-                logger.exception("[orchestrator_memory] add_relationship failed")
+    # Auto-create the relationship edge whenever the decomposer told us
+    # the relation, regardless of whether this item is the dedicated
+    # relationship row or just a preference/event item that carried
+    # relationship_kind along as a disambiguation hint. add_relationship
+    # is idempotent, so emitting the brother edge twice (once from the
+    # preference item, once from the relationship item gemma also emits)
+    # is harmless.
+    if person_id is not None and relationship_hint:
+        try:
+            await memory.add_relationship(user_id, person_id, relationship_hint)
+        except Exception:
+            logger.exception("[orchestrator_memory] add_relationship failed")
 
     if subject_type == "person":
         subject_label = subject_name

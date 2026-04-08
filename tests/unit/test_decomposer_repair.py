@@ -114,6 +114,57 @@ class TestParseItems:
 class TestCoerceItem:
     """Pre-validation salvage covers gemma's two most common misshapes."""
 
+    def test_sentence_initial_proper_noun_survives(self):
+        # The mirror of the "In" test: Camilla is a real proper noun even
+        # when she only appears at sentence-initial position. The position-0
+        # heuristic would wrongly drop her; the spaCy POS check keeps her.
+        out = coerce_item(
+            {
+                "subject_type": "person", "subject_name": "Camilla",
+                "predicate": "was terrified by", "value": "Insidious",
+                "kind": "event", "relationship_kind": "sister-in-law",
+            },
+            original_input="Camilla was terrified by Insidious",
+        )
+        assert out is not None
+        assert out["subject_name"] == "Camilla"
+
+    def test_salvage2_recovers_camilla_not_preposition(self):
+        # Real failing turn from production: gemma emitted a person item
+        # with NO subject_name. The legacy regex salvage greedy-matched
+        # "my sister in" → name="in" → wrote {person, In, was terrified
+        # by, Insidious}. The spaCy-based salvage uses the dependency
+        # parse instead — Camilla is parsed as the appositive of sister
+        # (the actual relation NOUN), so we recover the right name.
+        out = coerce_item(
+            {
+                "subject_type": "person",
+                "predicate": "was terrified by",
+                "value": "Insidious",
+                "kind": "event",
+                "relationship_kind": "sister-in-law",
+                "category": "event",
+            },
+            original_input="My sister in law Camilla was terrified by the insidious movie",
+        )
+        assert out is not None
+        assert out["subject_name"] == "Camilla"
+
+    def test_sentence_initial_stopword_dropped_as_person_name(self):
+        # "In was terrified by Insidious" — user typo'd "I" as "In".
+        # gemma lifts "In" as a person because it's capitalized at sentence
+        # start. The stopword guard must drop it instead of polluting the
+        # people table with a fake "In" entry.
+        out = coerce_item(
+            {
+                "subject_type": "person", "subject_name": "In",
+                "predicate": "was terrified by", "value": "Insidious",
+                "kind": "event",
+            },
+            original_input="In was terrified by Insidious",
+        )
+        assert out is None
+
     def test_self_relationship_demotes_to_fact(self):
         out = coerce_item({
             "subject_type": "self", "subject_name": "",
@@ -417,6 +468,36 @@ class TestCoerceItem:
         assert out["subject_type"] == "self"
         assert out["predicate"] == "loves"
         assert out["value"] == "coffee"
+
+
+class TestEntityCrossItemRecovery:
+    """Salvage 6: borrow an entity name from a sibling item's value field."""
+
+    def test_entity_no_name_recovered_from_sibling_value(self):
+        # Production failure: for "Camilla was terrified by Insidious"
+        # gemma emits the entity item with NO subject_name, but the
+        # sibling person item has value="Insidious". parse_items pools
+        # candidate names from sibling values and feeds them into
+        # coerce_item, which fills the entity item's missing name.
+        items = [
+            {
+                "subject_type": "person", "subject_name": "Camilla",
+                "predicate": "was terrified by", "value": "Insidious",
+                "kind": "event", "relationship_kind": "sister-in-law",
+            },
+            {
+                "subject_type": "entity", "predicate": "is",
+                "value": "a scary movie", "kind": "fact", "category": "media",
+            },
+        ]
+        good, errors = parse_items(
+            items, original_input="Camilla was terrified by Insidious",
+        )
+        assert errors == []
+        assert len(good) == 2
+        entity = next(g for g in good if g.subject_type == "entity")
+        assert entity.subject_name == "Insidious"
+        assert entity.value == "a scary movie"
 
 
 class TestParseItemsCoercion:

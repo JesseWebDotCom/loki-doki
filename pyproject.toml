@@ -19,7 +19,17 @@ dependencies = [
     "sqlite-vec>=0.1.9",
     "fastembed>=0.4.2",
     "uvicorn>=0.44.0",
+    "spacy>=3.8,<3.9",
+    "en-core-web-sm",
 ]
+
+# Pin the spaCy English model to a wheel so `uv sync` installs it
+# automatically — no separate `python -m spacy download` step needed.
+# Bumping the spaCy minor requires bumping this URL to a matching model
+# release (model version must match spaCy minor). spaCy 3.8 is the first
+# release built against numpy 2.x — earlier versions trip an ABI mismatch.
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

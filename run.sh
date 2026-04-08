@@ -23,9 +23,20 @@ fi
 # Ensure we aren't inheriting a mismatched virtualenv from the parent shell
 unset VIRTUAL_ENV
 
-# Kill any existing server instances on port 8000 to ensure a clean start
-echo "🧹 Cleaning up previous instances on port 8000..."
-lsof -ti:8000 | xargs kill -9 2>/dev/null
+# Kill ANY previous lokidoki backend instance, not just one on a specific
+# port. We've been bitten by stale processes running out of an older
+# clone (e.g. ~/Projects/loki-doki on port 8008) silently serving the
+# frontend with out-of-date code. The match is intentionally broad:
+#   - any uvicorn process whose command line mentions lokidoki/run.py/app.main
+#   - anything listening on the dev ports we've used historically (8000, 8008)
+# pgrep + lsof both swallow "no match" cleanly so this is safe to rerun.
+echo "🧹 Cleaning up previous LokiDoki instances..."
+pgrep -f "uvicorn.*(lokidoki|app\\.main)" | xargs -r kill -9 2>/dev/null
+pgrep -f "loki-doki.*run\\.py" | xargs -r kill -9 2>/dev/null
+for port in 8000 8008; do
+    lsof -ti:"$port" 2>/dev/null | xargs -r kill -9 2>/dev/null
+done
+sleep 0.3
 
 # Launch the bootstrap server
 echo "💎 Initializing LokiDoki Bootstrap..."

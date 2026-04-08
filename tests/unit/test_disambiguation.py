@@ -8,8 +8,6 @@ import pytest
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core import memory_people_ops  # noqa: F401  side-effect bind
 from lokidoki.core.orchestrator_memory import (
-    _extract_relationship_hint,
-    _extract_relationship_from_input,
     build_silent_confirmations,
     persist_long_term_item,
 )
@@ -31,21 +29,6 @@ def memory(tmp_path):
     uid = _run(_setup())
     yield mp, uid
     _run(mp.close())
-
-
-class TestRelationshipFromInput:
-    def test_brother_pair(self):
-        assert _extract_relationship_from_input("my brother artie loves movies", "Artie") == "brother"
-
-    def test_dog_pair_case_insensitive(self):
-        assert _extract_relationship_from_input("My Dog Artie hates baths", "artie") == "dog"
-
-    def test_no_match_when_name_absent(self):
-        assert _extract_relationship_from_input("my brother bob", "Artie") is None
-
-    def test_unknown_relation_rejected(self):
-        # "my favorite restaurant Olive serves breadsticks" — Olive is not a person
-        assert _extract_relationship_from_input("my favorite restaurant Olive", "Olive") is None
 
 
 class TestSilentConfirmationDedup:
@@ -78,17 +61,6 @@ class TestSilentConfirmationDedup:
         ]
         confs = build_silent_confirmations(reports)
         assert len(confs) == 2
-
-
-class TestRelationshipHint:
-    def test_brother(self):
-        assert _extract_relationship_hint("My brother Artie loves movies", "Artie") == "brother"
-
-    def test_dog(self):
-        assert _extract_relationship_hint("My dog Artie hates baths", "Artie") == "dog"
-
-    def test_no_hint(self):
-        assert _extract_relationship_hint("Artie loves movies", "Artie") is None
 
 
 def test_unique_name_binds_directly(memory):
@@ -133,6 +105,9 @@ def test_relationship_hint_resolves(memory):
         "subject_type": "person", "subject_name": "Artie",
         "predicate": "loves", "value": "movies", "kind": "fact",
         "category": "preference",
+        # Decomposer is now responsible for emitting the relation hint
+        # on every person item, not just the dedicated relationship row.
+        "relationship_kind": "brother",
     }
     report = _run(persist_long_term_item(
         mp, user_id=uid, user_msg_id=None, item=item,
@@ -171,17 +146,18 @@ def test_set_primary_relationship_empty_clears(memory):
     assert not any(r["person_id"] == pid for r in rels)
 
 
-def test_brother_relationship_auto_created_from_input(memory):
-    """When the user says "my brother artie loves movies" and the
-    decomposer only emits the loves-movies fact (no separate
-    relationship item), the orchestrator must still auto-create the
-    brother edge from the "my <relation> <name>" pattern in the input.
+def test_brother_relationship_auto_created_from_relationship_kind(memory):
+    """When the decomposer emits a person preference item that carries
+    relationship_kind (because the user said "my brother artie loves
+    movies"), the orchestrator must auto-create the brother edge even
+    though this item's kind is 'fact', not 'relationship'.
     """
     mp, uid = memory
     item = {
         "subject_type": "person", "subject_name": "Artie",
         "predicate": "loves", "value": "movies", "kind": "fact",
         "category": "preference",
+        "relationship_kind": "brother",
     }
     _run(persist_long_term_item(
         mp, user_id=uid, user_msg_id=None, item=item,
