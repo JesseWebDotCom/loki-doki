@@ -170,15 +170,19 @@ const RiggedDicebearAvatar: React.FC<Props> = ({
     );
   }
 
-  // Build the rigged SVG. The two head layers (skin and features)
-  // share an identical rotate transform so they move as one piece.
-  // Order: body → headSkin (rotated) → clothes → headFeatures (rotated).
-  // Putting clothes BETWEEN headSkin and headFeatures means the collar
-  // paints over the head's neck overhang while still letting face/hair
-  // sit on top of the clothes.
+  // Build the rigged SVG. The HEAD layers (back hair, head skin, head
+  // features) all share the same rotate transform so they swing as
+  // one piece. Z-order:
+  //   1. backHair  (rotated) — behind everything; long hair draping
+  //                            past the body in toon-head.
+  //   2. body      (static)  — paints over the back hair from y=neck.
+  //   3. headSkin  (rotated) — head circle + neck overhang.
+  //   4. clothes   (static)  — collar paints over the neck overhang.
+  //   5. headFeatures (rotated) — eyes/mouth/eyebrows/front hair/etc.
   const rot = `rotate(${headDeg.toFixed(3)} ${split.pivotX} ${split.pivotY})`;
   const markup =
     split.defs +
+    `<g class="ld-rigged-back-hair" transform="${rot}">${split.backHair}</g>` +
     `<g class="ld-rigged-body">${split.body}</g>` +
     `<g class="ld-rigged-head-skin" transform="${rot}">${split.headSkin}</g>` +
     `<g class="ld-rigged-clothes">${split.clothes}</g>` +

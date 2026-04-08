@@ -40,6 +40,10 @@ export type SplitResult =
       riggable: true;
       viewBox: string;
       defs: string;
+      /** Hair that drapes BEHIND the body (toon-head only). Rotated
+       *  with the head, but renders in z-order BEFORE the body so the
+       *  body and clothes paint over it. Empty string if none. */
+      backHair: string;
       body: string;
       headSkin: string;
       clothes: string;
@@ -224,6 +228,7 @@ function splitAvataaars(doc: Document, viewBox: string): SplitResult {
     riggable: true,
     viewBox,
     defs,
+    backHair: "", // avataaars has no behind-the-body hair layer
     body: wrap(bodyParts),
     headSkin: wrap([headSkinSvg]),
     clothes: wrap(clothesParts),
@@ -252,13 +257,17 @@ function splitToonHead(doc: Document, viewBox: string): SplitResult {
     return { riggable: false, viewBox, inner: svg.innerHTML };
   }
 
+  const backHairParts: string[] = [];
   const bodyParts: string[] = [];
   const headSkinParts: string[] = [];
   const clothesParts: string[] = [];
   const headFeaturesParts: string[] = [];
 
-  // Stable prefix
-  headFeaturesParts.push(serialize(children[0])); // back hair
+  // Stable prefix. Index [0] is the BACK hair (long hair that drapes
+  // behind the body); it must render BEFORE the body in z-order so
+  // the body and clothes paint over it. We rotate it with the head
+  // group regardless.
+  backHairParts.push(serialize(children[0]));
   bodyParts.push(serialize(children[1]));         // body skin
   bodyParts.push(serialize(children[2]));         // body shadow
   headSkinParts.push(serialize(children[3]));     // head skin
@@ -284,6 +293,7 @@ function splitToonHead(doc: Document, viewBox: string): SplitResult {
     riggable: true,
     viewBox,
     defs,
+    backHair: backHairParts.join(""),
     body: bodyParts.join(""),
     headSkin: headSkinParts.join(""),
     clothes: clothesParts.join(""),
