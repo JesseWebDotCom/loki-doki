@@ -107,8 +107,8 @@ class TestParsers:
     def test_movie_anchors_dedupe(self):
         results = P.extract_movie_anchors(ZIP_PAGE_HTML)
         assert [r["title"] for r in results] == [
-            "Hoppers (2026)",
-            "The Super Mario Galaxy Movie (2026)",
+            "Hoppers",
+            "The Super Mario Galaxy Movie",
         ]
         assert results[0]["slug"] == "hoppers-2026-241416"
         assert results[0]["snippet"] == ""
@@ -126,7 +126,7 @@ class TestParsers:
 
     def test_movie_details_from_jsonld(self):
         details = P.extract_movie_details(MOVIE_OVERVIEW_HTML)
-        assert details["title"] == "Hoppers (2026)"
+        assert details["title"] == "Hoppers"
         assert details["runtime_minutes"] == 105
         assert details["content_rating"] == "PG"
         assert details["director"] == "Daniel Chong"
@@ -204,8 +204,8 @@ class TestListNowPlaying:
         # to grind on — not the previous "06461: Now playing" placeholder
         # that produced "Movie: Now playing Now playing Now playing".
         assert r.data["lead"].startswith("Now playing: ")
-        assert "Hoppers (2026)" in r.data["lead"]
-        assert "The Super Mario Galaxy Movie (2026)" in r.data["lead"]
+        assert "Hoppers" in r.data["lead"]
+        assert "The Super Mario Galaxy Movie" in r.data["lead"]
 
     @pytest.mark.anyio
     async def test_city_state_success(self, skill):
@@ -254,12 +254,12 @@ class TestFandangoWebLegacy:
             )
         assert r.success
         assert len(r.data["showtimes"]) == 1
-        assert r.data["showtimes"][0]["title"] == "Hoppers (2026)"
+        assert r.data["showtimes"][0]["title"] == "Hoppers"
         # Filtered legacy path must still produce a usable lead — the
         # synthesizer-eats-junk bug we hit before came from a lead like
-        # "Hoppers (2026): Now playing" being repeated. Assert the lead
+        # "Hoppers: Now playing" being repeated. Assert the lead
         # actually mentions the matched title.
-        assert "Hoppers (2026)" in r.data["lead"]
+        assert "Hoppers" in r.data["lead"]
 
     @pytest.mark.anyio
     async def test_no_match_returns_top(self, skill):
@@ -290,7 +290,7 @@ class TestGlobalAndComingSoon:
         assert r.source_url.endswith("/movies-in-theaters")
         # Lead is a list-style sentence with real titles, not a placeholder.
         assert r.data["lead"].startswith("Now playing: ")
-        assert "Avatar 3 (2026)" in r.data["lead"]
+        assert "Avatar 3" in r.data["lead"]
 
     @pytest.mark.anyio
     async def test_global_empty(self, skill):
@@ -305,7 +305,7 @@ class TestGlobalAndComingSoon:
         assert r.success
         assert r.data["scope"] == "coming_soon"
         assert r.source_url.endswith("/movies-coming-soon")
-        assert "Avatar 3 (2026)" in r.data["lead"]
+        assert "Avatar 3" in r.data["lead"]
 
     @pytest.mark.anyio
     async def test_coming_soon_empty(self, skill):
@@ -324,12 +324,12 @@ class TestMovieOverview:
                 "movie_overview", {"slug": "hoppers-2026-241416"},
             )
         assert r.success
-        assert r.data["title"] == "Hoppers (2026)"
+        assert r.data["title"] == "Hoppers"
         assert r.data["runtime_minutes"] == 105
         # Lead must include title, rating, runtime, and genre — the
         # synthesizer relies on this for the verbatim/grounded path.
         lead = r.data["lead"]
-        assert "Hoppers (2026)" in lead
+        assert "Hoppers" in lead
         assert "PG" in lead
         assert "105 min" in lead
         assert "Animated" in lead
@@ -389,14 +389,14 @@ class TestMovieShowtimes:
                 "movie_showtimes", {"slug": "hoppers-2026-241416", "date": "2026-04-08"},
             )
         assert r.success
-        assert r.data["movie"]["title"] == "Hoppers (2026)"
+        assert r.data["movie"]["title"] == "Hoppers"
         assert r.data["date"] == "2026-04-08"
         # Lead must mention the actual movie title so the synthesizer
         # has something concrete to anchor on. The "JS-rendered" copy is
         # just a tail explaining why the time grid may be empty — it
         # must NOT be the entire lead.
         lead = r.data["lead"]
-        assert "Hoppers (2026)" in lead, f"lead missing title: {lead!r}"
+        assert "Hoppers" in lead, f"lead missing title: {lead!r}"
         assert lead.split(":", 1)[0].strip(), f"lead has no leading title: {lead!r}"
 
     @pytest.mark.anyio
@@ -460,7 +460,7 @@ class TestLocalCache:
             )
         cached = await skill.execute_mechanism("local_cache", {"query": "hoppers"})
         assert cached.success
-        assert cached.data["showtimes"][0]["title"] == "Hoppers (2026)"
+        assert cached.data["showtimes"][0]["title"] == "Hoppers"
 
     @pytest.mark.anyio
     async def test_cache_miss(self, skill):

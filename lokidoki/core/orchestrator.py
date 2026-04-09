@@ -151,8 +151,8 @@ class Orchestrator:
         # skill returns data["needs_clarification"], drained when the
         # next user reply matches one of the offered options. See
         # lokidoki/core/clarification.py for the full state machine.
-        from lokidoki.core.clarification import ClarificationCache
-        self._clarification_cache = ClarificationCache()
+        from lokidoki.core.clarification import get_global_clarification_cache
+        self._clarification_cache = get_global_clarification_cache()
 
     @property
     def policy(self) -> ModelPolicy:

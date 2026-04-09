@@ -80,6 +80,20 @@ def strip_html(text: str) -> str:
     return unescape(re.sub(r"<[^>]+>", " ", text or "")).strip()
 
 
+_YEAR_SUFFIX_RE = re.compile(r"\s*\(?(?:19|20)\d{2}\)?\s*$")
+
+
+def _strip_year_suffix(title: str) -> str:
+    """Drop a trailing release-year tag like ``" (2026)"`` or ``" 2026"``.
+
+    Fandango's anchor text and napi ``title`` field sometimes carry the
+    release year for disambiguation; users find it noisy in chat.
+    """
+    if not title:
+        return title
+    return _YEAR_SUFFIX_RE.sub("", title).strip()
+
+
 def _slugify_title(slug: str) -> str:
     """Best-effort title from a Fandango slug like ``hoppers-2026-241416``.
 
@@ -130,6 +144,7 @@ def extract_movie_anchors(html: str) -> list[dict]:
         title = re.sub(r"\s+", " ", title).strip()
         if not title:
             title = _slugify_title(slug)
+        title = _strip_year_suffix(title)
         seen.add(slug)
         out.append({
             "slug": slug,
@@ -179,7 +194,7 @@ def extract_movie_details(html: str) -> dict:
         ]
         rating = obj.get("aggregateRating") or {}
         return {
-            "title": (obj.get("name") or "").strip(),
+            "title": _strip_year_suffix((obj.get("name") or "").strip()),
             "runtime_minutes": obj.get("duration"),
             "content_rating": obj.get("contentRating") or "",
             "release_date": obj.get("datePublished") or "",
@@ -330,7 +345,7 @@ def parse_napi_theaters(payload: dict, *, drop_expired: bool = True) -> dict:
         for m in (t.get("movies") or []):
             if not isinstance(m, dict):
                 continue
-            title = (m.get("title") or m.get("name") or "").strip()
+            title = _strip_year_suffix((m.get("title") or m.get("name") or "").strip())
             if not title:
                 continue
             slug = _slug_from_mop_uri(m.get("mopURI") or "")

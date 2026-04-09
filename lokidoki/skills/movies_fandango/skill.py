@@ -64,10 +64,9 @@ def _build_lead(query: str, results: list[dict]) -> str:
         return ""
     if len(titles) == 1:
         return f"Now playing: {titles[0]}"
-    head = ", ".join(titles[:6])
-    if len(titles) > 6:
-        head += f", and {len(titles) - 6} more"
-    return f"Now playing: {head}"
+    # No truncation: list every title. Hiding results behind "and N
+    # more" was an explicit user complaint — they want the full set.
+    return f"Now playing: {', '.join(titles)}"
 
 
 class FandangoShowtimesSkill(BaseSkill):
@@ -243,6 +242,22 @@ class FandangoShowtimesSkill(BaseSkill):
             return err
         drop_expired = parameters.get("drop_expired", True)
         parsed = P.parse_napi_theaters(payload, drop_expired=drop_expired)
+        # Late-night recovery: if every showtime for "today" is already
+        # in the past (common when the user asks at 10pm+), silently
+        # roll forward to tomorrow's grid so "what's playing" still
+        # answers with real, ticketable times instead of returning
+        # failure and dropping us into the title-only HTML fallback.
+        if (
+            not parsed["movies"]
+            and drop_expired
+            and not parameters.get("_rolled_forward")
+            and (parameters.get("date") or _today()) == _today()
+        ):
+            from datetime import timedelta
+            tomorrow = (_date.today() + timedelta(days=1)).isoformat()
+            return await self._napi_theaters_with_showtimes(
+                {**parameters, "date": tomorrow, "_rolled_forward": True}
+            )
         if not parsed["movies"]:
             return MechanismResult(
                 success=False,

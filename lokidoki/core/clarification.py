@@ -123,6 +123,24 @@ class ClarificationCache:
         self._cache.pop(session_id, None)
 
 
+# Process-wide singleton. The orchestrator is re-instantiated per
+# request in the FastAPI route, so per-instance state would be wiped
+# between the "which option?" turn and the user's reply — breaking
+# every clarification flow. A module-level cache survives request
+# boundaries within a single process, which is the actual lifecycle
+# we need. (A multi-worker deployment would still need SQLite-backed
+# persistence; for the current single-process Pi server this is
+# sufficient.)
+_GLOBAL_CACHE: Optional["ClarificationCache"] = None
+
+
+def get_global_clarification_cache() -> "ClarificationCache":
+    global _GLOBAL_CACHE
+    if _GLOBAL_CACHE is None:
+        _GLOBAL_CACHE = ClarificationCache()
+    return _GLOBAL_CACHE
+
+
 # ---- resolution -----------------------------------------------------------
 
 
