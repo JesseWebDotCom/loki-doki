@@ -862,12 +862,17 @@ class Orchestrator:
             # the turn actually involves people — otherwise the model
             # shoehorns names like "Artie" into unrelated answers
             # (movie showtimes, weather, etc.).
+            # Also check companion_relations — relationship mentions
+            # the decomposer extracted from raw LLM output before
+            # coercion drops structurally-invalid items (e.g. "with my
+            # brother" without a name). This lets synthesis acknowledge
+            # the companion even when the primary ask is current_media.
             _turn_involves_people = any(
                 getattr(a, "capability_need", "none") == "people_lookup"
                 or getattr(a, "referent_type", "unknown") == "person"
                 or "person" in getattr(a, "referent_scope", [])
                 for a in asks
-            )
+            ) or bool(decomposition.companion_relations)
             referent_block = build_referent_block(
                 recent=recent,
                 relevant_facts=relevant_facts,
@@ -1111,6 +1116,32 @@ class Orchestrator:
                 "skills_resolved": 1, "skills_failed": 0,
                 "routing_log": routing_log, "clarification_answer": True,
             })
+            # Second-level drill-down: if the showtimes result has
+            # movie titles, set a new clarification so the user can
+            # say a movie name and get details for that title at
+            # this theater — without re-asking "which theater?".
+            movie_titles = [
+                (s.get("title") or "").strip()
+                for s in (result.data.get("showtimes") or [])
+                if (s.get("title") or "").strip()
+            ]
+            if movie_titles:
+                from lokidoki.core.clarification import PendingClarification
+                self._clarification_cache.set(
+                    session_id,
+                    PendingClarification(
+                        field="query",
+                        options=movie_titles,
+                        skill_id=pending.skill_id,
+                        intent=pending.intent,
+                        original_params=merged_params,
+                    ),
+                )
+                logger.info(
+                    "[orchestrator] set movie drill-down clarification "
+                    "for session %s: %d titles",
+                    session_id, len(movie_titles),
+                )
 
         yield PipelineEvent(
             phase="synthesis",

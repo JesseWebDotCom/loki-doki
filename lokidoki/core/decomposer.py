@@ -78,6 +78,12 @@ class DecompositionResult:
     asks: list[Ask] = field(default_factory=list)
     model: str = ""
     latency_ms: float = 0.0
+    # Derived (not in schema): relationship mentions the decomposer
+    # extracted from the raw LLM output, before coercion drops
+    # structurally-invalid items. Used by the orchestrator to inject
+    # relationship context into synthesis even when the companion
+    # mention ("with my brother") isn't the primary ask.
+    companion_relations: list[str] = field(default_factory=list)
 
 
 # JSON Schema for structured output. Constrains Ollama's decoder to terminate
@@ -259,6 +265,16 @@ class Decomposer:
             len(result.long_term_memory or []),
             result.long_term_memory,
         )
+        # Extract companion relationship mentions from raw items before
+        # repair drops structurally-invalid ones. The orchestrator uses
+        # this to inject relationship context into synthesis even when
+        # the companion ("with my brother") isn't the primary ask.
+        result.companion_relations = [
+            (item.get("relationship_kind") or item.get("value") or "").strip()
+            for item in (result.long_term_memory or [])
+            if isinstance(item, dict)
+            and (item.get("kind") == "relationship" or item.get("relationship_kind"))
+        ]
         # Run the Pydantic repair loop on long_term_memory. The primary
         # call's items are dicts (or absent); after this they're a list
         # of validated dicts that the orchestrator can trust.

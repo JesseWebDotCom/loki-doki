@@ -304,6 +304,18 @@ class FandangoShowtimesSkill(BaseSkill):
                 # so the lead renders the highlighted block.
                 preferred = explicit_theater
 
+        # ---- per-turn query filter (movie drill-down) -------------------
+        # When the user picks a movie from a showtimes listing, the
+        # orchestrator injects `query=<movie title>`. Filter the
+        # showtimes to matching titles so the response focuses on that
+        # movie instead of dumping the full listing again.
+        explicit_query = (parameters.get("query") or "").strip()
+        if explicit_query and explicit_theater:
+            terms = P.filter_terms(explicit_query)
+            filtered = [s for s in showtimes if P.matches_query(s.get("title", ""), terms)]
+            if filtered:
+                showtimes = filtered
+
         # ---- ambiguity → clarification ---------------------------------
         # Trigger conditions (all must hold):
         #   * no explicit theater on the ask, AND

@@ -536,10 +536,17 @@ def coerce_item(
             out["subject_name"] = recovered
             subject_name = recovered
         else:
+            # A relationship with a tautological predicate ("is",
+            # "named") needs a person target to mean anything. Without
+            # a name, demoting to self produces garbage like "you is
+            # brother" — drop instead. Non-tautological predicates
+            # (e.g. "occupation") carry useful signal even when gemma
+            # mislabelled the kind, so those still demote to self-fact.
+            if kind == "relationship" and predicate_norm in _TAUTOLOGY_PREDICATES:
+                return None
             out["subject_type"] = "self"
             out["subject_name"] = ""
             subject_type = "self"
-            # A relationship needs a person target — demote here too.
             if kind == "relationship":
                 out["kind"] = "fact"
                 out["relationship_kind"] = None

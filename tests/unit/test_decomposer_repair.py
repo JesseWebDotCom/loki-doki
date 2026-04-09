@@ -235,7 +235,9 @@ class TestCoerceItem:
         assert out is not None
         assert out["subject_type"] == "self"
 
-    def test_person_relationship_without_name_demotes_to_self_fact(self):
+    def test_person_relationship_without_name_is_dropped(self):
+        """A relationship without a person target is structurally invalid.
+        Demoting to self produced garbage like 'you is brother'; drop instead."""
         out = coerce_item(
             {
                 "subject_type": "person", "subject_name": "",
@@ -244,9 +246,20 @@ class TestCoerceItem:
             },
             original_input="i have a coworker",
         )
-        assert out["subject_type"] == "self"
-        assert out["kind"] == "fact"
-        assert out["relationship_kind"] is None
+        assert out is None
+
+    def test_person_relationship_without_name_brother_is_dropped(self):
+        """Regression: 'I might go with my brother' without a name must not
+        produce the garbled memory 'you is brother'."""
+        out = coerce_item(
+            {
+                "subject_type": "person", "subject_name": "",
+                "predicate": "is", "value": "brother",
+                "kind": "relationship", "relationship_kind": "brother",
+            },
+            original_input="I might do with my brother tonight to the movies",
+        )
+        assert out is None
 
     def test_blocklist_skips_franchise_words(self):
         out = coerce_item(

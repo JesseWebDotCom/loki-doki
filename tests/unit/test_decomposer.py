@@ -393,6 +393,47 @@ class TestDecomposer:
         assert "Companion mentions" in prompt or "Companion details" in prompt
         assert "current_media" in prompt
 
+    @pytest.mark.anyio
+    async def test_companion_relations_derived_from_raw_items(self, decomposer):
+        """companion_relations should capture relationship_kind from raw
+        LLM output even when the item is structurally invalid and gets
+        dropped by repair (e.g. person+relationship with no name)."""
+        response = json.dumps({
+            "is_course_correction": False,
+            "overall_reasoning_complexity": "fast",
+            "short_term_memory": {"sentiment": "excited", "concern": "none"},
+            "long_term_memory": [
+                {
+                    "subject_type": "person", "subject_name": "",
+                    "predicate": "is", "value": "brother",
+                    "kind": "relationship", "relationship_kind": "brother",
+                    "memory_priority": "high",
+                },
+            ],
+            "asks": [{
+                "ask_id": "1", "intent": "direct_chat",
+                "distilled_query": "movies tonight",
+                "parameters": {},
+                "capability_need": "current_media",
+                "referent_type": "media",
+                "requires_current_data": True,
+                "knowledge_source": "web",
+            }],
+        })
+        decomposer._client.generate = AsyncMock(return_value=response)
+
+        result = await decomposer.decompose(
+            "I might go with my brother to the movies tonight"
+        )
+
+        # The relationship item should be dropped by repair (no name)
+        assert not any(
+            item.get("kind") == "relationship"
+            for item in result.long_term_memory
+        )
+        # But companion_relations should still capture the signal
+        assert "brother" in result.companion_relations
+
 
     @pytest.mark.anyio
     async def test_decompose_parses_people_lookup_capability(self, decomposer):
