@@ -167,37 +167,126 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 };
 
+const barWidth = (pct: number) => `${Math.min(Math.max(pct, 0), 100)}%`;
+
+const MetricBar: React.FC<{ label: string; pct: number; detail?: string; color: string }> = ({ label, pct, detail, color }) => (
+  <div className="space-y-1">
+    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+      <span>{label}</span>
+      <span className="text-foreground">{pct.toFixed(1)}%</span>
+    </div>
+    <div className="relative h-7 overflow-hidden rounded-lg border border-border/30 bg-card/30">
+      <div className={`absolute inset-y-0 left-0 ${color} transition-all duration-500`} style={{ width: barWidth(pct) }} />
+    </div>
+    {detail && <div className="text-[10px] text-muted-foreground">{detail}</div>}
+  </div>
+);
+
+const StatusDot: React.FC<{ ok: boolean; label: string }> = ({ ok, label }) => (
+  <div className="flex items-center gap-2">
+    <div className={`w-2 h-2 rounded-full ${ok ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.4)]' : 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.4)]'}`} />
+    <span className="text-xs text-muted-foreground">{label}</span>
+  </div>
+);
+
 const GeneralPane: React.FC = () => {
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [error, setError] = useState(false);
+
   useEffect(() => {
-    void getSystemInfo()
-      .then(setInfo)
-      .catch(() => setError(true));
+    const load = () => { void getSystemInfo().then(setInfo).catch(() => setError(true)); };
+    load();
+    const id = setInterval(load, 8000);
+    return () => clearInterval(id);
   }, []);
+
   if (error) return <div className="text-xs text-red-400 italic">Failed to load system info.</div>;
   if (!info) return <div className="text-xs text-muted-foreground italic">Loading system info…</div>;
 
+  const { system: hw } = info;
+
   return (
     <div className="space-y-6">
-      {/* Runtime */}
+      {/* Status + Runtime */}
       <div>
         <div className="flex items-center gap-2 border-b border-border/10 pb-4 mb-4">
           <Cpu className="text-primary w-5 h-5" />
           <h2 className="text-xl font-bold tracking-tight">Runtime</h2>
+          <div className="ml-auto flex items-center gap-4">
+            <StatusDot ok={info.ollama_ok} label="Ollama" />
+            <StatusDot ok={info.internet_ok} label="Internet" />
+          </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Stat label="Platform" value={info.platform} />
-          <Stat label="Ollama" value={info.ollama_version || 'unavailable'} accent={info.ollama_version ? 'text-green-400' : 'text-red-400'} />
+          <Stat label="Ollama" value={info.ollama_version || 'unavailable'} accent={info.ollama_ok ? 'text-green-400' : 'text-red-400'} />
           <Stat label="Fast Model" value={info.fast_model} accent="text-green-400" />
           <Stat label="Thinking Model" value={info.thinking_model} accent="text-primary" />
         </div>
       </div>
 
-      {/* Loaded Models (in RAM) */}
+      {/* Hardware: CPU / Memory / Disk */}
       <div>
-        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-          Loaded in Memory ({info.loaded_models.length})
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">System Resources</div>
+        <div className="rounded-xl border border-border/30 bg-card/50 p-4 space-y-3">
+          <MetricBar label="CPU" pct={hw.cpu.load_percent} detail={`${hw.cpu.cores} cores`} color="bg-cyan-400/20" />
+          <MetricBar label="Memory" pct={hw.memory.used_percent} detail={`${formatBytes(hw.memory.used_bytes)} / ${formatBytes(hw.memory.total_bytes)}`} color="bg-violet-400/20" />
+          <MetricBar label="Disk" pct={hw.disk.used_percent} detail={`${formatBytes(hw.disk.used_bytes)} / ${formatBytes(hw.disk.total_bytes)}`} color="bg-rose-400/20" />
+        </div>
+      </div>
+
+      {/* Tracked Processes */}
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Processes</div>
+        <div className="grid grid-cols-2 gap-3">
+          {info.processes.map((p) => (
+            <div key={p.label} className="rounded-xl border border-border/30 bg-card/50 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-bold">{p.label}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest border ${
+                  p.running
+                    ? 'bg-emerald-400/10 text-emerald-400 border-emerald-400/20'
+                    : 'bg-card/60 text-muted-foreground border-border/30'
+                }`}>
+                  {p.running ? 'Running' : 'Idle'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                <div>CPU: <span className="text-foreground">{p.cpu_percent.toFixed(1)}%</span></div>
+                <div>RAM: <span className="text-foreground">{formatBytes(p.memory_bytes)}</span></div>
+                <div>PID: <span className="text-foreground font-mono">{p.pid ?? 'n/a'}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Storage Buckets */}
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Storage</div>
+        <div className="grid grid-cols-2 gap-3">
+          {info.storage.map((b) => (
+            <div key={b.key} className="rounded-xl border border-border/30 bg-card/50 p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate">{b.label}</div>
+                <div className="text-[10px] text-muted-foreground truncate">{b.path}</div>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest border ${
+                b.exists
+                  ? 'bg-emerald-400/10 text-emerald-400 border-emerald-400/20'
+                  : 'bg-card/60 text-muted-foreground border-border/30'
+              }`}>
+                {b.exists ? formatBytes(b.size_bytes) : 'Missing'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Loaded Models (Ollama RAM) */}
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
+          Models in Memory ({info.loaded_models.length})
         </div>
         {info.loaded_models.length === 0 ? (
           <div className="text-xs text-muted-foreground italic p-3 rounded-xl bg-card/50 border border-border/30">
@@ -233,7 +322,7 @@ const GeneralPane: React.FC = () => {
 
       {/* Available Models */}
       <div>
-        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
           Available Models ({info.available_models.length})
         </div>
         {info.available_models.length === 0 ? (

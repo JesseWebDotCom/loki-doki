@@ -8,6 +8,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PenLine,
+  Wifi,
+  WifiOff,
+  Bot,
+  HardDrive,
+  MemoryStick,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -18,7 +23,9 @@ import {
   updateProject,
   deleteProject,
   updateSession,
+  getSystemInfo,
 } from '../../lib/api';
+import type { SystemInfo } from '../../lib/api-types';
 import {
   Collapsible,
   CollapsibleContent,
@@ -29,6 +36,62 @@ import ProjectListItem from './ProjectListItem';
 import ProjectModal from './ProjectModal';
 import ProfileMenu from './ProfileMenu';
 import ConfirmDialog from '../ui/ConfirmDialog';
+
+// ── Status indicators ────────────────────────────────────────
+// Tiny colored icons that reflect system health at a glance.
+
+const useSystemStatus = () => {
+  const [status, setStatus] = useState<SystemInfo | null>(null);
+  useEffect(() => {
+    const poll = () => { void getSystemInfo().then(setStatus).catch(() => {}); };
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => clearInterval(id);
+  }, []);
+  return status;
+};
+
+const healthColor = (pct: number) =>
+  pct >= 95 ? 'text-red-400' : pct >= 85 ? 'text-amber-400' : 'text-emerald-400';
+
+const StatusIcons: React.FC<{ compact?: boolean }> = ({ compact }) => {
+  const s = useSystemStatus();
+  if (!s) return null;
+  const items = [
+    {
+      icon: s.internet_ok ? Wifi : WifiOff,
+      color: s.internet_ok ? 'text-emerald-400' : 'text-red-400',
+      title: s.internet_ok ? 'Internet connected' : 'No internet',
+    },
+    {
+      icon: Bot,
+      color: s.ollama_ok ? 'text-emerald-400' : 'text-red-400',
+      title: s.ollama_ok ? `Ollama ${s.ollama_version}` : 'Ollama offline',
+    },
+    {
+      icon: MemoryStick,
+      color: healthColor(s.system.memory.used_percent),
+      title: `RAM ${s.system.memory.used_percent.toFixed(0)}%`,
+    },
+    {
+      icon: HardDrive,
+      color: healthColor(s.system.disk.used_percent),
+      title: `Disk ${s.system.disk.used_percent.toFixed(0)}%`,
+    },
+  ];
+  return (
+    <div className={`flex items-center ${compact ? 'justify-center gap-2.5' : 'gap-3 px-2'}`}>
+      {items.map((it) => {
+        const Icon = it.icon;
+        return (
+          <span key={it.title} title={it.title}>
+            <Icon size={14} className={`${it.color} transition-colors`} />
+          </span>
+        );
+      })}
+    </div>
+  );
+};
 
 interface SidebarProps {
   // Kept for backwards compat with callers (ChatPage still passes pipeline state).
@@ -214,8 +277,11 @@ const Sidebar: React.FC<SidebarProps> = ({
             <Brain size={16} />
           </Link>
         </nav>
-        <div className="pt-2 mt-1 border-t border-sidebar-border/40 -mx-2 px-2">
+        <div className="pt-2 pb-1 mt-1 border-t border-sidebar-border/40 -mx-2 px-2">
           <ProfileMenu compact />
+          <div className="mt-2">
+            <StatusIcons compact />
+          </div>
         </div>
       </aside>
     );
@@ -389,9 +455,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         </Collapsible>
       </div>
 
-      {/* Profile (bottom-left) */}
-      <div className="pt-2 mt-1 border-t border-sidebar-border/40">
+      {/* Profile + Status (bottom-left) */}
+      <div className="pt-2 pb-1 mt-1 border-t border-sidebar-border/40">
         <ProfileMenu />
+        <div className="mt-1 px-2">
+          <StatusIcons />
+        </div>
       </div>
 
       <ProjectModal

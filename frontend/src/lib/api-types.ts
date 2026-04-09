@@ -237,13 +237,41 @@ export interface LoadedModel {
   expires_at: string;
 }
 
+export interface TrackedProcess {
+  label: string;
+  running: boolean;
+  pid: number | null;
+  cpu_percent: number;
+  memory_bytes: number;
+  command: string;
+}
+
+export interface StorageBucket {
+  key: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  size_bytes: number;
+}
+
+export interface SystemMetrics {
+  cpu: { load_percent: number; cores: number };
+  memory: { used_bytes: number; total_bytes: number; used_percent: number };
+  disk: { used_bytes: number; total_bytes: number; used_percent: number; path: string };
+}
+
 export interface SystemInfo {
   platform: string;
   fast_model: string;
   thinking_model: string;
   ollama_version: string;
+  ollama_ok: boolean;
+  internet_ok: boolean;
   available_models: OllamaModel[];
   loaded_models: LoadedModel[];
+  system: SystemMetrics;
+  processes: TrackedProcess[];
+  storage: StorageBucket[];
 }
 
 export interface SettingsData {

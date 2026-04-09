@@ -9,6 +9,8 @@ Each turn:
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
@@ -170,15 +172,20 @@ async def get_platform():
 
 @router.get("/system-info")
 async def get_system_info():
-    """Return runtime diagnostics: platform, models, Ollama version."""
+    """Return runtime diagnostics: platform, models, Ollama, hardware."""
+    import asyncio
+    from lokidoki.core.metrics import collect as collect_metrics
+
     client = get_inference_client()
     ollama_version = ""
     available_models: list[dict] = []
     loaded_models: list[dict] = []
+    ollama_ok = False
     try:
         vr = await client._client.get("/api/version")
         if vr.status_code == 200:
             ollama_version = vr.json().get("version", "")
+            ollama_ok = True
     except Exception:
         pass
     try:
@@ -208,13 +215,35 @@ async def get_system_info():
     except Exception:
         pass
     await client._client.aclose()
+
+    # Collect hardware metrics off the event loop (subprocess calls).
+    hw = await asyncio.to_thread(collect_metrics, Path("data"))
+
+    # Internet connectivity check — quick HEAD to a reliable endpoint.
+    internet_ok = False
+    try:
+        check = await client._client.head("https://1.1.1.1", timeout=3.0)
+        internet_ok = check.status_code < 500
+    except Exception:
+        # Client was closed above; use a fresh one for the check.
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as tmp:
+                check = await tmp.head("https://1.1.1.1")
+                internet_ok = check.status_code < 500
+        except Exception:
+            pass
+
     return {
         "platform": _model_policy.platform,
         "fast_model": _model_policy.fast_model,
         "thinking_model": _model_policy.thinking_model,
         "ollama_version": ollama_version,
+        "ollama_ok": ollama_ok,
+        "internet_ok": internet_ok,
         "available_models": available_models,
         "loaded_models": loaded_models,
+        **hw,
     }
 
 
