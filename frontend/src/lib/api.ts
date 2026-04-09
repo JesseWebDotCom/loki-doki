@@ -647,6 +647,26 @@ export async function setSkillToggleGlobal(skillId: string, enabled: boolean) {
   return (await r.json()) as { ok: boolean; enabled: boolean };
 }
 
+export interface SkillTestResult {
+  success: boolean;
+  data: Record<string, unknown>;
+  mechanism_used: string | null;
+  mechanism_log: Array<{ method: string; status: string; error?: string }>;
+  source_url: string;
+  source_title: string;
+  latency_ms: number;
+}
+
+export async function testSkill(skillId: string, prompt: string) {
+  const r = await fetch(`${API_BASE}/skills/${skillId}/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  if (!r.ok) throw new Error(`test ${skillId}: ${r.status}`);
+  return (await r.json()) as SkillTestResult;
+}
+
 export async function setSkillToggleUser(skillId: string, enabled: boolean) {
   const r = await fetch(`${API_BASE}/skills/${skillId}/toggle/user`, {
     method: "PUT",

@@ -159,7 +159,15 @@ async def persist_long_term_item(
     kind = item.get("kind") or "fact"
     memory_priority = (item.get("memory_priority") or "normal").strip().lower()
 
-    if memory_priority == "low":
+    # "low" is a soft "don't pollute the durable profile" signal —
+    # historically used to drop speculative self memory writes on
+    # ephemeral lookup turns. Entity rows ("Avatar is a movie") are
+    # facts about the world, not speculation about the user, AND they
+    # are load-bearing for cross-turn referent resolution: dropping
+    # them silently means turn N+1 cannot resolve "is it still playing"
+    # against the entity from turn N. Only drop low-priority *self*
+    # writes — entities and people always persist.
+    if memory_priority == "low" and subject_type == "self":
         return {}
 
     # The garbage-name guard lives in decomposer_repair.coerce_item — that

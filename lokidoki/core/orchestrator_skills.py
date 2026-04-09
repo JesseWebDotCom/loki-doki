@@ -110,20 +110,41 @@ def _format_grounded_result(data: dict) -> str:
         else:
             text = ""
 
-    showtimes = (data or {}).get("showtimes") or []
-    if showtimes:
-        snippets = [
-            (entry.get("snippet") or "").strip()
-            for entry in showtimes[:2]
-            if isinstance(entry, dict) and (entry.get("snippet") or "").strip()
-        ]
-        if snippets:
-            joined = " ".join(snippets)
-            if text and joined not in text:
-                text = f"{text} {joined}".strip()
-            elif not text:
-                text = joined
+    # Append per-result snippets ONLY if the lead doesn't already
+    # contain a comprehensive listing. This used to be a hack from
+    # the title-only era when the lead said "Now playing: A, B, C"
+    # and the snippets carried the times. Modern leads (e.g. fandango
+    # napi) include both titles AND times — appending again produces
+    # the duplicated wall-of-text bug. Heuristic: if the lead already
+    # has any HH:MM time string in it, trust it.
+    if not _lead_has_times(text):
+        showtimes = (data or {}).get("showtimes") or []
+        if showtimes:
+            snippets = [
+                (entry.get("snippet") or "").strip()
+                for entry in showtimes[:2]
+                if isinstance(entry, dict) and (entry.get("snippet") or "").strip()
+            ]
+            if snippets:
+                joined = " ".join(snippets)
+                if text and joined not in text:
+                    text = f"{text} {joined}".strip()
+                elif not text:
+                    text = joined
     return text.strip()
+
+
+_TIME_HHMM_RE = __import__("re").compile(r"\b\d{1,2}:\d{2}\s?(?:AM|PM|am|pm|a|p)\b")
+
+
+def _lead_has_times(text: str) -> bool:
+    """Cheap detector: does ``text`` already contain a time string?
+
+    Used by ``_format_grounded_result`` to skip the legacy snippet
+    append when the lead is comprehensive (fandango napi, future
+    weather/news rich leads).
+    """
+    return bool(text and _TIME_HHMM_RE.search(text))
 
 
 def try_grounded_fast_path(
@@ -137,6 +158,14 @@ def try_grounded_fast_path(
     that for you") instead of answering. We only take this path when a
     single ask already has a successful grounded result and the ask is
     clearly fresh-data/capability-driven.
+
+    Skipped when the ask carries an informative ``referent_anchor`` —
+    that signals the user is asking about a specific title and wants
+    filtering ("is Hoppers playing?"), not the whole listing dumped.
+    Letting the synthesizer see SKILL_DATA's structured array gives it
+    a chance to pull the matching entry instead of echoing the lead.
+    Open-ended discovery asks ("what's playing near me") still hit the
+    fast path because the lead IS the answer.
     """
     if len(asks) != 1:
         return None
@@ -145,6 +174,9 @@ def try_grounded_fast_path(
     if not (res and res.success):
         return None
     if getattr(only, "capability_need", "none") != "current_media":
+        return None
+    anchor = (getattr(only, "referent_anchor", "") or "").strip()
+    if anchor and _is_informative_anchor(anchor):
         return None
     text = _format_grounded_result(res.data or {})
     if not text:
@@ -406,7 +438,7 @@ async def run_skills(
             tasks.append((ask.ask_id, instance, mechs, params))
 
         if tasks:
-            skill_results = await executor.execute_parallel(tasks)
+            skill_results = await executor.execute_parallel(tasks, skill_ids=ask_skill_ids)
             for ask in asks:
                 result = skill_results.get(ask.ask_id)
                 if not (result and result.success):
@@ -461,6 +493,7 @@ async def run_skills(
                     instance,
                     registry.get_mechanisms(skill_id),
                     params,
+                    skill_id=skill_id,
                 )
                 if retry.success and _is_capability_result_usable(category, retry.data or {}):
                     skill_results[ask.ask_id] = retry
@@ -550,7 +583,7 @@ async def execute_capability_lookup(
         if merged:
             params["_config"] = merged
         mechs = registry.get_mechanisms(skill_id)
-        result = await executor.execute_skill(instance, mechs, params)
+        result = await executor.execute_skill(instance, mechs, params, skill_id=skill_id)
         if not result.success:
             continue
         if not _is_capability_result_usable(category, result.data or {}):

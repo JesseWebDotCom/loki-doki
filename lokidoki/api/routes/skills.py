@@ -23,6 +23,8 @@ from lokidoki.auth.users import User
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core import skill_config as cfg
 from lokidoki.core.registry import SkillRegistry
+from lokidoki.core.skill_executor import SkillExecutor
+from lokidoki.core.skill_factory import get_skill_instance
 
 router = APIRouter()
 
@@ -59,6 +61,13 @@ class SetValueBody(BaseModel):
 
 class ToggleBody(BaseModel):
     enabled: bool
+
+
+class TestBody(BaseModel):
+    prompt: str
+
+
+_executor = SkillExecutor()
 
 
 # ---- list ---------------------------------------------------------------
@@ -248,6 +257,51 @@ async def toggle_user(
         lambda c: cfg.set_user_toggle(c, user.id, skill_id, body.enabled)
     )
     return {"ok": True, "enabled": body.enabled}
+
+
+@router.post("/{skill_id}/test")
+async def test_skill(
+    skill_id: str,
+    body: TestBody,
+    admin: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Force a prompt through one specific skill, bypassing the
+    decomposer/orchestrator routing layer. Admin-only because some
+    skills hit paid APIs and we don't want unprivileged users to be
+    able to burn server-side credentials at will.
+
+    The skill is invoked exactly the way ``execute_capability_lookup``
+    does it: ``query`` is the test prompt, merged global+admin config
+    is attached as ``_config``, and every mechanism is tried in
+    priority order.
+    """
+    manifest = _manifest_or_404(skill_id)
+    instance = get_skill_instance(skill_id)
+    if not instance:
+        raise HTTPException(status_code=400, detail="skill_not_instantiable")
+
+    def _load(c):
+        return (
+            cfg.get_global_config(c, skill_id),
+            cfg.get_user_config(c, admin.id, skill_id),
+        )
+
+    global_vals, user_vals = await memory.run_sync(_load)
+    merged = {**global_vals, **user_vals}
+
+    mechs = _registry.get_mechanisms(skill_id)
+    params: dict[str, Any] = {"query": body.prompt, "_config": merged}
+    result = await _executor.execute_skill(instance, mechs, params)
+    return {
+        "success": result.success,
+        "data": result.data,
+        "mechanism_used": result.mechanism_used,
+        "mechanism_log": result.mechanism_log,
+        "source_url": result.source_url,
+        "source_title": result.source_title,
+        "latency_ms": result.latency_ms,
+    }
 
 
 @router.delete("/{skill_id}/config/user/{key}")

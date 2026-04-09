@@ -188,13 +188,18 @@ async def test_anchor_based_media_resolution_upgrades_capability_when_initial_hi
         ask_id="ask_1",
         intent="direct_chat",
         distilled_query="maybe i'll go to the theater tonight with my brother and see avatar",
-        referent_type="unknown",
+        referent_type="media",
         durability="tentative",
         context_source="recent_context",
         needs_referent_resolution=True,
         capability_need="none",
         referent_status="unresolved",
-        referent_scope=["person", "event"],
+        # The decomposer prompt now instructs the model to tag scope=
+        # ["media"] for "see Avatar tonight"-style asks. The anchor-
+        # capabilities path only fires for media-typed asks (preventing
+        # the bug where every tentative+anchor combo hit the showtimes
+        # provider). See orchestrator_referent_resolution._anchor_capability_candidates.
+        referent_scope=["media"],
         referent_anchor="avatar",
     )
 
@@ -346,14 +351,19 @@ async def test_tentative_unresolved_turn_forces_resolution_even_without_explicit
         ask_id="ask_1",
         intent="direct_chat",
         distilled_query="maybe i'll go to the theater tonight with my brother and see avatar",
-        referent_type="event",
+        referent_type="media",
         context_source="recent_context",
         durability="tentative",
         needs_referent_resolution=False,
         capability_need="none",
         referent_status="unresolved",
-        referent_scope=["event"],
-        referent_anchor="tonight",
+        # Decomposer is expected to tag scope=["media"] when the user
+        # mentions a named movie inside a tentative plan. The forced-
+        # resolution gate only fires for groundable scopes (media/entity/
+        # place/product) — bare events like "tonight" no longer trigger
+        # speculative DDG calls on direct_chat.
+        referent_scope=["media"],
+        referent_anchor="avatar",
     )
 
     async def fake_lookup(*args, **kwargs):
@@ -394,42 +404,43 @@ async def test_tentative_unresolved_turn_forces_resolution_even_without_explicit
 
 
 @pytest.mark.anyio
-async def test_tentative_movie_plan_uses_inferred_query_before_accepting_direct_chat(
+async def test_chitchat_with_event_scope_does_not_force_external_lookup(
     resolver, monkeypatch
 ):
+    """Pins the fix for the original ``Avatar tonight`` bug.
+
+    When the decomposer tags an ask as direct_chat with capability_need=
+    none and a non-groundable scope (just person/event, no media), the
+    referent resolver MUST NOT force resolution. Forcing it used to fire
+    speculative DDG searches on every chitchat sentence containing the
+    word "tonight". CLAUDE.md's Skills-First, LLM-Last principle says
+    bad routing degrades to direct_chat synthesis — never to wasted
+    external calls. If any capability lookup fires here, fail loudly.
+    """
     ask = Ask(
         ask_id="ask_1",
         intent="direct_chat",
         distilled_query="maybe i'll go with my brother tonight",
-        referent_type="unknown",
+        referent_type="event",
         context_source="external",
         durability="tentative",
         needs_referent_resolution=False,
         capability_need="none",
         referent_status="unresolved",
         referent_scope=["person", "event"],
-        referent_anchor="",
+        referent_anchor="tonight",
     )
 
-    async def fake_infer_lookup_query(*args, **kwargs):
-        return {
-            "lookup_query": "showtimes for Avatar: Fire and Ash",
-            "capability_need": "current_media",
-        }
+    lookup_calls: list[dict] = []
 
     async def fake_lookup(*args, **kwargs):
-        if kwargs.get("category") != "current_media":
-            return None
-        if kwargs.get("query") != "showtimes for Avatar: Fire and Ash":
-            return None
-        return {
-            "intent": "movies_showtimes.get_showtimes",
-            "data": {
-                "title": "Avatar: Fire and Ash",
-                "lead": "Avatar: Fire and Ash showtimes.",
-            },
-            "source": "capability_lookup",
-        }
+        lookup_calls.append(kwargs)
+        return None
+
+    async def fake_infer_lookup_query(*args, **kwargs):
+        raise AssertionError(
+            "infer_lookup_query must not be called for non-groundable chitchat"
+        )
 
     monkeypatch.setattr(resolver, "_infer_lookup_query", fake_infer_lookup_query)
     monkeypatch.setattr(
@@ -452,10 +463,12 @@ async def test_tentative_movie_plan_uses_inferred_query_before_accepting_direct_
     )
 
     enriched = resolved[0]
-    assert enriched.resolution.status == "resolved"
-    assert enriched.resolution.source == "capability_lookup"
-    assert enriched.ask.capability_need == "current_media"
-    assert enriched.enriched_query == "showtimes for Avatar: Fire and Ash"
+    # Resolution is skipped entirely — the ask falls through to direct_chat.
+    assert enriched.resolution.status == "none"
+    assert enriched.ask.capability_need == "none"
+    assert enriched.enriched_query == ""
+    # And critically: zero external lookups were attempted.
+    assert lookup_calls == []
 
 
 @pytest.mark.anyio

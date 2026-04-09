@@ -362,7 +362,7 @@ def search_facts(
 ) -> list[sqlite3.Row]:
     if project_id is not None:
         return conn.execute(
-            "SELECT f.id, f.subject, f.predicate, f.value, f.category, "
+            "SELECT f.id, f.subject, f.subject_type, f.predicate, f.value, f.category, "
             "       f.confidence, f.last_observed_at, f.status, f.created_at, "
             "       bm25(facts_fts) * (CASE WHEN f.project_id = ? THEN 0.5 ELSE 1.0 END) AS score "
             "FROM facts_fts JOIN facts f ON f.id = facts_fts.rowid "
@@ -372,7 +372,7 @@ def search_facts(
             (project_id, fts_query, user_id, top_k),
         ).fetchall()
     return conn.execute(
-        "SELECT f.id, f.subject, f.predicate, f.value, f.category, "
+        "SELECT f.id, f.subject, f.subject_type, f.predicate, f.value, f.category, "
         "       f.confidence, f.last_observed_at, f.status, f.created_at, "
         "       bm25(facts_fts) AS score "
         "FROM facts_fts JOIN facts f ON f.id = facts_fts.rowid "

@@ -165,6 +165,10 @@ class TestLatestPicker:
         assert result.success is True
         assert result.data["title"] == "Avatar: Fire and Ash"
         assert result.data["release_date"].startswith("2025")
+        # The "latest" path is the most user-visible — assert the lead
+        # actually names the chosen film, not the wrong one or a stub.
+        assert "Avatar: Fire and Ash" in result.data["lead"]
+        assert "Hoppers" not in result.data["lead"]
 
     @pytest.mark.anyio
     async def test_rejects_off_topic_film_in_latest_mode(self):
@@ -202,6 +206,10 @@ class TestLatestPicker:
         assert result.success is True
         assert "Hoppers" not in result.data["title"]
         assert "Avatar" in result.data["title"]
+        # Lead must reflect the corrected title — the original Hoppers
+        # bug surfaced because the synthesizer saw a wrong-film lead.
+        assert "Avatar" in result.data["lead"]
+        assert "Hoppers" not in result.data["lead"]
 
     @pytest.mark.anyio
     async def test_non_latest_takes_first_film_hit(self):
@@ -222,6 +230,13 @@ class TestLatestPicker:
         assert result.success is True
         assert result.data["title"] == "Inception"
         assert result.data["runtime_min"] == 148
+        # Lead is the verbatim fast-path payload — assert it carries the
+        # title, year, and a human-formatted runtime so the user gets a
+        # complete answer without needing the synthesizer to embellish.
+        lead = result.data["lead"]
+        assert "Inception" in lead, f"lead missing title: {lead!r}"
+        assert "2010" in lead, f"lead missing year: {lead!r}"
+        assert "2h 28m" in lead, f"lead missing formatted runtime: {lead!r}"
 
     @pytest.mark.anyio
     async def test_runtime_falls_back_to_infobox_wikitext(self):

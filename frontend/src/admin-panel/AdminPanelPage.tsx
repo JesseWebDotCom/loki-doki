@@ -145,6 +145,7 @@ const SectionBody: React.FC<{ section: SectionDef }> = ({ section }) => {
     case 'characters':        return <CharactersSection />;
     case 'audio':             return <AudioPane />;
     case 'skills':            return <SkillsSection />;
+    case 'admin-skills':      return <SkillsSection enableTesting />;
     case 'appearance':        return <AppearancePane />;
     case 'users':             return <UsersPane />;
     case 'character-catalog': return <CharacterCatalogPane />;

@@ -7,7 +7,10 @@ from typing import Any, Optional
 
 from lokidoki.core.decomposer import Ask
 from lokidoki.core.model_manager import ModelManager
-from lokidoki.core.orchestrator_skills import execute_capability_lookup
+from lokidoki.core.orchestrator_skills import (
+    _is_informative_anchor,
+    execute_capability_lookup,
+)
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
 from lokidoki.core.skill_executor import SkillResult
@@ -591,6 +594,27 @@ class ReferentResolver:
             )
         ):
             return f"showtimes for {canonical}"
+        # General case: substitute the pronoun/anchor in the distilled
+        # query with the resolved canonical name so downstream skills
+        # see "is Avatar still playing" instead of "is it still playing".
+        # Without this, distilled_query went to skills verbatim and
+        # showtimes searched for `q=it`.
+        distilled = (getattr(ask, "distilled_query", "") or "").strip()
+        anchor = (getattr(ask, "referent_anchor", "") or "").strip()
+        if distilled and anchor and anchor.lower() != canonical.lower():
+            import re
+            pattern = re.compile(rf"\b{re.escape(anchor)}\b", re.IGNORECASE)
+            substituted, n = pattern.subn(canonical, distilled, count=1)
+            if n:
+                return substituted
+        # Fallback: substitute bare pronouns when the anchor itself is
+        # missing or non-informative ("it", "that", "there").
+        if distilled:
+            import re
+            pron = re.compile(r"\b(it|that|this|there|them)\b", re.IGNORECASE)
+            substituted, n = pron.subn(canonical, distilled, count=1)
+            if n:
+                return substituted
         return canonical
 
     def _apply_resolution_upgrades(
@@ -667,9 +691,23 @@ class ReferentResolver:
 
         if declared != "none":
             _push(declared)
+        # Tentative + anchor used to push current_media unconditionally,
+        # which made every "maybe I'll do X tonight" sentence run a
+        # showtimes lookup. The fix is to require the anchor itself to
+        # be a real-looking name — _is_informative_anchor blocks generic
+        # temporal/pronoun stopwords like "tonight"/"it"/"that" while
+        # still letting actual movie names like "avatar" through. This
+        # preserves the safety net for cases where the decomposer
+        # mistagged scope but caught the named referent.
+        anchor = (getattr(ask, "referent_anchor", "") or "").strip()
         if (
             getattr(ask, "durability", "durable") == "tentative"
-            and bool((getattr(ask, "referent_anchor", "") or "").strip())
+            and anchor
+            and (
+                target == "media"
+                or "media" in scope
+                or _is_informative_anchor(anchor)
+            )
         ):
             _push(DEFAULT_MEDIA_CAPABILITY)
         if target == "media" or "media" in scope:
@@ -731,11 +769,25 @@ class ReferentResolver:
         ask: Ask,
         session_candidates: list[ReferentCandidate],
     ) -> bool:
+        # A tentative+unresolved ask with no declared capability used to
+        # force resolution unconditionally. That fired DDG searches on
+        # chitchat like "maybe I'll go see Avatar tonight" because the
+        # event-typed referent hit the anchor-capabilities path. Only
+        # force when the scope/type plausibly grounds to a *named* thing
+        # we can look up — media/entity/place/product. Bare events like
+        # "tonight" do not benefit from a web round-trip.
+        scope = set(getattr(ask, "referent_scope", []) or [])
+        ref_type = getattr(ask, "referent_type", "unknown")
+        groundable = bool(
+            scope.intersection({"media", "entity", "place", "product"})
+            or ref_type in ("media", "entity", "place", "product")
+        )
         return (
             (
                 getattr(ask, "referent_status", "none") == "unresolved"
                 and getattr(ask, "durability", "durable") == "tentative"
                 and getattr(ask, "capability_need", "none") == "none"
+                and groundable
             )
             or (
                 bool(session_candidates)

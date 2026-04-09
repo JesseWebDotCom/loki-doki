@@ -127,7 +127,15 @@ class Orchestrator:
         self._memory = memory
         self._model_manager = model_manager or ModelManager(inference_client)
         self._registry = registry
-        self._executor = skill_executor or SkillExecutor()
+        # Wire the result cache through the executor when memory is
+        # available so opted-in mechanisms (manifest "cache" block) can
+        # short-circuit live calls. Caller-supplied executors are left
+        # alone — tests pass their own bare instance and expect it.
+        if skill_executor is None:
+            from lokidoki.core.skill_cache import SkillResultCache
+            self._executor = SkillExecutor(cache=SkillResultCache(memory))
+        else:
+            self._executor = skill_executor
         self._admin_prompt = admin_prompt
         self._user_prompt = user_prompt
         self._character_name = character_name or "Loki"
@@ -138,6 +146,13 @@ class Orchestrator:
             executor=self._executor,
         )
         self._session_referent_cache: dict[int, dict] = {}
+        # Pending clarification questions issued by skills (e.g.
+        # "which theater?"). Keyed by session_id, populated when a
+        # skill returns data["needs_clarification"], drained when the
+        # next user reply matches one of the offered options. See
+        # lokidoki/core/clarification.py for the full state machine.
+        from lokidoki.core.clarification import ClarificationCache
+        self._clarification_cache = ClarificationCache()
 
     @property
     def policy(self) -> ModelPolicy:
@@ -233,6 +248,48 @@ class Orchestrator:
                 "has_seed": bool(seed_hint),
             },
         )
+
+        # ---- pending clarification interception -------------------------
+        # If the previous turn ended with a skill asking "which X?",
+        # resolve the user's reply against the offered options BEFORE
+        # the decomposer sees it. The decomposer would treat the bare
+        # answer ("Cinemark Connecticut Post") as a fresh fact and
+        # try to memorize it as a person; we know better, because we
+        # asked the question.
+        #
+        # Resolution outcomes:
+        #   * matched: clear the pending state, re-run the original
+        #     ask with the resolved value injected as a parameter,
+        #     and synthesize as if the user had asked the full
+        #     question in one turn. The decomposer is skipped.
+        #   * unmatched: clear the pending state, fall through to the
+        #     normal decomposer flow. We don't loop on a clarification
+        #     forever — one re-ask is enough.
+        pending = self._clarification_cache.get(session_id)
+        if pending is not None:
+            from lokidoki.core.clarification import resolve_choice
+            chosen = resolve_choice(user_input, pending.options)
+            if chosen is not None:
+                self._clarification_cache.clear(session_id)
+                async for ev in self._handle_clarification_answer(
+                    pending=pending,
+                    chosen=chosen,
+                    user_id=user_id,
+                    session_id=session_id,
+                    user_input=user_input,
+                    is_first_turn=is_first_turn,
+                ):
+                    yield ev
+                return
+            # Not a recognized answer — drop the pending state and let
+            # the normal pipeline handle this turn. The user may have
+            # changed their mind ("never mind, what's the weather").
+            self._clarification_cache.clear(session_id)
+            logger.info(
+                "[orchestrator] clarification cleared for session %s — "
+                "no option matched user input %r",
+                session_id, user_input[:60],
+            )
 
         # ---- decomposition ----------------------------------------------
         yield PipelineEvent(phase="decomposition", status="active", data={"model": fast_model})
@@ -521,6 +578,69 @@ class Orchestrator:
                 },
             )
 
+        # ---- clarification fast-path ------------------------------------
+        # If any skill came back with a `needs_clarification` block,
+        # we short-circuit synthesis entirely and return the spoken
+        # question as the user-facing response. The pending state is
+        # stored on the orchestrator so the next turn's pre-decomposer
+        # interception can resolve it. This is the hands-free pivot:
+        # the user hears "which theater?" and replies with their pick.
+        for ask in resolved_asks:
+            res = skill_results.get(ask.ask_id)
+            if not (res and res.success):
+                continue
+            clarif = (res.data or {}).get("needs_clarification")
+            if not clarif:
+                continue
+            from lokidoki.core.clarification import PendingClarification
+            skill_id = ""
+            if self._registry is not None:
+                manifest = self._registry.get_skill_by_intent(ask.intent)
+                if manifest:
+                    skill_id = manifest.get("skill_id", "")
+            self._clarification_cache.set(
+                session_id,
+                PendingClarification(
+                    field=clarif.get("field", ""),
+                    options=list(clarif.get("options") or []),
+                    skill_id=skill_id,
+                    intent=ask.intent,
+                    original_params=dict(ask.parameters or {}),
+                ),
+            )
+            response = (res.data.get("lead") or clarif.get("speakable") or "").strip()
+            if not response:
+                # Defensive fallback — should never fire because the
+                # skill is required to populate `lead` when emitting a
+                # clarification, but we don't want a silent empty turn.
+                response = "Could you clarify which option you meant?"
+            yield PipelineEvent(
+                phase="synthesis",
+                status="active",
+                data={"fast_path": True, "clarification": True},
+            )
+            await self._memory.add_message(
+                user_id=user_id, session_id=session_id, role="assistant", content=response,
+            )
+            if is_first_turn:
+                await self._auto_name_session(user_id, session_id, user_input)
+            yield PipelineEvent(
+                phase="synthesis",
+                status="done",
+                data={
+                    "response": response,
+                    "model": "fast_path",
+                    "latency_ms": res.latency_ms,
+                    "tone": "neutral",
+                    "sources": sources,
+                    "platform": self._model_manager.policy.platform,
+                    "fast_path": True,
+                    "clarification": True,
+                    "clarification_options": list(clarif.get("options") or []),
+                },
+            )
+            return
+
         # ---- synthesis fast-path ----------------------------------------
         # When the decomposer flagged the ask as response_shape="verbatim"
         # and the skill returned a `lead` field, return that text
@@ -776,6 +896,110 @@ class Orchestrator:
                 "tone": tone,
                 "sources": sources,
                 "platform": self._model_manager.policy.platform,
+            },
+        )
+
+    async def _handle_clarification_answer(
+        self,
+        *,
+        pending,
+        chosen: str,
+        user_id: int,
+        session_id: int,
+        user_input: str,
+        is_first_turn: bool,
+    ):
+        """Re-run the original ask with the resolved field injected.
+
+        This is the second half of the clarification state machine.
+        The user answered "Cinemark Connecticut Post" to the question
+        we asked last turn; we matched that against the offered
+        options and now need to actually run the original showtimes
+        ask with ``parameters[theater] = "Cinemark Connecticut Post"``.
+
+        We deliberately re-use ``run_skills`` rather than calling the
+        executor directly so the clarification path goes through the
+        same config injection, capability fallback, and routing log
+        machinery as a normal turn. The synthetic Ask carries the
+        original intent + parameters plus the new field.
+
+        Output is the verbatim skill ``lead`` — same path as the
+        regular grounded fast-path, just hardcoded because we know
+        this turn is a clarification answer and synthesis would only
+        get in the way.
+        """
+        from lokidoki.core.decomposer import Ask
+        from lokidoki.core.orchestrator_skills import run_skills
+
+        merged_params = dict(pending.original_params or {})
+        merged_params[pending.field] = chosen
+
+        synthetic = Ask(
+            ask_id="clarif_answer",
+            intent=pending.intent,
+            distilled_query=user_input,
+            parameters=merged_params,
+            response_shape="synthesized",
+            requires_current_data=True,
+        )
+
+        logger.info(
+            "[orchestrator] clarification resolved for session %s: %s=%r → re-running %s",
+            session_id, pending.field, chosen, pending.intent,
+        )
+
+        _, skill_results, sources, routing_log = await run_skills(
+            [synthetic],
+            self._registry,
+            self._executor,
+            user_id=user_id,
+            memory=self._memory,
+        )
+        result = skill_results.get("clarif_answer")
+
+        if not (result and result.success):
+            response = (
+                "I couldn't pull the showtimes for that theater right now."
+            )
+            yield PipelineEvent(phase="routing", status="done", data={
+                "skills_resolved": 0, "skills_failed": 1,
+                "routing_log": routing_log, "clarification_answer": True,
+            })
+        else:
+            response = (result.data.get("lead") or "").strip()
+            if not response:
+                response = (
+                    f"Found showtimes for {chosen}, but couldn't format them."
+                )
+            yield PipelineEvent(phase="routing", status="done", data={
+                "skills_resolved": 1, "skills_failed": 0,
+                "routing_log": routing_log, "clarification_answer": True,
+            })
+
+        yield PipelineEvent(
+            phase="synthesis",
+            status="active",
+            data={"fast_path": True, "clarification_answer": True},
+        )
+        await self._memory.add_message(
+            user_id=user_id, session_id=session_id, role="assistant", content=response,
+        )
+        if is_first_turn:
+            await self._auto_name_session(user_id, session_id, user_input)
+        yield PipelineEvent(
+            phase="synthesis",
+            status="done",
+            data={
+                "response": response,
+                "model": "fast_path",
+                "latency_ms": (result.latency_ms if result else 0.0),
+                "tone": "neutral",
+                "sources": sources,
+                "platform": self._model_manager.policy.platform,
+                "fast_path": True,
+                "clarification_answer": True,
+                "resolved_field": pending.field,
+                "resolved_value": chosen,
             },
         )
 

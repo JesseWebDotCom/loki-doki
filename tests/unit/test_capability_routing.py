@@ -107,4 +107,11 @@ async def test_real_skill_directory_exposes_capability_routing():
     media = await pick_active_skill_intent("current_media", reg, memory=None, user_id=None)
     assert web == "search_ddg.search_web"
     assert enc == "knowledge_wiki.search_knowledge"
-    assert media == "movies_showtimes.get_showtimes"
+    # current_media has multiple registered providers (movies_showtimes,
+    # movies_fandango). pick_active_skill_intent returns the first
+    # enabled one in registry scan order; either is a valid production
+    # answer, the user toggles which is active via skill_config.
+    assert media in {
+        "movies_showtimes.get_showtimes",
+        "movies_fandango.get_showtimes",
+    }

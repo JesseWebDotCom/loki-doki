@@ -31,6 +31,15 @@ class TestWeatherSkill:
         assert result.data["condition"] == "clear sky"
         assert result.data["humidity"] == 45
         assert result.source_url != ""
+        # The lead is what the verbatim fast-path returns to the user
+        # without going through the synthesizer — assert it's actually a
+        # readable answer, not just a non-empty string. Must include
+        # location, temperature in both units, and the condition.
+        lead = result.data["lead"]
+        assert "Seattle" in lead, f"lead missing location: {lead!r}"
+        assert "22.5" in lead, f"lead missing °C: {lead!r}"
+        assert "°F" in lead, f"lead missing Fahrenheit: {lead!r}"
+        assert "clear sky" in lead.lower(), f"lead missing condition: {lead!r}"
 
     @pytest.mark.anyio
     async def test_owm_api_missing_location(self):
@@ -73,11 +82,16 @@ class TestWeatherSkill:
             "location": "Seattle", "temperature": 22.5,
             "condition": "clear sky", "humidity": 45,
             "wind_speed": 3.2, "feels_like": 21.0,
+            "lead": "Currently 22.5°C (73°F) in Seattle — no rain right now (clear sky).",
         }
 
         result = await skill.execute_mechanism("local_cache", {"location": "Seattle"})
         assert result.success is True
         assert result.data["temperature"] == 22.5
+        # Cache hit must round-trip the lead so the verbatim fast-path
+        # works on cached results too.
+        assert "Seattle" in result.data["lead"]
+        assert "22.5" in result.data["lead"]
 
     @pytest.mark.anyio
     async def test_owm_api_caches_result(self):

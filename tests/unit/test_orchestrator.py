@@ -835,7 +835,15 @@ class TestStructuredRoutingAndMemory:
         assert rr.data["asks"][0]["enriched_query"] == "showtimes for Avatar: Fire and Ash"
         assert routing.data["routing_log"][0]["intent"] == "movies_showtimes.get_showtimes"
         assert capture["query"] == "showtimes for Avatar: Fire and Ash"
-        assert "7:00pm" in synthesis.data["response"]
+        # Anchored current_media asks (referent_anchor="avatar") now
+        # bypass the grounded fast-path and route through the LLM, so
+        # the synthesizer can extract/filter the SKILL_DATA listing
+        # rather than dumping the lead verbatim. The mock inference
+        # client returns its placeholder string; what matters is that
+        # the fast-path was NOT taken and the routing succeeded.
+        assert synthesis.data.get("fast_path") is not True
+        assert synthesis.data["model"] != "fast_path"
+        assert routing.data["routing_log"][0]["status"] == "success"
 
     @pytest.mark.anyio
     async def test_capability_falls_through_to_next_provider_when_first_fails(

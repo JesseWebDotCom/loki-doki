@@ -388,8 +388,11 @@ class TestDecomposer:
 
         call_args = decomposer._client.generate.call_args
         prompt = call_args.kwargs.get("prompt") or call_args[0][1]
-        assert "MOVIE is still the primary referent" in prompt
-        assert "capability_need='current_media'" in prompt
+        # The companion-doesn't-change-routing rule lives under
+        # MEDIA-IN-THEATERS in prompts/decomposition.py.
+        assert "Companion details" in prompt
+        assert "the movie is still the referent" in prompt
+        assert 'capability_need="current_media"' in prompt
 
 
 class TestAskDataclass:

@@ -454,8 +454,19 @@ async def test_transcript_movie_name_followup_uses_cached_canonical_title(memory
 
     assert rr.data["asks"][0]["resolution_status"] == "resolved"
     assert rr.data["asks"][0]["resolution_source"] == "recent_context"
-    assert "Avatar: Fire and Ash" in synthesis.data["response"]
+    # Anchored follow-ups ("the movie") now bypass the grounded fast
+    # path and route through the synthesizer so the LLM can extract the
+    # canonical title from SKILL_DATA. Assert that the model's prompt
+    # carried the resolved title — that's the contract that matters
+    # (the mock inference client returns "ok" verbatim).
     assert routing.data["routing_log"][0]["status"] in ("success", "no_skill")
+    synth_prompts = [p for p in prompt_sink if "SKILL_DATA:" in p.get("prompt", "")]
+    if routing.data["routing_log"][0]["status"] == "success":
+        assert synth_prompts, "anchored follow-up should reach the synthesizer"
+        assert "Avatar: Fire and Ash" in synth_prompts[-1]["prompt"], (
+            "resolved title missing from synthesis prompt"
+        )
+        assert synthesis.data.get("fast_path") is not True
 
 
 @pytest.mark.anyio

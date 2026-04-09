@@ -13,7 +13,7 @@ import {
 
 export type SectionId =
   | 'general' | 'characters' | 'audio' | 'skills' | 'appearance'
-  | 'users' | 'character-catalog' | 'controls' | 'memory' | 'danger'
+  | 'users' | 'character-catalog' | 'controls' | 'memory' | 'admin-skills' | 'danger'
   | 'logs' | 'tools';
 
 export interface SectionDef {
@@ -53,6 +53,9 @@ export const SECTIONS: SectionDef[] = [
     adminOnly: true, requiresChallenge: true },
   { id: 'memory',            group: 'Permissions', label: 'Memory Inspector',  icon: Brain,
     title: 'Memory Inspector', description: 'Audit and edit per-user people and facts.',
+    adminOnly: true, requiresChallenge: true },
+  { id: 'admin-skills',      group: 'Permissions', label: 'Skills',            icon: Puzzle,
+    title: 'Skills', description: 'Configure global credentials and run test prompts against any skill.',
     adminOnly: true, requiresChallenge: true },
 
   // ── Danger ─────────────────────────────────────────────────────

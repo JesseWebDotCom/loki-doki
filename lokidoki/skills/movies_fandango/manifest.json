@@ -1,0 +1,75 @@
+{
+  "skill_id": "movies_fandango",
+  "name": "Fandango Showtimes",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 1200
+  },
+  "intents": [
+    "get_showtimes",
+    "list_now_playing",
+    "movie_overview",
+    "theater_details",
+    "coming_soon"
+  ],
+  "categories": ["current_media"],
+  "description": "Fandango scraper: now-playing lists by ZIP/city, per-movie metadata, theater details, coming-soon, and showtimes. Each URL pattern is its own mechanism so the orchestrator can route 'what's playing', 'tell me about Dune', 'movies near me', and 'what's at AMC Empire' independently.",
+  "examples": [
+    "what time is avatar playing tonight",
+    "fandango showtimes for dune in 11201",
+    "movie times for wicked",
+    "what movies are playing this weekend",
+    "tell me about Hoppers",
+    "what's coming to theaters next month"
+  ],
+  "parameters": {
+    "query": {"type": "string", "required": false},
+    "slug": {"type": "string", "required": false},
+    "zip": {"type": "string", "required": false},
+    "city": {"type": "string", "required": false},
+    "state": {"type": "string", "required": false},
+    "date": {"type": "string", "required": false},
+    "theater": {"type": "string", "required": false}
+  },
+  "config_schema": {
+    "global": [],
+    "user": [
+      {
+        "key": "default_zip",
+        "type": "string",
+        "label": "Default ZIP code",
+        "description": "5-digit US ZIP code Fandango uses to look up nearby theaters. Required.",
+        "default": "",
+        "required": true
+      },
+      {
+        "key": "preferred_theater",
+        "type": "string",
+        "label": "Home theater",
+        "description": "Name (or part of the name) of your usual theater. When set, showtimes from this venue are pinned to the top with a highlighted block; other nearby theaters appear below. Substring match — 'cinemark post' will match 'Cinemark Connecticut Post 14 and IMAX'.",
+        "default": ""
+      },
+      {
+        "key": "cache_ttl_override",
+        "type": "string",
+        "label": "Showtimes cache TTL",
+        "description": "How long to reuse the day's showtimes before re-fetching. Defaults to 'until_local_midnight' (cache once per day). Use a number of seconds (e.g. 1800), 'until_local_midnight', or 'off' to disable.",
+        "default": ""
+      }
+    ]
+  },
+  "mechanisms": [
+    {"method": "napi_theaters_with_showtimes", "priority": 0, "timeout_ms": 8000, "requires_internet": true,
+     "cache": {"ttl": "until_local_midnight"}},
+    {"method": "list_now_playing", "priority": 1, "timeout_ms": 6000, "requires_internet": true},
+    {"method": "fandango_web", "priority": 2, "timeout_ms": 6000, "requires_internet": true},
+    {"method": "movie_overview", "priority": 3, "timeout_ms": 6000, "requires_internet": true},
+    {"method": "movie_showtimes", "priority": 4, "timeout_ms": 6000, "requires_internet": true},
+    {"method": "theater_page", "priority": 5, "timeout_ms": 6000, "requires_internet": true},
+    {"method": "theater_showtimes", "priority": 6, "timeout_ms": 6000, "requires_internet": true},
+    {"method": "global_now_playing", "priority": 7, "timeout_ms": 6000, "requires_internet": true},
+    {"method": "coming_soon", "priority": 8, "timeout_ms": 6000, "requires_internet": true},
+    {"method": "local_cache", "priority": 99, "timeout_ms": 500, "requires_internet": false}
+  ]
+}

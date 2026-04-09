@@ -42,7 +42,13 @@ class TestMovieShowtimesSkill:
         assert result.success is True
         assert len(result.data["showtimes"]) == 2
         assert "New York, NY" in result.data["search_query"]
-        assert "AMC Empire 25" in result.data["lead"]
+        # Lead must carry both the theater AND a concrete time — without
+        # the time, the synthesizer has nothing useful to render and
+        # falls back to filler. Asserting on theater alone misses the
+        # "lead is a placeholder" failure mode we hit with Fandango.
+        lead = result.data["lead"]
+        assert "AMC Empire 25" in lead
+        assert "7:00pm" in lead, f"lead missing concrete showtime: {lead!r}"
         assert "duckduckgo.com" in result.source_url
         assert "Avatar+tonight+showtimes+New+York" in result.source_url
 
@@ -60,7 +66,10 @@ class TestMovieShowtimesSkill:
         }
         result = await skill.execute_mechanism("local_cache", {"query": "avatar tonight"})
         assert result.success is True
+        # Cache must round-trip the lead so the verbatim fast-path keeps
+        # working on cached results.
         assert result.data["lead"] == "Cached showtimes"
+        assert result.data["showtimes"][0]["snippet"] == "7:00pm"
 
     @pytest.mark.anyio
     async def test_local_cache_miss(self, skill):

@@ -84,6 +84,38 @@ CREATE TABLE IF NOT EXISTS skill_config_user (
 );
 CREATE INDEX IF NOT EXISTS idx_skill_cfg_user ON skill_config_user(user_id, skill_id);
 
+-- Cross-skill result cache. The SkillExecutor checks this table BEFORE
+-- calling a mechanism and writes successful results AFTER. Skills don't
+-- touch it directly — they declare a default TTL in their manifest and
+-- the executor handles read/write/expiry transparently.
+--
+-- key:
+--   sha1 over (skill_id, mechanism, canonical_json(parameters_minus_config)).
+--   Stripping _config keeps secrets out of the key and lets two users on
+--   the same ZIP share a row.
+-- expires_at:
+--   ISO-8601 UTC instant. Reads compare against datetime('now'). A NULL
+--   expires_at means "never expires" — currently unused but reserved for
+--   ref-data caches (TMDB title metadata, wiki summaries) we may add later.
+-- value:
+--   JSON-encoded SkillResult.data. We do NOT store source_url/title here
+--   because the executor stamps those from the live MechanismResult; on a
+--   cache hit they're rebuilt from the parallel cached_meta JSON column.
+-- cached_meta:
+--   JSON of {source_url, source_title, mechanism_used} so a hit can
+--   reconstitute a full SkillResult identical to the live path.
+CREATE TABLE IF NOT EXISTS skill_result_cache (
+    cache_key TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL,
+    mechanism TEXT NOT NULL,
+    value TEXT NOT NULL,
+    cached_meta TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_skill_cache_skill ON skill_result_cache(skill_id, mechanism);
+CREATE INDEX IF NOT EXISTS idx_skill_cache_expiry ON skill_result_cache(expires_at);
+
 -- Manual enable/disable toggles, distinct from the auto-disabled
 -- "missing required config" state. Both tiers default to "enabled"
 -- when no row exists, so admins/users only need to write a row when

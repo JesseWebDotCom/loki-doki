@@ -383,15 +383,23 @@ _FIRST_PERSON_LEADERS = {
 def _input_is_first_person(text: str) -> bool:
     """Does the user input clearly anchor to the speaker themselves?
 
-    Used by the bare-copula guard to avoid nuking legitimate self-claims
-    like "I was happy yesterday". A leading first-person pronoun is the
-    strongest signal that the claim really is about the user, even if
-    gemma stripped it from the structured item.
+    Used by the bare-copula and proper-noun-value guards to avoid nuking
+    legitimate self-claims like "I was happy yesterday" or "maybe I'll
+    go see Avatar tonight". A first-person pronoun ANYWHERE in the input
+    is a strong signal that the claim is about the user, even if gemma
+    stripped the pronoun from the structured item or the user prefixed
+    the sentence with a hedge ("maybe I…", "yeah I…", "well I…").
+
+    Earlier versions only checked the first word, which broke on every
+    hedge-prefixed sentence and dropped valid self events.
     """
     if not text:
         return False
-    first_word = text.strip().split(maxsplit=1)[0].lower().strip(".,!?;:")
-    return first_word in _FIRST_PERSON_LEADERS
+    for raw in text.split():
+        word = raw.lower().strip(".,!?;:\"'()[]{}")
+        if word in _FIRST_PERSON_LEADERS:
+            return True
+    return False
 
 
 def _titlecase_phrase(phrase: str) -> str:
@@ -713,7 +721,11 @@ class LongTermItem(BaseModel):
 
     subject_type: Literal["self", "person", "entity"] = "self"
     subject_name: str = ""
-    predicate: str = Field(min_length=1)
+    # predicate is a verb/verb phrase, not a sentence. The 60-char cap
+    # rejects gemma's habit of cramming the whole user sentence into
+    # predicate (e.g. "will go to the theater tonight with my brother
+    # and see avatar"). Failed items go through the repair loop.
+    predicate: str = Field(min_length=1, max_length=60)
     value: str = Field(min_length=1)
     kind: Literal["fact", "preference", "event", "advice", "relationship"] = "fact"
     relationship_kind: Optional[str] = None
@@ -757,10 +769,19 @@ def _harvest_entity_candidates(items: list[Any], original_input: Optional[str]) 
     if not original_input:
         return []
     doc = _parse(original_input)
-    # Build the set of token texts that appear capitalized AND not at
-    # sentence-start (so we don't accept "In" from "In was terrified...").
+    # Build two acceptance sets:
+    #  - cap_midsentence: tokens the USER explicitly capitalized mid-
+    #    sentence (high-confidence proper nouns).
+    #  - source_words_lower: every alphabetic token, lowercased. Used as
+    #    a softer fallback so we can recover entity names the user typed
+    #    in lowercase ("avatar") but the model correctly title-cased
+    #    ("Avatar"). The blocklist below filters out common-word false
+    #    positives.
     cap_midsentence: set[str] = set()
+    source_words_lower: set[str] = set()
     for tok in doc:
+        if tok.text and tok.text.isalpha():
+            source_words_lower.add(tok.text.lower())
         if tok.is_sent_start:
             continue
         if tok.text and tok.text[0].isupper():
@@ -780,7 +801,19 @@ def _harvest_entity_candidates(items: list[Any], original_input: Optional[str]) 
         first = parts[0]
         if first.lower() in _BLOCKLIST_LOWER:
             continue
+        # Also reject if the candidate isn't title-cased — the model is
+        # supposed to capitalize entity names. A lowercase value field is
+        # a model formatting failure, not a recoverable entity.
+        if not first[:1].isupper():
+            continue
         if first.lower() in cap_midsentence and v not in pool:
+            pool.append(v)
+            continue
+        # Softer fallback: the value appears in the source as a regular
+        # lowercase word AND the model title-cased it. Trust the model's
+        # extraction here — the blocklist already filters stopwords, and
+        # the title-case requirement above filters bare nouns.
+        if first.lower() in source_words_lower and v not in pool:
             pool.append(v)
     return pool
 
@@ -854,7 +887,9 @@ def build_repair_prompt(original_input: str, errors: list[dict]) -> str:
         "relationship_kind:str|null,category:str}\n"
         "RULES:relationship_kind required when kind='relationship';"
         "subject_name required when subject_type='person';"
-        "relationships must target a person subject.\n"
+        "relationships must target a person subject;"
+        "predicate must be a SHORT verb phrase (1-4 words, max 60 chars) — "
+        "never a full sentence; put the object of the verb in value, not predicate.\n"
         f"USER_INPUT:{original_input}\n"
         "ERRORS:\n"
         + "\n".join(error_lines)
