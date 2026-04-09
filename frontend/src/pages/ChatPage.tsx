@@ -349,7 +349,11 @@ const ChatPage: React.FC = () => {
             clarification: prev.clarification ?? undefined,
           }];
           // Auto-play the new assistant message (no-op when muted).
-          tts.speak(`msg-${next.length - 1}`, finalText);
+          // Skills can supply a short `spoken_text` override when the
+          // on-screen response is rich (e.g. a wall of showtimes) — TTS
+          // reads that instead of the full visual content.
+          const spoken = prev.synthesis?.spoken_text?.trim() || finalText;
+          tts.speak(`msg-${next.length - 1}`, spoken);
           return next;
         });
         return { ...prev, phase: 'idle' };

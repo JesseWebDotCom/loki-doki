@@ -504,7 +504,8 @@ def build_napi_lead(
     def _render_theater_block(theater: dict, *, highlighted: bool) -> list[str]:
         """One theater header + every movie under it as nested bullets."""
         name = theater.get("name") or "Unknown theater"
-        header = f"**🎬 {name}**" if highlighted else f"- **{name}**"
+        # No decorative emoji: TTS reads them aloud (e.g. "movie camera").
+        header = f"**{name}**" if highlighted else f"- **{name}**"
         out = [header]
         movies = theater.get("movies") or []
         if not movies:
@@ -537,6 +538,36 @@ def build_napi_lead(
             lines.extend(_render_theater_block(t, highlighted=False))
 
     return "\n".join(lines)
+
+
+def build_napi_spoken(parsed: dict, *, preferred_theater: str = "") -> str:
+    """Short TTS-only summary of a napi result.
+
+    The full Markdown lead lists every movie and every showtime — fine
+    on screen, exhausting to listen to. This helper builds a brief
+    spoken alternative: theater name + a count of movies playing. The
+    visual lead is still rendered; only the audio side gets the short
+    version. Selected via the ``spoken_text`` field on the SSE event.
+    """
+    theaters = parsed.get("theaters") or []
+    if not theaters:
+        return ""
+    pick = None
+    if preferred_theater:
+        for t in theaters:
+            if _theater_matches(t.get("name", ""), preferred_theater):
+                pick = t
+                break
+    if pick is None and len(theaters) == 1:
+        pick = theaters[0]
+    if pick is not None:
+        movies = [m for m in (pick.get("movies") or []) if m.get("times")]
+        n = len(movies)
+        name = pick.get("name") or "this theater"
+        if n == 0:
+            return f"No showtimes left at {name}."
+        return f"{n} movies playing at {name}. Check the screen for showtimes."
+    return f"{len(theaters)} theaters nearby. Check the screen for showtimes."
 
 
 def extract_jsonld_movies(html: str) -> list[dict]:

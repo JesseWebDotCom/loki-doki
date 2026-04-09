@@ -212,7 +212,7 @@ class TestSkillClarificationEmission:
         assert "Cinemark Connecticut Post 14 and IMAX" in clarif["options"]
         # The lead must be the speakable form, not the rich Markdown
         # bullet list — this is the question the TTS layer will read.
-        assert "06461" in r.data["lead"] or "theaters" in r.data["lead"].lower()
+        assert "theater" in r.data["lead"].lower() or "number" in r.data["lead"].lower()
 
     @pytest.mark.anyio
     async def test_explicit_theater_param_filters_and_skips_clarification(self):

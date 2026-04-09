@@ -150,7 +150,7 @@ def _lead_has_times(text: str) -> bool:
 def try_grounded_fast_path(
     asks: List[Ask],
     skill_results: Dict[str, SkillResult],
-) -> Optional[Tuple[str, float]]:
+) -> Optional[Tuple[str, float, str]]:
     """Return grounded skill output directly for single current-data turns.
 
     This avoids a common synthesis failure mode where the model has the
@@ -181,7 +181,8 @@ def try_grounded_fast_path(
     text = _format_grounded_result(res.data or {})
     if not text:
         return None
-    return f"{text}\n\n[src:1]", res.latency_ms
+    spoken = ((res.data or {}).get("spoken_text") or "").strip()
+    return f"{text}\n\n[src:1]", res.latency_ms, spoken
 
 
 def try_capability_failure_fast_path(

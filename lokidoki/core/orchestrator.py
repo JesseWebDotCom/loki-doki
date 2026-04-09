@@ -672,7 +672,7 @@ class Orchestrator:
 
         grounded_fast = try_grounded_fast_path(resolved_asks, skill_results)
         if grounded_fast is not None:
-            response, fast_latency_ms = grounded_fast
+            response, fast_latency_ms, spoken_text = grounded_fast
             yield PipelineEvent(
                 phase="synthesis",
                 status="active",
@@ -695,6 +695,7 @@ class Orchestrator:
                     "platform": self._model_manager.policy.platform,
                     "fast_path": True,
                     "grounded_fast_path": True,
+                    "spoken_text": spoken_text,
                 },
             )
             return

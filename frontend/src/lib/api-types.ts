@@ -68,6 +68,10 @@ export interface SynthesisData {
   tone: string;
   sources?: SourceInfo[];
   platform: string;
+  /** Optional short summary for TTS — overrides `response` for audio
+   * playback when present. Used when the on-screen response is rich
+   * (e.g. a wall of showtimes) and reading every line is annoying. */
+  spoken_text?: string;
 }
 
 /**

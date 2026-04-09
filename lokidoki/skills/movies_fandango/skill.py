@@ -342,6 +342,12 @@ class FandangoShowtimesSkill(BaseSkill):
         }
         if needs_clarif:
             data["needs_clarification"] = needs_clarif
+            # The clarification picker IS short — TTS reads it as-is.
+        else:
+            # Showtimes lead is a wall of times; supply a brief
+            # spoken alternative so the TTS layer doesn't read every
+            # slot aloud.
+            data["spoken_text"] = P.build_napi_spoken(parsed, preferred_theater=preferred)
         self._cache_put("napi_theaters_with_showtimes", f"{zip_code}|{date_str}", data)
         return MechanismResult(
             success=True, data=data, source_url=referer,
@@ -724,30 +730,22 @@ def _movies_at(theaters: list[dict]) -> list[dict]:
 
 
 def _speakable_clarification(location: str, theater_names: list[str]) -> str:
-    """Build a TTS-friendly clarification question.
+    """Build a numbered-list clarification question.
 
-    Reads aloud cleanly and stays short: lists at most the first three
-    theater names with an "or another nearby" tail when there are
-    more. The full options list is in ``data['needs_clarification'][
-    'options']`` for the screen renderer.
+    The user explicitly asked for a numbered list so they can reply
+    with just the number. ``resolve_choice`` already supports the
+    ordinal tier ("1", "the second one", etc.), so the numbers users
+    see are also the numbers they can speak. Rendered as Markdown so
+    the chat UI shows a real numbered list.
     """
     if not theater_names:
         return ""
     if len(theater_names) == 1:
         return f"There's one theater near {location}: {theater_names[0]}."
-    if len(theater_names) == 2:
-        return (
-            f"I see two theaters near {location}: "
-            f"{theater_names[0]} or {theater_names[1]}?"
-        )
-    head = ", ".join(theater_names[:3])
-    extra = len(theater_names) - 3
-    if extra > 0:
-        return (
-            f"I see {len(theater_names)} theaters near {location}. "
-            f"Want {head}, or one of the other {extra}?"
-        )
-    return f"I see three theaters near {location}: {head}?"
+    lines = [f"Which theater? Reply with a number:", ""]
+    for i, name in enumerate(theater_names, start=1):
+        lines.append(f"{i}. {name}")
+    return "\n".join(lines)
 
 
 def _napi_movie_snippet(movie: dict) -> str:

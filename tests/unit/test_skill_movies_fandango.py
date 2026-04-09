@@ -557,12 +557,12 @@ class TestNapiParser:
         # AMC to the highlighted block, even though Cinemark comes
         # first in the parsed list.
         lead = P.build_napi_lead(parsed, "06461", preferred_theater="amc marquis")
-        assert "**🎬 AMC Marquis 16**" in lead
+        assert "**AMC Marquis 16**" in lead
         # Header switches to "Tonight in" when a preference is honored.
         assert lead.startswith("**Tonight in 06461**")
         # AMC's highlighted block must appear before any "Also nearby"
         # section, and the highlighted block must come before Cinemark.
-        amc_pos = lead.index("**🎬 AMC Marquis 16**")
+        amc_pos = lead.index("**AMC Marquis 16**")
         cinemark_pos = lead.index("Cinemark Connecticut Post 14 and IMAX")
         assert amc_pos < cinemark_pos
         assert "**Also nearby**" in lead
@@ -642,7 +642,9 @@ class TestNapiMechanism:
         for mv in r.data["showtimes"]:
             assert mv["theaters"]
             assert mv["snippet"], f"empty snippet for {mv['title']}"
-        assert "06461" in r.data["lead"]
+        # Multi-theater fixture with no preferred_theater → lead is the
+        # numbered clarification picker, not the rich napi lead.
+        assert "theater" in r.data["lead"].lower()
 
     @pytest.mark.anyio
     async def test_missing_zip(self, skill):
