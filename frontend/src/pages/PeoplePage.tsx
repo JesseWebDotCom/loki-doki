@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { List, Upload, Users, ImagePlus, X } from "lucide-react";
+import { Calendar, GitBranch as ConnectIcon, ImagePlus, List, Upload, Users, X } from "lucide-react";
 import Sidebar from "../components/sidebar/Sidebar";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 import { useAuth } from "../auth/useAuth";
@@ -29,6 +29,7 @@ const PeoplePage: React.FC = () => {
   const isAdmin = currentUser?.role === "admin";
   const [view, setView] = useState<ViewMode>("tree");
   const [people, setPeople] = useState<Person[]>([]);
+  const [allEdges, setAllEdges] = useState<PeopleEdge[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<{
     person: Person;
@@ -44,7 +45,7 @@ const PeoplePage: React.FC = () => {
   const [newPersonName, setNewPersonName] = useState("");
   const [gedcomSummary, setGedcomSummary] = useState<string>("");
   const [adminUsers, setAdminUsers] = useState<Array<{ id: number; username: string }>>([]);
-  const [profileOptions, setProfileOptions] = useState<PersonMedia[]>([]);
+  const [, setProfileOptions] = useState<PersonMedia[]>([]);
   const [reconcileGroups, setReconcileGroups] = useState<ReconcileGroup[]>([]);
   const [showTreeDetailPanel, setShowTreeDetailPanel] = useState(false);
 
@@ -71,6 +72,7 @@ const PeoplePage: React.FC = () => {
         interaction_preference: interactionPreference,
       });
       setPeople(payload.people);
+      setAllEdges(payload.edges ?? []);
     })();
   }, [search, bucket, relationshipState, interactionPreference]);
 
@@ -117,6 +119,7 @@ const PeoplePage: React.FC = () => {
       interaction_preference: interactionPreference,
     });
     setPeople(payload.people);
+    setAllEdges(payload.edges ?? []);
     if (selectedId) {
       setDetail(await getStructuredPersonDetail(selectedId));
     }
@@ -135,6 +138,8 @@ const PeoplePage: React.FC = () => {
       </div>
     );
 
+  // Use all edges from the graph for the tree canvas (multi-generation).
+  // Detail edges are still available for the detail panel.
   const selectedEdges = detail?.edges ?? [];
   const isTreeView = view === "tree";
   const handleSelectPerson = (id: number) => {
@@ -154,31 +159,43 @@ const PeoplePage: React.FC = () => {
     }
 
     return (
-      <div className="p-5 space-y-5">
-        <div className="rounded-2xl border border-border/20 bg-background/70 p-4 space-y-4">
-          <div className="flex items-center gap-3">
+      <div className="p-5 space-y-4">
+        {/* Identity */}
+        <div className="rounded-2xl border border-border/20 bg-background/70 p-4 shadow-m2">
+          <div className="flex items-center gap-4">
             {photoThumb(selectedPerson, "w-20 h-20")}
-            <div>
+            <div className="min-w-0">
               <div className="font-bold text-lg">{selectedPerson.name}</div>
-              <div className="text-sm text-muted-foreground">
-                {selectedPerson.bucket} • {selectedPerson.living_status}
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {selectedPerson.bucket && (
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary capitalize">{selectedPerson.bucket}</span>
+                )}
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${selectedPerson.living_status === "deceased" ? "bg-muted text-muted-foreground" : "bg-green-500/10 text-green-600"}`}>
+                  {selectedPerson.living_status || "unknown"}
+                </span>
+                {currentUser?.linked_person_id === selectedPerson.id && (
+                  <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary uppercase tracking-wide">You</span>
+                )}
               </div>
-              <div className="text-xs text-muted-foreground">
-                {selectedPerson.linked_username ? `Linked user: ${selectedPerson.linked_username}` : "No linked app user"}
-                {currentUser?.linked_person_id === selectedPerson.id ? " • This is you" : ""}
+              {(selectedPerson.birth_date || selectedPerson.death_date) && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  {selectedPerson.birth_date && `Born: ${selectedPerson.birth_date}`}
+                  {selectedPerson.death_date && ` · Died: ${selectedPerson.death_date}`}
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {selectedPerson.linked_username ? `Linked: ${selectedPerson.linked_username}` : "Not linked to a user"}
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 mt-4">
             <label className="text-sm space-y-1">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">Relationship state</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Status</div>
               <select
                 value={selectedPerson.relationship_state ?? "active"}
-                onChange={(e) => {
-                  void patchPersonOverlay(selectedPerson.id, { relationship_state: e.target.value }).then(refreshGraph);
-                }}
-                className="w-full bg-background border border-border/20 rounded-xl px-3 py-2"
+                onChange={(e) => void patchPersonOverlay(selectedPerson.id, { relationship_state: e.target.value }).then(refreshGraph)}
+                className="w-full bg-background border border-border/20 rounded-xl px-3 py-1.5 text-sm"
               >
                 <option value="active">Active</option>
                 <option value="former">Former</option>
@@ -186,13 +203,11 @@ const PeoplePage: React.FC = () => {
               </select>
             </label>
             <label className="text-sm space-y-1">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">Interaction pref</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Interaction</div>
               <select
                 value={selectedPerson.interaction_preference ?? "normal"}
-                onChange={(e) => {
-                  void patchPersonOverlay(selectedPerson.id, { interaction_preference: e.target.value }).then(refreshGraph);
-                }}
-                className="w-full bg-background border border-border/20 rounded-xl px-3 py-2"
+                onChange={(e) => void patchPersonOverlay(selectedPerson.id, { interaction_preference: e.target.value }).then(refreshGraph)}
+                className="w-full bg-background border border-border/20 rounded-xl px-3 py-1.5 text-sm"
               >
                 <option value="normal">Normal</option>
                 <option value="avoid">Avoid</option>
@@ -201,100 +216,130 @@ const PeoplePage: React.FC = () => {
           </div>
 
           {isAdmin && (
-            <label className="text-sm space-y-1 block">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">Link to app user</div>
+            <label className="text-sm space-y-1 block mt-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Link to user</div>
               <select
                 value={selectedPerson.linked_user_id ?? ""}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  if (!value) return;
-                  void linkUserToPerson(selectedPerson.id, Number(value)).then(refreshGraph);
-                }}
-                className="w-full bg-background border border-border/20 rounded-xl px-3 py-2"
+                onChange={(e) => { const v = e.target.value; if (v) void linkUserToPerson(selectedPerson.id, Number(v)).then(refreshGraph); }}
+                className="w-full bg-background border border-border/20 rounded-xl px-3 py-1.5 text-sm"
               >
                 <option value="">Select user...</option>
-                {adminUsers.map((user) => (
-                  <option key={user.id} value={user.id}>{user.username}</option>
-                ))}
+                {adminUsers.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
               </select>
             </label>
           )}
         </div>
 
-        <div className="rounded-2xl border border-border/20 bg-background/70 p-4 space-y-3">
-          <div className="font-semibold flex items-center gap-2"><ImagePlus size={16} /> Photos</div>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              void uploadPersonMedia(selectedPerson.id, file).then(refreshGraph);
-            }}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            {detail.media.map((media) => (
-              <div key={media.id} className="rounded-xl border border-border/20 overflow-hidden bg-card/70">
-                {media.thumbnail_url ? (
-                  <img src={media.thumbnail_url} alt={media.original_filename} className="w-full h-28 object-cover" />
-                ) : (
-                  <div className="w-full h-28 bg-card" />
-                )}
-                <div className="p-3 space-y-2">
-                  <div className="text-xs truncate">{media.original_filename}</div>
-                  <button type="button" onClick={() => void setPreferredPersonMedia(selectedPerson.id, media.id).then(refreshGraph)} className="w-full text-xs px-2 py-1 rounded-lg border border-border/20">
-                    Use in tree
+        {/* Connections */}
+        {selectedEdges.length > 0 && (() => {
+          // Deduplicate: bidirectional edges mean the same person appears
+          // twice (parent A→B + child B→A). Keep the first edge per target.
+          const seenTargets = new Set<number>();
+          const deduped = selectedEdges.filter((edge) => {
+            const targetId = edge.from_person_id === selectedPerson.id
+              ? edge.to_person_id : edge.from_person_id;
+            if (seenTargets.has(targetId)) return false;
+            seenTargets.add(targetId);
+            return true;
+          });
+          return (
+          <div className="rounded-2xl border border-border/20 bg-background/70 p-4 shadow-m2">
+            <div className="font-semibold text-sm flex items-center gap-2 mb-3"><ConnectIcon size={14} /> Relationships</div>
+            <div className="space-y-1.5">
+              {deduped.map((edge) => {
+                const isFrom = edge.from_person_id === selectedPerson.id;
+                const targetName = isFrom ? edge.to_person_name : edge.from_person_name;
+                const targetId = isFrom ? edge.to_person_id : edge.from_person_id;
+                return (
+                  <button
+                    key={edge.id}
+                    type="button"
+                    onClick={() => handleSelectPerson(targetId)}
+                    className="w-full text-left rounded-xl bg-card/60 px-3 py-2 text-sm hover:bg-card/80 transition-colors flex items-center justify-between"
+                  >
+                    <span className="font-medium">{targetName}</span>
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary capitalize">{edge.edge_type}</span>
                   </button>
-                  {currentUser?.linked_person_id === selectedPerson.id && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void selectProfilePhoto(media.id).then(async () => {
-                          await refresh();
-                          const next = await getProfilePhotoOptions();
-                          setProfileOptions(next.options);
-                        });
-                      }}
-                      className="w-full text-xs px-2 py-1 rounded-lg border border-primary/30 bg-primary/10 text-primary"
-                    >
-                      Use as profile photo
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
           </div>
-        </div>
+          );
+        })()}
 
-        {currentUser?.linked_person_id === selectedPerson.id && profileOptions.length > 0 && (
-          <div className="rounded-2xl border border-border/20 bg-background/70 p-4 space-y-3">
-            <div className="font-semibold">Profile photo options</div>
-            <div className="flex flex-wrap gap-3">
-              {profileOptions.map((media) => (
-                <button key={media.id} type="button" onClick={() => void selectProfilePhoto(media.id).then(refresh)} className="rounded-xl overflow-hidden border border-border/20">
-                  {media.thumbnail_url && <img src={media.thumbnail_url} alt={media.original_filename} className="w-16 h-16 object-cover" />}
-                </button>
+        {/* Timeline */}
+        {detail.events.length > 0 && (
+          <div className="rounded-2xl border border-border/20 bg-background/70 p-4 shadow-m2">
+            <div className="font-semibold text-sm flex items-center gap-2 mb-3"><Calendar size={14} /> Timeline</div>
+            <div className="space-y-1.5">
+              {detail.events.slice(0, 8).map((event) => (
+                <div key={`event-${event.id}`} className="rounded-xl bg-card/60 px-3 py-2 text-sm flex items-center justify-between">
+                  <span className="font-medium capitalize">{event.event_type}</span>
+                  <span className="text-xs text-muted-foreground">{event.event_date || event.value || "—"}</span>
+                </div>
               ))}
             </div>
           </div>
         )}
 
-        <div className="rounded-2xl border border-border/20 bg-background/70 p-4 space-y-3">
-          <div className="font-semibold flex items-center gap-2"><List size={16} /> Facts and events</div>
-          <div className="space-y-2 text-sm">
-            {detail.events.slice(0, 5).map((event) => (
-              <div key={`event-${event.id}`} className="rounded-xl bg-card/60 p-3">
-                <div className="font-medium">{event.event_type}</div>
-                <div className="text-muted-foreground text-xs">{event.event_date || event.value || "No date"}</div>
-              </div>
-            ))}
-            {detail.facts.slice(0, 5).map((fact) => (
-              <div key={`fact-${fact.id}`} className="rounded-xl bg-card/60 p-3">
-                <div className="font-medium">{fact.predicate}</div>
-                <div className="text-muted-foreground text-xs">{fact.value}</div>
-              </div>
-            ))}
+        {/* Memory */}
+        {detail.facts.length > 0 && (
+          <div className="rounded-2xl border border-border/20 bg-background/70 p-4 shadow-m2">
+            <div className="font-semibold text-sm flex items-center gap-2 mb-3"><List size={14} /> Memory</div>
+            <div className="space-y-1.5">
+              {detail.facts.slice(0, 8).map((fact) => (
+                <div key={`fact-${fact.id}`} className="rounded-xl bg-card/60 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">{fact.predicate}</span>{" "}
+                  <span className="font-medium">{fact.value}</span>
+                </div>
+              ))}
+            </div>
           </div>
+        )}
+
+        {/* Photos */}
+        <div className="rounded-2xl border border-border/20 bg-background/70 p-4 shadow-m2">
+          <div className="font-semibold text-sm flex items-center gap-2 mb-3"><ImagePlus size={14} /> Photos</div>
+          <label className="block w-full cursor-pointer rounded-xl border-2 border-dashed border-border/30 bg-card/40 py-3 text-center text-xs text-muted-foreground hover:border-primary/30 hover:bg-primary/5 transition-colors">
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                void uploadPersonMedia(selectedPerson.id, file).then(refreshGraph);
+              }}
+            />
+            Click to upload a photo
+          </label>
+          {detail.media.length > 0 && (
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              {detail.media.map((media) => (
+                <div key={media.id} className="rounded-xl border border-border/20 overflow-hidden bg-card/70">
+                  {media.thumbnail_url ? (
+                    <img src={media.thumbnail_url} alt={media.original_filename} className="w-full h-24 object-cover" />
+                  ) : (
+                    <div className="w-full h-24 bg-card" />
+                  )}
+                  <div className="p-2 space-y-1.5">
+                    <button type="button" onClick={() => void setPreferredPersonMedia(selectedPerson.id, media.id).then(refreshGraph)} className="w-full text-[10px] px-2 py-1 rounded-lg border border-border/20 hover:bg-card/80">
+                      Use in tree
+                    </button>
+                    {currentUser?.linked_person_id === selectedPerson.id && (
+                      <button
+                        type="button"
+                        onClick={() => void selectProfilePhoto(media.id).then(async () => { await refresh(); setProfileOptions((await getProfilePhotoOptions()).options); })}
+                        className="w-full text-[10px] px-2 py-1 rounded-lg border border-primary/30 bg-primary/10 text-primary"
+                      >
+                        Profile photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -317,7 +362,39 @@ const PeoplePage: React.FC = () => {
                 </p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1">
+                <input
+                  value={newPersonName}
+                  onChange={(e) => setNewPersonName(e.target.value)}
+                  placeholder="New person..."
+                  className="w-32 bg-background/80 border border-border/20 rounded-xl px-3 py-2 text-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newPersonName.trim()) {
+                      void createGraphPerson({ name: newPersonName.trim(), bucket: bucket === "all" ? "family" : bucket }).then(async (result) => {
+                        setNewPersonName("");
+                        await refreshGraph();
+                        setSelectedId(result.id);
+                      });
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newPersonName.trim()) return;
+                    void createGraphPerson({ name: newPersonName.trim(), bucket: bucket === "all" ? "family" : bucket }).then(async (result) => {
+                      setNewPersonName("");
+                      await refreshGraph();
+                      setSelectedId(result.id);
+                    });
+                  }}
+                  className="px-3 py-2 rounded-xl bg-primary/10 border border-primary/30 text-primary text-xs font-bold"
+                >
+                  + Add
+                </button>
+              </div>
+              <div className="w-px h-6 bg-border/30 mx-1" />
               {(["tree", "list", "imports"] as ViewMode[]).filter((mode) => mode !== "imports" || isAdmin).map((mode) => (
                 <button
                   key={mode}
@@ -409,7 +486,7 @@ const PeoplePage: React.FC = () => {
                   <FocusedTreeCanvas
                     people={people}
                     selectedPerson={selectedPerson}
-                    edges={selectedEdges}
+                    edges={allEdges}
                     onSelectPerson={handleSelectPerson}
                     onClearFocus={() => {
                       setSelectedId(null);
@@ -491,27 +568,7 @@ const PeoplePage: React.FC = () => {
                   )}
                 </div>
               </div>
-              <div className="p-5 space-y-5">
-                <div className="rounded-2xl border border-border/20 bg-background/70 p-4 space-y-3">
-                  <div className="font-semibold">Quick add</div>
-                  <div className="flex gap-2">
-                    <input value={newPersonName} onChange={(e) => setNewPersonName(e.target.value)} placeholder="Add a person" className="flex-1 bg-background border border-border/20 rounded-xl px-3 py-2 text-sm" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!newPersonName.trim()) return;
-                        void createGraphPerson({ name: newPersonName.trim(), bucket: bucket === "all" ? "family" : bucket }).then(async (result) => {
-                          setNewPersonName("");
-                          await refreshGraph();
-                          setSelectedId(result.id);
-                        });
-                      }}
-                      className="px-4 py-2 rounded-xl bg-primary/10 border border-primary/30 text-primary text-sm font-semibold"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </div>
+              <div className="p-5 space-y-4">
                 {renderSelectedPersonDetail()}
               </div>
             </aside>

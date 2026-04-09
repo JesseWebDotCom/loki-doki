@@ -395,6 +395,45 @@ class TestDecomposer:
         assert 'capability_need="current_media"' in prompt
 
 
+    @pytest.mark.anyio
+    async def test_decompose_parses_people_lookup_capability(self, decomposer):
+        """capability_need='people_lookup' must survive parsing — it routes
+        personal relationship mentions (\"who is my sister\", \"I should call
+        my brother\") to the people graph skill."""
+        response = json.dumps({
+            "is_course_correction": False,
+            "overall_reasoning_complexity": "fast",
+            "short_term_memory": {"sentiment": "neutral", "concern": "none"},
+            "long_term_memory": [],
+            "asks": [{
+                "ask_id": "1",
+                "intent": "direct_chat",
+                "distilled_query": "who is my sister",
+                "parameters": {"relation": "sister"},
+                "response_shape": "synthesized",
+                "requires_current_data": False,
+                "knowledge_source": "none",
+                "context_source": "long_term_memory",
+                "referent_type": "person",
+                "durability": "durable",
+                "needs_referent_resolution": True,
+                "capability_need": "people_lookup",
+                "referent_status": "unresolved",
+                "referent_scope": ["person"],
+                "referent_anchor": "my sister",
+            }],
+        })
+        decomposer._client.generate = AsyncMock(return_value=response)
+
+        result = await decomposer.decompose("who is my sister")
+
+        ask = result.asks[0]
+        assert ask.capability_need == "people_lookup"
+        assert ask.referent_type == "person"
+        assert ask.context_source == "long_term_memory"
+        assert ask.parameters.get("relation") == "sister"
+
+
 class TestAskDataclass:
     def test_ask_creation(self):
         ask = Ask(

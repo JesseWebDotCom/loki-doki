@@ -14,6 +14,13 @@ import type { SourceInfo, SilentConfirmation } from '../../lib/api';
 import type { PipelineState } from '../../pages/ChatPage';
 import PipelineInfoPopover from './PipelineInfoPopover';
 
+interface MentionedPerson {
+  id: number;
+  name: string;
+  photo_url?: string;
+  relation?: string;
+}
+
 interface MessageProps {
   role: 'user' | 'assistant';
   content: string;
@@ -26,6 +33,7 @@ interface MessageProps {
   assistantName?: string;
   userName?: string;
   pipeline?: PipelineState;
+  mentionedPeople?: MentionedPerson[];
 }
 
 /**
@@ -88,6 +96,7 @@ const MessageItem: React.FC<MessageProps> = ({
   assistantName,
   userName,
   pipeline,
+  mentionedPeople = [],
 }) => {
   const isUser = role === 'user';
   const tts = useTTSState();
@@ -164,11 +173,32 @@ const MessageItem: React.FC<MessageProps> = ({
                   const index = parseInt(href.replace('#cite-', ''), 10);
                   return <Citation index={index} sources={sources} />;
                 }
+                // Person mention chip: /people?focus=ID
+                if (href?.startsWith('/people?focus=')) {
+                  const personId = parseInt(new URLSearchParams(href.split('?')[1]).get('focus') || '0', 10);
+                  const person = mentionedPeople.find((p) => p.id === personId);
+                  return (
+                    <a
+                      href={href}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors no-underline align-middle mx-0.5"
+                      title={person ? `View ${person.name}'s profile${person.relation ? ` (${person.relation})` : ''}` : 'View profile'}
+                    >
+                      {person?.photo_url ? (
+                        <img src={person.photo_url} alt="" className="w-4 h-4 rounded-full object-cover" />
+                      ) : (
+                        <span className="w-4 h-4 rounded-full bg-primary/20 text-[8px] font-bold flex items-center justify-center">
+                          {(String(children) || '?').charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                      {children}
+                    </a>
+                  );
+                }
                 return (
-                  <a 
-                    href={href} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="text-primary hover:underline underline-offset-4 decoration-primary/30 transition-all font-semibold inline-flex items-center gap-1"
                   >
                     {children}

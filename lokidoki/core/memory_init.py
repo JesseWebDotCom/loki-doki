@@ -113,6 +113,69 @@ def _add_columns(
                 raise
 
 
+def _migrate_relationships_to_edges(conn: sqlite3.Connection) -> None:
+    """One-shot migration: copy legacy ``relationships`` rows into
+    ``person_relationship_edges``.
+
+    For each user, ensures a self-person exists (creating one from their
+    username if needed) and creates directed graph edges from the
+    freeform relation strings. Idempotent — skips edges that already
+    exist. Marks migrated rows with ``provenance='migrated'``.
+    """
+    from lokidoki.core.people_graph_sql import (
+        ensure_user_self_person,
+        relation_to_edge_type,
+    )
+
+    # Guard: skip if legacy table doesn't exist or is empty.
+    try:
+        rows = conn.execute(
+            "SELECT r.owner_user_id, r.person_id, r.relation, r.confidence "
+            "FROM relationships r "
+            "ORDER BY r.owner_user_id, r.id"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return
+    if not rows:
+        return
+
+    migrated = 0
+    for r in rows:
+        user_id = int(r["owner_user_id"])
+        person_id = int(r["person_id"])
+        relation = (r["relation"] or "").strip()
+        confidence = float(r["confidence"])
+        if not relation:
+            continue
+
+        self_person_id = ensure_user_self_person(conn, user_id=user_id)
+        edge_type, is_inverted = relation_to_edge_type(relation)
+        if is_inverted:
+            from_id, to_id = person_id, self_person_id
+        else:
+            from_id, to_id = self_person_id, person_id
+
+        # Skip if edge already exists (idempotent).
+        existing = conn.execute(
+            "SELECT id FROM person_relationship_edges "
+            "WHERE from_person_id = ? AND to_person_id = ? AND edge_type = ?",
+            (from_id, to_id, edge_type),
+        ).fetchone()
+        if existing:
+            continue
+
+        conn.execute(
+            "INSERT INTO person_relationship_edges "
+            "(creator_user_id, from_person_id, to_person_id, edge_type, "
+            "confidence, provenance) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, from_id, to_id, edge_type, confidence, "migrated"),
+        )
+        migrated += 1
+    conn.commit()
+    if migrated:
+        logger.info("[migration] migrated %d legacy relationships to graph edges", migrated)
+
+
 def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
     """Open ``db_path``, apply all schemas, return ``(conn, vec_loaded)``.
 
@@ -176,4 +239,9 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
             )
             vec_loaded = False
     conn.commit()
+
+    # One-shot migration: copy legacy relationships table rows into
+    # person_relationship_edges. Safe to run every startup — idempotent.
+    _migrate_relationships_to_edges(conn)
+
     return conn, vec_loaded

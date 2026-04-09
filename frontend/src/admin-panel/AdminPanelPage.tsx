@@ -26,8 +26,9 @@ import SkillsSection from '../components/settings/SkillsSection';
 import CharactersAdminSection from '../components/admin/CharactersAdminSection';
 import ThemeShowcase from '../components/theme/ThemeShowcase';
 import ThemeCustomizer from '../components/theme/ThemeCustomizer';
-import { getPlatformInfo, getSettings, saveSettings } from '../lib/api';
-import type { PlatformInfo, SettingsData } from '../lib/api';
+import { getSystemInfo, getSettings, saveSettings } from '../lib/api';
+import type { SettingsData } from '../lib/api';
+import type { SystemInfo } from '../lib/api-types';
 
 type AdminUser = { id: number; username: string; role: 'admin' | 'user'; status: 'active' | 'disabled' | 'deleted' };
 type AdminPerson = { id: number; name: string; fact_count?: number };
@@ -159,23 +160,127 @@ const SectionBody: React.FC<{ section: SectionDef }> = ({ section }) => {
 
 // ── Personalization panes ──────────────────────────────────────
 
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+};
+
 const GeneralPane: React.FC = () => {
-  const [platform, setPlatform] = useState<PlatformInfo | null>(null);
-  useEffect(() => { void getPlatformInfo().then(setPlatform).catch(() => {}); }, []);
-  if (!platform) return <div className="text-xs text-muted-foreground italic">Detecting platform…</div>;
+  const [info, setInfo] = useState<SystemInfo | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    void getSystemInfo()
+      .then(setInfo)
+      .catch(() => setError(true));
+  }, []);
+  if (error) return <div className="text-xs text-red-400 italic">Failed to load system info.</div>;
+  if (!info) return <div className="text-xs text-muted-foreground italic">Loading system info…</div>;
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 border-b border-border/10 pb-4">
-        <Cpu className="text-primary w-5 h-5" />
-        <h2 className="text-xl font-bold tracking-tight">Runtime</h2>
+    <div className="space-y-6">
+      {/* Runtime */}
+      <div>
+        <div className="flex items-center gap-2 border-b border-border/10 pb-4 mb-4">
+          <Cpu className="text-primary w-5 h-5" />
+          <h2 className="text-xl font-bold tracking-tight">Runtime</h2>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Stat label="Platform" value={info.platform} />
+          <Stat label="Ollama" value={info.ollama_version || 'unavailable'} accent={info.ollama_version ? 'text-green-400' : 'text-red-400'} />
+          <Stat label="Fast Model" value={info.fast_model} accent="text-green-400" />
+          <Stat label="Thinking Model" value={info.thinking_model} accent="text-primary" />
+        </div>
       </div>
-      <div className="grid grid-cols-3 gap-4">
-        <Stat label="Platform" value={platform.platform} />
-        <Stat label="Fast Model" value={platform.fast_model} accent="text-green-400" />
-        <Stat label="Thinking Model" value={platform.thinking_model} accent="text-primary" />
+
+      {/* Loaded Models (in RAM) */}
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+          Loaded in Memory ({info.loaded_models.length})
+        </div>
+        {info.loaded_models.length === 0 ? (
+          <div className="text-xs text-muted-foreground italic p-3 rounded-xl bg-card/50 border border-border/30">
+            No models currently loaded.
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border/30 bg-card/50 overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border/20">
+                  <th className="px-4 py-2">Model</th>
+                  <th className="px-4 py-2">RAM</th>
+                  <th className="px-4 py-2">VRAM</th>
+                  <th className="px-4 py-2">Expires</th>
+                </tr>
+              </thead>
+              <tbody>
+                {info.loaded_models.map((m) => (
+                  <tr key={m.name} className="border-b border-border/10 last:border-0 text-xs">
+                    <td className="px-4 py-2 font-bold font-mono">{m.name}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{formatBytes(m.size)}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{formatBytes(m.size_vram)}</td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {m.expires_at ? new Date(m.expires_at).toLocaleTimeString() : 'persistent'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-      <p className="pt-6 text-xs text-muted-foreground">
-        LokiDoki v0.2 · {platform.platform} · {platform.fast_model}
+
+      {/* Available Models */}
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+          Available Models ({info.available_models.length})
+        </div>
+        {info.available_models.length === 0 ? (
+          <div className="text-xs text-muted-foreground italic p-3 rounded-xl bg-card/50 border border-border/30">
+            No models found in Ollama.
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border/30 bg-card/50 overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border/20">
+                  <th className="px-4 py-2">Model</th>
+                  <th className="px-4 py-2">Params</th>
+                  <th className="px-4 py-2">Quant</th>
+                  <th className="px-4 py-2">Size</th>
+                  <th className="px-4 py-2">Family</th>
+                </tr>
+              </thead>
+              <tbody>
+                {info.available_models.map((m) => {
+                  const isActive = m.name === info.fast_model || m.name === info.thinking_model;
+                  return (
+                    <tr key={m.name} className={`border-b border-border/10 last:border-0 text-xs ${isActive ? 'bg-primary/5' : ''}`}>
+                      <td className="px-4 py-2 font-mono font-bold">
+                        {m.name}
+                        {m.name === info.fast_model && (
+                          <span className="ml-2 text-[9px] font-bold text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded border border-green-400/20">FAST</span>
+                        )}
+                        {m.name === info.thinking_model && (
+                          <span className="ml-2 text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">THINK</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-muted-foreground">{m.parameter_size || '—'}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{m.quantization || '—'}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{formatBytes(m.size)}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{m.family || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        LokiDoki v0.2 · {info.platform} · {info.fast_model}
       </p>
     </div>
   );

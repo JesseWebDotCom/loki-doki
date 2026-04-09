@@ -191,6 +191,8 @@ class Orchestrator:
         graph_relations = await self._memory.run_sync(
             lambda conn: gql.list_user_graph_relations(conn, user_id=user_id)
         )
+        if graph_relations:
+            logger.debug("[orchestrator] graph_relations: %d lines", len(graph_relations))
         # `recent` includes the user message we just inserted above, so
         # the first turn of a brand-new session has exactly 1 item.
         is_first_turn = len(recent) <= 1
@@ -307,11 +309,37 @@ class Orchestrator:
         # reason, fall back to a self-only registry rather than
         # blocking the turn.
         try:
-            known_people = [
-                (r.get("name") or "").strip()
-                for r in people_rows
-                if (r.get("name") or "").strip()
-            ]
+            # Build a name→relation map from graph relations + legacy rels.
+            _rel_map: dict[str, str] = {}
+            for rel in relationships:
+                pid = int(rel.get("person_id") or 0)
+                rel_name = ""
+                for p in people_rows:
+                    if int(p["id"]) == pid:
+                        rel_name = (p.get("name") or "").strip()
+                        break
+                relation = (rel.get("relation") or "").strip()
+                if rel_name and relation:
+                    _rel_map[rel_name.lower()] = relation
+            # Also parse graph_relations lines "- relation: Name".
+            for line in graph_relations:
+                parts = line.lstrip("- ").split(":", 1)
+                if len(parts) == 2:
+                    relation = parts[0].strip()
+                    gname = parts[1].strip()
+                    if gname and relation:
+                        _rel_map[gname.lower()] = relation
+
+            known_people = []
+            for r in people_rows:
+                name = (r.get("name") or "").strip()
+                if not name:
+                    continue
+                rel = _rel_map.get(name.lower())
+                if rel:
+                    known_people.append(f"{name} ({rel})")
+                else:
+                    known_people.append(name)
         except Exception:
             logger.exception("[orchestrator] list_people failed; using empty registry")
             known_people = []
@@ -469,6 +497,7 @@ class Orchestrator:
         WEB = "web_search"
         ENC = "encyclopedia"
         CURRENT_MEDIA = "current_media"
+        PEOPLE = "people_lookup"
 
         async def _resolve(category: str) -> Optional[str]:
             return await pick_active_skill_intent(
@@ -487,10 +516,24 @@ class Orchestrator:
                     or await _resolve(WEB)
                     or await _resolve(ENC)
                 )
+            elif getattr(a, "capability_need", "none") == "people_lookup":
+                target = await _resolve(PEOPLE)
             elif a.knowledge_source == "web":
                 target = await _resolve(WEB) or await _resolve(ENC)
             elif a.knowledge_source == "encyclopedic":
                 target = await _resolve(ENC) or await _resolve(WEB)
+            elif (
+                getattr(a, "referent_type", "unknown") == "person"
+                and getattr(a, "needs_referent_resolution", False)
+                and a.knowledge_source == "none"
+            ):
+                # Belt-and-suspenders: the 2B decomposer reliably sets
+                # referent_type="person" + needs_referent_resolution=true
+                # for personal relationship mentions ("who is my sister",
+                # "I should call my brother") but often misses the
+                # capability_need="people_lookup" enum. Upgrade here
+                # using the structured fields it DID emit correctly.
+                target = await _resolve(PEOPLE)
             elif a.requires_current_data:
                 # Decomposer flagged fresh-data need but didn't tag a
                 # source. Prefer web (fresher) over encyclopedia
@@ -503,7 +546,13 @@ class Orchestrator:
                 # so an explicit decomposer routing to a niche skill
                 # (weather, calendar, ...) isn't clobbered.
                 explicit = a.knowledge_source in ("web", "encyclopedic")
-                if explicit or a.intent == "direct_chat":
+                people_upgrade = getattr(a, "capability_need", "none") == "people_lookup" or (
+                    getattr(a, "referent_type", "unknown") == "person"
+                    and getattr(a, "needs_referent_resolution", False)
+                    and a.knowledge_source == "none"
+                    and target and "people_lookup" in target
+                )
+                if explicit or people_upgrade or a.intent == "direct_chat":
                     logger.info(
                         "[orchestrator] upgrading ask %s %s -> %s "
                         "(knowledge_source=%s, capability_need=%s, requires_current_data=%s)",
@@ -541,6 +590,24 @@ class Orchestrator:
         # (pure conversational correction with nothing to look up) is
         # still handled below by the no-skill synthesis path.
         if resolved_asks:
+            # Inject people graph data for people_lookup skill.
+            for ask in resolved_asks:
+                is_people = (
+                    getattr(ask, "capability_need", "none") == "people_lookup"
+                    or (hasattr(ask, "intent") and "people_lookup" in (ask.intent or ""))
+                )
+                if is_people:
+                    ask.parameters = ask.parameters or {}
+                    ask.parameters["_people_rows"] = people_rows
+                    ask.parameters["_relationships"] = relationships
+                    ask.parameters["_graph_relations"] = graph_relations
+                    # Backfill relation from referent_anchor when the
+                    # decomposer didn't populate the parameter directly.
+                    # e.g. referent_anchor="my sister" → relation="sister"
+                    if not ask.parameters.get("relation"):
+                        anchor = (getattr(ask, "referent_anchor", "") or "").strip().lower()
+                        if anchor.startswith("my "):
+                            ask.parameters["relation"] = anchor[3:].strip()
             skill_data, skill_results, sources, routing_log = await run_skills(
                 resolved_asks, self._registry, self._executor,
                 user_id=user_id, memory=self._memory,
@@ -802,6 +869,8 @@ class Orchestrator:
                 graph_relations=graph_relations,
                 resolved_referents=session_cache.get("resolved_referents") or [],
             )
+            if not graph_relations and not relationships:
+                logger.warning("[orchestrator] no relationships in context for synthesis")
             prompt = build_synthesis_prompt(
                 tone=tone,
                 context=compressed_context,
@@ -885,9 +954,60 @@ class Orchestrator:
                     "Sorry — I drew a blank on that one. Could you rephrase?"
                 )
 
+        # Store the plain response (no person links) in memory.
         await self._memory.add_message(
             user_id=user_id, session_id=session_id, role="assistant", content=response
         )
+
+        # ---- person mention annotation ----------------------------------
+        # Scan the bot's own response (machine-generated text — CLAUDE.md
+        # allows regex here) for known person names and annotate them as
+        # markdown links so the frontend can render rich inline chips.
+        mentioned_people: list[dict] = []
+        display_response = response
+        if people_rows:
+            import re as _re2
+            # Build name → person map (longest first to avoid partial matches).
+            _name_map: dict[str, dict] = {}
+            for p in people_rows:
+                name = (p.get("name") or "").strip()
+                if name and len(name) >= 2:
+                    _name_map[name.lower()] = {
+                        "id": int(p["id"]),
+                        "name": name,
+                        "photo_url": p.get("preferred_photo_url") or "",
+                    }
+            # Sort by length descending (longest first).
+            sorted_names = sorted(_name_map.keys(), key=len, reverse=True)
+            annotated_ids: set[int] = set()
+            for name_lower in sorted_names:
+                info = _name_map[name_lower]
+                # Only annotate first occurrence per name.
+                if info["id"] in annotated_ids:
+                    continue
+                # Case-insensitive word boundary match.
+                pattern = _re2.compile(
+                    r"(?<!\[)(?<!/)\b(" + _re2.escape(info["name"]) + r")\b",
+                    _re2.IGNORECASE,
+                )
+                if pattern.search(display_response):
+                    link = f"[{info['name']}](/people?focus={info['id']})"
+                    display_response = pattern.sub(link, display_response, count=1)
+                    annotated_ids.add(info["id"])
+                    # Attach relation from graph_relations.
+                    relation = ""
+                    for line in graph_relations:
+                        if info["name"].lower() in line.lower():
+                            parts = line.lstrip("- ").split(":", 1)
+                            if len(parts) == 2:
+                                relation = parts[0].strip()
+                            break
+                    mentioned_people.append({
+                        "id": info["id"],
+                        "name": info["name"],
+                        "photo_url": info["photo_url"],
+                        "relation": relation,
+                    })
 
         # ---- post-process -----------------------------------------------
         if is_first_turn:  # First turn auto-naming
@@ -897,12 +1017,13 @@ class Orchestrator:
             phase="synthesis",
             status="done",
             data={
-                "response": response,
+                "response": display_response,
                 "model": synthesis_model,
                 "latency_ms": synthesis_ms,
                 "tone": tone,
                 "sources": sources,
                 "platform": self._model_manager.policy.platform,
+                "mentioned_people": mentioned_people,
             },
         )
 

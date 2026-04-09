@@ -41,7 +41,7 @@ def detect_platform() -> str:
 # Platform-specific model presets
 PLATFORM_MODELS = {
     "pi5": {
-        "fast_model": "gemma4:e2b",
+        "fast_model": "gemma4:e4b",
         "thinking_model": "gemma4",
         "fast_keep_alive": -1,
         "thinking_keep_alive": "5m",
@@ -53,13 +53,13 @@ PLATFORM_MODELS = {
         "thinking_keep_alive": "5m",
     },
     "mac": {
-        "fast_model": "gemma4:e2b",
+        "fast_model": "gemma4:e4b",
         "thinking_model": "gemma4",
         "fast_keep_alive": -1,
         "thinking_keep_alive": "5m",
     },
     "linux": {
-        "fast_model": "gemma4:e2b",
+        "fast_model": "gemma4:e4b",
         "thinking_model": "gemma4",
         "fast_keep_alive": -1,
         "thinking_keep_alive": "5m",

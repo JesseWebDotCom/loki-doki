@@ -16,6 +16,7 @@ from lokidoki.skills.dictionary.skill import DictionarySkill
 from lokidoki.skills.news_rss.skill import NewsRSSSkill
 from lokidoki.skills.recipe_mealdb.skill import RecipeMealDBSkill
 from lokidoki.skills.jokes.skill import JokesSkill
+from lokidoki.skills.people_lookup.skill import PeopleLookupSkill
 
 # Singleton skill instances (stateful for caching)
 _skill_instances: dict[str, BaseSkill] = {}
@@ -63,6 +64,8 @@ def get_skill_instance(skill_id: str, config: dict  = None) -> BaseSkill :
         skill = RecipeMealDBSkill()
     elif skill_id == "jokes":
         skill = JokesSkill()
+    elif skill_id == "people_lookup":
+        skill = PeopleLookupSkill()
 
     if skill:
         _skill_instances[skill_id] = skill

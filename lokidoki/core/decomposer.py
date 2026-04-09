@@ -168,7 +168,7 @@ DECOMPOSITION_SCHEMA: dict = {
                     "needs_referent_resolution": {"type": "boolean"},
                     "capability_need": {
                         "type": "string",
-                        "enum": ["encyclopedic", "web_search", "current_media", "none"],
+                        "enum": ["encyclopedic", "web_search", "current_media", "people_lookup", "none"],
                     },
                     "referent_status": {
                         "type": "string",
@@ -204,7 +204,7 @@ class Decomposer:
     def __init__(
         self,
         inference_client: InferenceClient,
-        model: str = "gemma4:e2b",
+        model: str = "gemma4:e4b",
         timeout_s: float = 15.0,
         num_predict: int = 384,
     ):
@@ -391,7 +391,7 @@ class Decomposer:
                     needs_referent_resolution=bool(a.get("needs_referent_resolution", False)),
                     capability_need=(
                         a.get("capability_need")
-                        if a.get("capability_need") in ("encyclopedic", "web_search", "current_media", "none")
+                        if a.get("capability_need") in ("encyclopedic", "web_search", "current_media", "people_lookup", "none")
                         else "none"
                     ),
                     referent_status=(

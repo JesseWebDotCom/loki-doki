@@ -33,7 +33,7 @@ def _resolved_referents(candidates: Iterable[object], *, limit: int = 4) -> list
     return lines
 
 
-def _memory_people(people: Iterable[dict], relationships: Iterable[dict], *, limit: int = 4) -> list[str]:
+def _memory_people(people: Iterable[dict], relationships: Iterable[dict], *, limit: int = 12) -> list[str]:
     names = {int(p["id"]): (p.get("name") or "").strip() for p in people if p.get("id") is not None}
     lines: list[str] = []
     for rel in list(relationships)[:limit]:
@@ -89,15 +89,26 @@ def build_referent_block(
         sections.append("RECENT_REFERENTS:")
         sections.extend(recent_lines)
 
+    # Merge legacy MEMORY_PEOPLE and GRAPH_RELATIONSHIPS into one
+    # RELATIONSHIPS block, deduplicating by name.
     people_lines = _memory_people(people, relationships)
-    if people_lines:
-        sections.append("MEMORY_PEOPLE:")
-        sections.extend(people_lines)
-
     graph_lines = [line for line in graph_relations if line]
-    if graph_lines:
-        sections.append("GRAPH_RELATIONSHIPS:")
-        sections.extend(graph_lines)
+    seen_names: set[str] = set()
+    merged_rel_lines: list[str] = []
+    # Prefer graph_relations (richer provenance) first.
+    for line in graph_lines:
+        name_part = line.split(":", 1)[-1].strip().lower() if ":" in line else ""
+        if name_part and name_part not in seen_names:
+            seen_names.add(name_part)
+            merged_rel_lines.append(line)
+    for line in people_lines:
+        name_part = line.split(":", 1)[-1].strip().lower() if ":" in line else ""
+        if name_part and name_part not in seen_names:
+            seen_names.add(name_part)
+            merged_rel_lines.append(line)
+    if merged_rel_lines:
+        sections.append("RELATIONSHIPS:")
+        sections.extend(merged_rel_lines)
 
     entity_lines = _memory_entities(relevant_facts)
     if entity_lines:

@@ -337,6 +337,202 @@ def create_person_edge(
     return int(cur.lastrowid)
 
 
+# ---- relation string → edge_type mapping ----------------------------------
+
+_SIBLING_TERMS = frozenset({
+    "brother", "sister", "sibling", "half-brother", "half-sister",
+    "step-brother", "step-sister", "stepsister", "stepbrother",
+    "twin", "bro", "sis",
+})
+_PARENT_TERMS = frozenset({
+    "mother", "father", "parent", "mom", "dad", "mama", "papa",
+    "step-mom", "step-dad", "stepmom", "stepdad", "step-mother",
+    "step-father", "stepmother", "stepfather",
+})
+_CHILD_TERMS = frozenset({
+    "son", "daughter", "child", "kid", "step-son", "step-daughter",
+    "stepson", "stepdaughter",
+})
+_SPOUSE_TERMS = frozenset({
+    "spouse", "wife", "husband", "partner", "fiancé", "fiancée",
+    "fiance", "fiancee", "ex", "ex-wife", "ex-husband",
+})
+_GRANDPARENT_TERMS = frozenset({
+    "grandmother", "grandfather", "grandparent", "grandma", "grandpa",
+    "nana", "nanny", "granny", "pop-pop", "abuela", "abuelo",
+})
+_GRANDCHILD_TERMS = frozenset({
+    "grandson", "granddaughter", "grandchild", "grandkid",
+})
+
+
+def relation_to_edge_type(relation: str) -> tuple[str, bool]:
+    """Map a freeform relation string to a graph edge_type.
+
+    Returns ``(edge_type, is_inverted)`` where ``is_inverted`` is True
+    when the edge should point *from* the related person *to* the user's
+    self-person (e.g. "mother" means that person is a parent of the user,
+    so the edge is ``parent_person → user`` with ``edge_type='mother'``).
+
+    The original relation string is preserved as the edge_type so it
+    remains human-readable in the graph. Directionality is handled by
+    ``is_inverted`` so the graph topology is correct for traversal.
+    """
+    key = relation.strip().lower()
+    # Preserve the original label but determine directionality.
+    label = relation.strip() or key
+    if key in _PARENT_TERMS:
+        # "my mother" → she is parent of me → edge from her to me
+        return label, True
+    if key in _GRANDPARENT_TERMS:
+        return label, True
+    if key in _CHILD_TERMS:
+        # "my son" → I am parent of him → edge from me to him
+        return label, False
+    if key in _GRANDCHILD_TERMS:
+        return label, False
+    # Siblings, spouses, friends, coworkers, etc. — not inverted.
+    return label, False
+
+
+def upsert_person_edge(
+    conn: sqlite3.Connection,
+    creator_user_id: int,
+    *,
+    from_person_id: int,
+    to_person_id: int,
+    edge_type: str,
+    provenance: str = "conversation",
+    confidence: float = 0.6,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> int:
+    """Insert a graph edge or bump confidence if it already exists.
+
+    Dedup key is ``(from_person_id, to_person_id, edge_type)``.
+    """
+    existing = conn.execute(
+        "SELECT id, confidence FROM person_relationship_edges "
+        "WHERE from_person_id = ? AND to_person_id = ? AND edge_type = ?",
+        (from_person_id, to_person_id, edge_type),
+    ).fetchone()
+    if existing:
+        from lokidoki.core.confidence import update_confidence
+
+        new_conf = update_confidence(float(existing["confidence"]), confirmed=True)
+        conn.execute(
+            "UPDATE person_relationship_edges SET confidence = ? WHERE id = ?",
+            (new_conf, existing["id"]),
+        )
+        conn.commit()
+        return int(existing["id"])
+    cur = conn.execute(
+        "INSERT INTO person_relationship_edges "
+        "(creator_user_id, from_person_id, to_person_id, edge_type, "
+        "start_date, end_date, confidence, provenance) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (creator_user_id, from_person_id, to_person_id, edge_type,
+         start_date, end_date, confidence, provenance),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def ensure_user_self_person(
+    conn: sqlite3.Connection, *, user_id: int
+) -> int:
+    """Return the user's linked person_id, creating one if needed.
+
+    First tries auto-linking by name match. If that fails, creates a
+    self-person using the user's username as the name and links it.
+    """
+    linked = _get_or_autolink_person(conn, user_id)
+    if linked is not None:
+        return linked
+    row = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+    name = (row["username"] if row else "Me").strip() or "Me"
+    person_id = create_person_graph(conn, user_id, name=name, bucket="family", living_status="living")
+    link_user_to_person(conn, user_id=user_id, person_id=person_id)
+    return person_id
+
+
+def _try_auto_link_user(conn: sqlite3.Connection, user_id: int) -> Optional[int]:
+    """Try to auto-link a user to their person node by name match.
+
+    Looks for a person owned by this user whose name contains the
+    user's username. If exactly one match is found, links them.
+    Returns the linked person_id or None.
+    """
+    row = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        return None
+    username = (row["username"] or "").strip().lower()
+    if not username or len(username) < 2:
+        return None
+    # Find people whose name contains the username.
+    candidates = conn.execute(
+        "SELECT id, name FROM people WHERE owner_user_id = ? AND LOWER(name) LIKE ?",
+        (user_id, f"%{username}%"),
+    ).fetchall()
+    if len(candidates) == 1:
+        person_id = int(candidates[0]["id"])
+        link_user_to_person(conn, user_id=user_id, person_id=person_id)
+        return person_id
+    return None
+
+
+def _get_or_autolink_person(conn: sqlite3.Connection, user_id: int) -> Optional[int]:
+    """Get the user's linked person, trying auto-link if none exists."""
+    linked = get_linked_person_id(conn, user_id)
+    if linked is not None:
+        return linked
+    return _try_auto_link_user(conn, user_id)
+
+
+def list_relationships_from_edges(
+    conn: sqlite3.Connection, user_id: int
+) -> list[dict]:
+    """Return relationships in the legacy shape from graph edges.
+
+    Returns dicts with keys: id, relation, confidence, created_at,
+    person_id, person_name — same shape as the old
+    ``memory_people_sql.list_relationships()``.
+    """
+    linked = _get_or_autolink_person(conn, user_id)
+    if linked is None:
+        return []
+    rows = conn.execute(
+        "SELECT e.id, e.edge_type, e.confidence, e.created_at, "
+        "       e.from_person_id, e.to_person_id, "
+        "       fp.name AS from_name, tp.name AS to_name "
+        "FROM person_relationship_edges e "
+        "JOIN people fp ON fp.id = e.from_person_id "
+        "JOIN people tp ON tp.id = e.to_person_id "
+        "WHERE e.from_person_id = ? OR e.to_person_id = ? "
+        "ORDER BY e.edge_type, e.id",
+        (linked, linked),
+    ).fetchall()
+    result: list[dict] = []
+    for r in rows:
+        from_id = int(r["from_person_id"])
+        to_id = int(r["to_person_id"])
+        if from_id == linked:
+            person_id = to_id
+            person_name = r["to_name"]
+        else:
+            person_id = from_id
+            person_name = r["from_name"]
+        result.append({
+            "id": int(r["id"]),
+            "relation": r["edge_type"],
+            "confidence": float(r["confidence"]),
+            "created_at": r["created_at"],
+            "person_id": person_id,
+            "person_name": person_name,
+        })
+    return result
+
+
 def create_person_event(
     conn: sqlite3.Connection,
     *,
@@ -554,46 +750,128 @@ def list_user_graph_relations(
     *,
     user_id: int,
 ) -> list[str]:
-    linked = get_linked_person_id(conn, user_id)
+    """Build a human-readable list of the user's relationships from graph edges.
+
+    Returns lines like ``"- brother: Artie"`` for injection into the
+    synthesis prompt's GRAPH_RELATIONSHIPS block. Handles both freeform
+    edge_types (``brother``, ``coworker``) and structural parent-chain
+    sibling inference.
+    """
+    linked = _get_or_autolink_person(conn, user_id)
     if linked is None:
-        return []
-    person_name_row = conn.execute("SELECT name FROM people WHERE id = ?", (linked,)).fetchone()
+        # No linked person and auto-link failed. Fall back to listing
+        # ALL edges created by this user so relationships still appear
+        # in the synthesis prompt.
+        rows = conn.execute(
+            "SELECT e.edge_type, fp.name AS from_name, tp.name AS to_name "
+            "FROM person_relationship_edges e "
+            "JOIN people fp ON fp.id = e.from_person_id "
+            "JOIN people tp ON tp.id = e.to_person_id "
+            "WHERE e.creator_user_id = ? "
+            "ORDER BY e.edge_type, e.id",
+            (user_id,),
+        ).fetchall()
+        seen = set()
+        lines: list[str] = []
+        for r in rows:
+            key = (r["from_name"], r["to_name"], r["edge_type"])
+            rev = (r["to_name"], r["from_name"], r["edge_type"])
+            if key in seen or rev in seen:
+                continue
+            seen.add(key)
+            lines.append(f"- {r['edge_type']}: {r['from_name']} → {r['to_name']}")
+        return lines
+
+    person_name_row = conn.execute(
+        "SELECT name FROM people WHERE id = ?", (linked,)
+    ).fetchone()
     if not person_name_row:
         return []
+
     lines: list[str] = []
-    direct = conn.execute(
+    seen_person_ids: set[int] = set()
+
+    # Outgoing edges: user → other person.
+    outgoing = conn.execute(
         "SELECT e.edge_type, e.to_person_id, p.name "
         "FROM person_relationship_edges e "
         "JOIN people p ON p.id = e.to_person_id "
         "WHERE e.from_person_id = ? "
-        "ORDER BY e.id",
+        "ORDER BY e.edge_type, e.id",
         (linked,),
     ).fetchall()
-    for row in direct:
+    parent_terms_low = {t.lower() for t in _PARENT_TERMS}
+    child_terms_low = {t.lower() for t in _CHILD_TERMS}
+    for row in outgoing:
         edge_type = (row["edge_type"] or "").strip()
-        if edge_type in {"spouse", "partner"}:
-            lines.append(f"- {edge_type}: {row['name']}")
-        elif edge_type == "parent":
-            lines.append(f"- child: {row['name']}")
-        elif edge_type == "child":
-            lines.append(f"- parent: {row['name']}")
-    parent_ids = [
-        int(r["to_person_id"])
-        for r in conn.execute(
-            "SELECT to_person_id FROM person_relationship_edges WHERE from_person_id = ? AND edge_type = 'child'",
-            (linked,),
-        ).fetchall()
-    ]
-    parent_ids.extend(
-        int(r["from_person_id"])
-        for r in conn.execute(
-            "SELECT from_person_id FROM person_relationship_edges WHERE to_person_id = ? AND edge_type = 'parent'",
-            (linked,),
-        ).fetchall()
-    )
+        name = (row["name"] or "").strip()
+        pid = int(row["to_person_id"])
+        seen_person_ids.add(pid)
+        if not name or name.startswith("@") or name.lower().startswith("unnamed"):
+            continue
+        # Invert structural labels for outgoing edges:
+        # outgoing "parent" edge → I am parent of target → target is my child
+        # outgoing "child" edge → I am child of target → target is my parent
+        et_low = edge_type.lower()
+        if et_low in parent_terms_low or et_low == "parent":
+            label = "child (son/daughter)"
+        elif et_low in child_terms_low or et_low == "child":
+            label = "parent (mother/father)"
+        else:
+            label = edge_type
+        lines.append(f"- {label}: {name}")
+
+    # Incoming edges: other person → user (these are inverted relations
+    # like "mother" → edge from mother to user).
+    incoming = conn.execute(
+        "SELECT e.edge_type, e.from_person_id, p.name "
+        "FROM person_relationship_edges e "
+        "JOIN people p ON p.id = e.from_person_id "
+        "WHERE e.to_person_id = ? "
+        "ORDER BY e.edge_type, e.id",
+        (linked,),
+    ).fetchall()
+    for row in incoming:
+        edge_type = (row["edge_type"] or "").strip()
+        name = (row["name"] or "").strip()
+        pid = int(row["from_person_id"])
+        if pid in seen_person_ids:
+            continue
+        seen_person_ids.add(pid)
+        if not name or name.startswith("@") or name.lower().startswith("unnamed"):
+            continue
+        # Add clarifying synonyms for structural types.
+        et_low = edge_type.lower()
+        if et_low == "parent" or et_low in parent_terms_low:
+            label = f"{edge_type} (mother/father)"
+        elif et_low == "child" or et_low in child_terms_low:
+            label = f"{edge_type} (son/daughter)"
+        elif et_low == "spouse" or et_low in {t.lower() for t in _SPOUSE_TERMS}:
+            label = f"{edge_type} (wife/husband)"
+        else:
+            label = edge_type
+        lines.append(f"- {label}: {name}")
+
+    # Sibling inference via shared parents. Find parents of the user
+    # (edges where the user is a "child" of someone, OR someone is a
+    # parent-type of the user via an incoming edge).
+    parent_terms_low = {t.lower() for t in _PARENT_TERMS}
+    parent_ids: list[int] = []
+    # Outgoing "child" edges from user → parent.
+    for row in outgoing:
+        et = (row["edge_type"] or "").strip().lower()
+        if et == "child" or et in _CHILD_TERMS:
+            parent_ids.append(int(row["to_person_id"]))
+    # Incoming parent-type edges from parent → user.
+    for row in incoming:
+        et = (row["edge_type"] or "").strip().lower()
+        if et in parent_terms_low or et == "parent":
+            parent_ids.append(int(row["from_person_id"]))
     parent_ids = sorted(set(parent_ids))
+
     if parent_ids:
         placeholders = ",".join("?" for _ in parent_ids)
+        # Find other children of the same parents (siblings).
         sibling_rows = list(
             conn.execute(
                 "SELECT DISTINCT p.id, p.name FROM person_relationship_edges e "
@@ -603,25 +881,27 @@ def list_user_graph_relations(
                 (*parent_ids, linked),
             ).fetchall()
         )
-        sibling_rows.extend(
-            conn.execute(
-                "SELECT DISTINCT p.id, p.name FROM person_relationship_edges e "
-                "JOIN people p ON p.id = e.to_person_id "
-                "WHERE e.edge_type = 'parent' AND e.from_person_id IN (" + placeholders + ") "
-                "AND e.to_person_id != ?",
-                (*parent_ids, linked),
-            ).fetchall()
-        )
-        seen_ids: set[int] = set()
-        siblings = []
+        # Also check for parent-type incoming edges to those same parents.
+        for pid in parent_ids:
+            sibling_rows.extend(
+                conn.execute(
+                    "SELECT DISTINCT p.id, p.name FROM person_relationship_edges e "
+                    "JOIN people p ON p.id = e.to_person_id "
+                    "WHERE LOWER(e.edge_type) IN ('parent', " + ",".join("?" for _ in parent_terms_low) + ") "
+                    "AND e.from_person_id = ? AND e.to_person_id != ?",
+                    (*parent_terms_low, pid, linked),
+                ).fetchall()
+            )
         for sibling in sibling_rows:
-            sibling_id = int(sibling["id"])
-            if sibling_id in seen_ids:
+            sid = int(sibling["id"])
+            sname = (sibling["name"] or "").strip()
+            if sid in seen_person_ids:
                 continue
-            seen_ids.add(sibling_id)
-            siblings.append(sibling)
-        for sibling in siblings:
-            lines.append(f"- sibling: {sibling['name']}")
+            seen_person_ids.add(sid)
+            if not sname or sname.startswith("@") or sname.lower().startswith("unnamed"):
+                continue
+            lines.append(f"- sibling (sister/brother): {sname}")
+
     return lines
 
 

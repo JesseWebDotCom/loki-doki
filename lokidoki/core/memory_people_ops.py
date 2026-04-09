@@ -236,7 +236,8 @@ async def list_relationships(
         rows = await self._run_thread_unlocked(
             psql.list_relationships, user_id
         )
-    return [dict(r) for r in rows]
+    # list_relationships now returns plain dicts from graph edges.
+    return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 async def list_fact_conflicts(

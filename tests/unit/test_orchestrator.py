@@ -294,7 +294,7 @@ class TestOrchestrator:
         async for _ in orchestrator.process("Is danny mcbride still acting?", user_id=uid, session_id=sid):
             pass
 
-        assert captured["model"] == "gemma4:e2b"
+        assert captured["model"] == "gemma4:e4b"
 
 
 class TestPR3PersonResolution:
@@ -352,10 +352,13 @@ class TestPR3PersonResolution:
             pass
 
         people = await memory.list_people(uid)
-        assert len(people) == 1 and people[0]["name"] == "Mark"
+        # ensure_user_self_person auto-creates a self-person for graph
+        # edges, so we may have 2 people. The declared person is Mark.
+        mark = [p for p in people if p["name"] == "Mark"]
+        assert len(mark) == 1
         rels = await memory.list_relationships(uid)
         assert len(rels) == 1 and rels[0]["relation"] == "brother"
-        person_facts = await memory.list_facts_about_person(uid, people[0]["id"])
+        person_facts = await memory.list_facts_about_person(uid, mark[0]["id"])
         # The relationship item also writes a fact row (predicate=is, value=brother),
         # plus location and occupation. Three rows total on the person.
         values = sorted(f["value"] for f in person_facts)
@@ -521,7 +524,7 @@ class TestStructuredRoutingAndMemory:
 
         prompt = captured["prompt"]
         assert "RECENT_REFERENTS:" in prompt
-        assert "MEMORY_PEOPLE:" in prompt
+        assert "RELATIONSHIPS:" in prompt
         assert "Artie" in prompt
 
     @pytest.mark.anyio

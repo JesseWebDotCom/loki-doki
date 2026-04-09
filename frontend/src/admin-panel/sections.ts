@@ -30,8 +30,6 @@ export interface SectionDef {
 
 export const SECTIONS: SectionDef[] = [
   // ── Personalization ────────────────────────────────────────────
-  { id: 'general',     group: 'Personalization', label: 'Platform & Models', icon: Cpu,
-    title: 'Platform & Models', description: 'Detected runtime and the models powering your assistant.' },
   { id: 'characters',  group: 'Personalization', label: 'Characters',        icon: Sparkles,
     title: 'Characters', description: 'Pick the personality your assistant wears in chat.' },
   { id: 'audio',       group: 'Personalization', label: 'Audio',             icon: Volume2,
@@ -42,6 +40,9 @@ export const SECTIONS: SectionDef[] = [
     title: 'Appearance', description: 'Theme palette and surface styling.' },
 
   // ── Permissions ────────────────────────────────────────────────
+  { id: 'general',           group: 'Permissions', label: 'System Info',       icon: Cpu,
+    title: 'System Info', description: 'Runtime platform, Ollama version, and loaded models.',
+    adminOnly: true, requiresChallenge: true },
   { id: 'users',             group: 'Permissions', label: 'Users',             icon: Users,
     title: 'Users & Requests', description: 'Manage user accounts, roles, and access.',
     adminOnly: true, requiresChallenge: true },

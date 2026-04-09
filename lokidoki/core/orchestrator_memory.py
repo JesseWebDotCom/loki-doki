@@ -50,8 +50,14 @@ async def _score_candidate(
     if relationship_hint:
         rels = await memory.list_relationships(user_id)
         hint_low = relationship_hint.lower()
+        # Also check the mapped edge_type (e.g. "mother" → "parent").
+        from lokidoki.core.people_graph_sql import relation_to_edge_type
+        mapped_edge, _ = relation_to_edge_type(relationship_hint)
         for r in rels:
-            if r["person_id"] == person["id"] and r["relation"].lower() == hint_low:
+            rel_low = (r.get("relation") or "").lower()
+            if r["person_id"] == person["id"] and (
+                rel_low == hint_low or rel_low == mapped_edge
+            ):
                 score += 3.0
                 break
 

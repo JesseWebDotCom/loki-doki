@@ -542,7 +542,7 @@ async def test_transcript_family_followup_resolves_person_from_memory(memory):
 
     assert rr.data["asks"][0]["resolution_status"] == "resolved"
     assert rr.data["asks"][0]["resolution_source"] == "long_term_memory"
-    assert "MEMORY_PEOPLE:" in prompt_sink[-1]["prompt"]
+    assert "RELATIONSHIPS:" in prompt_sink[-1]["prompt"]
     assert "Artie" in prompt_sink[-1]["prompt"]
     assert routing.data["routing_log"][0]["status"] == "no_skill"
 
@@ -633,7 +633,7 @@ async def test_transcript_combined_movie_and_brother_name_followup_sees_cached_m
     assert rr.data["asks"][0]["resolution_status"] in ("none", "resolved")
     assert "RESOLVED_REFERENTS:" in prompt_sink[-1]["prompt"]
     assert "Avatar: Fire and Ash" in prompt_sink[-1]["prompt"]
-    assert "MEMORY_PEOPLE:" in prompt_sink[-1]["prompt"]
+    assert "RELATIONSHIPS:" in prompt_sink[-1]["prompt"]
     assert "Artie" in prompt_sink[-1]["prompt"]
     assert synthesis.data["response"]
 

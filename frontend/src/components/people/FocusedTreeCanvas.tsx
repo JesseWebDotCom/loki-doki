@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Crosshair, GitBranch, Minus, PanelRightOpen, Plus, RotateCcw, ScanSearch, UserRoundCheck } from "lucide-react";
-import type { PeopleEdge, Person } from "../../lib/api";
+import type { PeopleEdge, Person } from "../../lib/api-types";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -8,109 +8,187 @@ import {
   ContextMenuTrigger,
 } from "../ui/context-menu";
 
-function Photo({ person, className = "w-12 h-12" }: { person: Person; className?: string }) {
+// ---- edge helpers (same logic as treeLayout.ts) --------------------------
+
+const PARENT_TERMS = new Set([
+  "parent", "mother", "father", "mom", "dad", "mama", "papa",
+  "step-mom", "step-dad", "stepmom", "stepdad",
+]);
+const CHILD_TERMS = new Set([
+  "child", "son", "daughter", "kid",
+]);
+const SPOUSE_TERMS = new Set([
+  "spouse", "wife", "husband", "partner", "fiancé", "fiancée",
+  "fiance", "fiancee", "ex", "ex-wife", "ex-husband",
+]);
+
+function findParents(id: number, edges: PeopleEdge[], peopleMap: Map<number, Person>): Person[] {
+  const ids = new Set<number>();
+  for (const e of edges) {
+    const et = (e.edge_type || "").toLowerCase().trim();
+    if (PARENT_TERMS.has(et) && e.to_person_id === id && peopleMap.has(e.from_person_id)) ids.add(e.from_person_id);
+    if (CHILD_TERMS.has(et) && e.from_person_id === id && peopleMap.has(e.to_person_id)) ids.add(e.to_person_id);
+  }
+  return [...ids].map((pid) => peopleMap.get(pid)!);
+}
+
+function findChildren(id: number, edges: PeopleEdge[], peopleMap: Map<number, Person>): Person[] {
+  const ids = new Set<number>();
+  for (const e of edges) {
+    const et = (e.edge_type || "").toLowerCase().trim();
+    if (PARENT_TERMS.has(et) && e.from_person_id === id && peopleMap.has(e.to_person_id)) ids.add(e.to_person_id);
+    if (CHILD_TERMS.has(et) && e.to_person_id === id && peopleMap.has(e.from_person_id)) ids.add(e.from_person_id);
+  }
+  return [...ids].map((pid) => peopleMap.get(pid)!);
+}
+
+function findSpouses(id: number, edges: PeopleEdge[], peopleMap: Map<number, Person>): Person[] {
+  const ids = new Set<number>();
+  for (const e of edges) {
+    const et = (e.edge_type || "").toLowerCase().trim();
+    if (!SPOUSE_TERMS.has(et)) continue;
+    if (e.from_person_id === id && peopleMap.has(e.to_person_id)) ids.add(e.to_person_id);
+    if (e.to_person_id === id && peopleMap.has(e.from_person_id)) ids.add(e.from_person_id);
+  }
+  return [...ids].map((pid) => peopleMap.get(pid)!);
+}
+
+/** Filter out people with garbage GEDCOM IDs or unnamed entries. */
+function isValidPerson(p: Person): boolean {
+  const name = (p.name || "").trim();
+  return !!name && !name.startsWith("@") && !name.toLowerCase().startsWith("unnamed");
+}
+
+// ---- tiny components -----------------------------------------------------
+
+function Photo({ person, size = "w-10 h-10" }: { person: Person; size?: string }) {
   if (person.preferred_photo_url) {
-    return <img src={person.preferred_photo_url} alt={person.name} className={`${className} rounded-xl object-cover border border-border/30`} />;
+    return <img src={person.preferred_photo_url} alt={person.name} className={`${size} rounded-xl object-cover border border-border/30`} />;
   }
   return (
-    <div className={`${className} rounded-xl border border-primary/20 bg-primary/10 text-primary font-bold flex items-center justify-center`}>
-      {(person.name || "?").slice(0, 1).toUpperCase()}
+    <div className={`${size} rounded-xl border border-primary/20 bg-primary/10 text-primary font-bold flex items-center justify-center text-sm`}>
+      {(person.name || "?").charAt(0).toUpperCase()}
     </div>
   );
 }
 
 function PersonCard({
   person,
-  caption,
+  roleLabel,
+  isFocused,
+  isYou,
   onClick,
-  onShowAll,
-  isYou = false,
-  emphasis = "default",
-  detailHint,
   onViewDetails,
+  onShowAll,
 }: {
   person: Person;
-  caption: string;
-  onClick: () => void;
-  onShowAll?: () => void;
+  roleLabel?: string;
+  isFocused?: boolean;
   isYou?: boolean;
-  emphasis?: "default" | "focused";
-  detailHint?: string;
+  onClick: () => void;
   onViewDetails?: () => void;
+  onShowAll?: () => void;
 }) {
-  const cardTone =
-    emphasis === "focused"
-      ? "border-primary/30 bg-primary/10 shadow-[0_12px_40px_rgba(140,92,255,0.18)]"
-      : "border-border/20 bg-background/80 hover:bg-card/80";
+  const dead = person.living_status === "deceased";
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <button
           type="button"
           onClick={onClick}
-          className={`rounded-3xl border p-4 text-left transition-all ${cardTone} w-[15rem] sm:w-[16rem]`}
+          className={`
+            rounded-2xl border p-3 text-left transition-all w-[11rem] shrink-0
+            ${isFocused
+              ? "border-primary/40 bg-primary/10 shadow-[0_8px_30px_rgba(140,92,255,0.2)] scale-105"
+              : "border-border/20 bg-background/90 hover:bg-card/90 hover:border-border/40"}
+            ${dead ? "opacity-55" : ""}
+          `}
         >
-          <div className="flex items-center gap-3">
-            <Photo person={person} className="w-14 h-14 sm:w-16 sm:h-16" />
-            <div className="min-w-0">
-              <div className="font-semibold truncate flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <Photo person={person} size={isFocused ? "w-12 h-12" : "w-10 h-10"} />
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold text-[13px] leading-tight truncate">
                 {person.name}
-                {isYou && (
-                  <span className="rounded-full bg-primary/15 px-2 py-1 text-[10px] uppercase tracking-wide text-primary">
-                    This is you
-                  </span>
-                )}
               </div>
-              <div className="text-xs text-muted-foreground capitalize truncate">
-                {person.bucket || "person"} • {person.living_status || "unknown"}
+              {roleLabel && (
+                <span className="inline-block mt-0.5 rounded-full bg-primary/15 px-1.5 py-[1px] text-[9px] font-bold text-primary capitalize">
+                  {roleLabel}
+                </span>
+              )}
+              {isYou && !roleLabel && (
+                <span className="inline-block mt-0.5 rounded-full bg-primary/15 px-1.5 py-[1px] text-[9px] font-bold text-primary uppercase tracking-wide">
+                  You
+                </span>
+              )}
+              <div className="text-[9px] text-muted-foreground mt-0.5 truncate leading-tight">
+                {person.birth_date && `b. ${person.birth_date.slice(0, 4)}`}
+                {dead && person.death_date && ` · d. ${person.death_date.slice(0, 4)}`}
               </div>
             </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-wide">
-            <span className="rounded-full bg-card/80 px-2 py-1 text-muted-foreground">{caption}</span>
-            {person.relationship_state && (
-              <span className="rounded-full bg-card/80 px-2 py-1 text-muted-foreground">{person.relationship_state}</span>
-            )}
-            {person.interaction_preference && (
-              <span className="rounded-full bg-card/80 px-2 py-1 text-muted-foreground">{person.interaction_preference}</span>
-            )}
-          </div>
-          {detailHint && (
-            <div className="mt-3 text-xs text-muted-foreground">
-              {detailHint}
-            </div>
-          )}
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onSelect={onClick}>
-          <ScanSearch className="mr-2 h-4 w-4" />
-          Focus this person
-        </ContextMenuItem>
-        {onShowAll && (
-          <ContextMenuItem onSelect={onShowAll}>
-            <GitBranch className="mr-2 h-4 w-4" />
-            View entire tree
-          </ContextMenuItem>
-        )}
-        {onViewDetails && (
-          <ContextMenuItem onSelect={onViewDetails}>
-            <PanelRightOpen className="mr-2 h-4 w-4" />
-            View details
-          </ContextMenuItem>
-        )}
-        {isYou && (
-          <ContextMenuItem disabled>
-            <UserRoundCheck className="mr-2 h-4 w-4" />
-            Linked to your account
-          </ContextMenuItem>
-        )}
+        <ContextMenuItem onSelect={onClick}><ScanSearch className="mr-2 h-4 w-4" />Focus</ContextMenuItem>
+        {onShowAll && <ContextMenuItem onSelect={onShowAll}><GitBranch className="mr-2 h-4 w-4" />View all</ContextMenuItem>}
+        {onViewDetails && <ContextMenuItem onSelect={onViewDetails}><PanelRightOpen className="mr-2 h-4 w-4" />Details</ContextMenuItem>}
+        {isYou && <ContextMenuItem disabled><UserRoundCheck className="mr-2 h-4 w-4" />You</ContextMenuItem>}
       </ContextMenuContent>
     </ContextMenu>
   );
 }
 
-type FocusedTreeCanvasProps = {
+/** Vertical connector line between rows. */
+function VerticalLine() {
+  return <div className="mx-auto h-8 w-[2px] rounded-full bg-primary/30 shadow-[0_0_12px_rgba(140,92,255,0.2)]" />;
+}
+
+
+/** A row of person cards with an optional label above. */
+function GenerationRow({
+  label,
+  people: rowPeople,
+  roleLabel,
+  focusedId,
+  currentUserPersonId,
+  onSelect,
+  onShowAll,
+  onViewDetails,
+}: {
+  label: string;
+  people: Person[];
+  roleLabel: string;
+  focusedId: number;
+  currentUserPersonId?: number | null;
+  onSelect: (id: number) => void;
+  onShowAll: () => void;
+  onViewDetails?: () => void;
+}) {
+  if (rowPeople.length === 0) return null;
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-semibold">{label}</div>
+      <div className="flex flex-wrap justify-center gap-3">
+        {rowPeople.map((p) => (
+          <PersonCard
+            key={p.id}
+            person={p}
+            roleLabel={p.id === focusedId ? undefined : roleLabel}
+            isFocused={p.id === focusedId}
+            isYou={currentUserPersonId === p.id}
+            onClick={() => onSelect(p.id)}
+            onShowAll={onShowAll}
+            onViewDetails={onViewDetails}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---- main canvas ---------------------------------------------------------
+
+type Props = {
   people: Person[];
   selectedPerson: Person | null;
   edges: PeopleEdge[];
@@ -132,195 +210,137 @@ export function FocusedTreeCanvas({
   onJumpToCurrentUser,
   onRequestDetails,
   onCanvasBackgroundClick,
-}: FocusedTreeCanvasProps) {
+}: Props) {
   const [zoom, setZoom] = useState(1);
+  const peopleMap = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
 
-  const relations = useMemo(() => {
-    if (!selectedPerson) {
-      return { parents: [], partners: [], children: [], others: [] } as Record<string, Array<{ edge: PeopleEdge; person: Person }>>;
+  // Build the pedigree: direct ancestors up, descendants down.
+  const pedigree = useMemo(() => {
+    if (!selectedPerson) return null;
+    const id = selectedPerson.id;
+    const spouses = findSpouses(id, edges, peopleMap).filter(isValidPerson);
+    const parents = findParents(id, edges, peopleMap).filter(isValidPerson).slice(0, 2);
+    const grandparents: Person[] = [];
+    for (const p of parents) {
+      for (const gp of findParents(p.id, edges, peopleMap).filter(isValidPerson).slice(0, 2)) {
+        if (!grandparents.some((x) => x.id === gp.id)) grandparents.push(gp);
+      }
     }
-    const toTarget = (edge: PeopleEdge) => {
-      const targetId = edge.from_person_id === selectedPerson.id ? edge.to_person_id : edge.from_person_id;
-      const person = people.find((entry) => entry.id === targetId);
-      return person ? { edge, person } : null;
-    };
-    const fromEdges = edges.map(toTarget).filter(Boolean) as Array<{ edge: PeopleEdge; person: Person }>;
-    return {
-      parents: fromEdges.filter(({ edge }) => edge.edge_type === "child" && edge.from_person_id === selectedPerson.id),
-      partners: fromEdges.filter(({ edge }) => edge.edge_type === "spouse" && edge.from_person_id === selectedPerson.id),
-      children: fromEdges.filter(({ edge }) => edge.edge_type === "parent" && edge.from_person_id === selectedPerson.id),
-      others: fromEdges.filter(({ edge }) => !["child", "spouse", "parent"].includes(edge.edge_type)),
-    };
-  }, [edges, people, selectedPerson]);
-
-  const focusSummary = useMemo(() => {
-    if (!selectedPerson) {
-      return "";
+    const childIds = new Set<number>();
+    const children: Person[] = [];
+    for (const c of findChildren(id, edges, peopleMap).filter(isValidPerson)) {
+      if (!childIds.has(c.id)) { childIds.add(c.id); children.push(c); }
     }
-    const pieces = [
-      relations.parents.length ? `${relations.parents.length} upstream` : "",
-      relations.partners.length ? `${relations.partners.length} partner${relations.partners.length === 1 ? "" : "s"}` : "",
-      relations.children.length ? `${relations.children.length} downstream` : "",
-      relations.others.length ? `${relations.others.length} other link${relations.others.length === 1 ? "" : "s"}` : "",
-    ].filter(Boolean);
-    return pieces.join(" • ");
-  }, [relations, selectedPerson]);
+    for (const s of spouses) {
+      for (const c of findChildren(s.id, edges, peopleMap).filter(isValidPerson)) {
+        if (!childIds.has(c.id)) { childIds.add(c.id); children.push(c); }
+      }
+    }
+    const grandchildren: Person[] = [];
+    const gcIds = new Set<number>();
+    for (const c of children) {
+      for (const gc of findChildren(c.id, edges, peopleMap).filter(isValidPerson)) {
+        if (!gcIds.has(gc.id)) { gcIds.add(gc.id); grandchildren.push(gc); }
+      }
+    }
+    const center = [selectedPerson, ...spouses.filter((s) => s.id !== selectedPerson.id)];
+    return { grandparents, parents, center, children, grandchildren };
+  }, [selectedPerson, edges, peopleMap]);
 
   return (
-    <div className="h-full flex flex-col gap-4" data-testid="people-tree-view">
+    <div className="h-full flex flex-col gap-3" data-testid="people-tree-view">
+      {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <GitBranch size={18} className="text-primary" />
           <select
             aria-label="focused person"
             value={selectedPerson ? String(selectedPerson.id) : "all"}
-            onChange={(e) => {
-              if (e.target.value === "all") {
-                onClearFocus();
-                return;
-              }
-              onSelectPerson(Number(e.target.value));
-            }}
+            onChange={(e) => e.target.value === "all" ? onClearFocus() : onSelectPerson(Number(e.target.value))}
             className="bg-background/80 border border-border/20 rounded-xl px-3 py-2 text-sm"
           >
             <option value="all">Entire tree</option>
-            {people.map((person) => (
-              <option key={person.id} value={person.id}>{person.name}</option>
-            ))}
+            {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
-
         <div className="flex items-center gap-2">
           {currentUserPersonId && onJumpToCurrentUser && (
-            <button
-              type="button"
-              onClick={onJumpToCurrentUser}
-              className="h-9 px-3 rounded-xl border border-primary/30 bg-primary/10 text-xs font-semibold flex items-center gap-2 text-primary"
-            >
-              <Crosshair size={12} />
-              Jump to me
+            <button type="button" onClick={onJumpToCurrentUser} className="h-9 px-3 rounded-xl border border-primary/30 bg-primary/10 text-xs font-semibold flex items-center gap-2 text-primary">
+              <Crosshair size={12} /> Jump to me
             </button>
           )}
-          <button type="button" onClick={() => setZoom((prev) => Math.max(0.75, Number((prev - 0.1).toFixed(2))))} className="h-9 w-9 rounded-xl border border-border/20 bg-background/80 flex items-center justify-center">
-            <Minus size={14} />
-          </button>
-          <div className="min-w-[4.5rem] text-center text-xs font-semibold text-muted-foreground">
-            {Math.round(zoom * 100)}%
-          </div>
-          <button type="button" onClick={() => setZoom((prev) => Math.min(1.5, Number((prev + 0.1).toFixed(2))))} className="h-9 w-9 rounded-xl border border-border/20 bg-background/80 flex items-center justify-center">
-            <Plus size={14} />
-          </button>
-          <button type="button" onClick={() => { setZoom(1); onClearFocus(); }} className="h-9 px-3 rounded-xl border border-border/20 bg-background/80 text-xs font-semibold flex items-center gap-2">
-            <RotateCcw size={12} />
-            Reset
-          </button>
+          <button type="button" onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)))} className="h-9 w-9 rounded-xl border border-border/20 bg-background/80 flex items-center justify-center"><Minus size={14} /></button>
+          <div className="min-w-[3.5rem] text-center text-xs font-semibold text-muted-foreground">{Math.round(zoom * 100)}%</div>
+          <button type="button" onClick={() => setZoom((z) => Math.min(2, +(z + 0.1).toFixed(2)))} className="h-9 w-9 rounded-xl border border-border/20 bg-background/80 flex items-center justify-center"><Plus size={14} /></button>
+          <button type="button" onClick={() => { setZoom(1); onClearFocus(); }} className="h-9 px-3 rounded-xl border border-border/20 bg-background/80 text-xs font-semibold flex items-center gap-2"><RotateCcw size={12} /> Reset</button>
         </div>
       </div>
 
+      {/* Canvas */}
       <div
-        className="flex-1 overflow-auto rounded-[2rem] border border-border/10 bg-[radial-gradient(circle_at_top,rgba(134,86,255,0.18),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0))]"
-        onClick={(event) => {
-          if (event.target === event.currentTarget) {
-            onCanvasBackgroundClick?.();
-          }
-        }}
+        className="flex-1 overflow-auto rounded-[2rem] border border-border/10 bg-[radial-gradient(circle_at_top,rgba(134,86,255,0.15),transparent_40%)]"
+        onClick={(e) => { if (e.target === e.currentTarget) onCanvasBackgroundClick?.(); }}
       >
         <div
-          className="min-w-[72rem] p-6 sm:p-10 origin-top transition-transform"
+          className="p-8 origin-top transition-transform"
           style={{ transform: `scale(${zoom})` }}
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              onCanvasBackgroundClick?.();
-            }
-          }}
+          onClick={(e) => { if (e.target === e.currentTarget) onCanvasBackgroundClick?.(); }}
         >
           {!selectedPerson ? (
-            <div className="mx-auto max-w-[64rem] space-y-6">
-              <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Entire visible tree</div>
-              <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-                {people.length === 0 ? (
-                  <div className="text-sm text-muted-foreground italic">No visible people yet.</div>
-                ) : people.map((person) => (
-                  <PersonCard
-                    key={person.id}
-                    person={person}
-                    caption="visible"
-                    onClick={() => onSelectPerson(person.id)}
-                    onShowAll={onClearFocus}
-                    isYou={currentUserPersonId === person.id}
-                    onViewDetails={onRequestDetails}
-                  />
-                ))}
+            /* Entire tree: flat grid */
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-4 font-semibold">All visible people</div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {people.length === 0
+                  ? <div className="text-sm text-muted-foreground italic col-span-full">No visible people yet.</div>
+                  : people.map((p) => (
+                    <PersonCard
+                      key={p.id}
+                      person={p}
+                      onClick={() => onSelectPerson(p.id)}
+                      isYou={currentUserPersonId === p.id}
+                      onShowAll={onClearFocus}
+                      onViewDetails={onRequestDetails}
+                    />
+                  ))}
               </div>
             </div>
-          ) : (
-          <div className="mx-auto max-w-[66rem] grid gap-8">
-            {relations.parents.length > 0 && (
-              <>
-                <section className="flex flex-col items-center gap-4">
-                  <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Parents / upstream</div>
-                  {relations.parents.length > 1 && (
-                    <div className="h-[3px] w-[32rem] rounded-full bg-primary/30 shadow-[0_0_20px_rgba(140,92,255,0.25)]" />
-                  )}
-                  <div className="flex flex-wrap justify-center gap-6">
-                    {relations.parents.map(({ edge, person }) => (
-                      <PersonCard key={edge.id} person={person} caption={edge.edge_type} onClick={() => onSelectPerson(person.id)} onShowAll={onClearFocus} isYou={currentUserPersonId === person.id} onViewDetails={onRequestDetails} />
-                    ))}
-                  </div>
-                </section>
-                <div className="mx-auto h-12 w-[3px] rounded-full bg-primary/30 shadow-[0_0_24px_rgba(140,92,255,0.24)]" />
-              </>
-            )}
+          ) : pedigree && (
+            /* Pedigree: vertical stack of generations */
+            <div className="flex flex-col items-center gap-1 max-w-[56rem] mx-auto">
+              <GenerationRow label="Grandparents" people={pedigree.grandparents} roleLabel="Grandparent" focusedId={selectedPerson.id} currentUserPersonId={currentUserPersonId} onSelect={onSelectPerson} onShowAll={onClearFocus} onViewDetails={onRequestDetails} />
+              {pedigree.grandparents.length > 0 && <VerticalLine />}
 
-            <section className="flex flex-col items-center gap-4">
-              <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Focused person</div>
-              <div className="flex flex-wrap justify-center gap-6">
-                <PersonCard
-                  person={selectedPerson}
-                  caption="focus"
-                  onClick={() => onSelectPerson(selectedPerson.id)}
-                  onShowAll={onClearFocus}
-                  isYou={currentUserPersonId === selectedPerson.id}
-                  emphasis="focused"
-                  detailHint={focusSummary || "Focused mini tree"}
-                  onViewDetails={onRequestDetails}
-                />
-                {relations.partners.map(({ edge, person }) => (
-                  <PersonCard key={edge.id} person={person} caption={edge.edge_type} onClick={() => onSelectPerson(person.id)} onShowAll={onClearFocus} isYou={currentUserPersonId === person.id} onViewDetails={onRequestDetails} />
-                ))}
+              <GenerationRow label="Parents" people={pedigree.parents} roleLabel="Parent" focusedId={selectedPerson.id} currentUserPersonId={currentUserPersonId} onSelect={onSelectPerson} onShowAll={onClearFocus} onViewDetails={onRequestDetails} />
+              {pedigree.parents.length > 0 && <VerticalLine />}
+
+              {/* Center: focused person + spouse(s) */}
+              <div className="flex flex-col items-center gap-2">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-semibold">
+                  {pedigree.center.length > 1 ? "You & Spouse" : "Focused"}
+                </div>
+                <div className="flex flex-wrap justify-center gap-3">
+                  {pedigree.center.map((p, i) => (
+                    <PersonCard
+                      key={p.id}
+                      person={p}
+                      roleLabel={i > 0 ? "Spouse" : undefined}
+                      isFocused={p.id === selectedPerson.id}
+                      isYou={currentUserPersonId === p.id}
+                      onClick={() => onSelectPerson(p.id)}
+                      onShowAll={onClearFocus}
+                      onViewDetails={onRequestDetails}
+                    />
+                  ))}
+                </div>
               </div>
-            </section>
 
-            {relations.children.length > 0 && (
-              <>
-                <div className="mx-auto h-12 w-[3px] rounded-full bg-primary/30 shadow-[0_0_24px_rgba(140,92,255,0.24)]" />
-                <section className="flex flex-col items-center gap-4">
-                  <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Children / downstream</div>
-                  {relations.children.length > 1 && (
-                    <div className="h-[3px] w-[42rem] rounded-full bg-primary/35 shadow-[0_0_20px_rgba(140,92,255,0.28)]" />
-                  )}
-                  <div className="flex flex-wrap justify-center gap-6">
-                    {relations.children.map(({ edge, person }) => (
-                      <PersonCard key={edge.id} person={person} caption={edge.edge_type} onClick={() => onSelectPerson(person.id)} onShowAll={onClearFocus} isYou={currentUserPersonId === person.id} onViewDetails={onRequestDetails} />
-                    ))}
-                  </div>
-                </section>
-              </>
-            )}
+              {pedigree.children.length > 0 && <VerticalLine />}
+              <GenerationRow label="Children" people={pedigree.children} roleLabel="Child" focusedId={selectedPerson.id} currentUserPersonId={currentUserPersonId} onSelect={onSelectPerson} onShowAll={onClearFocus} onViewDetails={onRequestDetails} />
 
-            <section className="rounded-3xl border border-border/20 bg-background/50 p-5">
-              <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground mb-4">Other visible links</div>
-              <div className="flex flex-wrap gap-4">
-                {relations.others.length === 0 ? (
-                  <div className="text-sm text-muted-foreground italic">No additional visible links.</div>
-                ) : (
-                  relations.others.map(({ edge, person }) => (
-                    <PersonCard key={edge.id} person={person} caption={edge.edge_type} onClick={() => onSelectPerson(person.id)} onShowAll={onClearFocus} isYou={currentUserPersonId === person.id} onViewDetails={onRequestDetails} />
-                  ))
-                )}
-              </div>
-            </section>
-          </div>
+              {pedigree.grandchildren.length > 0 && <VerticalLine />}
+              <GenerationRow label="Grandchildren" people={pedigree.grandchildren} roleLabel="Grandchild" focusedId={selectedPerson.id} currentUserPersonId={currentUserPersonId} onSelect={onSelectPerson} onShowAll={onClearFocus} onViewDetails={onRequestDetails} />
+            </div>
           )}
         </div>
       </div>

@@ -221,6 +221,31 @@ export interface PlatformInfo {
   thinking_model: string;
 }
 
+export interface OllamaModel {
+  name: string;
+  size: number;
+  parameter_size: string;
+  quantization: string;
+  family: string;
+  modified_at: string;
+}
+
+export interface LoadedModel {
+  name: string;
+  size: number;
+  size_vram: number;
+  expires_at: string;
+}
+
+export interface SystemInfo {
+  platform: string;
+  fast_model: string;
+  thinking_model: string;
+  ollama_version: string;
+  available_models: OllamaModel[];
+  loaded_models: LoadedModel[];
+}
+
 export interface SettingsData {
   admin_prompt: string;
   user_prompt: string;

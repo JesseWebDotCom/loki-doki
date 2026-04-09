@@ -542,6 +542,10 @@ export async function getPlatformInfo() {
   return getJson<import("./api-types").PlatformInfo>("/chat/platform");
 }
 
+export async function getSystemInfo() {
+  return getJson<import("./api-types").SystemInfo>("/chat/system-info");
+}
+
 export async function getSettings() {
   return getJson<import("./api-types").SettingsData>("/settings");
 }

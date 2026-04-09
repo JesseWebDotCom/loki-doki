@@ -168,6 +168,56 @@ async def get_platform():
     }
 
 
+@router.get("/system-info")
+async def get_system_info():
+    """Return runtime diagnostics: platform, models, Ollama version."""
+    client = get_inference_client()
+    ollama_version = ""
+    available_models: list[dict] = []
+    loaded_models: list[dict] = []
+    try:
+        vr = await client._client.get("/api/version")
+        if vr.status_code == 200:
+            ollama_version = vr.json().get("version", "")
+    except Exception:
+        pass
+    try:
+        tr = await client._client.get("/api/tags")
+        if tr.status_code == 200:
+            for m in tr.json().get("models", []):
+                available_models.append({
+                    "name": m.get("name", ""),
+                    "size": m.get("size", 0),
+                    "parameter_size": m.get("details", {}).get("parameter_size", ""),
+                    "quantization": m.get("details", {}).get("quantization_level", ""),
+                    "family": m.get("details", {}).get("family", ""),
+                    "modified_at": m.get("modified_at", ""),
+                })
+    except Exception:
+        pass
+    try:
+        pr = await client._client.get("/api/ps")
+        if pr.status_code == 200:
+            for m in pr.json().get("models", []):
+                loaded_models.append({
+                    "name": m.get("name", ""),
+                    "size": m.get("size", 0),
+                    "size_vram": m.get("size_vram", 0),
+                    "expires_at": m.get("expires_at", ""),
+                })
+    except Exception:
+        pass
+    await client._client.aclose()
+    return {
+        "platform": _model_policy.platform,
+        "fast_model": _model_policy.fast_model,
+        "thinking_model": _model_policy.thinking_model,
+        "ollama_version": ollama_version,
+        "available_models": available_models,
+        "loaded_models": loaded_models,
+    }
+
+
 @router.delete("/memory")
 async def clear_memory(
     user: User = Depends(current_user),

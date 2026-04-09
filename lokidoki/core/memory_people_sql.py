@@ -186,8 +186,8 @@ def merge_people(
         "WHERE owner_user_id = ? AND subject_ref_id = ?",
         (into_id, target_subject, user_id, source_id),
     )
-    # Relationships: collapse onto the target person, ignoring duplicates
-    # that would violate the UNIQUE(owner, person, relation) constraint.
+    # Relationships: collapse onto the target person in both tables.
+    # Legacy table (kept for backwards compat during transition):
     conn.execute(
         "UPDATE OR IGNORE relationships SET person_id = ? "
         "WHERE owner_user_id = ? AND person_id = ?",
@@ -196,6 +196,22 @@ def merge_people(
     conn.execute(
         "DELETE FROM relationships WHERE owner_user_id = ? AND person_id = ?",
         (user_id, source_id),
+    )
+    # Graph edges: repoint source → into for both directions.
+    conn.execute(
+        "UPDATE OR IGNORE person_relationship_edges "
+        "SET from_person_id = ? WHERE from_person_id = ?",
+        (into_id, source_id),
+    )
+    conn.execute(
+        "UPDATE OR IGNORE person_relationship_edges "
+        "SET to_person_id = ? WHERE to_person_id = ?",
+        (into_id, source_id),
+    )
+    # Remove self-loops created by the merge.
+    conn.execute(
+        "DELETE FROM person_relationship_edges "
+        "WHERE from_person_id = to_person_id"
     )
     conn.execute(
         "DELETE FROM people WHERE owner_user_id = ? AND id = ?",
@@ -211,33 +227,32 @@ def upsert_relationship(
     person_id: int,
     relation: str,
 ) -> int:
-    """Insert OR confirm a (user, person, relation) triple.
+    """Insert OR confirm a relationship as a graph edge.
 
-    Mirrors ``upsert_fact``: a repeat statement bumps confidence rather
-    than inserting a duplicate row.
+    Delegates to ``people_graph_sql.upsert_person_edge`` after mapping
+    the freeform relation string to an edge_type and resolving the
+    user's self-person node.
     """
-    existing = conn.execute(
-        "SELECT id, confidence FROM relationships "
-        "WHERE owner_user_id = ? AND person_id = ? AND relation = ?",
-        (user_id, person_id, relation),
-    ).fetchone()
-    if existing:
-        from lokidoki.core.confidence import update_confidence
-
-        new_conf = update_confidence(float(existing["confidence"]), confirmed=True)
-        conn.execute(
-            "UPDATE relationships SET confidence = ? WHERE id = ?",
-            (new_conf, existing["id"]),
-        )
-        conn.commit()
-        return int(existing["id"])
-    cur = conn.execute(
-        "INSERT INTO relationships "
-        "(owner_user_id, person_id, relation, confidence) VALUES (?, ?, ?, ?)",
-        (user_id, person_id, relation, DEFAULT_CONFIDENCE),
+    from lokidoki.core.people_graph_sql import (
+        ensure_user_self_person,
+        relation_to_edge_type,
+        upsert_person_edge,
     )
-    conn.commit()
-    return int(cur.lastrowid)
+
+    self_person_id = ensure_user_self_person(conn, user_id=user_id)
+    edge_type, is_inverted = relation_to_edge_type(relation)
+    if is_inverted:
+        from_id, to_id = person_id, self_person_id
+    else:
+        from_id, to_id = self_person_id, person_id
+
+    return upsert_person_edge(
+        conn, user_id,
+        from_person_id=from_id,
+        to_person_id=to_id,
+        edge_type=edge_type,
+        provenance="conversation",
+    )
 
 
 def set_primary_relationship(
@@ -246,23 +261,37 @@ def set_primary_relationship(
     person_id: int,
     relation: str,
 ) -> int:
-    """Replace ALL existing relationships for ``person_id`` with one new edge.
+    """Replace ALL existing edges between user and ``person_id`` with one.
 
-    Used by the Memory UI's relationship dropdown when the user picks a
-    different value than the current one. ``relation=''`` clears every
-    relationship for the person and returns 0.
+    Used by the Memory UI's relationship dropdown. ``relation=''``
+    clears every edge for the person and returns 0.
     """
+    from lokidoki.core.people_graph_sql import (
+        ensure_user_self_person,
+        relation_to_edge_type,
+    )
+
+    self_person_id = ensure_user_self_person(conn, user_id=user_id)
+    # Delete all edges between user's self-person and this person.
     conn.execute(
-        "DELETE FROM relationships WHERE owner_user_id = ? AND person_id = ?",
-        (user_id, person_id),
+        "DELETE FROM person_relationship_edges "
+        "WHERE (from_person_id = ? AND to_person_id = ?) "
+        "   OR (from_person_id = ? AND to_person_id = ?)",
+        (self_person_id, person_id, person_id, self_person_id),
     )
     if not relation.strip():
         conn.commit()
         return 0
+    edge_type, is_inverted = relation_to_edge_type(relation)
+    if is_inverted:
+        from_id, to_id = person_id, self_person_id
+    else:
+        from_id, to_id = self_person_id, person_id
     cur = conn.execute(
-        "INSERT INTO relationships "
-        "(owner_user_id, person_id, relation, confidence) VALUES (?, ?, ?, ?)",
-        (user_id, person_id, relation.strip(), DEFAULT_CONFIDENCE),
+        "INSERT INTO person_relationship_edges "
+        "(creator_user_id, from_person_id, to_person_id, edge_type, "
+        "confidence, provenance) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, from_id, to_id, edge_type, DEFAULT_CONFIDENCE, "manual"),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -271,8 +300,10 @@ def set_primary_relationship(
 def delete_relationship(
     conn: sqlite3.Connection, user_id: int, rel_id: int
 ) -> bool:
+    """Delete a graph edge by ID (scoped to edges the user created)."""
     cur = conn.execute(
-        "DELETE FROM relationships WHERE owner_user_id = ? AND id = ?",
+        "DELETE FROM person_relationship_edges "
+        "WHERE creator_user_id = ? AND id = ?",
         (user_id, rel_id),
     )
     conn.commit()
@@ -281,16 +312,11 @@ def delete_relationship(
 
 def list_relationships(
     conn: sqlite3.Connection, user_id: int
-) -> list[sqlite3.Row]:
-    return conn.execute(
-        "SELECT r.id, r.relation, r.confidence, r.created_at, "
-        "       p.id AS person_id, p.name AS person_name "
-        "FROM relationships r "
-        "JOIN people p ON p.id = r.person_id "
-        "WHERE r.owner_user_id = ? "
-        "ORDER BY r.relation, LOWER(p.name)",
-        (user_id,),
-    ).fetchall()
+) -> list[dict]:
+    """List relationships from graph edges in the legacy dict shape."""
+    from lokidoki.core.people_graph_sql import list_relationships_from_edges
+
+    return list_relationships_from_edges(conn, user_id)
 
 
 def create_ambiguity_group(

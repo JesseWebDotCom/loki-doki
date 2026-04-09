@@ -32,6 +32,13 @@ import type {
   SilentConfirmation,
 } from '../lib/api';
 
+export interface MentionedPerson {
+  id: number;
+  name: string;
+  photo_url?: string;
+  relation?: string;
+}
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -40,6 +47,7 @@ export interface Message {
   pipeline?: PipelineState;
   confirmations?: SilentConfirmation[];
   clarification?: string;
+  mentionedPeople?: MentionedPerson[];
 }
 
 export interface PipelineState {
@@ -347,6 +355,7 @@ const ChatPage: React.FC = () => {
             pipeline: completedPipeline,
             confirmations: prev.confirmations,
             clarification: prev.clarification ?? undefined,
+            mentionedPeople: (prev.synthesis as any)?.mentioned_people ?? [],
           }];
           // Auto-play the new assistant message (no-op when muted).
           // Skills can supply a short `spoken_text` override when the

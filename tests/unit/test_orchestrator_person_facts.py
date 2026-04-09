@@ -184,4 +184,4 @@ async def test_graph_relations_include_sibling_for_linked_user(memory):
     relations = await memory.run_sync(
         lambda conn: gql.list_user_graph_relations(conn, user_id=uid)
     )
-    assert "- sibling: Artie" in relations
+    assert "- sibling (sister/brother): Artie" in relations

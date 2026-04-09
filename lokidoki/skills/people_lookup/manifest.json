@@ -1,0 +1,26 @@
+{
+  "skill_id": "people_lookup",
+  "name": "People & Relationships",
+  "is_searchable": false,
+  "intents": ["lookup_relationship", "list_family"],
+  "categories": ["people_lookup"],
+  "description": "Search the user's people graph for relationship information",
+  "examples": [
+    "who is my sister",
+    "do I have any brothers",
+    "tell me about my family",
+    "who are my coworkers"
+  ],
+  "parameters": {
+    "relation": {"type": "string", "required": false},
+    "name": {"type": "string", "required": false}
+  },
+  "mechanisms": [
+    {
+      "method": "graph_query",
+      "priority": 1,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}

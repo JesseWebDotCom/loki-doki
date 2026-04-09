@@ -366,6 +366,11 @@ async def admin_delete_fact(
 _MEMORY_TABLES_TO_WIPE = (
     "facts",
     "ambiguity_groups",
+    "person_relationship_edges",
+    "person_overlays",
+    "person_events",
+    "person_media",
+    "person_user_links",
     "relationships",
     "people",
     "messages",
