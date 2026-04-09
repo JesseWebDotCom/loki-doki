@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT,                     -- bcrypt hash of admin password (nullable)
     role TEXT NOT NULL DEFAULT 'user',      -- 'admin' | 'user'
     status TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'disabled' | 'deleted'
+    profile_media_id INTEGER,
     last_password_auth_at INTEGER,          -- unix seconds; admin freshness window
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -160,6 +161,12 @@ CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    aliases TEXT NOT NULL DEFAULT '[]',
+    bucket TEXT NOT NULL DEFAULT 'family',
+    living_status TEXT NOT NULL DEFAULT 'unknown',
+    birth_date TEXT,
+    death_date TEXT,
+    preferred_photo_id INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
     -- NOTE: deliberately NO UNIQUE on (owner_user_id, name). Multiple
     -- people can share a first name (brother Artie, dog Artie, celebrity
@@ -178,6 +185,90 @@ CREATE TABLE IF NOT EXISTS relationships (
     UNIQUE(owner_user_id, person_id, relation)
 );
 CREATE INDEX IF NOT EXISTS idx_relationships_owner ON relationships(owner_user_id);
+
+CREATE TABLE IF NOT EXISTS person_overlays (
+    viewer_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    relationship_state TEXT NOT NULL DEFAULT 'active',
+    interaction_preference TEXT NOT NULL DEFAULT 'normal',
+    visibility_level TEXT NOT NULL DEFAULT 'full',
+    last_interaction_at TEXT,
+    last_mentioned_at TEXT,
+    mention_score REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (viewer_user_id, person_id)
+);
+CREATE INDEX IF NOT EXISTS idx_person_overlays_person ON person_overlays(person_id);
+
+CREATE TABLE IF NOT EXISTS person_user_links (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL UNIQUE REFERENCES people(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS person_relationship_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    creator_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    from_person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    to_person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    edge_type TEXT NOT NULL,
+    start_date TEXT,
+    end_date TEXT,
+    confidence REAL NOT NULL DEFAULT 0.6,
+    provenance TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_person_edges_from ON person_relationship_edges(from_person_id);
+CREATE INDEX IF NOT EXISTS idx_person_edges_to ON person_relationship_edges(to_person_id);
+
+CREATE TABLE IF NOT EXISTS person_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    event_date TEXT,
+    date_precision TEXT NOT NULL DEFAULT 'exact',
+    label TEXT NOT NULL DEFAULT '',
+    value TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_person_events_person ON person_events(person_id);
+
+CREATE TABLE IF NOT EXISTS person_media (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    thumbnail_path TEXT NOT NULL,
+    medium_path TEXT NOT NULL,
+    original_filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    checksum TEXT NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    source TEXT NOT NULL DEFAULT 'upload',
+    visibility_level TEXT NOT NULL DEFAULT 'full',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(person_id, checksum)
+);
+CREATE INDEX IF NOT EXISTS idx_person_media_person ON person_media(person_id);
+
+CREATE TABLE IF NOT EXISTS gedcom_import_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'completed',
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS gedcom_export_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'completed',
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 CREATE TABLE IF NOT EXISTS ambiguity_groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

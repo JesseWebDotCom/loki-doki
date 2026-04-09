@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from lokidoki.api.routes import chat, memory, audio, settings, auth, admin, projects, logs, skills, characters
+from lokidoki.api.routes import chat, memory, audio, settings, auth, admin, projects, logs, skills, characters, people
 from lokidoki.api.middleware.bootstrap_gate import BootstrapGateMiddleware
 from lokidoki.core.log_buffer import install as install_log_buffer
 
@@ -41,7 +41,9 @@ async def emit_bootstrap(evt: dict) -> None:
 
 # Ensure static directory exists
 os.makedirs("lokidoki/static", exist_ok=True)
+os.makedirs("data/media", exist_ok=True)
 app.mount("/static", StaticFiles(directory="lokidoki/static"), name="static")
+app.mount("/media", StaticFiles(directory="data/media"), name="media")
 
 # Mount frontend assets if they exist
 if os.path.exists("frontend/dist"):
@@ -147,6 +149,7 @@ app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 app.include_router(projects.router, prefix="/api/v1/projects", tags=["Projects"])
 app.include_router(memory.router, prefix="/api/v1/memory", tags=["Memory"])
+app.include_router(people.router, prefix="/api/v1/people", tags=["People"])
 app.include_router(audio.router, prefix="/api/v1/audio", tags=["Audio"])
 app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
 app.include_router(skills.router, prefix="/api/v1/skills", tags=["Skills"])

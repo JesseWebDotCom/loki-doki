@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Ghost,
   Brain,
+  Network,
   Plus,
   FolderPlus,
   PanelLeftClose,
@@ -56,6 +57,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const isChat = location.pathname === '/';
   const isMemory = location.pathname === '/memory';
+  const isPeople = location.pathname === '/people';
 
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('ld-sidebar-collapsed') === 'true',
@@ -194,6 +196,15 @@ const Sidebar: React.FC<SidebarProps> = ({
             <PenLine size={16} />
           </button>
           <Link
+            to="/people"
+            title="People"
+            className={`${slot} ${
+              isPeople ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
+            }`}
+          >
+            <Network size={16} />
+          </Link>
+          <Link
             to="/memory"
             title="Memory"
             className={`${slot} ${
@@ -249,6 +260,17 @@ const Sidebar: React.FC<SidebarProps> = ({
           </span>
           <span className="ml-1">New Chat</span>
         </button>
+        <Link
+          to="/people"
+          className={`flex items-center rounded-md transition-colors text-xs font-medium ${
+            isPeople ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
+          }`}
+        >
+          <span className="w-8 h-8 flex items-center justify-center shrink-0">
+            <Network size={16} />
+          </span>
+          <span className="ml-1">People</span>
+        </Link>
         <Link
           to="/memory"
           className={`flex items-center rounded-md transition-colors text-xs font-medium ${

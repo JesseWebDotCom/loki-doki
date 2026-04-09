@@ -19,6 +19,9 @@ export type CurrentUser = {
   username: string;
   role: "admin" | "user";
   admin_fresh?: boolean;
+  linked_person_id?: number | null;
+  profile_media_id?: number | null;
+  profile_image_url?: string | null;
 };
 
 export type AuthState = {

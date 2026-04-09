@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 USER_COLUMN_MIGRATIONS = (
     ("password_hash", "TEXT"),
     ("status", "TEXT NOT NULL DEFAULT 'active'"),
+    ("profile_media_id", "INTEGER"),
     ("last_password_auth_at", "INTEGER"),
 )
 
@@ -44,6 +45,15 @@ FACT_COLUMN_MIGRATIONS = (
     ("kind", "TEXT NOT NULL DEFAULT 'fact'"),
     ("valid_from", "TEXT NOT NULL DEFAULT (datetime('now'))"),
     ("valid_to", "TEXT"),
+)
+
+PEOPLE_COLUMN_MIGRATIONS = (
+    ("aliases", "TEXT NOT NULL DEFAULT '[]'"),
+    ("bucket", "TEXT NOT NULL DEFAULT 'family'"),
+    ("living_status", "TEXT NOT NULL DEFAULT 'unknown'"),
+    ("birth_date", "TEXT"),
+    ("death_date", "TEXT"),
+    ("preferred_photo_id", "INTEGER"),
 )
 
 SESSION_COLUMN_MIGRATIONS = (
@@ -141,6 +151,7 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
 
     conn.executescript(CORE_SCHEMA)
     _add_columns(conn, "users", USER_COLUMN_MIGRATIONS)
+    _add_columns(conn, "people", PEOPLE_COLUMN_MIGRATIONS)
     _add_columns(conn, "facts", FACT_COLUMN_MIGRATIONS)
     _add_columns(conn, "relationships", RELATIONSHIP_COLUMN_MIGRATIONS)
     _add_columns(conn, "sessions", SESSION_COLUMN_MIGRATIONS)

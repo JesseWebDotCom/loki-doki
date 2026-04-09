@@ -24,6 +24,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
   const role = currentUser?.role ?? 'user';
   const initial = username.charAt(0).toUpperCase();
   const isAdmin = role === 'admin';
+  const profileImage = currentUser?.profile_image_url;
 
   const handleLogout = async () => {
     await logout();
@@ -39,9 +40,13 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
             aria-label="Open profile menu"
             title={username}
           >
-            <span className="w-5 h-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[10px]">
-              {currentUser ? initial : <User size={10} />}
-            </span>
+            {profileImage ? (
+              <img src={profileImage} alt={username} className="w-5 h-5 rounded-md object-cover border border-primary/20" />
+            ) : (
+              <span className="w-5 h-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[10px]">
+                {currentUser ? initial : <User size={10} />}
+              </span>
+            )}
           </button>
         ) : (
         <button
@@ -49,9 +54,13 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
           aria-label="Open profile menu"
         >
           <span className="w-8 h-8 flex items-center justify-center text-primary shrink-0">
-            <span className="w-5 h-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[10px]">
-              {currentUser ? initial : <User size={10} />}
-            </span>
+            {profileImage ? (
+              <img src={profileImage} alt={username} className="w-5 h-5 rounded-md object-cover border border-primary/20" />
+            ) : (
+              <span className="w-5 h-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[10px]">
+                {currentUser ? initial : <User size={10} />}
+              </span>
+            )}
           </span>
           <span className="flex-1 ml-1 text-left min-w-0 text-xs font-medium text-sidebar-foreground truncate">
             {username}
@@ -80,6 +89,10 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate('/people')}>
+          <User size={16} />
+          <span>People</span>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={handleLogout} className="focus:bg-destructive/10 focus:text-destructive">
           <LogOut size={16} />
           <span>Log out</span>

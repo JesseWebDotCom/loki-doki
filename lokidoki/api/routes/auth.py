@@ -9,6 +9,7 @@ from lokidoki.auth.dependencies import current_user, get_memory
 from lokidoki.auth.tokens import COOKIE_NAME, TOKEN_TTL_S
 from lokidoki.auth.users import User
 from lokidoki.core.memory_provider import MemoryProvider
+from lokidoki.core import people_graph_sql as gql
 
 router = APIRouter()
 
@@ -127,11 +128,19 @@ async def me(
         user.last_password_auth_at is not None
         and _t.time() - user.last_password_auth_at < 15 * 60
     )
+    profile = await memory.run_sync(lambda conn: gql.get_user_profile(conn, user.id))
     return {
         "id": user.id,
         "username": user.username,
         "role": user.role,
         "admin_fresh": bool(fresh),
+        "linked_person_id": profile.get("person_id"),
+        "profile_media_id": profile.get("profile_media_id"),
+        "profile_image_url": (
+            f"/media/{profile['profile_photo_path']}"
+            if profile.get("profile_photo_path")
+            else None
+        ),
     }
 
 

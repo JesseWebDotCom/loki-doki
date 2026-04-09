@@ -26,6 +26,8 @@ vi.mock("../../lib/api", async () => {
     getFacts: vi.fn(),
     getFactConflicts: vi.fn(),
     searchFacts: vi.fn(),
+    getProjects: vi.fn(),
+    getAmbiguityGroups: vi.fn(),
   };
 });
 
@@ -42,6 +44,8 @@ const mocked = api as unknown as {
   getFacts: ReturnType<typeof vi.fn>;
   getFactConflicts: ReturnType<typeof vi.fn>;
   searchFacts: ReturnType<typeof vi.fn>;
+  getProjects: ReturnType<typeof vi.fn>;
+  getAmbiguityGroups: ReturnType<typeof vi.fn>;
 };
 
 beforeEach(() => {
@@ -59,12 +63,14 @@ beforeEach(() => {
   });
   mocked.getFacts.mockResolvedValue({
     facts: [
-      { id: 100, subject: "self", predicate: "occupation", value: "electrician", category: "general", confidence: 0.6, fact: "electrician" },
-      { id: 101, subject: "mark", predicate: "location", value: "Denver", category: "general", confidence: 0.7, fact: "Denver" },
+      { id: 100, subject: "self", subject_type: "self", predicate: "occupation", value: "electrician", category: "general", confidence: 0.6, fact: "electrician" },
+      { id: 101, subject: "mark", subject_type: "person", subject_ref_id: 1, predicate: "location", value: "Denver", category: "general", confidence: 0.7, fact: "Denver" },
     ],
   });
   mocked.getFactConflicts.mockResolvedValue({ conflicts: [] });
   mocked.searchFacts.mockResolvedValue({ query: "", results: [] });
+  mocked.getProjects.mockResolvedValue({ projects: [] });
+  mocked.getAmbiguityGroups.mockResolvedValue({ groups: [] });
 });
 
 afterEach(() => {

@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ThemeProvider } from './components/theme/ThemeProvider';
 import ChatPage from './pages/ChatPage';
 import MemoryPage from './pages/MemoryPage';
+import PeoplePage from './pages/PeoplePage';
 import WizardPage from './pages/WizardPage';
 import LoginPage from './pages/LoginPage';
 import { SettingsPage, AdminPage, DevToolsPage } from './admin-panel/AdminPanelPage';
@@ -18,6 +19,7 @@ const App: React.FC = () => {
             <Routes>
               <Route path="/" element={<ChatPage />} />
               <Route path="/memory" element={<MemoryPage />} />
+              <Route path="/people" element={<PeoplePage />} />
               <Route path="/wizard" element={<WizardPage />} />
               <Route path="/login" element={<LoginPage />} />
 

@@ -131,6 +131,64 @@ export interface Person {
   name: string;
   created_at?: string;
   fact_count?: number;
+  bucket?: "family" | "friends" | "work" | "other" | string;
+  living_status?: "living" | "deceased" | "unknown" | string;
+  birth_date?: string | null;
+  death_date?: string | null;
+  relationship_state?: "active" | "former" | "unknown" | string;
+  interaction_preference?: "normal" | "avoid" | string;
+  visibility_level?: "hidden" | "summary" | "full" | string;
+  linked_user_id?: number | null;
+  linked_username?: string | null;
+  preferred_photo_url?: string | null;
+  birthday?: string | null;
+}
+
+export interface PeopleEdge {
+  id: number;
+  from_person_id: number;
+  from_person_name: string;
+  to_person_id: number;
+  to_person_name: string;
+  edge_type: string;
+  confidence: number;
+  start_date?: string | null;
+  end_date?: string | null;
+  provenance?: string;
+}
+
+export interface PersonMedia {
+  id: number;
+  original_filename: string;
+  file_url?: string | null;
+  medium_url?: string | null;
+  thumbnail_url?: string | null;
+  created_at?: string;
+}
+
+export interface ReconcileCandidate {
+  id: number;
+  name: string;
+  birth_date?: string | null;
+  bucket?: string;
+  living_status?: string;
+  relationship_state?: string;
+  interaction_preference?: string;
+  linked_user_id?: number | null;
+  linked_username?: string | null;
+  preferred_photo_url?: string | null;
+  fact_count?: number;
+  event_count?: number;
+  media_count?: number;
+  edge_count?: number;
+  owner_user_id: number;
+}
+
+export interface ReconcileGroup {
+  label: string;
+  suggested_target_id: number;
+  suggestion_reason: string;
+  candidates: ReconcileCandidate[];
 }
 
 export interface Relationship {

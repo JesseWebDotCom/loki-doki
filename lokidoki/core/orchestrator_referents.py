@@ -74,6 +74,7 @@ def build_referent_block(
     past_messages: Iterable[dict],
     people: Iterable[dict],
     relationships: Iterable[dict],
+    graph_relations: Iterable[str] = (),
     resolved_referents: Iterable[object] = (),
 ) -> str:
     sections: list[str] = []
@@ -92,6 +93,11 @@ def build_referent_block(
     if people_lines:
         sections.append("MEMORY_PEOPLE:")
         sections.extend(people_lines)
+
+    graph_lines = [line for line in graph_relations if line]
+    if graph_lines:
+        sections.append("GRAPH_RELATIONSHIPS:")
+        sections.extend(graph_lines)
 
     entity_lines = _memory_entities(relevant_facts)
     if entity_lines:

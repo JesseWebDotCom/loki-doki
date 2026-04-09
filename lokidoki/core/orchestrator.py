@@ -42,6 +42,7 @@ from lokidoki.core.orchestrator_skills import (
 )
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
+from lokidoki.core import people_graph_sql as gql
 
 
 @dataclass
@@ -187,6 +188,9 @@ class Orchestrator:
             self._memory.list_people(user_id),
         )
         relationships = await self._memory.list_relationships(user_id)
+        graph_relations = await self._memory.run_sync(
+            lambda conn: gql.list_user_graph_relations(conn, user_id=user_id)
+        )
         # `recent` includes the user message we just inserted above, so
         # the first turn of a brand-new session has exactly 1 item.
         is_first_turn = len(recent) <= 1
@@ -246,6 +250,7 @@ class Orchestrator:
                 "past_messages": len(past_messages),
                 "sentiment_arc": sentiment_arc,
                 "has_seed": bool(seed_hint),
+                "graph_relations": len(graph_relations),
             },
         )
 
@@ -794,6 +799,7 @@ class Orchestrator:
                 past_messages=past_messages,
                 people=people_rows,
                 relationships=relationships,
+                graph_relations=graph_relations,
                 resolved_referents=session_cache.get("resolved_referents") or [],
             )
             prompt = build_synthesis_prompt(

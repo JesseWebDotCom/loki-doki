@@ -17,6 +17,7 @@ import logging
 from typing import Optional
 
 from lokidoki.core.memory_provider import MemoryProvider
+from lokidoki.core import people_graph_sql as gql
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,11 @@ async def persist_long_term_item(
     # responsible for extracting "my <relation> Name" into a typed field
     # — orchestrator code does NOT regex the user input.
     relationship_hint = (item.get("relationship_kind") or "").strip() or None
+    person_bucket = (item.get("person_bucket") or "").strip() or None
+    relationship_state = (item.get("relationship_state") or "").strip() or None
+    interaction_preference = (item.get("interaction_preference") or "").strip() or None
+    event_type = (item.get("event_type") or "").strip() or None
+    event_date_precision = (item.get("event_date_precision") or "").strip() or "exact"
 
     person_id: Optional[int] = None
     ambiguity_group_id: Optional[int] = None
@@ -234,6 +240,37 @@ async def persist_long_term_item(
             await memory.add_relationship(user_id, person_id, relationship_hint)
         except Exception:
             logger.exception("[orchestrator_memory] add_relationship failed")
+    if person_id is not None:
+        try:
+            if person_bucket:
+                await memory.run_sync(
+                    lambda conn: gql.patch_person_graph(conn, person_id, bucket=person_bucket)
+                )
+            if relationship_state or interaction_preference:
+                await memory.run_sync(
+                    lambda conn: gql.set_person_overlay(
+                        conn,
+                        user_id,
+                        person_id,
+                        relationship_state=relationship_state,
+                        interaction_preference=interaction_preference,
+                    )
+                )
+            if kind == "event" and event_type:
+                await memory.run_sync(
+                    lambda conn: gql.create_person_event(
+                        conn,
+                        person_id=person_id,
+                        event_type=event_type,
+                        event_date=value,
+                        date_precision=event_date_precision,
+                        label=predicate,
+                        value=value,
+                        source="conversation",
+                    )
+                )
+        except Exception:
+            logger.exception("[orchestrator_memory] people graph enrichment failed")
 
     if subject_type == "person":
         subject_label = subject_name

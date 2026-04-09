@@ -12,7 +12,7 @@
  * an event on a blank line, but a network/stream close is also a
  * dispatch boundary if a `data:` line is present.
  */
-import type { PipelineEvent } from "./api-types";
+import type { PipelineEvent, ReconcileGroup } from "./api-types";
 
 export type {
   PipelineEvent,
@@ -32,6 +32,10 @@ export type {
   FactConflict,
   AmbiguityGroup,
   SilentConfirmation,
+  PeopleEdge,
+  PersonMedia,
+  ReconcileCandidate,
+  ReconcileGroup,
 } from "./api-types";
 
 const API_BASE = "/api/v1";
@@ -271,6 +275,144 @@ export async function clearChatMemory() {
 
 export async function getPeople() {
   return getJson<{ people: import("./api-types").Person[] }>("/memory/people");
+}
+
+export async function getPeopleGraph(params?: {
+  search?: string;
+  bucket?: string;
+  relationship_state?: string;
+  interaction_preference?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
+  if (params?.bucket) query.set("bucket", params.bucket);
+  if (params?.relationship_state) query.set("relationship_state", params.relationship_state);
+  if (params?.interaction_preference) query.set("interaction_preference", params.interaction_preference);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return getJson<{
+    people: import("./api-types").Person[];
+    edges: import("./api-types").PeopleEdge[];
+  }>(`/people${suffix}`);
+}
+
+export async function getStructuredPersonDetail(id: number) {
+  return getJson<{
+    person: import("./api-types").Person;
+    media: import("./api-types").PersonMedia[];
+    events: Array<Record<string, any>>;
+    facts: Array<Record<string, any>>;
+    edges: import("./api-types").PeopleEdge[];
+  }>(`/people/${id}`);
+}
+
+export async function createGraphPerson(body: {
+  name: string;
+  bucket: string;
+  living_status?: string;
+  birth_date?: string | null;
+  death_date?: string | null;
+  aliases?: string[];
+}) {
+  return postJson<{ id: number }>("/people", body);
+}
+
+export async function patchGraphPerson(id: number, body: Record<string, unknown>) {
+  const r = await fetch(`${API_BASE}/people/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`/people/${id}: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function patchPersonOverlay(
+  id: number,
+  body: Partial<{
+    relationship_state: string;
+    interaction_preference: string;
+    visibility_level: string;
+  }>,
+) {
+  const r = await fetch(`${API_BASE}/people/${id}/overlay`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`/people/${id}/overlay: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function createPeopleEdge(body: {
+  from_person_id: number;
+  to_person_id: number;
+  edge_type: string;
+}) {
+  return postJson<{ id: number }>("/people/edges", body);
+}
+
+export async function uploadPersonMedia(personId: number, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const r = await fetch(`${API_BASE}/people/${personId}/media`, {
+    method: "POST",
+    body: form,
+  });
+  if (!r.ok) throw new Error(`/people/${personId}/media: ${r.status}`);
+  return (await r.json()) as { id: number; file_url: string };
+}
+
+export async function setPreferredPersonMedia(personId: number, mediaId: number) {
+  return postJson<{ ok: boolean }>(
+    `/people/${personId}/media/${mediaId}/preferred`,
+    {},
+  );
+}
+
+export async function getProfilePhotoOptions() {
+  return getJson<{ options: import("./api-types").PersonMedia[] }>("/people/profile-photo-options");
+}
+
+export async function selectProfilePhoto(mediaId: number) {
+  const r = await fetch(`${API_BASE}/people/profile-photo`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ media_id: mediaId }),
+  });
+  if (!r.ok) throw new Error(`/people/profile-photo: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+export async function linkUserToPerson(personId: number, userId: number) {
+  return postJson<{ ok: boolean }>(`/people/admin/people/${personId}/link-user`, { user_id: userId });
+}
+
+export async function importGedcom(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const r = await fetch(`${API_BASE}/people/admin/import-gedcom`, {
+    method: "POST",
+    body: form,
+  });
+  if (!r.ok) throw new Error(`/people/admin/import-gedcom: ${r.status}`);
+  return (await r.json()) as { job_id: number; summary: Record<string, number> };
+}
+
+export async function exportGedcom() {
+  const r = await fetch(`${API_BASE}/people/admin/export-gedcom`);
+  if (!r.ok) throw new Error(`/people/admin/export-gedcom: ${r.status}`);
+  return await r.text();
+}
+
+export async function getReconcileCandidates() {
+  return getJson<{ groups: ReconcileGroup[] }>("/people/reconcile-candidates");
+}
+
+export async function mergeStructuredPeople(sourceId: number, intoId: number) {
+  return postJson<{ ok: boolean }>("/people/reconcile/merge", {
+    source_id: sourceId,
+    into_id: intoId,
+  });
 }
 
 export async function getPersonDetail(id: number) {

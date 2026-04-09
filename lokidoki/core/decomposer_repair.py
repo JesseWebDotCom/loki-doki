@@ -732,6 +732,13 @@ class LongTermItem(BaseModel):
     category: str = "general"
     negates_previous: bool = False
     memory_priority: Literal["low", "normal", "high"] = "normal"
+    person_bucket: Optional[str] = None
+    relationship_state: Optional[str] = None
+    interaction_preference: Optional[str] = None
+    event_type: Optional[str] = None
+    event_date_precision: Optional[str] = None
+    linked_user_hint: Optional[str] = None
+    visibility_intent: Optional[str] = None
 
     @model_validator(mode="after")
     def _check_consistency(self) -> "LongTermItem":
@@ -918,6 +925,13 @@ REPAIR_ARRAY_SCHEMA: dict = {
                 "type": "string",
                 "enum": ["low", "normal", "high"],
             },
+            "person_bucket": {"type": ["string", "null"]},
+            "relationship_state": {"type": ["string", "null"]},
+            "interaction_preference": {"type": ["string", "null"]},
+            "event_type": {"type": ["string", "null"]},
+            "event_date_precision": {"type": ["string", "null"]},
+            "linked_user_hint": {"type": ["string", "null"]},
+            "visibility_intent": {"type": ["string", "null"]},
         },
     },
 }
