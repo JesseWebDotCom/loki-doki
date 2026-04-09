@@ -24,6 +24,7 @@ class InferenceClient:
         keep_alive: Union[int, str] = -1,
         json_mode: bool = False,
         num_predict: Optional[int] = None,
+        num_ctx: Optional[int] = None,
         format_schema: Optional[dict] = None,
         temperature: Optional[float] = None,
         think: Optional[bool] = None,
@@ -36,6 +37,9 @@ class InferenceClient:
             keep_alive: How long to keep model in memory (-1 = forever).
             json_mode: If True, request loose JSON output (legacy / freeform).
             num_predict: Hard cap on output tokens (safety net).
+            num_ctx: Context window size override. When the prompt is longer
+                than the model's default context (e.g. 4096), set this so
+                Ollama doesn't silently truncate the input.
             format_schema: JSON Schema dict for structured output. When set,
                 Ollama constrains decoding to the schema and terminates as soon
                 as it is satisfied — preventing trailing-whitespace runaway.
@@ -62,6 +66,8 @@ class InferenceClient:
         options: dict = {}
         if num_predict is not None:
             options["num_predict"] = num_predict
+        if num_ctx is not None:
+            options["num_ctx"] = num_ctx
         if temperature is not None:
             options["temperature"] = temperature
         if options:

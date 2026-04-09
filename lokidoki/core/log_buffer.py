@@ -85,6 +85,9 @@ def install(level: int = logging.INFO, capacity: int = 2000) -> LogBuffer:
     if root.level > level or root.level == logging.NOTSET:
         root.setLevel(level)
     root.addHandler(_buffer)
+    # httpx logs every HTTP request at INFO — with the frontend polling
+    # system-info every 15 s that produces ~8 lines per cycle. Suppress.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     return _buffer
 
 

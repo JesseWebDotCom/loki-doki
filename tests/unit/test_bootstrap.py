@@ -1,5 +1,6 @@
 import pytest
 import shlex
+from lokidoki.core.model_manager import ModelPolicy
 from lokidoki.main import BOOTSTRAP_STEPS
 
 
@@ -45,9 +46,22 @@ class TestBootstrapSteps:
         assert "keep_alive" in cmd, "warm-resident must set keep_alive for residency"
 
     def test_model_tag_consistency(self):
-        """All model references in bootstrap must use the same tag."""
-        model_steps = [s for s in BOOTSTRAP_STEPS if "gemma" in s[2]]
+        """Bootstrap must use the configured fast-model tag consistently."""
+        fast_model = ModelPolicy().fast_model
+        model_steps = [
+            s for s in BOOTSTRAP_STEPS
+            if s[0] in {"pull-model", "warm-resident"}
+        ]
         for step_id, _, cmd in model_steps:
-            assert "gemma4:e2b" in cmd, (
+            assert fast_model in cmd, (
                 f"Step '{step_id}' references wrong model tag in: {cmd}"
             )
+
+    def test_pull_model_checks_installation_before_pulling(self):
+        """Bootstrap should only pull the fast model when the tag is absent."""
+        pull_steps = [s for s in BOOTSTRAP_STEPS if s[0] == "pull-model"]
+        assert len(pull_steps) == 1
+        _, _, cmd = pull_steps[0]
+        fast_model = ModelPolicy().fast_model
+        assert "/api/tags" in cmd, "pull-model should inspect installed Ollama tags first"
+        assert f"ollama pull {shlex.quote(fast_model)}" in cmd

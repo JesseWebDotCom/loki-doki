@@ -14,4 +14,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // ChatPage (the landing route) pulls in react-markdown and
+    // @dicebear which keep the main + shared vendor chunks above 500kB.
+    // Lazy-loading already splits admin/settings/people/memory pages
+    // into their own chunks; further splitting requires restructuring
+    // ChatPage internals. 800kB is a reasonable ceiling for the two
+    // remaining shared chunks.
+    chunkSizeWarningLimit: 800,
+  },
 })

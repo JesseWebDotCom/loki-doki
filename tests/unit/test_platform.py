@@ -48,7 +48,7 @@ class TestDetectPlatform:
 class TestGetModelPreset:
     def test_pi5_has_separate_thinking_model(self):
         preset = get_model_preset("pi5")
-        assert preset["fast_model"] == "gemma4:e2b"
+        assert preset["fast_model"] == "gemma4:e4b"
         assert preset["thinking_model"] == "gemma4"
 
     def test_pi_uses_same_model_for_both(self):
@@ -58,6 +58,7 @@ class TestGetModelPreset:
 
     def test_mac_has_separate_thinking_model(self):
         preset = get_model_preset("mac")
+        assert preset["fast_model"] == "gemma4:e4b"
         assert preset["thinking_model"] == "gemma4"
 
     def test_unknown_platform_falls_back_to_linux(self):

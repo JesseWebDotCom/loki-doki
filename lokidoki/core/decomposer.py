@@ -123,6 +123,10 @@ DECOMPOSITION_SCHEMA: dict = {
             "minItems": 1,
             "items": {
                 "type": "object",
+                # context_source, referent_status, referent_scope are
+                # derived in _parse_response from the fields below —
+                # keeping them out of the schema reduces constrained-
+                # decoder branching and output tokens.
                 "required": [
                     "ask_id",
                     "intent",
@@ -130,13 +134,10 @@ DECOMPOSITION_SCHEMA: dict = {
                     "response_shape",
                     "requires_current_data",
                     "knowledge_source",
-                    "context_source",
                     "referent_type",
                     "durability",
                     "needs_referent_resolution",
                     "capability_need",
-                    "referent_status",
-                    "referent_scope",
                     "referent_anchor",
                 ],
                 "properties": {
@@ -153,10 +154,6 @@ DECOMPOSITION_SCHEMA: dict = {
                         "type": "string",
                         "enum": ["encyclopedic", "web", "none"],
                     },
-                    "context_source": {
-                        "type": "string",
-                        "enum": ["recent_context", "long_term_memory", "external", "none"],
-                    },
                     "referent_type": {
                         "type": "string",
                         "enum": ["person", "entity", "event", "media", "unknown"],
@@ -169,17 +166,6 @@ DECOMPOSITION_SCHEMA: dict = {
                     "capability_need": {
                         "type": "string",
                         "enum": ["encyclopedic", "web_search", "current_media", "people_lookup", "none"],
-                    },
-                    "referent_status": {
-                        "type": "string",
-                        "enum": ["resolved", "unresolved", "none"],
-                    },
-                    "referent_scope": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "enum": ["person", "media", "entity", "place", "product", "event"],
-                        },
                     },
                     "referent_anchor": {"type": "string"},
                 },
@@ -205,13 +191,15 @@ class Decomposer:
         self,
         inference_client: InferenceClient,
         model: str = "gemma4:e4b",
-        timeout_s: float = 15.0,
+        timeout_s: float = 20.0,
         num_predict: int = 384,
+        num_ctx: int = 8192,
     ):
         self._client = inference_client
         self._model = model
         self._timeout_s = timeout_s
         self._num_predict = num_predict
+        self._num_ctx = num_ctx
 
     async def decompose(
         self,
@@ -251,11 +239,16 @@ class Decomposer:
                     format_schema=DECOMPOSITION_SCHEMA,
                     temperature=0.0,
                     num_predict=self._num_predict,
+                    num_ctx=self._num_ctx,
                 ),
                 timeout=self._timeout_s,
             )
-        except (asyncio.TimeoutError, OllamaError):
+        except (asyncio.TimeoutError, OllamaError) as exc:
             latency_ms = (time.perf_counter() - t0) * 1000
+            logger.warning(
+                "[decomposer] LLM call failed (%s) after %.0f ms — returning fallback",
+                type(exc).__name__, latency_ms,
+            )
             return self._fallback_result(user_input, latency_ms)
         latency_ms = (time.perf_counter() - t0) * 1000
 
@@ -352,59 +345,16 @@ class Decomposer:
     ) -> DecompositionResult:
         try:
             data = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning(
+                "[decomposer] JSON parse failed (%s) — returning fallback. Raw: %.200s",
+                exc, raw[:200] if raw else "(empty)",
+            )
             return self._fallback_result(original_input, latency_ms)
 
         try:
             asks = [
-                Ask(
-                    ask_id=a.get("ask_id", f"ask_{i:03d}"),
-                    intent=a.get("intent", "direct_chat"),
-                    distilled_query=a.get("distilled_query", original_input),
-                    parameters=a.get("parameters", {}),
-                    response_shape=(
-                        a.get("response_shape")
-                        if a.get("response_shape") in ("verbatim", "synthesized")
-                        else "synthesized"
-                    ),
-                    requires_current_data=bool(a.get("requires_current_data", False)),
-                    knowledge_source=(
-                        a.get("knowledge_source")
-                        if a.get("knowledge_source") in ("encyclopedic", "web", "none")
-                        else "none"
-                    ),
-                    context_source=(
-                        a.get("context_source")
-                        if a.get("context_source") in ("recent_context", "long_term_memory", "external", "none")
-                        else "none"
-                    ),
-                    referent_type=(
-                        a.get("referent_type")
-                        if a.get("referent_type") in ("person", "entity", "event", "media", "unknown")
-                        else "unknown"
-                    ),
-                    durability=(
-                        a.get("durability")
-                        if a.get("durability") in ("ephemeral", "tentative", "durable")
-                        else "durable"
-                    ),
-                    needs_referent_resolution=bool(a.get("needs_referent_resolution", False)),
-                    capability_need=(
-                        a.get("capability_need")
-                        if a.get("capability_need") in ("encyclopedic", "web_search", "current_media", "people_lookup", "none")
-                        else "none"
-                    ),
-                    referent_status=(
-                        a.get("referent_status")
-                        if a.get("referent_status") in ("resolved", "unresolved", "none")
-                        else "none"
-                    ),
-                    referent_scope=[
-                        s for s in (a.get("referent_scope") or [])
-                        if s in ("person", "media", "entity", "place", "product", "event")
-                    ],
-                    referent_anchor=str(a.get("referent_anchor") or ""),
-                )
+                self._build_ask(a, i, original_input)
                 for i, a in enumerate(data.get("asks", []))
             ]
 
@@ -457,8 +407,74 @@ class Decomposer:
                 model=self._model,
                 latency_ms=latency_ms,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "[decomposer] ask/result construction failed (%s) — returning fallback",
+                exc,
+            )
             return self._fallback_result(original_input, latency_ms)
+
+    @staticmethod
+    def _derive_context_source(capability_need: str, needs_resolution: bool) -> str:
+        """Derive context_source from capability_need + needs_referent_resolution."""
+        if capability_need == "people_lookup":
+            return "long_term_memory"
+        if capability_need in ("encyclopedic", "web_search", "current_media"):
+            return "external"
+        if needs_resolution:
+            return "recent_context"
+        return "none"
+
+    @staticmethod
+    def _derive_referent_scope(referent_type: str) -> list[str]:
+        """Derive referent_scope from referent_type."""
+        if referent_type in ("person", "media", "entity", "event"):
+            return [referent_type]
+        return []
+
+    def _build_ask(self, a: dict, i: int, original_input: str) -> Ask:
+        """Build an Ask from raw LLM dict, deriving removed schema fields."""
+        capability_need = (
+            a.get("capability_need")
+            if a.get("capability_need") in ("encyclopedic", "web_search", "current_media", "people_lookup", "none")
+            else "none"
+        )
+        needs_resolution = bool(a.get("needs_referent_resolution", False))
+        referent_type = (
+            a.get("referent_type")
+            if a.get("referent_type") in ("person", "entity", "event", "media", "unknown")
+            else "unknown"
+        )
+
+        return Ask(
+            ask_id=a.get("ask_id", f"ask_{i:03d}"),
+            intent=a.get("intent", "direct_chat"),
+            distilled_query=a.get("distilled_query", original_input),
+            parameters=a.get("parameters", {}),
+            response_shape=(
+                a.get("response_shape")
+                if a.get("response_shape") in ("verbatim", "synthesized")
+                else "synthesized"
+            ),
+            requires_current_data=bool(a.get("requires_current_data", False)),
+            knowledge_source=(
+                a.get("knowledge_source")
+                if a.get("knowledge_source") in ("encyclopedic", "web", "none")
+                else "none"
+            ),
+            context_source=self._derive_context_source(capability_need, needs_resolution),
+            referent_type=referent_type,
+            durability=(
+                a.get("durability")
+                if a.get("durability") in ("ephemeral", "tentative", "durable")
+                else "durable"
+            ),
+            needs_referent_resolution=needs_resolution,
+            capability_need=capability_need,
+            referent_status="unresolved" if needs_resolution else "none",
+            referent_scope=self._derive_referent_scope(referent_type),
+            referent_anchor=str(a.get("referent_anchor") or ""),
+        )
 
     def _fallback_result(self, original_input: str, latency_ms: float) -> DecompositionResult:
         return DecompositionResult(

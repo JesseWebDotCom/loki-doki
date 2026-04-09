@@ -493,6 +493,7 @@ class TestStructuredRoutingAndMemory:
                 referent_type="media",
                 needs_referent_resolution=True,
                 capability_need="none",
+                referent_scope=["person", "media"],
             )],
             model="gemma4:e2b",
             latency_ms=10.0,

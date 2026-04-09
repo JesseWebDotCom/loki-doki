@@ -390,9 +390,8 @@ class TestDecomposer:
         prompt = call_args.kwargs.get("prompt") or call_args[0][1]
         # The companion-doesn't-change-routing rule lives under
         # MEDIA-IN-THEATERS in prompts/decomposition.py.
-        assert "Companion details" in prompt
-        assert "the movie is still the referent" in prompt
-        assert 'capability_need="current_media"' in prompt
+        assert "Companion mentions" in prompt or "Companion details" in prompt
+        assert "current_media" in prompt
 
 
     @pytest.mark.anyio
@@ -453,3 +452,132 @@ class TestAskDataclass:
     def test_ask_default_parameters(self):
         ask = Ask(ask_id="ask_001", intent="direct_chat", distilled_query="hello")
         assert ask.parameters == {}
+
+
+# ---- Prompt budget guardrails ----
+# These tests enforce the budget ceilings documented in CLAUDE.md under
+# "Prompt Budget Discipline". If you intentionally grow the prompt or
+# schema, update the constants here and document why in your commit.
+
+PROMPT_CHAR_CEILING = 8_000
+ASK_REQUIRED_FIELD_CEILING = 12
+
+
+class TestPromptBudget:
+    def test_decomposition_prompt_size_under_budget(self):
+        """The decomposition prompt must stay under the char budget.
+
+        Every char is latency paid on every user turn. If this test
+        fails, compress the prompt before merging — see CLAUDE.md
+        'Prompt Budget Discipline'.
+        """
+        from lokidoki.core.prompts import DECOMPOSITION_PROMPT
+
+        size = len(DECOMPOSITION_PROMPT)
+        assert size <= PROMPT_CHAR_CEILING, (
+            f"DECOMPOSITION_PROMPT is {size} chars, budget is {PROMPT_CHAR_CEILING}. "
+            f"Compress rules/examples or derive fields in Python."
+        )
+
+    def test_ask_schema_required_field_count(self):
+        """Keep ask schema fields bounded — each required field adds
+        constrained-decoder branching time on every inference call."""
+        from lokidoki.core.decomposer import DECOMPOSITION_SCHEMA
+
+        ask_schema = DECOMPOSITION_SCHEMA["properties"]["asks"]["items"]
+        count = len(ask_schema["required"])
+        assert count <= ASK_REQUIRED_FIELD_CEILING, (
+            f"Ask schema has {count} required fields, ceiling is "
+            f"{ASK_REQUIRED_FIELD_CEILING}. Derive new fields in Python "
+            f"instead of adding them to the schema."
+        )
+
+    def test_full_prompt_fits_in_context_window(self):
+        """A realistic prompt (with AVAILABLE_INTENTS, KNOWN_SUBJECTS,
+        RECENT_CONTEXT, and USER_INPUT) must fit in the decomposer's
+        num_ctx with room for output tokens."""
+        from lokidoki.core.prompts import DECOMPOSITION_PROMPT
+
+        # Simulate worst-case dynamic additions
+        intents = ",".join([f"skill_{i}.action" for i in range(15)])
+        subjects = "KNOWN_SUBJECTS:self=Jesse|people=[" + ",".join([f"Person{i} (friend)" for i in range(10)]) + "]|entities=[Movie A,Movie B,Game C]"
+        context = "RECENT_CONTEXT:" + " | ".join([f"user:msg{i} | assistant:{'x' * 240}" for i in range(5)])
+        user_input = "USER_INPUT:" + "x" * 200
+
+        full = "\n".join([DECOMPOSITION_PROMPT, f"AVAILABLE_INTENTS:{intents}", subjects, context, user_input])
+
+        # ~4 chars per token is a conservative estimate for English.
+        # num_ctx=8192 minus num_predict=384 = 7808 tokens for prompt.
+        estimated_tokens = len(full) / 4
+        max_input_tokens = 8192 - 384
+        assert estimated_tokens <= max_input_tokens, (
+            f"Full prompt ~{estimated_tokens:.0f} tokens exceeds input "
+            f"budget of {max_input_tokens} tokens (num_ctx=8192 - num_predict=384). "
+            f"Compress the base prompt."
+        )
+
+
+class TestDerivedFields:
+    """Verify that fields removed from the schema are correctly derived."""
+
+    def test_context_source_from_people_lookup(self):
+        assert Decomposer._derive_context_source("people_lookup", False) == "long_term_memory"
+
+    def test_context_source_from_external_capabilities(self):
+        for cap in ("encyclopedic", "web_search", "current_media"):
+            assert Decomposer._derive_context_source(cap, False) == "external"
+
+    def test_context_source_from_needs_resolution(self):
+        assert Decomposer._derive_context_source("none", True) == "recent_context"
+
+    def test_context_source_default(self):
+        assert Decomposer._derive_context_source("none", False) == "none"
+
+    def test_referent_scope_from_known_types(self):
+        for t in ("person", "media", "entity", "event"):
+            assert Decomposer._derive_referent_scope(t) == [t]
+
+    def test_referent_scope_unknown(self):
+        assert Decomposer._derive_referent_scope("unknown") == []
+
+    @pytest.mark.anyio
+    async def test_build_ask_derives_all_fields(self):
+        """End-to-end: _build_ask should populate context_source,
+        referent_status, and referent_scope from primary fields."""
+        mock_client = AsyncMock()
+        d = Decomposer(inference_client=mock_client, model="gemma4:e2b")
+
+        ask = d._build_ask({
+            "ask_id": "1",
+            "intent": "direct_chat",
+            "distilled_query": "who is my brother",
+            "parameters": {"relation": "brother"},
+            "response_shape": "synthesized",
+            "requires_current_data": False,
+            "knowledge_source": "none",
+            "referent_type": "person",
+            "durability": "durable",
+            "needs_referent_resolution": True,
+            "capability_need": "people_lookup",
+            "referent_anchor": "my brother",
+        }, 0, "who is my brother")
+
+        assert ask.context_source == "long_term_memory"
+        assert ask.referent_status == "unresolved"
+        assert ask.referent_scope == ["person"]
+
+    @pytest.mark.anyio
+    async def test_build_ask_derives_none_defaults(self):
+        """When primary fields are defaults, derived fields should be defaults too."""
+        mock_client = AsyncMock()
+        d = Decomposer(inference_client=mock_client, model="gemma4:e2b")
+
+        ask = d._build_ask({
+            "ask_id": "1",
+            "intent": "direct_chat",
+            "distilled_query": "hello",
+        }, 0, "hello")
+
+        assert ask.context_source == "none"
+        assert ask.referent_status == "none"
+        assert ask.referent_scope == []

@@ -833,9 +833,7 @@ class Orchestrator:
 
         # Fact-sharing turn detection: the user said something declarative,
         # the decomposer extracted at least one fact, and every ask is a
-        # direct_chat (no real skill resolved — note: skill_data is always
-        # non-empty for direct_chat asks since run_skills falls back to
-        # 'intent:distilled_query', so we can't gate on it). Route these
+        # direct_chat (no real skill resolved). Route these
         # through the few-shot acknowledgment prompt with a tight token
         # cap so gemma can't parrot the input back. Everything else uses
         # the normal prompt.
@@ -860,13 +858,23 @@ class Orchestrator:
                 facts=relevant_facts,
                 past_messages=past_messages,
             )
+            # Only inject relationships into the synthesis prompt when
+            # the turn actually involves people — otherwise the model
+            # shoehorns names like "Artie" into unrelated answers
+            # (movie showtimes, weather, etc.).
+            _turn_involves_people = any(
+                getattr(a, "capability_need", "none") == "people_lookup"
+                or getattr(a, "referent_type", "unknown") == "person"
+                or "person" in getattr(a, "referent_scope", [])
+                for a in asks
+            )
             referent_block = build_referent_block(
                 recent=recent,
                 relevant_facts=relevant_facts,
                 past_messages=past_messages,
-                people=people_rows,
-                relationships=relationships,
-                graph_relations=graph_relations,
+                people=people_rows if _turn_involves_people else [],
+                relationships=relationships if _turn_involves_people else [],
+                graph_relations=graph_relations if _turn_involves_people else [],
                 resolved_referents=session_cache.get("resolved_referents") or [],
             )
             if not graph_relations and not relationships:

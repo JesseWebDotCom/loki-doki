@@ -17,7 +17,7 @@ class TestModelPolicy:
     def test_pi5_selects_2b_for_fast(self):
         policy = ModelPolicy(platform="pi5")
         model, keep_alive = policy.select("fast")
-        assert model == "gemma4:e2b"
+        assert model == "gemma4:e4b"
         assert keep_alive == -1
 
     def test_pi4_uses_2b_for_thinking(self):
@@ -33,7 +33,7 @@ class TestModelPolicy:
     def test_unknown_complexity_defaults_to_fast(self):
         policy = ModelPolicy(platform="mac")
         model, keep_alive = policy.select("unknown")
-        assert model == "gemma4:e2b"
+        assert model == "gemma4:e4b"
         assert keep_alive == -1
 
     def test_custom_models_override_preset(self):
@@ -60,7 +60,7 @@ class TestModelManager:
 
         assert result is True
         call_kwargs = mock_client.generate.call_args.kwargs
-        assert call_kwargs["model"] == "gemma4:e2b"
+        assert call_kwargs["model"] == "gemma4:e4b"
         assert call_kwargs["keep_alive"] == -1
 
     @pytest.mark.anyio
@@ -109,7 +109,7 @@ class TestModelManager:
         manager = ModelManager(inference_client=mock_client)
 
         model, keep_alive = manager.get_model("fast")
-        assert model == "gemma4:e2b"
+        assert model == "gemma4:e4b"
 
     def test_policy_property(self):
         mock_client = AsyncMock()

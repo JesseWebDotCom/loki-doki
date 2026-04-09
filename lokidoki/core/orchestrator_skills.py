@@ -7,7 +7,10 @@ plain async functions taking the registry, executor, and ask list.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Optional, Tuple, Dict, List
+
+logger = logging.getLogger(__name__)
 
 from lokidoki.core.decomposer import Ask
 from lokidoki.core.registry import SkillRegistry
@@ -358,6 +361,10 @@ async def run_skills(
         for ask in asks:
             manifest = registry.get_skill_by_intent(ask.intent)
             if not manifest:
+                logger.info(
+                    "[skills] ask %s: no skill registered for intent %r",
+                    ask.ask_id, ask.intent,
+                )
                 continue
             skill_id = manifest["skill_id"]
             ask_skill_ids[ask.ask_id] = skill_id
@@ -430,15 +437,25 @@ async def run_skills(
                 user_toggle=u_tog,
             )
             if not state["enabled"]:
+                logger.warning(
+                    "[skills] ask %s: skill %s disabled (%s, missing=%s)",
+                    ask.ask_id, skill_id,
+                    state["disabled_reason"], state["missing_required"],
+                )
                 disabled_asks[ask.ask_id] = {
                     "reason": state["disabled_reason"],
                     "missing_config": state["missing_required"],
                 }
                 continue
 
+            logger.info(
+                "[skills] ask %s: queuing skill %s (intent=%s)",
+                ask.ask_id, skill_id, ask.intent,
+            )
             tasks.append((ask.ask_id, instance, mechs, params))
 
         if tasks:
+            logger.info("[skills] executing %d skill(s) in parallel", len(tasks))
             skill_results = await executor.execute_parallel(tasks, skill_ids=ask_skill_ids)
             for ask in asks:
                 result = skill_results.get(ask.ask_id)
@@ -541,7 +558,11 @@ async def run_skills(
                 "source_url": result.source_url,
             })
         else:
-            parts.append(f"{ask.intent}:{_ask_query(ask)}")
+            # Do NOT inject "intent:query" fallback text — the synthesis
+            # model treats any string here as authoritative skill output
+            # and will hallucinate details (times, titles, etc.) from it.
+            # Omitting the entry lets the synthesizer reply naturally with
+            # "I don't have that info" instead of fabricating an answer.
             disabled = disabled_asks.get(ask.ask_id)
             if disabled:
                 status = "disabled"
@@ -560,7 +581,15 @@ async def run_skills(
                 "missing_config": (disabled or {}).get("missing_config", []),
             })
 
-    return " | ".join(parts), skill_results, sources, routing_log
+    skill_data = " | ".join(parts)
+    succeeded = sum(1 for r in routing_log if r.get("status") == "success")
+    failed = len(routing_log) - succeeded
+    logger.info(
+        "[skills] routing done: %d succeeded, %d failed/skipped, skill_data=%s",
+        succeeded, failed,
+        skill_data[:200] if skill_data else "(empty)",
+    )
+    return skill_data, skill_results, sources, routing_log
 
 
 async def execute_capability_lookup(
@@ -604,9 +633,13 @@ async def execute_capability_lookup(
 SYNTHESIS_PROMPT_TEMPLATE = (
     "ROLE:You are {character_name}, a warm conversational friend who actually "
     "remembers this user. You have access to FACTS the user told you in the "
-    "past and PAST_TURNS where they said things — weave them in naturally when "
-    "relevant, but never recite the whole list. Pick at most one or two memories "
-    "that actually fit the moment.\n"
+    "past and PAST_TURNS where they said things.\n"
+    "MEMORY_USE:Mention a memory ONLY when it adds genuine value to your answer — "
+    "not just because a topic loosely overlaps. If a FACT was already referenced "
+    "in RECENT_TURNS, do NOT bring it up again. Real friends don't repeat the "
+    "same detail every time they talk. Most replies need ZERO memories — answer "
+    "the question directly. Use a memory at most once per conversation, and only "
+    "when it would surprise or delight the user.\n"
     "ANSWER_FIRST:When the user asks for a recommendation, opinion, suggestion, "
     "list, name, or fact — GIVE THEM ONE in your reply. Make a confident pick "
     "from your knowledge; they can correct you. Do NOT ask another clarifying "

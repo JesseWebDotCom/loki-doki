@@ -3,12 +3,14 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from lokidoki.api.routes import chat, memory, audio, settings, auth, admin, projects, logs, skills, characters, people
 from lokidoki.api.middleware.bootstrap_gate import BootstrapGateMiddleware
+from lokidoki.core.model_manager import ModelPolicy
 from lokidoki.core.log_buffer import install as install_log_buffer
 
 install_log_buffer()
 import asyncio
 import json
 import os
+import shlex
 import subprocess
 
 app = FastAPI(title="LokiDoki Core")
@@ -67,17 +69,46 @@ async def run_command_with_logs(cmd: str, cwd: str = "."):
     await process.wait()
     return process.returncode
 
-BOOTSTRAP_STEPS = [
-    ("check-python", "Verifying Python 3.11+", "python3 --version"),
-    ("check-uv", "Verifying uv Engine", "uv --version"),
-    ("check-frontend-deps", "Synchronizing UI Libraries (npm install)", "npm install"),
-    ("check-frontend-build", "Optimizing UI Core (npm build)", "npm run build"),
-    ("check-ollama", "Verifying Ollama Service", "ollama --version"),
-    ("pull-model", "Pulling LLM (gemma4:e2b)", "ollama pull gemma4:e2b"),
-    ("warm-resident", "Loading Resident Model into RAM", "curl -s http://localhost:11434/api/generate -d '{\"model\":\"gemma4:e2b\",\"prompt\":\".\",\"keep_alive\":-1,\"stream\":false}'"),
-    ("check-piper", "Initializing Piper Voice", "uv run python -c 'from lokidoki.core.audio import ensure_default_voice, warm_voice, DEFAULT_VOICE_ID; r = ensure_default_voice(); print(r); warm_voice(DEFAULT_VOICE_ID)'"),
-    ("check-residency", "Verifying System Health", "echo 'Hardware nominal'"),
-]
+def build_bootstrap_steps() -> list[tuple[str, str, str]]:
+    """Build bootstrap commands from the active model policy."""
+    fast_model = ModelPolicy().fast_model
+    warm_payload = shlex.quote(json.dumps({
+        "model": fast_model,
+        "prompt": ".",
+        "keep_alive": -1,
+        "stream": False,
+        "options": {"num_ctx": 8192},
+    }))
+    install_check = (
+        "python3 -c "
+        + shlex.quote(
+            "import json, urllib.request; "
+            "tags = json.load(urllib.request.urlopen('http://localhost:11434/api/tags')); "
+            f"raise SystemExit(0 if any(m.get('name') == {fast_model!r} for m in tags.get('models', [])) else 1)"
+        )
+    )
+    return [
+        ("check-python", "Verifying Python 3.11+", "python3 --version"),
+        ("check-uv", "Verifying uv Engine", "uv --version"),
+        ("check-frontend-deps", "Synchronizing UI Libraries (npm install)", "npm install"),
+        ("check-frontend-build", "Optimizing UI Core (npm build)", "npm run build"),
+        ("check-ollama", "Verifying Ollama Service", "ollama --version"),
+        (
+            "pull-model",
+            f"Ensuring LLM ({fast_model}) is installed",
+            f"{install_check} || ollama pull {shlex.quote(fast_model)}",
+        ),
+        (
+            "warm-resident",
+            "Loading Resident Model into RAM",
+            f"curl -s http://localhost:11434/api/generate -d {warm_payload}",
+        ),
+        ("check-piper", "Initializing Piper Voice", "uv run python -c 'from lokidoki.core.audio import ensure_default_voice, warm_voice, DEFAULT_VOICE_ID; r = ensure_default_voice(); print(r); warm_voice(DEFAULT_VOICE_ID)'"),
+        ("check-residency", "Verifying System Health", "echo 'Hardware nominal'"),
+    ]
+
+
+BOOTSTRAP_STEPS = build_bootstrap_steps()
 
 async def run_bootstrap():
     """Performs full-stack bootstrap orchestration."""
