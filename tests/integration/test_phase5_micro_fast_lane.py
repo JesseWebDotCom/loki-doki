@@ -186,7 +186,7 @@ async def test_who_is_lookup_bypasses_decomposer_and_routes_to_wiki(memory):
         async def execute_mechanism(self, method: str, parameters: dict) -> MechanismResult:
             return MechanismResult(
                 success=True,
-                data={"lead": "Arthur Miller was an American playwright."},
+                data={"lead": "Anakin Miller was an American playwright."},
             )
 
     registry = SkillRegistry()
@@ -199,14 +199,14 @@ async def test_who_is_lookup_bypasses_decomposer_and_routes_to_wiki(memory):
 
     orch = _make_orchestrator(memory, mock_decomposer, mock_inference, registry=registry)
     events = []
-    async for event in orch.process("who is Arthur Miller", user_id=uid, session_id=sid):
+    async for event in orch.process("who is Anakin Miller", user_id=uid, session_id=sid):
         events.append(event)
 
     mock_decomposer.decompose.assert_not_called()
     mock_inference.generate_stream.assert_not_called()
 
     done = next(e for e in events if e.phase == "synthesis" and e.status == "done")
-    assert done.data["response"] == "Arthur Miller was an American playwright.\n\n[src:1]"
+    assert done.data["response"] == "Anakin Miller was an American playwright.\n\n[src:1]"
     assert done.data.get("fast_path") is True
 
     traces = await memory.list_chat_traces(uid, session_id=sid, limit=1)

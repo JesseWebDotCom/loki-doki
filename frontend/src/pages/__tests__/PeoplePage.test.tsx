@@ -55,13 +55,13 @@ beforeEach(() => {
   mocked.getReconcileCandidates.mockResolvedValue({
     groups: [
       {
-        label: "Artie",
+        label: "Luke",
         suggested_target_id: 1,
         suggestion_reason: "has the richest existing profile",
         candidates: [
           {
             id: 1,
-            name: "Artie",
+            name: "Luke",
             owner_user_id: 1,
             fact_count: 4,
             event_count: 1,
@@ -70,7 +70,7 @@ beforeEach(() => {
           },
           {
             id: 2,
-            name: "Artie",
+            name: "Luke",
             owner_user_id: 1,
             fact_count: 1,
             event_count: 0,
@@ -125,6 +125,6 @@ describe("PeoplePage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /review merge/i }));
     expect(await screen.findByText("Review duplicate merge")).toBeTruthy();
     expect(screen.getAllByText(/Suggested survivor:/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /merge into artie/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /merge into luke/i })).toBeTruthy();
   });
 });

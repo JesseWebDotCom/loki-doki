@@ -123,20 +123,20 @@ async def test_possessive_relation_query_uses_graph_walk_on_chat_path(memory):
 
     def _seed(conn):
         me = gql.create_person_graph(conn, uid, name="Jesse", bucket="family")
-        artie = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        luke = gql.create_person_graph(conn, uid, name="Luke", bucket="family")
         nora = gql.create_person_graph(conn, uid, name="Nora", bucket="family")
         gql.link_user_to_person(conn, user_id=uid, person_id=me)
         gql.create_person_edge(
             conn,
             uid,
             from_person_id=me,
-            to_person_id=artie,
+            to_person_id=luke,
             edge_type="brother",
         )
         gql.create_person_edge(
             conn,
             uid,
-            from_person_id=artie,
+            from_person_id=luke,
             to_person_id=nora,
             edge_type="daughter",
         )
@@ -276,15 +276,15 @@ async def test_multi_turn_referential_eval_natural_phrasing(memory):
 
     def _seed(conn):
         me = gql.create_person_graph(conn, uid, name="Jesse", bucket="family")
-        artie = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        luke = gql.create_person_graph(conn, uid, name="Luke", bucket="family")
         nora = gql.create_person_graph(conn, uid, name="Nora", bucket="family")
         gql.link_user_to_person(conn, user_id=uid, person_id=me)
-        gql.create_person_edge(conn, uid, from_person_id=me, to_person_id=artie, edge_type="brother")
-        gql.create_person_edge(conn, uid, from_person_id=artie, to_person_id=nora, edge_type="daughter")
+        gql.create_person_edge(conn, uid, from_person_id=me, to_person_id=luke, edge_type="brother")
+        gql.create_person_edge(conn, uid, from_person_id=luke, to_person_id=nora, edge_type="daughter")
 
     await memory.run_sync(_seed)
     await memory.upsert_fact(
-        user_id=uid, subject="Artie", subject_type="person",
+        user_id=uid, subject="Luke", subject_type="person",
         predicate="likes", value="movies", category="preference",
     )
     await memory.upsert_fact(
@@ -293,11 +293,11 @@ async def test_multi_turn_referential_eval_natural_phrasing(memory):
     )
 
     turns = [
-        ("tell me about artie", Ask(
+        ("tell me about luke", Ask(
             ask_id="ask_1", intent="direct_chat",
-            distilled_query="tell me about artie",
+            distilled_query="tell me about luke",
             referent_type="person", needs_referent_resolution=True,
-            referent_anchor="artie", capability_need="people_lookup",
+            referent_anchor="luke", capability_need="people_lookup",
         )),
         ("what does he like", Ask(
             ask_id="ask_2", intent="direct_chat",
@@ -375,11 +375,11 @@ async def test_noisy_name_repair_finds_facts_on_chat_path(memory):
     sid = await memory.create_session(uid)
 
     def _seed(conn):
-        gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        gql.create_person_graph(conn, uid, name="Luke", bucket="family")
 
     await memory.run_sync(_seed)
     await memory.upsert_fact(
-        user_id=uid, subject="Artie", subject_type="person",
+        user_id=uid, subject="Luke", subject_type="person",
         predicate="likes", value="movies", category="preference",
     )
 
@@ -414,19 +414,19 @@ async def test_noisy_name_repair_finds_facts_on_chat_path(memory):
 
     traces = await memory.list_chat_traces(user_id=uid, session_id=sid, limit=1)
     assert traces
-    # The referent resolver should still resolve "artee" → "Artie" via alias matching
-    # OR the fuzzy query expansion should surface facts about Artie
+    # The referent resolver should still resolve "artee" → "Luke" via alias matching
+    # OR the fuzzy query expansion should surface facts about Luke
     prompt = captured.get("prompt", "")
     selected = traces[0]["selected_injected_memories_json"]["facts_by_bucket"]
     has_artie_fact = any(
-        "artie" in str(row.get("subject", "")).lower()
-        or "artie" in str(row.get("value", "")).lower()
+        "luke" in str(row.get("subject", "")).lower()
+        or "luke" in str(row.get("value", "")).lower()
         for rows in selected.values()
         for row in rows
     )
-    artie_in_prompt = "artie" in prompt.lower() or "Artie" in prompt
+    artie_in_prompt = "luke" in prompt.lower() or "Luke" in prompt
     assert has_artie_fact or artie_in_prompt, \
-        "Noisy name repair or alias resolution should surface Artie facts"
+        "Noisy name repair or alias resolution should surface Luke facts"
 
 
 # ---------- retrieval performance benchmark ----------
@@ -497,7 +497,7 @@ class TestRetrievalPerformanceBenchmark:
         """Parsing 100 relation chains should complete in < 5ms."""
         inputs = [
             "my sister", "John's wife", "my father's brother",
-            "my brother's daughter", "artie's mom",
+            "my brother's daughter", "luke's mom",
             "my sister's husband's brother",
         ] * 17  # ~102 inputs
 

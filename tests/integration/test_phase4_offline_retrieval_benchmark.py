@@ -54,20 +54,20 @@ async def seeded_memory(tmp_path):
     # Seed people and relationships
     def _seed_people(conn):
         me = gql.create_person_graph(conn, uid, name="Jesse", bucket="family")
-        artie = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        luke = gql.create_person_graph(conn, uid, name="Luke", bucket="family")
         nora = gql.create_person_graph(conn, uid, name="Nora", bucket="family")
         mira = gql.create_person_graph(conn, uid, name="Mira", bucket="family")
         gql.link_user_to_person(conn, user_id=uid, person_id=me)
-        gql.create_person_edge(conn, uid, from_person_id=me, to_person_id=artie, edge_type="brother")
-        gql.create_person_edge(conn, uid, from_person_id=artie, to_person_id=nora, edge_type="daughter")
-        gql.create_person_edge(conn, uid, from_person_id=artie, to_person_id=mira, edge_type="spouse")
+        gql.create_person_edge(conn, uid, from_person_id=me, to_person_id=luke, edge_type="brother")
+        gql.create_person_edge(conn, uid, from_person_id=luke, to_person_id=nora, edge_type="daughter")
+        gql.create_person_edge(conn, uid, from_person_id=luke, to_person_id=mira, edge_type="spouse")
 
     await mp.run_sync(_seed_people)
 
     # Seed facts
-    await mp.upsert_fact(user_id=uid, subject="Artie", subject_type="person",
+    await mp.upsert_fact(user_id=uid, subject="Luke", subject_type="person",
                          predicate="likes", value="movies", category="preference")
-    await mp.upsert_fact(user_id=uid, subject="Artie", subject_type="person",
+    await mp.upsert_fact(user_id=uid, subject="Luke", subject_type="person",
                          predicate="works_at", value="the library", category="biographical")
     await mp.upsert_fact(user_id=uid, subject="Nora", subject_type="person",
                          predicate="age", value="4", category="biographical")
@@ -251,7 +251,7 @@ async def test_graph_walk_correctness_on_possessive_queries(seeded_memory):
             metrics.possessive_correct += 1
 
     # Exit criteria: possessive query accuracy should be >= 66%
-    # (at minimum "Artie's wife" and "my brother's daughter" should resolve)
+    # (at minimum "Luke's wife" and "my brother's daughter" should resolve)
     assert metrics.possessive_accuracy >= 0.66, (
         f"Possessive accuracy {metrics.possessive_accuracy:.0%} below 66% threshold. "
         f"({metrics.possessive_correct}/{metrics.possessive_total})"

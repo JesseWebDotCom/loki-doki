@@ -115,26 +115,26 @@ class TestCoerceItem:
     """Pre-validation salvage covers gemma's two most common misshapes."""
 
     def test_sentence_initial_proper_noun_survives(self):
-        # The mirror of the "In" test: Camilla is a real proper noun even
+        # The mirror of the "In" test: Padme is a real proper noun even
         # when she only appears at sentence-initial position. The position-0
         # heuristic would wrongly drop her; the spaCy POS check keeps her.
         out = coerce_item(
             {
-                "subject_type": "person", "subject_name": "Camilla",
+                "subject_type": "person", "subject_name": "Padme",
                 "predicate": "was terrified by", "value": "Insidious",
                 "kind": "event", "relationship_kind": "sister-in-law",
             },
-            original_input="Camilla was terrified by Insidious",
+            original_input="Padme was terrified by Insidious",
         )
         assert out is not None
-        assert out["subject_name"] == "Camilla"
+        assert out["subject_name"] == "Padme"
 
     def test_salvage2_recovers_camilla_not_preposition(self):
         # Real failing turn from production: gemma emitted a person item
         # with NO subject_name. The legacy regex salvage greedy-matched
         # "my sister in" → name="in" → wrote {person, In, was terrified
         # by, Insidious}. The spaCy-based salvage uses the dependency
-        # parse instead — Camilla is parsed as the appositive of sister
+        # parse instead — Padme is parsed as the appositive of sister
         # (the actual relation NOUN), so we recover the right name.
         out = coerce_item(
             {
@@ -145,10 +145,10 @@ class TestCoerceItem:
                 "relationship_kind": "sister-in-law",
                 "category": "event",
             },
-            original_input="My sister in law Camilla was terrified by the insidious movie",
+            original_input="My sister in law Padme was terrified by the insidious movie",
         )
         assert out is not None
-        assert out["subject_name"] == "Camilla"
+        assert out["subject_name"] == "Padme"
 
     def test_sentence_initial_stopword_dropped_as_person_name(self):
         # "In was terrified by Insidious" — user typo'd "I" as "In".
@@ -297,36 +297,36 @@ class TestCoerceItem:
             assert out is None, f"should drop tautology with predicate={predicate}"
 
     def test_drops_self_is_name_when_input_references_other_person(self):
-        """gemma misreads 'my brother artie loves movies' as {self,is,artie}.
+        """gemma misreads 'my brother luke loves movies' as {self,is,luke}.
 
-        The salvage must drop this — the user is NOT named Artie. This
+        The salvage must drop this — the user is NOT named Luke. This
         is the regression that planted three bogus self-facts in the
         Memory tab in the live demo.
         """
         out = coerce_item(
             {
                 "subject_type": "self", "subject_name": "",
-                "predicate": "is", "value": "artie", "kind": "fact",
+                "predicate": "is", "value": "luke", "kind": "fact",
                 "category": "general",
             },
-            original_input="my brother artie loves movies",
+            original_input="my brother luke loves movies",
         )
         assert out is None
 
     def test_self_fact_reattributed_to_person_via_relation_pair(self):
-        """{self, loves, movies} from 'my brother artie loves movies'
-        must be promoted to a person fact about Artie."""
+        """{self, loves, movies} from 'my brother luke loves movies'
+        must be promoted to a person fact about Luke."""
         out = coerce_item(
             {
                 "subject_type": "self", "subject_name": "",
                 "predicate": "loves", "value": "movies", "kind": "fact",
                 "category": "preference",
             },
-            original_input="my brother artie loves movies",
+            original_input="my brother luke loves movies",
         )
         assert out is not None
         assert out["subject_type"] == "person"
-        assert out["subject_name"] == "Artie"
+        assert out["subject_name"] == "Luke"
         assert out["predicate"] == "loves"
         assert out["value"] == "movies"
 
@@ -418,16 +418,16 @@ class TestCoerceItem:
         assert out is None
 
     def test_tautology_caught_after_name_recovery(self):
-        """gemma emits {person, "", is, "artie"} from "my brother artie
-        loves movies". Salvage 2 fills in subject_name="Artie", then
-        the FINAL tautology pass must drop {Artie, is, "artie"}."""
+        """gemma emits {person, "", is, "luke"} from "my brother luke
+        loves movies". Salvage 2 fills in subject_name="Luke", then
+        the FINAL tautology pass must drop {Luke, is, "luke"}."""
         out = coerce_item(
             {
                 "subject_type": "person", "subject_name": "",
-                "predicate": "is", "value": "artie",
+                "predicate": "is", "value": "luke",
                 "kind": "relationship", "relationship_kind": "brother",
             },
-            original_input="My brother artie loves movies",
+            original_input="My brother luke loves movies",
         )
         assert out is None
 
@@ -580,14 +580,14 @@ class TestEntityCrossItemRecovery:
     """Salvage 6: borrow an entity name from a sibling item's value field."""
 
     def test_entity_no_name_recovered_from_sibling_value(self):
-        # Production failure: for "Camilla was terrified by Insidious"
+        # Production failure: for "Padme was terrified by Insidious"
         # gemma emits the entity item with NO subject_name, but the
         # sibling person item has value="Insidious". parse_items pools
         # candidate names from sibling values and feeds them into
         # coerce_item, which fills the entity item's missing name.
         items = [
             {
-                "subject_type": "person", "subject_name": "Camilla",
+                "subject_type": "person", "subject_name": "Padme",
                 "predicate": "was terrified by", "value": "Insidious",
                 "kind": "event", "relationship_kind": "sister-in-law",
             },
@@ -597,7 +597,7 @@ class TestEntityCrossItemRecovery:
             },
         ]
         good, errors = parse_items(
-            items, original_input="Camilla was terrified by Insidious",
+            items, original_input="Padme was terrified by Insidious",
         )
         assert errors == []
         assert len(good) == 2

@@ -188,18 +188,18 @@ PHASE4_RETRIEVAL_EVAL_CASES: list[RetrievalEvalCase] = [
     RetrievalEvalCase(
         case_id="relationship_retrieval",
         user_input="what does my brother like",
-        expected_subjects=["artie", "brother"],
+        expected_subjects=["luke", "brother"],
         is_possessive_query=True,
-        expected_referent="Artie",
+        expected_referent="Luke",
         possessive_anchor="my brother",
     ),
     RetrievalEvalCase(
         case_id="possessive_wife",
-        user_input="how is artie's wife doing",
-        expected_subjects=["artie", "wife"],
+        user_input="how is luke's wife doing",
+        expected_subjects=["luke", "wife"],
         is_possessive_query=True,
         expected_referent="Mira",
-        possessive_anchor="artie's wife",
+        possessive_anchor="luke's wife",
     ),
     RetrievalEvalCase(
         case_id="possessive_daughter",
@@ -228,8 +228,8 @@ PHASE4_RETRIEVAL_EVAL_CASES: list[RetrievalEvalCase] = [
     ),
     RetrievalEvalCase(
         case_id="fact_sharing",
-        user_input="my brother Artie likes movies",
-        expected_subjects=["artie", "movies"],
+        user_input="my brother Luke likes movies",
+        expected_subjects=["luke", "movies"],
     ),
     RetrievalEvalCase(
         case_id="pronoun_followup",

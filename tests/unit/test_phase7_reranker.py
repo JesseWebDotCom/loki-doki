@@ -98,7 +98,7 @@ class TestRerankerIntegrationWithScoring:
              "value": "i really love hiking in the mountains on weekends"},
             {"id": 2, "subject": "self", "predicate": "likes",
              "value": "coffee"},
-            {"id": 3, "subject": "Artie", "predicate": "is",
+            {"id": 3, "subject": "Luke", "predicate": "is",
              "value": "my brother who lives in Connecticut"},
         ]
         result = rerank_facts("who is my brother", facts, top_k=2)

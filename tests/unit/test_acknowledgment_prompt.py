@@ -32,7 +32,7 @@ from lokidoki.core.orchestrator_skills import (
 
 class TestAckPromptShape:
     def test_contains_warm_positive_examples(self):
-        p = build_acknowledgment_prompt(query="my brother artie loves movies")
+        p = build_acknowledgment_prompt(query="my brother luke loves movies")
         # Reaction words that signal warmth.
         assert "Aww" in p
         # Bot self-disclosure (sharing its own take).
@@ -44,7 +44,7 @@ class TestAckPromptShape:
 
     def test_contains_personality_block(self):
         """The bot's interests must be injected so it can self-disclose."""
-        p = build_acknowledgment_prompt(query="my brother artie loves movies")
+        p = build_acknowledgment_prompt(query="my brother luke loves movies")
         assert "YOUR PERSONALITY" in p
         assert "movies" in p  # default BOT_INTERESTS
 
@@ -60,11 +60,11 @@ class TestAckPromptShape:
         actual query is also a few-shot example. The user query must
         appear ONLY in the final generation slot, never in the demos.
 
-        Pins the bug from the live test where 'my brother artie loves
+        Pins the bug from the live test where 'my brother luke loves
         movies' was both the first GOOD example and the actual query,
         causing synthesis to return empty for 1.77s.
         """
-        query = "my brother artie loves movies"
+        query = "my brother luke loves movies"
         p = build_acknowledgment_prompt(query=query)
         # Split at the final generation marker; the few-shot section is
         # everything before it.
@@ -82,23 +82,23 @@ class TestAckPromptShape:
         """REGRESSION: a 'BANNED' block immediately before the model's
         turn confuses small models. The current prompt should be
         positive-only — the BANNED-STARTS rule is fine as a one-liner."""
-        p = build_acknowledgment_prompt(query="my brother artie loves movies")
+        p = build_acknowledgment_prompt(query="my brother luke loves movies")
         # The string "← BANNED" is the failure pattern from the previous
         # version. It must not appear anywhere.
         assert "← BANNED" not in p
 
     def test_does_not_include_skill_data_or_context(self):
-        p = build_acknowledgment_prompt(query="my brother artie loves movies")
+        p = build_acknowledgment_prompt(query="my brother luke loves movies")
         assert "SKILL_DATA" not in p
         assert "CONTEXT:" not in p
 
     def test_includes_clarify_followup_when_hint_present(self):
         p = build_acknowledgment_prompt(
-            query="artie loves movies",
-            clarify_hint="Ask which Artie they mean.",
+            query="luke loves movies",
+            clarify_hint="Ask which Luke they mean.",
         )
         assert "FOLLOWUP" in p
-        assert "Ask which Artie" in p
+        assert "Ask which Luke" in p
 
     def test_includes_referent_context_when_names_provided(self):
         """When session cache has resolved referents, their names must
@@ -133,7 +133,7 @@ PERSON_FACT_DECOMP = DecompositionResult(
     short_term_memory={"sentiment": "positive", "concern": ""},
     long_term_memory=[
         {
-            "subject_type": "person", "subject_name": "Artie",
+            "subject_type": "person", "subject_name": "Luke",
             "predicate": "loves", "value": "movies", "kind": "fact",
             "category": "preference", "negates_previous": False,
         },
@@ -186,7 +186,7 @@ async def test_orchestrator_uses_ack_prompt_for_fact_turn(memory, user_session):
     )
 
     async for _ in orch.process(
-        "my brother artie loves movies", user_id=uid, session_id=sid
+        "my brother luke loves movies", user_id=uid, session_id=sid
     ):
         pass
 
@@ -203,7 +203,7 @@ async def test_orchestrator_uses_ack_prompt_for_fact_turn(memory, user_session):
     assert captured["num_predict"] == ACKNOWLEDGMENT_NUM_PREDICT
     # CRITICAL: the user's input must not be duplicated in the few-shot.
     fewshot = captured["prompt"].split("Now respond")[0]
-    assert "my brother artie loves movies" not in fewshot
+    assert "my brother luke loves movies" not in fewshot
 
 
 @pytest.mark.anyio

@@ -141,10 +141,10 @@ def test_encyclopedic_query_prefers_named_anchor():
     ask = Ask(
         ask_id="ask_000",
         intent="direct_chat",
-        distilled_query="who is Arthur Miller",
+        distilled_query="who is Anakin Miller",
         capability_need="encyclopedic",
         referent_type="person",
-        referent_anchor="Arthur Miller",
+        referent_anchor="Anakin Miller",
     )
 
-    assert _ask_query(ask) == "Arthur Miller"
+    assert _ask_query(ask) == "Anakin Miller"

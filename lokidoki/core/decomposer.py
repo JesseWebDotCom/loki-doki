@@ -228,7 +228,7 @@ class Decomposer:
 
             {
                 "self": "<the user's display name>",
-                "people": ["Tom", "Camilla", ...],   # known people rows
+                "people": ["Tom", "Padme", ...],   # known people rows
                 "entities": ["Avatar: Fire and Ash", ...],
             }
 

@@ -148,8 +148,8 @@ async def test_reconcile_candidates_and_merge_endpoint(_isolated_memory):
     mp, uid = _isolated_memory
 
     def _seed(conn):
-        first = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
-        second = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        first = gql.create_person_graph(conn, uid, name="Luke", bucket="family")
+        second = gql.create_person_graph(conn, uid, name="Luke", bucket="family")
         gql.set_person_overlay(conn, uid, second, relationship_state="former")
         return first, second
 
@@ -159,7 +159,7 @@ async def test_reconcile_candidates_and_merge_endpoint(_isolated_memory):
         candidates = await ac.get("/api/v1/people/reconcile-candidates")
         assert candidates.status_code == 200
         groups = candidates.json()["groups"]
-        artie_group = next(group for group in groups if group["label"] == "Artie")
+        artie_group = next(group for group in groups if group["label"] == "Luke")
         assert artie_group["suggested_target_id"] in {first_id, second_id}
         assert artie_group["suggestion_reason"]
 
@@ -171,5 +171,5 @@ async def test_reconcile_candidates_and_merge_endpoint(_isolated_memory):
 
         graph = await ac.get("/api/v1/people")
         assert graph.status_code == 200
-        arties = [person for person in graph.json()["people"] if person["name"] == "Artie"]
+        arties = [person for person in graph.json()["people"] if person["name"] == "Luke"]
         assert len(arties) == 1

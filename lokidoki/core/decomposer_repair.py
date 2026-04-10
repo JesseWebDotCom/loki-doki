@@ -58,7 +58,7 @@ class RepairStats:
 import spacy  # type: ignore
 
 # Full pipeline: tagger + parser + ner + lemmatizer. We use the dep parse
-# for relation/name detection ("my brother artie" → artie nsubj with
+# for relation/name detection ("my brother luke" → luke nsubj with
 # brother as compound child), the lemmatizer for relation matching
 # ("brothers" → "brother"), and the POS tagger for the source-anchor
 # guard. NER is kept enabled so the entity-recovery salvage can use
@@ -112,7 +112,7 @@ def _is_propn_in_source(token: str, source: str) -> bool:
 
     Two acceptance signals (either is sufficient):
       1. Tagged as PROPN/NOUN by spaCy somewhere in the source. Catches
-         "Camilla" even at sentence-start position 0.
+         "Padme" even at sentence-start position 0.
       2. Appears mid-sentence with a capital first letter. Catches entity
          names that spaCy's tagger flips to ADJ because they're also
          real English words ("Insidious", "Wicked", "Frozen") — the user
@@ -146,7 +146,7 @@ def _extract_relation_name_pair(text: str) -> Optional[tuple[str, str]]:
     Two patterns cover the common cases:
       1. ``My brother Mark`` — ``brother`` is a NOUN with ``Mark`` as an
          ``appos`` child. Works for properly-capitalized names.
-      2. ``my brother artie loves`` — ``artie`` is parsed as the ``nsubj``
+      2. ``my brother luke loves`` — ``luke`` is parsed as the ``nsubj``
          of the verb, with ``brother`` as a ``compound`` child. spaCy
          handles this even when the name is lowercased.
 
@@ -519,7 +519,7 @@ def coerce_item(
 
     # Salvage 4: drop self-identity claims that mirror another person
     # mentioned in the user input. gemma routinely turns "my brother
-    # artie loves movies" into a self-fact `{self, is, artie}` because
+    # luke loves movies" into a self-fact `{self, is, luke}` because
     # it lifts the proper noun out of the wrong clause. If the input
     # has a "my <relation> Name" pair AND this self-fact's value matches
     # that name, the claim is noise — drop it.
@@ -563,8 +563,8 @@ def coerce_item(
                 kind = "fact"
 
     # Salvage 3: re-attribute self-facts to a person mentioned in the
-    # input. When the user says "my brother artie loves movies" gemma
-    # often emits {self, loves, movies} instead of {person:Artie, loves,
+    # input. When the user says "my brother luke loves movies" gemma
+    # often emits {self, loves, movies} instead of {person:Luke, loves,
     # movies}. If the input clearly contains "my <relation> <Name>",
     # promote this self-fact to a person fact about <Name>. Identity-ish
     # tautology predicates ("is", "named") are excluded — those are
@@ -649,7 +649,7 @@ def coerce_item(
 
     # Salvage 6: entity item with no subject_name. gemma routinely
     # emits the entity name in a SIBLING item's value field — e.g. for
-    # "Camilla was terrified by Insidious" it emits one person item with
+    # "Padme was terrified by Insidious" it emits one person item with
     # value="Insidious" and a separate entity item with no subject_name
     # at all. ``parse_items`` builds an ``entity_pool`` from sibling
     # values that look PROPN in the source, and we borrow the first
@@ -694,8 +694,8 @@ def coerce_item(
 
     # Final tautology pass. The earlier tautology check ran before
     # Salvage 2 had a chance to recover subject_name from the input,
-    # so {person, "", is, "artie"} would slip through and only later
-    # become {person, "Artie", is, "artie"}. Re-check after every
+    # so {person, "", is, "luke"} would slip through and only later
+    # become {person, "Luke", is, "luke"}. Re-check after every
     # salvage has had its chance to fill subject_name.
     final_subject_name = (out.get("subject_name") or "").strip()
     final_subject_type = out.get("subject_type") or "self"
@@ -711,7 +711,7 @@ def coerce_item(
 
     # Final POS validation. Salvages 2 and 3 fill subject_name from regex
     # matches against the user input — those regexes are dumb and happily
-    # extract "in" from "my sister in law Camilla" as a name. Re-run the
+    # extract "in" from "my sister in law Padme" as a name. Re-run the
     # spaCy POS check on the *final* subject_name so anything tagged as
     # ADP/DET/AUX/PRON/etc. gets dropped no matter which salvage put it
     # there. The earlier check in this function still fires for the common
@@ -794,7 +794,7 @@ class LongTermItem(BaseModel):
 def _harvest_entity_candidates(items: list[Any], original_input: Optional[str]) -> list[str]:
     """Collect plausible entity names from a batch of decomposer items.
 
-    The "Insidious bug" cause: gemma emits two items for "Camilla was
+    The "Insidious bug" cause: gemma emits two items for "Padme was
     terrified by Insidious" — a person item with ``value='Insidious'``
     and a sibling entity item with NO ``subject_name``. The entity item
     fails validation in isolation, but the sibling has the name we need.

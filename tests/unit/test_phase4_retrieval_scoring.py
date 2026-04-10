@@ -89,14 +89,14 @@ class TestScoreMemoryCandidate:
 
     def test_all_components_combine_additively(self):
         fact = {
-            "id": 1, "subject": "artie", "subject_type": "person",
+            "id": 1, "subject": "luke", "subject_type": "person",
             "subject_ref_id": 5, "predicate": "likes", "value": "movies",
             "confidence": 0.9, "status": "active", "score": 0.7,
             "last_observed_at": "2026-04-08 10:00:00",
         }
         ask = _ask(referent_type="person", referent_scope=["person"])
         total = score_memory_candidate(
-            fact, bucket="relational_graph", user_input="what does artie like",
+            fact, bucket="relational_graph", user_input="what does luke like",
             asks=[ask], retrieval_rank=0,
             session_seen_fact_ids=set(), entity_boost_enabled=False,
         )
@@ -193,8 +193,8 @@ class TestRelationMatchBonus:
     def test_relational_graph_bucket_on_people_turn_gets_full_bonus(self):
         ask = _ask(referent_type="person")
         bonus = relation_match_bonus(
-            bucket="relational_graph", user_input="who is artie",
-            asks=[ask], fact={"subject": "artie", "predicate": "is", "value": "brother"},
+            bucket="relational_graph", user_input="who is luke",
+            asks=[ask], fact={"subject": "luke", "predicate": "is", "value": "brother"},
         )
         assert bonus == 1.0
 
@@ -202,15 +202,15 @@ class TestRelationMatchBonus:
         ask = _ask(referent_type="unknown")
         bonus = relation_match_bonus(
             bucket="relational_graph", user_input="what's the weather",
-            asks=[ask], fact={"subject": "artie", "predicate": "is", "value": "brother"},
+            asks=[ask], fact={"subject": "luke", "predicate": "is", "value": "brother"},
         )
         assert bonus == 0.0
 
     def test_fuzzy_text_match_on_people_turn_gets_partial(self):
         ask = _ask(referent_type="person")
         bonus = relation_match_bonus(
-            bucket="semantic_profile", user_input="does artie like movies",
-            asks=[ask], fact={"subject": "artie", "predicate": "likes", "value": "movies"},
+            bucket="semantic_profile", user_input="does luke like movies",
+            asks=[ask], fact={"subject": "luke", "predicate": "likes", "value": "movies"},
         )
         assert bonus == pytest.approx(0.65, abs=0.01)
 
@@ -235,12 +235,12 @@ class TestEntityBoost:
 
     def test_entity_boost_does_not_apply_to_person_type(self):
         fact = {
-            "id": 1, "subject": "artie", "subject_type": "person",
+            "id": 1, "subject": "luke", "subject_type": "person",
             "predicate": "likes", "value": "movies",
             "confidence": 0.8, "status": "active", "score": 0.5,
         }
         kw = dict(
-            bucket="relational_graph", user_input="artie likes movies",
+            bucket="relational_graph", user_input="luke likes movies",
             asks=[], retrieval_rank=0, session_seen_fact_ids=set(),
         )
         with_boost = score_memory_candidate(fact, entity_boost_enabled=True, **kw)
@@ -264,7 +264,7 @@ class TestNearDuplicateSuppression:
 
     def test_different_facts_are_not_duplicates(self):
         a = {"subject": "self", "predicate": "likes", "value": "coffee"}
-        b = {"subject": "artie", "predicate": "enjoys", "value": "hiking in mountains"}
+        b = {"subject": "luke", "predicate": "enjoys", "value": "hiking in mountains"}
         assert are_near_duplicate_facts(a, b) is False
 
     def test_empty_phrase_never_duplicate(self):
@@ -278,13 +278,13 @@ class TestNearDuplicateSuppression:
 
 class TestFuzzyExpandQuery:
     def test_repairs_misspelled_person_name(self):
-        expanded = fuzzy_expand_query("how is artiee doing", ["Artie", "Nora"])
-        assert "artie" in expanded.lower()
+        expanded = fuzzy_expand_query("how is artiee doing", ["Luke", "Nora"])
+        assert "luke" in expanded.lower()
 
     def test_no_expansion_for_exact_match(self):
-        result = fuzzy_expand_query("how is artie doing", ["Artie", "Nora"])
-        # Should not double-add artie since it's already in the query
-        assert result == "how is artie doing"
+        result = fuzzy_expand_query("how is luke doing", ["Luke", "Nora"])
+        # Should not double-add luke since it's already in the query
+        assert result == "how is luke doing"
 
     def test_repairs_misspelled_entity(self):
         expanded = fuzzy_expand_query("tell me about the cabbin trip", ["cabin trip", "Vermont"])
@@ -294,11 +294,11 @@ class TestFuzzyExpandQuery:
         assert fuzzy_expand_query("hello world", []) == "hello world"
 
     def test_empty_query_returns_empty(self):
-        assert fuzzy_expand_query("", ["Artie"]) == ""
+        assert fuzzy_expand_query("", ["Luke"]) == ""
 
     def test_no_repair_for_distant_match(self):
-        # "xyz" is too different from "Artie" to trigger repair
-        result = fuzzy_expand_query("xyz abc", ["Artie"])
+        # "xyz" is too different from "Luke" to trigger repair
+        result = fuzzy_expand_query("xyz abc", ["Luke"])
         assert result == "xyz abc"
 
     def test_bigram_repair(self):
@@ -314,12 +314,12 @@ class TestFuzzyExpandQuery:
 class TestFuzzyMatchName:
     def test_exact_name_matches(self):
         rows = [
-            {"id": 1, "name": "Artie", "aliases": "[]"},
+            {"id": 1, "name": "Luke", "aliases": "[]"},
             {"id": 2, "name": "Nora", "aliases": "[]"},
         ]
-        result = fuzzy_match_name("artie", rows)
+        result = fuzzy_match_name("luke", rows)
         assert result is not None
-        assert result["name"] == "Artie"
+        assert result["name"] == "Luke"
 
     def test_alias_matches(self):
         rows = [
@@ -330,15 +330,15 @@ class TestFuzzyMatchName:
         assert result["name"] == "Anthony Johnson"
 
     def test_no_match_below_cutoff(self):
-        rows = [{"id": 1, "name": "Artie", "aliases": "[]"}]
+        rows = [{"id": 1, "name": "Luke", "aliases": "[]"}]
         result = fuzzy_match_name("zzzzz", rows)
         assert result is None
 
     def test_empty_choices_returns_none(self):
-        assert fuzzy_match_name("artie", []) is None
+        assert fuzzy_match_name("luke", []) is None
 
     def test_empty_query_returns_none(self):
-        assert fuzzy_match_name("", [{"id": 1, "name": "Artie", "aliases": "[]"}]) is None
+        assert fuzzy_match_name("", [{"id": 1, "name": "Luke", "aliases": "[]"}]) is None
 
 
 class TestCandidateAliases:
@@ -350,9 +350,9 @@ class TestCandidateAliases:
         assert "ant" in aliases
 
     def test_handles_empty_aliases(self):
-        row = {"id": 1, "name": "Artie", "aliases": "[]"}
+        row = {"id": 1, "name": "Luke", "aliases": "[]"}
         aliases = candidate_aliases(row)
-        assert aliases == ["artie"]
+        assert aliases == ["luke"]
 
 
 # ---------- graph-walk referent expansion ----------
@@ -399,13 +399,13 @@ class TestFactMatchesQuery:
         assert fact_matches_query(fact, "I love coffee") is True
 
     def test_fuzzy_match(self):
-        fact = {"subject": "artie", "predicate": "likes", "value": "movies"}
+        fact = {"subject": "luke", "predicate": "likes", "value": "movies"}
         assert fact_matches_query(fact, "does artiee like films") is True
 
     def test_no_match(self):
-        fact = {"subject": "artie", "predicate": "likes", "value": "movies"}
+        fact = {"subject": "luke", "predicate": "likes", "value": "movies"}
         assert fact_matches_query(fact, "what's the weather today") is False
 
     def test_empty_query_no_match(self):
-        fact = {"subject": "artie", "predicate": "likes", "value": "movies"}
+        fact = {"subject": "luke", "predicate": "likes", "value": "movies"}
         assert fact_matches_query(fact, "") is False

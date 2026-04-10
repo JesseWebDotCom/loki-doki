@@ -293,7 +293,7 @@ Improve which memories get selected before they reach the model.
   - near-duplicate suppression
   - noisy entity/name repair
 - Graph-walk resolution for:
-  - “Artie’s wife”
+  - “Luke’s wife”
   - “my brother’s daughter”
 - Entity-boost experiment behind a flag
 

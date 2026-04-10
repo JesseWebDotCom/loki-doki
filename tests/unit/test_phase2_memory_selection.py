@@ -37,7 +37,7 @@ def test_bucket_assignment_separates_profile_relational_and_episodic_candidates(
             },
             {
                 "id": 2,
-                "subject": "artie",
+                "subject": "luke",
                 "subject_type": "person",
                 "subject_ref_id": 12,
                 "predicate": "likes",
@@ -197,7 +197,7 @@ def test_full_synthesis_budget_enforces_diversity_and_suppression():
             "relational_graph": [
                 {
                     "id": 13,
-                    "subject": "artie",
+                    "subject": "luke",
                     "subject_type": "person",
                     "subject_ref_id": 2,
                     "predicate": "likes",
@@ -209,7 +209,7 @@ def test_full_synthesis_budget_enforces_diversity_and_suppression():
                 },
                 {
                     "id": 14,
-                    "subject": "artie",
+                    "subject": "luke",
                     "subject_type": "person",
                     "subject_ref_id": 2,
                     "predicate": "birthday",
@@ -265,7 +265,7 @@ def test_candidate_scoring_prefers_fresh_confident_relation_match():
     ask = _ask(referent_type="person", referent_scope=["person"])
     newer = {
         "id": 21,
-        "subject": "artie",
+        "subject": "luke",
         "subject_type": "person",
         "subject_ref_id": 2,
         "predicate": "likes",
@@ -279,7 +279,7 @@ def test_candidate_scoring_prefers_fresh_confident_relation_match():
     }
     older = {
         "id": 22,
-        "subject": "artie",
+        "subject": "luke",
         "subject_type": "person",
         "subject_ref_id": 2,
         "predicate": "likes",
@@ -481,7 +481,7 @@ def test_wake_up_context_caps_sections():
                 {"subject": "self", "subject_type": "self", "predicate": "enjoys", "value": "stormy weather"},
             ],
             "relational_graph": [
-                {"subject": "artie", "subject_type": "person", "predicate": "likes", "value": "movies"},
+                {"subject": "luke", "subject_type": "person", "predicate": "likes", "value": "movies"},
                 {"subject": "cam", "subject_type": "person", "predicate": "likes", "value": "painting"},
             ],
             "episodic_threads": [

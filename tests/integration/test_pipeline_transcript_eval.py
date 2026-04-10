@@ -482,7 +482,7 @@ async def test_transcript_family_followup_resolves_person_from_memory(memory):
         long_term_memory=[
             {
                 "subject_type": "person",
-                "subject_name": "Artie",
+                "subject_name": "Luke",
                 "predicate": "is",
                 "value": "brother",
                 "kind": "relationship",
@@ -494,7 +494,7 @@ async def test_transcript_family_followup_resolves_person_from_memory(memory):
         asks=[Ask(
             ask_id="ask_1",
             intent="direct_chat",
-            distilled_query="my brother Artie loves movies",
+            distilled_query="my brother Luke loves movies",
             context_source="none",
             referent_type="person",
             durability="durable",
@@ -502,7 +502,7 @@ async def test_transcript_family_followup_resolves_person_from_memory(memory):
             capability_need="none",
             referent_status="resolved",
             referent_scope=["person"],
-            referent_anchor="Artie",
+            referent_anchor="Luke",
         )],
         model="gemma4:e2b",
         latency_ms=10.0,
@@ -534,7 +534,7 @@ async def test_transcript_family_followup_resolves_person_from_memory(memory):
         prompt_sink=prompt_sink,
     )
 
-    await _run_turn(orch, "my brother Artie loves movies", user_id=uid, session_id=sid)
+    await _run_turn(orch, "my brother Luke loves movies", user_id=uid, session_id=sid)
     events = await _run_turn(orch, "what's his name", user_id=uid, session_id=sid)
 
     rr = next(e for e in events if e.phase == "referent_resolution" and e.status == "done")
@@ -543,7 +543,7 @@ async def test_transcript_family_followup_resolves_person_from_memory(memory):
     assert rr.data["asks"][0]["resolution_status"] == "resolved"
     assert rr.data["asks"][0]["resolution_source"] == "long_term_memory"
     assert "RELATIONSHIPS:" in prompt_sink[-1]["prompt"]
-    assert "Artie" in prompt_sink[-1]["prompt"]
+    assert "Luke" in prompt_sink[-1]["prompt"]
     assert routing.data["routing_log"][0]["status"] == "no_skill"
 
 
@@ -556,7 +556,7 @@ async def test_transcript_combined_movie_and_brother_name_followup_sees_cached_m
             c, uid, "movies_showtimes", "default_location", "Brooklyn, NY"
         )
     )
-    person_id = await memory.create_person(uid, "Artie")
+    person_id = await memory.create_person(uid, "Luke")
     await memory.add_relationship(uid, person_id, "brother")
 
     prompt_sink: list[dict] = []
@@ -634,7 +634,7 @@ async def test_transcript_combined_movie_and_brother_name_followup_sees_cached_m
     assert "RESOLVED_REFERENTS:" in prompt_sink[-1]["prompt"]
     assert "Avatar: Fire and Ash" in prompt_sink[-1]["prompt"]
     assert "RELATIONSHIPS:" in prompt_sink[-1]["prompt"]
-    assert "Artie" in prompt_sink[-1]["prompt"]
+    assert "Luke" in prompt_sink[-1]["prompt"]
     assert synthesis.data["response"]
 
 
