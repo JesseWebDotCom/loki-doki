@@ -231,6 +231,11 @@ def _speak_digits(value: str) -> str:
 
 
 def _speak_year(year: int) -> str:
-    if 2000 <= year <= 2099 and year % 100:
-        return f"{_number_words(year // 100)} {_number_words(year % 100)}"
+    if 1100 <= year <= 2099:
+        hi, lo = year // 100, year % 100
+        if lo == 0:
+            return f"{_number_words(hi)} hundred"
+        if lo < 10:
+            return f"{_number_words(hi)} oh {_number_words(lo)}"
+        return f"{_number_words(hi)} {_number_words(lo)}"
     return _number_words(year)

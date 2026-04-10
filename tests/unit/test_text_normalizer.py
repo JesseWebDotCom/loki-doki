@@ -57,6 +57,17 @@ def test_temperatures_are_spoken_naturally_in_weather_style_text():
     assert "clear sky" in spoken
 
 
+def test_historical_years_are_spoken_naturally():
+    spoken = normalize_for_speech(
+        "Hamlet was written between 1599 and 1601."
+    )
+    assert "fifteen ninety-nine" in spoken
+    assert "sixteen oh one" in spoken
+
+    assert "nineteen hundred" in normalize_for_speech("It was built in 1900.")
+    assert "eighteen twelve" in normalize_for_speech("The War of 1812.")
+
+
 def test_zip_codes_with_leading_zero_are_spoken_digit_by_digit():
     spoken = normalize_for_speech(
         "I see 5 theaters near 06461. Want Cinemark Connecticut Post 14 and IMAX?"

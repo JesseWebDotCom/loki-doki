@@ -484,6 +484,29 @@ CREATE TABLE IF NOT EXISTS pronunciation_fixes (
     spoken TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Per-person pronunciation overrides for name parts.
+--
+-- name_part identifies which segment of the name this fix covers:
+--   'first', 'middle', 'last', 'suffix', 'nickname', 'full'
+--
+-- Last-name fixes are family-level: any person whose name ends with the
+-- same last name inherits the pronunciation unless individually overridden.
+-- All other parts are individual-level (tied to person_id).
+--
+-- At TTS time these are collected and merged into the pronunciation_fixes
+-- dict so the existing apply_pronunciation_fixes() handles them.
+CREATE TABLE IF NOT EXISTS person_pronunciation (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    name_part TEXT NOT NULL DEFAULT 'first',
+    written TEXT NOT NULL,
+    spoken TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(person_id, name_part)
+);
+CREATE INDEX IF NOT EXISTS idx_person_pronunciation_person
+    ON person_pronunciation(person_id);
 """
 
 FTS_SCHEMA = """

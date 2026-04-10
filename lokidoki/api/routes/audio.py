@@ -26,6 +26,7 @@ from lokidoki.core.audio import (
     voice_installed,
     warm_voice,
 )
+from lokidoki.core.person_pronunciation import collect_person_pronunciation_fixes
 from lokidoki.core.pronunciation_fixes import (
     delete_admin_fix,
     get_merged_fixes,
@@ -33,7 +34,7 @@ from lokidoki.core.pronunciation_fixes import (
     set_admin_fix,
 )
 from lokidoki.api.routes.settings import _load_settings
-from lokidoki.auth.dependencies import get_memory, require_admin
+from lokidoki.auth.dependencies import current_user, get_memory, require_admin
 from lokidoki.auth.users import User
 from lokidoki.core.memory_provider import MemoryProvider
 
@@ -84,6 +85,7 @@ async def speech_to_text(file: UploadFile = File(...)):
 @router.post("/tts/stream")
 async def text_to_speech_stream(
     request: TTSRequest,
+    user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
     """Stream Piper output as ndjson chunks (no WAV-on-disk)."""
@@ -102,7 +104,13 @@ async def text_to_speech_stream(
             ),
         )
 
-    fixes = await memory.run_sync(get_merged_fixes)
+    def _load_fixes(conn):
+        fixes = get_merged_fixes(conn)
+        # Person-level pronunciations layer on top (person wins over global)
+        fixes.update(collect_person_pronunciation_fixes(conn, user.id))
+        return fixes
+
+    fixes = await memory.run_sync(_load_fixes)
 
     def iter_chunks():
         try:

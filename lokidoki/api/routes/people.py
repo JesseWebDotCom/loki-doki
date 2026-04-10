@@ -15,6 +15,12 @@ from lokidoki.auth.dependencies import current_user, get_memory, require_admin
 from lokidoki.auth.users import User
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core import people_graph_sql as gql
+from lokidoki.core.person_pronunciation import (
+    VALID_NAME_PARTS,
+    delete_person_pronunciation,
+    list_person_pronunciations,
+    set_person_pronunciation,
+)
 
 router = APIRouter()
 
@@ -625,3 +631,69 @@ async def export_gedcom(
         text,
         headers={"Content-Disposition": 'attachment; filename="lokidoki-family.ged"'},
     )
+
+
+# ---- Per-person pronunciation overrides -----------------------------------
+
+
+class PersonPronunciationBody(BaseModel):
+    name_part: str = Field(description="first | middle | last | suffix | nickname | full")
+    written: str = Field(description="The name as written (e.g. 'Nguyen')")
+    spoken: str = Field(description="How TTS should say it (e.g. 'win')")
+
+
+@router.get("/{person_id:int}/pronunciation")
+async def get_person_pronunciation(
+    person_id: int,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """List pronunciation overrides for a person."""
+    def _go(conn):
+        _require_person_access(conn, person_id, user)
+        return list_person_pronunciations(conn, person_id)
+    fixes = await memory.run_sync(_go)
+    return {"pronunciation": fixes}
+
+
+@router.put("/{person_id:int}/pronunciation")
+async def upsert_person_pronunciation(
+    person_id: int,
+    body: PersonPronunciationBody,
+    user: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Create or update a pronunciation override for a person's name part."""
+    part = body.name_part.strip().lower()
+    if part not in VALID_NAME_PARTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"name_part must be one of: {', '.join(VALID_NAME_PARTS)}",
+        )
+    written = body.written.strip()
+    spoken = body.spoken.strip()
+    if not written or not spoken:
+        raise HTTPException(status_code=400, detail="written and spoken must not be empty")
+
+    def _go(conn):
+        _require_person_access(conn, person_id, user)
+        return set_person_pronunciation(conn, person_id, part, written, spoken)
+    row_id = await memory.run_sync(_go)
+    return {"status": "saved", "id": row_id, "person_id": person_id, "name_part": part}
+
+
+@router.delete("/{person_id:int}/pronunciation/{name_part}")
+async def remove_person_pronunciation(
+    person_id: int,
+    name_part: str,
+    user: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Delete a pronunciation override for a person's name part."""
+    def _go(conn):
+        _require_person_access(conn, person_id, user)
+        return delete_person_pronunciation(conn, person_id, name_part)
+    deleted = await memory.run_sync(_go)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="pronunciation override not found")
+    return {"status": "deleted", "person_id": person_id, "name_part": name_part}

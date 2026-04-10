@@ -6,7 +6,15 @@ from unittest.mock import patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from lokidoki.auth.dependencies import current_user
+from lokidoki.auth.users import User
 from lokidoki.main import app
+
+_FAKE_USER = User(id=1, username="testuser", role="admin", status="active", last_password_auth_at=None)
+
+
+async def _override_user():
+    return _FAKE_USER
 
 
 class _FakeChunk:
@@ -28,16 +36,20 @@ class _RecordingVoice:
 @pytest.mark.anyio
 async def test_tts_stream_uses_naturalized_segments_for_realistic_speech():
     voice = _RecordingVoice()
-    with (
-        patch("lokidoki.api.routes.audio.voice_installed", return_value=True),
-        patch("lokidoki.core.audio._cached_voice", return_value=voice),
-    ):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            response = await ac.post(
-                "/api/v1/audio/tts/stream",
-                json={"text": "Dr. Kim is free on 04/09/2026 at 3:30 PM. Also, email user@example.com."},
-            )
+    app.dependency_overrides[current_user] = _override_user
+    try:
+        with (
+            patch("lokidoki.api.routes.audio.voice_installed", return_value=True),
+            patch("lokidoki.core.audio._cached_voice", return_value=voice),
+        ):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                response = await ac.post(
+                    "/api/v1/audio/tts/stream",
+                    json={"text": "Dr. Kim is free on 04/09/2026 at 3:30 PM. Also, email user@example.com."},
+                )
+    finally:
+        app.dependency_overrides.pop(current_user, None)
 
     assert response.status_code == 200
     events = [json.loads(line) for line in response.text.strip().splitlines()]
