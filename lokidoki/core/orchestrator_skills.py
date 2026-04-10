@@ -767,6 +767,7 @@ def build_synthesis_prompt(
     admin_prompt: str = "",
     project_prompt: str = "",
     clarify_hint: str = "",
+    wake_up_context: str = "",
     memory_block: str = "",
     sentiment_arc: str = "",
     character_name: str = "Loki",
@@ -796,6 +797,11 @@ def build_synthesis_prompt(
         if memory_block.strip()
         else ""
     )
+    wake_section = (
+        f"{wake_up_context}\n"
+        if wake_up_context.strip()
+        else ""
+    )
     referent_section = (
         f"{referent_block}\n"
         if referent_block.strip()
@@ -808,7 +814,7 @@ def build_synthesis_prompt(
         skill_data=skill_data,
         query=query,
         clarify_block=clarify_block,
-        memory_block=memory_section,
+        memory_block=wake_section + memory_section,
         referent_block=referent_section,
         character_name=character_name or "Loki",
     )

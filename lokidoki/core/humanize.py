@@ -157,6 +157,55 @@ def format_memory_block(
     return "\n".join(parts)
 
 
+def format_bucketed_memory_block(
+    *,
+    facts_by_bucket: dict[str, list[dict]],
+    past_messages: Iterable[dict],
+    now: Optional[datetime] = None,
+) -> str:
+    """Render Phase 2 bucketed memory with explicit boundaries."""
+    if not facts_by_bucket and not past_messages:
+        return ""
+
+    bucket_headers = {
+        "working_context": "WORKING_CONTEXT:",
+        "semantic_profile": "SEMANTIC_PROFILE:",
+        "relational_graph": "RELATIONAL_GRAPH:",
+        "episodic_threads": "EPISODIC_THREADS:",
+    }
+    parts: list[str] = []
+    for bucket in ("working_context", "semantic_profile", "relational_graph", "episodic_threads"):
+        rows = list((facts_by_bucket or {}).get(bucket) or [])
+        if not rows:
+            continue
+        parts.append(bucket_headers[bucket])
+        for fact in rows:
+            phrase = _fact_phrase(fact)
+            if not phrase:
+                continue
+            when = relative_time(
+                fact.get("valid_from") or fact.get("last_observed_at") or fact.get("created_at"),
+                now=now,
+            )
+            parts.append(f"- {when}: {phrase}" if when else f"- {phrase}")
+
+    messages = list(past_messages or [])
+    if messages:
+        if "EPISODIC_THREADS:" not in parts:
+            parts.append("EPISODIC_THREADS:")
+        for message in messages:
+            content = (message.get("content") or "").strip()
+            if not content:
+                continue
+            when = relative_time(message.get("created_at"), now=now)
+            snippet = content if len(content) <= 140 else content[:137] + "..."
+            parts.append(
+                f"- {when}, in an earlier chat, you said: \"{snippet}\"" if when
+                else f"- in an earlier chat you said: \"{snippet}\""
+            )
+    return "\n".join(parts)
+
+
 def aggregate_sentiment_arc(
     recent: list[dict],
     *,

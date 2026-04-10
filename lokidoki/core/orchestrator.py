@@ -31,6 +31,12 @@ from lokidoki.core.orchestrator_memory import (
     build_silent_confirmations,
     persist_long_term_item,
 )
+from lokidoki.core.memory_phase2 import (
+    bucket_memory_candidates,
+    build_wake_up_context,
+    recent_injected_ids_from_traces,
+    select_memory_context,
+)
 from lokidoki.core.prompt_budget import enforce_prompt_budget, estimate_prompt_tokens
 from lokidoki.core.orchestrator_referent_resolution import ReferentResolver
 from lokidoki.core.orchestrator_skills import (
@@ -279,12 +285,6 @@ class Orchestrator:
             if int(m["id"]) not in recent_ids
             and int(m.get("session_id") or 0) != session_id
         ][:4]
-        retrieved_memory_candidates = {
-            "recent_messages": [{"id": int(m["id"]), "role": m["role"]} for m in recent],
-            "relevant_facts": [{"id": int(f["id"]), "value": f.get("value", "")} for f in relevant_facts],
-            "past_messages": [{"id": int(m["id"]), "content": m.get("content", "")} for m in past_messages_raw[:8]],
-        }
-
         # Recent emotional arc — used to nudge tone in the synthesis prompt.
         from lokidoki.core.humanize import aggregate_sentiment_arc
         sentiment_arc = aggregate_sentiment_arc(sentiment_recent)
@@ -764,10 +764,74 @@ class Orchestrator:
             write_reports=write_reports,
             resolved_asks=resolved_asks,
         )
+        recent_facts = await self._memory.list_facts(
+            user_id,
+            limit=12,
+            project_id=project_id,
+        )
+        merged_fact_candidates: list[dict] = []
+        seen_fact_ids: set[int] = set()
+        for row in list(relevant_facts) + list(recent_facts):
+            row_id = row.get("id")
+            if row_id is not None:
+                if int(row_id) in seen_fact_ids:
+                    continue
+                seen_fact_ids.add(int(row_id))
+            merged_fact_candidates.append(row)
+        recent_traces = await self._memory.list_chat_traces(
+            user_id,
+            session_id=session_id,
+            limit=3,
+        )
+        repeated_injections = recent_injected_ids_from_traces(recent_traces)
+        candidates_by_bucket = bucket_memory_candidates(
+            facts=merged_fact_candidates,
+            past_messages=past_messages,
+            recent_message_ids=recent_ids,
+            asks=resolved_asks,
+        )
+        memory_selection = select_memory_context(
+            user_input=user_input,
+            reply_mode=response_spec.reply_mode,
+            memory_mode=response_spec.memory_mode,
+            asks=resolved_asks,
+            candidates_by_bucket=candidates_by_bucket,
+            repeated_fact_ids=repeated_injections["fact_ids"],
+            repeated_message_ids=repeated_injections["message_ids"],
+        )
+        wake_up_context = (
+            build_wake_up_context(
+                facts_by_bucket=memory_selection["facts_by_bucket"],
+                past_messages=memory_selection["past_messages"],
+            )
+            if is_first_turn
+            else {"key_facts": [], "relationships": [], "threads": [], "text": ""}
+        )
+        retrieved_memory_candidates = {
+            "recent_messages": [{"id": int(m["id"]), "role": m["role"]} for m in recent],
+            "facts_by_bucket": {
+                bucket: [
+                    {"id": int(f["id"]), "value": f.get("value", ""), "subject": f.get("subject", "")}
+                    for f in candidates_by_bucket.get(bucket, [])
+                ]
+                for bucket in ("working_context", "semantic_profile", "relational_graph", "episodic_threads")
+            },
+            "past_messages": [{"id": int(m["id"]), "content": m.get("content", "")} for m in candidates_by_bucket.get("episodic_messages", [])[:8]],
+        }
         selected_injected_memories = {
-            "relevant_facts": [{"id": int(f["id"]), "value": f.get("value", "")} for f in relevant_facts[:5]],
-            "past_messages": [{"id": int(m["id"]), "content": m.get("content", "")} for m in past_messages[:4]],
+            "facts_by_bucket": {
+                bucket: [
+                    {"id": int(f["id"]), "value": f.get("value", ""), "subject": f.get("subject", "")}
+                    for f in memory_selection["facts_by_bucket"].get(bucket, [])
+                ]
+                for bucket in ("working_context", "semantic_profile", "relational_graph", "episodic_threads")
+            },
+            "past_messages": [
+                {"id": int(m["id"]), "content": m.get("content", "")}
+                for m in memory_selection["past_messages"]
+            ],
             "relationships": [{"person_id": int(r.get("person_id") or 0), "relation": r.get("relation", "")} for r in relationships[:4]],
+            "wake_up_context": wake_up_context,
             "seed_hint": seed_hint,
             "clarify_hint": "",
         }
@@ -978,7 +1042,7 @@ class Orchestrator:
             )
             num_predict = ACKNOWLEDGMENT_NUM_PREDICT
         else:
-            from lokidoki.core.humanize import format_memory_block
+            from lokidoki.core.humanize import format_bucketed_memory_block
             from lokidoki.core.orchestrator_referents import build_referent_block
 
             # Only inject relationships into the synthesis prompt when
@@ -1023,8 +1087,9 @@ class Orchestrator:
                     admin_prompt=self._admin_prompt,
                     project_prompt=project_prompt,
                     clarify_hint=clarify_hint,
-                    memory_block=format_memory_block(
-                        facts=facts,
+                    wake_up_context=wake_up_context["text"],
+                    memory_block=format_bucketed_memory_block(
+                        facts_by_bucket=facts,
                         past_messages=messages,
                     ),
                     sentiment_arc=sentiment_arc,
@@ -1032,8 +1097,8 @@ class Orchestrator:
                     seed_hint=seed_hint,
                     referent_block=referent_block,
                 ),
-                facts=relevant_facts,
-                past_messages=past_messages,
+                facts=memory_selection["facts_by_bucket"],
+                past_messages=memory_selection["past_messages"],
                 skill_data=compressed_skill_data,
                 num_ctx=synthesis_num_ctx,
             )

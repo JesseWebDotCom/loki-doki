@@ -42,7 +42,8 @@ Status convention for every phase:
 Current overall status:
 - Phase 0 is `completed`
 - Phase 1 is `completed`
-- Phases 2-8 are `pending`
+- Phase 2 is `completed`
+- Phases 3-8 are `pending`
 
 ## Phase 0: Baseline, Instrumentation, Eval Harness, And Shadow Mode
 Status:
@@ -166,7 +167,7 @@ Make routing and reply behavior deterministic and centralized.
 
 ## Phase 2: Memory Buckets, Injection Budgets, And Wake-Up Context
 Status:
-- `pending`
+- `completed`
 
 ### Goal
 Make memory selection sparse, relevant, and appropriate to the reply type.

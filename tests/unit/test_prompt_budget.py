@@ -30,6 +30,7 @@ def _build_prompt(*, facts, messages, skill_data, clarify_hint="keep this questi
         skill_data=skill_data,
         query="what should I know right now",
         clarify_hint=clarify_hint,
+        wake_up_context="WAKE_UP_CONTEXT:\n- key fact: you likes coffee",
         memory_block=format_memory_block(facts=facts, past_messages=messages),
         referent_block=referent_block,
         character_name="Loki",
@@ -60,6 +61,7 @@ def test_prompt_budget_truncates_facts_then_messages_then_skill_detail():
     assert meta["skill_data_trimmed"] is True
     assert meta["estimated_tokens"] <= meta["max_tokens"]
     assert "keep this question" in prompt
+    assert "WAKE_UP_CONTEXT:" in prompt
     assert "[src:1]" in prompt
 
 
