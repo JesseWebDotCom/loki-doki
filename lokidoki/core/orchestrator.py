@@ -980,6 +980,19 @@ class Orchestrator:
             write_reports=write_reports,
             resolved_asks=resolved_asks,
         )
+
+        # Phase 7: resolve reranker experiment arm early so it applies
+        # to candidate reranking before bucketing.
+        from lokidoki.core.experiment import (
+            RERANKER_EXPERIMENT as _RERANKER_EXP,
+            get_or_assign_arm as _get_arm,
+        )
+        _reranker_arm = await _get_arm(
+            self._memory,
+            user_id=user_id,
+            experiment_id=_RERANKER_EXP.experiment_id,
+        )
+
         recent_facts = await self._memory.list_facts(
             user_id,
             limit=12,
@@ -994,6 +1007,17 @@ class Orchestrator:
                     continue
                 seen_fact_ids.add(int(row_id))
             merged_fact_candidates.append(row)
+
+        # Phase 7: optional reranker pass on candidates.
+        if _reranker_arm == "reranker" and merged_fact_candidates:
+            from lokidoki.core.reranker import rerank_facts
+            merged_fact_candidates = await asyncio.to_thread(
+                rerank_facts,
+                user_input,
+                merged_fact_candidates,
+                top_k=len(merged_fact_candidates),
+            )
+
         recent_traces = await self._memory.list_chat_traces(
             user_id,
             session_id=session_id,
@@ -1053,6 +1077,32 @@ class Orchestrator:
             "seed_hint": seed_hint,
             "clarify_hint": "",
         }
+
+        # ---- Phase 7: fact access telemetry (fire-and-forget) -----------
+        # Record which facts were retrieved (candidates) and which were
+        # injected (selected). Non-blocking — telemetry must never slow
+        # the user-facing turn.
+        retrieved_fact_ids = [
+            int(f["id"])
+            for bucket_rows in candidates_by_bucket.values()
+            if isinstance(bucket_rows, list)
+            for f in bucket_rows
+            if f.get("id") is not None
+        ]
+        injected_fact_ids = [
+            int(f["id"])
+            for bucket_rows in memory_selection["facts_by_bucket"].values()
+            for f in bucket_rows
+            if f.get("id") is not None
+        ]
+        # Run both telemetry writes concurrently; swallow errors.
+        try:
+            await asyncio.gather(
+                self._memory.record_fact_retrieval(retrieved_fact_ids),
+                self._memory.record_fact_injection(injected_fact_ids),
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("[orchestrator] fact telemetry write failed; non-fatal")
 
         # ---- clarification fast-path ------------------------------------
         # If any skill came back with a `needs_clarification` block,
@@ -1266,6 +1316,21 @@ class Orchestrator:
             "blocked_openers": humanization_plan.blocked_openers[:6],
         }
 
+        # ---- Phase 7: resolve memory-format experiment arm ----------------
+        from lokidoki.core.experiment import (
+            MEMORY_FORMAT_EXPERIMENT,
+            RERANKER_EXPERIMENT,
+        )
+        memory_format_arm = await _get_arm(
+            self._memory,
+            user_id=user_id,
+            experiment_id=MEMORY_FORMAT_EXPERIMENT.experiment_id,
+        )
+        selected_injected_memories["experiment_arms"] = {
+            MEMORY_FORMAT_EXPERIMENT.experiment_id: memory_format_arm,
+            RERANKER_EXPERIMENT.experiment_id: _reranker_arm,
+        }
+
         # Fact-sharing turn detection: the user said something declarative,
         # the decomposer extracted at least one fact, and every ask is a
         # direct_chat (no real skill resolved). Route these
@@ -1284,7 +1349,10 @@ class Orchestrator:
             )
             num_predict = ACKNOWLEDGMENT_NUM_PREDICT
         else:
-            from lokidoki.core.humanize import format_bucketed_memory_block
+            from lokidoki.core.humanize import (
+                format_bucketed_memory_block,
+                format_warm_memory_block,
+            )
             from lokidoki.core.orchestrator_referents import build_referent_block
 
             # Only inject relationships into the synthesis prompt when
@@ -1319,6 +1387,12 @@ class Orchestrator:
                 and getattr(self._decomposer, "_num_ctx", 0) > 0
                 else 8192
             )
+            # Phase 7: select memory formatter based on experiment arm.
+            _mem_fmt = (
+                format_warm_memory_block
+                if memory_format_arm == "warm"
+                else format_bucketed_memory_block
+            )
             prompt, budget_meta = enforce_prompt_budget(
                 build_prompt=lambda *, facts, messages, skill_data: build_synthesis_prompt(
                     tone=tone,
@@ -1330,7 +1404,7 @@ class Orchestrator:
                     project_prompt=project_prompt,
                     clarify_hint=clarify_hint,
                     wake_up_context=wake_up_context["text"],
-                    memory_block=format_bucketed_memory_block(
+                    memory_block=_mem_fmt(
                         facts_by_bucket=facts,
                         past_messages=messages,
                     ),

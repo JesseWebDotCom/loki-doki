@@ -457,6 +457,49 @@ class MemoryProvider:
             out.append(item)
         return out
 
+    # ---- Phase 7: fact telemetry ----------------------------------------
+
+    async def record_fact_retrieval(self, fact_ids: list[int]) -> None:
+        if not fact_ids:
+            return
+        async with self._lock:
+            await asyncio.to_thread(
+                sql.record_fact_retrieval, self._conn, fact_ids
+            )
+
+    async def record_fact_injection(self, fact_ids: list[int]) -> None:
+        if not fact_ids:
+            return
+        async with self._lock:
+            await asyncio.to_thread(
+                sql.record_fact_injection, self._conn, fact_ids
+            )
+
+    async def get_fact_telemetry(self, fact_id: int) -> Optional[dict]:
+        async with self._lock:
+            row = await asyncio.to_thread(
+                sql.get_fact_telemetry, self._conn, fact_id
+            )
+        return dict(row) if row else None
+
+    # ---- Phase 7: experiment assignments ---------------------------------
+
+    async def get_experiment_arm(
+        self, user_id: int, experiment_id: str
+    ) -> Optional[str]:
+        async with self._lock:
+            return await asyncio.to_thread(
+                sql.get_experiment_arm, self._conn, user_id, experiment_id
+            )
+
+    async def set_experiment_arm(
+        self, user_id: int, experiment_id: str, arm: str
+    ) -> None:
+        async with self._lock:
+            await asyncio.to_thread(
+                sql.set_experiment_arm, self._conn, user_id, experiment_id, arm
+            )
+
     # ---- facts -----------------------------------------------------------
 
     async def upsert_fact(

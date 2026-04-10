@@ -47,7 +47,8 @@ Current overall status:
 - Phase 4 is `completed`
 - Phase 5 is `completed`
 - Phase 6 is `completed`
-- Phases 7-8 are `pending`
+- Phase 7 is `completed`
+- Phase 8 is `pending`
 
 ## Phase 0: Baseline, Instrumentation, Eval Harness, And Shadow Mode
 Status:
@@ -407,7 +408,7 @@ Add a second-pass safety net only where uncertainty is high.
 
 ## Phase 7: Telemetry-Driven Experiments And Controlled A/B Tests
 Status:
-- `pending`
+- `completed`
 
 ### Goal
 Experiment safely and only promote changes that outperform the control.

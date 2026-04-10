@@ -507,6 +507,32 @@ CREATE TABLE IF NOT EXISTS person_pronunciation (
 );
 CREATE INDEX IF NOT EXISTS idx_person_pronunciation_person
     ON person_pronunciation(person_id);
+
+-- Phase 7: per-fact access telemetry.
+-- Tracks how often each fact is retrieved (candidate) vs injected
+-- (selected into prompt), so the A/B framework can correlate access
+-- patterns with actual usefulness. Separate table avoids bloating the
+-- hot facts table with write-heavy counters.
+CREATE TABLE IF NOT EXISTS fact_telemetry (
+    fact_id INTEGER PRIMARY KEY REFERENCES facts(id) ON DELETE CASCADE,
+    retrieve_count INTEGER NOT NULL DEFAULT 0,
+    inject_count INTEGER NOT NULL DEFAULT 0,
+    last_retrieved_at TEXT,
+    last_injected_at TEXT
+);
+
+-- Phase 7: A/B experiment arm assignments.
+-- Each user is deterministically assigned to an arm per experiment.
+-- The assignment persists across sessions so results are comparable.
+CREATE TABLE IF NOT EXISTS experiment_assignments (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    experiment_id TEXT NOT NULL,
+    arm TEXT NOT NULL,
+    assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, experiment_id)
+);
+CREATE INDEX IF NOT EXISTS idx_experiment_assignments_experiment
+    ON experiment_assignments(experiment_id);
 """
 
 FTS_SCHEMA = """

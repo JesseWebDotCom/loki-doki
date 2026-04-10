@@ -206,6 +206,64 @@ def format_bucketed_memory_block(
     return "\n".join(parts)
 
 
+def format_warm_memory_block(
+    *,
+    facts_by_bucket: dict[str, list[dict]],
+    past_messages: Iterable[dict],
+    now: Optional[datetime] = None,
+) -> str:
+    """Warm variant of bucketed memory formatting (Phase 7 A/B experiment).
+
+    Instead of cold bucket headers (WORKING_CONTEXT:, SEMANTIC_PROFILE:)
+    this variant uses conversational framing that reads more naturally
+    to the synthesis model: "Here's what you know about this person:"
+    vs "RELATIONAL_GRAPH:". The content is identical — only the
+    presentation changes.
+    """
+    if not facts_by_bucket and not past_messages:
+        return ""
+
+    warm_headers = {
+        "working_context": "Things on your mind lately:",
+        "semantic_profile": "What you know about yourself:",
+        "relational_graph": "People in your life:",
+        "episodic_threads": "Recent happenings:",
+    }
+    parts: list[str] = []
+    for bucket in ("working_context", "semantic_profile", "relational_graph", "episodic_threads"):
+        rows = list((facts_by_bucket or {}).get(bucket) or [])
+        if not rows:
+            continue
+        parts.append(warm_headers[bucket])
+        for fact in rows:
+            phrase = _fact_phrase(fact)
+            if not phrase:
+                continue
+            when = relative_time(
+                fact.get("valid_from") or fact.get("last_observed_at") or fact.get("created_at"),
+                now=now,
+            )
+            parts.append(f"- {when}: {phrase}" if when else f"- {phrase}")
+
+    messages = list(past_messages or [])
+    if messages:
+        if not any(h in parts for h in warm_headers.values()):
+            parts.append("From earlier conversations:")
+        else:
+            parts.append("From earlier conversations:")
+        for message in messages:
+            content = (message.get("content") or "").strip()
+            if not content:
+                continue
+            when = relative_time(message.get("created_at"), now=now)
+            snippet = content if len(content) <= 140 else content[:137] + "..."
+            parts.append(
+                f"- {when}, you mentioned: \"{snippet}\"" if when
+                else f"- you mentioned: \"{snippet}\""
+            )
+    return "\n".join(parts)
+
+
 def aggregate_sentiment_arc(
     recent: list[dict],
     *,

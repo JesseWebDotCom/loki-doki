@@ -238,6 +238,10 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
                 "vec_facts creation failed (%s); disabling vec", exc
             )
             vec_loaded = False
+    # Phase 7 tables: fact_telemetry and experiment_assignments are in
+    # CORE_SCHEMA for fresh DBs. For existing DBs, CREATE TABLE IF NOT
+    # EXISTS inside CORE_SCHEMA handles them idempotently — no column
+    # migration needed because the tables are brand new.
     conn.commit()
 
     # One-shot migration: copy legacy relationships table rows into

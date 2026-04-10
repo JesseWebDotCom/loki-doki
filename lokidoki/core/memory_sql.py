@@ -533,6 +533,79 @@ def search_messages(
     ).fetchall()
 
 
+# ---- Phase 7: fact telemetry ----------------------------------------
+
+
+def record_fact_retrieval(
+    conn: sqlite3.Connection, fact_ids: list[int]
+) -> None:
+    """Bump retrieve_count and last_retrieved_at for each candidate fact."""
+    if not fact_ids:
+        return
+    for fid in fact_ids:
+        conn.execute(
+            "INSERT INTO fact_telemetry (fact_id, retrieve_count, last_retrieved_at) "
+            "VALUES (?, 1, datetime('now')) "
+            "ON CONFLICT(fact_id) DO UPDATE SET "
+            "retrieve_count = retrieve_count + 1, "
+            "last_retrieved_at = datetime('now')",
+            (fid,),
+        )
+    conn.commit()
+
+
+def record_fact_injection(
+    conn: sqlite3.Connection, fact_ids: list[int]
+) -> None:
+    """Bump inject_count and last_injected_at for each injected fact."""
+    if not fact_ids:
+        return
+    for fid in fact_ids:
+        conn.execute(
+            "INSERT INTO fact_telemetry (fact_id, inject_count, last_injected_at) "
+            "VALUES (?, 1, datetime('now')) "
+            "ON CONFLICT(fact_id) DO UPDATE SET "
+            "inject_count = inject_count + 1, "
+            "last_injected_at = datetime('now')",
+            (fid,),
+        )
+    conn.commit()
+
+
+def get_fact_telemetry(
+    conn: sqlite3.Connection, fact_id: int
+) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM fact_telemetry WHERE fact_id = ?", (fact_id,)
+    ).fetchone()
+
+
+# ---- Phase 7: experiment assignments --------------------------------
+
+
+def get_experiment_arm(
+    conn: sqlite3.Connection, user_id: int, experiment_id: str
+) -> Optional[str]:
+    row = conn.execute(
+        "SELECT arm FROM experiment_assignments "
+        "WHERE user_id = ? AND experiment_id = ?",
+        (user_id, experiment_id),
+    ).fetchone()
+    return row["arm"] if row else None
+
+
+def set_experiment_arm(
+    conn: sqlite3.Connection, user_id: int, experiment_id: str, arm: str
+) -> None:
+    conn.execute(
+        "INSERT INTO experiment_assignments (user_id, experiment_id, arm) "
+        "VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, experiment_id) DO UPDATE SET arm = ?, assigned_at = datetime('now')",
+        (user_id, experiment_id, arm, arm),
+    )
+    conn.commit()
+
+
 def fts_escape(query: str) -> str:
     """Wrap user input as quoted FTS5 phrase tokens.
 
