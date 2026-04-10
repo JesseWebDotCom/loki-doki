@@ -44,3 +44,13 @@ class TestSettings:
             loaded = _load_settings()
 
         assert loaded == DEFAULT_SETTINGS
+
+    def test_load_includes_speech_naturalization_defaults(self, tmp_path):
+        path = str(tmp_path / "settings.json")
+
+        with patch("lokidoki.api.routes.settings.SETTINGS_FILE", path):
+            loaded = _load_settings()
+
+        assert loaded["speech_rate"] == 1.0
+        assert loaded["sentence_pause"] == 0.4
+        assert loaded["normalize_text"] is True

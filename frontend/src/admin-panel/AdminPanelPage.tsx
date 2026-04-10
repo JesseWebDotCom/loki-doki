@@ -439,6 +439,50 @@ const AudioPane: React.FC = () => {
           <div className="text-xs text-muted-foreground">Automatically speak every response using Piper TTS</div>
         </div>
       </label>
+      <label className="flex items-center gap-3 p-4 rounded-xl bg-card/50 border border-border/30 cursor-pointer hover:border-border/60 transition-all">
+        <input
+          type="checkbox"
+          checked={settings.normalize_text}
+          onChange={(e) => setSettings({ ...settings, normalize_text: e.target.checked })}
+          className="w-4 h-4 rounded border-border accent-primary"
+        />
+        <div>
+          <div className="text-sm font-bold">Normalize Speech Text</div>
+          <div className="text-xs text-muted-foreground">Expand dates, numbers, links, and abbreviations before TTS</div>
+        </div>
+      </label>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+            Speech Rate
+          </label>
+          <input
+            type="range"
+            min="0.8"
+            max="1.3"
+            step="0.05"
+            value={settings.speech_rate}
+            onChange={(e) => setSettings({ ...settings, speech_rate: Number(e.target.value) })}
+            className="w-full accent-primary"
+          />
+          <div className="text-xs text-muted-foreground">{settings.speech_rate.toFixed(2)}x</div>
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+            Sentence Pause
+          </label>
+          <input
+            type="range"
+            min="0.1"
+            max="1.0"
+            step="0.05"
+            value={settings.sentence_pause}
+            onChange={(e) => setSettings({ ...settings, sentence_pause: Number(e.target.value) })}
+            className="w-full accent-primary"
+          />
+          <div className="text-xs text-muted-foreground">{settings.sentence_pause.toFixed(2)}s</div>
+        </div>
+      </div>
       <div className="flex justify-end pt-2">
         <button
           onClick={() => void save()}
@@ -864,4 +908,3 @@ const ToolsPane: React.FC = () => (
     </div>
   </div>
 );
-

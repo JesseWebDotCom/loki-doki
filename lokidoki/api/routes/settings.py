@@ -13,6 +13,9 @@ DEFAULT_SETTINGS = {
     "piper_voice": "en_US-lessac-medium",
     "stt_model": "base",
     "read_aloud": True,
+    "speech_rate": 1.0,
+    "sentence_pause": 0.4,
+    "normalize_text": True,
 }
 
 
@@ -22,6 +25,9 @@ class SettingsUpdate(BaseModel):
     piper_voice: str = "en_US-lessac-medium"
     stt_model: str = "base"
     read_aloud: bool = True
+    speech_rate: float = 1.0
+    sentence_pause: float = 0.4
+    normalize_text: bool = True
 
 
 def _load_settings() -> dict:

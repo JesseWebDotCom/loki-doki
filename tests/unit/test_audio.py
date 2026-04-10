@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
 from lokidoki.core.audio import (
-    SpeechToText, AudioConfig, SentenceBuffer
+    SpeechToText, AudioConfig, SentenceBuffer, synthesize_stream
 )
 # NOTE: TextToSpeech was refactored away in favor of the module-level
 # `synthesize_stream` / `warm_voice` functions; the legacy
@@ -15,11 +15,23 @@ class TestAudioConfig:
         assert config.piper_voice == "en_US-lessac-medium"
         assert config.stt_model == "base"
         assert config.read_aloud is True
+        assert config.speech_rate == 1.0
+        assert config.sentence_pause == 0.4
+        assert config.normalize_text is True
 
     def test_custom_config(self):
-        config = AudioConfig(piper_voice="en_US-amy-low", read_aloud=False)
+        config = AudioConfig(
+            piper_voice="en_US-amy-low",
+            read_aloud=False,
+            speech_rate=1.15,
+            sentence_pause=0.6,
+            normalize_text=False,
+        )
         assert config.piper_voice == "en_US-amy-low"
         assert config.read_aloud is False
+        assert config.speech_rate == 1.15
+        assert config.sentence_pause == 0.6
+        assert config.normalize_text is False
 
 
 class TestSentenceBuffer:
@@ -127,3 +139,60 @@ class TestSpeechToText:
         assert available is True
 
 
+class _FakeChunk:
+    def __init__(self, text: str, sample_rate: int = 22050):
+        self.audio_int16_bytes = (text.encode("utf-8") or b"x")[:6]
+        if len(self.audio_int16_bytes) % 2:
+            self.audio_int16_bytes += b"\x00"
+        self.sample_rate = sample_rate
+        self.phonemes = ["AA", "BB"]
+
+
+class _FakeVoice:
+    def __init__(self):
+        self.calls = []
+
+    def synthesize(self, text: str, **kwargs):
+        self.calls.append({"text": text, **kwargs})
+        yield _FakeChunk(text)
+
+
+def test_synthesize_stream_normalizes_and_segments_text():
+    voice = _FakeVoice()
+
+    with patch("lokidoki.core.audio._cached_voice", return_value=voice):
+        chunks = list(
+            synthesize_stream(
+                "Dr. Kim is at 04/09/2026. Also, we're 85% done.",
+                "en_US-lessac-medium",
+            )
+        )
+
+    assert len(voice.calls) == 2
+    assert voice.calls[0]["text"] == "Doctor Kim is at April ninth, twenty twenty-six."
+    assert voice.calls[0]["length_scale"] == 1.0
+    assert voice.calls[1]["text"] == "Also, we're eighty-five percent done."
+    assert voice.calls[1]["length_scale"] == 0.95
+    assert len(chunks) == 3
+
+
+def test_synthesize_stream_injects_silence_between_segments():
+    voice = _FakeVoice()
+
+    with patch("lokidoki.core.audio._cached_voice", return_value=voice):
+        chunks = list(synthesize_stream("Yes. What now?", "en_US-lessac-medium"))
+
+    assert len(chunks) == 3
+    assert chunks[1]["phonemes"] == []
+    assert chunks[1]["samples_per_phoneme"] == 0
+    assert chunks[1]["audio_pcm"].startswith(b"\x00\x00")
+
+
+def test_synthesize_stream_can_disable_normalization():
+    voice = _FakeVoice()
+    config = AudioConfig(normalize_text=False)
+
+    with patch("lokidoki.core.audio._cached_voice", return_value=voice):
+        list(synthesize_stream("Dr. Kim", "en_US-lessac-medium", config=config))
+
+    assert voice.calls[0]["text"] == "Dr. Kim"

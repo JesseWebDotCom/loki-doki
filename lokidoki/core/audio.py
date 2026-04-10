@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import os
 import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
+
+from lokidoki.core.prosody_planner import build_silence_pcm, plan_prosody
+from lokidoki.core.text_normalizer import normalize_for_speech
 
 VOICE_DIR = Path("data/models/piper")
 
@@ -56,6 +60,9 @@ class AudioConfig:
     piper_voice: str = "en_US-lessac-medium"
     stt_model: str = "base"
     read_aloud: bool = True
+    speech_rate: float = 1.0
+    sentence_pause: float = 0.4
+    normalize_text: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -118,24 +125,58 @@ def warm_voice(voice_id: str) -> bool:
         return False
 
 
-def synthesize_stream(text: str, voice_id: str) -> Iterator[dict[str, Any]]:
+def synthesize_stream(
+    text: str,
+    voice_id: str,
+    *,
+    config: AudioConfig | None = None,
+) -> Iterator[dict[str, Any]]:
     """Yield {audio_pcm, sample_rate, phonemes, samples_per_phoneme} chunks.
 
     Each yielded chunk corresponds to one Piper synthesis segment (sentence-
     level). PCM is little-endian int16 mono, ready to play in an
     AudioBuffer on the browser side.
     """
+    cfg = config or AudioConfig()
+    prepared = normalize_for_speech(text) if cfg.normalize_text else str(text or "").strip()
+    if not prepared:
+        return
     voice = _cached_voice(voice_id)
-    for chunk in voice.synthesize(text):
-        phonemes = list(chunk.phonemes) if getattr(chunk, "phonemes", None) else []
-        sample_count = len(chunk.audio_int16_bytes) // 2
-        samples_per_phoneme = sample_count // len(phonemes) if phonemes else 0
-        yield {
-            "audio_pcm": chunk.audio_int16_bytes,
-            "sample_rate": int(chunk.sample_rate),
-            "phonemes": phonemes,
-            "samples_per_phoneme": samples_per_phoneme,
-        }
+    segments = plan_prosody(
+        prepared,
+        base_length_scale=cfg.speech_rate,
+        sentence_pause=cfg.sentence_pause,
+    )
+    last_sample_rate = 22050
+    for idx, segment in enumerate(segments):
+        for chunk in _synthesize_voice_segment(voice, segment.text, length_scale=segment.length_scale):
+            phonemes = list(chunk.phonemes) if getattr(chunk, "phonemes", None) else []
+            sample_count = len(chunk.audio_int16_bytes) // 2
+            samples_per_phoneme = sample_count // len(phonemes) if phonemes else 0
+            last_sample_rate = int(chunk.sample_rate)
+            yield {
+                "audio_pcm": chunk.audio_int16_bytes,
+                "sample_rate": last_sample_rate,
+                "phonemes": phonemes,
+                "samples_per_phoneme": samples_per_phoneme,
+            }
+        if idx < len(segments) - 1 and segment.post_silence_s > 0:
+            yield {
+                "audio_pcm": build_silence_pcm(sample_rate=last_sample_rate, duration_s=segment.post_silence_s),
+                "sample_rate": last_sample_rate,
+                "phonemes": [],
+                "samples_per_phoneme": 0,
+            }
+
+
+def _synthesize_voice_segment(voice: Any, text: str, *, length_scale: float):
+    params = inspect.signature(voice.synthesize).parameters
+    if "syn_config" in params:
+        from piper.config import SynthesisConfig  # type: ignore
+
+        syn_config = SynthesisConfig(length_scale=length_scale)
+        return voice.synthesize(text, syn_config=syn_config, include_alignments=True)
+    return voice.synthesize(text, length_scale=length_scale)
 
 
 # ---------------------------------------------------------------------------

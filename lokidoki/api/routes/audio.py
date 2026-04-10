@@ -26,6 +26,7 @@ from lokidoki.core.audio import (
     voice_installed,
     warm_voice,
 )
+from lokidoki.api.routes.settings import _load_settings
 
 router = APIRouter()
 
@@ -39,6 +40,18 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 class TTSRequest(BaseModel):
     text: str
     voice: str | None = None
+
+
+def _current_audio_config() -> AudioConfig:
+    loaded = _load_settings()
+    return AudioConfig(
+        piper_voice=str(loaded.get("piper_voice", _config.piper_voice)),
+        stt_model=str(loaded.get("stt_model", _config.stt_model)),
+        read_aloud=bool(loaded.get("read_aloud", _config.read_aloud)),
+        speech_rate=float(loaded.get("speech_rate", _config.speech_rate)),
+        sentence_pause=float(loaded.get("sentence_pause", _config.sentence_pause)),
+        normalize_text=bool(loaded.get("normalize_text", _config.normalize_text)),
+    )
 
 
 @router.post("/stt")
@@ -66,7 +79,8 @@ async def text_to_speech_stream(request: TTSRequest):
     if not text:
         raise HTTPException(status_code=400, detail="Text must not be empty")
 
-    voice_id = (request.voice or _config.piper_voice).strip()
+    config = _current_audio_config()
+    voice_id = (request.voice or config.piper_voice).strip()
     if not voice_installed(voice_id):
         raise HTTPException(
             status_code=400,
@@ -78,7 +92,7 @@ async def text_to_speech_stream(request: TTSRequest):
 
     def iter_chunks():
         try:
-            for chunk in synthesize_stream(text, voice_id):
+            for chunk in synthesize_stream(text, voice_id, config=config):
                 yield json.dumps({
                     "audio_base64": base64.b64encode(chunk["audio_pcm"]).decode("ascii"),
                     "sample_rate": chunk["sample_rate"],
@@ -94,24 +108,30 @@ async def text_to_speech_stream(request: TTSRequest):
 @router.post("/tts/warm")
 async def warm_tts_voice():
     """Preload the active Piper voice into process memory."""
-    ok = warm_voice(_config.piper_voice)
-    return {"ok": ok, "voice": _config.piper_voice}
+    config = _current_audio_config()
+    ok = warm_voice(config.piper_voice)
+    return {"ok": ok, "voice": config.piper_voice}
 
 
 @router.get("/config")
 async def get_audio_config():
+    config = _current_audio_config()
     return {
-        "piper_voice": _config.piper_voice,
-        "stt_model": _config.stt_model,
-        "read_aloud": _config.read_aloud,
+        "piper_voice": config.piper_voice,
+        "stt_model": config.stt_model,
+        "read_aloud": config.read_aloud,
+        "speech_rate": config.speech_rate,
+        "sentence_pause": config.sentence_pause,
+        "normalize_text": config.normalize_text,
     }
 
 
 @router.get("/status")
 async def audio_status():
+    config = _current_audio_config()
     stt_available = await _stt.is_available()
-    tts_available = voice_installed(_config.piper_voice)
+    tts_available = voice_installed(config.piper_voice)
     return {
         "stt": {"available": stt_available, "model": _config.stt_model},
-        "tts": {"available": tts_available, "voice": _config.piper_voice},
+        "tts": {"available": tts_available, "voice": config.piper_voice},
     }

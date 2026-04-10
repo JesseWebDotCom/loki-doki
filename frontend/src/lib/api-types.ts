@@ -280,4 +280,7 @@ export interface SettingsData {
   piper_voice: string;
   stt_model: string;
   read_aloud: boolean;
+  speech_rate: number;
+  sentence_pause: number;
+  normalize_text: boolean;
 }
