@@ -12,6 +12,7 @@ Skill resolution and prompt assembly live in
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -40,6 +41,7 @@ from lokidoki.core.orchestrator_skills import (
     try_grounded_fast_path,
     try_verbatim_fast_path,
 )
+from lokidoki.core.response_spec import plan_response_spec
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
 from lokidoki.core import people_graph_sql as gql
@@ -71,6 +73,25 @@ ACKNOWLEDGMENT_NUM_PREDICT = 110
 # Below this length, force the fast model even if the decomposer says
 # 'thinking'. The 9B upgrade is too expensive for trivial questions.
 TRIVIAL_QUERY_CHAR_LIMIT = 120
+
+
+def _estimate_prompt_tokens(text: str) -> int:
+    return max(1, (len(text or "") + 3) // 4)
+
+
+def _traceable_skill_results(skill_results: dict, routing_log: list[dict]) -> dict:
+    return {
+        "routing_log": routing_log,
+        "results": {
+            ask_id: {
+                "success": bool(getattr(result, "success", False)),
+                "latency_ms": float(getattr(result, "latency_ms", 0.0) or 0.0),
+                "data_keys": sorted(list((getattr(result, "data", None) or {}).keys())),
+                "error": getattr(result, "error", "") or "",
+            }
+            for ask_id, result in (skill_results or {}).items()
+        },
+    }
 
 
 def _normalize_memory_priority_for_turn(item: dict, asks: list[Ask]) -> dict:
@@ -175,8 +196,56 @@ class Orchestrator:
         user_msg_id = await self._memory.add_message(
             user_id=user_id, session_id=session_id, role="user", content=user_input
         )
+        phase_starts: dict[str, float] = {}
+        phase_latencies: dict[str, float] = {}
+        prompt_sizes = {"decomposition": {}, "synthesis": {}}
+        referent_trace: dict = {}
+        write_reports: list[dict] = []
+        skill_results: dict = {}
+        routing_log: list[dict] = []
+        shadow_spec = None
+        retrieved_memory_candidates: dict = {}
+        selected_injected_memories: dict = {}
+
+        async def _finalize_trace(actual_lane: str, decomposition, resolved_asks) -> None:
+            planned_lane = ""
+            if shadow_spec is not None:
+                planned_lane = shadow_spec.reply_mode
+            decomp_payload = {
+                "model": getattr(decomposition, "model", "") or "",
+                "latency_ms": float(getattr(decomposition, "latency_ms", 0.0) or 0.0),
+                "is_course_correction": bool(getattr(decomposition, "is_course_correction", False)),
+                "reasoning_complexity": getattr(decomposition, "overall_reasoning_complexity", "") or "",
+                "asks": [
+                    {
+                        "ask_id": getattr(a, "ask_id", ""),
+                        "intent": getattr(a, "intent", ""),
+                        "distilled_query": getattr(a, "distilled_query", ""),
+                        "response_shape": getattr(a, "response_shape", ""),
+                        "requires_current_data": bool(getattr(a, "requires_current_data", False)),
+                    }
+                    for a in (getattr(decomposition, "asks", None) or [])
+                ],
+            }
+            await self._memory.add_chat_trace(
+                user_id=user_id,
+                session_id=session_id,
+                user_message_id=user_msg_id,
+                response_lane_actual=actual_lane,
+                response_lane_planned=planned_lane,
+                shadow_disagrees=bool(planned_lane and planned_lane != actual_lane),
+                decomposition=decomp_payload,
+                referent_resolution=referent_trace,
+                retrieved_memory_candidates=retrieved_memory_candidates,
+                selected_injected_memories=selected_injected_memories,
+                skill_results=_traceable_skill_results(skill_results, routing_log),
+                prompt_sizes=prompt_sizes,
+                response_spec_shadow=(shadow_spec.to_dict() if shadow_spec else {}),
+                phase_latencies=phase_latencies,
+            )
 
         # ---- augmentation ------------------------------------------------
+        phase_starts["augmentation"] = time.perf_counter()
         yield PipelineEvent(phase="augmentation", status="active")
         recent, relevant_facts, past_messages_raw, sentiment_recent, people_rows = await asyncio.gather(
             self._memory.get_messages(user_id=user_id, session_id=session_id, limit=5),
@@ -213,6 +282,11 @@ class Orchestrator:
             if int(m["id"]) not in recent_ids
             and int(m.get("session_id") or 0) != session_id
         ][:4]
+        retrieved_memory_candidates = {
+            "recent_messages": [{"id": int(m["id"]), "role": m["role"]} for m in recent],
+            "relevant_facts": [{"id": int(f["id"]), "value": f.get("value", "")} for f in relevant_facts],
+            "past_messages": [{"id": int(m["id"]), "content": m.get("content", "")} for m in past_messages_raw[:8]],
+        }
 
         # Recent emotional arc — used to nudge tone in the synthesis prompt.
         from lokidoki.core.humanize import aggregate_sentiment_arc
@@ -242,6 +316,7 @@ class Orchestrator:
                         "one of these recent threads (only if relevant — never "
                         f"force it): {cands[0]}"
                     )
+        phase_latencies["augmentation"] = (time.perf_counter() - phase_starts["augmentation"]) * 1000
 
         yield PipelineEvent(
             phase="augmentation",
@@ -299,6 +374,7 @@ class Orchestrator:
             )
 
         # ---- decomposition ----------------------------------------------
+        phase_starts["decomposition"] = time.perf_counter()
         yield PipelineEvent(phase="decomposition", status="active", data={"model": fast_model})
 
         # Build the closed-world subject registry for this turn. The
@@ -355,6 +431,26 @@ class Orchestrator:
         }
 
         try:
+            decomp_prompt = ""
+            build_prompt = getattr(self._decomposer, "_build_prompt", None)
+            if callable(build_prompt) and not inspect.iscoroutinefunction(build_prompt):
+                candidate = build_prompt(
+                    user_input,
+                    [{"role": m["role"], "content": m["content"]} for m in recent],
+                    available_intents,
+                    known_subjects,
+                )
+                if isinstance(candidate, str):
+                    decomp_prompt = candidate
+            prompt_sizes["decomposition"] = {
+                "chars": len(decomp_prompt),
+                "estimated_tokens": _estimate_prompt_tokens(decomp_prompt),
+                "num_ctx": (
+                    getattr(self._decomposer, "_num_ctx", 0)
+                    if isinstance(getattr(self._decomposer, "_num_ctx", 0), int)
+                    else 0
+                ),
+            }
             decomposition = await self._decomposer.decompose(
                 user_input=user_input,
                 chat_context=[{"role": m["role"], "content": m["content"]} for m in recent],
@@ -367,6 +463,7 @@ class Orchestrator:
                 asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
                 model=fast_model,
             )
+        phase_latencies["decomposition"] = (time.perf_counter() - phase_starts["decomposition"]) * 1000
 
         # Append the decomposer's per-turn sentiment reading to the
         # time-series log. The synthesis prompt's "arc" block reads
@@ -398,6 +495,7 @@ class Orchestrator:
 
         # ---- referent resolution ---------------------------------------
         yield PipelineEvent(phase="referent_resolution", status="active")
+        phase_starts["referent_resolution"] = time.perf_counter()
         session_cache = self._session_referent_cache.setdefault(session_id, {})
         resolved_asks = await self._referent_resolver.resolve_asks(
             user_input=user_input,
@@ -428,13 +526,26 @@ class Orchestrator:
                 ]
             },
         )
+        phase_latencies["referent_resolution"] = (
+            time.perf_counter() - phase_starts["referent_resolution"]
+        ) * 1000
+        referent_trace = {
+            "asks": [
+                {
+                    "ask_id": a.ask_id,
+                    "status": getattr(a.resolution, "status", "none"),
+                    "source": getattr(a.resolution, "source", "none"),
+                    "candidate_count": len(getattr(a.resolution, "candidates", []) or []),
+                }
+                for a in resolved_asks
+            ]
+        }
 
         # Persist decomposer-extracted facts. PR3 ships structured items:
         # ``subject_type`` selects 'self' vs a person row, and
         # ``kind='relationship'`` writes an edge in the relationships
         # table on top of the underlying fact. Items are already
         # Pydantic-validated by ``decomposer_repair`` upstream.
-        write_reports: list[dict] = []
         recent_window_start = (recent[0]["id"] if recent else user_msg_id) or 0
         for item in decomposition.long_term_memory or []:
             try:
@@ -580,8 +691,6 @@ class Orchestrator:
         # ---- routing -----------------------------------------------------
         skill_data = ""
         sources: list[dict] = []
-        skill_results: dict = {}
-        routing_log: list[dict] = []
         # Course corrections used to short-circuit routing here, but
         # that broke the case where the user re-asks a fresh factual
         # question as a correction ("no, the *current* one") — the
@@ -590,6 +699,7 @@ class Orchestrator:
         # (pure conversational correction with nothing to look up) is
         # still handled below by the no-skill synthesis path.
         if resolved_asks:
+            phase_starts["routing"] = time.perf_counter()
             # Inject people graph data for people_lookup skill.
             for ask in resolved_asks:
                 is_people = (
@@ -649,6 +759,21 @@ class Orchestrator:
                     "routing_log": routing_log,
                 },
             )
+            phase_latencies["routing"] = (time.perf_counter() - phase_starts["routing"]) * 1000
+
+        shadow_spec = plan_response_spec(
+            user_input=user_input,
+            decomposition=decomposition,
+            write_reports=write_reports,
+            resolved_asks=resolved_asks,
+        )
+        selected_injected_memories = {
+            "relevant_facts": [{"id": int(f["id"]), "value": f.get("value", "")} for f in relevant_facts[:5]],
+            "past_messages": [{"id": int(m["id"]), "content": m.get("content", "")} for m in past_messages[:4]],
+            "relationships": [{"person_id": int(r.get("person_id") or 0), "relation": r.get("relation", "")} for r in relationships[:4]],
+            "seed_hint": seed_hint,
+            "clarify_hint": "",
+        }
 
         # ---- clarification fast-path ------------------------------------
         # If any skill came back with a `needs_clarification` block,
@@ -711,6 +836,8 @@ class Orchestrator:
                     "clarification_options": list(clarif.get("options") or []),
                 },
             )
+            phase_latencies["synthesis"] = float(res.latency_ms or 0.0)
+            await _finalize_trace("grounded_direct", decomposition, resolved_asks)
             return
 
         # ---- synthesis fast-path ----------------------------------------
@@ -740,6 +867,8 @@ class Orchestrator:
                     "fast_path": True,
                 },
             )
+            phase_latencies["synthesis"] = float(fast_latency_ms or 0.0)
+            await _finalize_trace("grounded_direct", decomposition, resolved_asks)
             return
 
         grounded_fast = try_grounded_fast_path(resolved_asks, skill_results)
@@ -770,6 +899,8 @@ class Orchestrator:
                     "spoken_text": spoken_text,
                 },
             )
+            phase_latencies["synthesis"] = float(fast_latency_ms or 0.0)
+            await _finalize_trace("grounded_direct", decomposition, resolved_asks)
             return
 
         capability_failure = try_capability_failure_fast_path(resolved_asks, routing_log)
@@ -799,6 +930,8 @@ class Orchestrator:
                     "capability_failure_fast_path": True,
                 },
             )
+            phase_latencies["synthesis"] = 0.0
+            await _finalize_trace("grounded_direct", decomposition, resolved_asks)
             return
 
         # ---- synthesis ---------------------------------------------------
@@ -844,6 +977,7 @@ class Orchestrator:
             and all(a.intent == "direct_chat" for a in asks)
             and len(user_input) < 200
         )
+        selected_injected_memories["clarify_hint"] = clarify_hint
 
         if is_ack_turn:
             prompt = build_acknowledgment_prompt(
@@ -900,9 +1034,15 @@ class Orchestrator:
                 referent_block=referent_block,
             )
             num_predict = SYNTHESIS_NUM_PREDICT
+        prompt_sizes["synthesis"] = {
+            "chars": len(prompt),
+            "estimated_tokens": _estimate_prompt_tokens(prompt),
+            "num_predict": num_predict,
+        }
 
         response = ""
         synthesis_ms = 0.0
+        phase_starts["synthesis"] = time.perf_counter()
         t0 = time.perf_counter()
         try:
             async for token in self._inference.generate_stream(
@@ -926,6 +1066,7 @@ class Orchestrator:
                 response = f"I couldn't generate a response. {e}"
             synthesis_ms = (time.perf_counter() - t0) * 1000
             yield PipelineEvent(phase="synthesis", status="failed", data={"error": str(e)})
+        phase_latencies["synthesis"] = synthesis_ms
 
         # Defensive: small models occasionally stream zero tokens on
         # noisy/contradictory prompts (e.g. a verbatim ask whose
@@ -1039,6 +1180,7 @@ class Orchestrator:
                 "mentioned_people": mentioned_people,
             },
         )
+        await _finalize_trace("social_ack" if is_ack_turn else "full_synthesis", decomposition, resolved_asks)
 
     async def _handle_clarification_answer(
         self,

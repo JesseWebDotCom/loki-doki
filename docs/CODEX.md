@@ -10,17 +10,42 @@ Core architecture goals:
 - selective verification only on uncertain turns
 - local-first execution, with helper libraries only where they deliver measurable gains
 
+Global test policy for every phase:
+- Every phase must test three things, not two:
+  - effectiveness on the intended behavior
+  - regression safety against existing behavior
+  - performance impact on the real execution path
+- Integration coverage must prefer the actual user path that ships:
+  - drive the system through the chat HTTP route / SSE stream
+  - when frontend behavior matters, include tests that exercise the real chat input box path rather than only calling lower-level helpers
+- Test inputs must include realistic, messy, real-life user turns:
+  - natural phrasing
+  - pronouns and follow-ups
+  - corrections
+  - emotionally colored turns
+  - current-data phrasing like "right now", "today", "latest"
+  - decomposer / LLM-shaped examples taken from observed or representative production-style inputs, not only clean synthetic strings
+- Performance validation is mandatory before marking a phase `completed`:
+  - measure p50 and p95 latency on the real chat path
+  - compare against the previous baseline or control
+  - reject changes that improve quality but cause unjustified latency regressions
+- Benchmark and eval runs must include:
+  - offline corpus-style cases
+  - end-to-end chat-path cases
+  - at least one set of realistic multi-turn conversations
+
 Status convention for every phase:
 - `pending` = not started
 - `in_progress` = currently being implemented
 - `completed` = implemented and validated against exit criteria
 
 Current overall status:
-- All phases are `pending`
+- Phase 0 is `completed`
+- Phases 1-8 are `pending`
 
 ## Phase 0: Baseline, Instrumentation, Eval Harness, And Shadow Mode
 Status:
-- `pending`
+- `completed`
 
 ### Goal
 Create a reliable baseline and a test harness so every later phase can be measured against current behavior.
@@ -59,9 +84,11 @@ Create a reliable baseline and a test harness so every later phase can be measur
 ### Tests
 - Unit tests for trace artifact assembly
 - Unit tests for eval fixture loading
-- Integration test that one chat turn emits a complete trace record
-- Integration test that shadow-mode `ResponseSpec` logs a planned lane without affecting real routing
+- Integration test that one chat turn emits a complete trace record through the real chat route / SSE path
+- Integration test that shadow-mode `ResponseSpec` logs a planned lane without affecting real routing on the shipped chat path
+- Integration test corpus with realistic user-language examples, not only idealized prompts
 - Regression test that existing chat behavior is unchanged
+- Baseline latency benchmark on the real chat path using representative single-turn and multi-turn inputs
 
 ### Validation Metrics
 - p50 / p95 end-to-end latency
@@ -76,6 +103,7 @@ Create a reliable baseline and a test harness so every later phase can be measur
 - Eval suite is reproducible
 - Baseline metrics are recorded
 - Shadow-mode disagreements are captured and reviewable
+- Real chat-path latency baseline exists for future phase comparisons
 
 ## Phase 1: ResponseSpec Control Plane And Fast-Path Mapping
 Status:
@@ -113,13 +141,15 @@ Make routing and reply behavior deterministic and centralized.
 - Unit tests for `ResponseSpec` classification on representative turn types
 - Unit tests for fast-path mapping rules
 - Integration tests confirming:
-  - simple grounded turns route to `grounded_direct`
-  - short fact-sharing turns route to `social_ack`
-  - mixed and reasoning turns route to `full_synthesis`
+  - simple grounded turns route to `grounded_direct` on the actual chat path
+  - short fact-sharing turns route to `social_ack` on the actual chat path
+  - mixed and reasoning turns route to `full_synthesis` on the actual chat path
 - Prompt-budget tests confirming:
   - truncation occurs in the correct order
   - clarification hints and citation anchors are preserved
 - Regression tests for current fast-path behavior that should survive unchanged
+- Realistic LLM-input tests covering current-data phrasing, fact-sharing, corrections, and pronoun follow-ups
+- Performance benchmarks confirming lane selection saves work on the chat path instead of only moving logic around internally
 
 ### Validation Metrics
 - Lane selection accuracy against eval labels
@@ -131,6 +161,7 @@ Make routing and reply behavior deterministic and centralized.
 - `ResponseSpec` is authoritative
 - Fast-path ownership is explicit and tested
 - Prompt budget is enforced without breaking response quality
+- Real chat-path latency is same or better for fast-lane-eligible turns
 
 ## Phase 2: Memory Buckets, Injection Budgets, And Wake-Up Context
 Status:
@@ -164,10 +195,12 @@ Make memory selection sparse, relevant, and appropriate to the reply type.
 - Unit tests for duplicate suppression
 - Unit tests for contradiction filtering
 - Integration tests for:
-  - relationship queries preferring relational memory
-  - older-session recall using episodic memory
-  - unrelated turns not surfacing irrelevant names
+  - relationship queries preferring relational memory on the chat path
+  - older-session recall using episodic memory on the chat path
+  - unrelated turns not surfacing irrelevant names on the chat path
 - Prompt-budget regression tests with wake-up context enabled
+- Multi-turn transcript tests using realistic user inputs rather than normalized canonical strings
+- Retrieval latency benchmarks so relevance gains are measured against cost
 
 ### Validation Metrics
 - Relevant personalization rate
@@ -180,6 +213,7 @@ Make memory selection sparse, relevant, and appropriate to the reply type.
 - Memory injection is smaller and more relevant than baseline
 - Relationship turns improve
 - Irrelevant memory callbacks decrease
+- Retrieval and prompt-assembly latency stay within agreed budget on the real chat path
 
 ## Phase 3: HumanizationPlanner And Session Hook State
 Status:
@@ -209,10 +243,12 @@ Make responses feel warm and varied without relying on prompt luck alone.
   - fact-sharing turns
   - recommendation turns
 - Multi-turn integration tests confirming:
-  - no repeated opener phrases over 3 turns
-  - no repeated personalization hook over 3 turns
-  - follow-up appears only after the answer
+  - no repeated opener phrases over 3 turns on the chat path
+  - no repeated personalization hook over 3 turns on the chat path
+  - follow-up appears only after the answer on the chat path
 - Golden tests for no parroting / no memory restatement
+- Frontend-oriented integration tests that exercise the visible chat input flow when planner behavior affects user-visible sequencing
+- Performance tests verifying humanization does not materially slow streaming start or total turn latency
 
 ### Validation Metrics
 - Non-echo rate
@@ -225,6 +261,7 @@ Make responses feel warm and varied without relying on prompt luck alone.
 - Responses are measurably warmer
 - Repetition drops in multi-turn conversations
 - No factual regression from baseline
+- Warmth gains do not come with unacceptable latency regressions
 
 ## Phase 4: Retrieval Quality Improvements And Novelty Penalty
 Status:
@@ -259,10 +296,12 @@ Improve which memories get selected before they reach the model.
 - Unit tests for `RapidFuzz` alias matching
 - Unit tests for graph-walk referent expansion
 - Integration tests for:
-  - possessive relation queries
-  - long conversation reuse suppression
-  - entity-boost on/off comparison
+  - possessive relation queries on the chat path
+  - long conversation reuse suppression on the chat path
+  - entity-boost on/off comparison on the chat path
 - Offline retrieval benchmark on eval corpus
+- Realistic referential multi-turn evals using natural user phrasing
+- Retrieval performance benchmark covering scorer cost and graph-walk overhead
 
 ### Validation Metrics
 - Top-1 memory relevance
@@ -275,6 +314,7 @@ Improve which memories get selected before they reach the model.
 - Memory relevance improves over baseline
 - Novelty penalty reduces repetition
 - Graph-walk improves people resolution without regressions
+- Retrieval-quality gains justify their latency cost on real turns
 
 ## Phase 5: Micro Fast-Lane For Greetings And Gratitude
 Status:
@@ -297,11 +337,12 @@ Reduce latency only for the safest trivial turns.
 ### Tests
 - Unit tests for template similarity matching
 - Integration tests confirming:
-  - “hi”, “hey”, “thanks” bypass decomposer
-  - “hey what’s the weather” does not bypass
-  - “I’m stressed out” does not bypass
+  - “hi”, “hey”, “thanks” bypass decomposer through the actual chat path
+  - “hey what’s the weather” does not bypass through the actual chat path
+  - “I’m stressed out” does not bypass through the actual chat path
 - Regression test that near-threshold inputs still fall through safely
 - Latency benchmark test on fast-lane eligible turns
+- Real-life greeting/gratitude variants gathered from representative user phrasing, not only template words
 
 ### Validation Metrics
 - Fast-lane precision
@@ -340,10 +381,11 @@ Add a second-pass safety net only where uncertainty is high.
 - Unit tests for verifier trigger conditions
 - Unit tests for memory-write risk detection
 - Integration tests confirming:
-  - clean turns skip verifier
-  - ambiguous/problematic turns invoke verifier
-  - verifier can change an unsafe plan
+  - clean turns skip verifier on the chat path
+  - ambiguous/problematic turns invoke verifier on the chat path
+  - verifier can change an unsafe plan on the chat path
 - Regression tests for latency on clean turns
+- Realistic malformed / ambiguous LLM-output-style cases and user-turn examples that mirror actual repair scenarios
 
 ### Validation Metrics
 - Verifier invocation rate
@@ -355,6 +397,7 @@ Add a second-pass safety net only where uncertainty is high.
 - Uncertain turns improve measurably
 - Clean turns remain fast
 - Memory-write errors decrease
+- Verifier overhead stays acceptable on real end-to-end chat turns
 
 ## Phase 7: Telemetry-Driven Experiments And Controlled A/B Tests
 Status:
@@ -385,6 +428,7 @@ Experiment safely and only promote changes that outperform the control.
   - control vs warmer memory formatting
   - baseline retrieval vs reranked retrieval
 - Regression tests ensuring no experiment arm breaks citations, prompt budget, or answer-first behavior
+- All experiment comparisons must include real chat-path latency and realistic user-turn corpora, not only offline scoring
 
 ### Validation Metrics
 - Formatting arm: warmth score, echo rate, relevance score
@@ -416,6 +460,7 @@ Potential future work:
   - dedicated benchmark
   - dedicated regression suite
   - comparison against current production path
+  - real chat-path measurement with representative user inputs
 - No deferred optimization ships without eval evidence
 
 ### Validation Metrics
@@ -441,10 +486,17 @@ Track after each phase:
   - p50/p95 latency
   - time-to-first-token
   - extra model-call rate
+  - retrieval / routing / synthesis phase deltas on the real chat path
 - memory quality
   - contradiction error rate
   - irrelevant memory injection rate
   - memory-write precision
+
+Validation inputs after each phase must include:
+- offline eval corpus cases
+- real chat route end-to-end cases
+- frontend chat input path coverage where UI behavior is involved
+- realistic single-turn and multi-turn user inputs shaped like actual LLM-era usage, not only tidy synthetic prompts
 
 ## Recommended Conversation Split
 Use one new Codex conversation per phase:
@@ -462,6 +514,7 @@ Each phase conversation should:
 - restate the target phase
 - implement only that phase’s deliverables
 - run only that phase’s listed tests plus affected regressions
+- include performance checks for the shipped path, not only correctness checks
 - update the phase status in this file from `pending` to `completed` only after exit criteria are met
 
 ## Assumptions

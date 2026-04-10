@@ -1,0 +1,42 @@
+[
+  {
+    "id": "greeting_01",
+    "category": "greeting",
+    "messages": ["hey there"]
+  },
+  {
+    "id": "fact_01",
+    "category": "fact_sharing",
+    "messages": ["my brother Artie likes movies"]
+  },
+  {
+    "id": "emotional_01",
+    "category": "emotional",
+    "messages": ["i'm feeling really overwhelmed today"]
+  },
+  {
+    "id": "relationship_01",
+    "category": "relationship",
+    "messages": ["what is my sister's name again?"]
+  },
+  {
+    "id": "current_01",
+    "category": "current_data",
+    "messages": ["who is the president right now?"]
+  },
+  {
+    "id": "recommendation_01",
+    "category": "recommendation",
+    "messages": ["recommend a cozy sci-fi movie for tonight"]
+  },
+  {
+    "id": "followup_01",
+    "category": "pronoun_followup",
+    "messages": ["i might see the new avatar movie", "what time is it playing?"]
+  },
+  {
+    "id": "correction_01",
+    "category": "correction",
+    "messages": ["my brother's name is Artie", "no, it's Art"]
+  }
+]

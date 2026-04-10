@@ -27,6 +27,7 @@ dispatch + lifecycle so it stays under the 250-line CLAUDE.md ceiling.
 from typing import Optional, Union
 
 import asyncio
+import json
 import os
 import sqlite3
 import logging
@@ -383,6 +384,78 @@ class MemoryProvider:
                     vec_enabled=self._vec_loaded,
                 )
             )
+
+    async def add_chat_trace(
+        self,
+        *,
+        user_id: int,
+        session_id: int,
+        user_message_id: Optional[int],
+        response_lane_actual: str,
+        response_lane_planned: str,
+        shadow_disagrees: bool,
+        decomposition: dict,
+        referent_resolution: dict,
+        retrieved_memory_candidates: dict,
+        selected_injected_memories: dict,
+        skill_results: dict,
+        prompt_sizes: dict,
+        response_spec_shadow: dict,
+        phase_latencies: dict,
+    ) -> int:
+        async with self._lock:
+            return await asyncio.to_thread(
+                lambda: sql.add_chat_trace(
+                    self._conn,
+                    user_id=user_id,
+                    session_id=session_id,
+                    user_message_id=user_message_id,
+                    response_lane_actual=response_lane_actual,
+                    response_lane_planned=response_lane_planned,
+                    shadow_disagrees=shadow_disagrees,
+                    decomposition=decomposition,
+                    referent_resolution=referent_resolution,
+                    retrieved_memory_candidates=retrieved_memory_candidates,
+                    selected_injected_memories=selected_injected_memories,
+                    skill_results=skill_results,
+                    prompt_sizes=prompt_sizes,
+                    response_spec_shadow=response_spec_shadow,
+                    phase_latencies=phase_latencies,
+                )
+            )
+
+    async def list_chat_traces(
+        self,
+        user_id: int,
+        *,
+        session_id: Optional[int] = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        async with self._lock:
+            rows = await asyncio.to_thread(
+                lambda: sql.list_chat_traces(
+                    self._conn,
+                    user_id=user_id,
+                    session_id=session_id,
+                    limit=limit,
+                )
+            )
+        out = []
+        for row in rows:
+            item = dict(row)
+            for key in (
+                "decomposition_json",
+                "referent_resolution_json",
+                "retrieved_memory_candidates_json",
+                "selected_injected_memories_json",
+                "skill_results_json",
+                "prompt_sizes_json",
+                "response_spec_shadow_json",
+                "phase_latencies_json",
+            ):
+                item[key] = json.loads(item.get(key) or "{}")
+            out.append(item)
+        return out
 
     # ---- facts -----------------------------------------------------------
 

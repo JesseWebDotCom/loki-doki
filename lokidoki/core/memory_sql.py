@@ -12,6 +12,7 @@ PR1, so any new query MUST keep the same shape.
 from __future__ import annotations
 
 from __future__ import annotations
+import json
 import sqlite3
 from typing import Optional, Union
 
@@ -108,6 +109,73 @@ def add_message(
             pass
     conn.commit()
     return message_id
+
+
+def add_chat_trace(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    session_id: int,
+    user_message_id: Optional[int],
+    response_lane_actual: str,
+    response_lane_planned: str,
+    shadow_disagrees: bool,
+    decomposition: dict,
+    referent_resolution: dict,
+    retrieved_memory_candidates: dict,
+    selected_injected_memories: dict,
+    skill_results: dict,
+    prompt_sizes: dict,
+    response_spec_shadow: dict,
+    phase_latencies: dict,
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO chat_traces ("
+        "owner_user_id, session_id, user_message_id, response_lane_actual, "
+        "response_lane_planned, shadow_disagrees, decomposition_json, "
+        "referent_resolution_json, retrieved_memory_candidates_json, "
+        "selected_injected_memories_json, skill_results_json, prompt_sizes_json, "
+        "response_spec_shadow_json, phase_latencies_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            user_id,
+            session_id,
+            user_message_id,
+            response_lane_actual,
+            response_lane_planned,
+            1 if shadow_disagrees else 0,
+            json.dumps(decomposition),
+            json.dumps(referent_resolution),
+            json.dumps(retrieved_memory_candidates),
+            json.dumps(selected_injected_memories),
+            json.dumps(skill_results),
+            json.dumps(prompt_sizes),
+            json.dumps(response_spec_shadow),
+            json.dumps(phase_latencies),
+        ),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def list_chat_traces(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    session_id: Optional[int],
+    limit: int,
+) -> list[sqlite3.Row]:
+    if session_id is None:
+        return conn.execute(
+            "SELECT * FROM chat_traces WHERE owner_user_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return conn.execute(
+        "SELECT * FROM chat_traces WHERE owner_user_id = ? AND session_id = ? "
+        "ORDER BY id DESC LIMIT ?",
+        (user_id, session_id, limit),
+    ).fetchall()
 
 
 def get_messages(

@@ -353,6 +353,26 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_owner ON messages(owner_user_id);
 
+CREATE TABLE IF NOT EXISTS chat_traces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    user_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    response_lane_actual TEXT NOT NULL DEFAULT '',
+    response_lane_planned TEXT NOT NULL DEFAULT '',
+    shadow_disagrees INTEGER NOT NULL DEFAULT 0,
+    decomposition_json TEXT NOT NULL DEFAULT '{}',
+    referent_resolution_json TEXT NOT NULL DEFAULT '{}',
+    retrieved_memory_candidates_json TEXT NOT NULL DEFAULT '{}',
+    selected_injected_memories_json TEXT NOT NULL DEFAULT '{}',
+    skill_results_json TEXT NOT NULL DEFAULT '{}',
+    prompt_sizes_json TEXT NOT NULL DEFAULT '{}',
+    response_spec_shadow_json TEXT NOT NULL DEFAULT '{}',
+    phase_latencies_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_traces_owner_session ON chat_traces(owner_user_id, session_id, id DESC);
+
 -- Character system (see docs/CHARACTER_SYSTEM.md §3).
 --
 -- voices/wakewords use string PKs because they map 1:1 to on-disk
