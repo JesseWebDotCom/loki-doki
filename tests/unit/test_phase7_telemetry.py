@@ -105,12 +105,11 @@ class TestFactTelemetry:
         # No error, no rows created
 
     def test_nonexistent_fact_id_skipped(self, conn):
-        """Telemetry FK means a nonexistent fact_id raises an error
-        but the function should not crash the pipeline."""
+        """Telemetry FK means a nonexistent fact_id is silently
+        skipped — telemetry must never crash the pipeline."""
         c, uid, sid = conn
-        # fact_id 99999 doesn't exist — FK violation on INSERT
-        with pytest.raises(sqlite3.IntegrityError):
-            sql.record_fact_retrieval(c, [99999])
+        # fact_id 99999 doesn't exist — FK violation caught per-row
+        sql.record_fact_retrieval(c, [99999])  # should not raise
 
 
 # ---------- experiment assignments ----------

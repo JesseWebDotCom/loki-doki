@@ -1082,11 +1082,13 @@ class Orchestrator:
         # Record which facts were retrieved (candidates) and which were
         # injected (selected). Non-blocking — telemetry must never slow
         # the user-facing turn.
+        # Only iterate fact buckets — episodic_messages contains message
+        # IDs which would FK-violate against fact_telemetry.
+        _FACT_BUCKETS = ("working_context", "semantic_profile", "relational_graph", "episodic_threads")
         retrieved_fact_ids = [
             int(f["id"])
-            for bucket_rows in candidates_by_bucket.values()
-            if isinstance(bucket_rows, list)
-            for f in bucket_rows
+            for bucket in _FACT_BUCKETS
+            for f in candidates_by_bucket.get(bucket, [])
             if f.get("id") is not None
         ]
         injected_fact_ids = [
@@ -1102,7 +1104,7 @@ class Orchestrator:
                 self._memory.record_fact_injection(injected_fact_ids),
             )
         except Exception:  # noqa: BLE001
-            logger.debug("[orchestrator] fact telemetry write failed; non-fatal")
+            logger.warning("[orchestrator] fact telemetry write failed; non-fatal", exc_info=True)
 
         # ---- clarification fast-path ------------------------------------
         # If any skill came back with a `needs_clarification` block,

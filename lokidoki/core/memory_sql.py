@@ -539,36 +539,50 @@ def search_messages(
 def record_fact_retrieval(
     conn: sqlite3.Connection, fact_ids: list[int]
 ) -> None:
-    """Bump retrieve_count and last_retrieved_at for each candidate fact."""
+    """Bump retrieve_count and last_retrieved_at for each candidate fact.
+
+    Per-row errors (e.g. FK violation if a non-fact ID slips through)
+    are caught and skipped — telemetry must never crash the pipeline.
+    """
     if not fact_ids:
         return
     for fid in fact_ids:
-        conn.execute(
-            "INSERT INTO fact_telemetry (fact_id, retrieve_count, last_retrieved_at) "
-            "VALUES (?, 1, datetime('now')) "
-            "ON CONFLICT(fact_id) DO UPDATE SET "
-            "retrieve_count = retrieve_count + 1, "
-            "last_retrieved_at = datetime('now')",
-            (fid,),
-        )
+        try:
+            conn.execute(
+                "INSERT INTO fact_telemetry (fact_id, retrieve_count, last_retrieved_at) "
+                "VALUES (?, 1, datetime('now')) "
+                "ON CONFLICT(fact_id) DO UPDATE SET "
+                "retrieve_count = retrieve_count + 1, "
+                "last_retrieved_at = datetime('now')",
+                (fid,),
+            )
+        except sqlite3.Error:
+            continue
     conn.commit()
 
 
 def record_fact_injection(
     conn: sqlite3.Connection, fact_ids: list[int]
 ) -> None:
-    """Bump inject_count and last_injected_at for each injected fact."""
+    """Bump inject_count and last_injected_at for each injected fact.
+
+    Per-row errors are caught and skipped — same rationale as
+    ``record_fact_retrieval``.
+    """
     if not fact_ids:
         return
     for fid in fact_ids:
-        conn.execute(
-            "INSERT INTO fact_telemetry (fact_id, inject_count, last_injected_at) "
-            "VALUES (?, 1, datetime('now')) "
-            "ON CONFLICT(fact_id) DO UPDATE SET "
-            "inject_count = inject_count + 1, "
-            "last_injected_at = datetime('now')",
-            (fid,),
-        )
+        try:
+            conn.execute(
+                "INSERT INTO fact_telemetry (fact_id, inject_count, last_injected_at) "
+                "VALUES (?, 1, datetime('now')) "
+                "ON CONFLICT(fact_id) DO UPDATE SET "
+                "inject_count = inject_count + 1, "
+                "last_injected_at = datetime('now')",
+                (fid,),
+            )
+        except sqlite3.Error:
+            continue
     conn.commit()
 
 
@@ -604,6 +618,34 @@ def set_experiment_arm(
         (user_id, experiment_id, arm, arm),
     )
     conn.commit()
+
+
+def list_all_chat_traces(
+    conn: sqlite3.Connection,
+    *,
+    limit: int = 10000,
+) -> list[sqlite3.Row]:
+    """All traces across all users, newest first. For eval scripts only."""
+    return conn.execute(
+        "SELECT * FROM chat_traces ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def list_fact_telemetry_all(
+    conn: sqlite3.Connection,
+    *,
+    limit: int = 10000,
+) -> list[sqlite3.Row]:
+    """All fact_telemetry rows joined with basic fact info."""
+    return conn.execute(
+        "SELECT ft.fact_id, ft.retrieve_count, ft.inject_count, "
+        "       ft.last_retrieved_at, ft.last_injected_at, "
+        "       f.subject, f.predicate, f.value, f.confidence, f.status "
+        "FROM fact_telemetry ft JOIN facts f ON f.id = ft.fact_id "
+        "ORDER BY ft.inject_count DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
 
 
 def fts_escape(query: str) -> str:

@@ -148,3 +148,33 @@ class TestWikipediaSkill:
             await skill.execute_mechanism("mediawiki_api", {"query": "Raspberry Pi"})
 
         assert "raspberry pi" in skill._cache
+
+
+class TestTitleMatchesQuery:
+    """Test _title_matches_query, especially Unicode diacritic handling."""
+
+    def test_exact_match(self):
+        from lokidoki.skills.knowledge_wiki.skill import _title_matches_query
+        assert _title_matches_query("Queensryche", "queensryche band") is True
+
+    def test_diacritic_match(self):
+        from lokidoki.skills.knowledge_wiki.skill import _title_matches_query
+        assert _title_matches_query("Queensrÿche", "what happened with queensryche") is True
+
+    def test_diacritic_reverse(self):
+        from lokidoki.skills.knowledge_wiki.skill import _title_matches_query
+        assert _title_matches_query("Queensryche", "tell me about Queensrÿche") is True
+
+    def test_unrelated_title_rejected(self):
+        from lokidoki.skills.knowledge_wiki.skill import _title_matches_query
+        assert _title_matches_query("W.A.S.P. (band)", "what happened with queensryche") is False
+
+    def test_accented_names(self):
+        from lokidoki.skills.knowledge_wiki.skill import _title_matches_query
+        assert _title_matches_query("Beyoncé", "beyonce songs") is True
+        assert _title_matches_query("Müller", "muller germany") is True
+
+    def test_short_query_trusts_ranking(self):
+        from lokidoki.skills.knowledge_wiki.skill import _title_matches_query
+        # When query has no 4+ char non-stopword tokens, trust Wikipedia
+        assert _title_matches_query("Anything", "hi") is True

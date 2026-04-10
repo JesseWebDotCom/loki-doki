@@ -84,16 +84,26 @@ _OVERLAP_STOPWORDS = frozenset({
 })
 
 
+def _strip_diacritics(text: str) -> str:
+    """Fold Unicode diacritics so 'Queensrÿche' matches 'queensryche'."""
+    import unicodedata
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+
+
 def _query_tokens(query: str) -> set[str]:
     """Significant (4+ char, non-stopword) lowercase tokens for the
     title-overlap relevance check. Used to reject Wikipedia search hits
     that share no real terms with the user's query — Wikipedia's search
     will happily return ``Anthropic`` (the company) for ``anthropic
     mythos``, and we'd rather fail than ground synthesis on the wrong
-    article."""
+    article.
+
+    Diacritics are stripped so 'Queensrÿche' and 'queensryche' match.
+    """
     out: set[str] = set()
     cur: list[str] = []
-    for ch in (query or "").lower():
+    for ch in _strip_diacritics(query or "").lower():
         if ch.isalnum():
             cur.append(ch)
         else:

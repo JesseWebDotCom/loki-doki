@@ -102,6 +102,30 @@ async def chat(
                 user_display_name=user.username,
             ):
                 yield event.to_sse()
+        except Exception:
+            # If anything in the pipeline crashes, emit an error event
+            # so the frontend can display a real message instead of the
+            # generic "No response received" fallback.
+            import logging
+            import traceback
+            logging.getLogger(__name__).exception(
+                "[chat] pipeline crashed for user %s session %s",
+                user_id, session_id,
+            )
+            import json
+            err_event = json.dumps({
+                "phase": "synthesis",
+                "status": "done",
+                "data": {
+                    "response": "Something went wrong on my end. Check the backend logs for details.",
+                    "model": "error",
+                    "latency_ms": 0,
+                    "tone": "neutral",
+                    "sources": [],
+                    "error": True,
+                },
+            })
+            yield f"data: {err_event}\n\n"
         finally:
             await client.close()
 
