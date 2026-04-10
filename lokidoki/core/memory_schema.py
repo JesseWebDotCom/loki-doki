@@ -474,6 +474,16 @@ CREATE TABLE IF NOT EXISTS character_enabled_user (
     PRIMARY KEY (user_id, character_id)
 );
 CREATE INDEX IF NOT EXISTS idx_char_enabled_user ON character_enabled_user(user_id);
+
+-- Admin-managed pronunciation fixes.
+-- word is case-insensitive (stored lowercase). spoken is how the TTS
+-- should read it (e.g. "IMAX" -> "eye-max"). These override built-in
+-- fixes shipped in data/pronunciation_builtin.json.
+CREATE TABLE IF NOT EXISTS pronunciation_fixes (
+    word TEXT PRIMARY KEY,
+    spoken TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 FTS_SCHEMA = """

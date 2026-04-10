@@ -130,6 +130,7 @@ def synthesize_stream(
     voice_id: str,
     *,
     config: AudioConfig | None = None,
+    pronunciation_fixes: dict[str, str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield {audio_pcm, sample_rate, phonemes, samples_per_phoneme} chunks.
 
@@ -138,7 +139,11 @@ def synthesize_stream(
     AudioBuffer on the browser side.
     """
     cfg = config or AudioConfig()
-    prepared = normalize_for_speech(text) if cfg.normalize_text else str(text or "").strip()
+    prepared = (
+        normalize_for_speech(text, pronunciation_fixes=pronunciation_fixes)
+        if cfg.normalize_text
+        else str(text or "").strip()
+    )
     if not prepared:
         return
     voice = _cached_voice(voice_id)

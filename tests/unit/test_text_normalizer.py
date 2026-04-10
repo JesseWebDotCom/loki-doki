@@ -57,6 +57,14 @@ def test_temperatures_are_spoken_naturally_in_weather_style_text():
     assert "clear sky" in spoken
 
 
+def test_zip_codes_with_leading_zero_are_spoken_digit_by_digit():
+    spoken = normalize_for_speech(
+        "I see 5 theaters near 06461. Want Cinemark Connecticut Post 14 and IMAX?"
+    )
+    assert "zero six four six one" in spoken
+    assert "06461" not in spoken
+
+
 def test_normalization_is_fast_on_realistic_chat_samples():
     samples = [
         "Hey, can you remind me if Dr. Shah said the 04/09/2026 check-in is at 3:30 PM or 4 PM?",

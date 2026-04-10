@@ -35,14 +35,23 @@ _MONTHS = {
 }
 
 
-def normalize_for_speech(text: str) -> str:
+def normalize_for_speech(
+    text: str,
+    *,
+    pronunciation_fixes: dict[str, str] | None = None,
+) -> str:
     out = str(text or "").strip()
     if not out:
         return ""
+    if pronunciation_fixes:
+        from lokidoki.core.pronunciation_fixes import apply_pronunciation_fixes
+
+        out = apply_pronunciation_fixes(out, pronunciation_fixes)
     out = _normalize_temperatures(out)
     out = _strip_artifacts(out)
     out = _normalize_dates_and_times(out)
     out = _normalize_phone_numbers(out)
+    out = _normalize_zip_codes(out)
     out = _normalize_urls_and_emails(out)
     out = _expand_abbreviations(out)
     out = _normalize_currency_percent_and_ordinals(out)
@@ -98,6 +107,10 @@ def _normalize_dates_and_times(text: str) -> str:
 
 def _normalize_phone_numbers(text: str) -> str:
     return re.sub(r"(?<!\d)(\d{3})-(\d{4})(?!\d)", lambda m: _speak_digits(m.group(1)) + ", " + _speak_digits(m.group(2)), text)
+
+
+def _normalize_zip_codes(text: str) -> str:
+    return re.sub(r"\b(0\d{4})\b", lambda m: _speak_digits(m.group(1)), text)
 
 
 def _normalize_currency_percent_and_ordinals(text: str) -> str:

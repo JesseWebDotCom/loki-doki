@@ -15,7 +15,7 @@ import json
 import os
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -26,7 +26,16 @@ from lokidoki.core.audio import (
     voice_installed,
     warm_voice,
 )
+from lokidoki.core.pronunciation_fixes import (
+    delete_admin_fix,
+    get_merged_fixes,
+    list_all_fixes,
+    set_admin_fix,
+)
 from lokidoki.api.routes.settings import _load_settings
+from lokidoki.auth.dependencies import get_memory, require_admin
+from lokidoki.auth.users import User
+from lokidoki.core.memory_provider import MemoryProvider
 
 router = APIRouter()
 
@@ -73,7 +82,10 @@ async def speech_to_text(file: UploadFile = File(...)):
 
 
 @router.post("/tts/stream")
-async def text_to_speech_stream(request: TTSRequest):
+async def text_to_speech_stream(
+    request: TTSRequest,
+    memory: MemoryProvider = Depends(get_memory),
+):
     """Stream Piper output as ndjson chunks (no WAV-on-disk)."""
     text = (request.text or "").strip()
     if not text:
@@ -90,9 +102,11 @@ async def text_to_speech_stream(request: TTSRequest):
             ),
         )
 
+    fixes = await memory.run_sync(get_merged_fixes)
+
     def iter_chunks():
         try:
-            for chunk in synthesize_stream(text, voice_id, config=config):
+            for chunk in synthesize_stream(text, voice_id, config=config, pronunciation_fixes=fixes):
                 yield json.dumps({
                     "audio_base64": base64.b64encode(chunk["audio_pcm"]).decode("ascii"),
                     "sample_rate": chunk["sample_rate"],
@@ -135,3 +149,48 @@ async def audio_status():
         "stt": {"available": stt_available, "model": _config.stt_model},
         "tts": {"available": tts_available, "voice": config.piper_voice},
     }
+
+
+# ---- Pronunciation fixes (admin-managed) ---------------------------------
+
+
+class PronunciationFixBody(BaseModel):
+    word: str
+    spoken: str
+
+
+@router.get("/pronunciation")
+async def list_pronunciation_fixes(
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Return all pronunciation fixes (builtin + admin) with source metadata."""
+    fixes = await memory.run_sync(list_all_fixes)
+    return {"fixes": fixes}
+
+
+@router.put("/pronunciation")
+async def upsert_pronunciation_fix(
+    body: PronunciationFixBody,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Create or update an admin pronunciation fix."""
+    word = body.word.strip()
+    spoken = body.spoken.strip()
+    if not word or not spoken:
+        raise HTTPException(status_code=400, detail="word and spoken must not be empty")
+    await memory.run_sync(lambda c: set_admin_fix(c, word, spoken))
+    return {"status": "saved", "word": word.lower(), "spoken": spoken}
+
+
+@router.delete("/pronunciation/{word}")
+async def remove_pronunciation_fix(
+    word: str,
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Delete an admin pronunciation fix. Built-in fixes cannot be deleted."""
+    deleted = await memory.run_sync(lambda c: delete_admin_fix(c, word))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="fix not found or is built-in")
+    return {"status": "deleted", "word": word.lower()}
