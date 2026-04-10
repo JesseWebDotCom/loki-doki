@@ -53,21 +53,25 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline }) => {
     hideTimer.current = window.setTimeout(() => setHover(false), 180);
   };
 
+  const augMs = pipeline.augmentation?.latency_ms ?? 0;
   const decompMs = pipeline.decomposition?.latency_ms ?? 0;
   const routingMs = pipeline.routing?.latency_ms ?? 0;
   const synthMs = pipeline.synthesis?.latency_ms ?? 0;
+  const fastLaneHit = pipeline.microFastLane?.hit === true;
 
   const handleCopy = async () => {
     const lines: string[] = [
       `Pipeline: ${pipeline.totalLatencyMs > 0 ? formatDuration(pipeline.totalLatencyMs) : "in progress"}`,
-      `  Augment`,
-      `  Decompose${decompMs > 0 ? "  " + formatDuration(decompMs) : ""}`,
+      `  Augment${augMs > 0 ? "  " + formatDuration(augMs) : ""}`,
+      `  Decompose${fastLaneHit ? "  skipped" : decompMs > 0 ? "  " + formatDuration(decompMs) : ""}`,
       `  Route${
-        pipeline.routing
-          ? pipeline.routing.routing_log.length === 0
-            ? "  LLM-only"
-            : `  ${pipeline.routing.skills_resolved}✓ ${pipeline.routing.skills_failed}✗ ${formatDuration(routingMs)}`
-          : ""
+        fastLaneHit
+          ? "  skipped"
+          : pipeline.routing
+            ? pipeline.routing.routing_log.length === 0
+              ? "  LLM-only"
+              : `  ${pipeline.routing.skills_resolved}✓ ${pipeline.routing.skills_failed}✗ ${formatDuration(routingMs)}`
+            : ""
       }`,
       `  Synthesize${synthMs > 0 ? "  " + formatDuration(synthMs) : ""}`,
     ];
@@ -132,22 +136,26 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline }) => {
             </div>
           </div>
           <div className="flex flex-col gap-1.5 text-[11px]">
-            <Row icon={<Layers size={11} className="text-blue-400" />} label="Augment" value="" />
+            <Row icon={<Layers size={11} className="text-blue-400" />} label="Augment" value={augMs > 0 ? formatDuration(augMs) : ""} />
             <Row
               icon={<Brain size={11} className="text-purple-400" />}
               label="Decompose"
-              value={decompMs > 0 ? formatDuration(decompMs) : ""}
+              value={fastLaneHit ? "skipped" : decompMs > 0 ? formatDuration(decompMs) : ""}
+              dimmed={fastLaneHit}
             />
             <Row
               icon={<Route size={11} className="text-amber-400" />}
               label="Route"
               value={
-                pipeline.routing
-                  ? pipeline.routing.routing_log.length === 0
-                    ? "LLM-only"
-                    : `${pipeline.routing.skills_resolved}✓ ${pipeline.routing.skills_failed}✗ · ${formatDuration(routingMs)}`
-                  : ""
+                fastLaneHit
+                  ? "skipped"
+                  : pipeline.routing
+                    ? pipeline.routing.routing_log.length === 0
+                      ? "LLM-only"
+                      : `${pipeline.routing.skills_resolved}✓ ${pipeline.routing.skills_failed}✗ · ${formatDuration(routingMs)}`
+                    : ""
               }
+              dimmed={fastLaneHit}
             />
             <Row
               icon={<Sparkles size={11} className="text-green-400" />}
@@ -229,11 +237,15 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline }) => {
   );
 };
 
-const Row: React.FC<{ icon: React.ReactNode; label: string; value: string }> = ({ icon, label, value }) => (
-  <div className="flex items-center gap-2">
+const Row: React.FC<{ icon: React.ReactNode; label: string; value: string; dimmed?: boolean }> = ({ icon, label, value, dimmed }) => (
+  <div className={`flex items-center gap-2${dimmed ? " opacity-40" : ""}`}>
     {icon}
     <span className="text-foreground/80">{label}</span>
-    {value && <span className="ml-auto font-mono text-muted-foreground">{value}</span>}
+    {value && (
+      <span className={`ml-auto font-mono ${value === "skipped" ? "text-muted-foreground/50 italic text-[10px]" : "text-muted-foreground"}`}>
+        {value}
+      </span>
+    )}
   </div>
 );
 

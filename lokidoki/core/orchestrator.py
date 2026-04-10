@@ -32,6 +32,7 @@ from lokidoki.core.orchestrator_memory import (
     build_silent_confirmations,
     persist_long_term_item,
 )
+from lokidoki.core.known_subjects_resolver import build_known_subjects
 from lokidoki.core.memory_phase2 import (
     bucket_memory_candidates,
     build_wake_up_context,
@@ -95,6 +96,7 @@ ACKNOWLEDGMENT_NUM_PREDICT = 110
 # Below this length, force the fast model even if the decomposer says
 # 'thinking'. The 9B upgrade is too expensive for trivial questions.
 TRIVIAL_QUERY_CHAR_LIMIT = 120
+DEFAULT_SYNTHESIS_NUM_CTX = 4096
 
 
 def _traceable_skill_results(skill_results: dict, routing_log: list[dict]) -> dict:
@@ -161,6 +163,7 @@ class Orchestrator:
         admin_prompt: str = "",
         user_prompt: str = "",
         character_name: str = "Loki",
+        synthesis_num_ctx: int = DEFAULT_SYNTHESIS_NUM_CTX,
     ):
         self._decomposer = decomposer
         self._inference = inference_client
@@ -179,6 +182,7 @@ class Orchestrator:
         self._admin_prompt = admin_prompt
         self._user_prompt = user_prompt
         self._character_name = character_name or "Loki"
+        self._synthesis_num_ctx = synthesis_num_ctx
         self._referent_resolver = ReferentResolver(
             inference_client=inference_client,
             model_manager=self._model_manager,
@@ -295,6 +299,16 @@ class Orchestrator:
             self._memory.get_recent_sentiment(user_id, limit=5),
             self._memory.list_people(user_id),
         )
+        recent = [dict(row) if not isinstance(row, dict) else row for row in recent]
+        relevant_facts = [
+            dict(row) if not isinstance(row, dict) else row
+            for row in relevant_facts
+        ]
+        past_messages_raw = [
+            dict(row) if not isinstance(row, dict) else row
+            for row in past_messages_raw
+        ]
+        people_rows = [dict(row) if not isinstance(row, dict) else row for row in people_rows]
         relationships = await self._memory.list_relationships(user_id)
         graph_relations = await self._memory.run_sync(
             lambda conn: gql.list_user_graph_relations(conn, user_id=user_id)
@@ -382,6 +396,7 @@ class Orchestrator:
                 "sentiment_arc": sentiment_arc,
                 "has_seed": bool(seed_hint),
                 "graph_relations": len(graph_relations),
+                "latency_ms": round(phase_latencies["augmentation"], 2),
             },
         )
 
@@ -499,7 +514,7 @@ class Orchestrator:
             if not response.strip():
                 response = "Hey!" if fast_lane_result.category == "greeting" else "You're welcome!"
 
-            await self._memory.add_message(
+            _asst_msg_id = await self._memory.add_message(
                 user_id=user_id, session_id=session_id, role="assistant", content=response,
             )
             if is_first_turn:
@@ -517,6 +532,7 @@ class Orchestrator:
                     "fast_path": True,
                     "micro_fast_lane": True,
                     "micro_fast_lane_category": fast_lane_result.category,
+                    "assistant_message_id": _asst_msg_id,
                 },
             )
             await _finalize_trace("social_ack", synthetic_decomp, [])
@@ -550,50 +566,39 @@ class Orchestrator:
         # reason, fall back to a self-only registry rather than
         # blocking the turn.
         try:
-            # Build a name→relation map from graph relations + legacy rels.
-            _rel_map: dict[str, str] = {}
-            for rel in relationships:
-                pid = int(rel.get("person_id") or 0)
-                rel_name = ""
-                for p in people_rows:
-                    if int(p["id"]) == pid:
-                        rel_name = (p.get("name") or "").strip()
-                        break
-                relation = (rel.get("relation") or "").strip()
-                if rel_name and relation:
-                    _rel_map[rel_name.lower()] = relation
-            # Also parse graph_relations lines "- relation: Name".
-            for line in graph_relations:
-                parts = line.lstrip("- ").split(":", 1)
-                if len(parts) == 2:
-                    relation = parts[0].strip()
-                    gname = parts[1].strip()
-                    if gname and relation:
-                        _rel_map[gname.lower()] = relation
-
-            known_people = []
-            for r in people_rows:
-                name = (r.get("name") or "").strip()
-                if not name:
-                    continue
-                rel = _rel_map.get(name.lower())
-                if rel:
-                    known_people.append(f"{name} ({rel})")
-                else:
-                    known_people.append(name)
+            known_subjects, resolved_known_people = build_known_subjects(
+                user_input=user_input,
+                user_display_name=user_display_name or "the user",
+                people_rows=people_rows,
+                relationships=relationships,
+                relevant_facts=relevant_facts,
+            )
+            if resolved_known_people:
+                logger.info(
+                    "[orchestrator] sparse known subjects: %s",
+                    [
+                        {
+                            "person_id": item.person_id,
+                            "name": item.name,
+                            "relation": item.relation,
+                            "method": item.method,
+                            "confidence": item.confidence,
+                        }
+                        for item in resolved_known_people
+                    ],
+                )
         except Exception:
-            logger.exception("[orchestrator] list_people failed; using empty registry")
-            known_people = []
-        known_subjects = {
-            "self": user_display_name or "the user",
-            "people": known_people,
-            "entities": [
-                (f.get("subject") or "").strip()
-                for f in relevant_facts
-                if (f.get("subject_type") or "") == "entity"
-                and (f.get("subject") or "").strip()
-            ][:6],
-        }
+            logger.exception("[orchestrator] known-subject pre-resolution failed; using empty registry")
+            known_subjects = {
+                "self": user_display_name or "the user",
+                "people": [],
+                "entities": [
+                    (f.get("subject") or "").strip()
+                    for f in relevant_facts
+                    if (f.get("subject_type") or "") == "entity"
+                    and (f.get("subject") or "").strip()
+                ][:6],
+            }
 
         try:
             decomp_prompt = ""
@@ -1147,7 +1152,7 @@ class Orchestrator:
                 status="active",
                 data={"fast_path": True, "clarification": True},
             )
-            await self._memory.add_message(
+            _asst_msg_id = await self._memory.add_message(
                 user_id=user_id, session_id=session_id, role="assistant", content=response,
             )
             if is_first_turn:
@@ -1165,6 +1170,7 @@ class Orchestrator:
                     "fast_path": True,
                     "clarification": True,
                     "clarification_options": list(clarif.get("options") or []),
+                    "assistant_message_id": _asst_msg_id,
                 },
             )
             phase_latencies["synthesis"] = float(res.latency_ms or 0.0)
@@ -1181,7 +1187,7 @@ class Orchestrator:
             if fast is not None:
                 response, fast_latency_ms = fast
                 yield PipelineEvent(phase="synthesis", status="active", data={"fast_path": True})
-                await self._memory.add_message(
+                _asst_msg_id = await self._memory.add_message(
                     user_id=user_id, session_id=session_id, role="assistant", content=response,
                 )
                 if is_first_turn:
@@ -1197,6 +1203,7 @@ class Orchestrator:
                         "sources": sources,
                         "platform": self._model_manager.policy.platform,
                         "fast_path": True,
+                        "assistant_message_id": _asst_msg_id,
                     },
                 )
                 phase_latencies["synthesis"] = float(fast_latency_ms or 0.0)
@@ -1211,7 +1218,7 @@ class Orchestrator:
                     status="active",
                     data={"fast_path": True, "grounded_fast_path": True},
                 )
-                await self._memory.add_message(
+                _asst_msg_id = await self._memory.add_message(
                     user_id=user_id, session_id=session_id, role="assistant", content=response,
                 )
                 if is_first_turn:
@@ -1229,6 +1236,7 @@ class Orchestrator:
                         "fast_path": True,
                         "grounded_fast_path": True,
                         "spoken_text": spoken_text,
+                        "assistant_message_id": _asst_msg_id,
                     },
                 )
                 phase_latencies["synthesis"] = float(fast_latency_ms or 0.0)
@@ -1243,7 +1251,7 @@ class Orchestrator:
                     status="active",
                     data={"fast_path": True, "capability_failure_fast_path": True},
                 )
-                await self._memory.add_message(
+                _asst_msg_id = await self._memory.add_message(
                     user_id=user_id, session_id=session_id, role="assistant", content=response,
                 )
                 if is_first_turn:
@@ -1260,6 +1268,7 @@ class Orchestrator:
                         "platform": self._model_manager.policy.platform,
                         "fast_path": True,
                         "capability_failure_fast_path": True,
+                        "assistant_message_id": _asst_msg_id,
                     },
                 )
                 phase_latencies["synthesis"] = 0.0
@@ -1383,12 +1392,7 @@ class Orchestrator:
             )
             if not graph_relations and not relationships:
                 logger.warning("[orchestrator] no relationships in context for synthesis")
-            synthesis_num_ctx = (
-                getattr(self._decomposer, "_num_ctx", 8192)
-                if isinstance(getattr(self._decomposer, "_num_ctx", 0), int)
-                and getattr(self._decomposer, "_num_ctx", 0) > 0
-                else 8192
-            )
+            synthesis_num_ctx = self._synthesis_num_ctx
             # Phase 7: select memory formatter based on experiment arm.
             _mem_fmt = (
                 format_warm_memory_block
@@ -1504,7 +1508,7 @@ class Orchestrator:
             response=response,
             plan=humanization_plan,
         )
-        await self._memory.add_message(
+        _asst_msg_id = await self._memory.add_message(
             user_id=user_id, session_id=session_id, role="assistant", content=response
         )
 
@@ -1573,6 +1577,7 @@ class Orchestrator:
                 "sources": sources,
                 "platform": self._model_manager.policy.platform,
                 "mentioned_people": mentioned_people,
+                "assistant_message_id": _asst_msg_id,
             },
         )
         await _finalize_trace(response_spec.reply_mode, decomposition, resolved_asks)
@@ -1685,7 +1690,7 @@ class Orchestrator:
             status="active",
             data={"fast_path": True, "clarification_answer": True},
         )
-        await self._memory.add_message(
+        _asst_msg_id = await self._memory.add_message(
             user_id=user_id, session_id=session_id, role="assistant", content=response,
         )
         if is_first_turn:
@@ -1704,6 +1709,7 @@ class Orchestrator:
                 "clarification_answer": True,
                 "resolved_field": pending.field,
                 "resolved_value": chosen,
+                "assistant_message_id": _asst_msg_id,
             },
         )
 

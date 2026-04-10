@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Send } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTTSState } from '../utils/tts';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
+import { useConnectivityStatus } from '../lib/connectivity';
 import Sidebar from '../components/sidebar/Sidebar';
 import ChatWindow from '../components/chat/ChatWindow';
 import ChatWelcomeView from '../components/chat/ChatWelcomeView';
@@ -23,7 +25,9 @@ import { useCharacterMode } from '../utils/characterMode';
 import { useAuth } from '../auth/useAuth';
 import type {
   PipelineEvent,
+  AugmentationData,
   DecompositionData,
+  MicroFastLaneData,
   SynthesisData,
   SourceInfo,
   RoutingData,
@@ -48,13 +52,17 @@ export interface Message {
   confirmations?: SilentConfirmation[];
   clarification?: string;
   mentionedPeople?: MentionedPerson[];
+  /** DB id of the stored message — used for feedback. */
+  messageId?: number;
 }
 
 export interface PipelineState {
   phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis' | 'completed';
+  augmentation: AugmentationData | null;
   decomposition: DecompositionData | null;
   routing: RoutingData | null;
   synthesis: SynthesisData | null;
+  microFastLane: MicroFastLaneData | null;
   streamingResponse: string;
   totalLatencyMs: number;
   confirmations: SilentConfirmation[];
@@ -63,9 +71,11 @@ export interface PipelineState {
 
 const INITIAL_PIPELINE: PipelineState = {
   phase: 'idle',
+  augmentation: null,
   decomposition: null,
   routing: null,
   synthesis: null,
+  microFastLane: null,
   streamingResponse: '',
   totalLatencyMs: 0,
   confirmations: [],
@@ -87,6 +97,7 @@ const ChatPage: React.FC = () => {
   const [dataVersion, setDataVersion] = useState(0);
   const tts = useTTSState();
   const { currentUser } = useAuth();
+  const connectivity = useConnectivityStatus();
   const [activeChar, setActiveChar] = useState<CharacterRow | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -296,6 +307,12 @@ const ChatPage: React.FC = () => {
 
       const next = { ...prev, phase: event.phase as PipelineState['phase'] };
 
+      if (event.phase === 'augmentation' && event.status === 'done') {
+        next.augmentation = event.data as AugmentationData;
+      }
+      if (event.phase === 'micro_fast_lane' && event.status === 'done') {
+        next.microFastLane = event.data as MicroFastLaneData;
+      }
       if (event.phase === 'decomposition' && event.status === 'done') {
         next.decomposition = event.data as DecompositionData;
       }
@@ -315,10 +332,11 @@ const ChatPage: React.FC = () => {
         next.synthesis = event.data as SynthesisData;
         // Final response from server overrides accumulated stream (in case of mismatch).
         next.streamingResponse = (event.data as SynthesisData).response ?? prev.streamingResponse;
+        const augMs = next.augmentation?.latency_ms ?? 0;
         const decompMs = next.decomposition?.latency_ms ?? 0;
         const routingMs = next.routing?.latency_ms ?? 0;
         const synthMs = (event.data as SynthesisData).latency_ms ?? 0;
-        next.totalLatencyMs = decompMs + routingMs + synthMs;
+        next.totalLatencyMs = augMs + decompMs + routingMs + synthMs;
       }
 
       return next;
@@ -327,6 +345,14 @@ const ChatPage: React.FC = () => {
 
   const handleSend = async () => {
     if (!input.trim() || isProcessing) return;
+    if (!connectivity.backendReachable) {
+      toast.error('Backend offline', {
+        description:
+          'LokiDoki could not reach the local API. Start the backend or wait for it to reconnect, then try again.',
+        duration: 4000,
+      });
+      return;
+    }
 
     const userMsg: Message = { role: 'user', content: input, timestamp: new Date().toLocaleTimeString() };
     setMessages(prev => [...prev, userMsg]);
@@ -356,6 +382,7 @@ const ChatPage: React.FC = () => {
             confirmations: prev.confirmations,
             clarification: prev.clarification ?? undefined,
             mentionedPeople: (prev.synthesis as any)?.mentioned_people ?? [],
+            messageId: (prev.synthesis as any)?.assistant_message_id as number | undefined,
           }];
           // Auto-play the new assistant message (no-op when muted).
           // Skills can supply a short `spoken_text` override when the
@@ -387,6 +414,66 @@ const ChatPage: React.FC = () => {
     }
   };
 
+  const handleRetry = useCallback((messageIndex: number) => {
+    // Find the user message that preceded this assistant message.
+    // Walk backwards from the assistant message to find the user turn.
+    let userInput = '';
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userInput = messages[i].content;
+        break;
+      }
+    }
+    if (!userInput) return;
+
+    // Remove the assistant message and re-send.
+    setMessages(prev => prev.slice(0, messageIndex));
+    setInput(userInput);
+    // Defer the send to next tick so state updates settle.
+    setTimeout(() => {
+      setInput('');
+      setIsProcessing(true);
+      setPipeline({ ...INITIAL_PIPELINE, phase: 'augmentation', streamingResponse: '' });
+      sendChatMessage(userInput, handleEvent, currentSessionId ? Number(currentSessionId) : undefined, activeProjectId || undefined)
+        .then(() => {
+          setPipeline(prev => {
+            const finalText =
+              prev.synthesis?.response?.trim() ||
+              prev.streamingResponse?.trim() ||
+              '⚠️ No response received.';
+            const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
+            setMessages(msgs => {
+              const next = [...msgs, {
+                role: 'assistant' as const,
+                content: finalText,
+                timestamp: new Date().toLocaleTimeString(),
+                sources: prev.synthesis?.sources ?? [],
+                pipeline: completedPipeline,
+                confirmations: prev.confirmations,
+                clarification: prev.clarification ?? undefined,
+                mentionedPeople: (prev.synthesis as any)?.mentioned_people ?? [],
+                messageId: (prev.synthesis as any)?.assistant_message_id as number | undefined,
+              }];
+              const spoken = prev.synthesis?.spoken_text?.trim() || finalText;
+              tts.speak(`msg-${next.length - 1}`, spoken);
+              return next;
+            });
+            return { ...prev, phase: 'idle' };
+          });
+          setDataVersion((v) => v + 1);
+        })
+        .catch(err => {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            timestamp: new Date().toLocaleTimeString(),
+          }]);
+          setPipeline({ ...INITIAL_PIPELINE });
+        })
+        .finally(() => setIsProcessing(false));
+    }, 0);
+  }, [messages, handleEvent, currentSessionId, activeProjectId, tts]);
+
   const handleNewSession = (projectId?: number) => {
     setMessages([]);
     setPipeline(INITIAL_PIPELINE);
@@ -413,6 +500,7 @@ const ChatPage: React.FC = () => {
         role: m.role,
         content: m.content,
         timestamp: m.created_at?.split('T')[1]?.slice(0, 8) || '',
+        messageId: m.id as number | undefined,
       }));
       setMessages(loaded);
     } catch (err) {
@@ -478,11 +566,17 @@ const ChatPage: React.FC = () => {
             activeAssistantKey={activeAssistantKey}
             assistantName={activeChar?.name}
             userName={currentUser?.username}
+            onRetry={handleRetry}
           />
         )}
 
         <div className="p-10 bg-background/50 backdrop-blur-xl border-t border-border/20">
           <div className="max-w-4xl mx-auto relative group">
+            {!connectivity.backendReachable && (
+              <div className="mb-3 rounded-2xl border border-red-400/20 bg-red-950/40 px-4 py-3 text-sm text-red-100 shadow-m1">
+                LokiDoki cannot reach the local backend right now. You can keep typing, but sending is paused until the service reconnects.
+              </div>
+            )}
             <input
               ref={inputRef}
               autoFocus
@@ -490,7 +584,13 @@ const ChatPage: React.FC = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder={activeChar ? `Chat with ${activeChar.name}…` : 'Chat with your character…'}
+              placeholder={
+                !connectivity.backendReachable
+                  ? 'Backend offline. Start LokiDoki to resume chat…'
+                  : activeChar
+                    ? `Chat with ${activeChar.name}…`
+                    : 'Chat with your character…'
+              }
               disabled={isProcessing}
               className="w-full bg-card/50 border border-border/50 rounded-2xl py-5 pl-8 pr-16 focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/5 transition-all placeholder-gray-700 shadow-m4 text-lg font-medium disabled:opacity-50"
             />

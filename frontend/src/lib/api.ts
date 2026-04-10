@@ -13,10 +13,16 @@
  * dispatch boundary if a `data:` line is present.
  */
 import type { PipelineEvent, ReconcileGroup } from "./api-types";
+import {
+  markBackendOffline,
+  markBackendReachable,
+} from "./connectivity";
 
 export type {
   PipelineEvent,
+  AugmentationData,
   DecompositionData,
+  MicroFastLaneData,
   RoutingData,
   RoutingLogEntry,
   SynthesisData,
@@ -39,6 +45,17 @@ export type {
 } from "./api-types";
 
 const API_BASE = "/api/v1";
+
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    const response = await fetch(input, init);
+    markBackendReachable();
+    return response;
+  } catch (error) {
+    markBackendOffline();
+    throw error;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // SSE parser
@@ -101,7 +118,7 @@ export async function sendChatMessage(
   sessionId?: number,
   projectId?: number,
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/chat`, {
+  const response = await apiFetch(`${API_BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -140,13 +157,13 @@ export async function sendChatMessage(
 // ---------------------------------------------------------------------------
 
 async function getJson<T>(path: string): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`);
+  const r = await apiFetch(`${API_BASE}${path}`);
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return (await r.json()) as T;
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`, {
+  const r = await apiFetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -201,7 +218,7 @@ export async function getSessions() {
 }
 
 export async function deleteSession(sessionId: string | number) {
-  const r = await fetch(`${API_BASE}/chat/sessions/${sessionId}`, {
+  const r = await apiFetch(`${API_BASE}/chat/sessions/${sessionId}`, {
     method: "DELETE",
   });
   if (!r.ok) throw new Error(`/chat/sessions/${sessionId}: ${r.status}`);
@@ -212,13 +229,36 @@ export async function updateSession(
   sessionId: string | number,
   update: { title?: string; project_id?: number },
 ) {
-  const r = await fetch(`${API_BASE}/chat/sessions/${sessionId}`, {
+  const r = await apiFetch(`${API_BASE}/chat/sessions/${sessionId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(update),
   });
   if (!r.ok) throw new Error(`/chat/sessions/${sessionId}: ${r.status}`);
   return (await r.json()) as { status: string };
+}
+
+export async function submitMessageFeedback(
+  message_id: number,
+  rating: 1 | -1,
+  comment = "",
+  tags: string[] = [],
+) {
+  const r = await apiFetch(`${API_BASE}/chat/messages/${message_id}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating, comment, tags }),
+  });
+  if (!r.ok) throw new Error(`feedback: ${r.status}`);
+  return (await r.json()) as { status: string; feedback_id: number };
+}
+
+export async function listMessageFeedback(rating?: number, limit = 100) {
+  let url = `${API_BASE}/chat/feedback?limit=${limit}`;
+  if (rating !== undefined) url += `&rating=${rating}`;
+  const r = await apiFetch(url);
+  if (!r.ok) throw new Error(`list-feedback: ${r.status}`);
+  return (await r.json()) as { feedback: any[] };
 }
 
 export interface ProjectRecord {
@@ -248,7 +288,7 @@ export async function createProject(project: ProjectInput) {
 }
 
 export async function updateProject(id: number, project: ProjectInput) {
-  const r = await fetch(`${API_BASE}/projects/${id}`, {
+  const r = await apiFetch(`${API_BASE}/projects/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(project),
@@ -258,7 +298,7 @@ export async function updateProject(id: number, project: ProjectInput) {
 }
 
 export async function deleteProject(id: number) {
-  const r = await fetch(`${API_BASE}/projects/${id}`, {
+  const r = await apiFetch(`${API_BASE}/projects/${id}`, {
     method: "DELETE",
   });
   if (!r.ok) throw new Error(`/projects/${id}: ${r.status}`);
@@ -317,7 +357,7 @@ export async function createGraphPerson(body: {
 }
 
 export async function patchGraphPerson(id: number, body: Record<string, unknown>) {
-  const r = await fetch(`${API_BASE}/people/${id}`, {
+  const r = await apiFetch(`${API_BASE}/people/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -334,7 +374,7 @@ export async function patchPersonOverlay(
     visibility_level: string;
   }>,
 ) {
-  const r = await fetch(`${API_BASE}/people/${id}/overlay`, {
+  const r = await apiFetch(`${API_BASE}/people/${id}/overlay`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -354,7 +394,7 @@ export async function createPeopleEdge(body: {
 export async function uploadPersonMedia(personId: number, file: File) {
   const form = new FormData();
   form.append("file", file);
-  const r = await fetch(`${API_BASE}/people/${personId}/media`, {
+  const r = await apiFetch(`${API_BASE}/people/${personId}/media`, {
     method: "POST",
     body: form,
   });
@@ -374,7 +414,7 @@ export async function getProfilePhotoOptions() {
 }
 
 export async function selectProfilePhoto(mediaId: number) {
-  const r = await fetch(`${API_BASE}/people/profile-photo`, {
+  const r = await apiFetch(`${API_BASE}/people/profile-photo`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ media_id: mediaId }),
@@ -390,7 +430,7 @@ export async function linkUserToPerson(personId: number, userId: number) {
 export async function importGedcom(file: File) {
   const form = new FormData();
   form.append("file", file);
-  const r = await fetch(`${API_BASE}/people/admin/import-gedcom`, {
+  const r = await apiFetch(`${API_BASE}/people/admin/import-gedcom`, {
     method: "POST",
     body: form,
   });
@@ -399,7 +439,7 @@ export async function importGedcom(file: File) {
 }
 
 export async function exportGedcom() {
-  const r = await fetch(`${API_BASE}/people/admin/export-gedcom`);
+  const r = await apiFetch(`${API_BASE}/people/admin/export-gedcom`);
   if (!r.ok) throw new Error(`/people/admin/export-gedcom: ${r.status}`);
   return await r.text();
 }
@@ -463,7 +503,7 @@ export async function patchFact(
     status: string;
   }>,
 ) {
-  const r = await fetch(`${API_BASE}/memory/facts/${id}`, {
+  const r = await apiFetch(`${API_BASE}/memory/facts/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -473,7 +513,7 @@ export async function patchFact(
 }
 
 export async function deleteFact(id: number) {
-  const r = await fetch(`${API_BASE}/memory/facts/${id}`, {
+  const r = await apiFetch(`${API_BASE}/memory/facts/${id}`, {
     method: "DELETE",
   });
   if (!r.ok) throw new Error(`/memory/facts/${id}: ${r.status}`);
@@ -485,7 +525,7 @@ export async function createPerson(name: string) {
 }
 
 export async function renamePerson(id: number, name: string) {
-  const r = await fetch(`${API_BASE}/memory/people/${id}`, {
+  const r = await apiFetch(`${API_BASE}/memory/people/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
@@ -495,7 +535,7 @@ export async function renamePerson(id: number, name: string) {
 }
 
 export async function deletePerson(id: number) {
-  const r = await fetch(`${API_BASE}/memory/people/${id}`, { method: "DELETE" });
+  const r = await apiFetch(`${API_BASE}/memory/people/${id}`, { method: "DELETE" });
   if (!r.ok) throw new Error(`/memory/people/${id}: ${r.status}`);
   return (await r.json()) as { ok: boolean };
 }
@@ -508,7 +548,7 @@ export async function addRelationship(personId: number, relation: string) {
 }
 
 export async function setPrimaryRelationship(personId: number, relation: string) {
-  const r = await fetch(`${API_BASE}/memory/people/${personId}/primary-relationship`, {
+  const r = await apiFetch(`${API_BASE}/memory/people/${personId}/primary-relationship`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ relation }),
@@ -518,7 +558,7 @@ export async function setPrimaryRelationship(personId: number, relation: string)
 }
 
 export async function deleteRelationship(relId: number) {
-  const r = await fetch(`${API_BASE}/memory/relationships/${relId}`, {
+  const r = await apiFetch(`${API_BASE}/memory/relationships/${relId}`, {
     method: "DELETE",
   });
   if (!r.ok) throw new Error(`/memory/relationships/${relId}: ${r.status}`);
@@ -587,7 +627,7 @@ export async function setCharacterOverride(
   characterId: number,
   fields: Partial<Pick<CharacterRow, "name" | "phonetic_name" | "description" | "behavior_prompt" | "avatar_style" | "avatar_seed">> & { avatar_config?: Record<string, unknown> },
 ) {
-  const r = await fetch(`${API_BASE}/characters/${characterId}/override`, {
+  const r = await apiFetch(`${API_BASE}/characters/${characterId}/override`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(fields),
@@ -597,7 +637,7 @@ export async function setCharacterOverride(
 }
 
 export async function clearCharacterOverride(characterId: number) {
-  const r = await fetch(`${API_BASE}/characters/${characterId}/override`, {
+  const r = await apiFetch(`${API_BASE}/characters/${characterId}/override`, {
     method: "DELETE",
   });
   if (!r.ok) throw new Error(`clear override: ${r.status}`);
@@ -643,7 +683,7 @@ export async function adminPatchCharacter(
   characterId: number,
   fields: Partial<AdminCharacterCreate>,
 ) {
-  const r = await fetch(`${API_BASE}/characters/admin/${characterId}`, {
+  const r = await apiFetch(`${API_BASE}/characters/admin/${characterId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(fields),
@@ -660,7 +700,7 @@ export async function adminResetCharacterToBuiltin(characterId: number) {
 }
 
 export async function adminDeleteCharacter(characterId: number) {
-  const r = await fetch(`${API_BASE}/characters/admin/${characterId}`, {
+  const r = await apiFetch(`${API_BASE}/characters/admin/${characterId}`, {
     method: "DELETE",
   });
   if (!r.ok) throw new Error(`delete: ${r.status}`);
@@ -751,7 +791,7 @@ export async function setSkillGlobal(
   key: string,
   value: unknown,
 ) {
-  const r = await fetch(`${API_BASE}/skills/${skillId}/config/global`, {
+  const r = await apiFetch(`${API_BASE}/skills/${skillId}/config/global`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ key, value }),
@@ -765,7 +805,7 @@ export async function setSkillUser(
   key: string,
   value: unknown,
 ) {
-  const r = await fetch(`${API_BASE}/skills/${skillId}/config/user`, {
+  const r = await apiFetch(`${API_BASE}/skills/${skillId}/config/user`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ key, value }),
@@ -775,7 +815,7 @@ export async function setSkillUser(
 }
 
 export async function deleteSkillUser(skillId: string, key: string) {
-  const r = await fetch(
+  const r = await apiFetch(
     `${API_BASE}/skills/${skillId}/config/user/${encodeURIComponent(key)}`,
     { method: "DELETE" },
   );
@@ -784,7 +824,7 @@ export async function deleteSkillUser(skillId: string, key: string) {
 }
 
 export async function setSkillToggleGlobal(skillId: string, enabled: boolean) {
-  const r = await fetch(`${API_BASE}/skills/${skillId}/toggle/global`, {
+  const r = await apiFetch(`${API_BASE}/skills/${skillId}/toggle/global`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
@@ -804,7 +844,7 @@ export interface SkillTestResult {
 }
 
 export async function testSkill(skillId: string, prompt: string) {
-  const r = await fetch(`${API_BASE}/skills/${skillId}/test`, {
+  const r = await apiFetch(`${API_BASE}/skills/${skillId}/test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt }),
@@ -814,7 +854,7 @@ export async function testSkill(skillId: string, prompt: string) {
 }
 
 export async function setSkillToggleUser(skillId: string, enabled: boolean) {
-  const r = await fetch(`${API_BASE}/skills/${skillId}/toggle/user`, {
+  const r = await apiFetch(`${API_BASE}/skills/${skillId}/toggle/user`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
@@ -824,7 +864,7 @@ export async function setSkillToggleUser(skillId: string, enabled: boolean) {
 }
 
 export async function deleteSkillGlobal(skillId: string, key: string) {
-  const r = await fetch(
+  const r = await apiFetch(
     `${API_BASE}/skills/${skillId}/config/global/${encodeURIComponent(key)}`,
     { method: "DELETE" },
   );
@@ -833,5 +873,11 @@ export async function deleteSkillGlobal(skillId: string, key: string) {
 }
 
 export async function saveSettings(settings: import("./api-types").SettingsData) {
-  return postJson<{ status: string }>("/settings", settings);
+  const r = await apiFetch(`${API_BASE}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!r.ok) throw new Error(`/settings: ${r.status}`);
+  return (await r.json()) as { status: string };
 }

@@ -27,6 +27,22 @@ export interface SentimentInfo {
   concern?: string;
 }
 
+export interface AugmentationData {
+  latency_ms: number;
+  context_messages: number;
+  relevant_facts: number;
+  past_messages: number;
+}
+
+export interface MicroFastLaneData {
+  hit: boolean;
+  near_miss?: boolean;
+  category: string;
+  similarity: number;
+  template: string;
+  latency_ms: number;
+}
+
 export interface DecompositionData {
   model: string;
   latency_ms: number;
@@ -72,6 +88,8 @@ export interface SynthesisData {
    * playback when present. Used when the on-screen response is rich
    * (e.g. a wall of showtimes) and reading every line is annoying. */
   spoken_text?: string;
+  /** DB id of the stored assistant message — used by feedback buttons. */
+  assistant_message_id?: number;
 }
 
 /**
@@ -283,4 +301,5 @@ export interface SettingsData {
   speech_rate: number;
   sentence_pause: number;
   normalize_text: boolean;
+  relationship_aliases: Record<string, string[]>;
 }
