@@ -27,19 +27,24 @@ def plan_response_spec(
     resolved_asks: list[Any],
 ) -> ResponseSpec:
     asks = list(resolved_asks or decomposition.asks or [])
-    requires_grounding = any(
-        getattr(a, "requires_current_data", False)
-        or getattr(a, "response_shape", "synthesized") == "verbatim"
-        or getattr(a, "capability_need", "none") != "none"
-        for a in asks
-    )
+    grounded_asks = [
+        a for a in asks
+        if (
+            getattr(a, "requires_current_data", False)
+            or getattr(a, "response_shape", "synthesized") == "verbatim"
+            or getattr(a, "capability_need", "none") != "none"
+        )
+    ]
+    requires_grounding = bool(grounded_asks)
+    is_simple_grounded_turn = len(asks) == 1 and len(grounded_asks) == 1
     is_short_fact_turn = (
-        bool(write_reports)
+        not requires_grounding
+        and bool(write_reports)
         and bool(asks)
         and len(user_input) < 200
         and all(getattr(a, "intent", "") == "direct_chat" for a in asks)
     )
-    if requires_grounding:
+    if is_simple_grounded_turn:
         reply_mode = "grounded_direct"
     elif is_short_fact_turn:
         reply_mode = "social_ack"

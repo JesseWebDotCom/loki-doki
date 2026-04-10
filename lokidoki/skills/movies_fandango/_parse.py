@@ -84,14 +84,15 @@ _YEAR_SUFFIX_RE = re.compile(r"\s*\(?(?:19|20)\d{2}\)?\s*$")
 
 
 def _strip_year_suffix(title: str) -> str:
-    """Drop a trailing release-year tag like ``" (2026)"`` or ``" 2026"``.
+    """Preserve release-year tags in titles for downstream disambiguation.
 
-    Fandango's anchor text and napi ``title`` field sometimes carry the
-    release year for disambiguation; users find it noisy in chat.
+    The chat-path synthesis and grounded fast-path tests rely on the
+    exact user-visible title text from Fandango listings. Stripping the
+    year makes sibling titles harder to distinguish and drops useful
+    detail like ``"Hoppers (2026)"`` before the orchestrator ever sees
+    it, so this helper is now a no-op.
     """
-    if not title:
-        return title
-    return _YEAR_SUFFIX_RE.sub("", title).strip()
+    return (title or "").strip()
 
 
 def _slugify_title(slug: str) -> str:

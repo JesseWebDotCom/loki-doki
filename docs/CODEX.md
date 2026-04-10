@@ -41,7 +41,8 @@ Status convention for every phase:
 
 Current overall status:
 - Phase 0 is `completed`
-- Phases 1-8 are `pending`
+- Phase 1 is `completed`
+- Phases 2-8 are `pending`
 
 ## Phase 0: Baseline, Instrumentation, Eval Harness, And Shadow Mode
 Status:
@@ -107,7 +108,7 @@ Create a reliable baseline and a test harness so every later phase can be measur
 
 ## Phase 1: ResponseSpec Control Plane And Fast-Path Mapping
 Status:
-- `pending`
+- `completed`
 
 ### Goal
 Make routing and reply behavior deterministic and centralized.

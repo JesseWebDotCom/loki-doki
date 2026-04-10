@@ -31,6 +31,7 @@ from lokidoki.core.orchestrator_memory import (
     build_silent_confirmations,
     persist_long_term_item,
 )
+from lokidoki.core.prompt_budget import enforce_prompt_budget, estimate_prompt_tokens
 from lokidoki.core.orchestrator_referent_resolution import ReferentResolver
 from lokidoki.core.orchestrator_skills import (
     build_acknowledgment_prompt,
@@ -73,10 +74,6 @@ ACKNOWLEDGMENT_NUM_PREDICT = 110
 # Below this length, force the fast model even if the decomposer says
 # 'thinking'. The 9B upgrade is too expensive for trivial questions.
 TRIVIAL_QUERY_CHAR_LIMIT = 120
-
-
-def _estimate_prompt_tokens(text: str) -> int:
-    return max(1, (len(text or "") + 3) // 4)
 
 
 def _traceable_skill_results(skill_results: dict, routing_log: list[dict]) -> dict:
@@ -203,14 +200,14 @@ class Orchestrator:
         write_reports: list[dict] = []
         skill_results: dict = {}
         routing_log: list[dict] = []
-        shadow_spec = None
+        response_spec = None
         retrieved_memory_candidates: dict = {}
         selected_injected_memories: dict = {}
 
         async def _finalize_trace(actual_lane: str, decomposition, resolved_asks) -> None:
             planned_lane = ""
-            if shadow_spec is not None:
-                planned_lane = shadow_spec.reply_mode
+            if response_spec is not None:
+                planned_lane = response_spec.reply_mode
             decomp_payload = {
                 "model": getattr(decomposition, "model", "") or "",
                 "latency_ms": float(getattr(decomposition, "latency_ms", 0.0) or 0.0),
@@ -240,7 +237,7 @@ class Orchestrator:
                 selected_injected_memories=selected_injected_memories,
                 skill_results=_traceable_skill_results(skill_results, routing_log),
                 prompt_sizes=prompt_sizes,
-                response_spec_shadow=(shadow_spec.to_dict() if shadow_spec else {}),
+                response_spec_shadow=(response_spec.to_dict() if response_spec else {}),
                 phase_latencies=phase_latencies,
             )
 
@@ -444,7 +441,7 @@ class Orchestrator:
                     decomp_prompt = candidate
             prompt_sizes["decomposition"] = {
                 "chars": len(decomp_prompt),
-                "estimated_tokens": _estimate_prompt_tokens(decomp_prompt),
+                "estimated_tokens": estimate_prompt_tokens(decomp_prompt),
                 "num_ctx": (
                     getattr(self._decomposer, "_num_ctx", 0)
                     if isinstance(getattr(self._decomposer, "_num_ctx", 0), int)
@@ -761,7 +758,7 @@ class Orchestrator:
             )
             phase_latencies["routing"] = (time.perf_counter() - phase_starts["routing"]) * 1000
 
-        shadow_spec = plan_response_spec(
+        response_spec = plan_response_spec(
             user_input=user_input,
             decomposition=decomposition,
             write_reports=write_reports,
@@ -845,94 +842,95 @@ class Orchestrator:
         # and the skill returned a `lead` field, return that text
         # directly with a [src:1] marker and skip the 9B model. The
         # decomposer is the classifier here — see try_verbatim_fast_path.
-        fast = try_verbatim_fast_path(resolved_asks, skill_results)
-        if fast is not None:
-            response, fast_latency_ms = fast
-            yield PipelineEvent(phase="synthesis", status="active", data={"fast_path": True})
-            await self._memory.add_message(
-                user_id=user_id, session_id=session_id, role="assistant", content=response,
-            )
-            if is_first_turn:
-                await self._auto_name_session(user_id, session_id, user_input)
-            yield PipelineEvent(
-                phase="synthesis",
-                status="done",
-                data={
-                    "response": response,
-                    "model": "fast_path",
-                    "latency_ms": fast_latency_ms,
-                    "tone": "neutral",
-                    "sources": sources,
-                    "platform": self._model_manager.policy.platform,
-                    "fast_path": True,
-                },
-            )
-            phase_latencies["synthesis"] = float(fast_latency_ms or 0.0)
-            await _finalize_trace("grounded_direct", decomposition, resolved_asks)
-            return
+        if response_spec.reply_mode == "grounded_direct":
+            fast = try_verbatim_fast_path(resolved_asks, skill_results)
+            if fast is not None:
+                response, fast_latency_ms = fast
+                yield PipelineEvent(phase="synthesis", status="active", data={"fast_path": True})
+                await self._memory.add_message(
+                    user_id=user_id, session_id=session_id, role="assistant", content=response,
+                )
+                if is_first_turn:
+                    await self._auto_name_session(user_id, session_id, user_input)
+                yield PipelineEvent(
+                    phase="synthesis",
+                    status="done",
+                    data={
+                        "response": response,
+                        "model": "fast_path",
+                        "latency_ms": fast_latency_ms,
+                        "tone": "neutral",
+                        "sources": sources,
+                        "platform": self._model_manager.policy.platform,
+                        "fast_path": True,
+                    },
+                )
+                phase_latencies["synthesis"] = float(fast_latency_ms or 0.0)
+                await _finalize_trace("grounded_direct", decomposition, resolved_asks)
+                return
 
-        grounded_fast = try_grounded_fast_path(resolved_asks, skill_results)
-        if grounded_fast is not None:
-            response, fast_latency_ms, spoken_text = grounded_fast
-            yield PipelineEvent(
-                phase="synthesis",
-                status="active",
-                data={"fast_path": True, "grounded_fast_path": True},
-            )
-            await self._memory.add_message(
-                user_id=user_id, session_id=session_id, role="assistant", content=response,
-            )
-            if is_first_turn:
-                await self._auto_name_session(user_id, session_id, user_input)
-            yield PipelineEvent(
-                phase="synthesis",
-                status="done",
-                data={
-                    "response": response,
-                    "model": "fast_path",
-                    "latency_ms": fast_latency_ms,
-                    "tone": "neutral",
-                    "sources": sources,
-                    "platform": self._model_manager.policy.platform,
-                    "fast_path": True,
-                    "grounded_fast_path": True,
-                    "spoken_text": spoken_text,
-                },
-            )
-            phase_latencies["synthesis"] = float(fast_latency_ms or 0.0)
-            await _finalize_trace("grounded_direct", decomposition, resolved_asks)
-            return
+            grounded_fast = try_grounded_fast_path(resolved_asks, skill_results)
+            if grounded_fast is not None:
+                response, fast_latency_ms, spoken_text = grounded_fast
+                yield PipelineEvent(
+                    phase="synthesis",
+                    status="active",
+                    data={"fast_path": True, "grounded_fast_path": True},
+                )
+                await self._memory.add_message(
+                    user_id=user_id, session_id=session_id, role="assistant", content=response,
+                )
+                if is_first_turn:
+                    await self._auto_name_session(user_id, session_id, user_input)
+                yield PipelineEvent(
+                    phase="synthesis",
+                    status="done",
+                    data={
+                        "response": response,
+                        "model": "fast_path",
+                        "latency_ms": fast_latency_ms,
+                        "tone": "neutral",
+                        "sources": sources,
+                        "platform": self._model_manager.policy.platform,
+                        "fast_path": True,
+                        "grounded_fast_path": True,
+                        "spoken_text": spoken_text,
+                    },
+                )
+                phase_latencies["synthesis"] = float(fast_latency_ms or 0.0)
+                await _finalize_trace("grounded_direct", decomposition, resolved_asks)
+                return
 
-        capability_failure = try_capability_failure_fast_path(resolved_asks, routing_log)
-        if capability_failure is not None:
-            response = capability_failure
-            yield PipelineEvent(
-                phase="synthesis",
-                status="active",
-                data={"fast_path": True, "capability_failure_fast_path": True},
-            )
-            await self._memory.add_message(
-                user_id=user_id, session_id=session_id, role="assistant", content=response,
-            )
-            if is_first_turn:
-                await self._auto_name_session(user_id, session_id, user_input)
-            yield PipelineEvent(
-                phase="synthesis",
-                status="done",
-                data={
-                    "response": response,
-                    "model": "fast_path",
-                    "latency_ms": 0.0,
-                    "tone": "neutral",
-                    "sources": sources,
-                    "platform": self._model_manager.policy.platform,
-                    "fast_path": True,
-                    "capability_failure_fast_path": True,
-                },
-            )
-            phase_latencies["synthesis"] = 0.0
-            await _finalize_trace("grounded_direct", decomposition, resolved_asks)
-            return
+            capability_failure = try_capability_failure_fast_path(resolved_asks, routing_log)
+            if capability_failure is not None:
+                response = capability_failure
+                yield PipelineEvent(
+                    phase="synthesis",
+                    status="active",
+                    data={"fast_path": True, "capability_failure_fast_path": True},
+                )
+                await self._memory.add_message(
+                    user_id=user_id, session_id=session_id, role="assistant", content=response,
+                )
+                if is_first_turn:
+                    await self._auto_name_session(user_id, session_id, user_input)
+                yield PipelineEvent(
+                    phase="synthesis",
+                    status="done",
+                    data={
+                        "response": response,
+                        "model": "fast_path",
+                        "latency_ms": 0.0,
+                        "tone": "neutral",
+                        "sources": sources,
+                        "platform": self._model_manager.policy.platform,
+                        "fast_path": True,
+                        "capability_failure_fast_path": True,
+                    },
+                )
+                phase_latencies["synthesis"] = 0.0
+                await _finalize_trace("grounded_direct", decomposition, resolved_asks)
+                return
 
         # ---- synthesis ---------------------------------------------------
         effective_complexity = decomposition.overall_reasoning_complexity
@@ -971,12 +969,7 @@ class Orchestrator:
         # cap so gemma can't parrot the input back. Everything else uses
         # the normal prompt.
         asks = decomposition.asks or []
-        is_ack_turn = (
-            len(write_reports) > 0
-            and len(asks) > 0
-            and all(a.intent == "direct_chat" for a in asks)
-            and len(user_input) < 200
-        )
+        is_ack_turn = response_spec.reply_mode == "social_ack"
         selected_injected_memories["clarify_hint"] = clarify_hint
 
         if is_ack_turn:
@@ -988,10 +981,6 @@ class Orchestrator:
             from lokidoki.core.humanize import format_memory_block
             from lokidoki.core.orchestrator_referents import build_referent_block
 
-            memory_block = format_memory_block(
-                facts=relevant_facts,
-                past_messages=past_messages,
-            )
             # Only inject relationships into the synthesis prompt when
             # the turn actually involves people — otherwise the model
             # shoehorns names like "Artie" into unrelated answers
@@ -1018,26 +1007,42 @@ class Orchestrator:
             )
             if not graph_relations and not relationships:
                 logger.warning("[orchestrator] no relationships in context for synthesis")
-            prompt = build_synthesis_prompt(
-                tone=tone,
-                context=compressed_context,
+            synthesis_num_ctx = (
+                getattr(self._decomposer, "_num_ctx", 8192)
+                if isinstance(getattr(self._decomposer, "_num_ctx", 0), int)
+                and getattr(self._decomposer, "_num_ctx", 0) > 0
+                else 8192
+            )
+            prompt, budget_meta = enforce_prompt_budget(
+                build_prompt=lambda *, facts, messages, skill_data: build_synthesis_prompt(
+                    tone=tone,
+                    context=compressed_context,
+                    skill_data=skill_data,
+                    query=user_input,
+                    user_prompt=self._user_prompt,
+                    admin_prompt=self._admin_prompt,
+                    project_prompt=project_prompt,
+                    clarify_hint=clarify_hint,
+                    memory_block=format_memory_block(
+                        facts=facts,
+                        past_messages=messages,
+                    ),
+                    sentiment_arc=sentiment_arc,
+                    character_name=self._character_name,
+                    seed_hint=seed_hint,
+                    referent_block=referent_block,
+                ),
+                facts=relevant_facts,
+                past_messages=past_messages,
                 skill_data=compressed_skill_data,
-                query=user_input,
-                user_prompt=self._user_prompt,
-                admin_prompt=self._admin_prompt,
-                project_prompt=project_prompt,
-                clarify_hint=clarify_hint,
-                memory_block=memory_block,
-                sentiment_arc=sentiment_arc,
-                character_name=self._character_name,
-                seed_hint=seed_hint,
-                referent_block=referent_block,
+                num_ctx=synthesis_num_ctx,
             )
             num_predict = SYNTHESIS_NUM_PREDICT
         prompt_sizes["synthesis"] = {
             "chars": len(prompt),
-            "estimated_tokens": _estimate_prompt_tokens(prompt),
+            "estimated_tokens": estimate_prompt_tokens(prompt),
             "num_predict": num_predict,
+            **({"num_ctx": synthesis_num_ctx, **budget_meta} if not is_ack_turn else {}),
         }
 
         response = ""
@@ -1180,7 +1185,7 @@ class Orchestrator:
                 "mentioned_people": mentioned_people,
             },
         )
-        await _finalize_trace("social_ack" if is_ack_turn else "full_synthesis", decomposition, resolved_asks)
+        await _finalize_trace(response_spec.reply_mode, decomposition, resolved_asks)
 
     async def _handle_clarification_answer(
         self,
