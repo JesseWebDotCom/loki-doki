@@ -72,6 +72,12 @@ RELATIONSHIP_COLUMN_MIGRATIONS = (
     ("confidence", "REAL NOT NULL DEFAULT 0.6"),
 )
 
+FEEDBACK_COLUMN_MIGRATIONS = (
+    ("tags", "TEXT NOT NULL DEFAULT '[]'"),
+    ("snapshot_prompt", "TEXT"),
+    ("snapshot_response", "TEXT"),
+)
+
 
 def _table_has_column(
     conn: sqlite3.Connection, table: str, column: str
@@ -221,6 +227,7 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
     # `projects` table may not exist yet on very old DBs; CORE_SCHEMA
     # creates it idempotently above, so this ALTER is always safe.
     _add_columns(conn, "projects", PROJECT_COLUMN_MIGRATIONS)
+    _add_columns(conn, "message_feedback", FEEDBACK_COLUMN_MIGRATIONS)
     # Indexes that depend on migrated columns must run AFTER _add_columns
     # so pre-projects DBs can upgrade without crashing on missing columns.
     conn.execute(

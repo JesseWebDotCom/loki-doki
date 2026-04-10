@@ -200,6 +200,19 @@ def get_messages(
     ).fetchall()
 
 
+def get_message(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    message_id: int,
+) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, session_id, role, content, created_at FROM messages "
+        "WHERE owner_user_id = ? AND id = ?",
+        (user_id, message_id),
+    ).fetchone()
+
+
 def upsert_fact(
     conn: sqlite3.Connection,
     *,
@@ -659,3 +672,77 @@ def fts_escape(query: str) -> str:
     if not tokens:
         return '""'
     return " ".join(f'"{t}"' for t in tokens)
+
+
+# ---- message feedback ---------------------------------------------------
+
+def upsert_message_feedback(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    message_id: int,
+    rating: int,
+    comment: str = "",
+    tags: list[str] = [],
+    prompt: Optional[str] = None,
+    response: Optional[str] = None,
+) -> int:
+    """Insert or update feedback for a message. Returns the feedback row id."""
+    tags_json = json.dumps(tags)
+    cur = conn.execute(
+        "INSERT INTO message_feedback ("
+        "owner_user_id, message_id, rating, comment, tags, "
+        "snapshot_prompt, snapshot_response"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT (owner_user_id, message_id) DO UPDATE SET "
+        "rating = excluded.rating, comment = excluded.comment, "
+        "tags = excluded.tags, snapshot_prompt = excluded.snapshot_prompt, "
+        "snapshot_response = excluded.snapshot_response",
+        (user_id, message_id, rating, comment, tags_json, prompt, response),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def get_message_feedback(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    message_id: int,
+) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, rating, comment, tags, snapshot_prompt, snapshot_response, created_at "
+        "FROM message_feedback "
+        "WHERE owner_user_id = ? AND message_id = ?",
+        (user_id, message_id),
+    ).fetchone()
+
+
+def list_message_feedback(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    rating: Optional[int] = None,
+    limit: int = 100,
+) -> list[sqlite3.Row]:
+    if rating is not None:
+        return conn.execute(
+            "SELECT mf.id, mf.message_id, mf.rating, mf.comment, mf.tags, "
+            "mf.snapshot_prompt, mf.snapshot_response, mf.created_at, "
+            "m.content, m.session_id "
+            "FROM message_feedback mf "
+            "JOIN messages m ON m.id = mf.message_id "
+            "WHERE mf.owner_user_id = ? AND mf.rating = ? "
+            "ORDER BY mf.created_at DESC LIMIT ?",
+            (user_id, rating, limit),
+        ).fetchall()
+    return conn.execute(
+        "SELECT mf.id, mf.message_id, mf.rating, mf.comment, mf.tags, "
+        "mf.snapshot_prompt, mf.snapshot_response, mf.created_at, "
+        "m.content, m.session_id "
+        "FROM message_feedback mf "
+        "JOIN messages m ON m.id = mf.message_id "
+        "WHERE mf.owner_user_id = ? "
+        "ORDER BY mf.created_at DESC LIMIT ?",
+        (user_id, limit),
+    ).fetchall()

@@ -157,6 +157,19 @@ class SessionUpdate(BaseModel):
     project_id: Optional[int] = None
 
 
+class FeedbackRequest(BaseModel):
+    rating: int  # 1 = positive, -1 = negative
+    comment: str = ""
+    tags: list[str] = []
+
+    @field_validator("rating")
+    @classmethod
+    def rating_valid(cls, v: int) -> int:
+        if v not in (1, -1):
+            raise ValueError("rating must be 1 (positive) or -1 (negative)")
+        return v
+
+
 @router.patch("/sessions/{session_id}")
 async def patch_session(
     session_id: int,
@@ -269,6 +282,56 @@ async def get_system_info():
         "loaded_models": loaded_models,
         **hw,
     }
+
+
+@router.post("/messages/{message_id}/feedback")
+async def submit_feedback(
+    message_id: int,
+    request: FeedbackRequest,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Submit or update thumbs-up / thumbs-down feedback for a message."""
+    # Fetch response text
+    response_msg = await memory.get_message(user_id=user.id, message_id=message_id)
+    response_text = response_msg["content"] if response_msg else None
+    
+    # Fetch prompt text (the message immediately before the response in the same session)
+    prompt_text = None
+    if response_msg:
+        session_id = response_msg["session_id"]
+        messages = await memory.get_messages(user_id=user.id, session_id=session_id)
+        # Find the response_msg in the list and get the one before it
+        for i, m in enumerate(messages):
+            if m["id"] == message_id:
+                if i > 0:
+                    prompt_text = messages[i-1]["content"]
+                break
+
+    feedback_id = await memory.upsert_message_feedback(
+        user_id=user.id,
+        message_id=message_id,
+        rating=request.rating,
+        comment=request.comment,
+        tags=request.tags,
+        prompt=prompt_text,
+        response=response_text,
+    )
+    return {"status": "ok", "feedback_id": feedback_id}
+
+
+@router.get("/feedback")
+async def list_feedback(
+    rating: Optional[int] = None,
+    limit: int = 100,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """List feedback entries for the current user, optionally filtered by rating."""
+    entries = await memory.list_message_feedback(
+        user_id=user.id, rating=rating, limit=limit
+    )
+    return {"feedback": entries}
 
 
 @router.delete("/memory")

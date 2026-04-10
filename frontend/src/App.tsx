@@ -4,11 +4,14 @@ import { ThemeProvider } from './components/theme/ThemeProvider';
 import ChatPage from './pages/ChatPage';
 import { AuthProvider } from './auth/AuthProvider';
 import { BootstrapGate } from './components/BootstrapGate';
+import ConnectivityBanner from './components/system/ConnectivityBanner';
+import { Toaster } from './components/ui/sonner';
 
 // Lazy-loaded pages — keeps the initial bundle small (ChatPage is the
 // landing page so it stays eager).
 const MemoryPage = lazy(() => import('./pages/MemoryPage'));
 const PeoplePage = lazy(() => import('./pages/PeoplePage'));
+const FeedbackPage = lazy(() => import('./pages/FeedbackPage'));
 const WizardPage = lazy(() => import('./pages/WizardPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const SettingsPage = lazy(() =>
@@ -24,6 +27,8 @@ const DevToolsPage = lazy(() =>
 const App: React.FC = () => {
   return (
     <ThemeProvider defaultTheme="dark" storageKey="lokidoki-theme">
+      <ConnectivityBanner />
+      <Toaster position="top-right" richColors closeButton />
       <Router>
         <AuthProvider>
           <BootstrapGate>
@@ -32,6 +37,7 @@ const App: React.FC = () => {
                 <Route path="/" element={<ChatPage />} />
                 <Route path="/memory" element={<MemoryPage />} />
                 <Route path="/people" element={<PeoplePage />} />
+                <Route path="/feedback" element={<FeedbackPage />} />
                 <Route path="/wizard" element={<WizardPage />} />
                 <Route path="/login" element={<LoginPage />} />
 

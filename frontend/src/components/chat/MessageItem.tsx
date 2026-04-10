@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Link as LinkIcon, Brain, Play, Square, LoaderCircle, Volume2, VolumeX } from 'lucide-react';
+import { Link as LinkIcon, Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw } from 'lucide-react';
 import { useTTSState } from '../../utils/tts';
 import {
   Tooltip,
@@ -13,6 +13,7 @@ import {
 import type { SourceInfo, SilentConfirmation } from '../../lib/api';
 import type { PipelineState } from '../../pages/ChatPage';
 import PipelineInfoPopover from './PipelineInfoPopover';
+import { FeedbackDialog } from './FeedbackDialog';
 
 interface MentionedPerson {
   id: number;
@@ -34,6 +35,10 @@ interface MessageProps {
   userName?: string;
   pipeline?: PipelineState;
   mentionedPeople?: MentionedPerson[];
+  /** DB id of the stored message — enables feedback. */
+  messageId?: number;
+  /** Retry callback — removes this message and re-sends the prior user turn. */
+  onRetry?: () => void;
 }
 
 /**
@@ -97,6 +102,8 @@ const MessageItem: React.FC<MessageProps> = ({
   userName,
   pipeline,
   mentionedPeople = [],
+  messageId,
+  onRetry,
 }) => {
   const isUser = role === 'user';
   const tts = useTTSState();
@@ -104,10 +111,34 @@ const MessageItem: React.FC<MessageProps> = ({
   const isSpeaking = !isUser && tts.speakingKey === myKey;
   const isPending = !isUser && tts.pendingKey === myKey;
 
+  // Action bar state
+  const [copied, setCopied] = useState(false);
+  const [feedbackState, setFeedbackState] = useState<1 | -1 | null>(null);
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+  const [pendingRating, setPendingRating] = useState<1 | -1 | null>(null);
+
   // Transform citations into markdown-recognizable links
   const processedContent = isUser ? content : preprocessContent(content);
 
   const isActive = isSpeaking || isPending;
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleFeedback = (rating: 1 | -1) => {
+    // If clicking same rating that is already active, we just toggle it off (reset)
+    // but the user wants a dialog "when we click it", so we'll show the dialog 
+    // even for re-submitting or changing.
+    setPendingRating(rating);
+    setFeedbackDialogOpen(true);
+  };
+
+  const handleFeedbackSuccess = (rating: 1 | -1) => {
+    setFeedbackState(rating);
+  };
 
   return (
     <div className={`flex w-full mb-8 items-start gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -261,6 +292,84 @@ const MessageItem: React.FC<MessageProps> = ({
           <div className="mt-3 text-[11px] italic text-primary/70 border-l-2 border-primary/40 pl-3">
             {clarification}
           </div>
+        )}
+
+        {!isUser && (
+          <div className="mt-3 pt-2 border-t border-border/10 flex items-center gap-1">
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition"
+                  >
+                    {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">{copied ? 'Copied!' : 'Copy'}</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => handleFeedback(1)}
+                    className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition ${
+                      feedbackState === 1
+                        ? 'text-green-400 bg-green-400/10'
+                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50'
+                    }`}
+                  >
+                    <ThumbsUp size={14} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">Good response</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => handleFeedback(-1)}
+                    className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition ${
+                      feedbackState === -1
+                        ? 'text-red-400 bg-red-400/10'
+                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50'
+                    }`}
+                  >
+                    <ThumbsDown size={14} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">Bad response</TooltipContent>
+              </Tooltip>
+
+              {onRetry && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={onRetry}
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">Retry</TooltipContent>
+                </Tooltip>
+              )}
+            </TooltipProvider>
+          </div>
+        )}
+
+        {!isUser && messageId && pendingRating !== null && (
+          <FeedbackDialog
+            open={feedbackDialogOpen}
+            onOpenChange={setFeedbackDialogOpen}
+            messageId={messageId}
+            initialRating={pendingRating}
+            onSuccess={handleFeedbackSuccess}
+          />
         )}
       </div>
     </div>

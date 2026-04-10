@@ -533,6 +533,24 @@ CREATE TABLE IF NOT EXISTS experiment_assignments (
 );
 CREATE INDEX IF NOT EXISTS idx_experiment_assignments_experiment
     ON experiment_assignments(experiment_id);
+
+-- Per-message user feedback (thumbs up / thumbs down + optional comment).
+-- rating: 1 = positive, -1 = negative.
+-- UNIQUE constraint lets the frontend upsert without checking first.
+CREATE TABLE IF NOT EXISTS message_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    rating INTEGER NOT NULL,
+    comment TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '[]',
+    snapshot_prompt TEXT,
+    snapshot_response TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (owner_user_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_message_feedback_owner
+    ON message_feedback(owner_user_id);
 """
 
 FTS_SCHEMA = """

@@ -352,15 +352,24 @@ class MemoryProvider:
             )
 
     async def get_messages(
-        self, *, user_id: int, session_id: int, limit: Optional[int] = None
-    ) -> list[dict]:
+        self, user_id: int, session_id: int, limit: int = 0
+    ) -> list[sqlite3.Row]:
         async with self._lock:
-            rows = await asyncio.to_thread(
+            return await asyncio.to_thread(
                 lambda: sql.get_messages(
                     self._conn, user_id=user_id, session_id=session_id, limit=limit
                 )
             )
-        return [dict(r) for r in rows]
+
+    async def get_message(
+        self, user_id: int, message_id: int
+    ) -> Optional[sqlite3.Row]:
+        async with self._lock:
+            return await asyncio.to_thread(
+                lambda: sql.get_message(
+                    self._conn, user_id=user_id, message_id=message_id
+                )
+            )
 
     async def search_messages(
         self, *, user_id: int, query: str, top_k: int = 10
@@ -602,6 +611,56 @@ class MemoryProvider:
                     project_id=project_id,
                 )
             )
+
+
+    # ---- message feedback ------------------------------------------------
+
+    async def upsert_message_feedback(
+        self,
+        *,
+        user_id: int,
+        message_id: int,
+        rating: int,
+        comment: str = "",
+        tags: list[str] = [],
+        prompt: Optional[str] = None,
+        response: Optional[str] = None,
+    ) -> int:
+        async with self._lock:
+            return await asyncio.to_thread(
+                lambda: sql.upsert_message_feedback(
+                    self._conn,
+                    user_id=user_id,
+                    message_id=message_id,
+                    rating=rating,
+                    comment=comment,
+                    tags=tags,
+                    prompt=prompt,
+                    response=response,
+                )
+            )
+
+    async def get_message_feedback(
+        self, *, user_id: int, message_id: int
+    ) -> dict | None:
+        async with self._lock:
+            row = await asyncio.to_thread(
+                lambda: sql.get_message_feedback(
+                    self._conn, user_id=user_id, message_id=message_id
+                )
+            )
+            return dict(row) if row else None
+
+    async def list_message_feedback(
+        self, *, user_id: int, rating: int | None = None, limit: int = 100
+    ) -> list[dict]:
+        async with self._lock:
+            rows = await asyncio.to_thread(
+                lambda: sql.list_message_feedback(
+                    self._conn, user_id=user_id, rating=rating, limit=limit
+                )
+            )
+            return [dict(r) for r in rows]
 
 
 # Bind the per-user / sentiment / people / character helpers onto
