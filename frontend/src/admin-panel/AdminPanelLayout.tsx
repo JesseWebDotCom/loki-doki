@@ -72,6 +72,7 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
 
   if (!active) return null;
   const ActiveIcon = active.icon;
+  const contentWidthClass = active.fullWidth ? 'max-w-none' : 'max-w-5xl';
 
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
@@ -148,7 +149,7 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
 
       <main className="flex-1 flex flex-col relative bg-background shadow-inner overflow-y-auto">
         <header className="px-12 pt-12 pb-8">
-          <div className="max-w-5xl mx-auto flex items-center gap-4">
+          <div className={`${contentWidthClass} mx-auto flex items-center gap-4`}>
             <div className="p-3 rounded-2xl bg-card/40 border border-border/40 text-foreground/70 shadow-m1">
               <ActiveIcon size={26} />
             </div>
@@ -157,11 +158,11 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
               <p className="text-muted-foreground text-sm font-medium">{active.description}</p>
             </div>
           </div>
-          <div className="max-w-5xl mx-auto mt-8 border-b border-border/20" />
+          <div className={`${contentWidthClass} mx-auto mt-8 border-b border-border/20`} />
         </header>
 
         <section className="px-12 pb-16 flex-1">
-          <div className="max-w-5xl mx-auto">{renderSection(active)}</div>
+          <div className={`${contentWidthClass} mx-auto`}>{renderSection(active)}</div>
         </section>
       </main>
     </div>

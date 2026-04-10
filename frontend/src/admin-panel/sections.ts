@@ -26,6 +26,8 @@ export interface SectionDef {
   adminOnly?: boolean;
   /** Section requires the 15-min admin password challenge before rendering. */
   requiresChallenge?: boolean;
+  /** Lets visually dense panes use the full content width. */
+  fullWidth?: boolean;
 }
 
 export const SECTIONS: SectionDef[] = [
@@ -37,7 +39,7 @@ export const SECTIONS: SectionDef[] = [
   { id: 'skills',      group: 'Personalization', label: 'Skills',            icon: Puzzle,
     title: 'Skills', description: 'Enable, disable, and configure each skill in the catalog.' },
   { id: 'appearance',  group: 'Personalization', label: 'Appearance',        icon: Palette,
-    title: 'Appearance', description: 'Theme palette and surface styling.' },
+    title: 'Appearance', description: 'Theme palette and surface styling.', fullWidth: true },
 
   // ── Permissions ────────────────────────────────────────────────
   { id: 'general',           group: 'Permissions', label: 'System Info',       icon: Cpu,

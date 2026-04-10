@@ -156,7 +156,7 @@ const SkillDetailDialog: React.FC<Props> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+        <DialogHeader className="space-y-4 pr-10">
           <div className="flex items-start gap-3">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 text-primary shrink-0">
               <Icon size={24} />
@@ -178,6 +178,16 @@ const SkillDetailDialog: React.FC<Props> = ({
                   {skill.description}
                 </DialogDescription>
               )}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/20 bg-card/30 px-3 py-2">
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold text-foreground">
+                Enabled for your account
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                Turn this skill on or off without changing its saved settings.
+              </div>
             </div>
             <PillToggle
               enabled={skill.toggle.user}

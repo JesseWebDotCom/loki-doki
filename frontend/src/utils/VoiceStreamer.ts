@@ -16,6 +16,9 @@ export interface VisemeEvent {
 
 export type VoiceStreamOptions = {
   voiceId?: string;
+  speechRate?: number;
+  sentencePause?: number;
+  normalizeText?: boolean;
   signal?: AbortSignal;
   onPlaybackStart?: () => void;
 };
@@ -60,7 +63,13 @@ export class VoiceStreamer {
       const response = await fetch('/api/v1/audio/tts/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: options.voiceId }),
+        body: JSON.stringify({
+          text,
+          voice: options.voiceId,
+          speech_rate: options.speechRate,
+          sentence_pause: options.sentencePause,
+          normalize_text: options.normalizeText,
+        }),
         signal: options.signal,
       });
       if (!response.ok) {

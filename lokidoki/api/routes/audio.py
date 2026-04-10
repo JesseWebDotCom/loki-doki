@@ -50,6 +50,9 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 class TTSRequest(BaseModel):
     text: str
     voice: str | None = None
+    speech_rate: float | None = None
+    sentence_pause: float | None = None
+    normalize_text: bool | None = None
 
 
 def _current_audio_config() -> AudioConfig:
@@ -61,6 +64,32 @@ def _current_audio_config() -> AudioConfig:
         speech_rate=float(loaded.get("speech_rate", _config.speech_rate)),
         sentence_pause=float(loaded.get("sentence_pause", _config.sentence_pause)),
         normalize_text=bool(loaded.get("normalize_text", _config.normalize_text)),
+    )
+
+
+def _merge_preview_overrides(
+    config: AudioConfig,
+    request: TTSRequest,
+) -> AudioConfig:
+    return AudioConfig(
+        piper_voice=config.piper_voice,
+        stt_model=config.stt_model,
+        read_aloud=config.read_aloud,
+        speech_rate=(
+            float(request.speech_rate)
+            if request.speech_rate is not None
+            else config.speech_rate
+        ),
+        sentence_pause=(
+            float(request.sentence_pause)
+            if request.sentence_pause is not None
+            else config.sentence_pause
+        ),
+        normalize_text=(
+            bool(request.normalize_text)
+            if request.normalize_text is not None
+            else config.normalize_text
+        ),
     )
 
 
@@ -93,7 +122,7 @@ async def text_to_speech_stream(
     if not text:
         raise HTTPException(status_code=400, detail="Text must not be empty")
 
-    config = _current_audio_config()
+    config = _merge_preview_overrides(_current_audio_config(), request)
     voice_id = (request.voice or config.piper_voice).strip()
     if not voice_installed(voice_id):
         raise HTTPException(

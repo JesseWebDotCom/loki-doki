@@ -13,7 +13,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import {
-  Cpu, Volume2, Mic, Save, Check, X, Trash2, Brain, AlertTriangle, Shield, ScrollText, Wrench, Users as UsersIcon,
+  Check, Cpu, Save, X, Trash2, Brain, AlertTriangle, Shield, ScrollText, Wrench, Users as UsersIcon,
 } from 'lucide-react';
 import AdminPanelLayout from './AdminPanelLayout';
 import type { SectionDef, SectionId } from './sections';
@@ -21,11 +21,11 @@ import { useAuth } from '../auth/useAuth';
 import { AdminPasswordPrompt } from '../components/AdminPasswordPrompt';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import LogViewer from '../components/dev/LogViewer';
+import AudioSection from '../components/settings/AudioSection';
+import AppearanceSection from '../components/settings/AppearanceSection';
 import CharactersSection from '../components/settings/CharactersSection';
 import SkillsSection from '../components/settings/SkillsSection';
 import CharactersAdminSection from '../components/admin/CharactersAdminSection';
-import ThemeShowcase from '../components/theme/ThemeShowcase';
-import ThemeCustomizer from '../components/theme/ThemeCustomizer';
 import { getSystemInfo, getSettings, saveSettings } from '../lib/api';
 import type { SettingsData } from '../lib/api';
 import type { SystemInfo } from '../lib/api-types';
@@ -144,10 +144,10 @@ const SectionBody: React.FC<{ section: SectionDef }> = ({ section }) => {
   switch (section.id as SectionId) {
     case 'general':           return <GeneralPane />;
     case 'characters':        return <CharactersSection />;
-    case 'audio':             return <AudioPane />;
+    case 'audio':             return <AudioSection />;
     case 'skills':            return <SkillsSection />;
     case 'admin-skills':      return <SkillsSection enableTesting />;
-    case 'appearance':        return <AppearancePane />;
+    case 'appearance':        return <AppearanceSection />;
     case 'users':             return <UsersPane />;
     case 'character-catalog': return <CharacterCatalogPane />;
     case 'controls':          return <ControlsPane />;
@@ -379,131 +379,6 @@ const Stat: React.FC<{ label: string; value: string; accent?: string }> = ({ lab
   <div className="p-4 rounded-xl bg-card/50 border border-border/30">
     <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{label}</div>
     <div className={`text-sm font-bold font-mono ${accent ?? ''}`}>{value}</div>
-  </div>
-);
-
-const AudioPane: React.FC = () => {
-  const [settings, setSettings] = useState<SettingsData | null>(null);
-  const [saved, setSaved] = useState(false);
-  useEffect(() => { void getSettings().then(setSettings).catch(() => {}); }, []);
-  if (!settings) return null;
-
-  const save = async () => {
-    await saveSettings(settings);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-            <Volume2 size={12} /> Piper Voice
-          </label>
-          <select
-            value={settings.piper_voice}
-            onChange={(e) => setSettings({ ...settings, piper_voice: e.target.value })}
-            className="w-full bg-card/50 border border-border/50 rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-primary/50"
-          >
-            <option value="en_US-lessac-medium">en_US-lessac-medium (Default)</option>
-            <option value="en_US-amy-medium">en_US-amy-medium</option>
-            <option value="en_US-ryan-medium">en_US-ryan-medium</option>
-            <option value="en_GB-alba-medium">en_GB-alba-medium</option>
-          </select>
-        </div>
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-            <Mic size={12} /> STT Model
-          </label>
-          <select
-            value={settings.stt_model}
-            onChange={(e) => setSettings({ ...settings, stt_model: e.target.value })}
-            className="w-full bg-card/50 border border-border/50 rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-primary/50"
-          >
-            <option value="tiny">tiny (fastest)</option>
-            <option value="base">base (balanced)</option>
-            <option value="small">small (accurate)</option>
-          </select>
-        </div>
-      </div>
-      <label className="flex items-center gap-3 p-4 rounded-xl bg-card/50 border border-border/30 cursor-pointer hover:border-border/60 transition-all">
-        <input
-          type="checkbox"
-          checked={settings.read_aloud}
-          onChange={(e) => setSettings({ ...settings, read_aloud: e.target.checked })}
-          className="w-4 h-4 rounded border-border accent-primary"
-        />
-        <div>
-          <div className="text-sm font-bold">Read Aloud</div>
-          <div className="text-xs text-muted-foreground">Automatically speak every response using Piper TTS</div>
-        </div>
-      </label>
-      <label className="flex items-center gap-3 p-4 rounded-xl bg-card/50 border border-border/30 cursor-pointer hover:border-border/60 transition-all">
-        <input
-          type="checkbox"
-          checked={settings.normalize_text}
-          onChange={(e) => setSettings({ ...settings, normalize_text: e.target.checked })}
-          className="w-4 h-4 rounded border-border accent-primary"
-        />
-        <div>
-          <div className="text-sm font-bold">Normalize Speech Text</div>
-          <div className="text-xs text-muted-foreground">Expand dates, numbers, links, and abbreviations before TTS</div>
-        </div>
-      </label>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-            Speech Rate
-          </label>
-          <input
-            type="range"
-            min="0.8"
-            max="1.3"
-            step="0.05"
-            value={settings.speech_rate}
-            onChange={(e) => setSettings({ ...settings, speech_rate: Number(e.target.value) })}
-            className="w-full accent-primary"
-          />
-          <div className="text-xs text-muted-foreground">{settings.speech_rate.toFixed(2)}x</div>
-        </div>
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-            Sentence Pause
-          </label>
-          <input
-            type="range"
-            min="0.1"
-            max="1.0"
-            step="0.05"
-            value={settings.sentence_pause}
-            onChange={(e) => setSettings({ ...settings, sentence_pause: Number(e.target.value) })}
-            className="w-full accent-primary"
-          />
-          <div className="text-xs text-muted-foreground">{settings.sentence_pause.toFixed(2)}s</div>
-        </div>
-      </div>
-      <div className="flex justify-end pt-2">
-        <button
-          onClick={() => void save()}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-m2 ${
-            saved
-              ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-              : 'bg-primary text-white hover:bg-primary/90 active:scale-95'
-          }`}
-        >
-          {saved ? <Check size={14} /> : <Save size={14} />}
-          {saved ? 'Saved' : 'Save Audio Settings'}
-        </button>
-      </div>
-    </div>
-  );
-};
-
-const AppearancePane: React.FC = () => (
-  <div className="rounded-lg overflow-hidden border border-border/20 bg-onyx-2/5 shadow-m4">
-    <ThemeShowcase />
-    <ThemeCustomizer />
   </div>
 );
 

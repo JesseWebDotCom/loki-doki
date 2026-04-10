@@ -69,3 +69,32 @@ async def test_tts_stream_config_exposes_new_fields():
     assert data["speech_rate"] == 1.0
     assert data["sentence_pause"] == 0.4
     assert data["normalize_text"] is True
+
+
+@pytest.mark.anyio
+async def test_tts_stream_accepts_preview_overrides():
+    voice = _RecordingVoice()
+    app.dependency_overrides[current_user] = _override_user
+    try:
+        with (
+            patch("lokidoki.api.routes.audio.voice_installed", return_value=True),
+            patch("lokidoki.core.audio._cached_voice", return_value=voice),
+        ):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                response = await ac.post(
+                    "/api/v1/audio/tts/stream",
+                    json={
+                        "text": "Dr. Kim is free on 04/09/2026.",
+                        "voice": "en_US-amy-medium",
+                        "speech_rate": 1.2,
+                        "sentence_pause": 0.7,
+                        "normalize_text": False,
+                    },
+                )
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    assert response.status_code == 200
+    assert voice.calls[0]["text"] == "Dr. Kim is free on 04/09/2026."
+    assert voice.calls[0]["length_scale"] == 1.15

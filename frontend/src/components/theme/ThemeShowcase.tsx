@@ -10,72 +10,92 @@ interface ThemePreviewProps {
 
 function ThemePreview({ title, isDark, paletteData }: ThemePreviewProps) {
   const vars = isDark ? paletteData.dark : paletteData.light;
-  
-  // Create a scoped style object for the preview card
   const style = {
     ...vars,
-    '--radius': '1.5rem', // Match high-radius aesthetic
+    '--radius': '1.25rem',
   } as React.CSSProperties;
 
   return (
-    <div 
+    <div
       style={style}
-      className="flex-1 rounded-[2.5rem] bg-background text-foreground border border-border/10 p-10 space-y-10 shadow-m3 transition-all duration-500 overflow-hidden"
+      className="rounded-[2rem] bg-background text-foreground border border-border/10 p-6 shadow-m3 transition-all duration-500 overflow-hidden"
     >
-      <div className="text-center space-y-1">
-        <h3 className="text-2xl font-bold tracking-tight">{title}</h3>
-        <p className="text-sm font-medium text-muted-foreground">Preview of theme colors</p>
-      </div>
-
-      {/* Swatches */}
-      <div className="grid grid-cols-5 gap-4">
-        <div className="aspect-square rounded-3xl bg-primary shadow-m1" />
-        <div className="aspect-square rounded-3xl bg-secondary shadow-m1 opacity-80" />
-        <div className="aspect-square rounded-3xl bg-accent shadow-m1" />
-        <div className="aspect-square rounded-3xl bg-muted border border-border/10 shadow-sm" />
-        <div className="aspect-square rounded-3xl bg-destructive shadow-m1" />
-      </div>
-
-      {/* Buttons */}
-      <div className="flex flex-wrap items-center gap-4">
-        <button className="px-8 py-3 rounded-full bg-primary text-primary-foreground font-bold text-sm shadow-m2">Primary</button>
-        <button className="px-8 py-3 rounded-full bg-secondary text-secondary-foreground font-bold text-sm shadow-m1">Secondary</button>
-        <button className="px-8 py-3 rounded-full border border-border text-foreground font-bold text-sm">Outline</button>
-        <button className="px-8 py-3 rounded-full bg-destructive text-primary-foreground font-bold text-sm shadow-m1">Destructive</button>
-      </div>
-
-      {/* Surface Layer / Card */}
-      <div className="rounded-[2rem] bg-card p-8 border border-border/5 space-y-2 shadow-m2 transition-all hover:scale-[1.01]">
-        <h4 className="text-xl font-bold tracking-tight">Card Title</h4>
-        <p className="text-sm font-medium text-muted-foreground leading-relaxed">
-          Card description with muted text styling.
-        </p>
-      </div>
-
-      {/* Input Field Form Factor */}
-      <div className="space-y-3">
-        <label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground ml-1">Input Field</label>
-        <div className="w-full px-6 py-4 rounded-2xl bg-background border border-border/20 text-sm italic text-muted-foreground flex items-center">
-          Enter text...
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h3 className="text-xl font-bold tracking-tight">{title}</h3>
+          <p className="text-sm font-medium text-muted-foreground">
+            Preview of your colors and surfaces
+          </p>
         </div>
+        <span className="rounded-full border border-border/30 bg-card px-3 py-1 text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
+          {isDark ? "Dark" : "Light"}
+        </span>
       </div>
 
-      {/* Badges */}
-      <div className="flex items-center gap-3">
-         <span className="px-5 py-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-widest shadow-sm">Badge</span>
-         <span className="px-5 py-1.5 rounded-full bg-secondary text-secondary-foreground text-[10px] font-black uppercase tracking-widest shadow-sm">Secondary</span>
-         <span className="px-5 py-1.5 rounded-full border border-border text-foreground text-[10px] font-black uppercase tracking-widest">Outline</span>
-      </div>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(220px,0.8fr)]">
+        <div className="space-y-5">
+          <div className="grid grid-cols-5 gap-3">
+            <div className="aspect-square rounded-2xl bg-primary shadow-m1" />
+            <div className="aspect-square rounded-2xl bg-secondary shadow-m1 opacity-80" />
+            <div className="aspect-square rounded-2xl bg-accent shadow-m1" />
+            <div className="aspect-square rounded-2xl bg-muted border border-border/10 shadow-sm" />
+            <div className="aspect-square rounded-2xl bg-destructive shadow-m1" />
+          </div>
 
-      {/* Chart Colors */}
-      <div className="space-y-4">
-        <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground ml-1">Chart Colors</h5>
-        <div className="grid grid-cols-5 h-12 gap-2">
-            <div className="rounded-xl bg-primary/80" />
-            <div className="rounded-xl bg-secondary/80" />
-            <div className="rounded-xl bg-accent/80" />
-            <div className="rounded-xl bg-primary/40" />
-            <div className="rounded-xl bg-secondary/40" />
+          <div className="flex flex-wrap items-center gap-3">
+            <button className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground font-bold text-sm shadow-m2">
+              Primary
+            </button>
+            <button className="px-5 py-2.5 rounded-full bg-secondary text-secondary-foreground font-bold text-sm shadow-m1">
+              Secondary
+            </button>
+            <button className="px-5 py-2.5 rounded-full border border-border text-foreground font-bold text-sm">
+              Outline
+            </button>
+          </div>
+
+          <div className="rounded-[1.5rem] bg-card p-5 border border-border/5 space-y-2 shadow-m2">
+            <h4 className="text-lg font-bold tracking-tight">Conversation Card</h4>
+            <p className="text-sm font-medium text-muted-foreground leading-relaxed">
+              Messages, controls, and panels use these surface colors.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+              Input Field
+            </label>
+            <div className="w-full px-5 py-3 rounded-2xl bg-background border border-border/20 text-sm italic text-muted-foreground flex items-center">
+              Enter text...
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-widest shadow-sm">
+              Badge
+            </span>
+            <span className="px-4 py-1.5 rounded-full bg-secondary text-secondary-foreground text-[10px] font-black uppercase tracking-widest shadow-sm">
+              Secondary
+            </span>
+            <span className="px-4 py-1.5 rounded-full border border-border text-foreground text-[10px] font-black uppercase tracking-widest">
+              Outline
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground ml-1">
+              Chart Colors
+            </h5>
+            <div className="grid grid-cols-5 h-10 gap-2">
+              <div className="rounded-xl bg-primary/80" />
+              <div className="rounded-xl bg-secondary/80" />
+              <div className="rounded-xl bg-accent/80" />
+              <div className="rounded-xl bg-primary/40" />
+              <div className="rounded-xl bg-secondary/40" />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -87,16 +107,8 @@ const ThemeShowcase: React.FC = () => {
     const currentPalette = palettes.find(p => p.id === palette) || palettes[0];
 
     return (
-        <div className="w-full animate-in fade-in duration-1000 p-8 space-y-12">
-            <div className="flex items-center gap-6 mb-4 opacity-40">
-                <span className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
-                <div className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.5em] whitespace-nowrap">
-                    Live Authoritative Preview
-                </div>
-                <span className="h-[1px] flex-1 bg-gradient-to-r from-border via-border to-transparent" />
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-stretch">
+        <div className="w-full animate-in fade-in duration-1000 p-6 pb-28 space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-stretch">
                 <ThemePreview title="Light Mode" isDark={false} paletteData={currentPalette} />
                 <ThemePreview title="Dark Mode" isDark={true} paletteData={currentPalette} />
             </div>

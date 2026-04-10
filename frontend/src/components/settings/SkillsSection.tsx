@@ -94,9 +94,6 @@ const SkillsSection: React.FC<Props> = ({ enableTesting = false }) => {
       <div className="flex items-center gap-2 border-b border-border/10 pb-4">
         <Wrench className="text-primary w-5 h-5" />
         <h2 className="text-xl font-bold tracking-tight">Skills</h2>
-        <span className="text-[10px] font-bold text-muted-foreground bg-muted/10 px-2 py-0.5 rounded-md border border-border/20 ml-2">
-          {isAdmin ? "ADMIN" : "USER"}
-        </span>
       </div>
       <p className="text-xs text-muted-foreground">
         Configure server-wide credentials (admin) and your personal
