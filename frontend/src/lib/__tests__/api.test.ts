@@ -18,11 +18,16 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { sendChatMessage } from "../api";
 import type { PipelineEvent } from "../api-types";
+import {
+  getConnectivitySnapshot,
+  resetConnectivityForTests,
+} from "../connectivity";
 
 const realFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = realFetch;
+  resetConnectivityForTests({ browserOnline: true, backendReachable: true });
   vi.restoreAllMocks();
 });
 
@@ -105,5 +110,16 @@ describe("sendChatMessage SSE parser", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].data.response).toBe("OK");
+  });
+
+  it("marks the backend offline when the chat request cannot connect", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    }) as any;
+
+    await expect(sendChatMessage("hi", () => undefined)).rejects.toThrow(
+      /Failed to fetch/,
+    );
+    expect(getConnectivitySnapshot().status).toBe("backend_offline");
   });
 });

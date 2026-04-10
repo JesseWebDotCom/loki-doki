@@ -210,25 +210,17 @@ class TestDecomposer:
         assert item["kind"] == "fact"
 
     @pytest.mark.anyio
-    async def test_decompose_uses_schema_constrained_output(self, decomposer):
-        """Regression: the decomposer must request schema-constrained generation
-        (format_schema), not freeform JSON mode. Schema-constrained decoding
-        terminates as soon as the schema is satisfied, which fixes the
-        gemma+JSON-mode trailing-whitespace runaway at the source.
-        See incident 2026-04-06."""
+    async def test_decompose_uses_loose_json_mode(self, decomposer):
+        """Phase 2: the decomposer should use Ollama's loose JSON mode for the
+        primary call and rely on Python validation/repair afterwards."""
         decomposer._client.generate = AsyncMock(return_value=VALID_LLM_RESPONSE)
 
         await decomposer.decompose("test")
 
         decomposer._client.generate.assert_called_once()
         kwargs = decomposer._client.generate.call_args.kwargs
-        schema = kwargs.get("format_schema")
-        assert isinstance(schema, dict), "decomposer must pass a JSON schema, not json_mode"
-        assert schema.get("type") == "object"
-        # Enum on reasoning_complexity prevents the model from stuffing the
-        # wrong value into the field (observed bug: "direct_chat" leaking in).
-        rc = schema["properties"]["overall_reasoning_complexity"]
-        assert rc.get("enum") == ["fast", "thinking"]
+        assert kwargs.get("json_mode") is True
+        assert kwargs.get("format_schema") is None
         # Deterministic decoding for parsing.
         assert kwargs.get("temperature") == 0.0
 
@@ -299,6 +291,17 @@ class TestDecomposer:
 
         assert isinstance(result, DecompositionResult)
         assert result.overall_reasoning_complexity == "fast"  # default fallback
+
+    @pytest.mark.anyio
+    async def test_decompose_extracts_json_object_from_loose_wrapper(self, decomposer):
+        wrapped = f"Sure, here is the JSON:\n{VALID_LLM_RESPONSE}\nThanks"
+        decomposer._client.generate = AsyncMock(return_value=wrapped)
+
+        result = await decomposer.decompose("test input")
+
+        assert isinstance(result, DecompositionResult)
+        assert len(result.asks) == 1
+        assert result.asks[0].intent == "weather_owm.get_forecast"
 
     @pytest.mark.anyio
     async def test_decompose_parses_structured_routing_fields(self, decomposer):

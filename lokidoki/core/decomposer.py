@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+import re
 
 logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
@@ -248,7 +249,7 @@ class Decomposer:
                 self._client.generate(
                     model=self._model,
                     prompt=prompt,
-                    format_schema=DECOMPOSITION_SCHEMA,
+                    json_mode=True,
                     temperature=0.0,
                     num_predict=self._num_predict,
                     num_ctx=self._num_ctx,
@@ -367,7 +368,7 @@ class Decomposer:
         self, raw: str, original_input: str, latency_ms: float
     ) -> DecompositionResult:
         try:
-            data = json.loads(raw)
+            data = self._load_loose_json(raw)
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning(
                 "[decomposer] JSON parse failed (%s) — returning fallback. Raw: %.200s",
@@ -439,6 +440,22 @@ class Decomposer:
                 exc,
             )
             return self._fallback_result(original_input, latency_ms)
+
+    @staticmethod
+    def _load_loose_json(raw: str) -> dict:
+        text = (raw or "").strip()
+        if not text:
+            raise json.JSONDecodeError("empty response", text, 0)
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+            if not match:
+                raise
+            parsed = json.loads(match.group(0))
+        if not isinstance(parsed, dict):
+            raise json.JSONDecodeError("top-level JSON must be object", text, 0)
+        return parsed
 
     @staticmethod
     def _derive_context_source(capability_need: str, needs_resolution: bool) -> str:
