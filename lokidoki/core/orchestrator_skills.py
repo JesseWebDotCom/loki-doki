@@ -733,6 +733,7 @@ ACKNOWLEDGMENT_PROMPT_TEMPLATE = (
     "Rules: keep it under 30 words. Never start your reply with \"That's "
     "great\", \"Your\", \"You said\", or a name from the user's message. "
     "Don't echo the user's exact phrasing back at them.\n"
+    "{humanization_block}"
     "{clarify_block}"
     "Now respond to this user message in the same warm style:\n"
     "USER: {query}\n"
@@ -745,6 +746,7 @@ def build_acknowledgment_prompt(
     query: str,
     clarify_hint: str = "",
     interests: str = BOT_INTERESTS,
+    humanization_block: str = "",
 ) -> str:
     """Few-shot prompt for fact-sharing turns. See ACKNOWLEDGMENT_PROMPT_TEMPLATE."""
     clarify_block = (
@@ -752,8 +754,16 @@ def build_acknowledgment_prompt(
         if clarify_hint
         else ""
     )
+    planner_block = (
+        f"HUMANIZATION_PLAN:\n{humanization_block}"
+        if humanization_block.strip()
+        else ""
+    )
     return ACKNOWLEDGMENT_PROMPT_TEMPLATE.format(
-        query=query, clarify_block=clarify_block, interests=interests,
+        query=query,
+        clarify_block=clarify_block,
+        interests=interests,
+        humanization_block=planner_block,
     )
 
 
@@ -773,6 +783,7 @@ def build_synthesis_prompt(
     character_name: str = "Loki",
     seed_hint: str = "",
     referent_block: str = "",
+    humanization_block: str = "",
 ) -> str:
     """Assemble the tiered synthesis prompt (Admin > Project > User > Persona).
 
@@ -807,6 +818,11 @@ def build_synthesis_prompt(
         if referent_block.strip()
         else ""
     )
+    planner_section = (
+        f"HUMANIZATION_PLAN:\n{humanization_block}"
+        if humanization_block.strip()
+        else ""
+    )
     prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
         tone=tone,
         arc_block=arc_block,
@@ -814,7 +830,7 @@ def build_synthesis_prompt(
         skill_data=skill_data,
         query=query,
         clarify_block=clarify_block,
-        memory_block=wake_section + memory_section,
+        memory_block=planner_section + wake_section + memory_section,
         referent_block=referent_section,
         character_name=character_name or "Loki",
     )

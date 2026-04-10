@@ -52,6 +52,11 @@ from lokidoki.core.response_spec import plan_response_spec
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
 from lokidoki.core import people_graph_sql as gql
+from lokidoki.core.humanization_planner import (
+    get_global_humanization_hook_cache,
+    note_hook_if_used,
+    plan_humanization,
+)
 
 
 @dataclass
@@ -178,6 +183,7 @@ class Orchestrator:
         # lokidoki/core/clarification.py for the full state machine.
         from lokidoki.core.clarification import get_global_clarification_cache
         self._clarification_cache = get_global_clarification_cache()
+        self._humanization_hook_cache = get_global_humanization_hook_cache()
 
     @property
     def policy(self) -> ModelPolicy:
@@ -1026,6 +1032,28 @@ class Orchestrator:
                 data={"hint": clarify_hint},
             )
 
+        recent_hooks = self._humanization_hook_cache.get(session_id)
+        humanization_plan = plan_humanization(
+            user_input=user_input,
+            decomposition=decomposition,
+            response_spec=response_spec,
+            facts_by_bucket=memory_selection["facts_by_bucket"],
+            recent_hooks=recent_hooks,
+            recent_assistant_messages=[
+                (m.get("content") or "")
+                for m in recent
+                if (m.get("role") or "") == "assistant"
+            ],
+            clarify_hint=clarify_hint,
+        )
+        selected_injected_memories["recent_hooks"] = recent_hooks
+        selected_injected_memories["humanization_plan"] = {
+            "empathy_opener": humanization_plan.empathy_opener,
+            "personalization_hook": humanization_plan.personalization_hook,
+            "followup_slot": humanization_plan.followup_slot,
+            "blocked_openers": humanization_plan.blocked_openers[:6],
+        }
+
         # Fact-sharing turn detection: the user said something declarative,
         # the decomposer extracted at least one fact, and every ask is a
         # direct_chat (no real skill resolved). Route these
@@ -1038,7 +1066,9 @@ class Orchestrator:
 
         if is_ack_turn:
             prompt = build_acknowledgment_prompt(
-                query=user_input, clarify_hint=clarify_hint,
+                query=user_input,
+                clarify_hint=clarify_hint,
+                humanization_block=humanization_plan.render_for_prompt(),
             )
             num_predict = ACKNOWLEDGMENT_NUM_PREDICT
         else:
@@ -1096,6 +1126,7 @@ class Orchestrator:
                     character_name=self._character_name,
                     seed_hint=seed_hint,
                     referent_block=referent_block,
+                    humanization_block=humanization_plan.render_for_prompt(),
                 ),
                 facts=memory_selection["facts_by_bucket"],
                 past_messages=memory_selection["past_messages"],
@@ -1179,6 +1210,12 @@ class Orchestrator:
                 )
 
         # Store the plain response (no person links) in memory.
+        note_hook_if_used(
+            cache=self._humanization_hook_cache,
+            session_id=session_id,
+            response=response,
+            plan=humanization_plan,
+        )
         await self._memory.add_message(
             user_id=user_id, session_id=session_id, role="assistant", content=response
         )

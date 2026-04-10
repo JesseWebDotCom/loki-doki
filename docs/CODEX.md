@@ -43,7 +43,8 @@ Current overall status:
 - Phase 0 is `completed`
 - Phase 1 is `completed`
 - Phase 2 is `completed`
-- Phases 3-8 are `pending`
+- Phase 3 is `completed`
+- Phases 4-8 are `pending`
 
 ## Phase 0: Baseline, Instrumentation, Eval Harness, And Shadow Mode
 Status:
@@ -219,7 +220,7 @@ Make memory selection sparse, relevant, and appropriate to the reply type.
 
 ## Phase 3: HumanizationPlanner And Session Hook State
 Status:
-- `pending`
+- `completed`
 
 ### Goal
 Make responses feel warm and varied without relying on prompt luck alone.
