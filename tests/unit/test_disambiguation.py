@@ -168,6 +168,28 @@ def test_brother_relationship_auto_created_from_relationship_kind(memory):
         f"brother relationship not auto-created; got {rels}"
 
 
+def test_explicit_relation_in_user_input_overrides_bad_llm_relation(memory):
+    mp, uid = memory
+    item = {
+        "subject_type": "person", "subject_name": "Sandi",
+        "predicate": "is", "value": "sister-in-law", "kind": "relationship",
+        "category": "relationship",
+        "relationship_kind": "sister-in-law",
+    }
+    report = _run(persist_long_term_item(
+        mp, user_id=uid, user_msg_id=None, item=item,
+        user_input="my sister Sandi would find this funny",
+    ))
+    assert report["value"] == "sister"
+    rels = _run(mp.list_relationships(uid))
+    assert any(r["relation"] == "sister" for r in rels), rels
+    facts = _run(mp.list_facts(uid))
+    assert any(
+        f["subject"] == "sandi" and f["predicate"] == "is" and f["value"] == "sister"
+        for f in facts
+    )
+
+
 def test_resolve_ambiguity_group_binds_facts(memory):
     mp, uid = memory
     a1 = _run(mp.create_person(uid, "Artie"))

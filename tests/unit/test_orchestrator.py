@@ -227,6 +227,92 @@ class TestOrchestrator:
         assert "PRIORITY:Admin>Project>Persona>Memory" in prompt
 
     @pytest.mark.anyio
+    async def test_known_subjects_prompt_is_sparse_for_large_people_corpus(self, memory, user_session):
+        uid, sid = user_session
+        for i in range(1, 619):
+            await memory.run_sync(
+                lambda conn, i=i: (
+                    conn.execute(
+                        "INSERT INTO people (owner_user_id, name, aliases) VALUES (?, ?, ?)",
+                        (uid, f"Person {i}", "[]"),
+                    ),
+                    conn.commit(),
+                )[0]
+            )
+        artie_id = await memory.run_sync(
+            lambda conn: (
+                conn.execute(
+                    "INSERT INTO people (owner_user_id, name, aliases) VALUES (?, ?, ?)",
+                    (uid, "Arthur Torres", '["Art", "Artie"]'),
+                ).lastrowid,
+                conn.commit(),
+            )[0]
+        )
+        await memory.add_relationship(uid, int(artie_id), "brother")
+
+        captured: dict = {}
+        mock_decomposer = AsyncMock()
+
+        async def _fake_decompose(*_args, **kwargs):
+            captured["known_subjects"] = kwargs.get("known_subjects")
+            return DecompositionResult(
+                asks=[Ask(ask_id="ask_1", intent="direct_chat", distilled_query="Artie hates those")],
+                model="gemma4:e2b",
+            )
+
+        mock_decomposer.decompose = AsyncMock(side_effect=_fake_decompose)
+        mock_inference = AsyncMock()
+        mock_inference.generate_stream = _make_stream("ok")
+
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=memory,
+        )
+
+        async for _ in orch.process("Artie hates those", user_id=uid, session_id=sid):
+            pass
+
+        assert captured["known_subjects"]["people"] == ["Arthur Torres (brother)"]
+
+    @pytest.mark.anyio
+    async def test_synthesis_budget_no_longer_inherits_decomposer_num_ctx(self, memory, user_session):
+        uid, sid = user_session
+        captured: dict = {}
+        decomp = DecompositionResult(
+            asks=[Ask(ask_id="ask_1", intent="direct_chat", distilled_query="hello")],
+            model="gemma4:e2b",
+        )
+        mock_decomposer = AsyncMock()
+        mock_decomposer.decompose = AsyncMock(return_value=decomp)
+        mock_decomposer._num_ctx = 8192
+        mock_decomposer._build_prompt = lambda *_args, **_kwargs: "USER_INPUT:hello"
+        mock_inference = AsyncMock()
+
+        def stream_factory(*_a, **kw):
+            captured.update(kw)
+
+            async def _gen():
+                yield "ok"
+
+            return _gen()
+
+        mock_inference.generate_stream = stream_factory
+
+        orch = Orchestrator(
+            decomposer=mock_decomposer,
+            inference_client=mock_inference,
+            memory=memory,
+            synthesis_num_ctx=4096,
+        )
+
+        async for _ in orch.process("hello", user_id=uid, session_id=sid):
+            pass
+
+        assert orch._synthesis_num_ctx == 4096
+        assert "num_ctx" not in captured
+
+    @pytest.mark.anyio
     async def test_synthesis_emits_streaming_deltas(self, orchestrator, user_session):
         uid, sid = user_session
         events = []

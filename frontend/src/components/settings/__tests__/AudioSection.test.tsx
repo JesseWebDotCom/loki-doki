@@ -25,6 +25,7 @@ describe("AudioSection", () => {
             speech_rate: 1,
             sentence_pause: 0.4,
             normalize_text: true,
+            relationship_aliases: { mother: ["mom"] },
           }),
           { status: 200 },
         );

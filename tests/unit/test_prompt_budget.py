@@ -1,6 +1,7 @@
 from lokidoki.core.humanize import format_memory_block
 from lokidoki.core.orchestrator_skills import build_synthesis_prompt
 from lokidoki.core.prompt_budget import enforce_prompt_budget
+from lokidoki.core.orchestrator import DEFAULT_SYNTHESIS_NUM_CTX, Orchestrator
 
 
 def _fact(i: int, score: float) -> dict:
@@ -81,3 +82,13 @@ def test_prompt_budget_keeps_best_scoring_fact_longest():
 
     assert meta["dropped_fact_ids"][:2] == [3, 2]
     assert "preference detail number 1" in prompt
+
+
+def test_orchestrator_has_independent_synthesis_context_default():
+    orch = Orchestrator(
+        decomposer=object(),  # type: ignore[arg-type]
+        inference_client=object(),  # type: ignore[arg-type]
+        memory=object(),  # type: ignore[arg-type]
+    )
+
+    assert orch._synthesis_num_ctx == DEFAULT_SYNTHESIS_NUM_CTX

@@ -24,6 +24,7 @@ import LogViewer from '../components/dev/LogViewer';
 import AudioSection from '../components/settings/AudioSection';
 import AppearanceSection from '../components/settings/AppearanceSection';
 import CharactersSection from '../components/settings/CharactersSection';
+import RelationshipAliasesSection from '../components/settings/RelationshipAliasesSection';
 import SkillsSection from '../components/settings/SkillsSection';
 import CharactersAdminSection from '../components/admin/CharactersAdminSection';
 import { getSystemInfo, getSettings, saveSettings } from '../lib/api';
@@ -521,6 +522,7 @@ const ControlsPane: React.FC = () => {
         disabled={!settings}
         className="w-full bg-card/50 border border-border/50 rounded-xl p-4 focus:outline-none focus:border-red-400/50 focus:ring-4 focus:ring-red-400/5 transition-all text-sm font-medium resize-none disabled:opacity-50"
       />
+      <RelationshipAliasesSection settings={settings} setSettings={setSettings} />
       <div className="flex justify-end">
         <button
           onClick={() => void save()}

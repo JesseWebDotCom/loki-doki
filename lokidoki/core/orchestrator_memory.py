@@ -18,6 +18,8 @@ from typing import Optional
 
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core import people_graph_sql as gql
+from lokidoki.core.graph_walk_resolution import normalize_query
+from lokidoki.core.known_subjects_resolver import extract_explicit_person_relations
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +189,16 @@ async def persist_long_term_item(
     # responsible for extracting "my <relation> Name" into a typed field
     # — orchestrator code does NOT regex the user input.
     relationship_hint = (item.get("relationship_kind") or "").strip() or None
+    explicit_pairs = extract_explicit_person_relations(user_input or "")
+    if subject_type == "person" and subject_name:
+        name_norm = normalize_query(subject_name)
+        for explicit_name, explicit_relation in explicit_pairs:
+            if normalize_query(explicit_name) != name_norm:
+                continue
+            relationship_hint = explicit_relation
+            if predicate == "is" and kind in ("relationship", "fact"):
+                value = explicit_relation
+            break
     person_bucket = (item.get("person_bucket") or "").strip() or None
     relationship_state = (item.get("relationship_state") or "").strip() or None
     interaction_preference = (item.get("interaction_preference") or "").strip() or None

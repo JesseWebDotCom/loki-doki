@@ -118,6 +118,10 @@ def _has_emotional_content(text: str) -> bool:
     return any(marker in lower for marker in _EMOTIONAL_DISQUALIFIERS)
 
 
+def _normalize_fast_lane_text(text: str) -> str:
+    return " ".join((text or "").strip().lower().split())
+
+
 # Pre-computed template embeddings (lazy singleton).
 _template_cache: Optional[dict[str, list[tuple[str, List[float]]]]] = None
 
@@ -166,6 +170,25 @@ def classify_fast_lane(user_input: str, embedder: Optional[Embedder] = None) -> 
             hit=False, category="", best_similarity=0.0,
             best_template="", latency_ms=0.0, near_miss=False,
         )
+
+    normalized = _normalize_fast_lane_text(stripped)
+    if normalized:
+        for category, templates in (
+            ("greeting", GREETING_TEMPLATES),
+            ("gratitude", GRATITUDE_TEMPLATES),
+        ):
+            for template in templates:
+                if normalized != _normalize_fast_lane_text(template):
+                    continue
+                latency_ms = (time.perf_counter() - t0) * 1000
+                return FastLaneResult(
+                    hit=True,
+                    category=category,
+                    best_similarity=1.0,
+                    best_template=template,
+                    latency_ms=latency_ms,
+                    near_miss=False,
+                )
 
     emb = embedder or get_embedder()
     templates = _get_template_embeddings(emb)

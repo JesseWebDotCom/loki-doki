@@ -10,6 +10,7 @@ from lokidoki.core.micro_fast_lane import (
     FAST_LANE_THRESHOLD,
     NEAR_MISS_THRESHOLD,
     FastLaneResult,
+    _normalize_fast_lane_text,
     classify_fast_lane,
     reset_template_cache,
     _cosine_similarity,
@@ -104,6 +105,20 @@ def test_exact_greeting_is_hit():
     assert result.best_similarity == pytest.approx(1.0, abs=0.01)
 
 
+def test_exact_match_short_circuits_embedding():
+    class _ExplodingEmbedder:
+        def embed_passages(self, texts):
+            raise AssertionError("exact match should not call embed_passages")
+
+        def embed_query(self, text):
+            raise AssertionError("exact match should not call embed_query")
+
+    result = classify_fast_lane("  Hi  ", embedder=_ExplodingEmbedder())
+    assert result.hit is True
+    assert result.category == "greeting"
+    assert result.best_similarity == 1.0
+
+
 def test_exact_gratitude_is_hit():
     result = classify_fast_lane("thanks")
     assert result.hit is True
@@ -166,6 +181,10 @@ def test_empty_input():
     # Empty string is short, won't match emotional markers, but will
     # have low similarity to any template.
     assert isinstance(result, FastLaneResult)
+
+
+def test_normalize_fast_lane_text_lowercases_and_collapses_spaces():
+    assert _normalize_fast_lane_text("  Thank   You  ") == "thank you"
 
 
 def test_whitespace_only():
