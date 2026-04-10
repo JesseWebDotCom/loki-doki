@@ -71,10 +71,10 @@ class TestFactPhrase:
     def test_person_fact(self):
         assert (
             _fact_phrase({
-                "subject": "artie", "subject_type": "person",
+                "subject": "luke", "subject_type": "person",
                 "predicate": "loves", "value": "movies",
             })
-            == "artie loves movies"
+            == "luke loves movies"
         )
 
     def test_entity_fact(self):

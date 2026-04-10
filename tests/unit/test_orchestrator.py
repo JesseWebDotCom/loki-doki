@@ -243,7 +243,7 @@ class TestOrchestrator:
             lambda conn: (
                 conn.execute(
                     "INSERT INTO people (owner_user_id, name, aliases) VALUES (?, ?, ?)",
-                    (uid, "Arthur Torres", '["Art", "Artie"]'),
+                    (uid, "Anakin Torres", '["Art", "Luke"]'),
                 ).lastrowid,
                 conn.commit(),
             )[0]
@@ -256,7 +256,7 @@ class TestOrchestrator:
         async def _fake_decompose(*_args, **kwargs):
             captured["known_subjects"] = kwargs.get("known_subjects")
             return DecompositionResult(
-                asks=[Ask(ask_id="ask_1", intent="direct_chat", distilled_query="Artie hates those")],
+                asks=[Ask(ask_id="ask_1", intent="direct_chat", distilled_query="Luke hates those")],
                 model="gemma4:e2b",
             )
 
@@ -270,10 +270,10 @@ class TestOrchestrator:
             memory=memory,
         )
 
-        async for _ in orch.process("Artie hates those", user_id=uid, session_id=sid):
+        async for _ in orch.process("Luke hates those", user_id=uid, session_id=sid):
             pass
 
-        assert captured["known_subjects"]["people"] == ["Arthur Torres (brother)"]
+        assert captured["known_subjects"]["people"] == ["Anakin Torres (brother)"]
 
     @pytest.mark.anyio
     async def test_synthesis_budget_no_longer_inherits_decomposer_num_ctx(self, memory, user_session):
@@ -548,11 +548,11 @@ class TestStructuredRoutingAndMemory:
     @pytest.mark.anyio
     async def test_synthesis_prompt_includes_typed_referent_blocks(self, memory, user_session):
         uid, sid = user_session
-        person_id = await memory.create_person(uid, "Artie")
+        person_id = await memory.create_person(uid, "Luke")
         await memory.add_relationship(uid, person_id, "brother")
         await memory.upsert_fact(
             user_id=uid,
-            subject="artie",
+            subject="luke",
             subject_type="person",
             subject_ref_id=person_id,
             predicate="likes",
@@ -594,7 +594,7 @@ class TestStructuredRoutingAndMemory:
             captured.update(kw)
 
             async def _gen():
-                yield "Artie. Avatar: Fire and Ash."
+                yield "Luke. Avatar: Fire and Ash."
 
             return _gen()
 
@@ -612,7 +612,7 @@ class TestStructuredRoutingAndMemory:
         prompt = captured["prompt"]
         assert "RECENT_REFERENTS:" in prompt
         assert "RELATIONSHIPS:" in prompt
-        assert "Artie" in prompt
+        assert "Luke" in prompt
 
     @pytest.mark.anyio
     async def test_capability_routing_skips_disabled_provider_and_uses_next_enabled(

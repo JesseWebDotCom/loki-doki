@@ -133,7 +133,7 @@ def test_exact_thank_you_is_hit():
 
 
 def test_definitional_lookup_hits_fast_lane():
-    result = classify_fast_lane("who is Arthur Miller")
+    result = classify_fast_lane("who is Anakin Miller")
     assert result.hit is True
     assert result.category == "encyclopedic_lookup"
     assert result.synthetic_ask is not None

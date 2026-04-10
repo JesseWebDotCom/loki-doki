@@ -47,7 +47,7 @@ async def test_phase2_memory_selection_stays_within_soft_chat_path_budget(memory
     for i in range(12):
         await memory.upsert_fact(
             user_id=uid,
-            subject="self" if i % 3 else f"artie-{i}",
+            subject="self" if i % 3 else f"luke-{i}",
             subject_type="self" if i % 3 else "person",
             predicate="likes" if i % 2 else "status",
             value=f"value-{i}",

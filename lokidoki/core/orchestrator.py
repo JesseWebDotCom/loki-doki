@@ -338,7 +338,7 @@ class Orchestrator:
         ][:4]
         # Noisy entity/name repair: if the initial search returned few
         # facts, try a fuzzy-expanded query that repairs misspelled
-        # person/entity names (e.g. "Artee" → "Artie") so BM25 can
+        # person/entity names (e.g. "Artee" → "Luke") so BM25 can
         # match them. Only fires when the initial search is sparse and
         # there are known people to match against.
         if len(relevant_facts) < 3 and people_rows:
@@ -1396,7 +1396,7 @@ class Orchestrator:
 
             # Only inject relationships into the synthesis prompt when
             # the turn actually involves people — otherwise the model
-            # shoehorns names like "Artie" into unrelated answers
+            # shoehorns names like "Luke" into unrelated answers
             # (movie showtimes, weather, etc.).
             # Also check companion_relations — relationship mentions
             # the decomposer extracted from raw LLM output before

@@ -752,7 +752,7 @@ def list_user_graph_relations(
 ) -> list[str]:
     """Build a human-readable list of the user's relationships from graph edges.
 
-    Returns lines like ``"- brother: Artie"`` for injection into the
+    Returns lines like ``"- brother: Luke"`` for injection into the
     synthesis prompt's GRAPH_RELATIONSHIPS block. Handles both freeform
     edge_types (``brother``, ``coworker``) and structural parent-chain
     sibling inference.

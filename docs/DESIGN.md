@@ -67,7 +67,7 @@ Enables user customization of the system's behavior:
 A dedicated interface for viewing and curating the bot's internal records. Built on three tabs (You / People / Other) where every fact carries an effective-confidence percentage and an inline action cluster:
 - **Per-fact controls**: Confirm ✓, Edit value, Reassign person (dropdown of all known people + "self"), Reject (soft, recoverable), Delete (hard).
 - **Per-person controls**: Rename, set/change relationship, Delete (with cascade warning), Merge into another person.
-- **Needs disambiguation callout**: Facts that landed ambiguous (e.g. "Artie loves movies" when multiple Arties exist) surface at the top with a candidate picker.
+- **Needs disambiguation callout**: Facts that landed ambiguous (e.g. "Luke loves movies" when multiple Arties exist) surface at the top with a candidate picker.
 - **ConfidenceBar**: Renders the recency-decayed confidence as a Material-purple bar plus a numeric `%`. Hover tooltip exposes raw stored confidence, observation count, and last-seen timestamp.
 - **Search**: BM25 across the user's full fact corpus, scoped to project where applicable.
 - **Recent Context Timeline**: Rolling view of facts currently being "restored" to new chats.
@@ -101,7 +101,7 @@ Asks are routed to appropriate **Skills** in parallel based on intent.
 
 ### III.b Silent Confirmation & Friendly Clarification
 The orchestrator emits two side-channel SSE events alongside the normal pipeline phases:
-- **`silent_confirmation`** — one event per successful fact write. The chat UI renders these as a quiet chip beneath the assistant response (`Saved: brother Artie likes movies`, optionally `(was: …)` for revisions or `(replaces: …)` for supersedes). The spoken synthesis never restates them — they exist purely so the user can spot-check what the system stored.
+- **`silent_confirmation`** — one event per successful fact write. The chat UI renders these as a quiet chip beneath the assistant response (`Saved: brother Luke likes movies`, optionally `(was: …)` for revisions or `(replaces: …)` for supersedes). The spoken synthesis never restates them — they exist purely so the user can spot-check what the system stored.
 - **`clarification_question`** — emitted only when a fact landed `status='ambiguous'` or a contradiction was uncertainly resolved (margin < 0.2). The orchestrator builds a short hint and threads it into the synthesis prompt as a `CLARIFY:` line, giving the model a concrete question to ask. The frontend also renders the hint as a small italic note below the response. Rate-limited via `clarification_state` so the bot doesn't badger the user every turn.
 
 ### IV. Final Synthesis & Generation
@@ -155,11 +155,11 @@ Every fact stores a `confidence` in `[0.05, 0.99]`, an `observation_count`, and 
 A curated `SINGLE_VALUE_PREDICATES` set covers predicates where only one value can be true at a time (`name`, `age`, `birthday`, `lives_in`, `married_to`, ...). When a new write conflicts with an existing active fact for the same `(subject_ref_id, predicate)`:
 - **Multi-value predicates** (`likes`, `visited`, `owns`): both rows coexist freely.
 - **Single-value predicates**: the loser's confidence is bumped down. If it falls below `0.15` it flips to `status='rejected'` and is excluded from retrieval but kept for audit.
-- **Explicit negation**: when the decomposer flags `negates_previous=true` (e.g. "no, my brother's name is Art, not Artie"), every conflicting active row is immediately marked `status='superseded'` instead of waiting for decay.
+- **Explicit negation**: when the decomposer flags `negates_previous=true` (e.g. "no, my brother's name is Art, not Luke"), every conflicting active row is immediately marked `status='superseded'` instead of waiting for decay.
 
 #### Person disambiguation
-The `people` table no longer enforces `UNIQUE(owner, name)` — multiple "Artie" rows are allowed (brother-Artie, dog-Artie, celebrity Artie Lange). When the decomposer emits a `subject_type='person'` item, the orchestrator scores every name match by:
-1. **Relationship hint**: a relation word in front of the name in the user message ("my brother Artie") strongly favors the candidate with that relationship row.
+The `people` table no longer enforces `UNIQUE(owner, name)` — multiple "Luke" rows are allowed (brother-Luke, dog-Luke, celebrity Luke Lange). When the decomposer emits a `subject_type='person'` item, the orchestrator scores every name match by:
+1. **Relationship hint**: a relation word in front of the name in the user message ("my brother Luke") strongly favors the candidate with that relationship row.
 2. **Recent co-occurrence**: facts about the candidate observed earlier in the same session add weight.
 3. **Recency tiebreaker**: more recently created people slightly preferred.
 

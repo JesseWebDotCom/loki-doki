@@ -22,8 +22,8 @@ def test_hi_resolves_zero_people_and_keeps_prompt_sparse():
     known_subjects, resolved = build_known_subjects(
         user_input="hi",
         user_display_name="Jesse",
-        people_rows=[_person(1, "Artie"), _person(2, "Carina")],
-        relationships=[_relationship(1, "brother", "Artie")],
+        people_rows=[_person(1, "Luke"), _person(2, "Carina")],
+        relationships=[_relationship(1, "brother", "Luke")],
         relevant_facts=[],
     )
 
@@ -34,7 +34,7 @@ def test_hi_resolves_zero_people_and_keeps_prompt_sparse():
 def test_exact_name_match_resolves_person():
     resolved = resolve_known_people(
         user_input="tell Carina I said hi",
-        people_rows=[_person(1, "Carina"), _person(2, "Artie")],
+        people_rows=[_person(1, "Carina"), _person(2, "Luke")],
         relationships=[],
         relationship_aliases={"mother": ["mom"]},
     )
@@ -46,14 +46,14 @@ def test_exact_name_match_resolves_person():
 
 def test_exact_person_alias_match_resolves_person():
     resolved = resolve_known_people(
-        user_input="Artie told me that",
-        people_rows=[_person(1, "Arthur Torres", ["Art", "Artie"])],
-        relationships=[_relationship(1, "brother", "Arthur Torres")],
+        user_input="Luke told me that",
+        people_rows=[_person(1, "Anakin Torres", ["Art", "Luke"])],
+        relationships=[_relationship(1, "brother", "Anakin Torres")],
         relationship_aliases={"brother": ["bro"]},
     )
 
     assert len(resolved) == 1
-    assert resolved[0].name == "Arthur Torres"
+    assert resolved[0].name == "Anakin Torres"
     assert resolved[0].method == "exact_alias"
 
 
@@ -76,7 +76,7 @@ def test_fuzzy_match_is_bounded_to_known_people():
     resolved = resolve_known_people(
         user_input="Arty told me that",
         people_rows=[
-            _person(1, "Arthur Torres", ["Art", "Artie"]),
+            _person(1, "Anakin Torres", ["Art", "Luke"]),
             _person(2, "Robert Smith", ["Rob", "Bobby"]),
         ],
         relationships=[],
@@ -84,17 +84,17 @@ def test_fuzzy_match_is_bounded_to_known_people():
     )
 
     assert len(resolved) == 1
-    assert resolved[0].name == "Arthur Torres"
+    assert resolved[0].name == "Anakin Torres"
     assert resolved[0].method == "fuzzy_alias"
 
 
 def test_large_people_corpus_stays_bounded():
     people_rows = [_person(i, f"Person {i}") for i in range(1, 619)]
-    people_rows.append(_person(999, "Arthur Torres", ["Art", "Artie"]))
-    relationships = [_relationship(999, "brother", "Arthur Torres")]
+    people_rows.append(_person(999, "Anakin Torres", ["Art", "Luke"]))
+    relationships = [_relationship(999, "brother", "Anakin Torres")]
 
     known_subjects, resolved = build_known_subjects(
-        user_input="Artie hates those",
+        user_input="Luke hates those",
         user_display_name="Jesse",
         people_rows=people_rows,
         relationships=relationships,
@@ -103,20 +103,20 @@ def test_large_people_corpus_stays_bounded():
     )
 
     assert len(resolved) == 1
-    assert known_subjects["people"] == ["Arthur Torres (brother)"]
+    assert known_subjects["people"] == ["Anakin Torres (brother)"]
     assert len(known_subjects["people"]) <= 10
 
 
 def test_build_known_subjects_includes_compact_hints():
     known_subjects, _ = build_known_subjects(
-        user_input="my sister Sandi would find this funny",
+        user_input="my sister Leia would find this funny",
         user_display_name="Jesse",
-        people_rows=[_person(1, "Sandi")],
-        relationships=[_relationship(1, "sister", "Sandi")],
+        people_rows=[_person(1, "Leia")],
+        relationships=[_relationship(1, "sister", "Leia")],
         relevant_facts=[],
     )
 
     hints = known_subjects["hints"]
     assert isinstance(hints, str)
-    assert "Sandi:sister" in hints
+    assert "Leia:sister" in hints
     assert len(hints) < 200

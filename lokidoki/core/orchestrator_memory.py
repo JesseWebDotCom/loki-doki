@@ -47,7 +47,7 @@ async def _score_candidate(
 
     # Relationship match: the decomposer emits relationship_kind on every
     # person item when the user named the relation in the same sentence
-    # ('my brother Artie' -> relationship_kind='brother'). If a candidate
+    # ('my brother Luke' -> relationship_kind='brother'). If a candidate
     # already has that relation on file, that's a strong bind signal.
     if relationship_hint:
         rels = await memory.list_relationships(user_id)

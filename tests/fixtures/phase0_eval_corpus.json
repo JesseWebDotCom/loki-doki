@@ -7,7 +7,7 @@
   {
     "id": "fact_01",
     "category": "fact_sharing",
-    "messages": ["my brother Artie likes movies"]
+    "messages": ["my brother Luke likes movies"]
   },
   {
     "id": "emotional_01",
@@ -37,6 +37,6 @@
   {
     "id": "correction_01",
     "category": "correction",
-    "messages": ["my brother's name is Artie", "no, it's Art"]
+    "messages": ["my brother's name is Luke", "no, it's Art"]
   }
 ]

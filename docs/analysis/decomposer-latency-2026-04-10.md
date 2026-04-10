@@ -149,13 +149,13 @@ spaCy (`en_core_web_sm`, already installed) does NER + dependency parsing in **1
 
 "maybe I'll go to the movies with my brother"
   → spaCy: relationship mention "my brother"
-  → DB lookup: brother relations → [Artie (brother), Van (brother)]
-  → Send to LLM: KNOWN_SUBJECTS:people=[Artie (brother),Van (brother)]
+  → DB lookup: brother relations → [Luke (brother), Van (brother)]
+  → Send to LLM: KNOWN_SUBJECTS:people=[Luke (brother),Van (brother)]
 
-"Artie hates those"
-  → spaCy NER: "Artie" = PERSON
-  → DB lookup: exact match → Artie
-  → Send to LLM: KNOWN_SUBJECTS:people=[Artie (brother)]
+"Luke hates those"
+  → spaCy NER: "Luke" = PERSON
+  → DB lookup: exact match → Luke
+  → Send to LLM: KNOWN_SUBJECTS:people=[Luke (brother)]
 
 "hi"
   → spaCy: no entities, no relationships
@@ -173,9 +173,9 @@ spaCy (`en_core_web_sm`, already installed) does NER + dependency parsing in **1
 |-------|----------------|------|-------------|
 | "hi" | 0 | 1.5ms | 12,985 |
 | "what is nintendo" | 0 | 1.6ms | 12,985 |
-| "with my brother" | 2 (Artie, Van) | 3.5ms | ~12,950 |
+| "with my brother" | 2 (Luke, Van) | 3.5ms | ~12,950 |
 | "tell Carina I said hi" | 1 (Carina) | 2.2ms | ~12,960 |
-| "my sister-in-law was terrified" | 1 (Camilla) | 2.7ms | ~12,960 |
+| "my sister-in-law was terrified" | 1 (Padme) | 2.7ms | ~12,960 |
 
 ### Why this replaces the brute-force KNOWN_SUBJECTS approach
 
@@ -197,7 +197,7 @@ Pre-resolution will only work well in real usage if it can match how users *actu
 There are two distinct classes:
 
 1. **Person aliases** — alternate names for a specific person.
-   - Example: `Arthur` → `Art`, `Artie`
+   - Example: `Anakin` → `Art`, `Luke`
    - Example: `Anthony Johnson` → `AJ`, `Ant`
    - These belong on the `people` row and should be editable on that person's detail page.
 
@@ -207,7 +207,7 @@ There are two distinct classes:
    - Example: canonical `brother` → `bro`
    - These should map to a canonical relationship label and be resolved against the relationship graph, not stored as if they were the person's name.
 
-This distinction matters because `"Artie"` is a name-like reference to one specific person, while `"mom"` means "whoever is related to me as mother." If we flatten both into person aliases, the system blurs identity with role and matching logic becomes harder to reason about.
+This distinction matters because `"Luke"` is a name-like reference to one specific person, while `"mom"` means "whoever is related to me as mother." If we flatten both into person aliases, the system blurs identity with role and matching logic becomes harder to reason about.
 
 **Recommended matching order for pre-resolution:**
 
@@ -253,14 +253,14 @@ Example:
 
 ```
 Known people:
-  Arthur Torres    aliases=[Art, Artie]
+  Anakin Torres    aliases=[Art, Luke]
   Robert Smith     aliases=[Rob, Bobby]
 
 Input: "Arty"
   → exact canonical: no
   → exact alias: no
-  → fuzzy canonical/alias pool: "Artie" matches strongly
-  → resolve to Arthur Torres with lower confidence than an exact alias hit
+  → fuzzy canonical/alias pool: "Luke" matches strongly
+  → resolve to Anakin Torres with lower confidence than an exact alias hit
 ```
 
 Recommended resolver output shape:
@@ -268,26 +268,26 @@ Recommended resolver output shape:
 ```json
 {
   "matched_person_id": "p_123",
-  "matched_name": "Arthur Torres",
+  "matched_name": "Anakin Torres",
   "method": "fuzzy_person_match",
   "confidence": 0.88
 }
 ```
 
-This matters for latency *and* correctness. Bounded fuzzy matching lets us recover common misspellings like `Arty` → `Artie` without reintroducing the broad noisy search space that caused the original prompt explosion.
+This matters for latency *and* correctness. Bounded fuzzy matching lets us recover common misspellings like `Arty` → `Luke` without reintroducing the broad noisy search space that caused the original prompt explosion.
 
 Note: the repo already does this pattern in referent resolution. `fuzzy_match_name()` builds its candidate set from both `people.name` and `people.aliases`, then uses RapidFuzz over that bounded per-user pool. The latency plan should reuse and extend that behavior for pre-resolution rather than invent a different matching policy.
 
 Examples:
 
 ```
-"Arthur told me that"
+"Anakin told me that"
   → direct person/name-alias match
-  → KNOWN_SUBJECTS:people=[Arthur (brother)]
+  → KNOWN_SUBJECTS:people=[Anakin (brother)]
 
-"Artie told me that"
+"Luke told me that"
   → direct person alias match
-  → KNOWN_SUBJECTS:people=[Arthur (brother)]
+  → KNOWN_SUBJECTS:people=[Anakin (brother)]
 
 "my mom said that"
   → relationship alias match: mom → mother
@@ -322,7 +322,7 @@ This alias work is part of the latency plan because it directly improves pre-res
 4. **Decouple synthesis `num_ctx`** from decomposer — give `enforce_prompt_budget` its own explicit context ceiling instead of inheriting from `self._decomposer._num_ctx`.
 
 5. **Add regression test** for KNOWN_SUBJECTS at realistic scale (618 people, not 10).
-   - Include alias-heavy cases (`Arthur` / `Art` / `Artie`)
+   - Include alias-heavy cases (`Anakin` / `Art` / `Luke`)
    - Include relationship-language cases (`mom`, `mommy`, `bro`)
    - Verify that prompt size stays bounded while candidate recall remains correct
 

@@ -25,7 +25,7 @@ def _message(i: int) -> dict:
     }
 
 
-def _build_prompt(*, facts, messages, skill_data, clarify_hint="keep this question", referent_block="RELATIONSHIPS:\n- brother: Artie"):
+def _build_prompt(*, facts, messages, skill_data, clarify_hint="keep this question", referent_block="RELATIONSHIPS:\n- brother: Luke"):
     return build_synthesis_prompt(
         tone="friendly",
         context="recent turn context",

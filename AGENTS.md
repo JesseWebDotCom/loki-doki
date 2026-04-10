@@ -163,6 +163,7 @@ The decomposer runs on a small local model with a tight context window. Every to
 - No side effects at import time
 - Separate business logic, persistence, API/UI, and utilities
 - Prefer small, testable functions and dataclasses/typed models for structured data
+- **Test Data Mocking**: Never use real family, friend, or personal names in tests, documentation, or system prompts. Always use pop culture characters (e.g., Luke, Anakin, Leia, Padme) or generic placeholders.
 
 ---
 

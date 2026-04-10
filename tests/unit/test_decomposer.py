@@ -140,7 +140,7 @@ class TestDecomposer:
         from lokidoki.core.prompts import DECOMPOSITION_PROMPT
 
         assert "DEFINITIONAL LOOKUPS:" in DECOMPOSITION_PROMPT
-        assert "\"who is Arthur Miller\"" in DECOMPOSITION_PROMPT
+        assert "\"who is Anakin Miller\"" in DECOMPOSITION_PROMPT
         assert "who is my sister" in DECOMPOSITION_PROMPT
 
     @pytest.mark.anyio
@@ -156,13 +156,13 @@ class TestDecomposer:
         decomposer._client.generate = AsyncMock(side_effect=fake_generate)
         await decomposer.decompose(
             "tell me about him",
-            known_subjects={"self": "Jesse", "people": ["Tom", "Camilla"], "entities": ["Avatar: Fire and Ash"]},
+            known_subjects={"self": "Jesse", "people": ["Tom", "Padme"], "entities": ["Avatar: Fire and Ash"]},
         )
         prompt = captured["prompt"]
         assert "KNOWN_SUBJECTS:" in prompt
         assert "self=Jesse" in prompt
         assert "Tom" in prompt
-        assert "Camilla" in prompt
+        assert "Padme" in prompt
         assert "Avatar: Fire and Ash" in prompt
 
     @pytest.mark.anyio
@@ -175,17 +175,17 @@ class TestDecomposer:
 
         decomposer._client.generate = AsyncMock(side_effect=fake_generate)
         await decomposer.decompose(
-            "my sister Sandi would find this funny",
+            "my sister Leia would find this funny",
             known_subjects={
                 "self": "Jesse",
-                "people": ["Sandi (sister)"],
+                "people": ["Leia (sister)"],
                 "entities": [],
-                "hints": "people=[Sandi:Sandi:sister:exact_name]|relations=[Sandi:sister]",
+                "hints": "people=[Leia:Leia:sister:exact_name]|relations=[Leia:sister]",
             },
         )
         prompt = captured["prompt"]
         assert "PRE_RESOLUTION_HINTS:" in prompt
-        assert "relations=[Sandi:sister]" in prompt
+        assert "relations=[Leia:sister]" in prompt
 
     @pytest.mark.anyio
     async def test_known_subjects_omitted_when_not_provided(self, decomposer):
@@ -555,7 +555,7 @@ class TestDecomposer:
         ask = decomposer._build_ask({
             "ask_id": "1",
             "intent": "direct_chat",
-            "distilled_query": "who is Arthur Miller",
+            "distilled_query": "who is Anakin Miller",
             "response_shape": "synthesized",
             "requires_current_data": False,
             "knowledge_source": "none",
@@ -564,12 +564,12 @@ class TestDecomposer:
             "needs_referent_resolution": False,
             "capability_need": "none",
             "referent_anchor": "",
-        }, 0, "who is Arthur Miller")
+        }, 0, "who is Anakin Miller")
 
         assert ask.response_shape == "verbatim"
         assert ask.knowledge_source == "encyclopedic"
         assert ask.capability_need == "encyclopedic"
-        assert ask.referent_anchor == "Arthur Miller"
+        assert ask.referent_anchor == "Anakin Miller"
         assert ask.referent_type == "person"
 
     def test_build_ask_does_not_upgrade_personal_lookup(self, decomposer):
@@ -592,14 +592,14 @@ class TestDecomposer:
         assert ask.capability_need == "people_lookup"
 
     def test_fallback_result_upgrades_obvious_definitional_lookup(self, decomposer):
-        result = decomposer._fallback_result("who is Arthur Miller", 10.0)
+        result = decomposer._fallback_result("who is Anakin Miller", 10.0)
 
         ask = result.asks[0]
         assert ask.ask_id == "ask_000"
         assert ask.response_shape == "verbatim"
         assert ask.knowledge_source == "encyclopedic"
         assert ask.capability_need == "encyclopedic"
-        assert ask.referent_anchor == "Arthur Miller"
+        assert ask.referent_anchor == "Anakin Miller"
 
     def test_fallback_result_does_not_upgrade_personal_lookup(self, decomposer):
         result = decomposer._fallback_result("who is my sister", 10.0)

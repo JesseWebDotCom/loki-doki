@@ -1,5 +1,5 @@
 """Pin: orchestrator must complete the full pipeline when the decomposer
-emits person + relationship facts (the user's "my brother artie loves
+emits person + relationship facts (the user's "my brother luke loves
 movies" scenario). Catches regressions where persist or silent
 confirmation emission stalls the synthesis path.
 """
@@ -22,13 +22,13 @@ PERSON_DECOMP = DecompositionResult(
     short_term_memory={"sentiment": "positive", "concern": ""},
     long_term_memory=[
         {
-            "subject_type": "person", "subject_name": "Artie",
+            "subject_type": "person", "subject_name": "Luke",
             "predicate": "loves", "value": "movies",
             "kind": "fact", "relationship_kind": None,
             "category": "preference", "negates_previous": False,
         },
         {
-            "subject_type": "person", "subject_name": "Artie",
+            "subject_type": "person", "subject_name": "Luke",
             "predicate": "is", "value": "brother",
             "kind": "relationship", "relationship_kind": "brother",
             "category": "relationship", "negates_previous": False,
@@ -84,7 +84,7 @@ async def test_full_pipeline_with_person_facts(orchestrator, user_session, memor
     uid, sid = user_session
     events = []
     async for ev in orchestrator.process(
-        "my brother artie loves movies", user_id=uid, session_id=sid
+        "my brother luke loves movies", user_id=uid, session_id=sid
     ):
         events.append(ev)
 
@@ -103,12 +103,12 @@ async def test_full_pipeline_with_person_facts(orchestrator, user_session, memor
 
     # The person + facts must actually be in the DB.
     people = await memory.list_people(uid)
-    assert any(p["name"] == "Artie" for p in people)
-    artie = next(p for p in people if p["name"] == "Artie")
-    facts = await memory.list_facts_about_person(uid, artie["id"])
+    assert any(p["name"] == "Luke" for p in people)
+    luke = next(p for p in people if p["name"] == "Luke")
+    facts = await memory.list_facts_about_person(uid, luke["id"])
     assert any(f["value"] == "movies" for f in facts)
     rels = await memory.list_relationships(uid)
-    assert any(r["relation"] == "brother" and r["person_id"] == artie["id"] for r in rels)
+    assert any(r["relation"] == "brother" and r["person_id"] == luke["id"] for r in rels)
 
 
 @pytest.mark.anyio
@@ -170,7 +170,7 @@ async def test_graph_relations_include_sibling_for_linked_user(memory):
 
     def _seed(conn):
         me = gql.create_person_graph(conn, uid, name="Jesse", bucket="family")
-        sibling = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        sibling = gql.create_person_graph(conn, uid, name="Luke", bucket="family")
         parent = gql.create_person_graph(conn, uid, name="Mom", bucket="family")
         gql.link_user_to_person(conn, user_id=uid, person_id=me)
         gql.create_person_edge(
@@ -184,4 +184,4 @@ async def test_graph_relations_include_sibling_for_linked_user(memory):
     relations = await memory.run_sync(
         lambda conn: gql.list_user_graph_relations(conn, user_id=uid)
     )
-    assert "- sibling (sister/brother): Artie" in relations
+    assert "- sibling (sister/brother): Luke" in relations

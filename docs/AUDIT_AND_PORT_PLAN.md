@@ -114,7 +114,7 @@ Source root: `/Users/jessetorres/Projects/loki-doki-old`
 | 5 | **Face recognition (ArcFace + InsightFace buffalo_sc)** | `app/subsystems/live_video/face_recognition.py`, `face_embedder.py`, `face_service.py` | Hard | Foundational for presence awareness. None in core. |
 | 6 | **Face registration with quality gating** | `app/subsystems/live_video/face_quality.py`, `face_cpu_detector.py` | Hard | Multi-mode (close/far), Laplacian sharpness, pose bounds, vector averaging. |
 | 7 | **Ambient context assembly** | `app/subsystems/memory/ambient.py` | Moderate | Time-of-day, calendar, holidays, time-since-last-chat, weather — injected into synthesis without extra decomposer call. |
-| 8 | **Memory disambiguation ("Which Artie?")** | `app/subsystems/memory/records.py` | Hard | Score candidates by relationship hint + recency, surface picker. Real household need. |
+| 8 | **Memory disambiguation ("Which Luke?")** | `app/subsystems/memory/records.py` | Hard | Score candidates by relationship hint + recency, surface picker. Real household need. |
 
 ### Tier 2 — Refinements to Existing Core Systems
 

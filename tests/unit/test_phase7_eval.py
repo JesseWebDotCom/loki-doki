@@ -243,7 +243,7 @@ class TestFactTelemetry:
              "subject": "self", "predicate": "likes",
              "value": "hiking in the mountains on weekends"},
             {"fact_id": 2, "retrieve_count": 15, "inject_count": 0,
-             "subject": "Artie", "predicate": "is_brother_of",
+             "subject": "Luke", "predicate": "is_brother_of",
              "value": "the user"},
             {"fact_id": 3, "retrieve_count": 2, "inject_count": 2,
              "subject": "self", "predicate": "mentioned",
@@ -251,7 +251,7 @@ class TestFactTelemetry:
         ]
         stats = evaluate_fact_telemetry(rows)
         assert stats.total_facts_tracked == 3
-        assert len(stats.dead_facts) == 1  # Artie fact never injected
+        assert len(stats.dead_facts) == 1  # Luke fact never injected
 
 
 class TestFormatReport:

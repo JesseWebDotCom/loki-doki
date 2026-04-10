@@ -34,7 +34,7 @@ SAMPLE_FACTS_BY_BUCKET = {
     ],
     "relational_graph": [
         {
-            "subject": "Artie", "subject_type": "person",
+            "subject": "Luke", "subject_type": "person",
             "predicate": "is_brother_of", "value": "the user",
             "valid_from": "2026-01-15 10:00:00",
         },
@@ -113,8 +113,8 @@ class TestWarmFormat:
             past_messages=[],
             now=NOW,
         )
-        # Both should mention "hiking", "coffee", "Artie".
-        for keyword in ("hiking", "coffee", "Artie"):
+        # Both should mention "hiking", "coffee", "Luke".
+        for keyword in ("hiking", "coffee", "Luke"):
             assert keyword in control, f"Control missing {keyword}"
             assert keyword in warm, f"Warm missing {keyword}"
 

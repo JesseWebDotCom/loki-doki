@@ -36,20 +36,20 @@ def _upsert(c, user_id, **kw):
 class TestContradictionResolution:
     def test_single_value_predicate_revision(self, conn):
         c, uid = conn
-        pid = psql.create_person(c, uid, "Artie")
-        # First fact: name=Artie
+        pid = psql.create_person(c, uid, "Luke")
+        # First fact: name=Luke
         _, _, r1 = _upsert(
-            c, uid, subject="artie", predicate="name", value="Artie",
+            c, uid, subject="luke", predicate="name", value="Luke",
             subject_type="person", subject_ref_id=pid,
         )
         assert r1["action"] == "none"
         # Conflicting fact: name=Art
         _, _, r2 = _upsert(
-            c, uid, subject="artie", predicate="name", value="Art",
+            c, uid, subject="luke", predicate="name", value="Art",
             subject_type="person", subject_ref_id=pid,
         )
         assert r2["action"] in ("revise", "reject_loser")
-        assert r2["loser_value"] == "Artie"
+        assert r2["loser_value"] == "Luke"
 
     def test_multi_value_coexists(self, conn):
         c, uid = conn
@@ -64,11 +64,11 @@ class TestContradictionResolution:
 
     def test_explicit_negation_supersedes(self, conn):
         c, uid = conn
-        pid = psql.create_person(c, uid, "Artie")
-        _upsert(c, uid, subject="artie", predicate="name", value="Artie",
+        pid = psql.create_person(c, uid, "Luke")
+        _upsert(c, uid, subject="luke", predicate="name", value="Luke",
                 subject_type="person", subject_ref_id=pid)
         _, _, r2 = _upsert(
-            c, uid, subject="artie", predicate="name", value="Art",
+            c, uid, subject="luke", predicate="name", value="Art",
             subject_type="person", subject_ref_id=pid,
             negates_previous=True,
         )
@@ -80,7 +80,7 @@ class TestContradictionResolution:
             (uid, pid, "name"),
         ).fetchall()
         statuses = {(r["value"], r["status"]) for r in rows}
-        assert ("Artie", "superseded") in statuses
+        assert ("Luke", "superseded") in statuses
         assert ("Art", "active") in statuses
 
     def test_repeat_confirms_existing(self, conn):

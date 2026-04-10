@@ -27,7 +27,7 @@ def find_people_by_name(
 ) -> list[sqlite3.Row]:
     """Return ALL people matching ``name`` case-insensitively for this user.
 
-    Multiple "Artie" rows are allowed (brother-Artie, dog-Artie); the
+    Multiple "Luke" rows are allowed (brother-Luke, dog-Luke); the
     orchestrator picks one with disambiguation scoring.
     """
     norm = name.strip()

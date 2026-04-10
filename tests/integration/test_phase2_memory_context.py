@@ -34,11 +34,11 @@ def _capture_stream(captured: dict, text: str = "ok"):
 async def test_relationship_turn_prefers_relational_memory_on_chat_path(memory):
     uid = await memory.get_or_create_user("default")
     sid = await memory.create_session(uid)
-    artie_id = await memory.create_person(uid, "Artie")
+    artie_id = await memory.create_person(uid, "Luke")
     await memory.add_relationship(uid, artie_id, "brother")
     await memory.upsert_fact(
         user_id=uid,
-        subject="artie",
+        subject="luke",
         subject_type="person",
         subject_ref_id=artie_id,
         predicate="likes",
@@ -92,7 +92,7 @@ async def test_relationship_turn_prefers_relational_memory_on_chat_path(memory):
 
     prompt = captured["prompt"]
     assert "RELATIONAL_GRAPH:" in prompt
-    assert "artie likes movies" in prompt.lower()
+    assert "luke likes movies" in prompt.lower()
     assert "you likes coffee" not in prompt.lower()
 
 
@@ -145,11 +145,11 @@ async def test_older_session_recall_uses_episodic_memory_on_chat_path(memory):
 async def test_unrelated_turn_does_not_surface_irrelevant_names_on_chat_path(memory):
     uid = await memory.get_or_create_user("default")
     sid = await memory.create_session(uid)
-    artie_id = await memory.create_person(uid, "Artie")
+    artie_id = await memory.create_person(uid, "Luke")
     await memory.add_relationship(uid, artie_id, "brother")
     await memory.upsert_fact(
         user_id=uid,
-        subject="artie",
+        subject="luke",
         subject_type="person",
         subject_ref_id=artie_id,
         predicate="likes",
@@ -186,5 +186,5 @@ async def test_unrelated_turn_does_not_surface_irrelevant_names_on_chat_path(mem
         pass
 
     prompt = captured["prompt"].lower()
-    assert "artie" not in prompt
+    assert "luke" not in prompt
     assert "relational_graph:" not in prompt

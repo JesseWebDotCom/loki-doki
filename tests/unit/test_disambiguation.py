@@ -35,11 +35,11 @@ class TestSilentConfirmationDedup:
     def test_dedupes_by_fact_id(self):
         # Decomposer emitted two synonym items that hit the same row.
         reports = [
-            {"fact_id": 7, "subject_label": "Artie", "predicate": "loves",
+            {"fact_id": 7, "subject_label": "Luke", "predicate": "loves",
              "value": "movies", "status": "active", "person_id": 1,
              "ambiguity_group_id": None, "candidate_ids": [1],
              "contradiction": {"action": "none"}},
-            {"fact_id": 7, "subject_label": "Artie", "predicate": "likes",
+            {"fact_id": 7, "subject_label": "Luke", "predicate": "likes",
              "value": "movies", "status": "active", "person_id": 1,
              "ambiguity_group_id": None, "candidate_ids": [1],
              "contradiction": {"action": "none"}},
@@ -50,11 +50,11 @@ class TestSilentConfirmationDedup:
 
     def test_keeps_distinct_facts(self):
         reports = [
-            {"fact_id": 7, "subject_label": "Artie", "predicate": "loves",
+            {"fact_id": 7, "subject_label": "Luke", "predicate": "loves",
              "value": "movies", "status": "active", "person_id": 1,
              "ambiguity_group_id": None, "candidate_ids": [1],
              "contradiction": {"action": "none"}},
-            {"fact_id": 8, "subject_label": "Artie", "predicate": "is",
+            {"fact_id": 8, "subject_label": "Luke", "predicate": "is",
              "value": "brother", "status": "active", "person_id": 1,
              "ambiguity_group_id": None, "candidate_ids": [1],
              "contradiction": {"action": "none"}},
@@ -80,15 +80,15 @@ def test_unique_name_binds_directly(memory):
 
 def test_two_artie_no_hint_is_ambiguous(memory):
     mp, uid = memory
-    a1 = _run(mp.create_person(uid, "Artie"))
-    a2 = _run(mp.create_person(uid, "Artie"))
+    a1 = _run(mp.create_person(uid, "Luke"))
+    a2 = _run(mp.create_person(uid, "Luke"))
     item = {
-        "subject_type": "person", "subject_name": "Artie",
+        "subject_type": "person", "subject_name": "Luke",
         "predicate": "loves", "value": "movies", "kind": "fact",
         "category": "preference",
     }
     report = _run(persist_long_term_item(
-        mp, user_id=uid, user_msg_id=None, item=item, user_input="Artie loves movies",
+        mp, user_id=uid, user_msg_id=None, item=item, user_input="Luke loves movies",
     ))
     assert report["status"] == "ambiguous"
     assert report["ambiguity_group_id"] is not None
@@ -97,12 +97,12 @@ def test_two_artie_no_hint_is_ambiguous(memory):
 
 def test_relationship_hint_resolves(memory):
     mp, uid = memory
-    a_brother = _run(mp.create_person(uid, "Artie"))
-    a_dog = _run(mp.create_person(uid, "Artie"))
+    a_brother = _run(mp.create_person(uid, "Luke"))
+    a_dog = _run(mp.create_person(uid, "Luke"))
     _run(mp.add_relationship(uid, a_brother, "brother"))
 
     item = {
-        "subject_type": "person", "subject_name": "Artie",
+        "subject_type": "person", "subject_name": "Luke",
         "predicate": "loves", "value": "movies", "kind": "fact",
         "category": "preference",
         # Decomposer is now responsible for emitting the relation hint
@@ -111,7 +111,7 @@ def test_relationship_hint_resolves(memory):
     }
     report = _run(persist_long_term_item(
         mp, user_id=uid, user_msg_id=None, item=item,
-        user_input="My brother Artie loves movies",
+        user_input="My brother Luke loves movies",
     ))
     assert report["status"] == "active"
     assert report["person_id"] == a_brother
@@ -121,7 +121,7 @@ def test_set_primary_relationship_replaces_existing(memory):
     """Picking a different relation in the UI must REPLACE the existing
     one, not stack a second row. The dropdown is a single-value picker."""
     mp, uid = memory
-    pid = _run(mp.create_person(uid, "Artie"))
+    pid = _run(mp.create_person(uid, "Luke"))
     _run(mp.add_relationship(uid, pid, "brother"))
     rels = _run(mp.list_relationships(uid))
     assert len([r for r in rels if r["person_id"] == pid]) == 1
@@ -148,20 +148,20 @@ def test_set_primary_relationship_empty_clears(memory):
 
 def test_brother_relationship_auto_created_from_relationship_kind(memory):
     """When the decomposer emits a person preference item that carries
-    relationship_kind (because the user said "my brother artie loves
+    relationship_kind (because the user said "my brother luke loves
     movies"), the orchestrator must auto-create the brother edge even
     though this item's kind is 'fact', not 'relationship'.
     """
     mp, uid = memory
     item = {
-        "subject_type": "person", "subject_name": "Artie",
+        "subject_type": "person", "subject_name": "Luke",
         "predicate": "loves", "value": "movies", "kind": "fact",
         "category": "preference",
         "relationship_kind": "brother",
     }
     _run(persist_long_term_item(
         mp, user_id=uid, user_msg_id=None, item=item,
-        user_input="my brother artie loves movies",
+        user_input="my brother luke loves movies",
     ))
     rels = _run(mp.list_relationships(uid))
     assert any(r["relation"] == "brother" for r in rels), \
@@ -171,36 +171,36 @@ def test_brother_relationship_auto_created_from_relationship_kind(memory):
 def test_explicit_relation_in_user_input_overrides_bad_llm_relation(memory):
     mp, uid = memory
     item = {
-        "subject_type": "person", "subject_name": "Sandi",
+        "subject_type": "person", "subject_name": "Leia",
         "predicate": "is", "value": "sister-in-law", "kind": "relationship",
         "category": "relationship",
         "relationship_kind": "sister-in-law",
     }
     report = _run(persist_long_term_item(
         mp, user_id=uid, user_msg_id=None, item=item,
-        user_input="my sister Sandi would find this funny",
+        user_input="my sister Leia would find this funny",
     ))
     assert report["value"] == "sister"
     rels = _run(mp.list_relationships(uid))
     assert any(r["relation"] == "sister" for r in rels), rels
     facts = _run(mp.list_facts(uid))
     assert any(
-        f["subject"] == "sandi" and f["predicate"] == "is" and f["value"] == "sister"
+        f["subject"] == "leia" and f["predicate"] == "is" and f["value"] == "sister"
         for f in facts
     )
 
 
 def test_resolve_ambiguity_group_binds_facts(memory):
     mp, uid = memory
-    a1 = _run(mp.create_person(uid, "Artie"))
-    a2 = _run(mp.create_person(uid, "Artie"))
+    a1 = _run(mp.create_person(uid, "Luke"))
+    a2 = _run(mp.create_person(uid, "Luke"))
     item = {
-        "subject_type": "person", "subject_name": "Artie",
+        "subject_type": "person", "subject_name": "Luke",
         "predicate": "loves", "value": "movies", "kind": "fact",
         "category": "preference",
     }
     report = _run(persist_long_term_item(
-        mp, user_id=uid, user_msg_id=None, item=item, user_input="Artie loves movies",
+        mp, user_id=uid, user_msg_id=None, item=item, user_input="Luke loves movies",
     ))
     group_id = report["ambiguity_group_id"]
     assert group_id is not None

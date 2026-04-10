@@ -149,7 +149,7 @@ async def test_ambiguous_candidates_trigger_fast_model_fallback(resolver):
     }))
     candidates = [
         ReferentCandidate("cand_a", "person", "Mark", "Mark", "recent_context", "a", 5.1, {}),
-        ReferentCandidate("cand_b", "person", "Artie", "Artie", "long_term_memory", "b", 5.0, {}),
+        ReferentCandidate("cand_b", "person", "Luke", "Luke", "long_term_memory", "b", 5.0, {}),
     ]
 
     enriched = await resolver._resolve_with_fallback(
@@ -160,7 +160,7 @@ async def test_ambiguous_candidates_trigger_fast_model_fallback(resolver):
     )
 
     assert enriched.status == "resolved"
-    assert enriched.chosen_candidate.canonical_name == "Artie"
+    assert enriched.chosen_candidate.canonical_name == "Luke"
     resolver._inference.generate.assert_awaited_once()
     assert resolver._inference.generate.call_args.kwargs["model"] == resolver._model_manager.policy.fast_model
 
@@ -619,12 +619,12 @@ async def test_graph_walk_resolves_arties_wife(resolver, memory):
     uid = await memory.get_or_create_user("default")
 
     def _seed(conn):
-        artie = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        luke = gql.create_person_graph(conn, uid, name="Luke", bucket="family")
         mira = gql.create_person_graph(conn, uid, name="Mira", bucket="family")
         gql.create_person_edge(
             conn,
             uid,
-            from_person_id=artie,
+            from_person_id=luke,
             to_person_id=mira,
             edge_type="spouse",
         )
@@ -634,14 +634,14 @@ async def test_graph_walk_resolves_arties_wife(resolver, memory):
     ask = Ask(
         ask_id="ask_graph_1",
         intent="direct_chat",
-        distilled_query="how is artie's wife doing",
+        distilled_query="how is luke's wife doing",
         referent_type="person",
         needs_referent_resolution=True,
-        referent_anchor="Artie's wife",
+        referent_anchor="Luke's wife",
     )
 
     resolved = await resolver.resolve_asks(
-        user_input="how is artie's wife doing",
+        user_input="how is luke's wife doing",
         asks=[ask],
         recent=[],
         relevant_facts=[],
@@ -665,20 +665,20 @@ async def test_graph_walk_resolves_my_brothers_daughter(resolver, memory):
 
     def _seed(conn):
         me = gql.create_person_graph(conn, uid, name="Jesse", bucket="family")
-        artie = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        luke = gql.create_person_graph(conn, uid, name="Luke", bucket="family")
         nora = gql.create_person_graph(conn, uid, name="Nora", bucket="family")
         gql.link_user_to_person(conn, user_id=uid, person_id=me)
         gql.create_person_edge(
             conn,
             uid,
             from_person_id=me,
-            to_person_id=artie,
+            to_person_id=luke,
             edge_type="brother",
         )
         gql.create_person_edge(
             conn,
             uid,
-            from_person_id=artie,
+            from_person_id=luke,
             to_person_id=nora,
             edge_type="daughter",
         )

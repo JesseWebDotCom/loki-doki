@@ -139,10 +139,10 @@ async def test_admin_reset_memory_wipes_facts_keeps_users(_fresh_memory):
         )
         # Seed some memory state we expect to be wiped.
         uid = await mp.get_or_create_user("alice")
-        pid = await mp.create_person(uid, "Artie")
+        pid = await mp.create_person(uid, "Luke")
         await mp.add_relationship(uid, pid, "brother")
         await mp.upsert_fact(
-            user_id=uid, subject="artie", predicate="loves", value="movies",
+            user_id=uid, subject="luke", predicate="loves", value="movies",
             subject_type="person", subject_ref_id=pid, category="preference",
         )
 

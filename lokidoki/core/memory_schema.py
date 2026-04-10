@@ -169,8 +169,8 @@ CREATE TABLE IF NOT EXISTS people (
     preferred_photo_id INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
     -- NOTE: deliberately NO UNIQUE on (owner_user_id, name). Multiple
-    -- people can share a first name (brother Artie, dog Artie, celebrity
-    -- Artie Lange). Disambiguation lives in the orchestrator.
+    -- people can share a first name (brother Luke, dog Luke, celebrity
+    -- Luke Lange). Disambiguation lives in the orchestrator.
 );
 CREATE INDEX IF NOT EXISTS idx_people_owner ON people(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_people_owner_name ON people(owner_user_id, name);
