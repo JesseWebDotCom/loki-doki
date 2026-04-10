@@ -45,7 +45,8 @@ Current overall status:
 - Phase 2 is `completed`
 - Phase 3 is `completed`
 - Phase 4 is `completed`
-- Phases 5-8 are `pending`
+- Phase 5 is `completed`
+- Phases 6-8 are `pending`
 
 ## Phase 0: Baseline, Instrumentation, Eval Harness, And Shadow Mode
 Status:
@@ -322,7 +323,7 @@ Improve which memories get selected before they reach the model.
 
 ## Phase 5: Micro Fast-Lane For Greetings And Gratitude
 Status:
-- `pending`
+- `completed`
 
 ### Goal
 Reduce latency only for the safest trivial turns.

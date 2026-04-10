@@ -50,6 +50,7 @@ from lokidoki.core.orchestrator_skills import (
     try_grounded_fast_path,
     try_verbatim_fast_path,
 )
+from lokidoki.core.micro_fast_lane import check_fast_lane, FastLaneResult
 from lokidoki.core.response_spec import plan_response_spec
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
@@ -408,6 +409,117 @@ class Orchestrator:
                 "[orchestrator] clarification cleared for session %s — "
                 "no option matched user input %r",
                 session_id, user_input[:60],
+            )
+
+        # ---- micro fast-lane (Phase 5) -----------------------------------
+        # Embedding-based bypass for pure greetings and gratitude.
+        # Fires BEFORE decomposition. On a hit (similarity >= 0.90),
+        # skip the decomposer entirely and route straight to social_ack
+        # synthesis. No emotional turns are bypassed.
+        fast_lane_result: FastLaneResult = await check_fast_lane(user_input)
+        phase_latencies["micro_fast_lane"] = fast_lane_result.latency_ms
+        if fast_lane_result.hit:
+            # Build a minimal synthetic decomposition for trace logging.
+            synthetic_decomp = DecompositionResult(
+                asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
+                model="micro_fast_lane",
+            )
+            response_spec = plan_response_spec(
+                user_input=user_input,
+                decomposition=synthetic_decomp,
+                write_reports=[],
+                resolved_asks=[],
+            )
+            # Force social_ack regardless of what plan_response_spec chose.
+            from lokidoki.core.response_spec import ResponseSpec as _RS
+            response_spec = _RS(
+                reply_mode="social_ack",
+                memory_mode="sparse",
+                grounding_mode="optional",
+                followup_policy="none",
+                style_mode="warm",
+                citation_policy="optional",
+            )
+            yield PipelineEvent(
+                phase="micro_fast_lane",
+                status="done",
+                data={
+                    "hit": True,
+                    "category": fast_lane_result.category,
+                    "similarity": round(fast_lane_result.best_similarity, 4),
+                    "template": fast_lane_result.best_template,
+                    "latency_ms": round(fast_lane_result.latency_ms, 2),
+                },
+            )
+            # Lightweight social_ack synthesis — use the acknowledgment
+            # prompt path with a warm greeting/gratitude response.
+            yield PipelineEvent(phase="synthesis", status="active", data={"fast_path": True, "micro_fast_lane": True})
+            phase_starts["synthesis"] = time.perf_counter()
+
+            prompt = build_acknowledgment_prompt(
+                query=user_input,
+                clarify_hint="",
+                humanization_block="",
+            )
+            synthesis_model, keep_alive = self._model_manager.get_model("fast")
+            response = ""
+            try:
+                async for token in self._inference.generate_stream(
+                    model=synthesis_model,
+                    prompt=prompt,
+                    keep_alive=keep_alive,
+                    num_predict=ACKNOWLEDGMENT_NUM_PREDICT,
+                    temperature=0.7,
+                    think=False,
+                ):
+                    response += token
+                    yield PipelineEvent(phase="synthesis", status="streaming", data={"delta": token})
+            except OllamaError as e:
+                if not response:
+                    response = f"Hey! {e}" if fast_lane_result.category == "greeting" else f"You're welcome! {e}"
+            synthesis_ms = (time.perf_counter() - phase_starts["synthesis"]) * 1000
+            phase_latencies["synthesis"] = synthesis_ms
+
+            if not response.strip():
+                response = "Hey!" if fast_lane_result.category == "greeting" else "You're welcome!"
+
+            await self._memory.add_message(
+                user_id=user_id, session_id=session_id, role="assistant", content=response,
+            )
+            if is_first_turn:
+                await self._auto_name_session(user_id, session_id, user_input)
+            yield PipelineEvent(
+                phase="synthesis",
+                status="done",
+                data={
+                    "response": response,
+                    "model": synthesis_model,
+                    "latency_ms": synthesis_ms,
+                    "tone": "warm",
+                    "sources": [],
+                    "platform": self._model_manager.policy.platform,
+                    "fast_path": True,
+                    "micro_fast_lane": True,
+                    "micro_fast_lane_category": fast_lane_result.category,
+                },
+            )
+            await _finalize_trace("social_ack", synthetic_decomp, [])
+            return
+
+        # Log near-misses for review (already logged inside classifier,
+        # but also surface in the pipeline event stream).
+        if fast_lane_result.near_miss:
+            yield PipelineEvent(
+                phase="micro_fast_lane",
+                status="done",
+                data={
+                    "hit": False,
+                    "near_miss": True,
+                    "category": fast_lane_result.category,
+                    "similarity": round(fast_lane_result.best_similarity, 4),
+                    "template": fast_lane_result.best_template,
+                    "latency_ms": round(fast_lane_result.latency_ms, 2),
+                },
             )
 
         # ---- decomposition ----------------------------------------------
