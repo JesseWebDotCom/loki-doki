@@ -29,11 +29,21 @@ import logging
 from functools import lru_cache
 from typing import Any, Awaitable, Callable, Literal, Optional, Union, List, Tuple, Dict
 
+from dataclasses import dataclass, field as dc_field
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 logger = logging.getLogger(__name__)
 
 MAX_REPAIRS = 2
+
+
+@dataclass
+class RepairStats:
+    """Diagnostics from the repair loop — consumed by the Phase 6 verifier."""
+    repair_fired: bool = False
+    repair_attempts: int = 0
+    items_dropped: int = 0
+    items_coerced: int = 0
 
 
 # spaCy is a hard dependency (see pyproject.toml). We use it as a
@@ -953,7 +963,7 @@ async def repair_long_term_memory(
     original_input: str,
     repair_call: RepairCall,
     max_repairs: int = MAX_REPAIRS,
-) -> list[LongTermItem]:
+) -> tuple[list[LongTermItem], RepairStats]:
     """Drive the repair loop.
 
     ``repair_call`` is an async callable provided by the caller —
@@ -961,9 +971,17 @@ async def repair_long_term_memory(
     accepts ``(prompt, schema)`` and returns the raw model output. We
     inject it instead of importing the inference client directly so
     this module stays trivially unit-testable with a fake call.
+
+    Returns ``(validated_items, repair_stats)`` so callers (and the
+    Phase 6 verifier) can inspect how messy the decomposition was.
     """
+    stats = RepairStats()
+    initial_count = len(raw_items or [])
     good, pending_errors = parse_items(raw_items, original_input=original_input)
+    stats.items_coerced = len(good)  # items salvaged by coerce_item
     attempt = 0
+    if pending_errors:
+        stats.repair_fired = True
     while pending_errors and attempt < max_repairs:
         attempt += 1
         prompt = build_repair_prompt(original_input, pending_errors)
@@ -979,10 +997,12 @@ async def repair_long_term_memory(
             break
         new_good, pending_errors = parse_items(repaired, original_input=original_input)
         good.extend(new_good)
+    stats.repair_attempts = attempt
 
     if pending_errors:
+        stats.items_dropped = len(pending_errors)
         for entry in pending_errors:
             logger.info(
                 "decomposer dropping unrepairable item: %s", entry["item"]
             )
-    return good
+    return good, stats

@@ -46,7 +46,8 @@ Current overall status:
 - Phase 3 is `completed`
 - Phase 4 is `completed`
 - Phase 5 is `completed`
-- Phases 6-8 are `pending`
+- Phase 6 is `completed`
+- Phases 7-8 are `pending`
 
 ## Phase 0: Baseline, Instrumentation, Eval Harness, And Shadow Mode
 Status:
@@ -362,7 +363,7 @@ Reduce latency only for the safest trivial turns.
 
 ## Phase 6: Selective Verifier And Memory-Write Risk Checks
 Status:
-- `pending`
+- `completed`
 
 ### Goal
 Add a second-pass safety net only where uncertainty is high.

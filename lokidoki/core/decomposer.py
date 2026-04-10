@@ -10,6 +10,7 @@ from typing import Any
 from lokidoki.core.decomposer_repair import (
     REPAIR_ARRAY_SCHEMA,
     LongTermItem,
+    RepairStats,
     repair_long_term_memory,
 )
 from lokidoki.core.inference import InferenceClient, OllamaError
@@ -84,6 +85,11 @@ class DecompositionResult:
     # relationship context into synthesis even when the companion
     # mention ("with my brother") isn't the primary ask.
     companion_relations: list[str] = field(default_factory=list)
+    # Phase 6: repair-loop diagnostics for the selective verifier.
+    repair_stats: RepairStats = field(default_factory=RepairStats)
+    # True when the decomposer returned empty asks and a fallback
+    # ask was synthesized (belt-and-suspenders path).
+    used_fallback_ask: bool = False
 
 
 # JSON Schema for structured output. Constrains Ollama's decoder to terminate
@@ -278,12 +284,13 @@ class Decomposer:
         # Run the Pydantic repair loop on long_term_memory. The primary
         # call's items are dicts (or absent); after this they're a list
         # of validated dicts that the orchestrator can trust.
-        validated = await repair_long_term_memory(
+        validated, repair_stats = await repair_long_term_memory(
             result.long_term_memory,
             original_input=user_input,
             repair_call=self._repair_call,
         )
         result.long_term_memory = [item.model_dump() for item in validated]
+        result.repair_stats = repair_stats
         logger.info(
             "[decomposer] validated long_term_memory (post-repair, %d items): %s",
             len(result.long_term_memory),
@@ -390,12 +397,14 @@ class Decomposer:
             # the structured signal for that case, so we trust it and
             # leave asks empty when it's set.
             is_correction = bool(data.get("is_course_correction", False))
+            fallback_used = False
             if not asks and not is_correction:
                 logger.warning(
                     "[decomposer] empty asks for %r — synthesizing fallback "
                     "direct_chat ask with requires_current_data=True",
                     original_input,
                 )
+                fallback_used = True
                 asks = [
                     Ask(
                         ask_id="ask_000",
@@ -422,6 +431,7 @@ class Decomposer:
                 asks=asks,
                 model=self._model,
                 latency_ms=latency_ms,
+                used_fallback_ask=fallback_used,
             )
         except Exception as exc:
             logger.warning(
@@ -497,4 +507,5 @@ class Decomposer:
             asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=original_input)],
             model=self._model,
             latency_ms=latency_ms,
+            used_fallback_ask=True,
         )

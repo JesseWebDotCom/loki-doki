@@ -52,6 +52,13 @@ from lokidoki.core.orchestrator_skills import (
 )
 from lokidoki.core.micro_fast_lane import check_fast_lane, FastLaneResult
 from lokidoki.core.response_spec import plan_response_spec
+from lokidoki.core.verifier import (
+    apply_adjustments,
+    build_diagnostics,
+    should_verify,
+    verify,
+    VerifierResult,
+)
 from lokidoki.core.registry import SkillRegistry
 from lokidoki.core.skill_executor import SkillExecutor
 from lokidoki.core import people_graph_sql as gql
@@ -216,6 +223,7 @@ class Orchestrator:
         skill_results: dict = {}
         routing_log: list[dict] = []
         response_spec = None
+        verifier_result = VerifierResult()
         retrieved_memory_candidates: dict = {}
         selected_injected_memories: dict = {}
 
@@ -249,6 +257,14 @@ class Orchestrator:
                     }
                     for a in (getattr(decomposition, "asks", None) or [])
                 ],
+                "verifier": {
+                    "triggered": verifier_result.triggered,
+                    "adjustments": len(verifier_result.adjustments),
+                    "blocked_writes": len(verifier_result.blocked_memory_item_indices),
+                    "memory_write_risk": getattr(
+                        verifier_result.diagnostics, "memory_write_risk", "none"
+                    ) if verifier_result.diagnostics else "none",
+                },
             }
             await self._memory.add_chat_trace(
                 user_id=user_id,
@@ -743,6 +759,54 @@ class Orchestrator:
                 "sentiment": decomposition.short_term_memory,
             },
         )
+
+        # ---- selective verifier (Phase 6) --------------------------------
+        # Second-pass safety net. Only fires when decomposition diagnostics
+        # indicate uncertainty (repair fired, fallback ask, ambiguous
+        # referent, routing conflicts, or high memory-write risk). Clean
+        # turns skip this entirely — zero overhead on the happy path.
+        phase_starts["verifier"] = time.perf_counter()
+        verifier_result = VerifierResult()
+        diag = build_diagnostics(
+            decomposition=decomposition,
+            resolved_asks=resolved_asks,
+            write_reports=write_reports,
+        )
+        if should_verify(diag):
+            # Plan response_spec early so the verifier can inspect the
+            # planned lane. It will be re-planned after adjustments if
+            # the verifier changed anything.
+            pre_verify_spec = plan_response_spec(
+                user_input=user_input,
+                decomposition=decomposition,
+                write_reports=write_reports,
+                resolved_asks=resolved_asks,
+            )
+            verifier_result = verify(
+                diag, decomposition, resolved_asks,
+                write_reports, pre_verify_spec,
+            )
+            if verifier_result.made_changes:
+                apply_adjustments(verifier_result, pre_verify_spec, resolved_asks)
+                yield PipelineEvent(
+                    phase="verifier",
+                    status="done",
+                    data={
+                        "triggered": True,
+                        "adjustments": len(verifier_result.adjustments),
+                        "blocked_writes": len(verifier_result.blocked_memory_item_indices),
+                        "memory_write_risk": diag.memory_write_risk,
+                    },
+                )
+            else:
+                yield PipelineEvent(
+                    phase="verifier",
+                    status="done",
+                    data={"triggered": True, "adjustments": 0},
+                )
+        phase_latencies["verifier"] = (
+            time.perf_counter() - phase_starts["verifier"]
+        ) * 1000
 
         # ---- knowledge-source routing upgrade ---------------------------
         # Capability-based, NOT skill-id-based. The decomposer emits a

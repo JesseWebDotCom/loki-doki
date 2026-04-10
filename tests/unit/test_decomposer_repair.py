@@ -589,10 +589,11 @@ class TestRepairLoop:
         async def never_called(_p, _s):
             raise AssertionError("repair_call should not run when nothing fails")
 
-        out = await repair_long_term_memory(
+        out, stats = await repair_long_term_memory(
             items, original_input="x", repair_call=never_called
         )
         assert len(out) == 1
+        assert not stats.repair_fired
 
     @pytest.mark.anyio
     async def test_repairs_a_broken_item(self):
@@ -618,7 +619,7 @@ class TestRepairLoop:
             calls.append(prompt)
             return repaired_payload
 
-        out = await repair_long_term_memory(
+        out, stats = await repair_long_term_memory(
             bad_items,
             original_input="my brother Mark",
             repair_call=fake_repair,
@@ -626,6 +627,8 @@ class TestRepairLoop:
         assert len(out) == 1
         assert out[0].relationship_kind == "brother"
         assert len(calls) == 1
+        assert stats.repair_fired
+        assert stats.repair_attempts == 1
         # The repair prompt should quote the failing item back to the model
         # so the correction is targeted, not "regenerate everything".
         assert "Mark" in calls[0]
@@ -641,10 +644,11 @@ class TestRepairLoop:
             # Returns the same garbage indefinitely.
             return json.dumps([{"predicate": "", "value": "", "kind": "fact"}])
 
-        out = await repair_long_term_memory(
+        out, stats = await repair_long_term_memory(
             bad_items, original_input="x", repair_call=fake_repair
         )
         assert out == []
+        assert stats.items_dropped == 1
 
     @pytest.mark.anyio
     async def test_breaks_loop_on_repair_call_exception(self):
@@ -658,12 +662,14 @@ class TestRepairLoop:
             attempts += 1
             raise RuntimeError("ollama down")
 
-        out = await repair_long_term_memory(
+        out, stats = await repair_long_term_memory(
             bad_items, original_input="x", repair_call=boom
         )
         assert out == []
         # Single attempt then bail — don't hammer Ollama on repeat failures.
         assert attempts == 1
+        assert stats.repair_fired
+        assert stats.repair_attempts == 1
 
 
 class TestFixtures:
