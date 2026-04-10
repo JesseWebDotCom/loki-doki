@@ -1375,10 +1375,16 @@ class Orchestrator:
         selected_injected_memories["clarify_hint"] = clarify_hint
 
         if is_ack_turn:
+            _ack_referent_names = [
+                c.canonical_name
+                for c in (session_cache.get("resolved_referents") or [])
+                if c.canonical_name
+            ][:4]
             prompt = build_acknowledgment_prompt(
                 query=user_input,
                 clarify_hint=clarify_hint,
                 humanization_block=humanization_plan.render_for_prompt(),
+                referent_names=_ack_referent_names or None,
             )
             num_predict = ACKNOWLEDGMENT_NUM_PREDICT
         else:

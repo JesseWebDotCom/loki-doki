@@ -834,6 +834,7 @@ class TestStructuredRoutingAndMemory:
         assert "still playing tonight" in synthesis_done.data["response"]
         assert "7:00pm" in synthesis_done.data["response"]
 
+
     @pytest.mark.anyio
     async def test_mixed_brother_plus_avatar_turn_upgrades_to_current_media_via_anchor(
         self, memory, user_session, monkeypatch

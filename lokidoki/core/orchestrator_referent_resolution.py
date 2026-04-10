@@ -667,6 +667,14 @@ class ReferentResolver:
         # showtimes searched for `q=it`.
         distilled = (getattr(ask, "distilled_query", "") or "").strip()
         anchor = (getattr(ask, "referent_anchor", "") or "").strip()
+        pronoun_phrase = self._leading_pronoun_phrase(anchor)
+        if distilled and pronoun_phrase:
+            import re
+            pattern = re.compile(rf"\b{re.escape(pronoun_phrase)}\b", re.IGNORECASE)
+            replacement = self._pronoun_phrase_replacement(pronoun_phrase, canonical)
+            substituted, n = pattern.subn(replacement, distilled, count=1)
+            if n:
+                return substituted
         if distilled and anchor and anchor.lower() != canonical.lower():
             import re
             pattern = re.compile(rf"\b{re.escape(anchor)}\b", re.IGNORECASE)
@@ -677,10 +685,39 @@ class ReferentResolver:
         # missing or non-informative ("it", "that", "there").
         if distilled:
             import re
-            pron = re.compile(r"\b(it|that|this|there|them)\b", re.IGNORECASE)
+            pron = re.compile(r"\b(it|that|this|there|them|he|she|his|her|their)\b", re.IGNORECASE)
             substituted, n = pron.subn(canonical, distilled, count=1)
             if n:
                 return substituted
+        return canonical
+
+    @staticmethod
+    def _leading_pronoun_phrase(anchor: str) -> str:
+        text = (anchor or "").strip()
+        if not text:
+            return ""
+        normalized = text.lower()
+        for pronoun in ("his ", "her ", "their ", "he ", "she "):
+            if normalized.startswith(pronoun):
+                return text
+        return ""
+
+    @staticmethod
+    def _pronoun_phrase_replacement(anchor: str, canonical: str) -> str:
+        text = (anchor or "").strip()
+        lower = text.lower()
+        if lower.startswith("his "):
+            return f"{canonical}'s {text[4:].strip()}"
+        if lower.startswith("her "):
+            return f"{canonical}'s {text[4:].strip()}"
+        if lower.startswith("their "):
+            return f"{canonical}'s {text[6:].strip()}"
+        if lower in {"he", "she"}:
+            return canonical
+        if lower.startswith("he "):
+            return f"{canonical} {text[3:].strip()}"
+        if lower.startswith("she "):
+            return f"{canonical} {text[4:].strip()}"
         return canonical
 
     def _apply_resolution_upgrades(

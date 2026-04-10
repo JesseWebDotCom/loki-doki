@@ -578,6 +578,22 @@ def coerce_item(
             subject_type = "person"
             subject_name = name
 
+    # Salvage 3b: promote self → person when the decomposer already
+    # emitted a non-trivial subject_name AND a known relationship_kind.
+    # This catches "my mom hates horror movies" where Mom IS the name
+    # (no separate proper noun after the relation word), so Salvage 3's
+    # _extract_relation_name_pair returns None.
+    if (
+        subject_type == "self"
+        and subject_name
+        and subject_name.lower() != "self"
+        and predicate_norm not in _TAUTOLOGY_PREDICATES
+    ):
+        rel_kind = (out.get("relationship_kind") or "").strip().lower()
+        if rel_kind and rel_kind in _KNOWN_RELATIONS:
+            out["subject_type"] = "person"
+            subject_type = "person"
+
     # Salvage 4b: drop self-facts whose value is a sentence-fragment
     # prefix like "the movie biodome". These are extraction artifacts
     # — the model put the entire object phrase into the value slot.

@@ -100,6 +100,34 @@ COURSE_CORRECTION_RESPONSE = json.dumps({
     "asks": []
 })
 
+SINGLE_OBJECT_ASK_RESPONSE = json.dumps({
+    "is_course_correction": False,
+    "overall_reasoning_complexity": "fast",
+    "short_term_memory": {"sentiment": "happy", "concern": "none"},
+    "long_term_memory": [
+        {
+            "subject_type": "self",
+            "subject_name": "",
+            "predicate": "likes",
+            "value": "Jordan Peele horror movies",
+            "kind": "preference",
+            "category": "preference",
+        }
+    ],
+    "asks": {
+        "intent": "direct_chat",
+        "distilled_query": "I like his new horror movies",
+        "response_shape": "synthesized",
+        "requires_current_data": False,
+        "knowledge_source": "none",
+        "capability_need": "none",
+        "referent_type": "unknown",
+        "durability": "durable",
+        "needs_referent_resolution": True,
+        "referent_anchor": "his new horror movies",
+    },
+})
+
 
 @pytest.fixture
 def decomposer():
@@ -203,6 +231,24 @@ class TestDecomposer:
         assert result.overall_reasoning_complexity == "thinking"
         assert result.asks[0].ask_id == "ask_001"
         assert result.asks[1].ask_id == "ask_002"
+
+    @pytest.mark.anyio
+    async def test_decompose_coerces_single_object_ask_into_list(self, decomposer):
+        """Phase 3 regression: gemma sometimes emits asks as a single object
+        instead of an array. We should salvage that shape instead of
+        dropping to a generic fallback ask."""
+        decomposer._client.generate = AsyncMock(return_value=SINGLE_OBJECT_ASK_RESPONSE)
+
+        result = await decomposer.decompose("I like his new horror movies")
+
+        assert len(result.asks) == 1
+        assert result.used_fallback_ask is False
+        assert result.asks[0].intent == "direct_chat"
+        assert result.asks[0].distilled_query == "I like his new horror movies"
+        assert result.asks[0].needs_referent_resolution is True
+        assert result.asks[0].referent_anchor == "his new horror movies"
+        assert len(result.long_term_memory) == 1
+        assert result.long_term_memory[0]["predicate"] == "likes"
 
     @pytest.mark.anyio
     async def test_decompose_course_correction(self, decomposer):

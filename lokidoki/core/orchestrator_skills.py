@@ -38,6 +38,8 @@ def _ask_query(ask: Any) -> str:
     anchor = (getattr(ask, "referent_anchor", "") or "").strip()
     referent_type = getattr(ask, "referent_type", "unknown")
     scope = list(getattr(ask, "referent_scope", []) or [])
+    if capability == "encyclopedic" and anchor and _is_informative_anchor(anchor):
+        return anchor
     if (
         capability == "current_media"
         and not getattr(ask, "enriched_query", "")
@@ -661,6 +663,9 @@ SYNTHESIS_PROMPT_TEMPLATE = (
     " acknowledge briefly with something fresh ('Got it — noted.' / a short"
     " genuine reaction). Do NOT reply with 'That's great! Your coworker Tom"
     " loves Halo.' style echoes. NEVER quote a memory verbatim — paraphrase naturally."
+    " When referring to a person or entity listed in RESOLVED_REFERENTS or"
+    " RELATIONSHIPS, use their NAME — never 'the director','she','he', or"
+    " other vague references. Show you know who you're talking about."
     " You may end with an OPTIONAL follow-up question, but ONLY after you've"
     " already given the answer — never instead of it.\n"
     "TONE:{tone}{arc_block}\n"
@@ -732,7 +737,10 @@ ACKNOWLEDGMENT_PROMPT_TEMPLATE = (
     "\n"
     "Rules: keep it under 30 words. Never start your reply with \"That's "
     "great\", \"Your\", \"You said\", or a name from the user's message. "
-    "Don't echo the user's exact phrasing back at them.\n"
+    "Don't echo the user's exact phrasing back at them."
+    " When referring to a person or entity from CONTEXT, use their NAME —"
+    " never 'the director','she','he', or vague references.\n"
+    "{referent_context}"
     "{humanization_block}"
     "{clarify_block}"
     "Now respond to this user message in the same warm style:\n"
@@ -747,6 +755,7 @@ def build_acknowledgment_prompt(
     clarify_hint: str = "",
     interests: str = BOT_INTERESTS,
     humanization_block: str = "",
+    referent_names: list[str] | None = None,
 ) -> str:
     """Few-shot prompt for fact-sharing turns. See ACKNOWLEDGMENT_PROMPT_TEMPLATE."""
     clarify_block = (
@@ -759,11 +768,15 @@ def build_acknowledgment_prompt(
         if humanization_block.strip()
         else ""
     )
+    referent_context = ""
+    if referent_names:
+        referent_context = f"CONTEXT: This conversation involves {', '.join(referent_names)}.\n"
     return ACKNOWLEDGMENT_PROMPT_TEMPLATE.format(
         query=query,
         clarify_block=clarify_block,
         interests=interests,
         humanization_block=planner_block,
+        referent_context=referent_context,
     )
 
 

@@ -11,7 +11,8 @@ import json
 
 import pytest
 
-from lokidoki.core.orchestrator_skills import pick_active_skill_intent
+from lokidoki.core.decomposer import Ask
+from lokidoki.core.orchestrator_skills import _ask_query, pick_active_skill_intent
 from lokidoki.core.registry import SkillRegistry
 
 
@@ -134,3 +135,16 @@ async def test_real_skill_directory_exposes_capability_routing():
         "movies_showtimes.get_showtimes",
         "movies_fandango.get_showtimes",
     }
+
+
+def test_encyclopedic_query_prefers_named_anchor():
+    ask = Ask(
+        ask_id="ask_000",
+        intent="direct_chat",
+        distilled_query="who is Arthur Miller",
+        capability_need="encyclopedic",
+        referent_type="person",
+        referent_anchor="Arthur Miller",
+    )
+
+    assert _ask_query(ask) == "Arthur Miller"

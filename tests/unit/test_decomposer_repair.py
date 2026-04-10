@@ -512,6 +512,60 @@ class TestCoerceItem:
         assert out["subject_type"] == "self"
         assert out["value"] == "happy"
 
+    def test_relation_name_promoted_when_no_separate_proper_noun(self):
+        """'My mom hates horror movies' — the decomposer emits subject_name
+        'Mom' with relationship_kind 'mom' but no explicit subject_type.
+        Salvage 3 can't extract a separate proper name (Mom IS the name),
+        but Salvage 3b must promote to person because subject_name +
+        relationship_kind together signal a non-self subject."""
+        out = coerce_item(
+            {
+                "subject_name": "Mom",
+                "predicate": "hates",
+                "value": "horror movies",
+                "kind": "preference",
+                "relationship_kind": "mom",
+                "memory_priority": "high",
+            },
+            original_input="My mom hates horror movies",
+        )
+        assert out is not None
+        assert out["subject_type"] == "person"
+        assert out["subject_name"] == "Mom"
+        assert out["predicate"] == "hates"
+        assert out["value"] == "horror movies"
+
+    def test_relation_name_promoted_for_dad(self):
+        """Same pattern with 'dad' — 'My dad loves fishing'."""
+        out = coerce_item(
+            {
+                "subject_name": "Dad",
+                "predicate": "loves",
+                "value": "fishing",
+                "kind": "preference",
+                "relationship_kind": "dad",
+            },
+            original_input="My dad loves fishing",
+        )
+        assert out is not None
+        assert out["subject_type"] == "person"
+        assert out["subject_name"] == "Dad"
+
+    def test_self_fact_not_promoted_without_relationship_kind(self):
+        """A genuine self-fact with subject_name 'Self' must stay self."""
+        out = coerce_item(
+            {
+                "subject_type": "self",
+                "subject_name": "Self",
+                "predicate": "loves",
+                "value": "coffee",
+                "kind": "preference",
+            },
+            original_input="I love coffee",
+        )
+        assert out is not None
+        assert out["subject_type"] == "self"
+
     def test_strips_whitespace_in_string_fields(self):
         out = coerce_item({
             "subject_type": " self ", "subject_name": " ",

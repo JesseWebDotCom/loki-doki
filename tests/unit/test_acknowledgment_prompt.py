@@ -100,6 +100,20 @@ class TestAckPromptShape:
         assert "FOLLOWUP" in p
         assert "Ask which Artie" in p
 
+    def test_includes_referent_context_when_names_provided(self):
+        """When session cache has resolved referents, their names must
+        appear in a CONTEXT block so the 2B model can use them."""
+        p = build_acknowledgment_prompt(
+            query="I like his new horror movies",
+            referent_names=["Jordan Peele"],
+        )
+        assert "CONTEXT:" in p
+        assert "Jordan Peele" in p
+
+    def test_no_referent_context_when_names_empty(self):
+        p = build_acknowledgment_prompt(query="I love coffee")
+        assert "CONTEXT:" not in p
+
     def test_diverse_few_shot_relations(self):
         """Examples must cover varied relationships so the model can
         generalize, not memorize. No two examples should use the same

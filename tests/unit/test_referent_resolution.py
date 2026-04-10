@@ -10,6 +10,7 @@ from lokidoki.core.model_manager import ModelManager, ModelPolicy
 from lokidoki.core.orchestrator_referent_resolution import (
     EnrichedAsk,
     ReferentCandidate,
+    ReferentResolution,
     ReferentResolver,
 )
 
@@ -162,6 +163,28 @@ async def test_ambiguous_candidates_trigger_fast_model_fallback(resolver):
     assert enriched.chosen_candidate.canonical_name == "Artie"
     resolver._inference.generate.assert_awaited_once()
     assert resolver._inference.generate.call_args.kwargs["model"] == resolver._model_manager.policy.fast_model
+
+
+def test_enrich_query_replaces_possessive_pronoun_phrase(resolver):
+    ask = Ask(
+        ask_id="ask_1",
+        intent="direct_chat",
+        distilled_query="I like his new horror movies",
+        referent_type="unknown",
+        needs_referent_resolution=True,
+        capability_need="none",
+        referent_anchor="his new horror movies",
+    )
+    resolution = ReferentResolution(
+        status="resolved",
+        chosen_candidate=ReferentCandidate(
+            "cand_a", "person", "Jordan Peele", "Jordan Peele", "recent_context", "a", 7.0, {}
+        ),
+        candidates=[],
+        source="recent_context",
+    )
+
+    assert resolver._enrich_query(ask, resolution) == "I like Jordan Peele's new horror movies"
 
 
 @pytest.mark.anyio

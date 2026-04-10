@@ -380,9 +380,15 @@ class Decomposer:
             return self._fallback_result(original_input, latency_ms)
 
         try:
+            raw_asks = data.get("asks", [])
+            if isinstance(raw_asks, dict):
+                raw_asks = [raw_asks]
+            elif not isinstance(raw_asks, list):
+                raw_asks = []
             asks = [
                 self._build_ask(a, i, original_input)
-                for i, a in enumerate(data.get("asks", []))
+                for i, a in enumerate(raw_asks)
+                if isinstance(a, dict)
             ]
 
             # Belt-and-suspenders for the empty-asks failure mode. Even
