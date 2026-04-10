@@ -5,6 +5,7 @@ from lokidoki.core.memory_phase2 import (
     build_wake_up_context,
     bucket_memory_candidates,
     recent_injected_ids_from_traces,
+    score_memory_candidate,
     select_memory_context,
 )
 
@@ -258,6 +259,187 @@ def test_full_synthesis_budget_enforces_diversity_and_suppression():
     assert 13 in chosen_fact_ids
     assert 15 in chosen_fact_ids
     assert len(chosen_fact_ids) <= 4
+
+
+def test_candidate_scoring_prefers_fresh_confident_relation_match():
+    ask = _ask(referent_type="person", referent_scope=["person"])
+    newer = {
+        "id": 21,
+        "subject": "artie",
+        "subject_type": "person",
+        "subject_ref_id": 2,
+        "predicate": "likes",
+        "value": "movies",
+        "category": "preference",
+        "kind": "fact",
+        "confidence": 0.96,
+        "status": "active",
+        "last_observed_at": "2026-04-08 10:00:00",
+        "score": 0.72,
+    }
+    older = {
+        "id": 22,
+        "subject": "artie",
+        "subject_type": "person",
+        "subject_ref_id": 2,
+        "predicate": "likes",
+        "value": "movies",
+        "category": "preference",
+        "kind": "fact",
+        "confidence": 0.51,
+        "status": "active",
+        "last_observed_at": "2025-04-08 10:00:00",
+        "score": 0.91,
+    }
+
+    newer_score = score_memory_candidate(
+        newer,
+        bucket="relational_graph",
+        user_input="what does my brother like lately",
+        asks=[ask],
+        retrieval_rank=1,
+        session_seen_fact_ids=set(),
+        entity_boost_enabled=False,
+    )
+    older_score = score_memory_candidate(
+        older,
+        bucket="relational_graph",
+        user_input="what does my brother like lately",
+        asks=[ask],
+        retrieval_rank=0,
+        session_seen_fact_ids=set(),
+        entity_boost_enabled=False,
+    )
+
+    assert newer_score > older_score
+
+
+def test_candidate_scoring_applies_soft_novelty_penalty():
+    fact = {
+        "id": 31,
+        "subject": "self",
+        "subject_type": "self",
+        "predicate": "likes",
+        "value": "coffee",
+        "category": "preference",
+        "kind": "preference",
+        "confidence": 0.92,
+        "status": "active",
+        "last_observed_at": "2026-04-08 10:00:00",
+        "score": 0.8,
+    }
+
+    unseen = score_memory_candidate(
+        fact,
+        bucket="semantic_profile",
+        user_input="tell me something about me",
+        asks=[],
+        retrieval_rank=0,
+        session_seen_fact_ids=set(),
+        entity_boost_enabled=False,
+    )
+    seen = score_memory_candidate(
+        fact,
+        bucket="semantic_profile",
+        user_input="tell me something about me",
+        asks=[],
+        retrieval_rank=0,
+        session_seen_fact_ids={31},
+        entity_boost_enabled=False,
+    )
+
+    assert unseen > seen
+    assert unseen - seen >= 0.9
+
+
+def test_entity_boost_flag_can_promote_matching_entity_candidate():
+    fact = {
+        "id": 41,
+        "subject": "vermont cabin trip",
+        "subject_type": "entity",
+        "predicate": "status",
+        "value": "still in planning",
+        "category": "event",
+        "kind": "event",
+        "confidence": 0.76,
+        "status": "active",
+        "last_observed_at": "2026-04-08 10:00:00",
+        "score": 0.45,
+    }
+
+    without_boost = score_memory_candidate(
+        fact,
+        bucket="episodic_threads",
+        user_input="what's happening with the cabin trip",
+        asks=[],
+        retrieval_rank=3,
+        session_seen_fact_ids=set(),
+        entity_boost_enabled=False,
+    )
+    with_boost = score_memory_candidate(
+        fact,
+        bucket="episodic_threads",
+        user_input="what's happening with the cabin trip",
+        asks=[],
+        retrieval_rank=3,
+        session_seen_fact_ids=set(),
+        entity_boost_enabled=True,
+    )
+
+    assert with_boost > without_boost
+
+
+def test_full_synthesis_suppresses_near_duplicate_fact_phrasings():
+    selection = select_memory_context(
+        user_input="what should I remember about the cabin trip",
+        reply_mode="full_synthesis",
+        memory_mode="full",
+        asks=[],
+        candidates_by_bucket={
+            "working_context": [
+                {
+                    "id": 51,
+                    "subject": "vermont cabin trip",
+                    "subject_type": "entity",
+                    "predicate": "status",
+                    "value": "still in planning",
+                    "category": "event",
+                    "kind": "event",
+                    "confidence": 0.9,
+                    "status": "active",
+                    "score": 0.9,
+                },
+                {
+                    "id": 52,
+                    "subject": "vermont cabin trip",
+                    "subject_type": "entity",
+                    "predicate": "status",
+                    "value": "still planning",
+                    "category": "event",
+                    "kind": "event",
+                    "confidence": 0.89,
+                    "status": "active",
+                    "score": 0.88,
+                },
+            ],
+            "semantic_profile": [],
+            "relational_graph": [],
+            "episodic_threads": [],
+            "episodic_messages": [],
+        },
+        repeated_fact_ids=set(),
+        repeated_message_ids=set(),
+        session_seen_fact_ids=set(),
+        entity_boost_enabled=False,
+    )
+
+    chosen_fact_ids = [
+        item["id"]
+        for bucket in selection["facts_by_bucket"].values()
+        for item in bucket
+    ]
+
+    assert chosen_fact_ids == [51]
     assert len(selection["past_messages"]) <= 1
 
 

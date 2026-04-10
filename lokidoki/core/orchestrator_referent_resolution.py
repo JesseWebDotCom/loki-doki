@@ -6,6 +6,12 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from lokidoki.core.decomposer import Ask
+from lokidoki.core.graph_walk_resolution import (
+    candidate_aliases,
+    fuzzy_match_name,
+    normalize_query,
+    resolve_graph_walk_candidate,
+)
 from lokidoki.core.model_manager import ModelManager
 from lokidoki.core.orchestrator_skills import (
     _is_informative_anchor,
@@ -86,6 +92,7 @@ class ReferentResolver:
     ) -> list[EnrichedAsk]:
         out: list[EnrichedAsk] = []
         session_candidates = list(session_cache.get("resolved_referents") or [])
+        alias_people = await self._load_alias_people(memory=memory, user_id=user_id)
 
         for ask in asks:
             if not (
@@ -99,10 +106,33 @@ class ReferentResolver:
                 ask=ask,
                 relevant_facts=relevant_facts,
                 people=people,
+                alias_people=alias_people,
                 relationships=relationships,
                 known_entities=known_entities,
                 session_candidates=session_candidates,
             )
+            graph_walk = await resolve_graph_walk_candidate(
+                text=(
+                    getattr(ask, "referent_anchor", "")
+                    or getattr(ask, "distilled_query", "")
+                    or user_input
+                ),
+                memory=memory,
+                user_id=user_id,
+            )
+            if graph_walk is not None:
+                candidates.append(
+                    ReferentCandidate(
+                        candidate_id=f"graph:{graph_walk['id']}",
+                        type="person",
+                        display_name=graph_walk["name"],
+                        canonical_name=graph_walk["name"],
+                        source="graph_walk",
+                        source_ref=str(graph_walk["id"]),
+                        score=9.6,
+                        metadata={"aliases": list(candidate_aliases(graph_walk))},
+                    )
+                )
             candidates.sort(key=lambda c: c.score, reverse=True)
 
             resolution = self._resolve_from_candidates(candidates)
@@ -190,11 +220,15 @@ class ReferentResolver:
         ask: Ask,
         relevant_facts: list[dict],
         people: list[dict],
+        alias_people: list[dict],
         relationships: list[dict],
         known_entities: list[str],
         session_candidates: list[ReferentCandidate],
     ) -> list[ReferentCandidate]:
         candidates: list[ReferentCandidate] = []
+        anchor_text = normalize_query(
+            getattr(ask, "referent_anchor", "") or getattr(ask, "distilled_query", "")
+        )
 
         for idx, cand in enumerate(session_candidates):
             if self._type_matches(ask, cand.type):
@@ -244,6 +278,20 @@ class ReferentResolver:
                     metadata={"relationship": relation},
                 ))
 
+        if anchor_text and self._type_matches(ask, "person"):
+            matched_person = fuzzy_match_name(anchor_text, alias_people, score_cutoff=82)
+            if matched_person is not None:
+                candidates.append(ReferentCandidate(
+                    candidate_id=f"alias:{matched_person['id']}",
+                    type="person",
+                    display_name=matched_person["name"],
+                    canonical_name=matched_person["name"],
+                    source="alias_match",
+                    source_ref=str(matched_person["id"]),
+                    score=8.2,
+                    metadata={"aliases": list(candidate_aliases(matched_person))},
+                ))
+
         for idx, fact in enumerate(relevant_facts[:8]):
             subject = (fact.get("subject") or "").strip()
             subject_type = fact.get("subject_type") or "self"
@@ -254,7 +302,12 @@ class ReferentResolver:
             )
             if not self._type_matches(ask, cand_type):
                 continue
-            score = 4.0 - min(idx, 3) + float(fact.get("confidence") or 0.0)
+            score = (
+                4.0
+                - min(idx, 3)
+                + float(fact.get("confidence") or 0.0)
+                + self._fuzzy_anchor_bonus(anchor_text, subject)
+            )
             candidates.append(ReferentCandidate(
                 candidate_id=f"fact:{fact.get('id', idx)}",
                 type=cand_type,
@@ -273,6 +326,19 @@ class ReferentResolver:
             if prev is None or cand.score > prev.score:
                 uniq[key] = cand
         return list(uniq.values())
+
+    async def _load_alias_people(self, *, memory: Any, user_id: Optional[int]) -> list[dict]:
+        if memory is None or user_id is None:
+            return []
+        return await memory.run_sync(
+            lambda conn: [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT id, name, aliases FROM people WHERE owner_user_id = ? ORDER BY id ASC",
+                    (user_id,),
+                ).fetchall()
+            ]
+        )
 
     def _resolve_from_candidates(self, candidates: list[ReferentCandidate]) -> ReferentResolution:
         if not candidates:
@@ -747,6 +813,19 @@ class ReferentResolver:
         if declared != "unknown":
             return declared
         return "entity"
+
+    @staticmethod
+    def _fuzzy_anchor_bonus(anchor_text: str, candidate_name: str) -> float:
+        if not anchor_text:
+            return 0.0
+        normalized = normalize_query(candidate_name)
+        if not normalized:
+            return 0.0
+        if anchor_text == normalized:
+            return 1.2
+        if anchor_text in normalized or normalized in anchor_text:
+            return 0.9
+        return 0.0
 
     @staticmethod
     def _capability_query(ask: Ask) -> str:

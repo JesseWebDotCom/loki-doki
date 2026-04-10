@@ -3,7 +3,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from lokidoki.core import people_graph_sql as gql
 from lokidoki.core.decomposer import Ask
+from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
 from lokidoki.core.orchestrator_referent_resolution import (
     EnrichedAsk,
@@ -22,6 +24,14 @@ def resolver():
         registry=None,
         executor=None,
     )
+
+
+@pytest.fixture
+async def memory(tmp_path):
+    mp = MemoryProvider(db_path=str(tmp_path / "referent_resolution.db"))
+    await mp.initialize()
+    yield mp
+    await mp.close()
 
 
 @pytest.mark.anyio
@@ -536,6 +546,148 @@ async def test_short_media_followup_forces_resolution_and_repairs_capability_fro
     assert enriched.ask.capability_need == "current_media"
     assert enriched.ask.requires_current_data is True
     assert enriched.enriched_query == "showtimes for Avatar: Fire and Ash"
+
+
+@pytest.mark.anyio
+async def test_rapidfuzz_alias_matching_resolves_person_alias(resolver, memory):
+    uid = await memory.get_or_create_user("default")
+
+    def _seed(conn):
+        gql.create_person_graph(
+            conn,
+            uid,
+            name="Anthony Johnson",
+            bucket="friends",
+            aliases=["AJ", "Ant"],
+        )
+
+    await memory.run_sync(_seed)
+
+    ask = Ask(
+        ask_id="ask_alias",
+        intent="direct_chat",
+        distilled_query="check in with aj",
+        referent_type="person",
+        needs_referent_resolution=True,
+        referent_anchor="aj",
+    )
+
+    resolved = await resolver.resolve_asks(
+        user_input="check in with aj",
+        asks=[ask],
+        recent=[],
+        relevant_facts=[],
+        past_messages=[],
+        people=[],
+        relationships=[],
+        known_entities=[],
+        session_cache={},
+        user_id=uid,
+        memory=memory,
+    )
+
+    enriched = resolved[0]
+    assert enriched.resolution.status == "resolved"
+    assert enriched.resolution.chosen_candidate.canonical_name == "Anthony Johnson"
+
+
+@pytest.mark.anyio
+async def test_graph_walk_resolves_arties_wife(resolver, memory):
+    uid = await memory.get_or_create_user("default")
+
+    def _seed(conn):
+        artie = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        mira = gql.create_person_graph(conn, uid, name="Mira", bucket="family")
+        gql.create_person_edge(
+            conn,
+            uid,
+            from_person_id=artie,
+            to_person_id=mira,
+            edge_type="spouse",
+        )
+
+    await memory.run_sync(_seed)
+
+    ask = Ask(
+        ask_id="ask_graph_1",
+        intent="direct_chat",
+        distilled_query="how is artie's wife doing",
+        referent_type="person",
+        needs_referent_resolution=True,
+        referent_anchor="Artie's wife",
+    )
+
+    resolved = await resolver.resolve_asks(
+        user_input="how is artie's wife doing",
+        asks=[ask],
+        recent=[],
+        relevant_facts=[],
+        past_messages=[],
+        people=[],
+        relationships=[],
+        known_entities=[],
+        session_cache={},
+        user_id=uid,
+        memory=memory,
+    )
+
+    enriched = resolved[0]
+    assert enriched.resolution.status == "resolved"
+    assert enriched.resolution.chosen_candidate.canonical_name == "Mira"
+
+
+@pytest.mark.anyio
+async def test_graph_walk_resolves_my_brothers_daughter(resolver, memory):
+    uid = await memory.get_or_create_user("jesse")
+
+    def _seed(conn):
+        me = gql.create_person_graph(conn, uid, name="Jesse", bucket="family")
+        artie = gql.create_person_graph(conn, uid, name="Artie", bucket="family")
+        nora = gql.create_person_graph(conn, uid, name="Nora", bucket="family")
+        gql.link_user_to_person(conn, user_id=uid, person_id=me)
+        gql.create_person_edge(
+            conn,
+            uid,
+            from_person_id=me,
+            to_person_id=artie,
+            edge_type="brother",
+        )
+        gql.create_person_edge(
+            conn,
+            uid,
+            from_person_id=artie,
+            to_person_id=nora,
+            edge_type="daughter",
+        )
+
+    await memory.run_sync(_seed)
+
+    ask = Ask(
+        ask_id="ask_graph_2",
+        intent="direct_chat",
+        distilled_query="how old is my brother's daughter",
+        referent_type="person",
+        needs_referent_resolution=True,
+        referent_anchor="my brother's daughter",
+    )
+
+    resolved = await resolver.resolve_asks(
+        user_input="how old is my brother's daughter",
+        asks=[ask],
+        recent=[],
+        relevant_facts=[],
+        past_messages=[],
+        people=[],
+        relationships=[],
+        known_entities=[],
+        session_cache={},
+        user_id=uid,
+        memory=memory,
+    )
+
+    enriched = resolved[0]
+    assert enriched.resolution.status == "resolved"
+    assert enriched.resolution.chosen_candidate.canonical_name == "Nora"
 
 
 def test_enriched_ask_proxies_to_underlying_ask():

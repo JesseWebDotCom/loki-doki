@@ -15,6 +15,7 @@ import asyncio
 import inspect
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import AsyncGenerator, Optional, Union, List, Dict
@@ -220,6 +221,17 @@ class Orchestrator:
             planned_lane = ""
             if response_spec is not None:
                 planned_lane = response_spec.reply_mode
+            fact_ids_seen_this_turn = {
+                int(row["id"])
+                for rows in (selected_injected_memories.get("facts_by_bucket") or {}).values()
+                for row in (rows or [])
+                if row.get("id") is not None
+            }
+            if fact_ids_seen_this_turn:
+                cache = self._session_referent_cache.setdefault(session_id, {})
+                seen_ids = set(cache.get("session_seen_fact_ids") or set())
+                seen_ids.update(fact_ids_seen_this_turn)
+                cache["session_seen_fact_ids"] = seen_ids
             decomp_payload = {
                 "model": getattr(decomposition, "model", "") or "",
                 "latency_ms": float(getattr(decomposition, "latency_ms", 0.0) or 0.0),
@@ -804,6 +816,8 @@ class Orchestrator:
             candidates_by_bucket=candidates_by_bucket,
             repeated_fact_ids=repeated_injections["fact_ids"],
             repeated_message_ids=repeated_injections["message_ids"],
+            session_seen_fact_ids=set(session_cache.get("session_seen_fact_ids") or set()),
+            entity_boost_enabled=os.environ.get("LOKIDOKI_PHASE4_ENTITY_BOOST", "").strip() == "1",
         )
         wake_up_context = (
             build_wake_up_context(

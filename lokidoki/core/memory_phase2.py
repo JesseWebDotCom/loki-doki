@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from lokidoki.core.retrieval_scoring import (
+    are_near_duplicate_facts,
+    score_memory_candidate,
+)
+
 
 BUCKET_NAMES = (
     "working_context",
@@ -197,10 +202,13 @@ def select_memory_context(
     candidates_by_bucket: dict[str, list[dict]],
     repeated_fact_ids: set[int],
     repeated_message_ids: set[int],
+    session_seen_fact_ids: set[int] | None = None,
+    entity_boost_enabled: bool = False,
 ) -> dict[str, Any]:
     selected = {name: [] for name in BUCKET_NAMES}
     selected_messages: list[dict] = []
     seen_fact_keys: set[tuple[str, str, str, str]] = set()
+    session_seen_fact_ids = set(session_seen_fact_ids or set())
     repeated_fact_keys = {
         _normalized_fact_key(row)
         for rows in candidates_by_bucket.values()
@@ -210,7 +218,7 @@ def select_memory_context(
     }
 
     def _add_from_bucket(bucket: str, *, limit: int = 1) -> None:
-        for row in candidates_by_bucket.get(bucket, []):
+        for row in _ranked_rows(bucket):
             if len(selected[bucket]) >= limit:
                 break
             if not _allow_fact(
@@ -225,8 +233,32 @@ def select_memory_context(
             key = _normalized_fact_key(row)
             if key in seen_fact_keys:
                 continue
+            if any(are_near_duplicate_facts(row, prior) for rows in selected.values() for prior in rows):
+                continue
             seen_fact_keys.add(key)
             selected[bucket].append(row)
+
+    def _ranked_rows(bucket: str) -> list[dict]:
+        rows = list(candidates_by_bucket.get(bucket, []))
+        scored: list[tuple[float, int, dict]] = []
+        for idx, row in enumerate(rows):
+            scored.append(
+                (
+                    score_memory_candidate(
+                        row,
+                        bucket=bucket,
+                        user_input=user_input,
+                        asks=asks,
+                        retrieval_rank=idx,
+                        session_seen_fact_ids=session_seen_fact_ids,
+                        entity_boost_enabled=entity_boost_enabled,
+                    ),
+                    -idx,
+                    row,
+                )
+            )
+        scored.sort(reverse=True)
+        return [row for _, _, row in scored]
 
     if reply_mode == "grounded_direct" and memory_mode != "referent_only":
         return {"facts_by_bucket": selected, "past_messages": selected_messages}
@@ -240,7 +272,7 @@ def select_memory_context(
     if reply_mode == "social_ack":
         for bucket in ("working_context", "semantic_profile", "relational_graph"):
             selected[bucket] = _select_one(
-                candidates_by_bucket.get(bucket, []),
+                _ranked_rows(bucket),
                 bucket=bucket,
                 user_input=user_input,
                 asks=asks,

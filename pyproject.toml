@@ -21,6 +21,7 @@ dependencies = [
     "uvicorn>=0.44.0",
     "spacy>=3.8,<3.9",
     "en-core-web-sm",
+    "rapidfuzz>=3.14.1",
 ]
 
 # Pin the spaCy English model to a wheel so `uv sync` installs it
