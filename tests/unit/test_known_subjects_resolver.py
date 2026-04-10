@@ -105,3 +105,18 @@ def test_large_people_corpus_stays_bounded():
     assert len(resolved) == 1
     assert known_subjects["people"] == ["Arthur Torres (brother)"]
     assert len(known_subjects["people"]) <= 10
+
+
+def test_build_known_subjects_includes_compact_hints():
+    known_subjects, _ = build_known_subjects(
+        user_input="my sister Sandi would find this funny",
+        user_display_name="Jesse",
+        people_rows=[_person(1, "Sandi")],
+        relationships=[_relationship(1, "sister", "Sandi")],
+        relevant_facts=[],
+    )
+
+    hints = known_subjects["hints"]
+    assert isinstance(hints, str)
+    assert "Sandi:sister" in hints
+    assert len(hints) < 200

@@ -335,6 +335,10 @@ def build_known_subjects(
         relationship_aliases=relationship_aliases,
         max_people=max_people,
     )
+    explicit_relations = extract_explicit_person_relations(
+        user_input,
+        relationship_aliases=relationship_aliases,
+    )
     known_people: list[str] = []
     for item in resolved_people:
         if not item.name:
@@ -343,6 +347,33 @@ def build_known_subjects(
             known_people.append(f"{item.name} ({item.relation})")
         else:
             known_people.append(item.name)
+    hint_parts: list[str] = []
+    if resolved_people:
+        people_hints = [
+            ":".join(
+                filter(
+                    None,
+                    [
+                        item.anchor,
+                        item.name,
+                        item.relation,
+                        item.method,
+                    ],
+                )
+            )
+            for item in resolved_people[:4]
+            if item.anchor and item.name
+        ]
+        if people_hints:
+            hint_parts.append(f"people=[{';'.join(people_hints)}]")
+    if explicit_relations:
+        relation_hints = [
+            f"{name}:{relation}"
+            for name, relation in explicit_relations[:4]
+            if name and relation
+        ]
+        if relation_hints:
+            hint_parts.append(f"relations=[{';'.join(relation_hints)}]")
     known_subjects = {
         "self": user_display_name or "the user",
         "people": known_people,
@@ -352,5 +383,6 @@ def build_known_subjects(
             if (f.get("subject_type") or "") == "entity"
             and (f.get("subject") or "").strip()
         ][:6],
+        "hints": "|".join(hint_parts),
     }
     return known_subjects, resolved_people

@@ -337,11 +337,14 @@ class Decomposer:
             self_name = (known_subjects.get("self") or "the user").strip() or "the user"
             people = known_subjects.get("people") or []
             entities = known_subjects.get("entities") or []
+            hints = (known_subjects.get("hints") or "").strip()
             people_str = ",".join(p for p in people if p) if people else ""
             entity_str = ",".join(e for e in entities if e) if entities else ""
             parts.append(
                 f"KNOWN_SUBJECTS:self={self_name}|people=[{people_str}]|entities=[{entity_str}]"
             )
+            if hints:
+                parts.append(f"PRE_RESOLUTION_HINTS:{hints}")
 
         if chat_context:
             # Compress assistant turns aggressively. A prior verbatim
@@ -475,6 +478,61 @@ class Decomposer:
             return [referent_type]
         return []
 
+    @staticmethod
+    def _upgrade_obvious_lookup_ask(ask: Ask) -> Ask:
+        """Tighten missed definitional lookups based on decomposer output.
+
+        This operates on the model's own distilled ask text and only when
+        the structured routing fields are still the neutral direct_chat
+        defaults. Personal forms like "who is my sister" are left alone.
+        """
+        query = (ask.distilled_query or "").strip()
+        normalized = " ".join(query.lower().split())
+        if (
+            ask.intent != "direct_chat"
+            or ask.response_shape != "synthesized"
+            or ask.knowledge_source != "none"
+            or ask.capability_need != "none"
+            or ask.needs_referent_resolution
+        ):
+            return ask
+        if normalized.startswith(("who is my ", "who was my ", "what is my ")):
+            return ask
+        if normalized.startswith("who is "):
+            subject = query[7:].strip(" ?.")
+            if subject:
+                ask.response_shape = "verbatim"
+                ask.knowledge_source = "encyclopedic"
+                ask.capability_need = "encyclopedic"
+                ask.context_source = "external"
+                ask.referent_type = "person"
+                ask.referent_scope = ["person"]
+                ask.referent_anchor = subject
+            return ask
+        if normalized.startswith("who was "):
+            subject = query[8:].strip(" ?.")
+            if subject:
+                ask.response_shape = "verbatim"
+                ask.knowledge_source = "encyclopedic"
+                ask.capability_need = "encyclopedic"
+                ask.context_source = "external"
+                ask.referent_type = "person"
+                ask.referent_scope = ["person"]
+                ask.referent_anchor = subject
+            return ask
+        if normalized.startswith("what is "):
+            subject = query[8:].strip(" ?.")
+            if subject:
+                ask.response_shape = "verbatim"
+                ask.knowledge_source = "encyclopedic"
+                ask.capability_need = "encyclopedic"
+                ask.context_source = "external"
+                if ask.referent_type == "unknown":
+                    ask.referent_type = "entity"
+                    ask.referent_scope = ["entity"]
+                ask.referent_anchor = subject
+        return ask
+
     def _build_ask(self, a: dict, i: int, original_input: str) -> Ask:
         """Build an Ask from raw LLM dict, deriving removed schema fields."""
         capability_need = (
@@ -489,7 +547,7 @@ class Decomposer:
             else "unknown"
         )
 
-        return Ask(
+        ask = Ask(
             ask_id=a.get("ask_id", f"ask_{i:03d}"),
             intent=a.get("intent", "direct_chat"),
             distilled_query=a.get("distilled_query", original_input),
@@ -518,10 +576,14 @@ class Decomposer:
             referent_scope=self._derive_referent_scope(referent_type),
             referent_anchor=str(a.get("referent_anchor") or ""),
         )
+        return self._upgrade_obvious_lookup_ask(ask)
 
     def _fallback_result(self, original_input: str, latency_ms: float) -> DecompositionResult:
+        fallback_ask = self._upgrade_obvious_lookup_ask(
+            Ask(ask_id="ask_000", intent="direct_chat", distilled_query=original_input)
+        )
         return DecompositionResult(
-            asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=original_input)],
+            asks=[fallback_ask],
             model=self._model,
             latency_ms=latency_ms,
             used_fallback_ask=True,

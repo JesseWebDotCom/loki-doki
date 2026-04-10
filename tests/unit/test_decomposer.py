@@ -108,6 +108,13 @@ def decomposer():
 
 
 class TestDecomposer:
+    def test_prompt_includes_definitional_lookup_guardrail(self):
+        from lokidoki.core.prompts import DECOMPOSITION_PROMPT
+
+        assert "DEFINITIONAL LOOKUPS:" in DECOMPOSITION_PROMPT
+        assert "\"who is Arthur Miller\"" in DECOMPOSITION_PROMPT
+        assert "who is my sister" in DECOMPOSITION_PROMPT
+
     @pytest.mark.anyio
     async def test_known_subjects_renders_into_prompt(self, decomposer):
         """The closed-world subject registry must reach the LLM prompt
@@ -129,6 +136,28 @@ class TestDecomposer:
         assert "Tom" in prompt
         assert "Camilla" in prompt
         assert "Avatar: Fire and Ash" in prompt
+
+    @pytest.mark.anyio
+    async def test_known_subject_hints_render_into_prompt(self, decomposer):
+        captured = {}
+
+        async def fake_generate(**kwargs):
+            captured.update(kwargs)
+            return VALID_LLM_RESPONSE
+
+        decomposer._client.generate = AsyncMock(side_effect=fake_generate)
+        await decomposer.decompose(
+            "my sister Sandi would find this funny",
+            known_subjects={
+                "self": "Jesse",
+                "people": ["Sandi (sister)"],
+                "entities": [],
+                "hints": "people=[Sandi:Sandi:sister:exact_name]|relations=[Sandi:sister]",
+            },
+        )
+        prompt = captured["prompt"]
+        assert "PRE_RESOLUTION_HINTS:" in prompt
+        assert "relations=[Sandi:sister]" in prompt
 
     @pytest.mark.anyio
     async def test_known_subjects_omitted_when_not_provided(self, decomposer):
@@ -475,6 +504,64 @@ class TestDecomposer:
         assert ask.referent_type == "person"
         assert ask.context_source == "long_term_memory"
         assert ask.parameters.get("relation") == "sister"
+
+    def test_build_ask_upgrades_obvious_definitional_lookup(self, decomposer):
+        ask = decomposer._build_ask({
+            "ask_id": "1",
+            "intent": "direct_chat",
+            "distilled_query": "who is Arthur Miller",
+            "response_shape": "synthesized",
+            "requires_current_data": False,
+            "knowledge_source": "none",
+            "referent_type": "unknown",
+            "durability": "durable",
+            "needs_referent_resolution": False,
+            "capability_need": "none",
+            "referent_anchor": "",
+        }, 0, "who is Arthur Miller")
+
+        assert ask.response_shape == "verbatim"
+        assert ask.knowledge_source == "encyclopedic"
+        assert ask.capability_need == "encyclopedic"
+        assert ask.referent_anchor == "Arthur Miller"
+        assert ask.referent_type == "person"
+
+    def test_build_ask_does_not_upgrade_personal_lookup(self, decomposer):
+        ask = decomposer._build_ask({
+            "ask_id": "1",
+            "intent": "direct_chat",
+            "distilled_query": "who is my sister",
+            "response_shape": "synthesized",
+            "requires_current_data": False,
+            "knowledge_source": "none",
+            "referent_type": "person",
+            "durability": "durable",
+            "needs_referent_resolution": True,
+            "capability_need": "people_lookup",
+            "referent_anchor": "my sister",
+        }, 0, "who is my sister")
+
+        assert ask.response_shape == "synthesized"
+        assert ask.knowledge_source == "none"
+        assert ask.capability_need == "people_lookup"
+
+    def test_fallback_result_upgrades_obvious_definitional_lookup(self, decomposer):
+        result = decomposer._fallback_result("who is Arthur Miller", 10.0)
+
+        ask = result.asks[0]
+        assert ask.ask_id == "ask_000"
+        assert ask.response_shape == "verbatim"
+        assert ask.knowledge_source == "encyclopedic"
+        assert ask.capability_need == "encyclopedic"
+        assert ask.referent_anchor == "Arthur Miller"
+
+    def test_fallback_result_does_not_upgrade_personal_lookup(self, decomposer):
+        result = decomposer._fallback_result("who is my sister", 10.0)
+
+        ask = result.asks[0]
+        assert ask.ask_id == "ask_000"
+        assert ask.response_shape == "synthesized"
+        assert ask.knowledge_source == "none"
 
 
 class TestAskDataclass:
