@@ -164,6 +164,60 @@ def are_near_duplicate_facts(left: dict, right: dict) -> bool:
     return fuzz.token_set_ratio(a, b) >= 94 or fuzz.ratio(a, b) >= 92
 
 
+def fuzzy_expand_query(
+    query: str,
+    known_names: list[str],
+    *,
+    score_cutoff: int = 82,
+) -> str:
+    """Expand *query* by repairing noisy entity/person names.
+
+    Tokenises the query, fuzzy-matches each token (and bigram) against
+    *known_names* (person names, entity subjects, etc.), and returns a
+    query string with corrected names appended so downstream BM25 can
+    match facts that the original misspelled query would miss.
+
+    Only names that are a genuine fuzzy-near-miss are appended — exact
+    matches and very low scores are both skipped.
+    """
+    if not query or not known_names:
+        return query
+    normalised = normalize_text(query)
+    tokens = normalised.split()
+    if not tokens:
+        return query
+
+    # Build candidate spans: unigrams + bigrams.
+    spans: list[str] = list(tokens)
+    for i in range(len(tokens) - 1):
+        spans.append(f"{tokens[i]} {tokens[i + 1]}")
+
+    repairs: list[str] = []
+    normalised_names = [normalize_text(n) for n in known_names if normalize_text(n)]
+    if not normalised_names:
+        return query
+    seen: set[str] = set()
+    for span in spans:
+        if span in seen or len(span) < 2:
+            continue
+        seen.add(span)
+        best_score = 0.0
+        best_name = ""
+        for name in normalised_names:
+            # Skip exact substring matches — no repair needed.
+            if span == name or span in name or name in span:
+                continue
+            ratio = float(fuzz.ratio(span, name))
+            if ratio >= score_cutoff and ratio > best_score:
+                best_score = ratio
+                best_name = name
+        if best_name and best_name not in normalised:
+            repairs.append(best_name)
+    if not repairs:
+        return query
+    return f"{query} {' '.join(repairs)}"
+
+
 def normalize_text(value: Any) -> str:
     return " ".join(str(value or "").strip().lower().split())
 

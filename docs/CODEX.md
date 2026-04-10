@@ -44,7 +44,8 @@ Current overall status:
 - Phase 1 is `completed`
 - Phase 2 is `completed`
 - Phase 3 is `completed`
-- Phases 4-8 are `pending`
+- Phase 4 is `completed`
+- Phases 5-8 are `pending`
 
 ## Phase 0: Baseline, Instrumentation, Eval Harness, And Shadow Mode
 Status:
@@ -268,7 +269,7 @@ Make responses feel warm and varied without relying on prompt luck alone.
 
 ## Phase 4: Retrieval Quality Improvements And Novelty Penalty
 Status:
-- `pending`
+- `completed`
 
 ### Goal
 Improve which memories get selected before they reach the model.

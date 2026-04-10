@@ -39,6 +39,7 @@ from lokidoki.core.memory_phase2 import (
     select_memory_context,
 )
 from lokidoki.core.prompt_budget import enforce_prompt_budget, estimate_prompt_tokens
+from lokidoki.core.retrieval_scoring import fuzzy_expand_query
 from lokidoki.core.orchestrator_referent_resolution import ReferentResolver
 from lokidoki.core.orchestrator_skills import (
     build_acknowledgment_prompt,
@@ -303,6 +304,27 @@ class Orchestrator:
             if int(m["id"]) not in recent_ids
             and int(m.get("session_id") or 0) != session_id
         ][:4]
+        # Noisy entity/name repair: if the initial search returned few
+        # facts, try a fuzzy-expanded query that repairs misspelled
+        # person/entity names (e.g. "Artee" → "Artie") so BM25 can
+        # match them. Only fires when the initial search is sparse and
+        # there are known people to match against.
+        if len(relevant_facts) < 3 and people_rows:
+            known_names = [
+                (p.get("name") or "").strip()
+                for p in people_rows
+                if (p.get("name") or "").strip()
+            ]
+            expanded = fuzzy_expand_query(user_input, known_names)
+            if expanded != user_input:
+                extra_facts = await self._memory.search_facts(
+                    user_id=user_id, query=expanded, top_k=5, project_id=project_id,
+                )
+                existing_ids = {int(f["id"]) for f in relevant_facts if f.get("id") is not None}
+                for fact in extra_facts:
+                    if fact.get("id") is not None and int(fact["id"]) not in existing_ids:
+                        relevant_facts.append(fact)
+                        existing_ids.add(int(fact["id"]))
         # Recent emotional arc — used to nudge tone in the synthesis prompt.
         from lokidoki.core.humanize import aggregate_sentiment_arc
         sentiment_arc = aggregate_sentiment_arc(sentiment_recent)
