@@ -16,6 +16,7 @@ class TestDateTimeSkill:
         assert "time" in result.data
         assert "timezone" in result.data
         assert "day_of_week" in result.data
+        assert "lead" in result.data
 
     @pytest.mark.anyio
     async def test_system_clock_with_timezone(self):

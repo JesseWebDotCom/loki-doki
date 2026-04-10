@@ -10,11 +10,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from lokidoki.core import skill_factory
 from lokidoki.core.decomposer import Ask, DecompositionResult
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.micro_fast_lane import reset_template_cache
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
 from lokidoki.core.orchestrator import Orchestrator
+from lokidoki.core.registry import SkillRegistry
+from lokidoki.core.skill_executor import BaseSkill, MechanismResult
 
 
 def _stream(text: str):
@@ -38,11 +41,19 @@ def _reset_fast_lane_cache():
     reset_template_cache()
 
 
-def _make_orchestrator(memory, mock_decomposer, mock_inference):
+@pytest.fixture(autouse=True)
+def _reset_skill_instances():
+    skill_factory.reset_instances()
+    yield
+    skill_factory.reset_instances()
+
+
+def _make_orchestrator(memory, mock_decomposer, mock_inference, registry=None):
     return Orchestrator(
         decomposer=mock_decomposer,
         inference_client=mock_inference,
         memory=memory,
+        registry=registry,
         model_manager=ModelManager(
             inference_client=mock_inference,
             policy=ModelPolicy(platform="mac"),
@@ -164,6 +175,79 @@ async def test_thank_you_bypasses_decomposer(memory):
         pass
 
     mock_decomposer.decompose.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_who_is_lookup_bypasses_decomposer_and_routes_to_wiki(memory):
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+
+    class _WikiStub(BaseSkill):
+        async def execute_mechanism(self, method: str, parameters: dict) -> MechanismResult:
+            return MechanismResult(
+                success=True,
+                data={"lead": "Arthur Miller was an American playwright."},
+            )
+
+    registry = SkillRegistry()
+    registry.scan()
+    skill_factory._skill_instances["knowledge_wiki"] = _WikiStub()
+
+    mock_decomposer = AsyncMock()
+    mock_decomposer.decompose = AsyncMock()
+    mock_inference = AsyncMock()
+
+    orch = _make_orchestrator(memory, mock_decomposer, mock_inference, registry=registry)
+    events = []
+    async for event in orch.process("who is Arthur Miller", user_id=uid, session_id=sid):
+        events.append(event)
+
+    mock_decomposer.decompose.assert_not_called()
+    mock_inference.generate_stream.assert_not_called()
+
+    done = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+    assert done.data["response"] == "Arthur Miller was an American playwright.\n\n[src:1]"
+    assert done.data.get("fast_path") is True
+
+    traces = await memory.list_chat_traces(uid, session_id=sid, limit=1)
+    assert traces[0]["response_lane_actual"] == "grounded_direct"
+
+
+@pytest.mark.anyio
+async def test_time_query_bypasses_decomposer_and_routes_to_datetime(memory):
+    uid = await memory.get_or_create_user("default")
+    sid = await memory.create_session(uid)
+
+    class _DateTimeStub(BaseSkill):
+        async def execute_mechanism(self, method: str, parameters: dict) -> MechanismResult:
+            return MechanismResult(
+                success=True,
+                data={"lead": "It is 11:16:44 AM local time."},
+            )
+
+    registry = SkillRegistry()
+    registry.scan()
+    skill_factory._skill_instances["datetime_local"] = _DateTimeStub()
+
+    mock_decomposer = AsyncMock()
+    mock_decomposer.decompose = AsyncMock()
+    mock_inference = AsyncMock()
+
+    orch = _make_orchestrator(memory, mock_decomposer, mock_inference, registry=registry)
+    events = []
+    async for event in orch.process("what time is it", user_id=uid, session_id=sid):
+        events.append(event)
+
+    mock_decomposer.decompose.assert_not_called()
+    mock_inference.generate_stream.assert_not_called()
+
+    done = next(e for e in events if e.phase == "synthesis" and e.status == "done")
+    assert done.data["response"] == "It is 11:16:44 AM local time.\n\n[src:1]"
+    assert done.data.get("fast_path") is True
+
+    traces = await memory.list_chat_traces(uid, session_id=sid, limit=1)
+    asks = traces[0]["decomposition_json"]["asks"]
+    assert asks[0]["intent"] == "datetime_local.get_datetime"
 
 
 # ---- non-trivial turns do NOT bypass ---------------------------------------

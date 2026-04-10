@@ -2,6 +2,7 @@
   "skill_id": "datetime_local",
   "name": "Local Date & Time",
   "is_searchable": false,
+  "categories": ["datetime"],
   "intents": ["get_datetime", "get_timezone"],
   "description": "Reads the system clock to answer date and time questions. No network required.",
   "examples": [

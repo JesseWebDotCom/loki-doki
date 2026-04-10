@@ -230,6 +230,7 @@ class Orchestrator:
         verifier_result = VerifierResult()
         retrieved_memory_candidates: dict = {}
         selected_injected_memories: dict = {}
+        fast_lane_decomposition: Optional[DecompositionResult] = None
 
         async def _finalize_trace(actual_lane: str, decomposition, resolved_asks) -> None:
             planned_lane = ""
@@ -450,27 +451,6 @@ class Orchestrator:
         fast_lane_result: FastLaneResult = await check_fast_lane(user_input)
         phase_latencies["micro_fast_lane"] = fast_lane_result.latency_ms
         if fast_lane_result.hit:
-            # Build a minimal synthetic decomposition for trace logging.
-            synthetic_decomp = DecompositionResult(
-                asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
-                model="micro_fast_lane",
-            )
-            response_spec = plan_response_spec(
-                user_input=user_input,
-                decomposition=synthetic_decomp,
-                write_reports=[],
-                resolved_asks=[],
-            )
-            # Force social_ack regardless of what plan_response_spec chose.
-            from lokidoki.core.response_spec import ResponseSpec as _RS
-            response_spec = _RS(
-                reply_mode="social_ack",
-                memory_mode="sparse",
-                grounding_mode="optional",
-                followup_policy="none",
-                style_mode="warm",
-                citation_policy="optional",
-            )
             yield PipelineEvent(
                 phase="micro_fast_lane",
                 status="done",
@@ -482,61 +462,91 @@ class Orchestrator:
                     "latency_ms": round(fast_lane_result.latency_ms, 2),
                 },
             )
-            # Lightweight social_ack synthesis — use the acknowledgment
-            # prompt path with a warm greeting/gratitude response.
-            yield PipelineEvent(phase="synthesis", status="active", data={"fast_path": True, "micro_fast_lane": True})
-            phase_starts["synthesis"] = time.perf_counter()
+            if fast_lane_result.synthetic_ask is not None:
+                fast_lane_decomposition = DecompositionResult(
+                    asks=[fast_lane_result.synthetic_ask],
+                    short_term_memory={"sentiment": "neutral", "concern": "none"},
+                    long_term_memory=[],
+                    model="micro_fast_lane",
+                    latency_ms=fast_lane_result.latency_ms,
+                )
+            else:
+                # Build a minimal synthetic decomposition for trace logging.
+                synthetic_decomp = DecompositionResult(
+                    asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
+                    model="micro_fast_lane",
+                )
+                response_spec = plan_response_spec(
+                    user_input=user_input,
+                    decomposition=synthetic_decomp,
+                    write_reports=[],
+                    resolved_asks=[],
+                )
+                # Force social_ack regardless of what plan_response_spec chose.
+                from lokidoki.core.response_spec import ResponseSpec as _RS
+                response_spec = _RS(
+                    reply_mode="social_ack",
+                    memory_mode="sparse",
+                    grounding_mode="optional",
+                    followup_policy="none",
+                    style_mode="warm",
+                    citation_policy="optional",
+                )
+                # Lightweight social_ack synthesis — use the acknowledgment
+                # prompt path with a warm greeting/gratitude response.
+                yield PipelineEvent(phase="synthesis", status="active", data={"fast_path": True, "micro_fast_lane": True})
+                phase_starts["synthesis"] = time.perf_counter()
 
-            prompt = build_acknowledgment_prompt(
-                query=user_input,
-                clarify_hint="",
-                humanization_block="",
-            )
-            synthesis_model, keep_alive = self._model_manager.get_model("fast")
-            response = ""
-            try:
-                async for token in self._inference.generate_stream(
-                    model=synthesis_model,
-                    prompt=prompt,
-                    keep_alive=keep_alive,
-                    num_predict=ACKNOWLEDGMENT_NUM_PREDICT,
-                    temperature=0.7,
-                    think=False,
-                ):
-                    response += token
-                    yield PipelineEvent(phase="synthesis", status="streaming", data={"delta": token})
-            except OllamaError as e:
-                if not response:
-                    response = f"Hey! {e}" if fast_lane_result.category == "greeting" else f"You're welcome! {e}"
-            synthesis_ms = (time.perf_counter() - phase_starts["synthesis"]) * 1000
-            phase_latencies["synthesis"] = synthesis_ms
+                prompt = build_acknowledgment_prompt(
+                    query=user_input,
+                    clarify_hint="",
+                    humanization_block="",
+                )
+                synthesis_model, keep_alive = self._model_manager.get_model("fast")
+                response = ""
+                try:
+                    async for token in self._inference.generate_stream(
+                        model=synthesis_model,
+                        prompt=prompt,
+                        keep_alive=keep_alive,
+                        num_predict=ACKNOWLEDGMENT_NUM_PREDICT,
+                        temperature=0.7,
+                        think=False,
+                    ):
+                        response += token
+                        yield PipelineEvent(phase="synthesis", status="streaming", data={"delta": token})
+                except OllamaError as e:
+                    if not response:
+                        response = f"Hey! {e}" if fast_lane_result.category == "greeting" else f"You're welcome! {e}"
+                synthesis_ms = (time.perf_counter() - phase_starts["synthesis"]) * 1000
+                phase_latencies["synthesis"] = synthesis_ms
 
-            if not response.strip():
-                response = "Hey!" if fast_lane_result.category == "greeting" else "You're welcome!"
+                if not response.strip():
+                    response = "Hey!" if fast_lane_result.category == "greeting" else "You're welcome!"
 
-            _asst_msg_id = await self._memory.add_message(
-                user_id=user_id, session_id=session_id, role="assistant", content=response,
-            )
-            if is_first_turn:
-                await self._auto_name_session(user_id, session_id, user_input)
-            yield PipelineEvent(
-                phase="synthesis",
-                status="done",
-                data={
-                    "response": response,
-                    "model": synthesis_model,
-                    "latency_ms": synthesis_ms,
-                    "tone": "warm",
-                    "sources": [],
-                    "platform": self._model_manager.policy.platform,
-                    "fast_path": True,
-                    "micro_fast_lane": True,
-                    "micro_fast_lane_category": fast_lane_result.category,
-                    "assistant_message_id": _asst_msg_id,
-                },
-            )
-            await _finalize_trace("social_ack", synthetic_decomp, [])
-            return
+                _asst_msg_id = await self._memory.add_message(
+                    user_id=user_id, session_id=session_id, role="assistant", content=response,
+                )
+                if is_first_turn:
+                    await self._auto_name_session(user_id, session_id, user_input)
+                yield PipelineEvent(
+                    phase="synthesis",
+                    status="done",
+                    data={
+                        "response": response,
+                        "model": synthesis_model,
+                        "latency_ms": synthesis_ms,
+                        "tone": "warm",
+                        "sources": [],
+                        "platform": self._model_manager.policy.platform,
+                        "fast_path": True,
+                        "micro_fast_lane": True,
+                        "micro_fast_lane_category": fast_lane_result.category,
+                        "assistant_message_id": _asst_msg_id,
+                    },
+                )
+                await _finalize_trace("social_ack", synthetic_decomp, [])
+                return
 
         # Log near-misses for review (already logged inside classifier,
         # but also surface in the pipeline event stream).
@@ -555,85 +565,94 @@ class Orchestrator:
             )
 
         # ---- decomposition ----------------------------------------------
-        phase_starts["decomposition"] = time.perf_counter()
-        yield PipelineEvent(phase="decomposition", status="active", data={"model": fast_model})
+        if fast_lane_decomposition is None:
+            phase_starts["decomposition"] = time.perf_counter()
+            yield PipelineEvent(phase="decomposition", status="active", data={"model": fast_model})
 
-        # Build the closed-world subject registry for this turn. The
-        # decomposer uses it to bind pronouns to a known referent
-        # instead of defaulting to 'self' (which silently corrupts the
-        # user's profile when the user is asking about a third party —
-        # see the Trump bug). Best-effort: if list_people fails for any
-        # reason, fall back to a self-only registry rather than
-        # blocking the turn.
-        try:
-            known_subjects, resolved_known_people = build_known_subjects(
-                user_input=user_input,
-                user_display_name=user_display_name or "the user",
-                people_rows=people_rows,
-                relationships=relationships,
-                relevant_facts=relevant_facts,
-            )
-            if resolved_known_people:
-                logger.info(
-                    "[orchestrator] sparse known subjects: %s",
-                    [
-                        {
-                            "person_id": item.person_id,
-                            "name": item.name,
-                            "relation": item.relation,
-                            "method": item.method,
-                            "confidence": item.confidence,
-                        }
-                        for item in resolved_known_people
-                    ],
+            # Build the closed-world subject registry for this turn. The
+            # decomposer uses it to bind pronouns to a known referent
+            # instead of defaulting to 'self' (which silently corrupts the
+            # user's profile when the user is asking about a third party —
+            # see the Trump bug). Best-effort: if list_people fails for any
+            # reason, fall back to a self-only registry rather than
+            # blocking the turn.
+            try:
+                known_subjects, resolved_known_people = build_known_subjects(
+                    user_input=user_input,
+                    user_display_name=user_display_name or "the user",
+                    people_rows=people_rows,
+                    relationships=relationships,
+                    relevant_facts=relevant_facts,
                 )
-        except Exception:
-            logger.exception("[orchestrator] known-subject pre-resolution failed; using empty registry")
+                if resolved_known_people:
+                    logger.info(
+                        "[orchestrator] sparse known subjects: %s",
+                        [
+                            {
+                                "person_id": item.person_id,
+                                "name": item.name,
+                                "relation": item.relation,
+                                "method": item.method,
+                                "confidence": item.confidence,
+                            }
+                            for item in resolved_known_people
+                        ],
+                    )
+            except Exception:
+                logger.exception("[orchestrator] known-subject pre-resolution failed; using empty registry")
+                known_subjects = {
+                    "self": user_display_name or "the user",
+                    "people": [],
+                    "entities": [
+                        (f.get("subject") or "").strip()
+                        for f in relevant_facts
+                        if (f.get("subject_type") or "") == "entity"
+                        and (f.get("subject") or "").strip()
+                    ][:6],
+                }
+
+            try:
+                decomp_prompt = ""
+                build_prompt = getattr(self._decomposer, "_build_prompt", None)
+                if callable(build_prompt) and not inspect.iscoroutinefunction(build_prompt):
+                    candidate = build_prompt(
+                        user_input,
+                        [{"role": m["role"], "content": m["content"]} for m in recent],
+                        available_intents,
+                        known_subjects,
+                    )
+                    if isinstance(candidate, str):
+                        decomp_prompt = candidate
+                prompt_sizes["decomposition"] = {
+                    "chars": len(decomp_prompt),
+                    "estimated_tokens": estimate_prompt_tokens(decomp_prompt),
+                    "num_ctx": (
+                        getattr(self._decomposer, "_num_ctx", 0)
+                        if isinstance(getattr(self._decomposer, "_num_ctx", 0), int)
+                        else 0
+                    ),
+                }
+                decomposition = await self._decomposer.decompose(
+                    user_input=user_input,
+                    chat_context=[{"role": m["role"], "content": m["content"]} for m in recent],
+                    available_intents=available_intents,
+                    known_subjects=known_subjects,
+                )
+            except OllamaError as e:
+                yield PipelineEvent(phase="decomposition", status="failed", data={"error": str(e)})
+                decomposition = DecompositionResult(
+                    asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
+                    model=fast_model,
+                )
+            phase_latencies["decomposition"] = (time.perf_counter() - phase_starts["decomposition"]) * 1000
+        else:
             known_subjects = {
                 "self": user_display_name or "the user",
                 "people": [],
-                "entities": [
-                    (f.get("subject") or "").strip()
-                    for f in relevant_facts
-                    if (f.get("subject_type") or "") == "entity"
-                    and (f.get("subject") or "").strip()
-                ][:6],
+                "entities": [],
             }
-
-        try:
-            decomp_prompt = ""
-            build_prompt = getattr(self._decomposer, "_build_prompt", None)
-            if callable(build_prompt) and not inspect.iscoroutinefunction(build_prompt):
-                candidate = build_prompt(
-                    user_input,
-                    [{"role": m["role"], "content": m["content"]} for m in recent],
-                    available_intents,
-                    known_subjects,
-                )
-                if isinstance(candidate, str):
-                    decomp_prompt = candidate
-            prompt_sizes["decomposition"] = {
-                "chars": len(decomp_prompt),
-                "estimated_tokens": estimate_prompt_tokens(decomp_prompt),
-                "num_ctx": (
-                    getattr(self._decomposer, "_num_ctx", 0)
-                    if isinstance(getattr(self._decomposer, "_num_ctx", 0), int)
-                    else 0
-                ),
-            }
-            decomposition = await self._decomposer.decompose(
-                user_input=user_input,
-                chat_context=[{"role": m["role"], "content": m["content"]} for m in recent],
-                available_intents=available_intents,
-                known_subjects=known_subjects,
-            )
-        except OllamaError as e:
-            yield PipelineEvent(phase="decomposition", status="failed", data={"error": str(e)})
-            decomposition = DecompositionResult(
-                asks=[Ask(ask_id="ask_000", intent="direct_chat", distilled_query=user_input)],
-                model=fast_model,
-            )
-        phase_latencies["decomposition"] = (time.perf_counter() - phase_starts["decomposition"]) * 1000
+            decomposition = fast_lane_decomposition
+            phase_latencies["decomposition"] = 0.0
 
         # Append the decomposer's per-turn sentiment reading to the
         # time-series log. The synthesis prompt's "arc" block reads
@@ -827,6 +846,7 @@ class Orchestrator:
         ENC = "encyclopedia"
         CURRENT_MEDIA = "current_media"
         PEOPLE = "people_lookup"
+        DATETIME = "datetime"
 
         async def _resolve(category: str) -> Optional[str]:
             return await pick_active_skill_intent(
@@ -847,6 +867,8 @@ class Orchestrator:
                 )
             elif getattr(a, "capability_need", "none") == "people_lookup":
                 target = await _resolve(PEOPLE)
+            elif getattr(a, "capability_need", "none") == "datetime":
+                target = await _resolve(DATETIME)
             elif a.knowledge_source == "web":
                 target = await _resolve(WEB) or await _resolve(ENC)
             elif a.knowledge_source == "encyclopedic":

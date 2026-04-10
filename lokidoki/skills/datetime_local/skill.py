@@ -21,6 +21,8 @@ class DateTimeSkill(BaseSkill):
             zone = None  # fall back to local
 
         now = datetime.now(zone)
+        day_of_week = now.strftime("%A")
+        pretty_time = now.strftime("%I:%M:%S %p").lstrip("0")
         return MechanismResult(
             success=True,
             data={
@@ -28,6 +30,7 @@ class DateTimeSkill(BaseSkill):
                 "date": now.strftime("%Y-%m-%d"),
                 "time": now.strftime("%H:%M:%S"),
                 "timezone": str(now.tzinfo) if now.tzinfo else "local",
-                "day_of_week": now.strftime("%A"),
+                "day_of_week": day_of_week,
+                "lead": f"It is {pretty_time} on {day_of_week}.",
             },
         )

@@ -15,10 +15,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass
 from typing import List, Optional
 
+from lokidoki.core.decomposer import Ask
 from lokidoki.core.embedder import Embedder, get_embedder
 
 logger = logging.getLogger(__name__)
@@ -97,11 +99,12 @@ _EMOTIONAL_DISQUALIFIERS = (
 class FastLaneResult:
     """Result of the micro fast-lane check."""
     hit: bool
-    category: str  # "greeting" | "gratitude" | ""
+    category: str  # "greeting" | "gratitude" | "encyclopedic_lookup" | "datetime" | ""
     best_similarity: float
     best_template: str
     latency_ms: float
     near_miss: bool  # True if > 0.80 but < 0.90
+    synthetic_ask: Optional[Ask] = None
 
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -120,6 +123,128 @@ def _has_emotional_content(text: str) -> bool:
 
 def _normalize_fast_lane_text(text: str) -> str:
     return " ".join((text or "").strip().lower().split())
+
+
+def _normalize_classifier_text(text: str) -> str:
+    normalized = _normalize_fast_lane_text(text)
+    return re.sub(r"[?!.,]+$", "", normalized)
+
+
+_DATETIME_QUERIES = {
+    "what time is it",
+    "whats the time",
+    "what's the time",
+    "tell me the time",
+    "what date is it",
+    "what day is it",
+    "what day is it today",
+    "what is today's date",
+    "whats today's date",
+    "what's today's date",
+}
+
+
+def _synthetic_lookup_ask(query: str) -> Ask:
+    return Ask(
+        ask_id="ask_000",
+        intent="direct_chat",
+        distilled_query=query,
+        response_shape="verbatim",
+        knowledge_source="encyclopedic",
+        capability_need="encyclopedic",
+    )
+
+
+def _synthetic_datetime_ask(query: str) -> Ask:
+    return Ask(
+        ask_id="ask_000",
+        intent="direct_chat",
+        distilled_query=query,
+        response_shape="verbatim",
+        knowledge_source="none",
+        capability_need="datetime",
+    )
+
+
+def _is_current_sensitive_lookup(subject: str) -> bool:
+    text = (subject or "").strip().lower()
+    if not text:
+        return True
+    if any(marker in text for marker in ("current", "right now", "today", "latest", "now")):
+        return True
+    if text in {
+        "the president",
+        "president",
+        "the us president",
+        "the u.s. president",
+        "president of the united states",
+    }:
+        return True
+    return False
+
+
+def _classify_deterministic_fast_lane(user_input: str) -> Optional[FastLaneResult]:
+    normalized = _normalize_classifier_text(user_input)
+    if not normalized:
+        return None
+
+    if normalized in _DATETIME_QUERIES:
+        return FastLaneResult(
+            hit=True,
+            category="datetime",
+            best_similarity=1.0,
+            best_template=normalized,
+            latency_ms=0.0,
+            near_miss=False,
+            synthetic_ask=_synthetic_datetime_ask(user_input.strip()),
+        )
+
+    if normalized.startswith(("who is my ", "who was my ", "what is my ")):
+        return None
+
+    if normalized.startswith("who is "):
+        subject = normalized[len("who is "):].strip()
+        if subject and not _is_current_sensitive_lookup(subject):
+            return FastLaneResult(
+                hit=True,
+                category="encyclopedic_lookup",
+                best_similarity=1.0,
+                best_template="who is",
+                latency_ms=0.0,
+                near_miss=False,
+                synthetic_ask=_synthetic_lookup_ask(user_input.strip()),
+            )
+
+    if normalized.startswith("who was "):
+        subject = normalized[len("who was "):].strip()
+        if subject and not _is_current_sensitive_lookup(subject):
+            return FastLaneResult(
+                hit=True,
+                category="encyclopedic_lookup",
+                best_similarity=1.0,
+                best_template="who was",
+                latency_ms=0.0,
+                near_miss=False,
+                synthetic_ask=_synthetic_lookup_ask(user_input.strip()),
+            )
+
+    if normalized.startswith("what is "):
+        subject = normalized[len("what is "):].strip()
+        if (
+            subject
+            and not _is_current_sensitive_lookup(subject)
+            and not subject.startswith(("the weather", "weather", "the time", "time "))
+        ):
+            return FastLaneResult(
+                hit=True,
+                category="encyclopedic_lookup",
+                best_similarity=1.0,
+                best_template="what is",
+                latency_ms=0.0,
+                near_miss=False,
+                synthetic_ask=_synthetic_lookup_ask(user_input.strip()),
+            )
+    return None
 
 
 # Pre-computed template embeddings (lazy singleton).
@@ -168,8 +293,13 @@ def classify_fast_lane(user_input: str, embedder: Optional[Embedder] = None) -> 
     if _has_emotional_content(stripped):
         return FastLaneResult(
             hit=False, category="", best_similarity=0.0,
-            best_template="", latency_ms=0.0, near_miss=False,
+            best_template="", latency_ms=0.0, near_miss=False, synthetic_ask=None,
         )
+
+    deterministic = _classify_deterministic_fast_lane(stripped)
+    if deterministic is not None:
+        deterministic.latency_ms = (time.perf_counter() - t0) * 1000
+        return deterministic
 
     normalized = _normalize_fast_lane_text(stripped)
     if normalized:
@@ -188,6 +318,7 @@ def classify_fast_lane(user_input: str, embedder: Optional[Embedder] = None) -> 
                     best_template=template,
                     latency_ms=latency_ms,
                     near_miss=False,
+                    synthetic_ask=None,
                 )
 
     emb = embedder or get_embedder()
@@ -230,6 +361,7 @@ def classify_fast_lane(user_input: str, embedder: Optional[Embedder] = None) -> 
         best_template=best_tpl,
         latency_ms=latency_ms,
         near_miss=near_miss,
+        synthetic_ask=None,
     )
 
 

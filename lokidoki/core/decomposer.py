@@ -178,7 +178,7 @@ DECOMPOSITION_SCHEMA: dict = {
                     "needs_referent_resolution": {"type": "boolean"},
                     "capability_need": {
                         "type": "string",
-                        "enum": ["encyclopedic", "web_search", "current_media", "people_lookup", "none"],
+                        "enum": ["encyclopedic", "web_search", "current_media", "people_lookup", "datetime", "none"],
                     },
                     "referent_anchor": {"type": "string"},
                 },
@@ -465,7 +465,7 @@ class Decomposer:
         """Derive context_source from capability_need + needs_referent_resolution."""
         if capability_need == "people_lookup":
             return "long_term_memory"
-        if capability_need in ("encyclopedic", "web_search", "current_media"):
+        if capability_need in ("encyclopedic", "web_search", "current_media", "datetime"):
             return "external"
         if needs_resolution:
             return "recent_context"
@@ -537,7 +537,7 @@ class Decomposer:
         """Build an Ask from raw LLM dict, deriving removed schema fields."""
         capability_need = (
             a.get("capability_need")
-            if a.get("capability_need") in ("encyclopedic", "web_search", "current_media", "people_lookup", "none")
+            if a.get("capability_need") in ("encyclopedic", "web_search", "current_media", "people_lookup", "datetime", "none")
             else "none"
         )
         needs_resolution = bool(a.get("needs_referent_resolution", False))

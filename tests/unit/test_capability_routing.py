@@ -17,7 +17,7 @@ from lokidoki.core.registry import SkillRegistry
 
 @pytest.fixture
 def category_skills_dir(tmp_path):
-    """Three skills: one encyclopedia, one web_search, one no-category."""
+    """Four skills: encyclopedia, web_search, datetime, and one no-category."""
     enc = tmp_path / "alpha_wiki"
     enc.mkdir()
     (enc / "manifest.json").write_text(json.dumps({
@@ -44,6 +44,19 @@ def category_skills_dir(tmp_path):
     }))
     (web / "__init__.py").write_text("")
 
+    dt = tmp_path / "delta_datetime"
+    dt.mkdir()
+    (dt / "manifest.json").write_text(json.dumps({
+        "skill_id": "delta_datetime",
+        "name": "Delta DateTime",
+        "intents": ["get_datetime"],
+        "categories": ["datetime"],
+        "parameters": {},
+        "mechanisms": [{"method": "clock", "priority": 1, "timeout_ms": 100,
+                        "requires_internet": False}],
+    }))
+    (dt / "__init__.py").write_text("")
+
     misc = tmp_path / "gamma_misc"
     misc.mkdir()
     (misc / "manifest.json").write_text(json.dumps({
@@ -65,10 +78,12 @@ def test_registry_indexes_skills_by_category(category_skills_dir):
 
     enc = reg.get_skills_by_category("encyclopedia")
     web = reg.get_skills_by_category("web_search")
+    dt = reg.get_skills_by_category("datetime")
     none = reg.get_skills_by_category("nonexistent")
 
     assert [sid for sid, _ in enc] == ["alpha_wiki"]
     assert [sid for sid, _ in web] == ["beta_search"]
+    assert [sid for sid, _ in dt] == ["delta_datetime"]
     assert none == []
 
 
@@ -82,10 +97,12 @@ async def test_pick_active_skill_intent_returns_first_intent(category_skills_dir
 
     web = await pick_active_skill_intent("web_search", reg, memory=None, user_id=None)
     enc = await pick_active_skill_intent("encyclopedia", reg, memory=None, user_id=None)
+    dt = await pick_active_skill_intent("datetime", reg, memory=None, user_id=None)
     miss = await pick_active_skill_intent("voice", reg, memory=None, user_id=None)
 
     assert web == "beta_search.search_web"
     assert enc == "alpha_wiki.search_knowledge"
+    assert dt == "delta_datetime.get_datetime"
     assert miss is None
 
 
@@ -104,9 +121,11 @@ async def test_real_skill_directory_exposes_capability_routing():
     reg.scan()
     web = await pick_active_skill_intent("web_search", reg, memory=None, user_id=None)
     enc = await pick_active_skill_intent("encyclopedia", reg, memory=None, user_id=None)
+    dt = await pick_active_skill_intent("datetime", reg, memory=None, user_id=None)
     media = await pick_active_skill_intent("current_media", reg, memory=None, user_id=None)
     assert web == "search_ddg.search_web"
     assert enc == "knowledge_wiki.search_knowledge"
+    assert dt == "datetime_local.get_datetime"
     # current_media has multiple registered providers (movies_showtimes,
     # movies_fandango). pick_active_skill_intent returns the first
     # enabled one in registry scan order; either is a valid production

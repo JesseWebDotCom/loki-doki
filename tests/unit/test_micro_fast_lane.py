@@ -132,6 +132,32 @@ def test_exact_thank_you_is_hit():
     assert result.category == "gratitude"
 
 
+def test_definitional_lookup_hits_fast_lane():
+    result = classify_fast_lane("who is Arthur Miller")
+    assert result.hit is True
+    assert result.category == "encyclopedic_lookup"
+    assert result.synthetic_ask is not None
+    assert result.synthetic_ask.intent == "direct_chat"
+    assert result.synthetic_ask.response_shape == "verbatim"
+    assert result.synthetic_ask.knowledge_source == "encyclopedic"
+    assert result.synthetic_ask.capability_need == "encyclopedic"
+
+
+def test_personal_lookup_does_not_hit_fast_lane():
+    result = classify_fast_lane("who is my sister")
+    assert result.hit is False
+
+
+def test_exact_time_query_hits_fast_lane():
+    result = classify_fast_lane("what time is it")
+    assert result.hit is True
+    assert result.category == "datetime"
+    assert result.synthetic_ask is not None
+    assert result.synthetic_ask.intent == "direct_chat"
+    assert result.synthetic_ask.response_shape == "verbatim"
+    assert result.synthetic_ask.capability_need == "datetime"
+
+
 def test_long_input_skips_embedding():
     """Inputs > 60 chars are short-circuited without embedding."""
     result = classify_fast_lane("hey what is the weather going to be like tomorrow in the afternoon around 3pm")
