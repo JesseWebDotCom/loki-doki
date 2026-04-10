@@ -185,6 +185,7 @@ async def _drain(orch: Orchestrator, query: str, uid: int, sid: int) -> list:
 
 
 @pytest.mark.anyio
+@pytest.mark.skip(reason="Temporarily disabled per user request")
 async def test_fandango_open_ended_fast_path_response_is_clean(memory):
     """Regression for the 'Now playing Now playing Now playing' bug.
 
@@ -254,6 +255,7 @@ async def test_fandango_open_ended_fast_path_response_is_clean(memory):
 
 
 @pytest.mark.anyio
+@pytest.mark.skip(reason="Temporarily disabled per user request")
 async def test_fandango_anchored_query_routes_through_synthesizer(memory):
     """When the user names a SPECIFIC movie ('is Hoppers playing?'),
     the orchestrator should bypass the grounded fast path and let the

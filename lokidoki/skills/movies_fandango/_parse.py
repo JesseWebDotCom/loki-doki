@@ -92,7 +92,7 @@ def _strip_year_suffix(title: str) -> str:
     detail like ``"Hoppers (2026)"`` before the orchestrator ever sees
     it, so this helper is now a no-op.
     """
-    return (title or "").strip()
+    return _YEAR_SUFFIX_RE.sub("", title or "").strip()
 
 
 def _slugify_title(slug: str) -> str:

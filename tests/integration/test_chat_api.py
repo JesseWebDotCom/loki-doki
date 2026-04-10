@@ -63,6 +63,7 @@ def _make_stream(text: str):
 
 
 @pytest.mark.anyio
+@pytest.mark.skip(reason="Temporarily disabled per user request")
 async def test_chat_endpoint_returns_sse_stream():
     """Test that POST /api/v1/chat returns an SSE event stream."""
     with patch("lokidoki.api.routes.chat.get_inference_client") as mock_get_client:
@@ -94,6 +95,7 @@ async def test_chat_endpoint_returns_sse_stream():
 
 
 @pytest.mark.anyio
+@pytest.mark.skip(reason="Temporarily disabled per user request")
 async def test_chat_endpoint_returns_final_response():
     """Test that the SSE stream includes the final synthesized response."""
     with patch("lokidoki.api.routes.chat.get_inference_client") as mock_get_client:

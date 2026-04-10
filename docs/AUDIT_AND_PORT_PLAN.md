@@ -3,7 +3,7 @@
 _Generated: 2026-04-08_  
 _Last updated: 2026-04-08 (progress pass — see "Progress Log" at bottom)_
 
-This document captures (1) a code-quality audit of `loki-doki-core` and (2) a survey of features in the legacy `/Users/jessetorres/Projects/loki-doki` project worth porting. Each section ends with a prioritized action list.
+This document captures (1) a code-quality audit of `loki-doki` and (2) a survey of features in the legacy `/Users/jessetorres/Projects/loki-doki-old` project worth porting. Each section ends with a prioritized action list.
 
 ---
 
@@ -101,7 +101,7 @@ This document captures (1) a code-quality audit of `loki-doki-core` and (2) a su
 
 ## Part 2 — Legacy `loki-doki` Features Worth Porting
 
-Source root: `/Users/jessetorres/Projects/loki-doki`
+Source root: `/Users/jessetorres/Projects/loki-doki-old`
 
 ### Tier 1 — Critical / High Value
 

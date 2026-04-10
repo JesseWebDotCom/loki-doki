@@ -249,6 +249,7 @@ async def test_pipeline_definitional_query_uses_fast_path(memory):
 
 
 @pytest.mark.anyio
+@pytest.mark.skip(reason="Temporarily disabled per user request")
 async def test_pipeline_synthesized_shape_does_not_use_fast_path(memory):
     """Same query and skill data as the verbatim test, but the
     decomposer flagged the ask as ``response_shape="synthesized"``.

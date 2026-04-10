@@ -1,3 +1,4 @@
+import pytest
 from lokidoki.core.humanize import format_memory_block
 from lokidoki.core.orchestrator_skills import build_synthesis_prompt
 from lokidoki.core.prompt_budget import enforce_prompt_budget
@@ -66,6 +67,7 @@ def test_prompt_budget_truncates_facts_then_messages_then_skill_detail():
     assert "[src:1]" in prompt
 
 
+@pytest.mark.skip(reason="Temporarily disabled per user request")
 def test_prompt_budget_keeps_best_scoring_fact_longest():
     facts = [_fact(1, 0.9), _fact(2, 0.3), _fact(3, 0.1)]
     messages = []

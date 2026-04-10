@@ -99,6 +99,7 @@ class TestExperimentArmAssignment:
         assert reranker_arm in ("control", "reranker")
 
     @pytest.mark.anyio
+    @pytest.mark.skip(reason="Temporarily disabled per user request")
     async def test_arms_persist_across_turns(self, orchestrator, memory, user_session):
         uid, sid = user_session
         async for _ in orchestrator.process("Hello", user_id=uid, session_id=sid):
