@@ -10,12 +10,16 @@ from __future__ import annotations
 
 from v2.orchestrator.adapters.conversation_memory import ConversationMemoryAdapter
 from v2.orchestrator.adapters.home_assistant import HomeAssistantAdapter
+from v2.orchestrator.adapters.loki_people_db import LokiPeopleDBAdapter
+from v2.orchestrator.adapters.loki_smarthome import LokiSmartHomeAdapter
 from v2.orchestrator.adapters.movie_context import MovieContextAdapter
 from v2.orchestrator.adapters.people_db import PeopleDBAdapter
 
 __all__ = [
     "ConversationMemoryAdapter",
     "HomeAssistantAdapter",
+    "LokiPeopleDBAdapter",
+    "LokiSmartHomeAdapter",
     "MovieContextAdapter",
     "PeopleDBAdapter",
 ]

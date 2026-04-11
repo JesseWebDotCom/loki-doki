@@ -10,12 +10,15 @@ is true a real model call would be wired in here.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from v2.orchestrator.core.config import CONFIG
 from v2.orchestrator.core.types import RequestSpec, ResponseObject
 from v2.orchestrator.fallbacks.prompts import render_prompt
+
+log = logging.getLogger("v2.orchestrator.gemma")
 
 
 @dataclass(slots=True)
@@ -95,14 +98,38 @@ def build_resolve_prompt(
 def gemma_synthesize(spec: RequestSpec) -> ResponseObject:
     """Produce a final natural-language response from a RequestSpec.
 
-    In stub mode (``CONFIG.gemma_enabled = False``), this assembles a
-    deterministic narrative so the prototype can be exercised without a
-    live model. When real Gemma is wired in, this function should call
-    Ollama and return the streamed text.
+    Synchronous entry point. When ``CONFIG.gemma_enabled`` is true the
+    pipeline should prefer :func:`gemma_synthesize_async` so the HTTP
+    call to Ollama can run on the event loop. The sync path is kept so
+    tests / scripts that call ``gemma_synthesize`` directly with the
+    stub still work.
     """
     if CONFIG.gemma_enabled:  # pragma: no cover - real model path
-        return _call_real_gemma(spec)
+        return _stub_synthesize(spec)  # sync callers always get the stub
+    return _stub_synthesize(spec)
 
+
+async def gemma_synthesize_async(spec: RequestSpec) -> ResponseObject:
+    """Async variant of :func:`gemma_synthesize`.
+
+    When ``CONFIG.gemma_enabled`` is true this calls the real Ollama
+    Gemma client; otherwise it falls through to the deterministic stub.
+    The Ollama call is wrapped in a try/except so a misbehaving model
+    or network failure degrades to the stub instead of crashing the
+    pipeline.
+    """
+    if not CONFIG.gemma_enabled:
+        return _stub_synthesize(spec)
+    try:
+        return await _call_real_gemma(spec)
+    except Exception as exc:  # noqa: BLE001 - we never want Gemma to break the pipeline
+        log.warning("Gemma fallback degraded to stub: %s", exc)
+        spec.gemma_reason = (spec.gemma_reason or "") + " (degraded:gemma_error)"
+        return _stub_synthesize(spec)
+
+
+def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
+    """Deterministic stub used as the default and as a degradation fallback."""
     parts: list[str] = []
     for chunk in spec.chunks:
         if chunk.role != "primary_request":
@@ -135,18 +162,23 @@ def gemma_synthesize(spec: RequestSpec) -> ResponseObject:
     return ResponseObject(output_text=text)
 
 
-def _call_real_gemma(spec: RequestSpec) -> ResponseObject:  # pragma: no cover
-    """Placeholder for the real Gemma client.
+async def _call_real_gemma(spec: RequestSpec) -> ResponseObject:
+    """Real Gemma client path.
 
-    When ``CONFIG.gemma_enabled`` is true this function should:
-
-    1. Call :func:`build_combine_prompt` to render the prompt.
-    2. Send it to the local Ollama Gemma endpoint.
-    3. Parse the streamed response into a :class:`ResponseObject`.
-
-    The seam is intentionally left as ``NotImplementedError`` until a
-    real Ollama client is wired in — the deterministic stub above is
-    used by every test, the dev runner, and CI.
+    Renders the combine prompt and sends it to a local Ollama Gemma
+    model via :mod:`v2.orchestrator.fallbacks.ollama_client`. The
+    function is async so it integrates cleanly with the pipeline's
+    ``asyncio`` event loop. Caller (``gemma_synthesize_async``) is
+    responsible for catching exceptions and degrading to the stub.
     """
-    _ = build_combine_prompt(spec)  # render so the prompt path stays exercised
-    raise NotImplementedError("Real Gemma client not wired in this prototype.")
+    from v2.orchestrator.fallbacks.ollama_client import call_gemma
+
+    prompt = build_combine_prompt(spec)
+    raw = await call_gemma(prompt)
+    text = raw.strip()
+    if not text:
+        # Empty response is treated as a failure so the caller can
+        # degrade. Returning empty would propagate to the user as a
+        # blank reply.
+        raise RuntimeError("Gemma returned an empty response")
+    return ResponseObject(output_text=text)

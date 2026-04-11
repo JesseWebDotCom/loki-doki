@@ -31,5 +31,19 @@ class V2Config:
     # trace with `gemma_used=False, gemma_reason="stub"`.
     gemma_enabled: bool = False
 
+    # Ollama base URL + model tag for the Gemma fallback. The HTTP call
+    # only fires when ``gemma_enabled`` is true; otherwise these values
+    # are inert. The default model tag matches a small Gemma function
+    # model that fits CLAUDE.md's "Skills-First, LLM-Last" budget.
+    gemma_ollama_url: str = "http://localhost:11434"
+    gemma_model: str = "gemma3:270m"
+
+    # Hard cap on Gemma synthesis output tokens. Synthesis is supposed
+    # to be a single short response, so the budget stays tight.
+    gemma_num_predict: int = 256
+
+    # Sampling temperature for Gemma synthesis. Zero = deterministic.
+    gemma_temperature: float = 0.2
+
 
 CONFIG = V2Config()

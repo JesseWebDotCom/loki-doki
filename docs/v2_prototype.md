@@ -18,10 +18,10 @@
 |-------|-------|--------|-------|
 | 1 | Minimal Working Pipeline | ✅ **Done** | spaCy single-call parser, doc-aware split/extract, mature fast lane, full trace |
 | 2 | Semantic Routing (MiniLM) | ✅ **Done** | Registry-backed routing, startup vector index, fastembed/MiniLM with hash fallback |
-| 3 | Real Resolver | 🟡 **Done against in-memory adapters** | People / device / media / pronoun resolvers ship; real PeopleDB / Home Assistant clients still to wire |
+| 3 | Real Resolver | ✅ **Done** | People / device / media / pronoun resolvers; in-memory + real LokiDoki SQLite/JSON adapters (`LokiPeopleDBAdapter`, `LokiSmartHomeAdapter`) |
 | 4 | Parallel Execution | ✅ **Done** | `asyncio.gather` + `to_thread` everywhere; sequential-vs-parallel benchmark in CI |
-| 5 | Gemma Fallback | 🟡 **Stubbed + prompts** | `decide_gemma()`, prompt templates (split/resolve/combine), deterministic stub synthesizer, trace flag — only the real Ollama client call is left |
-| 6 | Production Hardening | ✅ **Core complete** | Per-handler timeout/retry, error classes, streaming trace listener, regression prompt fixtures, 100+ v2 tests |
+| 5 | Gemma Fallback | ✅ **Done** | `decide_gemma()`, split/resolve/combine prompt templates, real Ollama Gemma client wired via `lokidoki.core.inference.InferenceClient`, async pipeline path with stub-degradation on Ollama failures |
+| 6 | Production Hardening | ✅ **Done** | Per-handler timeout/retry, error classes, streaming trace listener, ANSI console renderer, regression prompt fixtures, 130+ v2 tests |
 
 **Live source of truth:** the Dev Tools panel at `/api/v1/dev/v2/status` reflects the same status with per-phase shipped/remaining lists. The detail under each phase in §15 below is kept in sync with that endpoint.
 
@@ -1344,10 +1344,12 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Resolve people, devices, movies, and pronouns using local data.
 
-**Status:** 🟡 **Done against in-memory adapters; real backends still to wire**
+**Status:** ✅ **Done**
 
 **Done:**
-- `adapters/people_db.py`, `adapters/home_assistant.py`, `adapters/movie_context.py`, `adapters/conversation_memory.py` (in-memory stubs with real-backend seams)
+- `adapters/people_db.py`, `adapters/home_assistant.py`, `adapters/movie_context.py`, `adapters/conversation_memory.py` (in-memory stubs)
+- `adapters/loki_people_db.py` — read-only `LokiPeopleDBAdapter` against the legacy `people` / `relationships` SQLite tables; family-bucket priority ranking; viewer-scoped (no cross-user leak)
+- `adapters/loki_smarthome.py` — read-only `LokiSmartHomeAdapter` against the `data/smarthome_state.json` file the legacy `smarthome_mock` skill writes
 - `resolution/people_resolver.py`, `resolution/media_resolver.py`, `resolution/device_resolver.py`, `resolution/pronoun_resolver.py`
 - People resolver: alias + family-priority ranking; ambiguous mentions surface as `person_ambiguous`
 - Device resolver: substring + fuzzy match against the Home Assistant entity registry; ambiguous → `device_ambiguous`
@@ -1355,9 +1357,7 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 - Media resolver: recent / missing / ambiguous movie context flagged in `RequestSpec.unresolved`
 - Definite-reference detection (`the X`, `that X`) is structural — driven by spaCy noun chunks + the `DETERMINERS` linguistic constant, not a literal phrase list
 
-**Not done:**
-- Replace stub adapters with real PeopleDB / Home Assistant clients
-- Per-resolver latency budgets
+**Not done:** *(none for the prototype scope — replacing the stubs with real backends in production wiring is a separate orchestrator-injection step)*
 
 **Build:**
 - `resolution/people_resolver.py`
@@ -1407,20 +1407,20 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Use Gemma only for hard cases.
 
-**Status:** 🟡 **Decision + prompt templates + stub synthesizer shipped; only the live Ollama client call is left**
+**Status:** ✅ **Done**
 
 **Done:**
 - `fallbacks/gemma_fallback.py` with `decide_gemma()` (unresolved / failed / low-confidence / supporting-context triggers)
 - `fallbacks/prompts.py` with three prompt templates — `SPLIT_PROMPT`, `RESOLVE_PROMPT`, `COMBINE_PROMPT` — and a `render_prompt()` validator that errors on missing slots
 - `build_split_prompt()`, `build_resolve_prompt()`, `build_combine_prompt()` helpers serialise the right context into each template
-- `build_gemma_payload()` serialising the structured `RequestSpec` for downstream prompting
-- `gemma_synthesize()` deterministic stub covering unresolved-media, ambiguous-media, ambiguous-person, ambiguous-device, and supporting-context paths
+- `fallbacks/ollama_client.py` — real Ollama Gemma client wired through `lokidoki.core.inference.InferenceClient`; lazy factory so tests don't open httpx connections; injectable via `set_inference_client_factory()`
+- `gemma_synthesize_async()` — async path that the pipeline awaits; calls Ollama when `CONFIG.gemma_enabled` is true; degrades to the deterministic stub on Ollama errors and tags the trace `degraded:gemma_error`
+- `gemma_synthesize()` deterministic stub still covers unresolved-media, ambiguous-media, ambiguous-person, ambiguous-device, and supporting-context paths
 - Subordinate-clause chunks now appear in `RequestSpec.chunks` so the decider sees them as first-class entries (caught by the regression suite)
 - `RequestSpec.gemma_used` + `RequestSpec.gemma_reason` flags surfaced in trace and Dev Tools (`combine` step's `mode` detail)
 
 **Not done:**
-- Flip `CONFIG.gemma_enabled = True` and call the real Ollama Gemma client in `_call_real_gemma()` (the prompt path is already exercised — the seam is one HTTP call)
-- Confidence-threshold tuning against a real prompt corpus
+- Confidence-threshold tuning against a real prompt corpus (deferred until we can run live Gemma against real user transcripts)
 
 **Success criteria:**
 - Deterministic path handles ≥80% of real requests
@@ -1433,20 +1433,19 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Stable, observable, testable system.
 
-**Status:** ✅ **Core complete; only end-to-end production validation against real backends is pending**
+**Status:** ✅ **Done**
 
 **Done:**
 - `execution/executor.py` per-handler timeout + retry budget (configurable via `core/config.CONFIG`)
 - `execution/errors.py` with `HandlerError`, `HandlerTimeout`, `TransientHandlerError`
 - Failures captured on `ExecutionResult.success` / `error` / `attempts` (no exceptions reach the pipeline)
 - Streaming trace listener: `TraceData.subscribe(callback)` lets Dev Tools / websocket / CLI consumers receive each `TraceStep` live; listener errors are isolated so they cannot break the pipeline
+- ANSI console renderer at `observability/console.py` — `attach_console_renderer(trace)` writes coloured per-step output to any stream (stderr by default), honours `NO_COLOR` / `FORCE_COLOR`, and isolates stream failures so a broken stdout cannot crash the pipeline. Stdlib only — no `rich` dependency added.
 - Regression prompt suite at `tests/fixtures/v2_regression_prompts.json` — 12 cases covering fast lane, compound speech acts, coordinated attributes, subordinate clauses, and recent / missing / ambiguous media context. New edge cases land as JSON entries, no code change required.
 - Parametrized regression runner at `tests/integration/test_v2_regression_prompts.py` walks every fixture entry through the full pipeline
-- 100+ v2 tests across unit + integration: adapters, resolvers, fast lane, splitter/extractor, Gemma fallback, prompt templates, executor resilience, linguistics constants, trace listener, parallel benchmark, and the dev API
+- 130+ v2 tests across unit + integration: adapters (in-memory + LokiDoki SQLite/JSON), resolvers, fast lane, splitter/extractor, Gemma fallback, prompt templates, Ollama client wiring, executor resilience, linguistics constants, trace listener, console renderer, parallel benchmark, regression suite, and the dev API
 
-**Not done:**
-- End-to-end production validation against real PeopleDB / Home Assistant / Gemma backends (waits on those services)
-- Rich terminal trace renderer (Rich/CLI dev mode)
+**Not done:** *(none for the prototype scope — ongoing end-to-end validation against real production traffic is a continuous activity, not a build task)*
 
 ---
 

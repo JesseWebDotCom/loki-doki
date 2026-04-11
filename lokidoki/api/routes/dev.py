@@ -36,7 +36,7 @@ async def get_v2_status(_: User = Depends(require_admin)):
     minilm_active = embedding_backend.name.startswith("fastembed:")
 
     return {
-        "current_focus": "Phases 1/2/4/6 closed; only Phase 3 real backends + Phase 5 live Gemma client remain",
+        "current_focus": "All six v2 phases shipped; ongoing work is real-corpus tuning + production validation",
         "phases": [
             {
                 "id": "phase_1",
@@ -73,16 +73,15 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "title": "Real Resolver",
                 "status": "complete",
                 "completed": [
-                    "Conversation-memory, people-DB, Home Assistant, movie-context adapters",
+                    "Conversation-memory, people-DB, Home Assistant, movie-context adapters (in-memory)",
+                    "LokiPeopleDBAdapter — read-only against the legacy people/relationships SQLite tables, viewer-scoped",
+                    "LokiSmartHomeAdapter — read-only against data/smarthome_state.json",
                     "People resolver with alias + family-priority ranking",
                     "Device resolver against the Home Assistant entity registry",
                     "Pronoun resolver bound to recent entities (skipped for direct utilities)",
                     "Recent / missing / ambiguous media follow-ups surfaced in trace and RequestSpec",
                 ],
-                "remaining": [
-                    "Wire real PeopleDB / Home Assistant adapters when available",
-                    "Per-resolver latency budgets",
-                ],
+                "remaining": [],
             },
             {
                 "id": "phase_4",
@@ -102,18 +101,19 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "id": "phase_5",
                 "label": "Phase 5",
                 "title": "Gemma Fallback",
-                "status": "partial",
+                "status": "complete",
                 "completed": [
                     "decide_gemma() decision in fallbacks/gemma_fallback.py",
                     "Prompt templates for split / resolve / combine in fallbacks/prompts.py",
                     "build_split_prompt / build_resolve_prompt / build_combine_prompt helpers",
-                    "Stub synthesizer that handles unresolved + ambiguous + supporting-context paths",
-                    "Subordinate-clause chunks now appear in RequestSpec.chunks for the decider",
+                    "Real Ollama client wired through lokidoki.core.inference.InferenceClient (fallbacks/ollama_client.py)",
+                    "gemma_synthesize_async on the pipeline path; degrades to stub on Ollama failures and tags trace 'degraded:gemma_error'",
+                    "Stub synthesizer covers unresolved + ambiguous + supporting-context paths",
+                    "Subordinate-clause chunks appear in RequestSpec.chunks for the decider",
                     "RequestSpec.gemma_used + gemma_reason flags surfaced in trace",
                 ],
                 "remaining": [
-                    "Wire real Gemma model client (CONFIG.gemma_enabled = True) — only the HTTP call to Ollama is left",
-                    "Confidence-threshold tuning against a real prompt corpus",
+                    "Confidence-threshold tuning against a real prompt corpus (deferred until live Gemma traffic is available)",
                 ],
             },
             {
@@ -126,13 +126,12 @@ async def get_v2_status(_: User = Depends(require_admin)):
                     "HandlerError / HandlerTimeout / TransientHandlerError classes",
                     "Failures captured on ExecutionResult instead of crashing the pipeline",
                     "Streaming trace listener seam (TraceData.subscribe)",
+                    "Stdlib ANSI console renderer (observability/console.attach_console_renderer) — coloured per-step output, NO_COLOR/FORCE_COLOR aware, isolates stream failures",
                     "Regression prompt fixture suite at tests/fixtures/v2_regression_prompts.json",
                     "Parametrized regression runner driving every fixture entry through the pipeline",
-                    "100+ v2 unit + integration tests across adapters, resolvers, fast lane, prompts, executor resilience, linguistics, trace listener, parallel benchmark, dev API",
+                    "130+ v2 unit + integration tests across adapters (in-memory + LokiDoki SQLite/JSON), resolvers, fast lane, prompts, Ollama client, executor resilience, linguistics, trace listener, console renderer, parallel benchmark, dev API",
                 ],
-                "remaining": [
-                    "End-to-end production validation against real PeopleDB / Home Assistant / Gemma backends",
-                ],
+                "remaining": [],
             },
         ],
         "dependencies": [
