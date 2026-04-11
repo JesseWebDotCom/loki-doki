@@ -10,6 +10,18 @@ def combine_request_spec(spec: RequestSpec) -> ResponseObject:
     for chunk in spec.chunks:
         if chunk.role != "primary_request":
             continue
+        if chunk.capability == "direct_chat":
+            # The direct_chat handler is an echo, so its output_text is
+            # whatever the user said. Never deliver that as the answer.
+            # ``decide_gemma`` is supposed to route direct_chat to Gemma
+            # before we get here; this branch is a defensive guard for
+            # the case where Gemma is unavailable and the synthesizer
+            # fell back to the deterministic combiner.
+            parts.append(
+                "I don't have a built-in answer for that — try enabling Gemma "
+                "or rephrasing as a question I can route to a skill."
+            )
+            continue
         text = str(chunk.result.get("output_text") or "").strip()
         if text:
             parts.append(text)

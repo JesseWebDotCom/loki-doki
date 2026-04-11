@@ -3,11 +3,20 @@
 The v2 prototype's executor dispatches every routed capability through
 [`v2/orchestrator/skills/`](orchestrator/skills/) — a thin adapter layer
 that wraps the production v1 LokiDoki skills (with their fallback chains
-and offline caches) for everything that has a v1 backend, and falls
-through to the v2 Ollama client for the generative skills. Only a small
-handful of capabilities are still pure stubs.
+and offline caches) for everything that has a v1 backend, falls back to
+the v2 Ollama client for generative skills, and uses curated offline-
+first KBs for the categories where no permissive provider API exists.
 
-This file tracks every stub and what it needs in order to ship for real.
+**There are no longer any pure stubs in the executor.** Every previously
+search-backed handler (`find_products`, `get_streaming`, `search_flights`,
+`search_hotels`, `get_visa_info`, `get_transit`) now dispatches into a
+real KB-backed adapter under [`v2/orchestrator/skills/`](orchestrator/skills/);
+`detect_presence` reads from a persistent `presence.json` store via the
+shared `_store` module instead of an in-memory overlay.
+
+This file tracks the LLM-fallback paths and the cross-cutting platform
+work that still needs attention before each capability becomes
+production-grade.
 
 > Routing, parameter extraction, the executor's retry/timeout layer, and
 > the Gemma fallback path are all production-ready — the gap is only in
@@ -77,13 +86,24 @@ generative tasks).
 
 ---
 
-## ❌ Pure stubs (still need work)
+## ✅ Offline-first KB adapters (replaced the old pure stubs)
 
-| Capability | Handler | What the stub returns | What it needs to ship |
+These six capabilities used to dispatch into a generic DuckDuckGo
+search (1+ second per call, no schema, breaks the 500ms regression
+budget). They now run sub-millisecond against curated KBs that follow
+the v1 `BaseSkill.execute_mechanism` pattern: try the local KB, fall
+through to a graceful failure, never raise.
+
+| Capability | Adapter | KB / store | Upgrade target |
 |---|---|---|---|
-| `send_text_message` | `_send_text_handler` (executor.py) | `"Texting <name> now (stub: real messaging backend not wired up)."` | Wire to a real messaging provider (Twilio, iMessage shortcut, signal-cli, …). Resolve recipient against the people DB. Add a recipient-confirmation flow before send. |
-| `find_products` | `_find_products_handler` (executor.py) | `"Top picks (stub): Option A, Option B, Option C…"` | Wire to a real shopping API (Amazon Product Advertising, Best Buy, …) or a curated dataset. Resolve category, budget, use case from chunk text. |
-| `detect_presence` | [skills/smarthome.py](orchestrator/skills/smarthome.py) `detect_presence` | `"I don't see anyone in the <room> right now."` | Replace the in-memory `_PRESENCE` overlay table with real Home Assistant `binary_sensor.<room>_occupancy` (or Frigate / camera presence). The adapter scaffold is in place — only the data source needs swapping. |
+| `find_products` | [skills/shopping_local.py](orchestrator/skills/shopping_local.py) | curated 15-category catalog + `v2/data/shopping.json` user overlay | Amazon PA-API / Best Buy |
+| `get_streaming` | [skills/streaming_local.py](orchestrator/skills/streaming_local.py) | 25-movie + 13-franchise KB → TVMaze fallthrough | JustWatch / Reelgood |
+| `search_flights` | [skills/travel_local.py](orchestrator/skills/travel_local.py) | curated non-stop carrier KB indexed by IATA pair | Amadeus / Google Flights |
+| `search_hotels` | [skills/travel_local.py](orchestrator/skills/travel_local.py) | 3-pick chain KB per major city (good/better/best) | Booking.com / Expedia |
+| `get_visa_info` | [skills/travel_local.py](orchestrator/skills/travel_local.py) | passport-corridor KB (US/UK/EU/Canada/India/China/Japan) | Sherpa / structured visa API |
+| `get_transit` | [skills/travel_local.py](orchestrator/skills/travel_local.py) | 9-city metro KB (system, lines, base fare) | GTFS feeds / Transitland |
+| `detect_presence` | [skills/smarthome.py](orchestrator/skills/smarthome.py) `detect_presence` | persistent `v2/data/presence.json` via `_store.load_store` | Home Assistant `binary_sensor.<room>_occupancy` |
+| `send_text_message` | [skills/contacts_local.py](orchestrator/skills/contacts_local.py) `send_text_message` | persistent `v2/data/communications.json` message log | Twilio / iMessage shortcut / signal-cli |
 
 ---
 

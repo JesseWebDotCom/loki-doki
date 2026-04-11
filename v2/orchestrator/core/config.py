@@ -1,7 +1,29 @@
 """Tunable settings, thresholds, and feature flags for the v2 prototype."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
+
+
+def _default_gemma_enabled() -> bool:
+    """Decide whether Gemma should run by default in this process.
+
+    Production should always run with Gemma on so the user gets a real
+    LLM answer when no skill matches or when a skill returns empty.
+    Tests need a hermetic, deterministic stub path so CI doesn't depend
+    on Ollama / a downloaded model. The override precedence is:
+
+      1. Explicit ``LOKI_GEMMA_ENABLED`` env var (``0/1/true/false``).
+      2. Pytest run detected via ``PYTEST_CURRENT_TEST`` or
+         ``PYTEST_VERSION`` → off.
+      3. Otherwise → on.
+    """
+    explicit = os.environ.get("LOKI_GEMMA_ENABLED")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    if "PYTEST_CURRENT_TEST" in os.environ or "PYTEST_VERSION" in os.environ:
+        return False
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,10 +48,13 @@ class V2Config:
     # Fuzzy match score required for fast-lane lemma templates (0-100).
     fast_lane_fuzzy_threshold: int = 90
 
-    # Whether the Gemma fallback is wired to a real model. When False,
-    # the fallback synthesizer formats deterministically and tags the
-    # trace with `gemma_used=False, gemma_reason="stub"`.
-    gemma_enabled: bool = False
+    # Whether the Gemma fallback is wired to a real model.
+    #
+    # Defaults ON for production so the user always gets a real LLM
+    # answer when ``decide_gemma`` says Gemma is needed. Defaults OFF
+    # under pytest so the deterministic stub synthesizer keeps CI
+    # hermetic. Override with ``LOKI_GEMMA_ENABLED=0`` or ``=1``.
+    gemma_enabled: bool = field(default_factory=_default_gemma_enabled)
 
     # Ollama base URL + model tag for the Gemma fallback. The HTTP call
     # only fires when ``gemma_enabled`` is true; otherwise these values

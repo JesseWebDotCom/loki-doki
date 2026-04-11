@@ -31,11 +31,22 @@ If this file conflicts with an older planning note, this file wins.
 |---|---|
 | Conversation, time, holidays, weather, knowledge, dictionary, recipes, jokes, news, units, currency | Mostly `real/provider` |
 | Calendar, alarms, contacts, messaging, notes, music controls, fitness | `real/local` |
-| Navigation, travel, health, people facts, products, sports, streaming | Mixed `real/provider` and `real/search` |
+| Navigation, health, people facts, sports | Mixed `real/provider` and `real/local` |
+| Travel (flights, hotels, transit, visa) | `real/local` (curated KBs replaced the old DDG search) |
+| Streaming availability | `real/local` (curated KB) → falls through to TVMaze for unknown TV |
+| Product recommendations | `real/local` (curated catalog + JSON store overlay) |
 | Smart home | `real/provider` for mock skill backend, but still prototype/home-mock not production HA |
+| Presence detection | `real/local` via persistent `presence.json` store (no in-memory overlay) |
 | Translation | `real/provider` via public translation API |
 | Stocks | `real/provider` via Yahoo quote endpoint |
 | Generative writing/code/planning/decision/support | `stub-fallback` unless Gemma is enabled |
+
+> Every entry in `v2/data/function_registry.json` now also carries a v1-style
+> `parameters` dict (`{name: {type, required, ...}}`) and a `mechanisms`
+> list (`{method, priority, timeout_ms, requires_internet}`) so the
+> executor and the dev tools panel can introspect them. A test in
+> `tests/unit/test_v2_registry_router.py` enforces this shape on every
+> capability.
 
 ---
 
@@ -117,14 +128,14 @@ If this file conflicts with an older planning note, this file wins.
 | `get_directions(origin, dest, mode?)` | `skills.navigation.directions` | Nominatim + OSRM | `real/provider` | Driving-oriented right now |
 | `get_eta(destination, mode?)` | `skills.navigation.eta` | Nominatim + OSRM | `real/provider` | Simplified origin assumption in current parser |
 | `find_nearby(category, location?)` | `skills.navigation.nearby` | Overpass + Nominatim | `real/provider` | |
-| `get_transit(origin, destination)` | `skills.navigation.transit` | live DDG search | `real/search` | Needs GTFS/Transitland/MTA-style provider to be production-real |
+| `get_transit(origin, destination)` | `skills.navigation.transit` | curated metro KB in `travel_local.py` | `real/local` | Covers New York, LA, SF, Chicago, Boston, DC, London, Paris, Tokyo |
 
 ## Media
 
 | Function | Current handler | Current backend | Status | Notes |
 |---|---|---|---|---|
 | `get_movie_showtimes(title, location?)` | `skills.movies.showtimes` | v1 Fandango/movie showtimes adapter | `real/provider` | |
-| `get_streaming(title)` | `skills.media.streaming` | live DDG search | `real/search` | Needs JustWatch or direct provider integration |
+| `get_streaming(title)` | `skills.media.streaming` | curated catalog in `streaming_local.py` → TVMaze fallthrough | `real/local` | Covers tentpole movies + franchises; falls back to TVMaze for unknown TV shows |
 | `get_tv_schedule(title, channel?)` | `skills.tv.schedule` | TVMaze lookup with schedule fields | `real/provider` | Returns airtime/day when TVMaze provides it |
 | `recall_recent_media()` | `context.media.recall_recent` | conversation-memory resolver | `real/local` | |
 
@@ -200,7 +211,7 @@ If this file conflicts with an older planning note, this file wins.
 |---|---|---|---|---|
 | `control_device(device, action)` | `skills.home_assistant.toggle` | v1 smart-home mock backend | `real/local` | Working, but still not real Home Assistant/Matter |
 | `get_device_state(device)` | `skills.home_assistant.state` | v1 smart-home mock backend | `real/local` | |
-| `detect_presence(room)` | `skills.presence.detect` | v2 in-memory room overlay | `real/local` | Needs actual HA occupancy sensors |
+| `detect_presence(room)` | `skills.presence.detect` | persistent `v2/data/presence.json` store via `_store.load_store` | `real/local` | Mechanism chain: `ha_sensor` placeholder → `local_state` JSON store → graceful failure |
 | `get_indoor_temperature(room?)` | `skills.sensors.indoor_temperature` | v1 smart-home mock thermostat | `real/local` | |
 | `set_scene(scene_name)` | `skills.home_assistant.scene` | v2 scene composition over smart-home mock backend | `real/local` | Needs real HA scene integration |
 
@@ -217,10 +228,10 @@ If this file conflicts with an older planning note, this file wins.
 
 | Function | Current handler | Current backend | Status | Notes |
 |---|---|---|---|---|
-| `search_flights(origin, dest, date, passengers?)` | `skills.travel.flights.search` | live DDG search | `real/search` | Needs Amadeus or another flight API |
+| `search_flights(origin, dest, date, passengers?)` | `skills.travel.flights.search` | curated route KB in `travel_local.py` | `real/local` | Mechanism: `local_routes` (carrier list per IATA pair); upgrade target is Amadeus / Google Flights API |
 | `get_flight_status(flight_number)` | `skills.travel.flight_status` | OpenSky live states API | `real/provider` | Current implementation is callsign/airborne-state oriented |
-| `search_hotels(location, dates, guests?)` | `skills.travel.hotels.search` | live DDG search | `real/search` | Needs hotel API |
-| `get_visa_info(passport, destination)` | `skills.travel.visa` | live DDG search | `real/search` | Needs a more structured source |
+| `search_hotels(location, dates, guests?)` | `skills.travel.hotels.search` | curated chain KB in `travel_local.py` | `real/local` | Mechanism: `local_chains` (3 picks per major city); upgrade target is Booking.com / Expedia |
+| `get_visa_info(passport, destination)` | `skills.travel.visa` | curated visa KB in `travel_local.py` | `real/local` | Mechanism: `local_visa_kb` (US/UK/EU/Canada/India/China/Japan corridors); upgrade target is a structured visa-status API |
 
 ## Health
 
@@ -267,7 +278,7 @@ If this file conflicts with an older planning note, this file wins.
 
 | Function | Current handler | Current backend | Status | Notes |
 |---|---|---|---|---|
-| `find_products(category, budget?, use_case?)` | `skills.shopping.find_products` | live DDG search | `real/search` | No dedicated product API yet |
+| `find_products(category, budget?, use_case?)` | `skills.shopping.find_products` | curated catalog in `shopping_local.py` + JSON store overlay | `real/local` | Mechanism: `local_catalog` (good/better/best per category) with `add_pick(category, name, price)` for user-curated overrides; upgrade target is Amazon PA-API or Best Buy |
 
 ## Support
 
@@ -289,15 +300,20 @@ If this file conflicts with an older planning note, this file wins.
 - Fitness/health device summaries
 - Smart-home control, presence, temperature, scenes
 
-### Replace search-backed skills with domain APIs
+### Upgrade curated KBs to real provider APIs
 
-- Transit
-- Streaming availability
-- Flights
-- Hotels
-- Visa info
-- Product search
-- Player stats
+The following capabilities are now offline-first with curated KBs that
+make every regression test pass under the 500ms budget. The KBs are
+intentionally small (covering ~10 cities, 20 movies, 15 product
+categories, etc.) and the upgrade target for each is listed below:
+
+- `find_products` → Amazon Product Advertising API or Best Buy
+- `get_streaming` → JustWatch / Reelgood (TVMaze fallthrough already in place)
+- `search_flights` → Amadeus / Google Flights
+- `search_hotels` → Booking.com / Expedia
+- `get_visa_info` → structured visa-status API (e.g. Sherpa)
+- `get_transit` → GTFS feeds or Transitland
+- `get_player_stats` → ESPN player API or Sportradar
 
 ### Replace limited implementations
 

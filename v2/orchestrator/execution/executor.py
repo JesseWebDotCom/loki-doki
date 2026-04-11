@@ -45,12 +45,14 @@ from v2.orchestrator.skills import (
     notes_local as notes_skill,
     people_facts as people_facts_skill,
     recipes as recipes_skill,
-    search_web as search_skill,
+    shopping_local as shopping_skill,
     showtimes as showtimes_skill,
     smarthome as smarthome_skill,
     sports_api as sports_api_skill,
     sports_search as sports_skill,
+    streaming_local as streaming_skill,
     travel as travel_skill,
+    travel_local as travel_local_skill,
     time_until as time_until_skill,
     time_in_location as time_in_location_skill,
     translate as translate_skill,
@@ -234,13 +236,6 @@ def _recall_media_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"output_text": payload.get("resolved_target") or ""}
 
 
-def _send_text_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Stub messaging handler — no v1 messaging backend exists yet."""
-    params = payload.get("params") or {}
-    name = params.get("person_name") or payload.get("resolved_target") or "your contact"
-    return {"output_text": f"Texting {name} now (stub: real messaging backend not wired up)."}
-
-
 def _person_birthday_handler(payload: dict[str, Any]) -> dict[str, Any]:
     """Look up the resolved person's birthday from the people DB params."""
     params = payload.get("params") or {}
@@ -253,34 +248,20 @@ def _person_birthday_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"output_text": f"{name}'s birthday is {birthday}."}
 
 
-def _find_products_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Stub product-recommendation handler.
-
-    There is no v1 LokiDoki product-search skill and no obvious free
-    product API. Until one is wired up, the handler returns a
-    deterministic stub answer that the regression tests can assert on.
-    """
-    return {
-        "output_text": (
-            "Top picks (stub): Option A, Option B, Option C — "
-            "real product search backend not yet wired up."
-        ),
-        "provider": "stub",
-    }
-
-
 def _echo_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"output_text": str(payload.get("chunk_text") or "")}
 
 
 # ---- handler registry ------------------------------------------------------
 #
-# Most v2 capabilities now dispatch into ``v2/orchestrator/skills/*`` adapter
-# modules that wrap real v1 LokiDoki skills (with their fallback chains and
-# offline caches). Generative capabilities call ``llm_skills`` which talks to
-# Ollama when ``CONFIG.gemma_enabled`` is True and degrades to deterministic
-# stubs otherwise. The handful of stubs that remain (``send_text_message``,
-# ``find_products``) are tracked in ``v2/SKILL_STUBS.md``.
+# Every v2 capability dispatches into a real adapter module under
+# ``v2/orchestrator/skills/*``. Adapters either wrap a v1 LokiDoki skill
+# (inheriting its fallback chain and offline caches) or implement an
+# offline-first mechanism chain backed by a curated KB and a persistent
+# JSON store under ``v2/data/``. Generative capabilities call
+# ``llm_skills`` which talks to Ollama when ``CONFIG.gemma_enabled`` is
+# True and degrades to deterministic stubs otherwise. ``SKILL_STUBS.md``
+# tracks the remaining LLM-fallback stubs and any cross-cutting work.
 
 _HANDLER_REGISTRY: dict[str, HandlerFn] = {
     # ---- conversation / utility (built-in deterministic) -----------------
@@ -322,16 +303,16 @@ _HANDLER_REGISTRY: dict[str, HandlerFn] = {
     "skills.navigation.directions": navigation_skill.get_directions,
     "skills.navigation.eta": navigation_skill.get_eta,
     "skills.navigation.nearby": navigation_skill.find_nearby,
-    "skills.navigation.transit": search_skill.get_transit,
-    "skills.media.streaming": search_skill.get_streaming,
-    "skills.travel.flights.search": search_skill.search_flights,
+    "skills.navigation.transit": travel_local_skill.get_transit,
+    "skills.media.streaming": streaming_skill.get_streaming,
+    "skills.travel.flights.search": travel_local_skill.search_flights,
     "skills.travel.flight_status": travel_skill.get_flight_status,
-    "skills.travel.hotels.search": search_skill.search_hotels,
-    "skills.travel.visa": search_skill.get_visa_info,
+    "skills.travel.hotels.search": travel_local_skill.search_hotels,
+    "skills.travel.visa": travel_local_skill.get_visa_info,
     "skills.health.symptom": health_skill.look_up_symptom,
     "skills.health.medication": health_skill.check_medication,
     "skills.people.fact": people_facts_skill.lookup_fact,
-    "skills.shopping.find_products": search_skill.find_products,
+    "skills.shopping.find_products": shopping_skill.find_products,
     "skills.finance.stock_price": markets_skill.get_stock_price,
     "skills.finance.stock_info": markets_skill.get_stock_info,
     "skills.sports.score": sports_api_skill.get_score,

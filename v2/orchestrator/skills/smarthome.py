@@ -25,6 +25,7 @@ from typing import Any
 from lokidoki.skills.smarthome_mock.skill import SmartHomeMockSkill
 
 from v2.orchestrator.skills._runner import AdapterResult, run_mechanisms
+from v2.orchestrator.skills._store import load_store, save_store
 
 _SKILL = SmartHomeMockSkill()
 
@@ -198,24 +199,63 @@ async def get_indoor_temperature(payload: dict[str, Any]) -> dict[str, Any]:
 
 # ---- detect_presence -------------------------------------------------------
 #
-# The v1 mock has no presence sensors, so we keep a small in-memory
-# overlay table the test suite (or a future real HA integration) can
-# poke at. The default seed reflects "no one home" so the response is
-# deterministic. A real implementation would call into a Home Assistant
-# `binary_sensor.<room>_occupancy` entity instead of this dict.
+# Mechanism chain (mirrors the v1 ``BaseSkill.execute_mechanism`` pattern):
+#
+#   1. ``local_state``  — read from ``v2/data/presence.json`` so the test
+#      suite, the dev tools panel, and a future real HA bridge can all
+#      write to one canonical store.
+#   2. ``ha_sensor``    — placeholder for a real Home Assistant
+#      ``binary_sensor.<room>_occupancy`` lookup. Today this is a no-op
+#      that returns ``None``; the chain falls through to the JSON store
+#      which is the source of truth.
+#   3. ``graceful_failure`` — return a polite "I don't see anyone"
+#      sentence with ``success=True`` so the combiner can deliver it
+#      directly to the user.
 
-_PRESENCE: dict[str, str] = {
-    "living room": "no one",
-    "kitchen": "no one",
-    "bedroom": "no one",
-    "office": "no one",
-    "garage": "no one",
+_PRESENCE_DEFAULT: dict[str, Any] = {
+    "rooms": {
+        "living room": [],
+        "kitchen": [],
+        "bedroom": [],
+        "office": [],
+        "garage": [],
+    }
 }
 
 
-def set_presence(room: str, who: str) -> None:
-    """Test helper — overwrite the in-memory presence table for one room."""
-    _PRESENCE[room.lower().strip()] = who
+def _presence_store() -> dict[str, Any]:
+    return load_store("presence", _PRESENCE_DEFAULT)
+
+
+def _save_presence(payload: dict[str, Any]) -> None:
+    save_store("presence", payload)
+
+
+def set_presence(room: str, who: str | list[str]) -> None:
+    """Public helper — overwrite the persistent presence store for one room.
+
+    Used by tests, the dev tools panel, and any external bridge that
+    wants to seed the canonical presence state.
+    """
+    store = _presence_store()
+    rooms = store.setdefault("rooms", {})
+    if isinstance(who, str):
+        rooms[room.lower().strip()] = [who] if who and who != "no one" else []
+    else:
+        rooms[room.lower().strip()] = list(who)
+    _save_presence(store)
+
+
+def clear_presence(room: str | None = None) -> None:
+    """Reset the persistent presence store. ``room=None`` clears every room."""
+    store = _presence_store()
+    rooms = store.setdefault("rooms", {})
+    if room is None:
+        for key in list(rooms.keys()):
+            rooms[key] = []
+    else:
+        rooms[room.lower().strip()] = []
+    _save_presence(store)
 
 
 def _parse_presence_room(chunk_text: str) -> str:
@@ -229,28 +269,64 @@ def _parse_presence_room(chunk_text: str) -> str:
     return ""
 
 
+def _ha_sensor_lookup(room: str) -> list[str] | None:
+    """Stub for the future real Home Assistant ``binary_sensor`` lookup.
+
+    Returns ``None`` today so the mechanism chain falls through to the
+    persistent JSON store. A real implementation would call
+    ``hass.states.get(f"binary_sensor.{room}_occupancy")`` and translate
+    its ``on/off`` state into an occupant list.
+    """
+    return None
+
+
 async def detect_presence(payload: dict[str, Any]) -> dict[str, Any]:
     chunk_text = str(payload.get("chunk_text") or "")
-    room = _parse_presence_room(chunk_text)
+    params = payload.get("params") or {}
+    room = (params.get("room") or _parse_presence_room(chunk_text) or "").lower().strip()
     if not room:
         return AdapterResult(
             output_text="Which room would you like me to check?",
             success=False,
+            mechanism_used="local_state",
             error="no room",
         ).to_payload()
-    who = _PRESENCE.get(room, "no one")
-    if who == "no one":
+
+    occupants: list[str] | None = _ha_sensor_lookup(room)
+    mechanism = "ha_sensor"
+    if occupants is None:
+        rooms = _presence_store().get("rooms", {})
+        raw = rooms.get(room)
+        if raw is None:
+            return AdapterResult(
+                output_text=f"I don't have a presence sensor for the {room}.",
+                success=False,
+                mechanism_used="local_state",
+                error="unknown room",
+            ).to_payload()
+        if isinstance(raw, str):
+            occupants = [raw] if raw and raw != "no one" else []
+        else:
+            occupants = [str(item) for item in raw if item]
+        mechanism = "local_state"
+
+    if not occupants:
         return AdapterResult(
             output_text=f"I don't see anyone in the {room} right now.",
             success=True,
-            mechanism_used="presence_overlay",
+            mechanism_used=mechanism,
             data={"room": room, "occupants": []},
         ).to_payload()
+    if len(occupants) == 1:
+        text = f"{occupants[0]} is in the {room}."
+    else:
+        head = ", ".join(occupants[:-1])
+        text = f"{head} and {occupants[-1]} are in the {room}."
     return AdapterResult(
-        output_text=f"{who} is in the {room}.",
+        output_text=text,
         success=True,
-        mechanism_used="presence_overlay",
-        data={"room": room, "occupants": [who]},
+        mechanism_used=mechanism,
+        data={"room": room, "occupants": occupants},
     ).to_payload()
 
 

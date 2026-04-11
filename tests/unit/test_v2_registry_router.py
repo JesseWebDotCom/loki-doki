@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from v2.orchestrator.registry.builder import build_router_index
+from v2.orchestrator.registry.loader import load_function_registry
 from v2.orchestrator.registry.runtime import get_runtime
 from v2.orchestrator.routing.router import route_chunk
 from v2.orchestrator.core.types import RequestChunk
@@ -12,6 +13,36 @@ def test_v2_runtime_loads_capability_registry():
     assert runtime.capabilities
     assert "greeting_response" in runtime.capabilities
     assert "spell_word" in runtime.capabilities
+
+
+def test_v2_function_registry_has_parameters_and_mechanisms():
+    """Every capability must declare a v1-style parameters dict and a
+    mechanism chain so the executor / dev tools can introspect them."""
+    entries = load_function_registry()
+    assert entries, "function_registry.json is empty"
+
+    missing_params: list[str] = []
+    missing_mechanisms: list[str] = []
+    for entry in entries:
+        cap = entry["capability"]
+        if "parameters" not in entry:
+            missing_params.append(cap)
+        if "mechanisms" not in entry or not entry["mechanisms"]:
+            missing_mechanisms.append(cap)
+        # Mechanism descriptors must follow the v1 BaseSkill shape.
+        for mechanism in entry.get("mechanisms", []):
+            assert "method" in mechanism, f"{cap}: mechanism missing method"
+            assert "priority" in mechanism, f"{cap}: mechanism missing priority"
+            assert "timeout_ms" in mechanism, f"{cap}: mechanism missing timeout_ms"
+            assert "requires_internet" in mechanism, f"{cap}: mechanism missing requires_internet"
+        # Parameter descriptors must declare type + required when present.
+        for name, descriptor in (entry.get("parameters") or {}).items():
+            assert isinstance(descriptor, dict), f"{cap}.{name}: descriptor must be dict"
+            assert "type" in descriptor, f"{cap}.{name}: missing type"
+            assert "required" in descriptor, f"{cap}.{name}: missing required"
+
+    assert not missing_params, f"capabilities missing parameters: {missing_params}"
+    assert not missing_mechanisms, f"capabilities missing mechanisms: {missing_mechanisms}"
 
 
 def test_v2_builder_precomputes_vectors_at_startup():

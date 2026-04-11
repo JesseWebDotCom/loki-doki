@@ -32,11 +32,30 @@ def decide_gemma(spec: RequestSpec) -> GemmaDecision:
     primary_chunks = [chunk for chunk in spec.chunks if chunk.role == "primary_request"]
     supporting = [chunk for chunk in spec.chunks if chunk.role == "supporting_context"]
 
+    if any(chunk.capability == "direct_chat" for chunk in primary_chunks):
+        # ``direct_chat`` is the explicit "no skill applies, please
+        # synthesize a conversational answer" capability. It has no
+        # backend on its own and the executor returns the chunk text
+        # verbatim. Always hand it to Gemma so the user never sees
+        # their own utterance mirrored back.
+        return GemmaDecision(needed=True, reason="direct_chat")
     if any(chunk.unresolved for chunk in primary_chunks):
         return GemmaDecision(needed=True, reason="unresolved_chunk")
     if any(not chunk.success for chunk in primary_chunks):
         return GemmaDecision(needed=True, reason="failed_execution")
-    if any(chunk.confidence < CONFIG.route_confidence_threshold for chunk in primary_chunks):
+    # Skill returned success=True but no actual content (e.g. an API
+    # returned 200 OK with an empty result set). A blank response is a
+    # dead end for the user — Gemma's training-data answer, even if
+    # potentially outdated, is strictly better than nothing.
+    if any(
+        chunk.success and not str((chunk.result or {}).get("output_text") or "").strip()
+        for chunk in primary_chunks
+    ):
+        return GemmaDecision(needed=True, reason="empty_output")
+    # ``<=`` so a borderline route at exactly the threshold still
+    # triggers Gemma — strict ``<`` was letting confidence==0.55 pass
+    # straight through to the deterministic combiner.
+    if any(chunk.confidence <= CONFIG.route_confidence_threshold for chunk in primary_chunks):
         return GemmaDecision(needed=True, reason="low_confidence")
     if supporting:
         return GemmaDecision(needed=True, reason="supporting_context")
@@ -150,6 +169,16 @@ def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
             continue
         if not chunk.success:
             parts.append(f"I couldn't complete that ({chunk.capability}).")
+            continue
+        if chunk.capability == "direct_chat":
+            # The direct_chat handler echoes the chunk text verbatim;
+            # without a real Gemma model we have nothing useful to
+            # synthesize, so emit a graceful no-answer line instead of
+            # mirroring the user's words back at them.
+            parts.append(
+                "I don't have a built-in answer for that — try enabling Gemma "
+                "or rephrasing as a question I can route to a skill."
+            )
             continue
         text = str(chunk.result.get("output_text") or "").strip()
         if text:

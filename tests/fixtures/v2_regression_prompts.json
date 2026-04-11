@@ -621,7 +621,8 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "direct_chat",
-        "gemma_used": false,
+        "gemma_used": true,
+        "gemma_reason": "direct_chat",
         "max_total_ms": 500
       }
     },
@@ -632,7 +633,8 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "direct_chat",
-        "gemma_used": false,
+        "gemma_used": true,
+        "gemma_reason": "direct_chat",
         "max_total_ms": 500
       }
     },
@@ -643,7 +645,8 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "direct_chat",
-        "gemma_used": false,
+        "gemma_used": true,
+        "gemma_reason": "direct_chat",
         "max_total_ms": 500
       }
     },

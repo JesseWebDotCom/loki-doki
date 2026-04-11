@@ -18,6 +18,15 @@
         "priority": 10,
         "enabled": true
       }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "builtin",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -36,6 +45,15 @@
         "handler_name": "core.acknowledgments.reply",
         "priority": 10,
         "enabled": true
+      }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "builtin",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -61,6 +79,15 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "system_clock",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -78,6 +105,15 @@
         "handler_name": "core.date.get_local_date",
         "priority": 5,
         "enabled": true
+      }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "system_clock",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
       }
     ]
   },
@@ -98,6 +134,34 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "name": {
+        "type": "string",
+        "required": true
+      },
+      "country": {
+        "type": "string",
+        "required": false
+      },
+      "year": {
+        "type": "integer",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "nager_date_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 2,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -117,6 +181,30 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "country": {
+        "type": "string",
+        "required": true
+      },
+      "year": {
+        "type": "integer",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "nager_date_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 2,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -135,6 +223,26 @@
         "handler_name": "core.time.until",
         "priority": 15,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "target": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "date_math",
+        "priority": 1,
+        "timeout_ms": 200,
+        "requires_internet": false
+      },
+      {
+        "method": "holiday_lookup",
+        "priority": 1,
+        "timeout_ms": 300,
+        "requires_internet": false
       }
     ]
   },
@@ -160,6 +268,20 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "word": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "builtin",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -178,6 +300,15 @@
         "handler_name": "context.media.recall_recent",
         "priority": 5,
         "enabled": true
+      }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "conversation_context",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
       }
     ]
   },
@@ -205,6 +336,24 @@
         "priority": 30,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "device": {
+        "type": "string",
+        "required": true
+      },
+      "action": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_state",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -223,6 +372,24 @@
         "handler_name": "skills.messaging.send_text",
         "priority": 30,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "person_name": {
+        "type": "string",
+        "required": true
+      },
+      "body": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_messages",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -244,6 +411,28 @@
         "priority": 5,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "amount": {
+        "type": "number",
+        "required": true
+      },
+      "from_unit": {
+        "type": "string",
+        "required": true
+      },
+      "to_unit": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "offline_table",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -262,6 +451,28 @@
         "handler_name": "core.calculator.tip",
         "priority": 10,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "amount": {
+        "type": "number",
+        "required": true
+      },
+      "percent": {
+        "type": "number",
+        "required": false
+      },
+      "split": {
+        "type": "integer",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_math",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -282,6 +493,34 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "amount": {
+        "type": "number",
+        "required": true
+      },
+      "from": {
+        "type": "string",
+        "required": true
+      },
+      "to": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "frankfurter_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 2,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -300,6 +539,30 @@
         "handler_name": "skills.finance.exchange_rate",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "from": {
+        "type": "string",
+        "required": true
+      },
+      "to": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "frankfurter_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 2,
+        "timeout_ms": 200,
+        "requires_internet": false
       }
     ]
   },
@@ -322,6 +585,37 @@
         "priority": 30,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "location": {
+        "type": "string",
+        "required": false
+      },
+      "date": {
+        "type": "string",
+        "format": "date",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "open_meteo_geocode",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "open_meteo_forecast",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 3,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -341,6 +635,36 @@
         "handler_name": "skills.movies.showtimes",
         "priority": 30,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "title": {
+        "type": "string",
+        "required": true
+      },
+      "location": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "movie_showtimes",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "napi_theaters_with_showtimes",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 3,
+        "timeout_ms": 200,
+        "requires_internet": false
       }
     ]
   },
@@ -363,6 +687,20 @@
         "priority": 10,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "person": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "people_db",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -379,6 +717,10 @@
       "what is the capital of france",
       "define photosynthesis",
       "what does cpu stand for",
+      "what does json stand for",
+      "what does html stand for",
+      "what does nasa stand for",
+      "what does the acronym sql mean",
       "explain how wifi works",
       "explain how a battery works",
       "why is the sky blue",
@@ -398,6 +740,26 @@
         "handler_name": "core.knowledge.lookup",
         "priority": 50,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "question": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "wikipedia_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "wikipedia_scraper",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -420,6 +782,20 @@
         "priority": 30,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "room": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_state",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -440,6 +816,26 @@
         "handler_name": "skills.presence.detect",
         "priority": 30,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "room": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ha_sensor",
+        "priority": 1,
+        "timeout_ms": 200,
+        "requires_internet": false
+      },
+      {
+        "method": "local_state",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -462,6 +858,20 @@
         "priority": 30,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "device": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_state",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -483,6 +893,20 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "city": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "zoneinfo",
+        "priority": 1,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -502,6 +926,34 @@
         "handler_name": "skills.writing.email",
         "priority": 50,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "purpose": {
+        "type": "string",
+        "required": true
+      },
+      "tone": {
+        "type": "string",
+        "required": false
+      },
+      "recipient": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
       }
     ]
   },
@@ -526,6 +978,34 @@
         "priority": 50,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "intent": {
+        "type": "string",
+        "required": true
+      },
+      "language": {
+        "type": "string",
+        "required": false
+      },
+      "code": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -546,6 +1026,26 @@
         "handler_name": "skills.writing.summarize",
         "priority": 50,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "source": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
       }
     ]
   },
@@ -568,6 +1068,34 @@
         "priority": 50,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "plan_type": {
+        "type": "string",
+        "required": true
+      },
+      "duration": {
+        "type": "string",
+        "required": false
+      },
+      "constraints": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -588,6 +1116,30 @@
         "priority": 50,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "option_a": {
+        "type": "string",
+        "required": true
+      },
+      "option_b": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -607,6 +1159,28 @@
         "handler_name": "skills.shopping.find_products",
         "priority": 50,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "category": {
+        "type": "string",
+        "required": true
+      },
+      "budget": {
+        "type": "number",
+        "required": false
+      },
+      "use_case": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_catalog",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -629,6 +1203,24 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "word": {
+        "type": "string",
+        "required": true
+      },
+      "lang": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "dictionaryapi_dev",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -650,6 +1242,24 @@
         "priority": 30,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "topic": {
+        "type": "string",
+        "required": false
+      },
+      "source": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "google_news_rss",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -669,6 +1279,15 @@
         "priority": 25,
         "enabled": true
       }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "google_news_rss",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -687,6 +1306,24 @@
         "handler_name": "skills.news.search",
         "priority": 25,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      },
+      "recency": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "google_news_rss_search",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -709,6 +1346,24 @@
         "priority": 30,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "dish": {
+        "type": "string",
+        "required": true
+      },
+      "constraints": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "themealdb",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -729,6 +1384,15 @@
         "priority": 30,
         "enabled": true
       }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "icanhazdadjoke",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -748,6 +1412,26 @@
         "handler_name": "skills.tv.tvmaze",
         "priority": 30,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "tvmaze_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 2,
+        "timeout_ms": 200,
+        "requires_internet": false
       }
     ]
   },
@@ -771,6 +1455,26 @@
         "priority": 40,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "feeling": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -787,6 +1491,20 @@
         "handler_name": "fallback.direct_chat",
         "priority": 100,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "text": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "echo",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -805,6 +1523,32 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "title": {
+        "type": "string",
+        "required": true
+      },
+      "start": {
+        "type": "string",
+        "required": true
+      },
+      "end": {
+        "type": "string",
+        "required": false
+      },
+      "location": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_calendar",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -821,6 +1565,25 @@
         "handler_name": "device.calendar.get",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "date": {
+        "type": "string",
+        "format": "date",
+        "required": false
+      },
+      "range": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_calendar",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -839,6 +1602,32 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "event_id": {
+        "type": "string",
+        "required": true
+      },
+      "title": {
+        "type": "string",
+        "required": false
+      },
+      "start": {
+        "type": "string",
+        "required": false
+      },
+      "end": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_calendar",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -856,6 +1645,20 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "event_id": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_calendar",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -871,6 +1674,28 @@
         "handler_name": "device.alarm.set",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "time": {
+        "type": "string",
+        "required": true
+      },
+      "label": {
+        "type": "string",
+        "required": false
+      },
+      "repeat": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_alarms",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -888,6 +1713,24 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "duration": {
+        "type": "string",
+        "required": true
+      },
+      "label": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_alarms",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -903,6 +1746,24 @@
         "handler_name": "device.reminder.set",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "text": {
+        "type": "string",
+        "required": true
+      },
+      "time": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_alarms",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -920,6 +1781,24 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "alarm_id": {
+        "type": "string",
+        "required": false
+      },
+      "label": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_alarms",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -935,6 +1814,15 @@
         "handler_name": "device.alarm.list",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "local_alarms",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -953,6 +1841,20 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_contacts",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -969,6 +1871,24 @@
         "handler_name": "device.messages.read",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "person": {
+        "type": "string",
+        "required": false
+      },
+      "count": {
+        "type": "integer",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_messages",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -987,6 +1907,24 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "folder": {
+        "type": "string",
+        "required": false
+      },
+      "filter": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_emails",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1004,6 +1942,20 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "person": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_calls",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1019,6 +1971,24 @@
         "handler_name": "device.notes.create",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "title": {
+        "type": "string",
+        "required": false
+      },
+      "body": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_notes",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -1036,6 +2006,24 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "list_name": {
+        "type": "string",
+        "required": true
+      },
+      "items": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_notes",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1052,6 +2040,20 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "list_name": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_notes",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1067,6 +2069,20 @@
         "handler_name": "device.notes.search",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_notes",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -1085,6 +2101,24 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      },
+      "context": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_playback_state",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1101,6 +2135,20 @@
         "handler_name": "device.music.control",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "action": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_playback_state",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -1119,6 +2167,15 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "local_playback_state",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1135,6 +2192,20 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "level": {
+        "type": "number",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_playback_state",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1150,6 +2221,20 @@
         "handler_name": "skills.music.lookup_track",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "musicbrainz_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1168,6 +2253,34 @@
         "priority": 25,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "origin": {
+        "type": "string",
+        "required": true
+      },
+      "dest": {
+        "type": "string",
+        "required": true
+      },
+      "mode": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "nominatim_geocode",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "osrm_route",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1183,6 +2296,30 @@
         "handler_name": "skills.navigation.eta",
         "priority": 25,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "destination": {
+        "type": "string",
+        "required": true
+      },
+      "mode": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "nominatim_geocode",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "osrm_route",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1200,6 +2337,30 @@
         "priority": 25,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "category": {
+        "type": "string",
+        "required": true
+      },
+      "location": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "nominatim_geocode",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "overpass",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1215,6 +2376,20 @@
         "handler_name": "skills.navigation.transit",
         "priority": 40,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "location": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_metro_kb",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -1232,6 +2407,32 @@
         "priority": 30,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "title": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_catalog",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      },
+      {
+        "method": "tvmaze_api",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 3,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1247,6 +2448,33 @@
         "handler_name": "skills.travel.flights.search",
         "priority": 35,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "origin": {
+        "type": "string",
+        "required": true
+      },
+      "dest": {
+        "type": "string",
+        "required": true
+      },
+      "date": {
+        "type": "string",
+        "format": "date",
+        "required": false
+      },
+      "passengers": {
+        "type": "integer",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_routes",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -1264,6 +2492,20 @@
         "priority": 35,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "flight_number": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "opensky",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1279,6 +2521,28 @@
         "handler_name": "skills.travel.hotels.search",
         "priority": 35,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "location": {
+        "type": "string",
+        "required": true
+      },
+      "dates": {
+        "type": "string",
+        "required": false
+      },
+      "guests": {
+        "type": "integer",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_chains",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -1296,6 +2560,24 @@
         "priority": 35,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "passport": {
+        "type": "string",
+        "required": true
+      },
+      "destination": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_visa_kb",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1311,6 +2593,20 @@
         "handler_name": "skills.health.symptom",
         "priority": 35,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "symptom": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "medlineplus_search",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1329,6 +2625,30 @@
         "priority": 35,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "name": {
+        "type": "string",
+        "required": true
+      },
+      "query": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "rxnorm_approximate",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "rxnorm_properties",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1345,6 +2665,28 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "type": {
+        "type": "string",
+        "required": true
+      },
+      "duration": {
+        "type": "string",
+        "required": false
+      },
+      "notes": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_fitness",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1360,6 +2702,20 @@
         "handler_name": "device.fitness.summary",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "period": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_fitness",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -1378,6 +2734,36 @@
         "priority": 35,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "person": {
+        "type": "string",
+        "required": true
+      },
+      "fact": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "wikidata_search",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "wikidata_entity",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "wikidata_label",
+        "priority": 3,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1395,6 +2781,20 @@
         "priority": 25,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "scene_name": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_scene",
+        "priority": 1,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1410,6 +2810,24 @@
         "handler_name": "skills.food.nutrition",
         "priority": 25,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "food": {
+        "type": "string",
+        "required": true
+      },
+      "amount": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "open_food_facts",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1427,6 +2845,24 @@
         "priority": 25,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "ingredient": {
+        "type": "string",
+        "required": true
+      },
+      "context": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "substitution_table",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1442,6 +2878,24 @@
         "handler_name": "skills.food.order",
         "priority": 25,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "restaurant": {
+        "type": "string",
+        "required": false
+      },
+      "items": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_order_store",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   },
@@ -1460,6 +2914,15 @@
         "priority": 10,
         "enabled": true
       }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "builtin",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1476,6 +2939,15 @@
         "handler_name": "core.acknowledgments.reply",
         "priority": 10,
         "enabled": true
+      }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "builtin",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -1494,6 +2966,20 @@
         "priority": 100,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "text": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "echo",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1509,6 +2995,24 @@
         "handler_name": "skills.dictionary.lookup",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "word": {
+        "type": "string",
+        "required": true
+      },
+      "lang": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "dictionaryapi_dev",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1526,6 +3030,20 @@
         "priority": 10,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "expression": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "safe_eval",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1541,6 +3059,28 @@
         "handler_name": "core.units.convert",
         "priority": 10,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "amount": {
+        "type": "number",
+        "required": true
+      },
+      "from_unit": {
+        "type": "string",
+        "required": true
+      },
+      "to_unit": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "offline_table",
+        "priority": 1,
+        "timeout_ms": 50,
+        "requires_internet": false
       }
     ]
   },
@@ -1558,6 +3098,37 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "location": {
+        "type": "string",
+        "required": false
+      },
+      "date": {
+        "type": "string",
+        "format": "date",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "open_meteo_geocode",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "open_meteo_forecast",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 3,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1573,6 +3144,26 @@
         "handler_name": "core.knowledge.lookup",
         "priority": 20,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "question": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "wikipedia_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "wikipedia_scraper",
+        "priority": 2,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1590,6 +3181,26 @@
         "priority": 40,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "source": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1605,6 +3216,24 @@
         "handler_name": "skills.writing.translate",
         "priority": 30,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "text": {
+        "type": "string",
+        "required": true
+      },
+      "target_lang": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "mymemory_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1622,6 +3251,34 @@
         "priority": 40,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "intent": {
+        "type": "string",
+        "required": true
+      },
+      "language": {
+        "type": "string",
+        "required": false
+      },
+      "code": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1637,6 +3294,30 @@
         "handler_name": "skills.tv.schedule",
         "priority": 30,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "title": {
+        "type": "string",
+        "required": true
+      },
+      "channel": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "tvmaze_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 2,
+        "timeout_ms": 200,
+        "requires_internet": false
       }
     ]
   },
@@ -1654,6 +3335,24 @@
         "priority": 20,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "person": {
+        "type": "string",
+        "required": true
+      },
+      "body": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "local_messages",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
+      }
     ]
   },
   {
@@ -1669,6 +3368,26 @@
         "handler_name": "skills.support.empathy",
         "priority": 40,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "feeling": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ollama_gemma",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      },
+      {
+        "method": "template_stub",
+        "priority": 1,
+        "timeout_ms": 20,
+        "requires_internet": false
       }
     ]
   },
@@ -1687,6 +3406,20 @@
         "priority": 25,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "ticker": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "yahoo_quote",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1704,6 +3437,20 @@
         "priority": 25,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "ticker": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "yahoo_quote",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1719,6 +3466,20 @@
         "handler_name": "skills.sports.score",
         "priority": 35,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "team_or_game": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "espn_scoreboard",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1737,6 +3498,25 @@
         "priority": 35,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "league": {
+        "type": "string",
+        "required": true
+      },
+      "date": {
+        "type": "string",
+        "format": "date",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "espn_standings",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1752,6 +3532,20 @@
         "handler_name": "skills.sports.schedule",
         "priority": 35,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "team_or_league": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "espn_scoreboard",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
       }
     ]
   },
@@ -1769,6 +3563,28 @@
         "priority": 35,
         "enabled": true
       }
+    ],
+    "parameters": {
+      "player": {
+        "type": "string",
+        "required": true
+      },
+      "stat": {
+        "type": "string",
+        "required": false
+      },
+      "season": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ddg_search",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      }
     ]
   },
   {
@@ -1785,6 +3601,20 @@
         "handler_name": "core.people.birthday",
         "priority": 15,
         "enabled": true
+      }
+    ],
+    "parameters": {
+      "person": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "people_db",
+        "priority": 1,
+        "timeout_ms": 100,
+        "requires_internet": false
       }
     ]
   }
