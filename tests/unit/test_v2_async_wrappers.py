@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from v2.bmo_nlu.core.types import ChunkExtraction, ImplementationSelection, RequestChunk, ResolutionResult, RouteMatch
-from v2.bmo_nlu.execution import executor
-from v2.bmo_nlu.resolution import resolver
-from v2.bmo_nlu.routing import router
+from v2.orchestrator.core.types import ChunkExtraction, ImplementationSelection, RequestChunk, ResolutionResult, RouteMatch
+from v2.orchestrator.execution import executor
+from v2.orchestrator.resolution import resolver
+from v2.orchestrator.routing import router
 
 
 @pytest.mark.anyio
@@ -49,7 +49,8 @@ async def test_v2_resolve_chunk_async_uses_to_thread(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_v2_execute_chunk_async_uses_to_thread(monkeypatch):
+async def test_v2_execute_chunk_async_offloads_handler_via_to_thread(monkeypatch):
+    """The executor must offload sync handler calls so the event loop stays free."""
     calls: list[tuple] = []
 
     async def fake_to_thread(func, *args, **kwargs):
@@ -77,6 +78,7 @@ async def test_v2_execute_chunk_async_uses_to_thread(monkeypatch):
     result = await executor.execute_chunk_async(chunk, route, implementation, resolution)
 
     assert result.output_text == "Hello."
-    assert calls
-    assert calls[0][0] == "execute_chunk"
-    assert calls[0][1] == (chunk, route, implementation, resolution)
+    assert result.success is True
+    assert result.handler_name == "core.greetings.reply"
+    assert calls, "executor must offload synchronous handlers via asyncio.to_thread"
+    assert calls[0][0] == "_greeting_handler"

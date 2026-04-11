@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from v2.bmo_nlu.registry.builder import build_router_index
-from v2.bmo_nlu.registry.runtime import get_runtime
-from v2.bmo_nlu.routing.router import route_chunk
-from v2.bmo_nlu.core.types import RequestChunk
+from v2.orchestrator.registry.builder import build_router_index
+from v2.orchestrator.registry.runtime import get_runtime
+from v2.orchestrator.routing.router import route_chunk
+from v2.orchestrator.core.types import RequestChunk
 
 
 def test_v2_runtime_loads_capability_registry():

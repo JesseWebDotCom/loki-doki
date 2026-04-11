@@ -2,7 +2,7 @@
   {
     "capability": "greeting_response",
     "description": "Respond to a short greeting from the user.",
-    "examples": ["hello", "hi", "hey", "hello there", "hi there"],
+    "examples": ["hello", "hi", "hey", "hello there", "hi there", "good morning"],
     "enabled": true,
     "implementations": [
       {
@@ -16,7 +16,7 @@
   {
     "capability": "acknowledgment_response",
     "description": "Respond to a short acknowledgment or thanks.",
-    "examples": ["thanks", "thank you", "got it"],
+    "examples": ["thanks", "thank you", "got it", "appreciate it"],
     "enabled": true,
     "implementations": [
       {
@@ -43,6 +43,20 @@
         "id": "core.time.backup",
         "handler_name": "core.time.get_local_time_backup",
         "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_current_date",
+    "description": "Tell the user today's date.",
+    "examples": ["what day is it", "what's today's date", "what is today"],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.date.default",
+        "handler_name": "core.date.get_local_date",
+        "priority": 5,
         "enabled": true
       }
     ]
@@ -82,6 +96,44 @@
         "id": "context.media.recall_recent",
         "handler_name": "context.media.recall_recent",
         "priority": 5,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "control_device",
+    "description": "Turn on or off a home device or adjust its settings.",
+    "examples": [
+      "turn off the kitchen light",
+      "turn on the living room fan",
+      "set the thermostat to 72",
+      "switch off the tv"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.home_assistant.toggle",
+        "handler_name": "skills.home_assistant.toggle",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "send_text_message",
+    "description": "Compose and send a short text message to a person.",
+    "examples": [
+      "text Sarah",
+      "send a text to mom",
+      "text Anakin that I'm running late",
+      "message Leia"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.messaging.send_text",
+        "handler_name": "skills.messaging.send_text",
+        "priority": 30,
         "enabled": true
       }
     ]

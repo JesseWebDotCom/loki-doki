@@ -138,7 +138,7 @@ const V2PrototypeRunner: React.FC = () => {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-4">
               <div className="rounded-xl border border-border/20 bg-background/40 p-3">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trace Total</div>
                 <div className="mt-2 text-sm font-medium">{result.trace_summary.total_timing_ms.toFixed(2)} ms</div>
@@ -150,6 +150,12 @@ const V2PrototypeRunner: React.FC = () => {
               <div className="rounded-xl border border-border/20 bg-background/40 p-3">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">RequestSpec</div>
                 <div className="mt-2 text-sm font-medium">{result.request_spec.chunks.length} chunks</div>
+              </div>
+              <div className="rounded-xl border border-border/20 bg-background/40 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Gemma</div>
+                <div className="mt-2 text-sm font-medium">
+                  {result.request_spec.gemma_used ? `used (${result.request_spec.gemma_reason ?? 'fallback'})` : 'skipped'}
+                </div>
               </div>
             </div>
 

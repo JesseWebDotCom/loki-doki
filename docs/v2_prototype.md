@@ -1,5 +1,5 @@
-# BMO / LokiDoki — Capability-Orchestrated Request Pipeline
-## Complete Design Document
+# LokiDoki — Capability-Orchestrated Request Pipeline (v2 prototype)
+## Design Document
 
 ---
 
@@ -9,6 +9,21 @@
 > All code goes under a **`v2/` parent folder** — no existing project code should be modified in any way,
 > other than to display the v2 prototype on the Dev Tools page.
 > If v2 proves successful, we can later plan a migration into / replacement of existing code.
+
+---
+
+## Implementation Status — at-a-glance
+
+| Phase | Title | Status | Notes |
+|-------|-------|--------|-------|
+| 1 | Minimal Working Pipeline | ✅ **Done** | spaCy single-call parser, doc-aware split/extract, mature fast lane, full trace |
+| 2 | Semantic Routing (MiniLM) | ✅ **Done** | Registry-backed routing, startup vector index, fastembed/MiniLM with hash fallback |
+| 3 | Real Resolver | 🟡 **Done against in-memory adapters** | People / device / media / pronoun resolvers ship; real PeopleDB / Home Assistant clients still to wire |
+| 4 | Parallel Execution | 🟡 **Mostly done** | `asyncio.gather` + `to_thread` everywhere; sequential-vs-parallel benchmarks still TODO |
+| 5 | Gemma Fallback | 🟡 **Stubbed** | `decide_gemma()`, trace flag, deterministic stub synthesizer; real Ollama Gemma client not wired |
+| 6 | Production Hardening | 🟡 **Core in place** | Per-handler timeout/retry, error classes, 80+ unit/integration tests; broader regression fixtures pending |
+
+**Live source of truth:** the Dev Tools panel at `/api/v1/dev/v2/status` reflects the same status with per-phase shipped/remaining lists. The detail under each phase in §15 below is kept in sync with that endpoint.
 
 ---
 
@@ -54,7 +69,7 @@
 
 ## 1. Project Goal
 
-Build a **local, low-latency, no-training request orchestration layer** for BMO that can:
+Build a **local, low-latency, no-training request orchestration layer** for LokiDoki that can:
 
 - Accept raw user text or ASR text
 - Lightly normalize input
@@ -736,7 +751,7 @@ Always available. Cannot be disabled. No external API. Deterministic.
 | `greeting_response` | Responds to greetings |
 | `acknowledgment_response` | Responds to thanks/affirmations |
 
-**Location:** `v2/bmo_nlu/core/capabilities/`
+**Location:** `v2/orchestrator/core/capabilities/`
 
 **Priority:** Core capabilities are implicitly highest priority. If a core capability and a skill capability both implement the same action, the core wins.
 
@@ -923,7 +938,7 @@ async def handle_get_movie_rating(movie_id: str, movie_name: str, **kwargs) -> d
 ### Skill Loader
 
 ```python
-# v2/bmo_nlu/registry/loader.py
+# v2/orchestrator/registry/loader.py
 
 from pathlib import Path
 import importlib.util
@@ -1167,14 +1182,14 @@ Every request gets a `trace_id`. Every step logs its duration. Total overhead is
 ### Implementation
 
 ```python
-# v2/bmo_nlu/observability/tracing.py
+# v2/orchestrator/observability/tracing.py
 
 from contextlib import contextmanager
 from time import perf_counter
 import uuid
 import logging
 
-log = logging.getLogger("bmo.trace")
+log = logging.getLogger("v2.orchestrator.trace")
 
 def start_trace(raw_text: str) -> dict:
     return {
@@ -1262,12 +1277,18 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** End-to-end request handling with deterministic logic only.
 
-**Status:** Completed
+**Status:** ✅ **Done**
 
-**Completed in repo:**
+**Done:**
 - Isolated `v2/` prototype runner exposed only through Dev Tools
-- Normalize, signals, fast-lane, parse, split, extract, resolve, execute, combine, and RequestSpec stages
-- Full structured trace with step status, per-step timing, and per-chunk timing/details in the Dev Tools UI
+- Normalize, signals, mature fast lane (greetings / ack / time / date / spell / math) with normalized-lemma + fuzzy template matching
+- spaCy single-call parser feeding split / extract (one `Doc` per utterance, reused everywhere)
+- Doc-aware splitter with subordinate-clause peel (`because`/`if`/`since`) and predicate-family keep-together (`scary and gory`)
+- Doc-aware extractor pulling pronouns (POS=PRON), definite noun phrases (determiner-led noun chunks), entities, and predicates from spaCy
+- Centralized English linguistic constants in [`v2/orchestrator/linguistics/english.py`](../v2/orchestrator/linguistics/english.py) (no scattered keyword lists)
+- Full structured trace with per-step status, per-chunk timing, and Dev Tools UI surfacing
+
+**Not done:** *(none — this phase is closed)*
 
 **Build:**
 - `normalizer.py`
@@ -1292,18 +1313,18 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Replace brittle string routing with semantic similarity.
 
-**Status:** In progress
+**Status:** ✅ **Done**
 
-**Completed in repo:**
+**Done:**
 - Registry-backed routing runtime
 - Static capability registry in `v2/data/function_registry.json`
-- Confidence scores surfaced in trace
-- Matched registry text surfaced in trace and Dev Tools
-- Concrete implementation selection stage added after routing, with handler id, priority, candidate count, and timing
+- MiniLM embeddings via `fastembed` (`sentence-transformers/all-MiniLM-L6-v2`)
+- Hash-based fallback embedding backend when `fastembed` is missing
+- Startup embedding/index build cached in `CapabilityRuntime`
+- Confidence scores + matched registry text + handler selection visible in trace and Dev Tools
 
-**Remaining for this phase:**
-- Swap the current deterministic similarity scorer for real MiniLM embeddings
-- Add startup embedding/index build behavior instead of text-only runtime scoring
+**Not done:**
+- Validate hardware-specific fallback behavior on `pi_cpu` and `pi_hailo` profiles
 
 **Build:**
 - `registry/loader.py`
@@ -1323,10 +1344,20 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Resolve people, devices, movies, and pronouns using local data.
 
-**Status:** Not started
+**Status:** 🟡 **Done against in-memory adapters; real backends still to wire**
 
-**Notes:**
-- Current prototype resolver is still deterministic and local-only, but it is not yet wired to real people/device/media adapters.
+**Done:**
+- `adapters/people_db.py`, `adapters/home_assistant.py`, `adapters/movie_context.py`, `adapters/conversation_memory.py` (in-memory stubs with real-backend seams)
+- `resolution/people_resolver.py`, `resolution/media_resolver.py`, `resolution/device_resolver.py`, `resolution/pronoun_resolver.py`
+- People resolver: alias + family-priority ranking; ambiguous mentions surface as `person_ambiguous`
+- Device resolver: substring + fuzzy match against the Home Assistant entity registry; ambiguous → `device_ambiguous`
+- Pronoun resolver: skipped for direct utilities (`get_current_time`, etc.) so the dummy "it" in "what time is it" is not bound; bound for real referents from conversation memory
+- Media resolver: recent / missing / ambiguous movie context flagged in `RequestSpec.unresolved`
+- Definite-reference detection (`the X`, `that X`) is structural — driven by spaCy noun chunks + the `DETERMINERS` linguistic constant, not a literal phrase list
+
+**Not done:**
+- Replace stub adapters with real PeopleDB / Home Assistant clients
+- Per-resolver latency budgets
 
 **Build:**
 - `resolution/people_resolver.py`
@@ -1349,16 +1380,17 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Reduce latency for compound requests.
 
-**Status:** Partially completed
+**Status:** 🟡 **Mostly done — benchmarking remaining**
 
-**Completed in repo:**
+**Done:**
 - Pipeline converted to `async`
-- `asyncio.gather()` used for route / select implementation / resolve / execute
+- `asyncio.gather()` used for route / select implementation / resolve / execute (parallel per chunk)
+- `asyncio.to_thread()` wrappers offloading routing, resolving, and synchronous handlers
 - Per-step and per-chunk timing visible in trace and Dev Tools
 
-**Remaining for this phase:**
-- Add `asyncio.to_thread()` wrappers where blocking libraries are introduced
-- Measure and document sequential vs parallel latency once real adapters are connected
+**Not done:**
+- Sequential-vs-parallel latency benchmark once real adapters are connected
+- Streaming-friendly trace push (the trace is built in memory; not yet streamed to UI/websocket per spec §13)
 
 **Build:**
 - Convert pipeline to `async`
@@ -1375,11 +1407,18 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Use Gemma only for hard cases.
 
-**Build:**
-- `fallbacks/gemma_fallback.py`
-- `needs_gemma()` logic
-- Prompt templates for split / resolve / combine
-- Confidence thresholds
+**Status:** 🟡 **Decision logic + stub synthesizer shipped; real Gemma client not wired**
+
+**Done:**
+- `fallbacks/gemma_fallback.py` with `decide_gemma()` (unresolved / failed / low-confidence / supporting-context triggers)
+- `build_gemma_payload()` serializing the structured `RequestSpec` for downstream prompting
+- `gemma_synthesize()` deterministic stub covering unresolved-media, ambiguous-media, ambiguous-person, ambiguous-device, and supporting-context paths
+- `RequestSpec.gemma_used` + `RequestSpec.gemma_reason` flags surfaced in trace and Dev Tools (`combine` step's `mode` detail)
+
+**Not done:**
+- Set `CONFIG.gemma_enabled = True` and wire a real Ollama Gemma client in `_call_real_gemma()`
+- Author split / resolve / combine prompt templates
+- Confidence-threshold tuning against a real prompt corpus
 
 **Success criteria:**
 - Deterministic path handles ≥80% of real requests
@@ -1392,12 +1431,18 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Stable, observable, testable system.
 
-**Build:**
-- Retries + timeouts per skill
-- Error classes + graceful degradation
-- Rich terminal trace (dev tools UI)
-- Full unit + integration test suite
-- Regression prompt fixtures
+**Status:** 🟡 **Core hardening shipped; broader regression coverage still to come**
+
+**Done:**
+- `execution/executor.py` per-handler timeout + retry budget (configurable via `core/config.CONFIG`)
+- `execution/errors.py` with `HandlerError`, `HandlerTimeout`, `TransientHandlerError`
+- Failures captured on `ExecutionResult.success` / `error` / `attempts` (no exceptions reach the pipeline)
+- 80+ v2 unit + integration tests covering adapters, resolvers, fast lane, splitter/extractor, Gemma fallback, executor resilience, linguistics constants, and the dev API
+
+**Not done:**
+- Broader regression prompt fixtures (multi-turn flows, edge utterances)
+- End-to-end production validation against real PeopleDB / Home Assistant / Gemma backends
+- Rich terminal trace renderer (Rich/CLI dev mode)
 
 ---
 
@@ -1433,7 +1478,7 @@ v2/
 │   ├── weather.py
 │   └── home_assistant.py
 │
-└── bmo_nlu/
+└── orchestrator/
     ├── __init__.py
     │
     ├── core/
@@ -1920,7 +1965,7 @@ Before sending to Gemma, confirm at least one:
 
 ---
 
-## Appendix — Hardware Notes (BMO Deployment)
+## Appendix — Hardware Notes (LokiDoki Deployment)
 
 | Component | Suggested Hardware | Notes |
 |-----------|-------------------|-------|
@@ -1936,4 +1981,4 @@ Before sending to Gemma, confirm at least one:
 
 ---
 
-*End of BMO / LokiDoki Capability-Orchestrated Request Pipeline Design Document*
+*End of LokiDoki Capability-Orchestrated Request Pipeline Design Document*

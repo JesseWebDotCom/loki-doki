@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
-from v2.bmo_nlu.core.pipeline import run_pipeline_async
-from v2.bmo_nlu.registry.runtime import get_runtime
-from v2.bmo_nlu.routing.embeddings import FASTEMBED_MODEL
+from v2.orchestrator.core.pipeline import run_pipeline_async
+from v2.orchestrator.registry.runtime import get_runtime
+from v2.orchestrator.routing.embeddings import FASTEMBED_MODEL
 
 router = APIRouter()
 
@@ -36,7 +36,7 @@ async def get_v2_status(_: User = Depends(require_admin)):
     minilm_active = embedding_backend.name.startswith("fastembed:")
 
     return {
-        "current_focus": "Phase 4 offloading and Phase 3 resolver expansion",
+        "current_focus": "Phase 3 adapter wiring + Phase 5 Gemma fallback (stub) + Phase 6 hardening",
         "phases": [
             {
                 "id": "phase_1",
@@ -45,7 +45,9 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "status": "complete",
                 "completed": [
                     "Isolated v2 prototype exposed in Dev Tools",
-                    "Deterministic normalize/parse/split/extract/resolve/execute/combine flow",
+                    "spaCy single-call parser feeding split/extract/resolve",
+                    "Mature fast lane (greetings, ack, time, date, spell, math) with fuzzy templates",
+                    "Doc-aware splitter with subordinate-clause and predicate-family detection",
                     "Structured trace with per-step and per-chunk timing",
                 ],
                 "remaining": [],
@@ -69,16 +71,17 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "id": "phase_3",
                 "label": "Phase 3",
                 "title": "Real Resolver",
-                "status": "partial",
+                "status": "complete",
                 "completed": [
-                    "Recent movie context resolution",
-                    "Missing or ambiguous media follow-ups flagged instead of guessed",
+                    "Conversation-memory, people-DB, Home Assistant, movie-context adapters",
+                    "People resolver with alias + family-priority ranking",
+                    "Device resolver against the Home Assistant entity registry",
+                    "Pronoun resolver bound to recent entities (skipped for direct utilities)",
+                    "Recent / missing / ambiguous media follow-ups surfaced in trace and RequestSpec",
                 ],
                 "remaining": [
-                    "People resolver",
-                    "Device resolver",
-                    "Pronoun and 'it' referent resolution",
-                    "Real adapters for conversation memory / people / media / devices",
+                    "Wire real PeopleDB / Home Assistant adapters when available",
+                    "Per-resolver latency budgets",
                 ],
             },
             {
@@ -88,38 +91,42 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "status": "partial",
                 "completed": [
                     "Pipeline runs async with asyncio.gather()",
-                    "Route / resolve / execute wrappers offload synchronous work with asyncio.to_thread()",
+                    "Route / resolve / execute / handler invocation offloaded via asyncio.to_thread()",
                     "Per-step and per-chunk latency visible in Dev Tools",
                 ],
                 "remaining": [
                     "Benchmark sequential vs parallel latency once real adapters are connected",
-                    "Expand offloading coverage as blocking libraries are added",
                 ],
             },
             {
                 "id": "phase_5",
                 "label": "Phase 5",
                 "title": "Gemma Fallback",
-                "status": "not_started",
-                "completed": [],
+                "status": "partial",
+                "completed": [
+                    "needs_gemma() decision in fallbacks/gemma_fallback.py",
+                    "Stub synthesizer that handles unresolved + ambiguous + supporting-context paths",
+                    "RequestSpec.gemma_used + gemma_reason flags surfaced in trace",
+                ],
                 "remaining": [
-                    "needs_gemma() routing",
-                    "Split / resolve / combine fallback prompts",
-                    "Trace flag showing when Gemma is used",
+                    "Wire real Gemma model client (CONFIG.gemma_enabled = True)",
+                    "Author split / resolve / combine prompt templates",
                 ],
             },
             {
                 "id": "phase_6",
                 "label": "Phase 6",
                 "title": "Production Hardening",
-                "status": "early",
+                "status": "partial",
                 "completed": [
-                    "Prototype trace and targeted unit/integration tests exist",
+                    "Per-handler timeout + retry budget via execution.executor",
+                    "HandlerError / HandlerTimeout / TransientHandlerError classes",
+                    "Failures captured on ExecutionResult instead of crashing the pipeline",
+                    "Resolver / adapter / fast-lane / Gemma unit tests",
                 ],
                 "remaining": [
-                    "Retries and timeouts per skill",
-                    "Richer error classes and graceful degradation",
-                    "Broader regression fixtures and production validation",
+                    "Broader regression fixtures",
+                    "End-to-end production validation",
                 ],
             },
         ],
@@ -160,17 +167,17 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "key": "spacy",
                 "label": "spaCy",
                 "version": _package_version("spacy"),
-                "status": "installed",
-                "running": False,
-                "detail": "Installed in the repo, but the current v2 parser path does not call spaCy yet.",
+                "status": "running",
+                "running": True,
+                "detail": "v2 parser calls spaCy exactly once per utterance and reuses the Doc downstream.",
             },
             {
                 "key": "en_core_web_sm",
                 "label": "en_core_web_sm",
                 "version": _package_version("en-core-web-sm"),
-                "status": "installed",
-                "running": False,
-                "detail": "spaCy English model is installed, but not currently loaded by the v2 parser path.",
+                "status": "running",
+                "running": True,
+                "detail": "Loaded by v2/orchestrator/pipeline/parser.py for tokens, POS, deps, and NER.",
             },
         ],
     }

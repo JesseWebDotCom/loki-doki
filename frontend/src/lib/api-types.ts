@@ -284,17 +284,23 @@ export interface V2RunResponse {
     token_count: number;
     tokens: string[];
     sentences: string[];
+    parser?: string;
+    entities?: Array<[string, string]>;
+    noun_chunks?: string[];
   };
   chunks: Array<{
     text: string;
     index: number;
     role: string;
+    span_start?: number;
+    span_end?: number;
   }>;
   extractions: Array<{
     chunk_index: number;
     references: string[];
     predicates: string[];
     subject_candidates: string[];
+    entities?: Array<[string, string]>;
   }>;
   routes: Array<{
     chunk_index: number;
@@ -315,11 +321,21 @@ export interface V2RunResponse {
     resolved_target: string;
     source: string;
     confidence: number;
+    context_value?: string | null;
+    candidate_values?: string[];
+    params?: Record<string, unknown>;
+    unresolved?: string[];
+    notes?: string[];
   }>;
   executions: Array<{
     chunk_index: number;
     capability: string;
     output_text: string;
+    success?: boolean;
+    error?: string | null;
+    attempts?: number;
+    handler_name?: string;
+    raw_result?: Record<string, unknown>;
   }>;
   request_spec: {
     trace_id: string;
@@ -341,6 +357,8 @@ export interface V2RunResponse {
     supporting_context: string[];
     context: Record<string, unknown>;
     runtime_version: number;
+    gemma_used?: boolean;
+    gemma_reason?: string | null;
   };
   response: {
     output_text: string;

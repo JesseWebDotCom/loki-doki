@@ -171,8 +171,11 @@ async def test_v2_status_endpoint_returns_phase_and_dependency_summary(_fresh_me
     body = response.json()
     assert body["current_focus"]
     assert any(phase["label"] == "Phase 1" and phase["status"] == "complete" for phase in body["phases"])
-    assert any(phase["label"] == "Phase 5" and phase["status"] == "not_started" for phase in body["phases"])
+    assert any(phase["label"] == "Phase 3" and phase["status"] == "complete" for phase in body["phases"])
+    assert any(phase["label"] == "Phase 5" and phase["status"] in {"partial", "complete"} for phase in body["phases"])
     dependency_keys = {item["key"] for item in body["dependencies"]}
     assert {"fastapi", "fastembed", "minilm", "spacy", "en_core_web_sm"} <= dependency_keys
     minilm = next(item for item in body["dependencies"] if item["key"] == "minilm")
     assert minilm["version"] == "sentence-transformers/all-MiniLM-L6-v2"
+    spacy_dep = next(item for item in body["dependencies"] if item["key"] == "spacy")
+    assert spacy_dep["running"] is True
