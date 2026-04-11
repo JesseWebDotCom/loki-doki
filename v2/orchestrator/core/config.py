@@ -60,24 +60,43 @@ class V2Config:
     # only fires when ``gemma_enabled`` is true; otherwise these values
     # are inert.
     #
-    # Default model is ``phi4-mini`` (Microsoft, 3.8B). Selected via
-    # bake-off (scripts/bench_v2_gemma_models.py) across 10 candidates:
-    # phi4-mini won on the composite (quality - latency) score with
-    # 100/100 quality, 754ms direct_chat avg, 551ms combine avg, and
-    # zero scaffolding / refusal / meta-language leakage on a 9-prompt
-    # corpus that exercises both prompt families. It is also 4x smaller
-    # on disk than gemma4:e4b (2.5GB vs 9.6GB), which matters for the
-    # Pi 5 8GB RAM target.
+    # Default model is ``qwen3:4b-instruct-2507-q4_K_M`` (Alibaba, 4B
+    # instruct variant). Selected via two bake-off rounds across 11
+    # candidates (scripts/bench_v2_gemma_models.py + the 84-prompt
+    # regression-fixture corpus mode). On the 84-prompt corpus
+    # qwen3-instruct beats phi4-mini on every dimension:
+    #
+    #   metric                qwen3-instruct   phi4-mini
+    #   ----------------------------------------------
+    #   quality (84-prompt)   98 / 100         96 / 100
+    #   issue rate            10 / 84 (12%)    23 / 84 (27%)
+    #   avg warm latency      565 ms           852 ms
+    #   p95 warm latency      1059 ms          1811 ms
+    #   avg response length   28 words         40 words
+    #   disk size             2.5 GB           2.5 GB
+    #
+    # The original 9-prompt curated set picked phi4-mini because none
+    # of those prompts asked for real-time data — phi4-mini refuses
+    # those, qwen3-instruct refuses fewer of them. Full report:
+    # docs/benchmarks/v2-gemma-bakeoff-2026-04-11.md
+    #
+    # IMPORTANT: must be the ``-instruct-2507`` variant. The default
+    # ``qwen3:4b`` tag is the *thinking* variant which leaks its
+    # entire reasoning monologue into the response and pushes latency
+    # past 3.5s. Confirmed via Ollama issue ollama/ollama#12917.
     #
     # Override with ``LOKI_GEMMA_MODEL`` and ``LOKI_OLLAMA_URL`` env
     # vars without touching code:
-    #   LOKI_GEMMA_MODEL=gemma4:e4b   # higher-quality, slower
-    #   LOKI_GEMMA_MODEL=llama3.2:3b  # smaller, faster, RAM-budget
+    #   LOKI_GEMMA_MODEL=phi4-mini    # tied on small set, slower at scale
+    #   LOKI_GEMMA_MODEL=gemma4:e4b   # highest quality, 4x larger on disk
+    #   LOKI_GEMMA_MODEL=llama3.2:3b  # smallest, fastest, RAM-budget
     gemma_ollama_url: str = field(
         default_factory=lambda: os.environ.get("LOKI_OLLAMA_URL", "http://localhost:11434")
     )
     gemma_model: str = field(
-        default_factory=lambda: os.environ.get("LOKI_GEMMA_MODEL", "phi4-mini")
+        default_factory=lambda: os.environ.get(
+            "LOKI_GEMMA_MODEL", "qwen3:4b-instruct-2507-q4_K_M"
+        )
     )
 
     # Hard cap on Gemma synthesis output tokens. Synthesis is supposed

@@ -493,6 +493,39 @@ def _print_summary_table(summaries: list[ModelSummary]) -> None:
     print("=" * 90)
 
 
+def _load_corpus_prompts(path: Path) -> list[BenchPrompt]:
+    """Load utterances from a v2 regression-fixture JSON file and turn
+    each one into a ``direct_chat`` BenchPrompt.
+
+    The fixtures aren't all gemma-relevant in the real pipeline (most
+    of them get answered by skills before gemma sees them), but for
+    *quality stress-testing* the right thing to do is force the model
+    to answer each utterance from its own knowledge. This catches
+    refusals, scaffolding leakage, and meta-language drift on a much
+    wider distribution of real conversational inputs than the small
+    9-prompt curated set.
+    """
+    data = json.loads(path.read_text())
+    cases = data.get("cases") or data
+    if not isinstance(cases, list):
+        raise ValueError(f"unexpected fixture shape in {path}")
+    prompts: list[BenchPrompt] = []
+    for case in cases:
+        case_id = str(case.get("id") or "")
+        utterance = str(case.get("utterance") or "").strip()
+        if not utterance:
+            continue
+        prompts.append(
+            BenchPrompt(
+                id=f"corpus.{case_id}",
+                family="direct_chat",
+                user_request=utterance,
+                spec=_direct_chat_spec(utterance),
+            )
+        )
+    return prompts
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -518,13 +551,28 @@ def main() -> int:
         default=3,
         help="Warm-call replicates per (model, prompt) — default 3",
     )
+    parser.add_argument(
+        "--corpus",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to a v2 regression-fixture JSON file. When "
+            "set, every utterance in the file is loaded as a "
+            "direct_chat prompt and the curated 9-prompt set is "
+            "ignored. Use this for large-scale quality stress tests."
+        ),
+    )
     args = parser.parse_args()
 
-    selected_prompts = (
-        PROMPTS
-        if args.family == "all"
-        else [p for p in PROMPTS if p.family == args.family]
-    )
+    if args.corpus is not None:
+        selected_prompts = _load_corpus_prompts(args.corpus)
+        print(f"Loaded {len(selected_prompts)} prompts from {args.corpus}")
+    else:
+        selected_prompts = (
+            PROMPTS
+            if args.family == "all"
+            else [p for p in PROMPTS if p.family == args.family]
+        )
 
     payload = asyncio.run(_run_bench(args.models, selected_prompts, args.replicates))
     Path(args.output).write_text(json.dumps(payload, indent=2))

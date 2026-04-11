@@ -1,0 +1,184 @@
+{
+  "models": [
+    "qwen3:4b-instruct-2507-q4_K_M"
+  ],
+  "replicates": 3,
+  "prompt_count": 9,
+  "results": [
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "dc.json_acronym",
+      "family": "direct_chat",
+      "user_request": "what does json stand for",
+      "response_text": "JSON stands for JavaScript Object Notation. I use it to share data in a simple, readable format. It's widely used because it's easy to understand and works well with many programming languages.",
+      "warm_ms_min": 929.6653749188408,
+      "warm_ms_median": 933.2535000285134,
+      "warm_ms_mean": 935.9184166726967,
+      "warm_ms_replicates": [
+        929.6653749188408,
+        933.2535000285134,
+        944.8363750707358
+      ],
+      "response_chars": 193,
+      "response_words": 32,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "dc.ring_privacy",
+      "family": "direct_chat",
+      "user_request": "do my ring cameras spy on me",
+      "response_text": "I don't think so. Ring cameras are designed to record what's around your property, not to spy on you personally. They're meant to help you monitor your home, not to watch you privately.",
+      "warm_ms_min": 936.691457987763,
+      "warm_ms_median": 963.2270419970155,
+      "warm_ms_mean": 979.6560000007352,
+      "warm_ms_replicates": [
+        936.691457987763,
+        1039.049500017427,
+        963.2270419970155
+      ],
+      "response_chars": 185,
+      "response_words": 33,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "dc.wifi_slow",
+      "family": "direct_chat",
+      "user_request": "why is my wifi so slow",
+      "response_text": "I don't know why your Wi-Fi is slow\u2014maybe it's due to distance from the router, interference, or a weak signal. Try moving closer to the router or restarting it to see if that helps.",
+      "warm_ms_min": 943.4910409618169,
+      "warm_ms_median": 1034.4024170190096,
+      "warm_ms_mean": 1004.1694579801211,
+      "warm_ms_replicates": [
+        1034.614915959537,
+        943.4910409618169,
+        1034.4024170190096
+      ],
+      "response_chars": 182,
+      "response_words": 34,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "dc.casual_chat",
+      "family": "direct_chat",
+      "user_request": "tell me a fun fact about octopuses",
+      "response_text": "I once learned that octopuses have three hearts, and two of them stop beating when they swim\u2014kind of like a built-in power-saving mode! They also have blue blood, thanks to a special protein called hemocyanin.",
+      "warm_ms_min": 1111.4875840721652,
+      "warm_ms_median": 1154.1638750350103,
+      "warm_ms_mean": 1146.1259310211365,
+      "warm_ms_replicates": [
+        1172.7263339562342,
+        1111.4875840721652,
+        1154.1638750350103
+      ],
+      "response_chars": 209,
+      "response_words": 35,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "dc.opinion",
+      "family": "direct_chat",
+      "user_request": "what's the difference between machine learning and ai",
+      "response_text": "I think machine learning is a subset of AI. Machine learning involves teaching computers to learn from data and improve over time, while AI refers to the broader goal of creating systems that can perform tasks that typically require human intelligence. So, machine learning is one way to achieve artificial intelligence.",
+      "warm_ms_min": 1333.201790926978,
+      "warm_ms_median": 1391.2160419858992,
+      "warm_ms_mean": 1374.5320276357234,
+      "warm_ms_replicates": [
+        1333.201790926978,
+        1399.1782499942929,
+        1391.2160419858992
+      ],
+      "response_chars": 320,
+      "response_words": 51,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "cb.time_running_late",
+      "family": "combine",
+      "user_request": "what time is it because im running late",
+      "response_text": "The current time is 3:42 PM. I notice you mentioned being running late\u2014would you like help with next steps to manage your schedule?",
+      "warm_ms_min": 766.3346249610186,
+      "warm_ms_median": 812.0550409657881,
+      "warm_ms_mean": 838.7103189791864,
+      "warm_ms_replicates": [
+        937.7412910107523,
+        812.0550409657881,
+        766.3346249610186
+      ],
+      "response_chars": 131,
+      "response_words": 23,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "cb.weather_picnic",
+      "family": "combine",
+      "user_request": "whats the weather like im planning a picnic this afternoon",
+      "response_text": "The weather is 72F and partly cloudy this afternoon in San Francisco. Since you're planning a picnic, this weather is suitable for outdoor activities. Is there a specific location in San Francisco you'd like to know more about for your picnic?",
+      "warm_ms_min": 1163.8762500369921,
+      "warm_ms_median": 1204.5901250094175,
+      "warm_ms_mean": 1199.9305973683174,
+      "warm_ms_replicates": [
+        1163.8762500369921,
+        1204.5901250094175,
+        1231.3254170585424
+      ],
+      "response_chars": 243,
+      "response_words": 41,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "cb.directions_traffic",
+      "family": "combine",
+      "user_request": "how long to drive to the airport im worried about traffic",
+      "response_text": "The drive to the airport is about 35 minutes via US-101 N, covering 22 miles. I notice you're concerned about traffic\u2014would you like to know if there are current traffic updates or alternative routes available?",
+      "warm_ms_min": 754.6030000085011,
+      "warm_ms_median": 1178.338541998528,
+      "warm_ms_mean": 1054.06315298751,
+      "warm_ms_replicates": [
+        1178.338541998528,
+        1229.2479169555008,
+        754.6030000085011
+      ],
+      "response_chars": 210,
+      "response_words": 35,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "prompt_id": "eo.knicks_score",
+      "family": "direct_chat",
+      "user_request": "whats the score of the knicks game",
+      "response_text": "I couldn't retrieve the score of the Knicks game. Could you please specify a date or provide more details about the game you're asking about?",
+      "warm_ms_min": 451.1888340348378,
+      "warm_ms_median": 457.21975003834814,
+      "warm_ms_mean": 455.5878753308207,
+      "warm_ms_replicates": [
+        457.21975003834814,
+        451.1888340348378,
+        458.3550419192761
+      ],
+      "response_chars": 141,
+      "response_words": 25,
+      "error": ""
+    }
+  ],
+  "summaries": [
+    {
+      "model": "qwen3:4b-instruct-2507-q4_K_M",
+      "direct_chat_avg_warm_ms": 988.9137710172994,
+      "combine_avg_warm_ms": 1064.994569324578,
+      "overall_avg_warm_ms": 1014.2740371197256,
+      "overall_median_warm_ms": 1034.4024170190096,
+      "overall_p95_warm_ms": 1204.5901250094175,
+      "successful_runs": 9,
+      "failed_runs": 0,
+      "avg_response_words": 34.333333333333336
+    }
+  ]
+}

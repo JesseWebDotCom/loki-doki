@@ -140,23 +140,113 @@ A lifestyle assistant can't refuse common questions like these.
 
 **`phi4-mini`, `gemma3:4b`, `llama3.1:8b`, `qwen3.5:4b` — 0/9 issues**
 
-## Decision
+## Phase 1 decision (later overturned — see Phase 2)
 
-**Default: `phi4-mini`** ([v2/orchestrator/core/config.py](../../v2/orchestrator/core/config.py))
+Phase 1 picked **`phi4-mini`** based on the curated 9-prompt set:
+100/100 quality, 754ms direct_chat avg, 2.5GB on disk. Phase 2 below
+expanded the corpus to 84 prompts, exposed a 27% refusal rate on
+phi4-mini, and overturned the decision.
 
-- Tied for best quality (100/100, zero issues)
-- Sub-800ms direct_chat / sub-600ms combine on Mac
-- 2.5GB on disk vs 9.6GB for `gemma4:e4b` — critical for Pi 5 8GB RAM
-  headroom
-- p95 latency just over 1s — fits comfortably under the 2s direct_chat
-  budget and the 1s combine budget on Mac
+## Final decision (Phase 2)
+
+**Default: `qwen3:4b-instruct-2507-q4_K_M`** ([v2/orchestrator/core/config.py](../../v2/orchestrator/core/config.py))
+
+| metric | qwen3-instruct | phi4-mini |
+|---|---:|---:|
+| Quality (84-prompt) | **98 / 100** | 96 / 100 |
+| Issues (84-prompt) | **10 / 84 (12%)** | 23 / 84 (27%) |
+| Avg warm latency | **565 ms** | 852 ms |
+| p95 warm latency | **1059 ms** | 1811 ms |
+| Avg response length | **28 words** | 40 words |
+| Verbose responses | **0** | 8 |
+| Disk size | 2.5 GB | 2.5 GB |
+
+qwen3-instruct wins on every dimension. Same disk footprint, 34%
+faster on average, 42% faster at the tail, fewer refusals, never
+goes long.
 
 Override with env vars without touching code:
 
 ```sh
-LOKI_GEMMA_MODEL=gemma4:e4b   # higher-quality, slower
-LOKI_GEMMA_MODEL=llama3.2:3b  # smaller, faster, RAM-budget
+LOKI_GEMMA_MODEL=phi4-mini    # tied on small set, slower at scale
+LOKI_GEMMA_MODEL=gemma4:e4b   # highest quality, 4x larger on disk
+LOKI_GEMMA_MODEL=llama3.2:3b  # smallest, fastest, RAM-budget
 ```
+
+> ⚠️ **Must be the `-instruct-2507` variant.** The default `qwen3:4b`
+> tag points to the *thinking* variant, which leaks its entire
+> reasoning monologue ("Steps:", "I must answer in...", "Let me check
+> the rule") into `output_text` and pushes latency past 3.5s. The
+> `think=False` API parameter does NOT suppress this on qwen3 — it
+> only works on the gemma family. See
+> [ollama/ollama#12917](https://github.com/ollama/ollama/issues/12917).
+
+## Phase 2: 84-prompt regression corpus (added 2026-04-11 17:00)
+
+The original 9-prompt curated set was too small to surface refusal
+patterns. Phase 2 added a `--corpus` flag to the harness that loads
+every utterance from
+[tests/fixtures/v2_regression_prompts.json](../../tests/fixtures/v2_regression_prompts.json)
+(84 real test prompts) and runs each one through the model as a
+direct_chat prompt. This catches:
+
+1. **Refusals at scale.** phi4-mini refuses anything that smells like
+   real-time data (current time, weather, showtimes, news, indoor
+   temperature). qwen3-instruct refuses fewer of the same prompts
+   *and* refuses more politely without claiming "I am Microsoft AI
+   with a knowledge cutoff".
+2. **Verbosity drift.** phi4-mini consistently overshoots the 1–3
+   sentence rule on recipes, plans, code samples, jokes — 8 of 84
+   prompts produced 80+ word responses. qwen3-instruct hit 0/84 on
+   this metric.
+
+### Comparison table
+
+| metric | phi4-mini | qwen3:4b-instruct-2507 |
+|---|---:|---:|
+| Total prompts | 84 | 84 |
+| Issues | 23 (27%) | 10 (12%) |
+| Avg quality | 96/100 | 98/100 |
+| Avg warm latency | 852ms | 565ms |
+| p95 warm latency | 1811ms | 1059ms |
+| Refusals | 15 | 10 |
+| Verbose responses | 8 | 0 |
+
+### What both models refuse (and why it's OK)
+
+Both refuse on the same general shape: *"I need real-time data to
+answer this"*. Examples that hit both:
+
+- "what time is it in london"
+- "whats the weather today / tomorrow"
+- "movie times for inception"
+- "summarize this article"
+
+These are **never supposed to land on Gemma in production** — every
+one of them is handled by a real skill (`get_current_time`,
+`get_weather`, `get_movie_showtimes`, `summarize_text`) before the
+fallback path runs. The bake-off's `--corpus` mode forcibly routes all
+84 utterances to direct_chat to stress-test how the model behaves on
+prompts it shouldn't actually receive. So a 12% refusal rate on this
+artificial test is fine — it represents the worst case where the
+skill layer is broken and Gemma is taking over for everything.
+
+### Phase 2 reproducibility
+
+```sh
+# Run a model against the full 84-prompt regression corpus
+PYTHONPATH=. LOKI_GEMMA_ENABLED=1 python scripts/bench_v2_gemma_models.py \
+    --models qwen3:4b-instruct-2507-q4_K_M \
+    --replicates 1 \
+    --corpus tests/fixtures/v2_regression_prompts.json \
+    --output /tmp/v2_gemma_corpus_qwen3instruct.json
+```
+
+Raw results from this run are checked in alongside this report:
+
+- [v2_gemma_corpus_2026-04-11_phi4mini.json](v2_gemma_corpus_2026-04-11_phi4mini.json)
+- [v2_gemma_corpus_2026-04-11_qwen3instruct.json](v2_gemma_corpus_2026-04-11_qwen3instruct.json)
+- [v2_gemma_bench_2026-04-11_qwen3instruct.json](v2_gemma_bench_2026-04-11_qwen3instruct.json) (9-prompt curated)
 
 ## Reproducing
 
@@ -180,26 +270,32 @@ JSONs from this run are checked in alongside this report:
 
 ## Open follow-ups
 
-1. **Re-run on Pi 5.** Mac results show phi4-mini wins comfortably; we
-   need the same numbers on actual Pi 5 8GB hardware before we can
-   confirm the choice for the production target. Expected Pi 5 latency
-   from research: phi4-mini ~2-3s, gemma4:e4b ~5-7s, llama3.2:3b
-   ~2.5-3.5s.
+1. **Re-run on actual Pi 5 hardware.** Mac results pick
+   qwen3-instruct comfortably; we need the same numbers on Pi 5 8GB
+   before the production target ships. Expected Pi 5 latency from
+   research: phi4-mini ~2-3s, qwen3:4b-instruct ~2-3s, gemma4:e4b
+   ~5-7s, llama3.2:3b ~2.5-3.5s. Cannot be done remotely — needs
+   physical hardware access.
 
-2. **Investigate qwen3 thinking-mode disable.** The `think=False` flag
-   we pass works on gemma4 but not qwen3. Qwen3 may need a different
-   API field (`thinking: false` in the chat options, or a system
-   prompt prefix). If we can fix it, qwen3:4b becomes a viable
-   contender on raw speed.
+2. ~~Investigate qwen3 thinking-mode disable.~~ **RESOLVED in Phase 2.**
+   The `qwen3:4b` default tag is the *thinking* variant and ignores
+   `think=False`. Use `qwen3:4b-instruct-2507-q4_K_M` instead — it has
+   thinking stripped at the model level. Documented at
+   [ollama/ollama#12917](https://github.com/ollama/ollama/issues/12917).
 
-3. **Per-prompt-family model selection.** `gemma4:e2b` is fastest at
-   acceptable quality (518ms avg, 1 issue) — worth A/B testing as a
-   combine-only model while phi4-mini handles direct_chat. Two-model
-   memory cost is ~5GB; tight on Pi 5.
+3. **Per-prompt-family model selection — INTENTIONALLY SKIPPED.**
+   `gemma4:e2b` is the fastest at quality ≥95 (518ms avg). Splitting
+   models by prompt family (phi4-mini for direct_chat, gemma4:e2b for
+   combine) saves ~100ms per combine call but costs ~5GB of RAM (must
+   keep both models loaded in Ollama VRAM to avoid the 5–30s swap
+   cost). On a Pi 5 8GB target, two loaded models leaves ~400MB for
+   the OS, Python orchestrator, all skills, and the Vite frontend.
+   Not worth it. Single-model is the right call.
 
-4. **Larger prompt corpus.** 9 prompts is enough to surface the major
-   quality failures (refusals, scaffolding leakage), but a longer
-   corpus would catch subtler regressions. Consider adding 20-30
-   prompts from the regression-prompt fixtures
-   ([tests/fixtures/v2_regression_prompts.json](../../tests/fixtures/v2_regression_prompts.json))
-   for the next bake-off pass.
+4. ~~Larger prompt corpus.~~ **RESOLVED in Phase 2.** Added a
+   `--corpus` flag to the harness that loads every utterance from
+   [tests/fixtures/v2_regression_prompts.json](../../tests/fixtures/v2_regression_prompts.json)
+   (84 prompts). Re-running both finalists against the larger corpus
+   exposed phi4-mini's 27% refusal rate and overturned the Phase 1
+   decision. The harness now supports both modes — the curated set
+   for fast iteration, the corpus for production gating.
