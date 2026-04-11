@@ -1,21 +1,366 @@
 {
-  "$schema": "v2 memory recall corpus — multi-turn dialogues where turn N's correct answer requires recalling content from turn 1–3. Drives M2 (Tier 4 read), M3 (Tier 5 read), and M4 (Tier 2/3 read) regression suites. Phase status: empty in M0; populated incrementally per phase per docs/MEMORY_DESIGN.md §8.",
-  "version": 1,
+  "$schema": "v2 memory recall corpus — multi-turn dialogues where turn N's correct outcome requires recalling facts written in earlier turns. Drives M2 (Tier 4 read), and will be extended in M3 (Tier 5 read) and M4 (Tier 2/3 read). Names use pop-culture characters per CLAUDE.md mock-data rule. Populated 2026-04-11 (M2) — 18 cases targeting Tier 4 retrieval with the FTS5 + RRF reader.",
+  "version": 2,
   "phase_owner": "M2-M4",
   "case_schema": {
     "id": "string — stable, hierarchical (e.g. 'm2.recall.preference_color')",
-    "turns": [
+    "phase": "integer — which phase ships the test (2, 3, or 4)",
+    "owner_user_id": "integer — non-zero so cross-user isolation tests can swap",
+    "writes": [
       {
-        "role": "string — 'user' or 'assistant'",
-        "text": "string"
+        "subject": "string — 'self' or 'person:Name' or 'handle:my X'",
+        "predicate": "string",
+        "value": "string",
+        "source_text": "string"
       }
     ],
+    "query": "string — the recall query the test runs against the writes",
     "expect": {
-      "tiers_consulted": "array of integers — which tiers must be hit on the final turn",
-      "slots_present": "array of strings — which prompt slots must be non-empty in the combine prompt",
-      "response_contains": "string — substring that must appear in the final response",
-      "max_total_ms": "integer|null — optional latency cap"
+      "min_hits": "integer — minimum number of hits",
+      "max_hits": "integer|null — optional upper bound",
+      "must_include_predicates": "array of strings — predicates that must appear in the hit set",
+      "must_include_values": "array of strings — values that must appear (case-insensitive substring)",
+      "must_not_include_subjects": "array of strings — subjects that must NOT leak in",
+      "slot_must_contain": "string|null — substring that must appear in the rendered {user_facts} slot",
+      "slot_max_chars": "integer — must be <= 250 per design §4"
     }
   },
-  "cases": []
+  "cases": [
+    {
+      "id": "m2.recall.favorite_color_direct",
+      "phase": 2,
+      "owner_user_id": 11,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_color", "value": "blue", "source_text": "my favorite color is blue"}
+      ],
+      "query": "what is my favorite color",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["favorite_color"],
+        "must_include_values": ["blue"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "favorite_color=blue",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.favorite_food_thai",
+      "phase": 2,
+      "owner_user_id": 12,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_food", "value": "Thai food", "source_text": "I love Thai food"},
+        {"subject": "self", "predicate": "favorite_food", "value": "ramen", "source_text": "I love ramen"}
+      ],
+      "query": "what food do I like",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["favorite_food"],
+        "must_include_values": [],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "favorite_food=",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.allergy_peanuts",
+      "phase": 2,
+      "owner_user_id": 13,
+      "writes": [
+        {"subject": "self", "predicate": "has_allergy", "value": "peanuts", "source_text": "allergic to peanuts"}
+      ],
+      "query": "am I allergic to anything",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["has_allergy"],
+        "must_include_values": ["peanuts"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "has_allergy=peanuts",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.lives_in_portland",
+      "phase": 2,
+      "owner_user_id": 14,
+      "writes": [
+        {"subject": "self", "predicate": "lives_in", "value": "Portland", "source_text": "I just moved to Portland"}
+      ],
+      "query": "where do I live",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["lives_in"],
+        "must_include_values": ["portland"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "lives_in=Portland",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.empty_query_returns_recent",
+      "phase": 2,
+      "owner_user_id": 15,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_color", "value": "green", "source_text": "favorite color green"},
+        {"subject": "self", "predicate": "lives_in", "value": "Brooklyn", "source_text": "live in Brooklyn"}
+      ],
+      "query": "",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": [],
+        "must_include_values": [],
+        "must_not_include_subjects": [],
+        "slot_must_contain": null,
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.multi_turn_after_supersession",
+      "phase": 2,
+      "owner_user_id": 16,
+      "writes": [
+        {"subject": "self", "predicate": "lives_in", "value": "Seattle", "source_text": "I live in Seattle"},
+        {"subject": "self", "predicate": "lives_in", "value": "Portland", "source_text": "actually I moved to Portland"}
+      ],
+      "query": "where do I live",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["lives_in"],
+        "must_include_values": ["portland"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "lives_in=Portland",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.cross_user_isolation_user_a",
+      "phase": 2,
+      "owner_user_id": 21,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_food", "value": "sushi", "source_text": "I love sushi"}
+      ],
+      "query": "favorite food",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 1,
+        "must_include_predicates": ["favorite_food"],
+        "must_include_values": ["sushi"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "favorite_food=sushi",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.cross_user_isolation_user_b",
+      "phase": 2,
+      "owner_user_id": 22,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_food", "value": "ramen", "source_text": "I love ramen"}
+      ],
+      "query": "favorite food",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 1,
+        "must_include_predicates": ["favorite_food"],
+        "must_include_values": ["ramen"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "favorite_food=ramen",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.predicate_filter_only_color",
+      "phase": 2,
+      "owner_user_id": 23,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_color", "value": "blue", "source_text": "blue"},
+        {"subject": "self", "predicate": "favorite_food", "value": "pho", "source_text": "pho"}
+      ],
+      "query": "color",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["favorite_color"],
+        "must_include_values": ["blue"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "favorite_color=blue",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.long_value_truncates_to_budget",
+      "phase": 2,
+      "owner_user_id": 24,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_movie", "value": "The Lord of the Rings: The Fellowship of the Ring (Extended Edition)", "source_text": "fav movie"},
+        {"subject": "self", "predicate": "favorite_color", "value": "midnight blue", "source_text": "midnight blue"},
+        {"subject": "self", "predicate": "favorite_food", "value": "spaghetti carbonara with extra parmesan", "source_text": "carbonara"},
+        {"subject": "self", "predicate": "lives_in", "value": "Brooklyn", "source_text": "Brooklyn"},
+        {"subject": "self", "predicate": "works_as", "value": "software engineer at a startup in Manhattan", "source_text": "engineer"}
+      ],
+      "query": "favorite",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": [],
+        "must_include_values": [],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "favorite",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.no_query_match_returns_empty",
+      "phase": 2,
+      "owner_user_id": 25,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_color", "value": "blue", "source_text": "blue"}
+      ],
+      "query": "weather forecast tomorrow",
+      "expect": {
+        "min_hits": 0,
+        "max_hits": 1,
+        "must_include_predicates": [],
+        "must_include_values": [],
+        "must_not_include_subjects": [],
+        "slot_must_contain": null,
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.modal_hedged_still_recalls",
+      "phase": 2,
+      "owner_user_id": 26,
+      "writes": [
+        {"subject": "self", "predicate": "has_allergy", "value": "shellfish", "source_text": "I think I'm allergic to shellfish"}
+      ],
+      "query": "shellfish allergy",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["has_allergy"],
+        "must_include_values": ["shellfish"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "has_allergy=shellfish",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.fragment_extracted_recalls",
+      "phase": 2,
+      "owner_user_id": 27,
+      "writes": [
+        {"subject": "self", "predicate": "has_dietary_restriction", "value": "vegetarian", "source_text": "vegetarian now"}
+      ],
+      "query": "what is my dietary restriction",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["has_dietary_restriction"],
+        "must_include_values": ["vegetarian"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "has_dietary_restriction=vegetarian",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.named_jesse",
+      "phase": 2,
+      "owner_user_id": 28,
+      "writes": [
+        {"subject": "self", "predicate": "is_named", "value": "Jesse", "source_text": "call me Jesse"}
+      ],
+      "query": "what's my name",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["is_named"],
+        "must_include_values": ["jesse"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "is_named=Jesse",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.units_metric",
+      "phase": 2,
+      "owner_user_id": 29,
+      "writes": [
+        {"subject": "self", "predicate": "preferred_units", "value": "metric", "source_text": "use metric"}
+      ],
+      "query": "metric or imperial",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["preferred_units"],
+        "must_include_values": ["metric"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "preferred_units=metric",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.timezone",
+      "phase": 2,
+      "owner_user_id": 30,
+      "writes": [
+        {"subject": "self", "predicate": "timezone", "value": "America/Los_Angeles", "source_text": "Pacific time"}
+      ],
+      "query": "what timezone am I in",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["timezone"],
+        "must_include_values": [],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "timezone=",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.subject_scan_complements_bm25",
+      "phase": 2,
+      "owner_user_id": 31,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_color", "value": "azure", "source_text": "azure"},
+        {"subject": "self", "predicate": "lives_in", "value": "Boston", "source_text": "Boston"}
+      ],
+      "query": "favorite",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": ["favorite_color"],
+        "must_include_values": ["azure"],
+        "must_not_include_subjects": [],
+        "slot_must_contain": "favorite_color=azure",
+        "slot_max_chars": 250
+      }
+    },
+    {
+      "id": "m2.recall.multi_predicate_top_k_3",
+      "phase": 2,
+      "owner_user_id": 32,
+      "writes": [
+        {"subject": "self", "predicate": "favorite_color", "value": "blue", "source_text": "blue"},
+        {"subject": "self", "predicate": "favorite_food", "value": "pho", "source_text": "pho"},
+        {"subject": "self", "predicate": "favorite_movie", "value": "Casablanca", "source_text": "Casablanca"},
+        {"subject": "self", "predicate": "favorite_color", "value": "navy", "source_text": "navy"}
+      ],
+      "query": "favorites",
+      "expect": {
+        "min_hits": 1,
+        "max_hits": 3,
+        "must_include_predicates": [],
+        "must_include_values": [],
+        "must_not_include_subjects": [],
+        "slot_must_contain": null,
+        "slot_max_chars": 250
+      }
+    }
+  ]
 }

@@ -248,39 +248,41 @@ def _v2_memory_status() -> dict[str, Any]:
             "title": ACTIVE_PHASE_TITLE,
             "status": ACTIVE_PHASE_STATUS,
             "summary": (
-                "M1 is shipped: the v2 write path is live for Tier 4 "
-                "(semantic-self) and Tier 5 (social). The five-gate chain "
-                "(clause_shape → subject → predicate → schema → intent) "
-                "denies the president bug at clause_shape, the deterministic "
-                "tier classifier routes self-assertions to Tier 4 and "
-                "person/handle assertions to Tier 5, immediate-durable "
-                "predicates (allergies, names, pronouns) write on the first "
-                "observation, single-value predicates (lives_in, current_employer, "
-                "favorite_*) supersede prior values to confidence floor 0.1, and "
-                "provisional handles (\"my boss\") merge into named rows when "
-                "the user later names them. Memory writes are opt-in via "
-                "context['memory_writes_enabled'] so the existing v2 regression "
-                "suite is unaffected. The v2 store lives in its own SQLite file "
-                "(data/v2_memory.sqlite) — zero shared mutable state with v1."
+                "M2 is shipped: Tier 4 read path is live. The v2 store now "
+                "owns a facts_fts FTS5 virtual table kept in sync via "
+                "INSERT/UPDATE/DELETE triggers (storing the humanized "
+                "predicate alongside source_text so user vocabulary bridges "
+                "stored predicate identifiers). The reader runs BM25 over "
+                "facts_fts plus a structured subject-column scan, fuses the "
+                "two ranked sources via Reciprocal Rank Fusion (k=60), and "
+                "returns top-k FactHits ordered by RRF score. The v1 "
+                "substring heuristics (_query_mentions, _is_explicitly_relevant) "
+                "are forbidden in v2 — a CI grep guard fails the build if "
+                "either symbol leaks into v2/orchestrator/memory/. The "
+                "{user_facts} prompt slot is rendered into both the combine "
+                "and direct_chat templates with a hard 250-char budget; "
+                "lazy retrieval is gated by context['need_preference'] so "
+                "'hi' turns never touch the store. The pipeline gains a "
+                "memory_read step before the LLM decision. The 18-case M2 "
+                "recall corpus measures retrieval correctness end-to-end."
             ),
             "deliverables": [
-                "Layer 1 gate chain: 5 gates with parse-tree clause-shape detection",
-                "Layer 2 deterministic tier classifier",
-                "Layer 3 promotion stub (no-op until M4)",
-                "Immediate-durable bypass for safety-critical predicates",
-                "Single-value predicate supersession (recency-weighted)",
-                "Provisional-handle write + merge logic",
-                "Cross-user isolation enforced by owner_user_id everywhere",
-                "Tier 4/5 writes via V2MemoryStore (own SQLite file)",
-                "131-case extraction corpus (50 should-write / 51 should-not / 20 ambiguous / 10 multi-clause)",
-                "M1 phase-gate tests: precision >= 0.98, recall >= 0.70, latency < 50ms median",
-                "Pipeline integration: memory_write step (opt-in, no-op when disabled)",
+                "facts_fts FTS5 virtual table with INSERT/UPDATE/DELETE triggers",
+                "Predicate humanization in the FTS index ('lives_in' -> 'lives in')",
+                "BM25 + subject-scan retrieval fused via RRF (k=60)",
+                "Lazy retrieval: need_preference gates the fetch",
+                "{user_facts} slot rendered into combine + direct_chat prompts",
+                "Hard 250-char budget enforced via truncate_to_budget",
+                "Substring-heuristic grep guard (forbids v1 _query_mentions/_is_explicitly_relevant)",
+                "18-case M2 recall corpus exercising single-value, multi-fact, cross-user, and budget paths",
+                "Pipeline integration: memory_read step (opt-in via need_preference)",
+                "M2 phase-gate tests: p95 latency < 100ms warm, slot budget, isolation",
             ],
         },
         "phases": [
             {"id": "m0", "label": "M0", "title": "Prerequisites and corpora", "status": "complete"},
             {"id": "m1", "label": "M1", "title": "Write path: gates + classifier + Tier 4/5 writes", "status": "complete"},
-            {"id": "m2", "label": "M2", "title": "Read path: Tier 4 retrieval, delete substring heuristics", "status": "not_started"},
+            {"id": "m2", "label": "M2", "title": "Read path: Tier 4 FTS5 + RRF retrieval", "status": "complete"},
             {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "not_started"},
             {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "not_started"},
             {"id": "m5", "label": "M5", "title": "Tier 7 procedural: behavior events + 7a/7b split", "status": "not_started"},

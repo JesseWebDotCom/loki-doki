@@ -98,11 +98,29 @@ def build_combine_prompt(spec: RequestSpec) -> str:
       writing a meta-summary about the spec.
     * ``combine`` — when one or more skills produced output and we
       just need to weave them into a single natural-language reply.
+
+    Both templates render the M2 ``{user_facts}`` slot. The slot is
+    populated by the pipeline's `memory_read` step (when memory is
+    enabled) and stashed at ``spec.context["memory_slots"]["user_facts"]``.
+    Empty when memory is off or the read returned nothing.
     """
+    user_facts = ""
+    if isinstance(spec.context, dict):
+        slots = spec.context.get("memory_slots") or {}
+        if isinstance(slots, dict):
+            user_facts = str(slots.get("user_facts") or "")
     if _is_direct_chat_only(spec):
-        return render_prompt("direct_chat", user_question=spec.original_request)
+        return render_prompt(
+            "direct_chat",
+            user_question=spec.original_request,
+            user_facts=user_facts,
+        )
     payload = build_llm_payload(spec)
-    return render_prompt("combine", spec=json.dumps(payload, ensure_ascii=False))
+    return render_prompt(
+        "combine",
+        spec=json.dumps(payload, ensure_ascii=False),
+        user_facts=user_facts,
+    )
 
 
 def _is_direct_chat_only(spec: RequestSpec) -> bool:

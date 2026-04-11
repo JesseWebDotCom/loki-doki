@@ -26,12 +26,17 @@ M1_PHASE_LABEL = "M1"
 M1_PHASE_TITLE = "Memory: Write Path (Tier 4/5)"
 M1_PHASE_STATUS = "complete"
 
+M2_PHASE_ID = "m2"
+M2_PHASE_LABEL = "M2"
+M2_PHASE_TITLE = "Memory: Read Path (Tier 4 FTS5+RRF)"
+M2_PHASE_STATUS = "complete"
+
 # The "active" phase is the most recent shipped phase. Future phases
 # update this constant when they land.
-ACTIVE_PHASE_ID = M1_PHASE_ID
-ACTIVE_PHASE_LABEL = M1_PHASE_LABEL
-ACTIVE_PHASE_TITLE = M1_PHASE_TITLE
-ACTIVE_PHASE_STATUS = M1_PHASE_STATUS
+ACTIVE_PHASE_ID = M2_PHASE_ID
+ACTIVE_PHASE_LABEL = M2_PHASE_LABEL
+ACTIVE_PHASE_TITLE = M2_PHASE_TITLE
+ACTIVE_PHASE_STATUS = M2_PHASE_STATUS
 
 __all__ = [
     "M0_PHASE_ID",
@@ -42,6 +47,10 @@ __all__ = [
     "M1_PHASE_LABEL",
     "M1_PHASE_TITLE",
     "M1_PHASE_STATUS",
+    "M2_PHASE_ID",
+    "M2_PHASE_LABEL",
+    "M2_PHASE_TITLE",
+    "M2_PHASE_STATUS",
     "ACTIVE_PHASE_ID",
     "ACTIVE_PHASE_LABEL",
     "ACTIVE_PHASE_TITLE",

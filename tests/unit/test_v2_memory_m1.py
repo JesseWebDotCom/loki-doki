@@ -492,19 +492,14 @@ def test_m1_pipeline_memory_write_runs_when_enabled(tmp_path: Path) -> None:
         test_store.close()
 
 
-def test_m1_dev_v2_status_active_phase_is_m1_complete() -> None:
-    """M1 must publish itself as the active phase on the dev-tools status."""
+def test_m1_dev_v2_status_phase_is_complete() -> None:
+    """M1 must always be marked complete on the dev-tools status, even
+    after later phases (M2+) advance the active phase past M1."""
     from lokidoki.api.routes.dev import _v2_memory_status
 
     payload = _v2_memory_status()
-    assert payload["active_phase"]["id"] == "m1"
-    assert payload["active_phase"]["status"] == "complete"
     m1_phase = next(p for p in payload["phases"] if p["id"] == "m1")
     assert m1_phase["status"] == "complete"
-    # The M1 deliverable list mentions the gate chain and the corpus.
-    deliverables = " ".join(payload["active_phase"]["deliverables"]).lower()
-    assert "gate chain" in deliverables
-    assert "131-case" in deliverables or "corpus" in deliverables
 
 
 def test_m1_pipeline_president_bug_does_not_write(tmp_path: Path) -> None:

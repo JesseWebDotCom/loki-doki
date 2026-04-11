@@ -85,6 +85,80 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_uniq
 CREATE INDEX IF NOT EXISTS idx_facts_owner_subject
     ON facts(owner_user_id, subject);
 
+-- FTS5 virtual table for Tier 4 read path (M2). Indexes the value text
+-- and the source_text so a query about "favorite color" can match either
+-- the literal value or the original utterance phrasing. Triggers below
+-- keep it in sync with the facts table including supersession.
+CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
+    value,
+    source_text,
+    subject UNINDEXED,
+    predicate UNINDEXED,
+    owner_user_id UNINDEXED,
+    status UNINDEXED,
+    content='facts',
+    content_rowid='id',
+    tokenize='porter unicode61'
+);
+
+-- The FTS triggers store a *humanized* form of the predicate alongside
+-- the source_text so a query like "where do I live" stems to "live"
+-- and matches the predicate "lives_in" (humanized to "lives in"). The
+-- raw facts.source_text column is unchanged — only the FTS5 index
+-- sees the enriched text. This is the M2 design fix that lets BM25
+-- bridge user vocabulary and stored predicate identifiers without
+-- substring-matching the user input.
+CREATE TRIGGER IF NOT EXISTS facts_fts_ai AFTER INSERT ON facts BEGIN
+    INSERT INTO facts_fts(rowid, value, source_text, subject, predicate, owner_user_id, status)
+    VALUES (
+        new.id,
+        new.value,
+        REPLACE(new.predicate, '_', ' ') || ' ' || COALESCE(new.source_text, ''),
+        new.subject,
+        new.predicate,
+        new.owner_user_id,
+        new.status
+    );
+END;
+
+CREATE TRIGGER IF NOT EXISTS facts_fts_ad AFTER DELETE ON facts BEGIN
+    INSERT INTO facts_fts(facts_fts, rowid, value, source_text, subject, predicate, owner_user_id, status)
+    VALUES (
+        'delete',
+        old.id,
+        old.value,
+        REPLACE(old.predicate, '_', ' ') || ' ' || COALESCE(old.source_text, ''),
+        old.subject,
+        old.predicate,
+        old.owner_user_id,
+        old.status
+    );
+END;
+
+CREATE TRIGGER IF NOT EXISTS facts_fts_au AFTER UPDATE ON facts BEGIN
+    INSERT INTO facts_fts(facts_fts, rowid, value, source_text, subject, predicate, owner_user_id, status)
+    VALUES (
+        'delete',
+        old.id,
+        old.value,
+        REPLACE(old.predicate, '_', ' ') || ' ' || COALESCE(old.source_text, ''),
+        old.subject,
+        old.predicate,
+        old.owner_user_id,
+        old.status
+    );
+    INSERT INTO facts_fts(rowid, value, source_text, subject, predicate, owner_user_id, status)
+    VALUES (
+        new.id,
+        new.value,
+        REPLACE(new.predicate, '_', ' ') || ' ' || COALESCE(new.source_text, ''),
+        new.subject,
+        new.predicate,
+        new.owner_user_id,
+        new.status
+    );
+END;
+
 CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL,

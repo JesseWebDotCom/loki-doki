@@ -73,6 +73,11 @@ Rules:
 - NEVER describe the request itself, the spec, "the user", "chunks",
   "the output text", or any internal terminology. Speak directly to the
   user as a helpful assistant. The user must never see meta-language.
+- If user_facts is non-empty, treat it as durable, structured facts about
+  the user (subject=predicate=value list). Use it silently — never quote
+  the slot back at the user.
+
+user_facts: {user_facts}
 
 RequestSpec (JSON): {spec}
 """
@@ -90,6 +95,10 @@ Rules:
 - Never restate or summarise the question. Just answer it.
 - Keep the answer to 1–3 sentences unless the user clearly asked for detail.
 - If you genuinely don't know, say so briefly and suggest one rephrase.
+- If user_facts is non-empty, use it silently to personalize the answer.
+  Never quote the slot literally.
+
+user_facts: {user_facts}
 
 User's question: {user_question}
 
@@ -99,6 +108,9 @@ Your answer:"""
 _REQUIRED_SLOTS = {
     "split": frozenset({"utterance"}),
     "resolve": frozenset({"chunk_text", "capability", "unresolved", "context"}),
+    # `user_facts` is rendered into both combine and direct_chat but is
+    # *optional* — empty string is the default. The required-slots set
+    # only enforces the slots that have no sensible empty default.
     "combine": frozenset({"spec"}),
     "direct_chat": frozenset({"user_question"}),
 }
