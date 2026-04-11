@@ -312,11 +312,35 @@ export interface V2RunResponse {
     capability: string;
     output_text: string;
   }>;
+  request_spec: {
+    trace_id: string;
+    original_request: string;
+    chunks: Array<{
+      text: string;
+      role: string;
+      capability: string;
+      confidence: number;
+      params: Record<string, unknown>;
+      result: Record<string, unknown>;
+      success: boolean;
+      error?: string | null;
+      unresolved: string[];
+    }>;
+    supporting_context: string[];
+    context: Record<string, unknown>;
+    runtime_version: number;
+  };
   response: {
     output_text: string;
   };
   trace: {
     steps: V2TraceStep[];
+  };
+  trace_summary: {
+    total_timing_ms: number;
+    slowest_step_name: string;
+    slowest_step_timing_ms: number;
+    step_count: number;
   };
 }
 

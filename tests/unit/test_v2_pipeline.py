@@ -44,7 +44,7 @@ def test_v2_pipeline_handles_obvious_compound_request_end_to_end():
     assert result.parsed.token_count > 0
     assert len(result.extractions) == 2
     assert len(result.resolutions) == 2
-    assert [step.status for step in result.trace.steps] == ["done", "done", "bypassed", "done", "done", "done", "done", "done", "done", "done"]
+    assert [step.status for step in result.trace.steps] == ["done", "done", "bypassed", "done", "done", "done", "done", "done", "done", "done", "done"]
     assert all(step.timing_ms >= 0.0 for step in result.trace.steps)
 
 
@@ -56,3 +56,14 @@ def test_v2_pipeline_extracts_and_resolves_chunk_context():
     assert result.extractions[1].references == ["restaurant"]
     assert result.resolutions[0].resolved_target == "current_time"
     assert result.resolutions[1].resolved_target == "restaurant"
+
+
+def test_v2_pipeline_builds_request_spec_and_trace_summary():
+    result = run_pipeline("hello and how do you spell necessary")
+
+    assert result.request_spec.original_request == "hello and how do you spell necessary"
+    assert len(result.request_spec.chunks) == 2
+    assert result.request_spec.chunks[0].capability == "greeting_response"
+    assert result.request_spec.chunks[1].params["resolved_target"] == "necessary"
+    assert result.trace_summary.total_timing_ms >= 0.0
+    assert result.trace_summary.slowest_step_name in [step.name for step in result.trace.steps]

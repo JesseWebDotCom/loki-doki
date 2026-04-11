@@ -1,8 +1,9 @@
 """Top-level deterministic v2 request pipeline."""
 from __future__ import annotations
 
-from v2.bmo_nlu.core.types import ParsedInput, PipelineResult, ResponseObject, TraceData
+from v2.bmo_nlu.core.types import ParsedInput, PipelineResult, ResponseObject, TraceData, TraceSummary
 from v2.bmo_nlu.execution.executor import execute_chunk
+from v2.bmo_nlu.execution.request_spec import build_request_spec
 from v2.bmo_nlu.pipeline.combiner import combine_outputs
 from v2.bmo_nlu.pipeline.extractor import extract_chunk_data
 from v2.bmo_nlu.pipeline.fast_lane import check_fast_lane
@@ -46,8 +47,10 @@ def run_pipeline(raw_text: str) -> PipelineResult:
             routes=[],
             resolutions=[],
             executions=[],
+            request_spec=build_request_spec(raw_text=raw_text, chunks=[], routes=[], resolutions=[], executions=[]),
             response=response,
             trace=trace,
+            trace_summary=_build_trace_summary(trace),
         )
 
     finish = trace.timed("parse")
@@ -89,6 +92,16 @@ def run_pipeline(raw_text: str) -> PipelineResult:
         outputs=[execution.output_text for execution in executions],
     )
 
+    finish = trace.timed("request_spec")
+    request_spec = build_request_spec(
+        raw_text=raw_text,
+        chunks=chunks,
+        routes=routes,
+        resolutions=resolutions,
+        executions=executions,
+    )
+    finish(chunk_count=len(request_spec.chunks), trace_id=request_spec.trace_id)
+
     finish = trace.timed("combine")
     response = combine_outputs(executions)
     finish(output_text=response.output_text)
@@ -103,6 +116,21 @@ def run_pipeline(raw_text: str) -> PipelineResult:
         routes=routes,
         resolutions=resolutions,
         executions=executions,
+        request_spec=request_spec,
         response=response,
         trace=trace,
+        trace_summary=_build_trace_summary(trace),
+    )
+
+
+def _build_trace_summary(trace: TraceData) -> TraceSummary:
+    total = sum(step.timing_ms for step in trace.steps)
+    if not trace.steps:
+        return TraceSummary(total_timing_ms=0.0, step_count=0)
+    slowest = max(trace.steps, key=lambda step: step.timing_ms)
+    return TraceSummary(
+        total_timing_ms=round(total, 3),
+        slowest_step_name=slowest.name,
+        slowest_step_timing_ms=slowest.timing_ms,
+        step_count=len(trace.steps),
     )

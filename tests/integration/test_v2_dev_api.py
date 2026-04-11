@@ -67,3 +67,5 @@ async def test_v2_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
     assert body["parsed"]["token_count"] >= 1
     assert len(body["extractions"]) == 2
     assert len(body["resolutions"]) == 2
+    assert body["request_spec"]["original_request"] == "hello and how do you spell restaurant"
+    assert body["trace_summary"]["slowest_step_name"] in {step["name"] for step in body["trace"]["steps"]}

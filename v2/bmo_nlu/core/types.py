@@ -79,11 +79,42 @@ class ResponseObject:
 
 
 @dataclass(slots=True)
+class RequestChunkResult:
+    text: str
+    role: str
+    capability: str
+    confidence: float
+    params: dict[str, Any] = field(default_factory=dict)
+    result: dict[str, Any] = field(default_factory=dict)
+    success: bool = True
+    error: str | None = None
+    unresolved: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RequestSpec:
+    trace_id: str
+    original_request: str
+    chunks: list[RequestChunkResult] = field(default_factory=list)
+    supporting_context: list[str] = field(default_factory=list)
+    context: dict[str, Any] = field(default_factory=dict)
+    runtime_version: int = 2
+
+
+@dataclass(slots=True)
 class TraceStep:
     name: str
     status: str = "done"
     timing_ms: float = 0.0
     details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class TraceSummary:
+    total_timing_ms: float = 0.0
+    slowest_step_name: str = ""
+    slowest_step_timing_ms: float = 0.0
+    step_count: int = 0
 
 
 @dataclass(slots=True)
@@ -128,8 +159,10 @@ class PipelineResult:
     routes: list[RouteMatch]
     resolutions: list[ResolutionResult]
     executions: list[ExecutionResult]
+    request_spec: RequestSpec
     response: ResponseObject
     trace: TraceData
+    trace_summary: TraceSummary
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
