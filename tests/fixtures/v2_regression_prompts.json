@@ -872,6 +872,108 @@
         "gemma_used": false,
         "max_total_ms": 500
       }
+    },
+    {
+      "id": "v1_port.dictionary_define_ephemeral",
+      "utterance": "define ephemeral",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "lookup_definition",
+        "gemma_used": false,
+        "response_contains": "ephemeral",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "v1_port.dictionary_meaning_serendipity",
+      "utterance": "what does serendipity mean",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "lookup_definition",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "v1_port.news_top_stories",
+      "utterance": "give me the headlines",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "get_news_headlines",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "v1_port.news_tech_topic",
+      "utterance": "what's happening in tech news",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "get_news_headlines",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "v1_port.recipe_lasagna",
+      "utterance": "recipe for lasagna",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "find_recipe",
+        "gemma_used": false,
+        "response_contains": "lasagna",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "v1_port.recipe_how_make_bread",
+      "utterance": "how do you make banana bread",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "find_recipe",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "v1_port.jokes_tell_me_one",
+      "utterance": "tell me a joke",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "tell_joke",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "v1_port.jokes_make_me_laugh",
+      "utterance": "make me laugh",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "tell_joke",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "v1_port.tv_show_breaking_bad",
+      "utterance": "tell me about the tv show breaking bad",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "lookup_tv_show",
+        "gemma_used": false,
+        "response_contains": "breaking",
+        "max_total_ms": 500
+      }
     }
   ]
 }

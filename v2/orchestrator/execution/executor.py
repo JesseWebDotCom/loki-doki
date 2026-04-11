@@ -24,6 +24,21 @@ from v2.orchestrator.core.types import (
     RouteMatch,
 )
 from v2.orchestrator.execution.errors import HandlerError, HandlerTimeout, TransientHandlerError
+from v2.orchestrator.skills import (
+    calculator as calculator_skill,
+    dictionary as dictionary_skill,
+    jokes as jokes_skill,
+    knowledge as knowledge_skill,
+    llm_skills,
+    news as news_skill,
+    recipes as recipes_skill,
+    showtimes as showtimes_skill,
+    smarthome as smarthome_skill,
+    time_in_location as time_in_location_skill,
+    tv_show as tv_show_skill,
+    units as units_skill,
+    weather as weather_skill,
+)
 
 log = logging.getLogger("v2.executor")
 
@@ -200,89 +215,11 @@ def _recall_media_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"output_text": payload.get("resolved_target") or ""}
 
 
-def _control_device_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    params = payload.get("params") or {}
-    name = params.get("matched_phrase") or payload.get("resolved_target") or "device"
-    return {"output_text": f"Toggled {name}."}
-
-
 def _send_text_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stub messaging handler — no v1 messaging backend exists yet."""
     params = payload.get("params") or {}
     name = params.get("person_name") or payload.get("resolved_target") or "your contact"
-    return {"output_text": f"Texting {name} now."}
-
-
-def _convert_units_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Deterministic unit-conversion fallback for the routed (non-fast-lane) path.
-
-    The fast lane already handles the trivial cases. This handler exists so a
-    routed ``convert_units`` chunk still resolves cleanly when the fast lane is
-    bypassed (e.g. inside a compound utterance) — it re-uses the same fast-lane
-    matcher against the chunk text.
-    """
-    from v2.orchestrator.pipeline.fast_lane import _match_unit_conversion, _normalize
-
-    chunk_text = str(payload.get("chunk_text") or "")
-    lemma = _normalize(chunk_text)
-    result = _match_unit_conversion(lemma)
-    if result is not None and result.matched and result.response_text:
-        return {"output_text": result.response_text}
-    return {"output_text": "I couldn't parse that conversion."}
-
-
-def _weather_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Stub weather provider used by the v2 prototype.
-
-    A real backend would hit a weather API. The prototype returns a
-    deterministic forecast string so routing tests can assert on shape.
-    """
-    return {
-        "output_text": "Weather forecast: clear with a high near 72°F.",
-        "provider": "stub",
-    }
-
-
-def _showtimes_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Stub movie-showtimes provider used by the v2 prototype."""
-    chunk_text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
-    title = _extract_showtimes_title(chunk_text)
-    return {"output_text": f"Showtimes for {title}: 4:30 PM, 7:00 PM, and 9:45 PM."}
-
-
-def _extract_showtimes_title(chunk_text: str) -> str:
-    """Best-effort title extraction from a showtimes utterance.
-
-    Three strategies, in order:
-      1. ``movie times for X (in/at/on ...)?`` — pull X.
-      2. ``what time is the X movie playing`` — pull X + "movie".
-      3. Fallback: the chunk text itself.
-    """
-    if not chunk_text:
-        return "the requested movie"
-
-    stop_after = (" in ", " at ", " on ", " near ", " for ", " tonight", " tomorrow", " today")
-
-    if " for " in chunk_text:
-        tail = chunk_text.split(" for ", 1)[1]
-        for marker in stop_after:
-            if marker in tail and not marker.startswith(" for"):
-                tail = tail.split(marker, 1)[0]
-        candidate = tail.strip()
-        if candidate:
-            return candidate
-
-    for marker in (" movie ", " film "):
-        if marker in chunk_text:
-            head = chunk_text.split(marker, 1)[0]
-            tokens = [
-                tok
-                for tok in head.split()
-                if tok not in {"what", "time", "is", "the", "a", "an", "new", "when", "does", "show", "me"}
-            ]
-            if tokens:
-                return " ".join(tokens) + " movie"
-
-    return "the requested movie"
+    return {"output_text": f"Texting {name} now (stub: real messaging backend not wired up)."}
 
 
 def _person_birthday_handler(payload: dict[str, Any]) -> dict[str, Any]:
@@ -297,150 +234,13 @@ def _person_birthday_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"output_text": f"{name}'s birthday is {birthday}."}
 
 
-def _knowledge_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Stub knowledge-query provider.
-
-    Real factual lookup would defer to a retrieval skill or a thinking-mode
-    LLM. The prototype returns a marker string that names the topic so
-    routing tests can confirm the question reached this capability.
-    """
-    chunk_text = str(payload.get("chunk_text") or "").strip()
-    return {
-        "output_text": f"Knowledge query (stub): {chunk_text}",
-        "provider": "stub",
-    }
-
-
-def _echo_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    return {"output_text": str(payload.get("chunk_text") or "")}
-
-
-# ---- stub skill handlers (see v2/SKILL_STUBS.md) ---------------------------
-#
-# These handlers exist so the routing layer has a real destination for every
-# capability ChatGPT's "Prompt -> Skill Routing Table" identified, but they
-# do not yet integrate with a real backend. Each one returns a deterministic
-# placeholder string that the regression tests can assert on. The
-# v2/SKILL_STUBS.md doc tracks what each stub needs in order to ship.
-
-
-def _indoor_temperature_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "output_text": "Indoor temperature is currently 68°F (stub).",
-        "provider": "stub",
-    }
-
-
-def _detect_presence_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    chunk_text = str(payload.get("chunk_text") or "").lower()
-    room = "that room"
-    for marker in (" in the ", " in "):
-        if marker in chunk_text:
-            tail = chunk_text.split(marker, 1)[1].strip(" ?.!")
-            if tail:
-                room = "the " + tail if not tail.startswith("the ") else tail
-                break
-    return {
-        "output_text": f"I don't see anyone in {room} right now (stub).",
-        "provider": "stub",
-    }
-
-
-def _device_state_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    chunk_text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
-    device = "that device"
-    for trigger in ("close ", "lock ", "turn ", "is ", "are "):
-        if trigger in chunk_text:
-            tail = chunk_text.split(trigger, 1)[1].strip()
-            tail = tail.lstrip("the ").strip()
-            if tail:
-                device = "the " + tail.split(" ")[0] if " " in tail else "the " + tail
-                # Use up to 3 trailing tokens to keep multi-word device names.
-                tokens = tail.split()
-                device = "the " + " ".join(tokens[: min(3, len(tokens))])
-                break
-    return {
-        "output_text": f"{device.capitalize()} is currently closed (stub).",
-        "provider": "stub",
-    }
-
-
-def _time_in_location_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    chunk_text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
-    city = "that city"
-    if " in " in chunk_text:
-        tail = chunk_text.split(" in ", 1)[1].strip(" ?.!")
-        if tail:
-            city = tail
-    return {
-        "output_text": f"It's currently 9:30 PM in {city.title()} (stub: location-aware time not yet wired up).",
-        "provider": "stub",
-    }
-
-
-def _generate_email_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    chunk_text = str(payload.get("chunk_text") or "")
-    return {
-        "output_text": (
-            "Subject: Refund Request\n\n"
-            "Dear Sir or Madam,\n\n"
-            "I am writing to request a refund for my recent purchase. "
-            "[Stub email body — generative model not yet wired up.]\n\n"
-            "Sincerely,\nThe User"
-        ),
-        "request": chunk_text,
-        "provider": "stub",
-    }
-
-
-def _code_assistance_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    chunk_text = str(payload.get("chunk_text") or "")
-    return {
-        "output_text": (
-            "```python\n"
-            "# Stub code response — generative model not yet wired up.\n"
-            "def solve():\n"
-            "    pass\n"
-            "```"
-        ),
-        "request": chunk_text,
-        "provider": "stub",
-    }
-
-
-def _summarize_text_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "output_text": "Summary (stub): the article's main point in one sentence.",
-        "provider": "stub",
-    }
-
-
-def _create_plan_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "output_text": (
-            "Plan (stub):\n"
-            "  Day 1 — Arrival and orientation\n"
-            "  Day 2 — Main activities\n"
-            "  Day 3 — Wrap up and departure"
-        ),
-        "provider": "stub",
-    }
-
-
-def _weigh_options_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    chunk_text = str(payload.get("chunk_text") or "")
-    return {
-        "output_text": (
-            "Both options have merit (stub). Pros and cons would be weighed "
-            "against your goals, risk tolerance, and time horizon — generative "
-            "reasoning model not yet wired up."
-        ),
-        "request": chunk_text,
-        "provider": "stub",
-    }
-
-
 def _find_products_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stub product-recommendation handler.
+
+    There is no v1 LokiDoki product-search skill and no obvious free
+    product API. Until one is wired up, the handler returns a
+    deterministic stub answer that the regression tests can assert on.
+    """
     return {
         "output_text": (
             "Top picks (stub): Option A, Option B, Option C — "
@@ -450,17 +250,21 @@ def _find_products_handler(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _emotional_support_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "output_text": (
-            "I hear you, and that sounds really hard (stub). I'm here if you "
-            "want to talk about it more — empathetic LLM not yet wired up."
-        ),
-        "provider": "stub",
-    }
+def _echo_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    return {"output_text": str(payload.get("chunk_text") or "")}
 
+
+# ---- handler registry ------------------------------------------------------
+#
+# Most v2 capabilities now dispatch into ``v2/orchestrator/skills/*`` adapter
+# modules that wrap real v1 LokiDoki skills (with their fallback chains and
+# offline caches). Generative capabilities call ``llm_skills`` which talks to
+# Ollama when ``CONFIG.gemma_enabled`` is True and degrades to deterministic
+# stubs otherwise. The handful of stubs that remain (``send_text_message``,
+# ``find_products``) are tracked in ``v2/SKILL_STUBS.md``.
 
 _HANDLER_REGISTRY: dict[str, HandlerFn] = {
+    # ---- conversation / utility (built-in deterministic) -----------------
     "core.greetings.reply": _greeting_handler,
     "core.acknowledgments.reply": _ack_handler,
     "core.dictionary.spell": _spell_handler,
@@ -469,27 +273,34 @@ _HANDLER_REGISTRY: dict[str, HandlerFn] = {
     "core.time.get_local_time_backup": _time_handler,
     "core.date.get_local_date": _date_handler,
     "context.media.recall_recent": _recall_media_handler,
-    "skills.home_assistant.toggle": _control_device_handler,
-    "skills.messaging.send_text": _send_text_handler,
-    "core.units.convert": _convert_units_handler,
-    "skills.weather.forecast": _weather_handler,
-    "skills.movies.showtimes": _showtimes_handler,
     "core.people.birthday": _person_birthday_handler,
-    "core.knowledge.lookup": _knowledge_handler,
-    # ---- ChatGPT-table stub skills (see v2/SKILL_STUBS.md) ---------------
-    "skills.sensors.indoor_temperature": _indoor_temperature_handler,
-    "skills.presence.detect": _detect_presence_handler,
-    "skills.home_assistant.state": _device_state_handler,
-    "core.time.location": _time_in_location_handler,
-    "skills.writing.email": _generate_email_handler,
-    "skills.code.assistant": _code_assistance_handler,
-    "skills.writing.summarize": _summarize_text_handler,
-    "skills.planning.create_plan": _create_plan_handler,
-    "skills.decision.weigh_options": _weigh_options_handler,
-    "skills.shopping.find_products": _find_products_handler,
-    "skills.support.empathy": _emotional_support_handler,
-    # -----------------------------------------------------------------------
     "fallback.direct_chat": _echo_handler,
+    # ---- v1-backed adapters ----------------------------------------------
+    "core.units.convert": units_skill.handle,
+    "core.calculator.evaluate": calculator_skill.handle,
+    "skills.weather.forecast": weather_skill.handle,
+    "core.knowledge.lookup": knowledge_skill.handle,
+    "skills.movies.showtimes": showtimes_skill.handle,
+    "skills.home_assistant.toggle": smarthome_skill.control_device,
+    "skills.home_assistant.state": smarthome_skill.get_device_state,
+    "skills.sensors.indoor_temperature": smarthome_skill.get_indoor_temperature,
+    "skills.presence.detect": smarthome_skill.detect_presence,
+    "skills.dictionary.lookup": dictionary_skill.handle,
+    "skills.news.google_rss": news_skill.handle,
+    "skills.recipes.themealdb": recipes_skill.handle,
+    "skills.jokes.icanhazdadjoke": jokes_skill.handle,
+    "skills.tv.tvmaze": tv_show_skill.handle,
+    "core.time.location": time_in_location_skill.handle,
+    # ---- LLM-backed (Ollama with stub fallback) --------------------------
+    "skills.writing.email": llm_skills.generate_email,
+    "skills.code.assistant": llm_skills.code_assistance,
+    "skills.writing.summarize": llm_skills.summarize_text,
+    "skills.planning.create_plan": llm_skills.create_plan,
+    "skills.decision.weigh_options": llm_skills.weigh_options,
+    "skills.support.empathy": llm_skills.emotional_support,
+    # ---- remaining stubs (tracked in SKILL_STUBS.md) ---------------------
+    "skills.messaging.send_text": _send_text_handler,
+    "skills.shopping.find_products": _find_products_handler,
 }
 
 

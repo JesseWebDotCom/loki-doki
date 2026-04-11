@@ -53,6 +53,13 @@ DIRECT_UTILITY_CAPABILITIES = {
     "weigh_options",
     "find_products",
     "emotional_support",
+    # v1-port skills with definite NPs in their canonical phrasing
+    # ("the headlines", "the tv show X", "the recipe for Y").
+    "lookup_definition",
+    "get_news_headlines",
+    "find_recipe",
+    "tell_joke",
+    "lookup_tv_show",
 }
 
 # Pronoun → preferred entity types (best-effort guess from English usage).

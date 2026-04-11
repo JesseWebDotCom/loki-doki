@@ -473,6 +473,109 @@
     ]
   },
   {
+    "capability": "lookup_definition",
+    "description": "Look up the dictionary definition, part of speech, and pronunciation of a word.",
+    "examples": [
+      "define photosynthesis",
+      "what does ephemeral mean",
+      "definition of serendipity",
+      "meaning of laconic",
+      "what does ostensibly mean",
+      "define onomatopoeia"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.dictionary.lookup",
+        "handler_name": "skills.dictionary.lookup",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_news_headlines",
+    "description": "Fetch current news headlines from a major news aggregator, optionally filtered by topic (world, us, business, tech, sports, science, health, entertainment).",
+    "examples": [
+      "what's the news today",
+      "give me the headlines",
+      "tell me the top stories",
+      "what's happening in tech news",
+      "latest sports news",
+      "any business headlines today"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.news.google_rss",
+        "handler_name": "skills.news.google_rss",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "find_recipe",
+    "description": "Look up a cooking recipe by dish name or main ingredient.",
+    "examples": [
+      "recipe for chicken alfredo",
+      "how do you make banana bread",
+      "show me a recipe for chili",
+      "find me a recipe for pad thai",
+      "give me a recipe for lasagna",
+      "how to make pancakes"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.recipes.themealdb",
+        "handler_name": "skills.recipes.themealdb",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "tell_joke",
+    "description": "Tell a short, family-friendly joke.",
+    "examples": [
+      "tell me a joke",
+      "tell me a dad joke",
+      "make me laugh",
+      "got any jokes",
+      "say something funny"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.jokes.icanhazdadjoke",
+        "handler_name": "skills.jokes.icanhazdadjoke",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "lookup_tv_show",
+    "description": "Look up details about a TV series — network, status, rating, recent episodes.",
+    "examples": [
+      "tell me about the tv show breaking bad",
+      "what tv show is friends",
+      "is the office still running",
+      "tv show ted lasso",
+      "tell me about better call saul"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.tv.tvmaze",
+        "handler_name": "skills.tv.tvmaze",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
     "capability": "emotional_support",
     "description": "Respond with empathy and supportive language when the user expresses a difficult feeling such as sadness, frustration, anxiety, or being stuck.",
     "examples": [
