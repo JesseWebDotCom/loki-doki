@@ -75,6 +75,7 @@ class ResolutionResult:
     resolved_target: str
     source: str
     confidence: float
+    context_value: str | None = None
 
 
 @dataclass(slots=True)

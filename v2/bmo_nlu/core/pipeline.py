@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import Any
 
 from v2.bmo_nlu.core.types import (
     ParsedInput,
@@ -20,20 +21,21 @@ from v2.bmo_nlu.pipeline.normalizer import normalize_text
 from v2.bmo_nlu.pipeline.parser import parse_text
 from v2.bmo_nlu.pipeline.splitter import split_requests
 from v2.bmo_nlu.registry.runtime import get_runtime
-from v2.bmo_nlu.resolution.resolver import resolve_chunk_async, resolve_chunks
-from v2.bmo_nlu.routing.router import route_chunk, route_chunk_async
+from v2.bmo_nlu.resolution.resolver import resolve_chunk_async
+from v2.bmo_nlu.routing.router import route_chunk_async
 from v2.bmo_nlu.signals.interaction_signals import detect_interaction_signals
 
 
-def run_pipeline(raw_text: str) -> PipelineResult:
+def run_pipeline(raw_text: str, context: dict[str, Any] | None = None) -> PipelineResult:
     """Run the current Phase 1 v2 prototype pipeline."""
-    return asyncio.run(run_pipeline_async(raw_text))
+    return asyncio.run(run_pipeline_async(raw_text, context=context))
 
 
-async def run_pipeline_async(raw_text: str) -> PipelineResult:
+async def run_pipeline_async(raw_text: str, context: dict[str, Any] | None = None) -> PipelineResult:
     """Run the current Phase 1 v2 prototype pipeline asynchronously."""
     trace = TraceData()
     runtime = get_runtime()
+    safe_context = context or {}
 
     finish = trace.timed("normalize")
     normalized = normalize_text(raw_text)
@@ -71,6 +73,7 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
                 implementations=[],
                 resolutions=[],
                 executions=[],
+                context=safe_context,
             ),
             response=response,
             trace=trace,
@@ -135,7 +138,7 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
     resolved = list(
         await asyncio.gather(
             *(
-                _timed_resolve(chunk, extraction, route)
+                _timed_resolve(chunk, extraction, route, safe_context)
                 for chunk, extraction, route in zip(chunks, extractions, routes, strict=True)
             )
         )
@@ -192,6 +195,7 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
         implementations=implementations,
         resolutions=resolutions,
         executions=executions,
+        context=safe_context,
     )
     finish(chunk_count=len(request_spec.chunks), trace_id=request_spec.trace_id)
 
@@ -259,9 +263,9 @@ async def _timed_select(chunk_index, capability, runtime):
     }
 
 
-async def _timed_resolve(chunk, extraction, route):
+async def _timed_resolve(chunk, extraction, route, context):
     started = time.perf_counter()
-    resolution = await resolve_chunk_async(chunk, extraction, route)
+    resolution = await resolve_chunk_async(chunk, extraction, route, context)
     return {"resolution": resolution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
 
 

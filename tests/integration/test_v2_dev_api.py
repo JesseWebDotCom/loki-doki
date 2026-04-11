@@ -75,3 +75,28 @@ async def test_v2_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
     assert route_step["details"]["chunks"][1]["capability"] == "spell_word"
     assert select_step["details"]["chunks"][1]["handler_name"] == "core.dictionary.spell"
     assert select_step["details"]["chunks"][1]["candidate_count"] == 2
+
+
+@pytest.mark.anyio
+async def test_v2_dev_endpoint_accepts_recent_context_for_media_resolution(_fresh_memory):
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+    async with _client() as ac:
+        response = await ac.post(
+            "/api/v1/dev/v2/run",
+            json={
+                "message": "what was that movie",
+                "context": {
+                    "recent_entities": [
+                        {"type": "movie", "name": "Rogue One"},
+                    ]
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["response"]["output_text"] == "Rogue One"
+    assert body["resolutions"][0]["resolved_target"] == "Rogue One"
+    assert body["resolutions"][0]["source"] == "recent_context"
+    assert body["request_spec"]["supporting_context"] == ["movie:Rogue One"]

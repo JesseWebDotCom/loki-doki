@@ -86,6 +86,25 @@ def test_v2_pipeline_builds_request_spec_and_trace_summary():
     assert result.trace_summary.slowest_step_name in [step.name for step in result.trace.steps]
 
 
+def test_v2_pipeline_resolves_recent_movie_from_context():
+    result = run_pipeline(
+        "what was that movie",
+        context={
+            "recent_entities": [
+                {"type": "movie", "name": "Dune: Part Two"},
+                {"type": "person", "name": "Leia"},
+            ]
+        },
+    )
+
+    assert [route.capability for route in result.routes] == ["recall_recent_media"]
+    assert result.resolutions[0].resolved_target == "Dune: Part Two"
+    assert result.resolutions[0].source == "recent_context"
+    assert result.response.output_text == "Dune: Part Two"
+    assert result.request_spec.supporting_context == ["movie:Dune: Part Two"]
+    assert result.request_spec.context["recent_entities"][0]["name"] == "Dune: Part Two"
+
+
 def test_v2_pipeline_trace_contains_per_chunk_stage_details():
     result = run_pipeline("hello and how do you spell restaurant")
 
@@ -121,3 +140,15 @@ async def test_v2_async_pipeline_matches_sync_shape():
     assert result.implementations[1].candidate_count == 2
     assert [resolution.resolved_target for resolution in result.resolutions] == ["greeting", "restaurant"]
     assert result.response.output_text.lower().startswith("hello")
+
+
+@pytest.mark.anyio
+async def test_v2_async_pipeline_resolves_recent_movie_from_context():
+    result = await run_pipeline_async(
+        "what was that movie",
+        context={"recent_entities": [{"type": "movie", "name": "Padme"}]},
+    )
+
+    assert [route.capability for route in result.routes] == ["recall_recent_media"]
+    assert result.resolutions[0].resolved_target == "Padme"
+    assert result.request_spec.supporting_context == ["movie:Padme"]

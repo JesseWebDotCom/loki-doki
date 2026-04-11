@@ -17,6 +17,10 @@ def extract_chunk_data(chunks: list[RequestChunk]) -> list[ChunkExtraction]:
             references.append("time")
             predicates.append("get")
             subject_candidates.append("time")
+        if any(phrase in lower for phrase in ("that movie", "that film", "movie were we talking about", "what was it called")):
+            references.append("recent_media")
+            predicates.append("recall")
+            subject_candidates.append("movie")
         if lower.startswith("how do you spell "):
             spelled = chunk.text[len("how do you spell "):].strip()
             if spelled:

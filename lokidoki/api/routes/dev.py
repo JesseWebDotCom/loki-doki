@@ -1,8 +1,10 @@
 """Developer-only prototype endpoints."""
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
@@ -13,6 +15,7 @@ router = APIRouter()
 
 class V2RunRequest(BaseModel):
     message: str
+    context: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("message")
     @classmethod
@@ -28,4 +31,4 @@ async def run_v2_pipeline(
     _: User = Depends(require_admin),
 ):
     """Run the isolated v2 prototype pipeline."""
-    return (await run_pipeline_async(request.message)).to_dict()
+    return (await run_pipeline_async(request.message, context=request.context)).to_dict()

@@ -68,6 +68,25 @@
     ]
   },
   {
+    "capability": "recall_recent_media",
+    "description": "Recall the most recent movie or media title from recent conversation context.",
+    "examples": [
+      "what was that movie",
+      "what was that film",
+      "what movie were we talking about",
+      "what was it called"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "context.media.recall_recent",
+        "handler_name": "context.media.recall_recent",
+        "priority": 5,
+        "enabled": true
+      }
+    ]
+  },
+  {
     "capability": "direct_chat",
     "description": "Fallback conversational response when no capability strongly matches.",
     "examples": ["tell me something", "chat with me"],

@@ -30,6 +30,11 @@ def execute_chunk(
         output = resolution.resolved_target
     elif implementation.handler_name == "core.time.get_local_time":
         output = datetime.now().strftime("%-I:%M %p")
+    elif implementation.handler_name == "context.media.recall_recent":
+        if resolution.source == "recent_context":
+            output = resolution.resolved_target
+        else:
+            output = "I don't have a recent movie in context yet."
     else:
         output = chunk.text
 
