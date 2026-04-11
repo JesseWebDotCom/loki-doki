@@ -21,6 +21,7 @@ import { useAuth } from '../auth/useAuth';
 import { AdminPasswordPrompt } from '../components/AdminPasswordPrompt';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import LogViewer from '../components/dev/LogViewer';
+import V2PrototypeRunner from '../components/dev/V2PrototypeRunner';
 import AudioSection from '../components/settings/AudioSection';
 import AppearanceSection from '../components/settings/AppearanceSection';
 import CharactersSection from '../components/settings/CharactersSection';
@@ -780,8 +781,6 @@ const ToolsPane: React.FC = () => (
       <Wrench className="text-primary w-5 h-5" />
       <h2 className="text-xl font-bold tracking-tight">Tools</h2>
     </div>
-    <div className="rounded-xl border border-border/30 bg-card/50 p-6 shadow-m1">
-      <p className="text-sm text-muted-foreground">More developer tools coming soon.</p>
-    </div>
+    <V2PrototypeRunner />
   </div>
 );

@@ -1,0 +1,155 @@
+[
+  {
+    "capability": "greeting_response",
+    "description": "Respond to a short greeting from the user.",
+    "examples": ["hello", "hi", "hey", "hello there", "hi there", "good morning"],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.greeting.default",
+        "handler_name": "core.greetings.reply",
+        "priority": 10,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "acknowledgment_response",
+    "description": "Respond to a short acknowledgment or thanks.",
+    "examples": ["thanks", "thank you", "got it", "appreciate it"],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.acknowledgment.default",
+        "handler_name": "core.acknowledgments.reply",
+        "priority": 10,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_current_time",
+    "description": "Tell the user the current local time.",
+    "examples": ["what time is it", "what's the time", "tell me the current time"],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.time.default",
+        "handler_name": "core.time.get_local_time",
+        "priority": 5,
+        "enabled": true
+      },
+      {
+        "id": "core.time.backup",
+        "handler_name": "core.time.get_local_time_backup",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_current_date",
+    "description": "Tell the user today's date.",
+    "examples": ["what day is it", "what's today's date", "what is today"],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.date.default",
+        "handler_name": "core.date.get_local_date",
+        "priority": 5,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "spell_word",
+    "description": "Spell or repeat a requested word for the user.",
+    "examples": ["how do you spell restaurant", "spell restaurant", "spell necessary"],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.spell.default",
+        "handler_name": "core.dictionary.spell",
+        "priority": 5,
+        "enabled": true
+      },
+      {
+        "id": "core.spell.backup",
+        "handler_name": "core.dictionary.spell_fallback",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "recall_recent_media",
+    "description": "Recall the most recent movie or media title from recent conversation context.",
+    "examples": [
+      "what was that movie",
+      "what was that film",
+      "what movie were we talking about",
+      "what was it called"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "context.media.recall_recent",
+        "handler_name": "context.media.recall_recent",
+        "priority": 5,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "control_device",
+    "description": "Turn on or off a home device or adjust its settings.",
+    "examples": [
+      "turn off the kitchen light",
+      "turn on the living room fan",
+      "set the thermostat to 72",
+      "switch off the tv"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.home_assistant.toggle",
+        "handler_name": "skills.home_assistant.toggle",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "send_text_message",
+    "description": "Compose and send a short text message to a person.",
+    "examples": [
+      "text Sarah",
+      "send a text to mom",
+      "text Anakin that I'm running late",
+      "message Leia"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.messaging.send_text",
+        "handler_name": "skills.messaging.send_text",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "direct_chat",
+    "description": "Fallback conversational response when no capability strongly matches.",
+    "examples": ["tell me something", "chat with me"],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.chat.default",
+        "handler_name": "fallback.direct_chat",
+        "priority": 100,
+        "enabled": true
+      }
+    ]
+  }
+]

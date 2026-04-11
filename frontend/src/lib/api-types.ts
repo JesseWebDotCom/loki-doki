@@ -255,6 +255,149 @@ export interface LoadedModel {
   expires_at: string;
 }
 
+export interface V2TraceStep {
+  name: string;
+  status: string;
+  timing_ms: number;
+  details: Record<string, unknown>;
+}
+
+export interface V2RunResponse {
+  normalized: {
+    raw_text: string;
+    cleaned_text: string;
+    lowered_text: string;
+  };
+  signals: {
+    interaction_signal: string;
+    tone_signal: string;
+    urgency: string;
+    confidence: number;
+  };
+  fast_lane: {
+    matched: boolean;
+    capability?: string | null;
+    response_text?: string | null;
+    reason?: string | null;
+  };
+  parsed: {
+    token_count: number;
+    tokens: string[];
+    sentences: string[];
+    parser?: string;
+    entities?: Array<[string, string]>;
+    noun_chunks?: string[];
+  };
+  chunks: Array<{
+    text: string;
+    index: number;
+    role: string;
+    span_start?: number;
+    span_end?: number;
+  }>;
+  extractions: Array<{
+    chunk_index: number;
+    references: string[];
+    predicates: string[];
+    subject_candidates: string[];
+    entities?: Array<[string, string]>;
+  }>;
+  routes: Array<{
+    chunk_index: number;
+    capability: string;
+    confidence: number;
+    matched_text: string;
+  }>;
+  implementations: Array<{
+    chunk_index: number;
+    capability: string;
+    handler_name: string;
+    implementation_id: string;
+    priority: number;
+    candidate_count: number;
+  }>;
+  resolutions: Array<{
+    chunk_index: number;
+    resolved_target: string;
+    source: string;
+    confidence: number;
+    context_value?: string | null;
+    candidate_values?: string[];
+    params?: Record<string, unknown>;
+    unresolved?: string[];
+    notes?: string[];
+  }>;
+  executions: Array<{
+    chunk_index: number;
+    capability: string;
+    output_text: string;
+    success?: boolean;
+    error?: string | null;
+    attempts?: number;
+    handler_name?: string;
+    raw_result?: Record<string, unknown>;
+  }>;
+  request_spec: {
+    trace_id: string;
+    original_request: string;
+    chunks: Array<{
+      text: string;
+      role: string;
+      capability: string;
+      confidence: number;
+      handler_name: string;
+      implementation_id: string;
+      candidate_count: number;
+      params: Record<string, unknown>;
+      result: Record<string, unknown>;
+      success: boolean;
+      error?: string | null;
+      unresolved: string[];
+    }>;
+    supporting_context: string[];
+    context: Record<string, unknown>;
+    runtime_version: number;
+    gemma_used?: boolean;
+    gemma_reason?: string | null;
+  };
+  response: {
+    output_text: string;
+  };
+  trace: {
+    steps: V2TraceStep[];
+  };
+  trace_summary: {
+    total_timing_ms: number;
+    slowest_step_name: string;
+    slowest_step_timing_ms: number;
+    step_count: number;
+  };
+}
+
+export interface V2DependencyStatus {
+  key: string;
+  label: string;
+  version: string;
+  status: string;
+  running: boolean;
+  detail: string;
+}
+
+export interface V2PhaseStatus {
+  id: string;
+  label: string;
+  title: string;
+  status: string;
+  completed: string[];
+  remaining: string[];
+}
+
+export interface V2StatusResponse {
+  current_focus: string;
+  phases: V2PhaseStatus[];
+  dependencies: V2DependencyStatus[];
+}
+
 export interface TrackedProcess {
   label: string;
   running: boolean;
