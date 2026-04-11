@@ -1,6 +1,8 @@
 """Resolver stage for the v2 prototype."""
 from __future__ import annotations
 
+import asyncio
+
 from v2.bmo_nlu.core.types import ChunkExtraction, RequestChunk, ResolutionResult, RouteMatch
 
 
@@ -38,3 +40,14 @@ def resolve_chunks(
         )
 
     return resolutions
+
+
+async def resolve_chunk_async(
+    chunk: RequestChunk,
+    extraction: ChunkExtraction,
+    route: RouteMatch,
+) -> ResolutionResult:
+    """Async wrapper for per-chunk resolution."""
+    await asyncio.sleep(0)
+    resolved = resolve_chunks([chunk], [extraction], [route])
+    return resolved[0]

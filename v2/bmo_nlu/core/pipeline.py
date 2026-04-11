@@ -1,8 +1,10 @@
 """Top-level deterministic v2 request pipeline."""
 from __future__ import annotations
 
+import asyncio
+
 from v2.bmo_nlu.core.types import ParsedInput, PipelineResult, ResponseObject, TraceData, TraceSummary
-from v2.bmo_nlu.execution.executor import execute_chunk
+from v2.bmo_nlu.execution.executor import execute_chunk, execute_chunk_async
 from v2.bmo_nlu.execution.request_spec import build_request_spec
 from v2.bmo_nlu.pipeline.combiner import combine_outputs
 from v2.bmo_nlu.pipeline.extractor import extract_chunk_data
@@ -10,13 +12,18 @@ from v2.bmo_nlu.pipeline.fast_lane import check_fast_lane
 from v2.bmo_nlu.pipeline.normalizer import normalize_text
 from v2.bmo_nlu.pipeline.parser import parse_text
 from v2.bmo_nlu.pipeline.splitter import split_requests
-from v2.bmo_nlu.resolution.resolver import resolve_chunks
-from v2.bmo_nlu.routing.router import route_chunk
+from v2.bmo_nlu.resolution.resolver import resolve_chunk_async, resolve_chunks
+from v2.bmo_nlu.routing.router import route_chunk, route_chunk_async
 from v2.bmo_nlu.signals.interaction_signals import detect_interaction_signals
 
 
 def run_pipeline(raw_text: str) -> PipelineResult:
     """Run the current Phase 1 v2 prototype pipeline."""
+    return asyncio.run(run_pipeline_async(raw_text))
+
+
+async def run_pipeline_async(raw_text: str) -> PipelineResult:
+    """Run the current Phase 1 v2 prototype pipeline asynchronously."""
     trace = TraceData()
 
     finish = trace.timed("normalize")
@@ -69,7 +76,7 @@ def run_pipeline(raw_text: str) -> PipelineResult:
     )
 
     finish = trace.timed("route")
-    routes = [route_chunk(chunk) for chunk in chunks]
+    routes = list(await asyncio.gather(*(route_chunk_async(chunk) for chunk in chunks)))
     finish(
         chunks=[
             {
@@ -83,7 +90,14 @@ def run_pipeline(raw_text: str) -> PipelineResult:
     )
 
     finish = trace.timed("resolve")
-    resolutions = resolve_chunks(chunks, extractions, routes)
+    resolutions = list(
+        await asyncio.gather(
+            *(
+                resolve_chunk_async(chunk, extraction, route)
+                for chunk, extraction, route in zip(chunks, extractions, routes, strict=True)
+            )
+        )
+    )
     finish(
         chunks=[
             {
@@ -98,10 +112,14 @@ def run_pipeline(raw_text: str) -> PipelineResult:
     )
 
     finish = trace.timed("execute")
-    executions = [
-        execute_chunk(chunk, route, resolution)
-        for chunk, route, resolution in zip(chunks, routes, resolutions, strict=True)
-    ]
+    executions = list(
+        await asyncio.gather(
+            *(
+                execute_chunk_async(chunk, route, resolution)
+                for chunk, route, resolution in zip(chunks, routes, resolutions, strict=True)
+            )
+        )
+    )
     finish(
         chunks=[
             {

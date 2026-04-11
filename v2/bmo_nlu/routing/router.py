@@ -1,6 +1,8 @@
 """Deterministic hardcoded router for the v2 prototype."""
 from __future__ import annotations
 
+import asyncio
+
 from v2.bmo_nlu.core.types import RequestChunk, RouteMatch
 
 
@@ -24,3 +26,9 @@ def route_chunk(chunk: RequestChunk) -> RouteMatch:
         confidence = 0.99
 
     return RouteMatch(chunk_index=chunk.index, capability=capability, confidence=confidence)
+
+
+async def route_chunk_async(chunk: RequestChunk) -> RouteMatch:
+    """Async wrapper for future parallel routing."""
+    await asyncio.sleep(0)
+    return route_chunk(chunk)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from v2.bmo_nlu.core.pipeline import run_pipeline
+import pytest
+
+from v2.bmo_nlu.core.pipeline import run_pipeline, run_pipeline_async
 from v2.bmo_nlu.pipeline.normalizer import normalize_text
 from v2.bmo_nlu.pipeline.splitter import split_requests
 
@@ -80,3 +82,13 @@ def test_v2_pipeline_trace_contains_per_chunk_stage_details():
     assert route_step.details["chunks"][1]["capability"] == "spell_word"
     assert resolve_step.details["chunks"][1]["resolved_target"] == "restaurant"
     assert execute_step.details["chunks"][1]["output_text"] == "restaurant"
+
+
+@pytest.mark.anyio
+async def test_v2_async_pipeline_matches_sync_shape():
+    result = await run_pipeline_async("hello and how do you spell restaurant")
+
+    assert [chunk.text for chunk in result.chunks] == ["hello", "how do you spell restaurant"]
+    assert [route.capability for route in result.routes] == ["greeting_response", "spell_word"]
+    assert [resolution.resolved_target for resolution in result.resolutions] == ["greeting", "restaurant"]
+    assert result.response.output_text.lower().startswith("hello")

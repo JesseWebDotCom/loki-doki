@@ -6,7 +6,7 @@ from pydantic import BaseModel, field_validator
 
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
-from v2.bmo_nlu.core.pipeline import run_pipeline
+from v2.bmo_nlu.core.pipeline import run_pipeline_async
 
 router = APIRouter()
 
@@ -28,4 +28,4 @@ async def run_v2_pipeline(
     _: User = Depends(require_admin),
 ):
     """Run the isolated v2 prototype pipeline."""
-    return run_pipeline(request.message).to_dict()
+    return (await run_pipeline_async(request.message)).to_dict()
