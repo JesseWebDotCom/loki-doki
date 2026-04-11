@@ -50,6 +50,14 @@ class _FakeWeather:
 
 
 class _FakeKnowledge:
+    """Stand-in for both Wikipedia and DuckDuckGo skills used by knowledge.py.
+
+    The v2 knowledge_query adapter runs Wikipedia and web search in
+    parallel as two distinct sources (``_WIKI`` and ``_DDG``). The fake
+    satisfies both shapes by handling the union of their mechanism names
+    so the same instance can be patched in for either singleton.
+    """
+
     async def execute_mechanism(self, method: str, parameters: dict[str, Any]) -> MechanismResult:
         query = parameters.get("query") or ""
         if method in ("mediawiki_api", "web_scraper"):
@@ -64,6 +72,23 @@ class _FakeKnowledge:
                 },
                 source_url="https://en.wikipedia.org/wiki/Fake",
                 source_title=f"Wikipedia (fake) — {query.title()}",
+            )
+        if method in ("ddg_api", "ddg_scraper"):
+            return MechanismResult(
+                success=True,
+                data={
+                    "query": query,
+                    "snippet": f"Fake DDG snippet about {query} for the test suite.",
+                    "results": [
+                        {
+                            "title": f"{query.title()} (fake)",
+                            "url": "https://duckduckgo.com/fake",
+                            "snippet": f"Fake DDG snippet about {query}.",
+                        }
+                    ],
+                },
+                source_url="https://duckduckgo.com/fake",
+                source_title=f"DuckDuckGo (fake) — {query}",
             )
         return MechanismResult(success=False, error=f"unknown mechanism {method}")
 
@@ -219,30 +244,42 @@ def _patch_v2_skill_singletons() -> None:
         weather as weather_skill,
     )
 
-    originals = {
-        weather_skill: weather_skill._SKILL,
-        knowledge_skill: knowledge_skill._SKILL,
-        showtimes_skill: showtimes_skill._SKILL,
-        dictionary_skill: dictionary_skill._SKILL,
-        news_skill: news_skill._SKILL,
-        recipes_skill: recipes_skill._SKILL,
-        jokes_skill: jokes_skill._SKILL,
-        tv_show_skill: tv_show_skill._SKILL,
-    }
+    # The knowledge adapter is the only v2 skill that holds *two* singletons
+    # (_WIKI for Wikipedia, _DDG for web search) because it runs the two
+    # sources in parallel and scores them. Every other adapter still owns a
+    # single _SKILL singleton. Track originals as (module, attr_name) tuples
+    # so the restore step puts the right symbol back.
+    single_skill_modules = (
+        weather_skill,
+        showtimes_skill,
+        dictionary_skill,
+        news_skill,
+        recipes_skill,
+        jokes_skill,
+        tv_show_skill,
+    )
+    originals: list[tuple[Any, str, Any]] = [
+        (module, "_SKILL", module._SKILL) for module in single_skill_modules
+    ]
+    originals.append((knowledge_skill, "_WIKI", knowledge_skill._WIKI))
+    originals.append((knowledge_skill, "_DDG", knowledge_skill._DDG))
 
     weather_skill._SKILL = _FakeWeather()
-    knowledge_skill._SKILL = _FakeKnowledge()
     showtimes_skill._SKILL = _FakeShowtimes()
     dictionary_skill._SKILL = _FakeDictionary()
     news_skill._SKILL = _FakeNews()
     recipes_skill._SKILL = _FakeRecipes()
     jokes_skill._SKILL = _FakeJokes()
     tv_show_skill._SKILL = _FakeTVShow()
+    # One fake satisfies both knowledge sources — see _FakeKnowledge.
+    fake_knowledge = _FakeKnowledge()
+    knowledge_skill._WIKI = fake_knowledge
+    knowledge_skill._DDG = fake_knowledge
 
     yield
 
-    for module, original in originals.items():
-        module._SKILL = original
+    for module, attr_name, original in originals:
+        setattr(module, attr_name, original)
 
 
 @pytest.fixture(scope="session", autouse=True)
