@@ -42,6 +42,18 @@ def build_request_spec(
 
         if chunk.role == "supporting_context":
             supporting_context.append(chunk.text)
+            # Subordinate-clause chunks are not routed/executed, but they
+            # still belong in spec.chunks so the Gemma decider and any
+            # downstream consumer can see them as first-class entries.
+            spec_chunks.append(
+                RequestChunkResult(
+                    text=chunk.text,
+                    role=chunk.role,
+                    capability="",
+                    confidence=0.0,
+                )
+            )
+            continue
 
         if route is None or implementation is None or resolution is None or execution is None:
             continue

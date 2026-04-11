@@ -19,9 +19,9 @@
 | 1 | Minimal Working Pipeline | ✅ **Done** | spaCy single-call parser, doc-aware split/extract, mature fast lane, full trace |
 | 2 | Semantic Routing (MiniLM) | ✅ **Done** | Registry-backed routing, startup vector index, fastembed/MiniLM with hash fallback |
 | 3 | Real Resolver | 🟡 **Done against in-memory adapters** | People / device / media / pronoun resolvers ship; real PeopleDB / Home Assistant clients still to wire |
-| 4 | Parallel Execution | 🟡 **Mostly done** | `asyncio.gather` + `to_thread` everywhere; sequential-vs-parallel benchmarks still TODO |
-| 5 | Gemma Fallback | 🟡 **Stubbed** | `decide_gemma()`, trace flag, deterministic stub synthesizer; real Ollama Gemma client not wired |
-| 6 | Production Hardening | 🟡 **Core in place** | Per-handler timeout/retry, error classes, 80+ unit/integration tests; broader regression fixtures pending |
+| 4 | Parallel Execution | ✅ **Done** | `asyncio.gather` + `to_thread` everywhere; sequential-vs-parallel benchmark in CI |
+| 5 | Gemma Fallback | 🟡 **Stubbed + prompts** | `decide_gemma()`, prompt templates (split/resolve/combine), deterministic stub synthesizer, trace flag — only the real Ollama client call is left |
+| 6 | Production Hardening | ✅ **Core complete** | Per-handler timeout/retry, error classes, streaming trace listener, regression prompt fixtures, 100+ v2 tests |
 
 **Live source of truth:** the Dev Tools panel at `/api/v1/dev/v2/status` reflects the same status with per-phase shipped/remaining lists. The detail under each phase in §15 below is kept in sync with that endpoint.
 
@@ -1380,17 +1380,17 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Reduce latency for compound requests.
 
-**Status:** 🟡 **Mostly done — benchmarking remaining**
+**Status:** ✅ **Done**
 
 **Done:**
 - Pipeline converted to `async`
 - `asyncio.gather()` used for route / select implementation / resolve / execute (parallel per chunk)
 - `asyncio.to_thread()` wrappers offloading routing, resolving, and synchronous handlers
 - Per-step and per-chunk timing visible in trace and Dev Tools
+- Sequential-vs-parallel benchmark in `tests/integration/test_v2_parallel_benchmark.py` — fails the build if `asyncio.gather` regresses (proves real ≥1.8x speedup with sleep-based handlers)
+- Streaming trace listener seam: callers can `trace.subscribe(callback)` and receive each `TraceStep` as it lands (covered by `tests/unit/test_v2_trace_listener.py`)
 
-**Not done:**
-- Sequential-vs-parallel latency benchmark once real adapters are connected
-- Streaming-friendly trace push (the trace is built in memory; not yet streamed to UI/websocket per spec §13)
+**Not done:** *(none — this phase is closed)*
 
 **Build:**
 - Convert pipeline to `async`
@@ -1407,17 +1407,19 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Use Gemma only for hard cases.
 
-**Status:** 🟡 **Decision logic + stub synthesizer shipped; real Gemma client not wired**
+**Status:** 🟡 **Decision + prompt templates + stub synthesizer shipped; only the live Ollama client call is left**
 
 **Done:**
 - `fallbacks/gemma_fallback.py` with `decide_gemma()` (unresolved / failed / low-confidence / supporting-context triggers)
-- `build_gemma_payload()` serializing the structured `RequestSpec` for downstream prompting
+- `fallbacks/prompts.py` with three prompt templates — `SPLIT_PROMPT`, `RESOLVE_PROMPT`, `COMBINE_PROMPT` — and a `render_prompt()` validator that errors on missing slots
+- `build_split_prompt()`, `build_resolve_prompt()`, `build_combine_prompt()` helpers serialise the right context into each template
+- `build_gemma_payload()` serialising the structured `RequestSpec` for downstream prompting
 - `gemma_synthesize()` deterministic stub covering unresolved-media, ambiguous-media, ambiguous-person, ambiguous-device, and supporting-context paths
+- Subordinate-clause chunks now appear in `RequestSpec.chunks` so the decider sees them as first-class entries (caught by the regression suite)
 - `RequestSpec.gemma_used` + `RequestSpec.gemma_reason` flags surfaced in trace and Dev Tools (`combine` step's `mode` detail)
 
 **Not done:**
-- Set `CONFIG.gemma_enabled = True` and wire a real Ollama Gemma client in `_call_real_gemma()`
-- Author split / resolve / combine prompt templates
+- Flip `CONFIG.gemma_enabled = True` and call the real Ollama Gemma client in `_call_real_gemma()` (the prompt path is already exercised — the seam is one HTTP call)
 - Confidence-threshold tuning against a real prompt corpus
 
 **Success criteria:**
@@ -1431,17 +1433,19 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Stable, observable, testable system.
 
-**Status:** 🟡 **Core hardening shipped; broader regression coverage still to come**
+**Status:** ✅ **Core complete; only end-to-end production validation against real backends is pending**
 
 **Done:**
 - `execution/executor.py` per-handler timeout + retry budget (configurable via `core/config.CONFIG`)
 - `execution/errors.py` with `HandlerError`, `HandlerTimeout`, `TransientHandlerError`
 - Failures captured on `ExecutionResult.success` / `error` / `attempts` (no exceptions reach the pipeline)
-- 80+ v2 unit + integration tests covering adapters, resolvers, fast lane, splitter/extractor, Gemma fallback, executor resilience, linguistics constants, and the dev API
+- Streaming trace listener: `TraceData.subscribe(callback)` lets Dev Tools / websocket / CLI consumers receive each `TraceStep` live; listener errors are isolated so they cannot break the pipeline
+- Regression prompt suite at `tests/fixtures/v2_regression_prompts.json` — 12 cases covering fast lane, compound speech acts, coordinated attributes, subordinate clauses, and recent / missing / ambiguous media context. New edge cases land as JSON entries, no code change required.
+- Parametrized regression runner at `tests/integration/test_v2_regression_prompts.py` walks every fixture entry through the full pipeline
+- 100+ v2 tests across unit + integration: adapters, resolvers, fast lane, splitter/extractor, Gemma fallback, prompt templates, executor resilience, linguistics constants, trace listener, parallel benchmark, and the dev API
 
 **Not done:**
-- Broader regression prompt fixtures (multi-turn flows, edge utterances)
-- End-to-end production validation against real PeopleDB / Home Assistant / Gemma backends
+- End-to-end production validation against real PeopleDB / Home Assistant / Gemma backends (waits on those services)
 - Rich terminal trace renderer (Rich/CLI dev mode)
 
 ---

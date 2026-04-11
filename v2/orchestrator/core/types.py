@@ -154,6 +154,9 @@ class TraceSummary:
 class TraceData:
     steps: list[TraceStep] = field(default_factory=list)
     trace_id: str = ""
+    # Subscribers receive each :class:`TraceStep` as it is added so the
+    # Dev Tools UI / websocket / CLI renderer can stream live progress.
+    listeners: list[Any] = field(default_factory=list)
 
     def add(
         self,
@@ -163,14 +166,22 @@ class TraceData:
         timing_ms: float = 0.0,
         **details: Any,
     ) -> None:
-        self.steps.append(
-            TraceStep(
-                name=name,
-                status=status,
-                timing_ms=round(timing_ms, 3),
-                details=details,
-            )
+        step = TraceStep(
+            name=name,
+            status=status,
+            timing_ms=round(timing_ms, 3),
+            details=details,
         )
+        self.steps.append(step)
+        for listener in self.listeners:
+            try:
+                listener(step)
+            except Exception:  # noqa: BLE001 - listener errors must not break the trace
+                continue
+
+    def subscribe(self, listener: Any) -> None:
+        """Register a callable invoked with each new :class:`TraceStep`."""
+        self.listeners.append(listener)
 
     def timed(self, name: str):
         start = time.perf_counter()

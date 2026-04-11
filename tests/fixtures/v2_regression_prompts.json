@@ -1,0 +1,144 @@
+{
+  "$schema": "v2 orchestrator regression prompts — each entry runs through the full pipeline and asserts the listed fields. Names use pop-culture characters per CLAUDE.md mock-data rule.",
+  "cases": [
+    {
+      "id": "fast_lane.greeting",
+      "utterance": "hello",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "greeting_response",
+        "response_contains": "hello"
+      }
+    },
+    {
+      "id": "fast_lane.thanks",
+      "utterance": "thank you",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "acknowledgment_response",
+        "response_contains": "welcome"
+      }
+    },
+    {
+      "id": "fast_lane.spell",
+      "utterance": "how do you spell restaurant",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "spell_word",
+        "response_contains": "restaurant"
+      }
+    },
+    {
+      "id": "fast_lane.math_word_operator",
+      "utterance": "what is 6 times 4",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "calculate_math",
+        "response_contains": "24"
+      }
+    },
+    {
+      "id": "fast_lane.math_percent",
+      "utterance": "what is 15 percent of 80",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "calculate_math",
+        "response_contains": "12"
+      }
+    },
+    {
+      "id": "compound.greeting_plus_spell",
+      "utterance": "hello and how do you spell necessary",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "chunk_count": 2,
+        "primary_chunk_count": 2,
+        "response_contains_all": ["hello", "necessary"],
+        "gemma_used": false
+      }
+    },
+    {
+      "id": "compound.time_plus_spell",
+      "utterance": "what time is it and how do you spell restaurant",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "chunk_count": 2,
+        "primary_chunk_count": 2,
+        "response_contains": "restaurant",
+        "gemma_used": false
+      }
+    },
+    {
+      "id": "compound.coordinated_attributes_keep_together",
+      "utterance": "is that movie scary and gory",
+      "context": {
+        "recent_entities": [{"type": "movie", "name": "Rogue One"}]
+      },
+      "expect": {
+        "fast_lane_matched": false,
+        "primary_chunk_count": 1
+      }
+    },
+    {
+      "id": "compound.subordinate_clause_supporting_context",
+      "utterance": "what time is it because im late for the meeting",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "primary_chunk_count": 1,
+        "supporting_context_chunk_count": 1,
+        "gemma_used": true,
+        "gemma_reason": "supporting_context"
+      }
+    },
+    {
+      "id": "context.recent_movie_resolves",
+      "utterance": "what was that movie",
+      "context": {
+        "recent_entities": [{"type": "movie", "name": "Padme"}]
+      },
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "recall_recent_media",
+        "response_contains": "Padme",
+        "gemma_used": false
+      }
+    },
+    {
+      "id": "context.recent_movie_missing_flagged",
+      "utterance": "what was that movie",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "recall_recent_media",
+        "response_contains": "don't have a recent movie",
+        "gemma_used": true,
+        "gemma_reason": "unresolved_chunk"
+      }
+    },
+    {
+      "id": "context.recent_movie_ambiguous_flagged",
+      "utterance": "what was that movie",
+      "context": {
+        "recent_entities": [
+          {"type": "movie", "name": "Rogue One"},
+          {"type": "movie", "name": "A New Hope"}
+        ]
+      },
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "recall_recent_media",
+        "response_contains_all": ["Rogue One", "A New Hope"],
+        "gemma_used": true,
+        "gemma_reason": "unresolved_chunk"
+      }
+    }
+  ]
+}

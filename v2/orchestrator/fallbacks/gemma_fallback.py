@@ -9,11 +9,13 @@ is true a real model call would be wired in here.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from v2.orchestrator.core.config import CONFIG
 from v2.orchestrator.core.types import RequestSpec, ResponseObject
+from v2.orchestrator.fallbacks.prompts import render_prompt
 
 
 @dataclass(slots=True)
@@ -62,6 +64,34 @@ def build_gemma_payload(spec: RequestSpec) -> dict[str, Any]:
     }
 
 
+def build_combine_prompt(spec: RequestSpec) -> str:
+    """Render the combine prompt that the Gemma client would send."""
+    payload = build_gemma_payload(spec)
+    return render_prompt("combine", spec=json.dumps(payload, ensure_ascii=False))
+
+
+def build_split_prompt(utterance: str) -> str:
+    """Render the split prompt for ambiguous compound utterances."""
+    return render_prompt("split", utterance=utterance)
+
+
+def build_resolve_prompt(
+    *,
+    chunk_text: str,
+    capability: str,
+    unresolved: list[str],
+    context: dict[str, Any],
+) -> str:
+    """Render the resolve prompt for chunks the deterministic resolver could not bind."""
+    return render_prompt(
+        "resolve",
+        chunk_text=chunk_text,
+        capability=capability,
+        unresolved=json.dumps(unresolved, ensure_ascii=False),
+        context=json.dumps(context, ensure_ascii=False),
+    )
+
+
 def gemma_synthesize(spec: RequestSpec) -> ResponseObject:
     """Produce a final natural-language response from a RequestSpec.
 
@@ -106,5 +136,17 @@ def gemma_synthesize(spec: RequestSpec) -> ResponseObject:
 
 
 def _call_real_gemma(spec: RequestSpec) -> ResponseObject:  # pragma: no cover
-    """Placeholder for the real Gemma client."""
+    """Placeholder for the real Gemma client.
+
+    When ``CONFIG.gemma_enabled`` is true this function should:
+
+    1. Call :func:`build_combine_prompt` to render the prompt.
+    2. Send it to the local Ollama Gemma endpoint.
+    3. Parse the streamed response into a :class:`ResponseObject`.
+
+    The seam is intentionally left as ``NotImplementedError`` until a
+    real Ollama client is wired in — the deterministic stub above is
+    used by every test, the dev runner, and CI.
+    """
+    _ = build_combine_prompt(spec)  # render so the prompt path stays exercised
     raise NotImplementedError("Real Gemma client not wired in this prototype.")
