@@ -131,6 +131,12 @@ const V2PrototypeRunner: React.FC = () => {
                 const route = result.routes.find((item) => item.chunk_index === chunk.index);
                 const resolution = result.resolutions.find((item) => item.chunk_index === chunk.index);
                 const execution = result.executions.find((item) => item.chunk_index === chunk.index);
+                const routeTrace = result.trace.steps.find((step) => step.name === 'route')?.details?.chunks as Array<Record<string, unknown>> | undefined;
+                const resolveTrace = result.trace.steps.find((step) => step.name === 'resolve')?.details?.chunks as Array<Record<string, unknown>> | undefined;
+                const executeTrace = result.trace.steps.find((step) => step.name === 'execute')?.details?.chunks as Array<Record<string, unknown>> | undefined;
+                const routeTiming = Number(routeTrace?.find((item) => item.chunk_index === chunk.index)?.timing_ms ?? 0);
+                const resolveTiming = Number(resolveTrace?.find((item) => item.chunk_index === chunk.index)?.timing_ms ?? 0);
+                const executeTiming = Number(executeTrace?.find((item) => item.chunk_index === chunk.index)?.timing_ms ?? 0);
                 return (
                   <div key={chunk.index} className="rounded-xl border border-border/20 bg-background/40 p-3">
                     <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Chunk {index + 1}</div>
@@ -148,16 +154,19 @@ const V2PrototypeRunner: React.FC = () => {
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Route / Resolve</div>
                         <div className="mt-1 text-[11px] text-muted-foreground">
-                          {route?.capability ?? 'none'} ({((route?.confidence ?? 0) * 100).toFixed(0)}%)
+                          {route?.capability ?? 'none'} ({((route?.confidence ?? 0) * 100).toFixed(0)}%) · {routeTiming.toFixed(2)} ms
                         </div>
                         <div className="text-[11px] text-muted-foreground">
-                          {resolution?.resolved_target ?? 'none'} via {resolution?.source ?? 'none'}
+                          matched on {(routeTrace?.find((item) => item.chunk_index === chunk.index)?.matched_text as string | undefined) ?? 'n/a'}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {resolution?.resolved_target ?? 'none'} via {resolution?.source ?? 'none'} · {resolveTiming.toFixed(2)} ms
                         </div>
                       </div>
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execute</div>
                         <div className="mt-1 text-[11px] text-muted-foreground">
-                          {execution?.output_text ?? 'no output'}
+                          {execution?.output_text ?? 'no output'} · {executeTiming.toFixed(2)} ms
                         </div>
                       </div>
                     </div>

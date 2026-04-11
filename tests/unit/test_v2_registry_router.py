@@ -21,6 +21,7 @@ def test_v2_router_uses_registry_backed_similarity():
 
     assert match.capability == "get_current_time"
     assert match.confidence > 0.6
+    assert match.matched_text == "what's the time"
 
 
 def test_v2_router_handles_spelling_phrase_variant():
@@ -30,3 +31,4 @@ def test_v2_router_handles_spelling_phrase_variant():
     match = route_chunk(chunk, runtime)
 
     assert match.capability == "spell_word"
+    assert "spell" in match.matched_text

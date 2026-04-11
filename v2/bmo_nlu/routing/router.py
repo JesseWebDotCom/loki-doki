@@ -23,6 +23,7 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
     query = " ".join(chunk.text.lower().split())
     best_capability = "direct_chat"
     best_score = 0.0
+    best_text = ""
 
     for item in active_runtime.router_index:
         for text in item["texts"]:
@@ -30,9 +31,15 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
             if score > best_score:
                 best_score = score
                 best_capability = item["capability"]
+                best_text = text
 
     confidence = max(best_score, 0.55 if best_capability == "direct_chat" else best_score)
-    return RouteMatch(chunk_index=chunk.index, capability=best_capability, confidence=round(confidence, 3))
+    return RouteMatch(
+        chunk_index=chunk.index,
+        capability=best_capability,
+        confidence=round(confidence, 3),
+        matched_text=best_text,
+    )
 
 
 async def route_chunk_async(

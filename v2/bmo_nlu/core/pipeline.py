@@ -88,6 +88,7 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
                 "text": chunk.text,
                 "capability": item["route"].capability,
                 "confidence": item["route"].confidence,
+                "matched_text": item["route"].matched_text,
                 "timing_ms": item["timing_ms"],
             }
             for chunk, item in zip(chunks, routed, strict=True)

@@ -48,7 +48,7 @@ app.mount("/static", StaticFiles(directory="lokidoki/static"), name="static")
 app.mount("/media", StaticFiles(directory="data/media"), name="media")
 
 # Mount frontend assets if they exist
-if os.path.exists("frontend/dist"):
+if os.path.exists("frontend/dist/assets"):
     app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
 async def run_command_with_logs(cmd: str, cwd: str = "."):

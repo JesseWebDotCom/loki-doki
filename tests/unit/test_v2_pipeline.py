@@ -80,8 +80,12 @@ def test_v2_pipeline_trace_contains_per_chunk_stage_details():
 
     assert route_step.details["chunks"][0]["capability"] == "greeting_response"
     assert route_step.details["chunks"][1]["capability"] == "spell_word"
+    assert "spell restaurant" in route_step.details["chunks"][1]["matched_text"]
+    assert route_step.details["chunks"][0]["timing_ms"] >= 0.0
     assert resolve_step.details["chunks"][1]["resolved_target"] == "restaurant"
+    assert resolve_step.details["chunks"][1]["timing_ms"] >= 0.0
     assert execute_step.details["chunks"][1]["output_text"] == "restaurant"
+    assert execute_step.details["chunks"][1]["timing_ms"] >= 0.0
 
 
 @pytest.mark.anyio

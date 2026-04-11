@@ -56,6 +56,7 @@ class RouteMatch:
     chunk_index: int
     capability: str
     confidence: float
+    matched_text: str = ""
 
 
 @dataclass(slots=True)
