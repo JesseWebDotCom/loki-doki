@@ -315,6 +315,151 @@ def _echo_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"output_text": str(payload.get("chunk_text") or "")}
 
 
+# ---- stub skill handlers (see v2/SKILL_STUBS.md) ---------------------------
+#
+# These handlers exist so the routing layer has a real destination for every
+# capability ChatGPT's "Prompt -> Skill Routing Table" identified, but they
+# do not yet integrate with a real backend. Each one returns a deterministic
+# placeholder string that the regression tests can assert on. The
+# v2/SKILL_STUBS.md doc tracks what each stub needs in order to ship.
+
+
+def _indoor_temperature_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "output_text": "Indoor temperature is currently 68°F (stub).",
+        "provider": "stub",
+    }
+
+
+def _detect_presence_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    chunk_text = str(payload.get("chunk_text") or "").lower()
+    room = "that room"
+    for marker in (" in the ", " in "):
+        if marker in chunk_text:
+            tail = chunk_text.split(marker, 1)[1].strip(" ?.!")
+            if tail:
+                room = "the " + tail if not tail.startswith("the ") else tail
+                break
+    return {
+        "output_text": f"I don't see anyone in {room} right now (stub).",
+        "provider": "stub",
+    }
+
+
+def _device_state_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    chunk_text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
+    device = "that device"
+    for trigger in ("close ", "lock ", "turn ", "is ", "are "):
+        if trigger in chunk_text:
+            tail = chunk_text.split(trigger, 1)[1].strip()
+            tail = tail.lstrip("the ").strip()
+            if tail:
+                device = "the " + tail.split(" ")[0] if " " in tail else "the " + tail
+                # Use up to 3 trailing tokens to keep multi-word device names.
+                tokens = tail.split()
+                device = "the " + " ".join(tokens[: min(3, len(tokens))])
+                break
+    return {
+        "output_text": f"{device.capitalize()} is currently closed (stub).",
+        "provider": "stub",
+    }
+
+
+def _time_in_location_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    chunk_text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
+    city = "that city"
+    if " in " in chunk_text:
+        tail = chunk_text.split(" in ", 1)[1].strip(" ?.!")
+        if tail:
+            city = tail
+    return {
+        "output_text": f"It's currently 9:30 PM in {city.title()} (stub: location-aware time not yet wired up).",
+        "provider": "stub",
+    }
+
+
+def _generate_email_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    chunk_text = str(payload.get("chunk_text") or "")
+    return {
+        "output_text": (
+            "Subject: Refund Request\n\n"
+            "Dear Sir or Madam,\n\n"
+            "I am writing to request a refund for my recent purchase. "
+            "[Stub email body — generative model not yet wired up.]\n\n"
+            "Sincerely,\nThe User"
+        ),
+        "request": chunk_text,
+        "provider": "stub",
+    }
+
+
+def _code_assistance_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    chunk_text = str(payload.get("chunk_text") or "")
+    return {
+        "output_text": (
+            "```python\n"
+            "# Stub code response — generative model not yet wired up.\n"
+            "def solve():\n"
+            "    pass\n"
+            "```"
+        ),
+        "request": chunk_text,
+        "provider": "stub",
+    }
+
+
+def _summarize_text_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "output_text": "Summary (stub): the article's main point in one sentence.",
+        "provider": "stub",
+    }
+
+
+def _create_plan_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "output_text": (
+            "Plan (stub):\n"
+            "  Day 1 — Arrival and orientation\n"
+            "  Day 2 — Main activities\n"
+            "  Day 3 — Wrap up and departure"
+        ),
+        "provider": "stub",
+    }
+
+
+def _weigh_options_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    chunk_text = str(payload.get("chunk_text") or "")
+    return {
+        "output_text": (
+            "Both options have merit (stub). Pros and cons would be weighed "
+            "against your goals, risk tolerance, and time horizon — generative "
+            "reasoning model not yet wired up."
+        ),
+        "request": chunk_text,
+        "provider": "stub",
+    }
+
+
+def _find_products_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "output_text": (
+            "Top picks (stub): Option A, Option B, Option C — "
+            "real product search backend not yet wired up."
+        ),
+        "provider": "stub",
+    }
+
+
+def _emotional_support_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "output_text": (
+            "I hear you, and that sounds really hard (stub). I'm here if you "
+            "want to talk about it more — empathetic LLM not yet wired up."
+        ),
+        "provider": "stub",
+    }
+
+
 _HANDLER_REGISTRY: dict[str, HandlerFn] = {
     "core.greetings.reply": _greeting_handler,
     "core.acknowledgments.reply": _ack_handler,
@@ -331,6 +476,19 @@ _HANDLER_REGISTRY: dict[str, HandlerFn] = {
     "skills.movies.showtimes": _showtimes_handler,
     "core.people.birthday": _person_birthday_handler,
     "core.knowledge.lookup": _knowledge_handler,
+    # ---- ChatGPT-table stub skills (see v2/SKILL_STUBS.md) ---------------
+    "skills.sensors.indoor_temperature": _indoor_temperature_handler,
+    "skills.presence.detect": _detect_presence_handler,
+    "skills.home_assistant.state": _device_state_handler,
+    "core.time.location": _time_in_location_handler,
+    "skills.writing.email": _generate_email_handler,
+    "skills.code.assistant": _code_assistance_handler,
+    "skills.writing.summarize": _summarize_text_handler,
+    "skills.planning.create_plan": _create_plan_handler,
+    "skills.decision.weigh_options": _weigh_options_handler,
+    "skills.shopping.find_products": _find_products_handler,
+    "skills.support.empathy": _emotional_support_handler,
+    # -----------------------------------------------------------------------
     "fallback.direct_chat": _echo_handler,
 }
 

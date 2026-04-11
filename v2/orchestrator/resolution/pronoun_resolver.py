@@ -37,6 +37,22 @@ DIRECT_UTILITY_CAPABILITIES = {
     # chunk text so the chunk text *is* the answer — pronouns inside it
     # ("fix it", "explain it") are not referents that need binding.
     "direct_chat",
+    # Stub skills from the ChatGPT routing-table buildout. These all read
+    # their parameters out of the chunk text directly (or from explicit
+    # extraction params) rather than from a context-bound referent, so the
+    # pronoun resolver should not flip their success flag for definite NPs
+    # ("the garage", "this article", "this code") inside the utterance.
+    "get_indoor_temperature",
+    "detect_presence",
+    "get_device_state",
+    "get_time_in_location",
+    "generate_email",
+    "code_assistance",
+    "summarize_text",
+    "create_plan",
+    "weigh_options",
+    "find_products",
+    "emotional_support",
 }
 
 # Pronoun → preferred entity types (best-effort guess from English usage).

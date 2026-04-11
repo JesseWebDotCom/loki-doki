@@ -102,12 +102,19 @@
   },
   {
     "capability": "control_device",
-    "description": "Turn on or off a home device or adjust its settings.",
+    "description": "Turn on or off a home device, switch a setting, or adjust device state. This is an imperative action — the user is telling the device what to do, not asking what state it is in.",
     "examples": [
+      "turn on the lights",
+      "turn off the lights",
       "turn off the kitchen light",
       "turn on the living room fan",
       "set the thermostat to 72",
-      "switch off the tv"
+      "switch off the tv",
+      "lock the front door",
+      "unlock the back door",
+      "open the garage door",
+      "close the blinds",
+      "dim the lights"
     ],
     "enabled": true,
     "implementations": [
@@ -252,6 +259,237 @@
         "id": "core.knowledge.lookup",
         "handler_name": "core.knowledge.lookup",
         "priority": 50,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_indoor_temperature",
+    "description": "Read the current indoor temperature from a household sensor.",
+    "examples": [
+      "what is the temperature inside",
+      "how cold is it in here",
+      "how warm is it inside",
+      "indoor temperature right now",
+      "what's the room temperature",
+      "is it cold in here"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.sensors.indoor_temperature",
+        "handler_name": "skills.sensors.indoor_temperature",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "detect_presence",
+    "description": "Check whether a person is currently in a specific room or area of the house.",
+    "examples": [
+      "is anyone in the living room",
+      "who is in the kitchen",
+      "is anybody home",
+      "is mom home",
+      "who's in the office",
+      "is anyone upstairs"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.presence.detect",
+        "handler_name": "skills.presence.detect",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_device_state",
+    "description": "Read the current open/closed/on/off/locked state of a household device or fixture.",
+    "examples": [
+      "did i close the garage",
+      "is the front door locked",
+      "are the lights on",
+      "is the oven off",
+      "is the dishwasher running",
+      "did i lock the back door"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.home_assistant.state",
+        "handler_name": "skills.home_assistant.state",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_time_in_location",
+    "description": "Tell the user the current local time in a specific city or timezone.",
+    "examples": [
+      "what time is it in tokyo",
+      "what's the current time in london",
+      "time in paris right now",
+      "what time is it in sydney",
+      "current time in new york",
+      "what time zone is honolulu in"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.time.location",
+        "handler_name": "core.time.location",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "generate_email",
+    "description": "Draft an email message in a specified tone or for a specified purpose.",
+    "examples": [
+      "write a professional email asking for a refund",
+      "draft an email to my boss about taking time off",
+      "compose an email declining the meeting",
+      "write a thank you email to my interviewer",
+      "draft a follow-up email"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.writing.email",
+        "handler_name": "skills.writing.email",
+        "priority": 50,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "code_assistance",
+    "description": "Generate, debug, explain, optimize, or refactor code in any programming language.",
+    "examples": [
+      "write a python scraper",
+      "build a react form",
+      "implement a binary search in go",
+      "debug this error",
+      "fix this stack trace",
+      "optimize this sql query",
+      "refactor this function",
+      "explain what this code does"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.code.assistant",
+        "handler_name": "skills.code.assistant",
+        "priority": 50,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "summarize_text",
+    "description": "Produce a short summary of a longer piece of text or article.",
+    "examples": [
+      "summarize this article",
+      "give me a tldr of this",
+      "shorten this text",
+      "summarize the following",
+      "make this shorter",
+      "tldr"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.writing.summarize",
+        "handler_name": "skills.writing.summarize",
+        "priority": 50,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "create_plan",
+    "description": "Generate a multi-step plan such as a trip itinerary, workout schedule, study plan, or weekly plan.",
+    "examples": [
+      "plan a 3 day trip to nyc",
+      "create a workout plan",
+      "make me a study plan for next week",
+      "plan my week",
+      "build a meal plan",
+      "make an itinerary for paris"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.planning.create_plan",
+        "handler_name": "skills.planning.create_plan",
+        "priority": 50,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "weigh_options",
+    "description": "Compare two or more concrete options the user is choosing between and weigh the pros and cons.",
+    "examples": [
+      "should i invest 10k or save it",
+      "should i buy or rent a house",
+      "should i take the job offer or stay",
+      "which is better an iphone or android",
+      "should i go to grad school or get a job"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.decision.weigh_options",
+        "handler_name": "skills.decision.weigh_options",
+        "priority": 50,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "find_products",
+    "description": "Recommend products to buy in a category, optionally with a budget or use-case constraint.",
+    "examples": [
+      "best laptop for gaming under 1000",
+      "recommend a cheap headset",
+      "what's the best running shoe",
+      "find me a budget mechanical keyboard",
+      "what should i buy for a new puppy"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.shopping.find_products",
+        "handler_name": "skills.shopping.find_products",
+        "priority": 50,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "emotional_support",
+    "description": "Respond with empathy and supportive language when the user expresses a difficult feeling such as sadness, frustration, anxiety, or being stuck.",
+    "examples": [
+      "i feel stuck in life",
+      "i'm really sad today",
+      "i'm anxious about tomorrow",
+      "i feel overwhelmed",
+      "i need to vent",
+      "i'm having a rough day",
+      "i feel lonely"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.support.empathy",
+        "handler_name": "skills.support.empathy",
+        "priority": 40,
         "enabled": true
       }
     ]
