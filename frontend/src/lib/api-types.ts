@@ -393,10 +393,59 @@ export interface V2PhaseStatus {
   remaining: string[];
 }
 
+export interface V2MemoryTier {
+  tier: number;
+  name: string;
+  title: string;
+  storage: string;
+  landing_phase: string;
+}
+
+export interface V2MemorySlotSpec {
+  name: string;
+  tier: number;
+  char_budget: number;
+  always_present: boolean;
+  landing_phase: string;
+}
+
+export interface V2MemoryActivePhase {
+  id: string;
+  label: string;
+  title: string;
+  status: string;
+  summary: string;
+  deliverables: string[];
+}
+
+export interface V2MemoryPhaseEntry {
+  id: string;
+  label: string;
+  title: string;
+  status: string;
+}
+
+export interface V2MemoryStatus {
+  active_phase: V2MemoryActivePhase;
+  phases: V2MemoryPhaseEntry[];
+  tiers: V2MemoryTier[];
+  slots: {
+    specs: V2MemorySlotSpec[];
+    worst_case_total_chars: number;
+  };
+  scaffolding: {
+    module: string;
+    submodules: string[];
+    fixtures: string[];
+    regression_row_id: string;
+  };
+}
+
 export interface V2StatusResponse {
   current_focus: string;
   phases: V2PhaseStatus[];
   dependencies: V2DependencyStatus[];
+  memory?: V2MemoryStatus;
 }
 
 export interface V2SkillEntry {

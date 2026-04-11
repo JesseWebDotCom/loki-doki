@@ -1,6 +1,6 @@
 # LokiDoki Memory System — Final Design
 
-**Status:** Design accepted (v1.2 — revised after Codex's second review pass and Gemini's third review pass), not yet implemented. Started 2026-04-11.
+**Status:** Design accepted (v1.2 — revised after Codex's second review pass and Gemini's third review pass). **M0 complete (2026-04-11); M1–M6 not yet started.** See §8 phase table for per-phase status.
 **Audience:** future Claude/Codex sessions and the human picking up memory work cold.
 **Scope:** the unified memory architecture that replaces v1's faulty `facts`-centric pipeline and fills v2's empty `ConversationMemoryAdapter`.
 **Lineage:** this document is the merge of two competing proposals — see [CODEX_MEM.md](CODEX_MEM.md) (Codex's tier breakdown, promotion model, and substring-matching catch) and the discussion that produced the parse-tree write gate. v1.1 incorporated Codex's second-pass review, which corrected six places where the original gates were too aggressive. v1.2 incorporates Gemini's third-pass review, which added triggered consolidation, character-overlay emotional memory, and recency-weighted contradiction handling for single-value predicates. Where the proposals conflict, this file is the resolution.
@@ -424,42 +424,74 @@ The build sequence has **seven phases**: M0 (prerequisites) through M6 (final ti
 
 ### Phase overview
 
-| Phase | Title | Tiers touched | Hard prerequisite | Estimated complexity |
-|---|---|---|---|---|
-| **M0** | Prerequisites and corpora | none | — | Low — fixture and infra work |
-| **M1** | Write path: gate chain + classifier + immediate-durable + Tier 4/5 writes | 4, 5 | M0 | High — most novel logic |
-| **M2** | Read path: port Tier 4 retrieval, delete substring heuristics | 4 | M1 | Medium — port + delete |
-| **M3** | Tier 5 social: wire `LokiPeopleDBAdapter`, bake off scoring, provisional handles | 5 | M1 (M2 helpful) | Medium |
-| **M4** | Tier 2 + Tier 3: session state, episodic summarization, promotion, triggered consolidation, topic scope | 2, 3 | M2 | High — episodic is new |
-| **M5** | Tier 7 procedural: behavior events, nightly aggregation, 7a/7b split | 7a, 7b | M2 | Medium |
-| **M6** | Tier 6 affective: rolling window, character overlay, privacy opt-out | 6 | M2 | Low–medium |
+| Phase | Title | Tiers touched | Hard prerequisite | Estimated complexity | Status |
+|---|---|---|---|---|---|
+| **M0** | Prerequisites and corpora | none | — | Low — fixture and infra work | **complete (2026-04-11)** |
+| **M1** | Write path: gate chain + classifier + immediate-durable + Tier 4/5 writes | 4, 5 | M0 | High — most novel logic | not started |
+| **M2** | Read path: port Tier 4 retrieval, delete substring heuristics | 4 | M1 | Medium — port + delete | not started |
+| **M3** | Tier 5 social: wire `LokiPeopleDBAdapter`, bake off scoring, provisional handles | 5 | M1 (M2 helpful) | Medium | not started |
+| **M4** | Tier 2 + Tier 3: session state, episodic summarization, promotion, triggered consolidation, topic scope | 2, 3 | M2 | High — episodic is new | not started |
+| **M5** | Tier 7 procedural: behavior events, nightly aggregation, 7a/7b split | 7a, 7b | M2 | Medium | not started |
+| **M6** | Tier 6 affective: rolling window, character overlay, privacy opt-out | 6 | M2 | Low–medium | not started |
 
 **Critical path:** M0 → M1 → M2 → (M3, M4 in parallel) → (M5, M6 in parallel). M3 and M4 can be staffed independently after M2 ships. M5 and M6 can be staffed independently after M2 ships. The reflect job (§5) lands incrementally: promotion in M4, behavior aggregation in M5, episodic compression as a follow-up to M6.
 
 ---
 
 ### M0 — Prerequisites and corpora
+**Status: complete (2026-04-11).** All deliverables shipped, all gates green. M1 is now unblocked.
+
 **Why this phase exists.** Every later phase needs corpora, regression fixtures, and shared module scaffolding. Building those incrementally inside M1–M6 has historically caused phase-creep. M0 lands them once, up front.
 
-**Deliverables.**
-1. New module skeleton: `lokidoki/memory/` (or `v2/orchestrator/memory/`, decided in M0) with empty submodules `gates.py`, `tiers.py`, `predicates.py` (immediate-durable + single-value constants), `classifier.py`, `promotion.py`, `consolidation.py`, `slots.py`. No logic yet — just imports and type stubs.
-2. Corpus files (empty schemas, ready to populate in M1):
-   - `tests/fixtures/v2_memory_extraction_corpus.json`
-   - `tests/fixtures/v2_memory_recall_corpus.json`
-   - `tests/fixtures/v2_people_resolution_corpus.json`
-   - `tests/fixtures/v2_persona_corpus.json`
-3. Regression fixture row for the president bug added to [tests/fixtures/v2_regression_prompts.json](../tests/fixtures/v2_regression_prompts.json).
-4. Schema migrations drafted (not yet applied) for the new columns and tables in §6: `people.handle`, `people.provisional`, `sessions.session_state`, `messages.sentiment`, `episodes`, `episodes_fts`, `vec_episodes`, `affect_window`, `behavior_events`, `user_profile`.
-5. Index migration drafted: `CREATE INDEX idx_people_owner_handle ON people(owner_user_id, handle) WHERE handle IS NOT NULL;`
-6. Bake-off doc template at `docs/benchmarks/_template.md`.
+**Module location decision (resolved in M0).** The memory subsystem lives at [v2/orchestrator/memory/](../v2/orchestrator/memory/), **not** at `lokidoki/memory/`. Rationale: keeping all v2 memory code under the v2 tree means a clean cutover from v1 to v2 only requires deleting `lokidoki/core/memory_*.py` — there is no entanglement to disentangle. The two systems share storage (one SQLite file) only via the lifecycle described in §7; they share no Python imports.
 
-**Corpus.** None — this phase produces empty fixture files.
+**Deliverables (all shipped).**
+1. ✅ Module skeleton at [v2/orchestrator/memory/](../v2/orchestrator/memory/) with submodules:
+   - [`gates.py`](../v2/orchestrator/memory/gates.py) — Layer 1 gate chain interface (M0 stubs return `m0_stub` failures; M1 fills in real logic)
+   - [`tiers.py`](../v2/orchestrator/memory/tiers.py) — `Tier` enum + `TIER_SPECS` registry for all seven tiers
+   - [`predicates.py`](../v2/orchestrator/memory/predicates.py) — `TIER4_PREDICATES`, `TIER5_PREDICATES`, `IMMEDIATE_DURABLE_TIER4`, `IMMEDIATE_DURABLE_TIER5`, `SINGLE_VALUE_PREDICATES` (≥13 entries per v1.2)
+   - [`classifier.py`](../v2/orchestrator/memory/classifier.py) — Layer 2 router stub
+   - [`promotion.py`](../v2/orchestrator/memory/promotion.py) — Layer 3 no-op stub
+   - [`consolidation.py`](../v2/orchestrator/memory/consolidation.py) — triggered-consolidation stub with `TRIGGERED_CONSOLIDATION_THRESHOLD = 3`
+   - [`slots.py`](../v2/orchestrator/memory/slots.py) — six prompt-slot specs totaling 1,470 chars worst-case (asserted in module)
+   - [`schema.py`](../v2/orchestrator/memory/schema.py) — drafted schema migrations with `apply_v2_memory_schema(conn, create_v1_stubs=…, enable_vec=…)`
+2. ✅ Corpus files (empty schemas, ready to populate per phase):
+   - [`tests/fixtures/v2_memory_extraction_corpus.json`](../tests/fixtures/v2_memory_extraction_corpus.json) (M1)
+   - [`tests/fixtures/v2_memory_recall_corpus.json`](../tests/fixtures/v2_memory_recall_corpus.json) (M2-M4)
+   - [`tests/fixtures/v2_people_resolution_corpus.json`](../tests/fixtures/v2_people_resolution_corpus.json) (M3)
+   - [`tests/fixtures/v2_persona_corpus.json`](../tests/fixtures/v2_persona_corpus.json) (M6)
+3. ✅ Regression fixture row `memory.president_bug.who_is_the_president` added to [tests/fixtures/v2_regression_prompts.json](../tests/fixtures/v2_regression_prompts.json) with the expected `expect.memory` block (`should_write: false`, `denied_by_gate: clause_shape`). The row currently *fails its memory expectation* because the gate chain stub denies via `m0_stub` rather than `clause_shape` — this is the exact gap M1 closes.
+4. ✅ Schema migrations drafted in [`v2/orchestrator/memory/schema.py`](../v2/orchestrator/memory/schema.py) for `people.handle`, `people.provisional`, `sessions.session_state`, `messages.sentiment`, `episodes`, `episodes_fts`, `vec_episodes` (optional), `affect_window`, `behavior_events`, `user_profile`. **Not yet applied to dev or prod** — only to scratch SQLite files in M0 tests. Each later phase calls `apply_v2_memory_schema()` against the live DB once its tier comes online.
+5. ✅ Index `idx_people_owner_handle` in `INDEX_MIGRATIONS`.
+6. ✅ Bake-off doc template at [`docs/benchmarks/_template.md`](benchmarks/_template.md).
 
-**Gate.**
-- All scaffolding modules importable.
-- Corpus files exist and validate against their JSON schemas.
-- Migrations applied to a scratch SQLite file successfully (not yet to dev or prod).
-- President bug regression row exists and currently *fails* (it should — M1 fixes it).
+**Corpus.** None — this phase produces empty fixture files. ✅
+
+**Tests.** Every M0 deliverable has at least one test in [tests/unit/test_v2_memory_m0.py](../tests/unit/test_v2_memory_m0.py) (28 tests, all passing as of 2026-04-11). Per-deliverable mapping:
+
+| Deliverable | Test(s) |
+|---|---|
+| 1. Scaffolding importable | `test_m0_scaffolding_modules_importable` (parametrized over all 9 submodules) |
+| 1. Predicate enums correct | `test_m0_tier4_predicates_include_design_doc_required_entries`, `test_m0_immediate_durable_lists_match_design_doc`, `test_m0_single_value_predicate_list_has_at_least_thirteen_entries` |
+| 1. Tier metadata correct | `test_m0_seven_tiers_registered_in_order` (also asserts Tier 6 mentions `character_id`) |
+| 1. Slot budgets correct | `test_m0_slot_budget_totals_match_design_doc` (asserts 1,470 chars), `test_m0_slot_truncation_respects_budget` |
+| 2. Corpus fixtures exist | `test_m0_corpus_fixtures_exist_with_m0_schema` (parametrized over all 4 fixtures) |
+| 3. President bug row | `test_m0_president_bug_regression_row_exists`, `test_m0_gate_chain_stub_currently_fails_president_bug_expected_reason` |
+| 4. Migrations apply to scratch DB | `test_m0_schema_migrations_apply_to_scratch_sqlite`, `test_m0_schema_migrations_are_idempotent`, `test_m0_episodes_table_has_topic_scope_column`, `test_m0_affect_window_has_character_id_pk`, `test_m0_user_profile_has_style_and_telemetry_columns` |
+| 6. Bake-off template | `test_m0_bakeoff_template_exists` |
+| Dev-tools surface (see below) | `test_m0_dev_v2_status_payload_includes_memory_section` |
+
+**Dev-tools v2 test page integration.** M0 wires the memory subsystem into the existing v2 dev-tools status surface so the React test page reflects scaffolding state from day one. The integration is intentionally read-only (no writes through the gate chain yet — that lands in M1):
+- The admin endpoint `GET /dev/v2/status` ([lokidoki/api/routes/dev.py](../lokidoki/api/routes/dev.py)) now returns a `memory` block built by `_v2_memory_status()`. The block surfaces: active phase (M0/complete), the seven tiers + their landing phases, the six prompt slots + char budgets, the scaffolding manifest (submodules, fixtures, regression-row id), and the M0–M6 phase roadmap.
+- The frontend type [`V2MemoryStatus`](../frontend/src/lib/api-types.ts) and the [`V2PrototypeStatusPanel`](../frontend/src/components/dev/V2PrototypeStatusPanel.tsx) component render the memory block as a new section directly under the existing Implementation Status panel — visible whenever the v2 prototype runner is open.
+- Hermetic test: `test_m0_dev_v2_status_payload_includes_memory_section` calls `_v2_memory_status()` directly (no FastAPI spin-up) and asserts the M0 active phase, the seven tiers, the six slots, the 1,470-char total, and the four fixture paths.
+
+**Gate (all green).**
+- ✅ All scaffolding modules importable (`test_m0_scaffolding_modules_importable`).
+- ✅ Corpus files exist and validate against their JSON schemas (`test_m0_corpus_fixtures_exist_with_m0_schema`).
+- ✅ Migrations applied to a scratch SQLite file successfully (`test_m0_schema_migrations_apply_to_scratch_sqlite`).
+- ✅ President bug regression row exists and currently *fails* — verified by `test_m0_gate_chain_stub_currently_fails_president_bug_expected_reason`. M1 will flip the test's expected reason from `m0_stub` to `clause_shape`.
+- ✅ Memory subsystem visible on the dev-tools v2 test page (`test_m0_dev_v2_status_payload_includes_memory_section`).
 
 ---
 
@@ -716,6 +748,7 @@ Seven tiers (working, session, episodic, semantic-self, social, emotional, proce
   6. Synthesis prompt slot budgets made explicit and totaled (1,470 chars worst case, well under prompt budget).
   
   Plus a major rewrite of §8 phases: added M0 (prerequisites), expanded each phase from 5 lines to ~30 lines with deliverables/corpus/gate broken out, added a phase overview table at the top, made the critical path explicit, and updated each phase's gate to test the v1.1 and v1.2 features.
+- **M0 shipped** (2026-04-11). Module location resolved to [v2/orchestrator/memory/](../v2/orchestrator/memory/) (clean cutover from v1, no shared imports). All scaffolding submodules, schema migrations, corpus fixtures, and the bake-off template landed. President-bug regression row added to [tests/fixtures/v2_regression_prompts.json](../tests/fixtures/v2_regression_prompts.json) with `expect.memory.denied_by_gate = "clause_shape"` — currently fails via stub `m0_stub` reason, which is the precise gap M1 closes. Memory subsystem surfaced on the dev-tools v2 test page via the new `memory` block on `GET /dev/v2/status` and the matching React panel section. M0 phase-gate tests live at [tests/unit/test_v2_memory_m0.py](../tests/unit/test_v2_memory_m0.py) (28 tests, all passing).
 
 ### External research
 - **Mem0** — layered memory model + compression engine for episodic rollup.

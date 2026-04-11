@@ -13,6 +13,9 @@ from lokidoki.auth.users import User
 from v2.orchestrator.core.types import RequestChunk, ResolutionResult, RouteMatch
 from v2.orchestrator.execution.executor import execute_chunk_async
 from v2.orchestrator.core.pipeline import run_pipeline_async
+from v2.orchestrator.memory import M0_PHASE_LABEL, M0_PHASE_STATUS, M0_PHASE_TITLE
+from v2.orchestrator.memory.slots import SLOT_SPECS, WORST_CASE_TOTAL_BUDGET
+from v2.orchestrator.memory.tiers import TIER_SPECS, Tier
 from v2.orchestrator.registry.runtime import get_runtime
 from v2.orchestrator.routing.embeddings import FASTEMBED_MODEL
 
@@ -201,6 +204,96 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "detail": "Loaded by v2/orchestrator/pipeline/parser.py for tokens, POS, deps, and NER.",
             },
         ],
+        "memory": _v2_memory_status(),
+    }
+
+
+def _v2_memory_status() -> dict[str, Any]:
+    """Surface the v2 memory subsystem state on the dev-tools status page.
+
+    M0 publishes scaffolding only — the gates, classifier, promotion, and
+    consolidation modules import cleanly but contain stub logic. The phase
+    list mirrors `docs/MEMORY_DESIGN.md` §8 so the dev-tools UI tracks the
+    same milestones the design doc does.
+    """
+    tiers_payload = [
+        {
+            "tier": int(tier),
+            "name": spec.name,
+            "title": spec.title,
+            "storage": spec.storage,
+            "landing_phase": spec.landing_phase,
+        }
+        for tier, spec in sorted(TIER_SPECS.items(), key=lambda kv: int(kv[0]))
+    ]
+    slots_payload = [
+        {
+            "name": spec.name,
+            "tier": spec.tier,
+            "char_budget": spec.char_budget,
+            "always_present": spec.always_present,
+            "landing_phase": spec.landing_phase,
+        }
+        for spec in SLOT_SPECS
+    ]
+    return {
+        "active_phase": {
+            "id": "m0",
+            "label": M0_PHASE_LABEL,
+            "title": M0_PHASE_TITLE,
+            "status": M0_PHASE_STATUS,
+            "summary": (
+                "M0 is scaffolding-only: the v2/orchestrator/memory/ package "
+                "imports cleanly, the seven tiers and six prompt slots are "
+                "registered with budgets, schema migrations are drafted but "
+                "not yet applied to dev/prod, and the empty M1–M6 corpus "
+                "fixtures exist. The president-bug regression row is in "
+                "tests/fixtures/v2_regression_prompts.json and currently "
+                "fails as expected — M1 is the only phase that fixes it."
+            ),
+            "deliverables": [
+                "Module scaffolding under v2/orchestrator/memory/",
+                "Predicates: TIER4/TIER5 enums, IMMEDIATE_DURABLE, SINGLE_VALUE",
+                "Schema migrations drafted (apply_v2_memory_schema)",
+                "Corpus fixtures: extraction, recall, people resolution, persona",
+                "President bug regression row (currently failing)",
+                "Bake-off doc template at docs/benchmarks/_template.md",
+            ],
+        },
+        "phases": [
+            {"id": "m0", "label": "M0", "title": "Prerequisites and corpora", "status": "complete"},
+            {"id": "m1", "label": "M1", "title": "Write path: gates + classifier + Tier 4/5 writes", "status": "not_started"},
+            {"id": "m2", "label": "M2", "title": "Read path: Tier 4 retrieval, delete substring heuristics", "status": "not_started"},
+            {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "not_started"},
+            {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "not_started"},
+            {"id": "m5", "label": "M5", "title": "Tier 7 procedural: behavior events + 7a/7b split", "status": "not_started"},
+            {"id": "m6", "label": "M6", "title": "Tier 6 affective: rolling window + character overlay", "status": "not_started"},
+        ],
+        "tiers": tiers_payload,
+        "slots": {
+            "specs": slots_payload,
+            "worst_case_total_chars": WORST_CASE_TOTAL_BUDGET,
+        },
+        "scaffolding": {
+            "module": "v2.orchestrator.memory",
+            "submodules": [
+                "gates",
+                "tiers",
+                "predicates",
+                "classifier",
+                "promotion",
+                "consolidation",
+                "slots",
+                "schema",
+            ],
+            "fixtures": [
+                "tests/fixtures/v2_memory_extraction_corpus.json",
+                "tests/fixtures/v2_memory_recall_corpus.json",
+                "tests/fixtures/v2_people_resolution_corpus.json",
+                "tests/fixtures/v2_persona_corpus.json",
+            ],
+            "regression_row_id": "memory.president_bug.who_is_the_president",
+        },
     }
 
 

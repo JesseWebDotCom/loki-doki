@@ -977,6 +977,19 @@
         "response_contains": "breaking",
         "max_total_ms": 500
       }
+    },
+    {
+      "id": "memory.president_bug.who_is_the_president",
+      "utterance": "who is the current president",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "memory": {
+          "should_write": false,
+          "denied_by_gate": "clause_shape",
+          "rationale": "WH-fronted question with sentence-initial 'who' (WP) — Gate 1 (parse-tree non-interrogative) must deny. This case currently FAILS in M0 because the v2 gate chain is a stub that always denies via 'm0_stub' rather than via 'clause_shape'. M1 fixes it: the real Gate 1 must deny this with reason='clause_shape' AND allow 'my brother Luke loves movies' to write normally."
+        }
+      }
     }
   ]
 }

@@ -1,0 +1,26 @@
+{
+  "$schema": "v2 memory extraction corpus — drives the M1 gate-chain bake-off. Each case is a single user utterance plus the expected tier-write candidates the gate chain should produce. Names use pop-culture characters per CLAUDE.md mock-data rule. Phase status: empty in M0; populate to ≥130 cases in M1 per docs/MEMORY_DESIGN.md §8 M1 corpus.",
+  "version": 1,
+  "phase_owner": "M1",
+  "case_schema": {
+    "id": "string — stable, hierarchical (e.g. 'm1.fragment.allergy_peanut')",
+    "utterance": "string — the user's raw input",
+    "context": "object — optional pipeline context (recent_entities, session_id, etc.)",
+    "expect": {
+      "should_write": "boolean — true if the gate chain should produce ≥1 candidate",
+      "candidates": [
+        {
+          "tier": "integer 4|5",
+          "subject": "string — 'self' or a person name",
+          "predicate": "string — must be in the closed enum",
+          "value": "string",
+          "immediate_durable": "boolean",
+          "single_value": "boolean"
+        }
+      ],
+      "denied_by_gate": "string|null — one of: clause_shape, subject, predicate, schema, intent",
+      "notes": "string — free text rationale"
+    }
+  },
+  "cases": []
+}

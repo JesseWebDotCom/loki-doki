@@ -1,0 +1,20 @@
+{
+  "$schema": "v2 people resolution corpus — utterances paired with expected (person_id, ambiguous?) outcomes. Drives M3 LokiPeopleDBAdapter scoring bake-off and provisional-handle merge tests. Names use pop-culture characters per CLAUDE.md mock-data rule. Phase status: empty in M0; populate in M3 per docs/MEMORY_DESIGN.md §8 M3 corpus.",
+  "version": 1,
+  "phase_owner": "M3",
+  "case_schema": {
+    "id": "string — stable, hierarchical (e.g. 'm3.typo.brother_luk')",
+    "utterance": "string",
+    "context": "object — optional viewer_user_id, recent_people",
+    "expect": {
+      "resolved_person": "string|null — pop-culture name (Luke, Leia, Padme, Anakin) or null",
+      "ambiguous": "boolean",
+      "ambiguity_candidates": "array of strings",
+      "resolver_confidence_min": "number 0..1",
+      "is_provisional_handle": "boolean — true if the case tests an unnamed-recurring-person path",
+      "merge_target_handle": "string|null — when testing a provisional → named merge",
+      "notes": "string"
+    }
+  },
+  "cases": []
+}

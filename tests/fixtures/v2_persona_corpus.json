@@ -1,0 +1,30 @@
+{
+  "$schema": "v2 persona corpus — persona / character-overlay regression cases. Drives the Tier 6 character_id overlay tests in M6 and the per-character isolation guarantees from docs/MEMORY_DESIGN.md §2 Tier 6 ('Puppeteer gap'). Phase status: empty in M0; populate in M6.",
+  "version": 1,
+  "phase_owner": "M6",
+  "case_schema": {
+    "id": "string — stable, hierarchical (e.g. 'm6.isolation.loki_vs_doki')",
+    "active_character_id": "string — e.g. 'loki', 'doki'",
+    "turns": [
+      {
+        "role": "string — 'user' or 'assistant'",
+        "text": "string",
+        "character_id": "string"
+      }
+    ],
+    "expect": {
+      "affect_window_writes": [
+        {
+          "character_id": "string",
+          "day": "string YYYY-MM-DD",
+          "sentiment_avg_min": "number -1..1",
+          "sentiment_avg_max": "number -1..1"
+        }
+      ],
+      "character_isolation": "boolean — sentiment under character A must not return for character B",
+      "recent_mood_slot": "string — substring that must appear in the {recent_mood} slot for the active character",
+      "notes": "string"
+    }
+  },
+  "cases": []
+}
