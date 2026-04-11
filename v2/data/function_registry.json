@@ -708,6 +708,12 @@
     "description": "Answer a general factual, definitional, explanatory, comparative, or troubleshooting question that needs world knowledge (people, places, history, science, media facts, how things work, why things happen, definitions, comparisons).",
     "examples": [
       "who is arthur miller",
+      "who is claude shannon",
+      "what is claude mythos",
+      "tell me about claude mythos",
+      "what is project glasswing",
+      "what is langchain",
+      "who is satya nadella",
       "what is the runtime of the godfather",
       "did the tv show taxi have a finale",
       "how much copper is in a us penny",
@@ -1482,7 +1488,8 @@
     "description": "Fallback conversational response when no capability strongly matches.",
     "examples": [
       "tell me something",
-      "chat with me"
+      "chat with me",
+      "how are you doing"
     ],
     "enabled": true,
     "implementations": [
@@ -2904,7 +2911,8 @@
     "description": "Respond to a short greeting.",
     "examples": [
       "hi",
-      "hello there"
+      "hello there",
+      "good evening"
     ],
     "enabled": true,
     "implementations": [
@@ -2930,7 +2938,8 @@
     "description": "Respond to a short acknowledgment.",
     "examples": [
       "thanks",
-      "got it"
+      "got it",
+      "ok thanks"
     ],
     "enabled": true,
     "implementations": [
@@ -2956,7 +2965,8 @@
     "description": "General conversational fallback.",
     "examples": [
       "chat with me",
-      "tell me something"
+      "tell me something",
+      "let's just talk"
     ],
     "enabled": true,
     "implementations": [
@@ -2986,7 +2996,9 @@
     "capability": "define_word",
     "description": "Look up a dictionary definition of a word.",
     "examples": [
-      "what does ephemeral mean"
+      "what does ephemeral mean",
+      "define serendipity",
+      "what is the definition of opaque"
     ],
     "enabled": true,
     "implementations": [
@@ -3020,7 +3032,9 @@
     "capability": "calculate",
     "description": "Evaluate a small arithmetic expression.",
     "examples": [
-      "what is 12 times 7"
+      "what is 12 times 7",
+      "what is 15 percent of 80",
+      "what is 144 divided by 12"
     ],
     "enabled": true,
     "implementations": [
@@ -3050,7 +3064,9 @@
     "capability": "convert",
     "description": "Convert between units of measure.",
     "examples": [
-      "convert 5 miles to kilometers"
+      "convert 5 miles to kilometers",
+      "how many cups are in a quart",
+      "72 fahrenheit to celsius"
     ],
     "enabled": true,
     "implementations": [
@@ -3088,7 +3104,9 @@
     "capability": "get_forecast",
     "description": "Report the weather forecast.",
     "examples": [
-      "what is the forecast for today"
+      "what is the forecast for today",
+      "will it rain tomorrow",
+      "weather this afternoon"
     ],
     "enabled": true,
     "implementations": [
@@ -3135,7 +3153,9 @@
     "capability": "query",
     "description": "Answer a factual or explanatory knowledge question.",
     "examples": [
-      "why is the sky blue"
+      "why is the sky blue",
+      "what is claude mythos",
+      "tell me about langchain"
     ],
     "enabled": true,
     "implementations": [
@@ -3207,7 +3227,9 @@
     "capability": "translate",
     "description": "Translate text to another language.",
     "examples": [
-      "translate where is the bathroom to french"
+      "translate where is the bathroom to french",
+      "how do you say good morning in spanish",
+      "translate i am running late to japanese"
     ],
     "enabled": true,
     "implementations": [
@@ -3241,7 +3263,9 @@
     "capability": "assist",
     "description": "Assist with code generation, debugging, or explanation.",
     "examples": [
-      "debug this stack trace"
+      "debug this stack trace",
+      "explain this python function",
+      "write a sql query to group by month"
     ],
     "enabled": true,
     "implementations": [
@@ -3325,7 +3349,9 @@
     "capability": "send_text",
     "description": "Send a short text message using the local prototype message backend.",
     "examples": [
-      "text Leia that i am running late"
+      "text Leia that i am running late",
+      "send a message to Luke saying dinner is ready",
+      "text my sister i'll be there in 10 minutes"
     ],
     "enabled": true,
     "implementations": [
@@ -3359,7 +3385,9 @@
     "capability": "empathize",
     "description": "Respond with empathy and supportive language.",
     "examples": [
-      "i feel overwhelmed"
+      "i feel overwhelmed",
+      "i'm having a rough day",
+      "i feel really anxious right now"
     ],
     "enabled": true,
     "implementations": [
@@ -3592,7 +3620,8 @@
     "description": "Look up a known person birthday from the people resolver and prototype people data.",
     "examples": [
       "when is Leia birthday",
-      "when is my sister birthday"
+      "when is my sister birthday",
+      "when is Luke's birthday"
     ],
     "enabled": true,
     "implementations": [

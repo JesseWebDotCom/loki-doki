@@ -90,6 +90,37 @@ def test_v2_router_handles_spelling_phrase_variant():
     assert "spell" in match.matched_text
 
 
+def test_v2_router_routes_branded_named_thing_lookup_to_knowledge_query():
+    runtime = get_runtime()
+    chunk = RequestChunk(text="what is claude mythos", index=0)
+
+    match = route_chunk(chunk, runtime)
+
+    assert match.capability == "knowledge_query"
+    assert match.confidence > 0.55
+
+
+def test_v2_registry_gives_generic_alias_caps_multiple_examples():
+    entries = {entry["capability"]: entry for entry in load_function_registry()}
+
+    for capability in (
+        "direct_chat",
+        "chat",
+        "query",
+        "define_word",
+        "calculate",
+        "convert",
+        "get_forecast",
+        "translate",
+        "assist",
+        "send_text",
+        "empathize",
+        "lookup_birthday",
+    ):
+        examples = entries[capability].get("examples") or []
+        assert len(examples) >= 3, f"{capability} should have at least 3 routing examples"
+
+
 def test_v2_router_prefers_prebuilt_vector_similarity_over_lexical_match():
     class StubRuntime:
         router_index = [
