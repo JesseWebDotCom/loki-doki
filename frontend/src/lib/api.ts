@@ -187,6 +187,19 @@ export async function getV2PrototypeStatus() {
   return getJson<import("./api-types").V2StatusResponse>("/dev/v2/status");
 }
 
+export async function getV2Skills() {
+  return getJson<import("./api-types").V2SkillsResponse>("/dev/v2/skills");
+}
+
+export async function runV2Skill(capability: string, message: string, params: Record<string, unknown> = {}, resolvedTarget?: string) {
+  return postJson<import("./api-types").V2SkillRunResponse>("/dev/v2/skills/run", {
+    capability,
+    message,
+    params,
+    resolved_target: resolvedTarget,
+  });
+}
+
 export interface SourceMessage {
   id: number;
   session_id: number;

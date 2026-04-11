@@ -41,6 +41,14 @@ async def test_v2_status_endpoint_requires_admin_auth():
     assert r.status_code == 409
 
 
+@pytest.mark.anyio
+async def test_v2_skills_endpoint_requires_admin_auth():
+    async with _client() as ac:
+        r = await ac.get("/api/v1/dev/v2/skills")
+
+    assert r.status_code == 409
+
+
 async def _admin_override() -> User:
     return User(
         id=1,
@@ -179,3 +187,40 @@ async def test_v2_status_endpoint_returns_phase_and_dependency_summary(_fresh_me
     assert minilm["version"] == "sentence-transformers/all-MiniLM-L6-v2"
     spacy_dep = next(item for item in body["dependencies"] if item["key"] == "spacy")
     assert spacy_dep["running"] is True
+
+
+@pytest.mark.anyio
+async def test_v2_skills_endpoint_returns_registry_entries(_fresh_memory):
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+    async with _client() as ac:
+        response = await ac.get("/api/v1/dev/v2/skills")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["skills"]
+    holiday = next(item for item in body["skills"] if item["capability"] == "get_holiday")
+    assert holiday["selected_handler"] == "skills.holidays.lookup"
+    assert holiday["implementations"][0]["handler_name"] == "skills.holidays.lookup"
+
+
+@pytest.mark.anyio
+async def test_v2_skill_run_endpoint_executes_selected_capability(_fresh_memory):
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+    async with _client() as ac:
+        response = await ac.post(
+            "/api/v1/dev/v2/skills/run",
+            json={
+                "capability": "calculate_tip",
+                "message": "what's a 20% tip on $120 split 4 ways",
+                "params": {},
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["capability"] == "calculate_tip"
+    assert body["handler_name"] == "core.calculator.tip"
+    assert body["execution"]["success"] is True
+    assert "36" in body["execution"]["output_text"]

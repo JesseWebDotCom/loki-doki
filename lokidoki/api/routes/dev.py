@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
+from v2.orchestrator.core.types import RequestChunk, ResolutionResult, RouteMatch
+from v2.orchestrator.execution.executor import execute_chunk_async
 from v2.orchestrator.core.pipeline import run_pipeline_async
 from v2.orchestrator.registry.runtime import get_runtime
 from v2.orchestrator.routing.embeddings import FASTEMBED_MODEL
@@ -26,6 +28,20 @@ class V2RunRequest(BaseModel):
         if not value.strip():
             raise ValueError("message must not be empty")
         return value
+
+
+class V2SkillRunRequest(BaseModel):
+    capability: str
+    message: str = ""
+    params: dict[str, Any] = Field(default_factory=dict)
+    resolved_target: str | None = None
+
+    @field_validator("capability")
+    @classmethod
+    def capability_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("capability must not be empty")
+        return value.strip()
 
 
 @router.get("/v2/status")
@@ -194,6 +210,72 @@ async def run_v2_pipeline(
 ):
     """Run the isolated v2 prototype pipeline."""
     return (await run_pipeline_async(request.message, context=request.context)).to_dict()
+
+
+@router.get("/v2/skills")
+async def get_v2_skills(_: User = Depends(require_admin)):
+    """Return the current capability registry plus selected handlers."""
+    runtime = get_runtime()
+    skills: list[dict[str, Any]] = []
+    for capability, item in sorted(runtime.capabilities.items()):
+        selected = runtime.select_handler(0, capability)
+        implementations = sorted(
+            item.get("implementations") or [],
+            key=lambda entry: int(entry.get("priority", 999)),
+        )
+        skills.append(
+            {
+                "capability": capability,
+                "description": item.get("description") or "",
+                "examples": item.get("examples") or [],
+                "selected_handler": selected.handler_name,
+                "selected_implementation_id": selected.implementation_id,
+                "implementations": implementations,
+            }
+        )
+    return {"skills": skills}
+
+
+@router.post("/v2/skills/run")
+async def run_v2_skill(
+    request: V2SkillRunRequest,
+    _: User = Depends(require_admin),
+):
+    """Run a selected v2 capability directly through its chosen handler."""
+    runtime = get_runtime()
+    implementation = runtime.select_handler(0, request.capability)
+    chunk = RequestChunk(text=request.message, index=0)
+    route = RouteMatch(
+        chunk_index=0,
+        capability=request.capability,
+        confidence=1.0,
+        matched_text=request.capability,
+    )
+    resolved_target = request.resolved_target or str(request.params.get("resolved_target") or request.message)
+    resolution = ResolutionResult(
+        chunk_index=0,
+        resolved_target=resolved_target,
+        source="manual_test",
+        confidence=1.0,
+        params=dict(request.params),
+    )
+    execution = await execute_chunk_async(chunk, route, implementation, resolution)
+    return {
+        "capability": request.capability,
+        "handler_name": implementation.handler_name,
+        "implementation_id": implementation.implementation_id,
+        "selected_priority": implementation.priority,
+        "message": request.message,
+        "params": request.params,
+        "resolved_target": resolved_target,
+        "execution": {
+            "success": execution.success,
+            "output_text": execution.output_text,
+            "error": execution.error,
+            "attempts": execution.attempts,
+            "raw_result": execution.raw_result,
+        },
+    }
 
 
 def _package_version(name: str) -> str:

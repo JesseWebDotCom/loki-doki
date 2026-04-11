@@ -3,6 +3,7 @@ import { Check, Clock3, Copy, FlaskConical, Play, Sparkles } from 'lucide-react'
 
 import { getV2PrototypeStatus, runV2Prototype } from '../../lib/api';
 import type { V2RunResponse, V2StatusResponse } from '../../lib/api-types';
+import V2SkillsExplorer from './V2SkillsExplorer';
 import V2PrototypeStatusPanel from './V2PrototypeStatusPanel';
 
 const SAMPLE_PROMPT = 'hello and how do you spell restaurant';
@@ -123,6 +124,7 @@ const V2PrototypeRunner: React.FC = () => {
   return (
     <div className="space-y-4">
       <V2PrototypeStatusPanel loading={loadingStatus} error={statusError} status={status} />
+      <V2SkillsExplorer />
 
       <div className="rounded-xl border border-border/30 bg-card/50 p-5 shadow-m1">
         <div className="flex items-center gap-2 border-b border-border/10 pb-4">

@@ -398,6 +398,41 @@ export interface V2StatusResponse {
   dependencies: V2DependencyStatus[];
 }
 
+export interface V2SkillEntry {
+  capability: string;
+  description: string;
+  examples: string[];
+  selected_handler: string;
+  selected_implementation_id: string;
+  implementations: Array<{
+    id: string;
+    handler_name: string;
+    priority: number;
+    enabled: boolean;
+  }>;
+}
+
+export interface V2SkillsResponse {
+  skills: V2SkillEntry[];
+}
+
+export interface V2SkillRunResponse {
+  capability: string;
+  handler_name: string;
+  implementation_id: string;
+  selected_priority: number;
+  message: string;
+  params: Record<string, unknown>;
+  resolved_target: string;
+  execution: {
+    success: boolean;
+    output_text: string;
+    error?: string | null;
+    attempts: number;
+    raw_result: Record<string, unknown>;
+  };
+}
+
 export interface TrackedProcess {
   label: string;
   running: boolean;
