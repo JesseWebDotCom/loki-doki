@@ -13,6 +13,9 @@ Presence is the only capability the v1 mock doesn't natively support,
 so the adapter overlays an in-memory ``_PRESENCE`` table indexed by room.
 A future replacement (real HA presence sensor) only needs to swap that
 helper out.
+
+Scenes are also implemented at the v2 layer by composing multiple local
+state writes against the existing mock device backend.
 """
 from __future__ import annotations
 
@@ -249,3 +252,30 @@ async def detect_presence(payload: dict[str, Any]) -> dict[str, Any]:
         mechanism_used="presence_overlay",
         data={"room": room, "occupants": [who]},
     ).to_payload()
+
+
+_SCENES: dict[str, list[tuple[str, str]]] = {
+    "movie mode": [("living room light", "off"), ("tv", "on")],
+    "goodnight": [("living room light", "off"), ("garage door", "closed"), ("front door", "lock")],
+    "party time": [("living room light", "on"), ("tv", "on")],
+}
+
+
+async def set_scene(payload: dict[str, Any]) -> dict[str, Any]:
+    scene_name = str((payload.get("params") or {}).get("scene_name") or payload.get("chunk_text") or "").lower().strip()
+    for name, actions in _SCENES.items():
+        if name in scene_name:
+            for device, action in actions:
+                await run_mechanisms(
+                    _SKILL,
+                    [("local_state", {"device": device, "action": action})],
+                    on_success=_format_control_success,
+                    on_all_failed=f"I couldn't apply {name}.",
+                )
+            return AdapterResult(
+                output_text=f"Activated scene '{name}'.",
+                success=True,
+                mechanism_used="local_scene",
+                data={"scene": name, "actions": actions},
+            ).to_payload()
+    return AdapterResult(output_text="I couldn't find that scene.", success=False, error="unknown scene").to_payload()

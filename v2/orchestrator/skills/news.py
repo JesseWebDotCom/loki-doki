@@ -74,3 +74,43 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
         on_all_failed="I couldn't reach Google News right now.",
     )
     return result.to_payload()
+
+
+async def get_briefing(payload: dict[str, Any]) -> dict[str, Any]:
+    result = await run_mechanisms(
+        _SKILL,
+        [("google_news_rss", {"topic": None, "limit": 3})],
+        on_success=lambda mechanism_result, method: _format_briefing(mechanism_result.data or {}),
+        on_all_failed="I couldn't build your news briefing right now.",
+    )
+    return result.to_payload()
+
+
+def _format_briefing(data: dict[str, Any]) -> str:
+    headlines = data.get("headlines") or []
+    if not headlines:
+        return "I couldn't find any top stories right now."
+    parts = []
+    for item in headlines[:3]:
+        title = item.get("title") or "(untitled)"
+        source = item.get("source") or ""
+        parts.append(f"{title}{f' ({source})' if source else ''}")
+    return "Morning briefing: " + " | ".join(parts) + "."
+
+
+async def search_news(payload: dict[str, Any]) -> dict[str, Any]:
+    text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
+    query = text
+    for prefix in ("latest on ", "recent ", "news about ", "search news for ", "what's the latest on "):
+        if query.startswith(prefix):
+            query = query[len(prefix):].strip()
+            break
+    if query.endswith(" news"):
+        query = query[:-5].strip()
+    result = await run_mechanisms(
+        _SKILL,
+        [("google_news_rss", {"query": query or None, "limit": 5})],
+        on_success=_format_success,
+        on_all_failed="I couldn't search the news right now.",
+    )
+    return result.to_payload()

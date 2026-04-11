@@ -73,3 +73,35 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
         on_all_failed=f"I couldn't reach TVMaze to look up '{show}'.",
     )
     return result.to_payload()
+
+
+async def get_schedule(payload: dict[str, Any]) -> dict[str, Any]:
+    show = _extract_show(payload)
+    if not show:
+        return AdapterResult(
+            output_text="Which TV show schedule would you like me to look up?",
+            success=False,
+            error="missing show",
+        ).to_payload()
+    result = await run_mechanisms(
+        _SKILL,
+        [("tvmaze_api", {"query": show}), ("local_cache", {"query": show})],
+        on_success=lambda mechanism_result, method: _format_schedule(mechanism_result.data or {}, show),
+        on_all_failed=f"I couldn't reach TVMaze to look up the schedule for '{show}'.",
+    )
+    return result.to_payload()
+
+
+def _format_schedule(data: dict[str, Any], fallback_show: str) -> str:
+    name = data.get("name") or fallback_show
+    network = data.get("network") or ""
+    days = ", ".join(data.get("schedule_days") or [])
+    time = data.get("schedule_time") or ""
+    parts = [name]
+    if network:
+        parts.append(f"airs on {network}")
+    if days:
+        parts.append(days)
+    if time:
+        parts.append(f"at {time}")
+    return " ".join(parts).strip() + "."

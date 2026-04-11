@@ -2,7 +2,14 @@
   {
     "capability": "greeting_response",
     "description": "Respond to a short greeting from the user.",
-    "examples": ["hello", "hi", "hey", "hello there", "hi there", "good morning"],
+    "examples": [
+      "hello",
+      "hi",
+      "hey",
+      "hello there",
+      "hi there",
+      "good morning"
+    ],
     "enabled": true,
     "implementations": [
       {
@@ -16,7 +23,12 @@
   {
     "capability": "acknowledgment_response",
     "description": "Respond to a short acknowledgment or thanks.",
-    "examples": ["thanks", "thank you", "got it", "appreciate it"],
+    "examples": [
+      "thanks",
+      "thank you",
+      "got it",
+      "appreciate it"
+    ],
     "enabled": true,
     "implementations": [
       {
@@ -30,7 +42,11 @@
   {
     "capability": "get_current_time",
     "description": "Tell the user the current local time.",
-    "examples": ["what time is it", "what's the time", "tell me the current time"],
+    "examples": [
+      "what time is it",
+      "what's the time",
+      "tell me the current time"
+    ],
     "enabled": true,
     "implementations": [
       {
@@ -50,7 +66,11 @@
   {
     "capability": "get_current_date",
     "description": "Tell the user today's date.",
-    "examples": ["what day is it", "what's today's date", "what is today"],
+    "examples": [
+      "what day is it",
+      "what's today's date",
+      "what is today"
+    ],
     "enabled": true,
     "implementations": [
       {
@@ -62,9 +82,70 @@
     ]
   },
   {
+    "capability": "get_holiday",
+    "description": "Look up the date of a named public holiday in a country and year.",
+    "examples": [
+      "what day is thanksgiving this year",
+      "when is christmas",
+      "what date is boxing day in australia",
+      "when does labor day happen in the us"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.holidays.lookup",
+        "handler_name": "skills.holidays.lookup",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "list_holidays",
+    "description": "List public holidays for a country in a given year.",
+    "examples": [
+      "list holidays in japan this year",
+      "what holidays does canada have in 2026",
+      "show me us public holidays",
+      "holidays in australia next year"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.holidays.list",
+        "handler_name": "skills.holidays.list",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "time_until",
+    "description": "Tell the user how many days remain until a date or named holiday.",
+    "examples": [
+      "how long until christmas",
+      "how many days until july 4",
+      "time until 2026-12-25",
+      "days until thanksgiving"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.time.until",
+        "handler_name": "core.time.until",
+        "priority": 15,
+        "enabled": true
+      }
+    ]
+  },
+  {
     "capability": "spell_word",
     "description": "Spell or repeat a requested word for the user.",
-    "examples": ["how do you spell restaurant", "spell restaurant", "spell necessary"],
+    "examples": [
+      "how do you spell restaurant",
+      "spell restaurant",
+      "spell necessary"
+    ],
     "enabled": true,
     "implementations": [
       {
@@ -102,7 +183,7 @@
   },
   {
     "capability": "control_device",
-    "description": "Turn on or off a home device, switch a setting, or adjust device state. This is an imperative action — the user is telling the device what to do, not asking what state it is in.",
+    "description": "Turn on or off a home device, switch a setting, or adjust device state. This is an imperative action \u2014 the user is telling the device what to do, not asking what state it is in.",
     "examples": [
       "turn on the lights",
       "turn off the lights",
@@ -161,6 +242,63 @@
         "id": "core.units.convert",
         "handler_name": "core.units.convert",
         "priority": 5,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "calculate_tip",
+    "description": "Calculate a tip on a bill, optionally splitting the total between people.",
+    "examples": [
+      "what's a 20% tip on 47 dollars",
+      "tip on 120 split 4 ways",
+      "calculate a 15 percent tip",
+      "split a dinner bill with tip"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.calculator.tip",
+        "handler_name": "core.calculator.tip",
+        "priority": 10,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "convert_currency",
+    "description": "Convert an amount between currencies using current exchange rates.",
+    "examples": [
+      "how much is 200 euros in dollars",
+      "convert 50 usd to gbp",
+      "what is 100 yen in dollars",
+      "200 eur to usd"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.finance.convert_currency",
+        "handler_name": "skills.finance.convert_currency",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_exchange_rate",
+    "description": "Look up the current exchange rate between two currencies.",
+    "examples": [
+      "what's the gbp to usd rate right now",
+      "eur to usd exchange rate",
+      "what is the yen to dollar rate",
+      "usd to cad rate"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.finance.exchange_rate",
+        "handler_name": "skills.finance.exchange_rate",
+        "priority": 20,
         "enabled": true
       }
     ]
@@ -515,6 +653,44 @@
     ]
   },
   {
+    "capability": "get_briefing",
+    "description": "Give the user a short morning news briefing with a few top stories.",
+    "examples": [
+      "give me my morning briefing",
+      "catch me up on the news",
+      "brief me on the top stories",
+      "morning news briefing"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.news.briefing",
+        "handler_name": "skills.news.briefing",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "search_news",
+    "description": "Search recent news coverage for a specific topic or event.",
+    "examples": [
+      "recent ai news",
+      "what's the latest on the ukraine war",
+      "news about apple earnings",
+      "search news for spacex"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.news.search",
+        "handler_name": "skills.news.search",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
     "capability": "find_recipe",
     "description": "Look up a cooking recipe by dish name or main ingredient.",
     "examples": [
@@ -557,7 +733,7 @@
   },
   {
     "capability": "lookup_tv_show",
-    "description": "Look up details about a TV series — network, status, rating, recent episodes.",
+    "description": "Look up details about a TV series \u2014 network, status, rating, recent episodes.",
     "examples": [
       "tell me about the tv show breaking bad",
       "what tv show is friends",
@@ -600,13 +776,1014 @@
   {
     "capability": "direct_chat",
     "description": "Fallback conversational response when no capability strongly matches.",
-    "examples": ["tell me something", "chat with me"],
+    "examples": [
+      "tell me something",
+      "chat with me"
+    ],
     "enabled": true,
     "implementations": [
       {
         "id": "core.chat.default",
         "handler_name": "fallback.direct_chat",
         "priority": 100,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "create_event",
+    "description": "Create a calendar event in the local prototype calendar store.",
+    "examples": [
+      "add lunch with Leia tomorrow at 1pm",
+      "create event dentist appointment 2026-05-01 3pm"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.calendar.create",
+        "handler_name": "device.calendar.create",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_events",
+    "description": "Read calendar events from the local prototype calendar store.",
+    "examples": [
+      "what is on my calendar today",
+      "show my calendar"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.calendar.get",
+        "handler_name": "device.calendar.get",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "update_event",
+    "description": "Update an existing local prototype calendar event.",
+    "examples": [
+      "move my lunch event to 2pm",
+      "update event_001"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.calendar.update",
+        "handler_name": "device.calendar.update",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "delete_event",
+    "description": "Delete a local prototype calendar event.",
+    "examples": [
+      "cancel my dentist appointment",
+      "delete event_001"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.calendar.delete",
+        "handler_name": "device.calendar.delete",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "set_alarm",
+    "description": "Set an alarm in the local prototype alarm store.",
+    "examples": [
+      "set an alarm for 7am"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.alarm.set",
+        "handler_name": "device.alarm.set",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "set_timer",
+    "description": "Set a timer in the local prototype timer store.",
+    "examples": [
+      "set a 10 minute timer"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.timer.set",
+        "handler_name": "device.timer.set",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "set_reminder",
+    "description": "Set a reminder in the local prototype reminder store.",
+    "examples": [
+      "remind me to call Luke at 6pm"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.reminder.set",
+        "handler_name": "device.reminder.set",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "cancel_alarm",
+    "description": "Cancel an alarm in the local prototype alarm store.",
+    "examples": [
+      "cancel my 7am alarm"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.alarm.cancel",
+        "handler_name": "device.alarm.cancel",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "list_alarms",
+    "description": "List alarms in the local prototype alarm store.",
+    "examples": [
+      "what alarms do i have set"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.alarm.list",
+        "handler_name": "device.alarm.list",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "search_contacts",
+    "description": "Search contacts in the local prototype contacts store.",
+    "examples": [
+      "find Leia in my contacts",
+      "what is Luke's number"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.contacts.search",
+        "handler_name": "device.contacts.search",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "read_messages",
+    "description": "Read recent messages from the local prototype messages store.",
+    "examples": [
+      "read my last texts from Leia",
+      "any new messages"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.messages.read",
+        "handler_name": "device.messages.read",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "read_emails",
+    "description": "Read emails from the local prototype inbox store.",
+    "examples": [
+      "what is in my inbox",
+      "emails from Luke"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.emails.read",
+        "handler_name": "device.emails.read",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "make_call",
+    "description": "Start a phone call from the local prototype call log backend.",
+    "examples": [
+      "call Leia",
+      "call Luke"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.phone.call",
+        "handler_name": "device.phone.call",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "create_note",
+    "description": "Create a note in the local prototype note store.",
+    "examples": [
+      "note that the meeting moved to Thursday"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.notes.create",
+        "handler_name": "device.notes.create",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "append_to_list",
+    "description": "Append items to a local prototype list.",
+    "examples": [
+      "add milk and eggs to my grocery list"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.notes.append_list",
+        "handler_name": "device.notes.append_list",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "read_list",
+    "description": "Read a local prototype list.",
+    "examples": [
+      "what is on my grocery list"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.notes.read_list",
+        "handler_name": "device.notes.read_list",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "search_notes",
+    "description": "Search notes in the local prototype note store.",
+    "examples": [
+      "find my note about Paris"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.notes.search",
+        "handler_name": "device.notes.search",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "play_music",
+    "description": "Play music in the local prototype playback state store.",
+    "examples": [
+      "play some jazz",
+      "play Beyonce"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.music.play",
+        "handler_name": "device.music.play",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "control_playback",
+    "description": "Control playback in the local prototype playback state store.",
+    "examples": [
+      "pause",
+      "skip this song"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.music.control",
+        "handler_name": "device.music.control",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_now_playing",
+    "description": "Read the local prototype now playing state.",
+    "examples": [
+      "what song is this",
+      "what is playing"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.music.now_playing",
+        "handler_name": "device.music.now_playing",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "set_volume",
+    "description": "Set the local prototype playback volume.",
+    "examples": [
+      "volume to 50 percent"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.music.volume",
+        "handler_name": "device.music.volume",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "lookup_track",
+    "description": "Look up track metadata from MusicBrainz.",
+    "examples": [
+      "who sings Mr Brightside"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.music.lookup_track",
+        "handler_name": "skills.music.lookup_track",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_directions",
+    "description": "Get driving directions using Nominatim and OSRM.",
+    "examples": [
+      "how do i get to the airport from here",
+      "drive from Hoboken to Newark Airport"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.navigation.directions",
+        "handler_name": "skills.navigation.directions",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_eta",
+    "description": "Get driving ETA using Nominatim and OSRM.",
+    "examples": [
+      "how long will it take to drive downtown"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.navigation.eta",
+        "handler_name": "skills.navigation.eta",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "find_nearby",
+    "description": "Find nearby places using Overpass and OpenStreetMap.",
+    "examples": [
+      "find coffee shops near me"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.navigation.nearby",
+        "handler_name": "skills.navigation.nearby",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_transit",
+    "description": "Find transit information using live web search.",
+    "examples": [
+      "next train from Hoboken to Penn Station"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.navigation.transit",
+        "handler_name": "skills.navigation.transit",
+        "priority": 40,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_streaming",
+    "description": "Find streaming availability using live web search.",
+    "examples": [
+      "where can i watch Oppenheimer"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.media.streaming",
+        "handler_name": "skills.media.streaming",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "search_flights",
+    "description": "Search flights using live web search.",
+    "examples": [
+      "flights from JFK to London next Friday"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.travel.flights.search",
+        "handler_name": "skills.travel.flights.search",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_flight_status",
+    "description": "Find flight status using live web search.",
+    "examples": [
+      "is AA 271 on time"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.travel.flight_status",
+        "handler_name": "skills.travel.flight_status",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "search_hotels",
+    "description": "Search hotels using live web search.",
+    "examples": [
+      "hotels in Rome for 3 nights in June"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.travel.hotels.search",
+        "handler_name": "skills.travel.hotels.search",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_visa_info",
+    "description": "Look up visa information using live web search.",
+    "examples": [
+      "do i need a visa for Thailand on a US passport"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.travel.visa",
+        "handler_name": "skills.travel.visa",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "look_up_symptom",
+    "description": "Look up symptom information using live medical web search.",
+    "examples": [
+      "what causes a sharp pain behind the knee"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.health.symptom",
+        "handler_name": "skills.health.symptom",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "check_medication",
+    "description": "Look up medication information using live medical web search.",
+    "examples": [
+      "what is metformin for",
+      "can i take ibuprofen with amoxicillin"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.health.medication",
+        "handler_name": "skills.health.medication",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "log_workout",
+    "description": "Log a workout in the local prototype fitness store.",
+    "examples": [
+      "log a 30 minute run"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.fitness.log",
+        "handler_name": "device.fitness.log",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_fitness_summary",
+    "description": "Read the local prototype fitness summary.",
+    "examples": [
+      "my activity this week"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "device.fitness.summary",
+        "handler_name": "device.fitness.summary",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "lookup_fact",
+    "description": "Look up a person fact using live web search.",
+    "examples": [
+      "how tall is Beyonce",
+      "what is Keanu Reeves nationality"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.people.fact",
+        "handler_name": "skills.people.fact",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "set_scene",
+    "description": "Activate a named smart home scene in the local prototype smart home backend.",
+    "examples": [
+      "turn on movie mode",
+      "activate goodnight scene"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.home_assistant.scene",
+        "handler_name": "skills.home_assistant.scene",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_nutrition",
+    "description": "Look up nutrition data from Open Food Facts.",
+    "examples": [
+      "calories in an avocado"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.food.nutrition",
+        "handler_name": "skills.food.nutrition",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "substitute_ingredient",
+    "description": "Suggest a substitute for a cooking ingredient.",
+    "examples": [
+      "what can i use instead of buttermilk"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.food.substitute",
+        "handler_name": "skills.food.substitute",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "order_food",
+    "description": "Create a local prototype food order draft.",
+    "examples": [
+      "order my usual from Chipotle"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.food.order",
+        "handler_name": "skills.food.order",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "greet",
+    "description": "Respond to a short greeting.",
+    "examples": [
+      "hi",
+      "hello there"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.greeting.alias",
+        "handler_name": "core.greetings.reply",
+        "priority": 10,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "acknowledge",
+    "description": "Respond to a short acknowledgment.",
+    "examples": [
+      "thanks",
+      "got it"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.ack.alias",
+        "handler_name": "core.acknowledgments.reply",
+        "priority": 10,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "chat",
+    "description": "General conversational fallback.",
+    "examples": [
+      "chat with me",
+      "tell me something"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.chat.alias",
+        "handler_name": "fallback.direct_chat",
+        "priority": 100,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "define_word",
+    "description": "Look up a dictionary definition of a word.",
+    "examples": [
+      "what does ephemeral mean"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.dictionary.alias",
+        "handler_name": "skills.dictionary.lookup",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "calculate",
+    "description": "Evaluate a small arithmetic expression.",
+    "examples": [
+      "what is 12 times 7"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.calculator.alias",
+        "handler_name": "core.calculator.evaluate",
+        "priority": 10,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "convert",
+    "description": "Convert between units of measure.",
+    "examples": [
+      "convert 5 miles to kilometers"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.units.alias",
+        "handler_name": "core.units.convert",
+        "priority": 10,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_forecast",
+    "description": "Report the weather forecast.",
+    "examples": [
+      "what is the forecast for today"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.weather.alias",
+        "handler_name": "skills.weather.forecast",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "query",
+    "description": "Answer a factual or explanatory knowledge question.",
+    "examples": [
+      "why is the sky blue"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.knowledge.alias",
+        "handler_name": "core.knowledge.lookup",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "summarize",
+    "description": "Summarize a piece of source text.",
+    "examples": [
+      "summarize this article"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.writing.summarize.alias",
+        "handler_name": "skills.writing.summarize",
+        "priority": 40,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "translate",
+    "description": "Translate text to another language.",
+    "examples": [
+      "translate where is the bathroom to french"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.writing.translate",
+        "handler_name": "skills.writing.translate",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "assist",
+    "description": "Assist with code generation, debugging, or explanation.",
+    "examples": [
+      "debug this stack trace"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.code.alias",
+        "handler_name": "skills.code.assistant",
+        "priority": 40,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_tv_schedule",
+    "description": "Look up a TV show schedule using TVMaze.",
+    "examples": [
+      "when is Greys Anatomy on tonight"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.tv.schedule",
+        "handler_name": "skills.tv.schedule",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "send_text",
+    "description": "Send a short text message using the local prototype message backend.",
+    "examples": [
+      "text Leia that i am running late"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.messaging.alias",
+        "handler_name": "skills.messaging.send_text",
+        "priority": 20,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "empathize",
+    "description": "Respond with empathy and supportive language.",
+    "examples": [
+      "i feel overwhelmed"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.support.alias",
+        "handler_name": "skills.support.empathy",
+        "priority": 40,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_stock_price",
+    "description": "Look up a live stock price from Yahoo Finance.",
+    "examples": [
+      "what is Apple stock at",
+      "how is TSLA doing"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.finance.stock_price",
+        "handler_name": "skills.finance.stock_price",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_stock_info",
+    "description": "Look up stock profile information from Yahoo Finance.",
+    "examples": [
+      "what does Nvidia do",
+      "what is Amazon market cap"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.finance.stock_info",
+        "handler_name": "skills.finance.stock_info",
+        "priority": 25,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_score",
+    "description": "Look up a live sports score using live web search.",
+    "examples": [
+      "what is the score of the Lakers game"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.sports.score",
+        "handler_name": "skills.sports.score",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_standings",
+    "description": "Look up sports standings using live web search.",
+    "examples": [
+      "NFL standings",
+      "what place are the Red Sox in"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.sports.standings",
+        "handler_name": "skills.sports.standings",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_schedule",
+    "description": "Look up sports schedules using live web search.",
+    "examples": [
+      "when do the Yankees play next"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.sports.schedule",
+        "handler_name": "skills.sports.schedule",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_player_stats",
+    "description": "Look up player stats using live web search.",
+    "examples": [
+      "how many touchdowns does Mahomes have this year"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.sports.player_stats",
+        "handler_name": "skills.sports.player_stats",
+        "priority": 35,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "lookup_birthday",
+    "description": "Look up a known person birthday from the people resolver and prototype people data.",
+    "examples": [
+      "when is Leia birthday",
+      "when is my sister birthday"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.people.birthday.alias",
+        "handler_name": "core.people.birthday",
+        "priority": 15,
         "enabled": true
       }
     ]
