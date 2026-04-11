@@ -14,7 +14,19 @@ from v2.orchestrator.registry.runtime import CapabilityRuntime, get_runtime
 # into a generic clarification response). Without this floor MiniLM picks
 # its best-of-noise match for every vague utterance — "fix this" routes
 # to ``acknowledgment_response`` because "got it" is the closest example.
-ROUTE_FLOOR = 0.45
+#
+# Aligned with ``CONFIG.route_confidence_threshold`` (0.55). The two
+# values used to drift apart (floor 0.45, threshold 0.55), creating a
+# 0.45–0.55 "borderline" band where the router would still commit to a
+# specific skill, run the resolver + executor, and then hand the bogus
+# skill output to the LLM as ground truth via the ``combine`` prompt.
+# Concrete failure: "Maybe I'll take my sister to the movies" scored
+# 0.495 against ``when is my sister's birthday``, committed to
+# ``lookup_person_birthday``, resolved ``sister`` → seed person Leia,
+# and the LLM dutifully repeated "Leia's birthday is June 12." Raising
+# the floor to the threshold collapses that band — borderline matches
+# become direct_chat, which LLM answers from the user's actual words.
+ROUTE_FLOOR = 0.55
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> float:

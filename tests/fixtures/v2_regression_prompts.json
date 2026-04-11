@@ -294,7 +294,7 @@
       "expect": {
         "fast_lane_matched": false,
         "subjects_contain": ["sister"],
-        "resolved_person": "Leia",
+        "capability": "direct_chat",
         "max_total_ms": 500
       }
     },

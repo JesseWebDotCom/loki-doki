@@ -1,12 +1,16 @@
 """People DB adapter for the v2 prototype.
 
-The prototype ships an in-memory family graph keyed by alias so the
-people resolver can answer "text Sarah" / "call mom" deterministically
-without depending on a real database. The shape mirrors what a real
-PeopleDB row would look like (id, name, relationship, aliases).
+In-memory alias-aware family graph used by the people resolver. The
+shape mirrors a real PeopleDB row (id, name, relationship, aliases) so
+this adapter is a drop-in for the SQLite-backed
+:class:`v2.orchestrator.adapters.loki_people_db.LokiPeopleDBAdapter`.
 
-CLAUDE.md forbids real personal names in tests/fixtures, so the seed
-roster is built from pop-culture characters.
+**The default constructor returns an EMPTY roster.** Live runtime code
+paths must either inject real records or wire the SQLite adapter — the
+in-memory adapter must never invent test/seed identities, because the
+v2 dev tool surfaces resolver output directly to the user. Tests that
+need a deterministic roster import :data:`tests.fixtures.v2_seed_people.SEED_ROSTER`
+explicitly.
 """
 from __future__ import annotations
 
@@ -38,63 +42,25 @@ class PersonMatch:
     candidates: list[PersonRecord] = field(default_factory=list)
 
 
-_DEFAULT_ROSTER: tuple[PersonRecord, ...] = (
-    PersonRecord(
-        id="person.padme",
-        name="Padme",
-        relationship="mother",
-        aliases=["mom", "mother", "mama", "mommy", "padme"],
-        priority=10,
-        birthday="April 22",
-    ),
-    PersonRecord(
-        id="person.anakin",
-        name="Anakin",
-        relationship="father",
-        aliases=["dad", "father", "papa", "daddy", "anakin"],
-        priority=10,
-        birthday="August 15",
-    ),
-    PersonRecord(
-        id="person.leia",
-        name="Leia",
-        relationship="sister",
-        aliases=["sis", "sister", "leia"],
-        priority=20,
-        birthday="June 12",
-    ),
-    PersonRecord(
-        id="person.luke",
-        name="Luke",
-        relationship="brother",
-        aliases=["bro", "brother", "luke"],
-        priority=20,
-        birthday="September 25",
-    ),
-    PersonRecord(
-        id="person.obiwan",
-        name="Obi-Wan",
-        relationship="mentor",
-        aliases=["obi-wan", "obiwan", "ben"],
-        priority=40,
-        birthday="March 20",
-    ),
-    PersonRecord(
-        id="person.han",
-        name="Han Solo",
-        relationship="friend",
-        aliases=["han", "han solo"],
-        priority=40,
-        birthday="July 13",
-    ),
-)
+# Production default is an EMPTY roster. The integration test suite
+# replaces this at session start with a seed roster (see
+# ``tests/integration/conftest.py``) so the regression fixture cases
+# that exercise the people resolver still have data to bind against.
+# The default is read inside ``__init__`` so monkeypatching this module
+# attribute is sufficient — no need to monkeypatch the class itself.
+_DEFAULT_ROSTER: tuple[PersonRecord, ...] = ()
 
 
 class PeopleDBAdapter:
     """Alias-aware family graph lookup."""
 
     def __init__(self, records: Iterable[PersonRecord] | None = None) -> None:
-        self._records: tuple[PersonRecord, ...] = tuple(records or _DEFAULT_ROSTER)
+        # ``records is None`` (not falsy) so callers can deliberately
+        # construct an empty adapter without falling through to the
+        # module default.
+        if records is None:
+            records = _DEFAULT_ROSTER
+        self._records: tuple[PersonRecord, ...] = tuple(records)
 
     def all(self) -> tuple[PersonRecord, ...]:
         return self._records

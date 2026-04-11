@@ -243,3 +243,30 @@ def _patch_v2_skill_singletons() -> None:
 
     for module, original in originals.items():
         module._SKILL = original
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _seed_v2_people_db_for_integration():
+    """Inject the pop-culture seed roster into the in-memory PeopleDBAdapter.
+
+    The production default of ``v2.orchestrator.adapters.people_db._DEFAULT_ROSTER``
+    is intentionally empty so the live dev tool pipeline never surfaces
+    fictional people to the user. The integration regression suite still
+    needs a deterministic family graph to test the people resolver +
+    ``lookup_person_birthday`` routing — without it the regression
+    fixtures that resolve "mom" / "sister" / "brother" would fall to the
+    "missing person" branch and the assertions would fail.
+
+    Session-scoped + autouse so the seed is in place for every test
+    that runs through ``run_pipeline_async``.
+    """
+    from v2.orchestrator.adapters import people_db
+
+    from tests.fixtures.v2_seed_people import SEED_ROSTER
+
+    original = people_db._DEFAULT_ROSTER
+    people_db._DEFAULT_ROSTER = SEED_ROSTER
+    try:
+        yield
+    finally:
+        people_db._DEFAULT_ROSTER = original

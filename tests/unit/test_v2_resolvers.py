@@ -1,6 +1,7 @@
 """Unit tests for v2 resolvers and adapters (Phase 3)."""
 from __future__ import annotations
 
+from tests.fixtures.v2_seed_people import SEED_ROSTER
 from v2.orchestrator.adapters.conversation_memory import ConversationMemoryAdapter
 from v2.orchestrator.adapters.home_assistant import HomeAssistantAdapter
 from v2.orchestrator.adapters.movie_context import MovieContextAdapter
@@ -13,10 +14,23 @@ from v2.orchestrator.resolution.pronoun_resolver import resolve_pronouns
 
 
 # ---- people resolver --------------------------------------------------------
+#
+# The in-memory PeopleDBAdapter's production default is an EMPTY roster
+# (so the live dev tool pipeline can never surface fictional people).
+# Unit tests that need a deterministic family graph pass SEED_ROSTER
+# explicitly — never relying on a baked-in default.
+
+
+def test_people_db_default_constructor_is_empty():
+    """Production guarantee: PeopleDBAdapter() must not invent identities."""
+    db = PeopleDBAdapter()
+    assert db.all() == ()
+    assert db.resolve("mom") is None
+    assert db.resolve("sister") is None
 
 
 def test_people_db_resolves_alias_to_record():
-    db = PeopleDBAdapter()
+    db = PeopleDBAdapter(records=SEED_ROSTER)
     match = db.resolve("mom")
     assert match is not None
     assert match.record.name == "Padme"
@@ -25,12 +39,12 @@ def test_people_db_resolves_alias_to_record():
 
 
 def test_people_db_returns_none_for_unknown_mention():
-    db = PeopleDBAdapter()
+    db = PeopleDBAdapter(records=SEED_ROSTER)
     assert db.resolve("zorblax") is None
 
 
 def test_people_resolver_binds_named_entity_to_record():
-    db = PeopleDBAdapter()
+    db = PeopleDBAdapter(records=SEED_ROSTER)
     chunk = RequestChunk(text="text Anakin", index=0)
     extraction = ChunkExtraction(
         chunk_index=0,
@@ -48,7 +62,7 @@ def test_people_resolver_binds_named_entity_to_record():
 
 
 def test_people_resolver_flags_missing_person():
-    db = PeopleDBAdapter()
+    db = PeopleDBAdapter(records=SEED_ROSTER)
     chunk = RequestChunk(text="text", index=0)
     extraction = ChunkExtraction(chunk_index=0)
     route = RouteMatch(chunk_index=0, capability="send_text_message", confidence=0.9)
