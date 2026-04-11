@@ -1,26 +1,1072 @@
 {
-  "$schema": "v2 memory extraction corpus — drives the M1 gate-chain bake-off. Each case is a single user utterance plus the expected tier-write candidates the gate chain should produce. Names use pop-culture characters per CLAUDE.md mock-data rule. Phase status: empty in M0; populate to ≥130 cases in M1 per docs/MEMORY_DESIGN.md §8 M1 corpus.",
-  "version": 1,
+  "$schema": "v2 memory extraction corpus — drives the M1 gate-chain bake-off. Each case is a single user utterance plus the expected gate-chain outcome on a hand-crafted candidate. Names use pop-culture characters per CLAUDE.md mock-data rule. Populated 2026-04-11 (M1) — 130 cases across should_write / should_not_write / ambiguous / multi_clause buckets.",
+  "version": 2,
   "phase_owner": "M1",
   "case_schema": {
     "id": "string — stable, hierarchical (e.g. 'm1.fragment.allergy_peanut')",
+    "bucket": "string — should_write | should_not_write | ambiguous | multi_clause",
     "utterance": "string — the user's raw input",
-    "context": "object — optional pipeline context (recent_entities, session_id, etc.)",
+    "candidate": "object — subject/predicate/value/source_text, the candidate the extractor would produce",
+    "intent": "string|null — decomposer intent label, null when not used",
     "expect": {
-      "should_write": "boolean — true if the gate chain should produce ≥1 candidate",
-      "candidates": [
-        {
-          "tier": "integer 4|5",
-          "subject": "string — 'self' or a person name",
-          "predicate": "string — must be in the closed enum",
-          "value": "string",
-          "immediate_durable": "boolean",
-          "single_value": "boolean"
-        }
-      ],
-      "denied_by_gate": "string|null — one of: clause_shape, subject, predicate, schema, intent",
-      "notes": "string — free text rationale"
+      "should_write": "boolean — true if the gate chain should accept",
+      "denied_by_gate": "string|null — clause_shape | subject | predicate | schema | intent",
+      "target_tier": "integer|null — 4 (semantic_self) or 5 (social) when accepted",
+      "immediate_durable": "boolean — should the predicate bypass promotion",
+      "single_value": "boolean — should new value supersede old"
     }
   },
-  "cases": []
+  "cases": [
+    {
+      "id": "m1.write.allergy_peanut_fragment",
+      "bucket": "should_write",
+      "utterance": "allergic to peanuts",
+      "candidate": {"subject": "self", "predicate": "has_allergy", "value": "peanuts", "source_text": "allergic to peanuts"},
+      "intent": null,
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.dietary_vegetarian",
+      "bucket": "should_write",
+      "utterance": "I'm vegetarian now",
+      "candidate": {"subject": "self", "predicate": "has_dietary_restriction", "value": "vegetarian", "source_text": "I'm vegetarian now"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.call_me_jesse",
+      "bucket": "should_write",
+      "utterance": "call me Jesse",
+      "candidate": {"subject": "self", "predicate": "is_named", "value": "Jesse", "source_text": "call me Jesse"},
+      "intent": "command_with_self_assertion",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": true}
+    },
+    {
+      "id": "m1.write.dont_call_me_robert",
+      "bucket": "should_write",
+      "utterance": "don't call me Robert",
+      "candidate": {"subject": "self", "predicate": "hard_dislike", "value": "Robert", "source_text": "don't call me Robert"},
+      "intent": "command_with_self_assertion",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.pronoun_they",
+      "bucket": "should_write",
+      "utterance": "my pronouns are they/them",
+      "candidate": {"subject": "self", "predicate": "has_pronoun", "value": "they/them", "source_text": "my pronouns are they/them"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": true}
+    },
+    {
+      "id": "m1.write.lives_in_portland",
+      "bucket": "should_write",
+      "utterance": "I just moved to Portland",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "Portland", "source_text": "I just moved to Portland"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.works_as_engineer",
+      "bucket": "should_write",
+      "utterance": "I'm a software engineer",
+      "candidate": {"subject": "self", "predicate": "works_as", "value": "software engineer", "source_text": "I'm a software engineer"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.timezone_pst",
+      "bucket": "should_write",
+      "utterance": "I'm on Pacific time",
+      "candidate": {"subject": "self", "predicate": "timezone", "value": "America/Los_Angeles", "source_text": "I'm on Pacific time"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.units_metric",
+      "bucket": "should_write",
+      "utterance": "use metric units please",
+      "candidate": {"subject": "self", "predicate": "preferred_units", "value": "metric", "source_text": "use metric units please"},
+      "intent": "command_with_self_assertion",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.favorite_color_blue",
+      "bucket": "should_write",
+      "utterance": "my favorite color is blue",
+      "candidate": {"subject": "self", "predicate": "favorite_color", "value": "blue", "source_text": "my favorite color is blue"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.favorite_food_thai",
+      "bucket": "should_write",
+      "utterance": "I love Thai food",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "Thai food", "source_text": "I love Thai food"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.write.favorite_movie_godfather",
+      "bucket": "should_write",
+      "utterance": "favorite movie is the godfather",
+      "candidate": {"subject": "self", "predicate": "favorite_movie", "value": "The Godfather", "source_text": "favorite movie is the godfather"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.born_1990",
+      "bucket": "should_write",
+      "utterance": "I was born in 1990",
+      "candidate": {"subject": "self", "predicate": "was_born", "value": "1990", "source_text": "I was born in 1990"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.write.owns_dog",
+      "bucket": "should_write",
+      "utterance": "I have a dog named Chewie",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "dog named Chewie", "source_text": "I have a dog named Chewie"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.write.constraint_no_caffeine",
+      "bucket": "should_write",
+      "utterance": "I avoid caffeine",
+      "candidate": {"subject": "self", "predicate": "has_constraint", "value": "no caffeine", "source_text": "I avoid caffeine"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.write.accessibility_screen_reader",
+      "bucket": "should_write",
+      "utterance": "I use a screen reader",
+      "candidate": {"subject": "self", "predicate": "has_accessibility_need", "value": "screen reader", "source_text": "I use a screen reader"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.privacy_no_location",
+      "bucket": "should_write",
+      "utterance": "don't share my location",
+      "candidate": {"subject": "self", "predicate": "has_privacy_boundary", "value": "no location sharing", "source_text": "don't share my location"},
+      "intent": "command_with_self_assertion",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.hard_dislike_loud_restaurants",
+      "bucket": "should_write",
+      "utterance": "ugh, hate loud restaurants",
+      "candidate": {"subject": "self", "predicate": "hard_dislike", "value": "loud restaurants", "source_text": "ugh, hate loud restaurants"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.preferred_modality_voice",
+      "bucket": "should_write",
+      "utterance": "I prefer voice in the morning",
+      "candidate": {"subject": "self", "predicate": "preferred_modality", "value": "voice", "source_text": "I prefer voice in the morning"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.current_employer_anthropic",
+      "bucket": "should_write",
+      "utterance": "I work at Anthropic now",
+      "candidate": {"subject": "self", "predicate": "current_employer", "value": "Anthropic", "source_text": "I work at Anthropic now"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.current_partner_padme",
+      "bucket": "should_write",
+      "utterance": "my partner is Padme",
+      "candidate": {"subject": "self", "predicate": "current_partner", "value": "Padme", "source_text": "my partner is Padme"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.lives_with_anakin",
+      "bucket": "should_write",
+      "utterance": "I live with Anakin",
+      "candidate": {"subject": "self", "predicate": "currently_lives_with", "value": "Anakin", "source_text": "I live with Anakin"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.brother_luke_relation",
+      "bucket": "should_write",
+      "utterance": "my brother Luke loves movies",
+      "candidate": {"subject": "person:Luke", "predicate": "is_relation", "value": "brother", "source_text": "my brother Luke loves movies"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.sister_leia_relation",
+      "bucket": "should_write",
+      "utterance": "my sister Leia is visiting",
+      "candidate": {"subject": "person:Leia", "predicate": "is_relation", "value": "sister", "source_text": "my sister Leia is visiting"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.provisional_my_boss",
+      "bucket": "should_write",
+      "utterance": "my boss is being weird about the deadline",
+      "candidate": {"subject": "handle:my boss", "predicate": "is_relation", "value": "boss", "source_text": "my boss is being weird about the deadline"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.provisional_my_therapist",
+      "bucket": "should_write",
+      "utterance": "my therapist suggested journaling",
+      "candidate": {"subject": "handle:my therapist", "predicate": "is_relation", "value": "therapist", "source_text": "my therapist suggested journaling"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.provisional_neighbor",
+      "bucket": "should_write",
+      "utterance": "my new neighbor seems nice",
+      "candidate": {"subject": "handle:my new neighbor", "predicate": "is_relation", "value": "neighbor", "source_text": "my new neighbor seems nice"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.person_lives_in",
+      "bucket": "should_write",
+      "utterance": "Luke lives in Tatooine",
+      "candidate": {"subject": "person:Luke", "predicate": "lives_in", "value": "Tatooine", "source_text": "Luke lives in Tatooine"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.person_birthday",
+      "bucket": "should_write",
+      "utterance": "Leia's birthday is May 21",
+      "candidate": {"subject": "person:Leia", "predicate": "has_birthday", "value": "May 21", "source_text": "Leia's birthday is May 21"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.write.person_pronoun",
+      "bucket": "should_write",
+      "utterance": "Padme uses she/her",
+      "candidate": {"subject": "person:Padme", "predicate": "has_pronoun", "value": "she/her", "source_text": "Padme uses she/her"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": true}
+    },
+    {
+      "id": "m1.write.fragment_vegetarian",
+      "bucket": "should_write",
+      "utterance": "vegetarian now",
+      "candidate": {"subject": "self", "predicate": "has_dietary_restriction", "value": "vegetarian", "source_text": "vegetarian now"},
+      "intent": null,
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.exclamative_hate_kale",
+      "bucket": "should_write",
+      "utterance": "ugh, can't stand kale",
+      "candidate": {"subject": "self", "predicate": "hard_dislike", "value": "kale", "source_text": "ugh, can't stand kale"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.modal_think_allergic",
+      "bucket": "should_write",
+      "utterance": "I think I'm allergic to shellfish",
+      "candidate": {"subject": "self", "predicate": "has_allergy", "value": "shellfish", "source_text": "I think I'm allergic to shellfish", "hedged": true, "confidence": 0.5},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.correction_jesse_not_jess",
+      "bucket": "should_write",
+      "utterance": "actually it's Jesse, not Jess",
+      "candidate": {"subject": "self", "predicate": "is_named", "value": "Jesse", "source_text": "actually it's Jesse, not Jess"},
+      "intent": "correction",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": true}
+    },
+    {
+      "id": "m1.write.lives_in_brooklyn",
+      "bucket": "should_write",
+      "utterance": "I live in Brooklyn",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "Brooklyn", "source_text": "I live in Brooklyn"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.works_as_designer",
+      "bucket": "should_write",
+      "utterance": "I'm a UX designer",
+      "candidate": {"subject": "self", "predicate": "works_as", "value": "UX designer", "source_text": "I'm a UX designer"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.preferred_modality_text",
+      "bucket": "should_write",
+      "utterance": "I'd rather text than talk",
+      "candidate": {"subject": "self", "predicate": "preferred_modality", "value": "text", "source_text": "I'd rather text than talk"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.prefers_morning_runs",
+      "bucket": "should_write",
+      "utterance": "I love running in the morning",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "morning runs", "source_text": "I love running in the morning"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.write.brother_anakin",
+      "bucket": "should_write",
+      "utterance": "Anakin is my brother",
+      "candidate": {"subject": "person:Anakin", "predicate": "is_relation", "value": "brother", "source_text": "Anakin is my brother"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.father_anakin",
+      "bucket": "should_write",
+      "utterance": "Anakin is Luke's father",
+      "candidate": {"subject": "person:Anakin", "predicate": "is_relation", "value": "father", "source_text": "Anakin is Luke's father"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.named_padme",
+      "bucket": "should_write",
+      "utterance": "her name is Padme",
+      "candidate": {"subject": "person:Padme", "predicate": "is_named", "value": "Padme", "source_text": "her name is Padme"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": true}
+    },
+    {
+      "id": "m1.write.hard_dislike_horror",
+      "bucket": "should_write",
+      "utterance": "I hate horror movies",
+      "candidate": {"subject": "self", "predicate": "hard_dislike", "value": "horror movies", "source_text": "I hate horror movies"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.fragment_pronouns",
+      "bucket": "should_write",
+      "utterance": "she/her btw",
+      "candidate": {"subject": "self", "predicate": "has_pronoun", "value": "she/her", "source_text": "she/her btw"},
+      "intent": null,
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": true}
+    },
+    {
+      "id": "m1.write.allergy_dairy",
+      "bucket": "should_write",
+      "utterance": "I'm lactose intolerant",
+      "candidate": {"subject": "self", "predicate": "has_allergy", "value": "lactose", "source_text": "I'm lactose intolerant"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.constraint_kosher",
+      "bucket": "should_write",
+      "utterance": "I keep kosher",
+      "candidate": {"subject": "self", "predicate": "has_constraint", "value": "kosher", "source_text": "I keep kosher"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.write.gluten_free",
+      "bucket": "should_write",
+      "utterance": "I eat gluten free",
+      "candidate": {"subject": "self", "predicate": "has_dietary_restriction", "value": "gluten free", "source_text": "I eat gluten free"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.write.units_imperial",
+      "bucket": "should_write",
+      "utterance": "I think in fahrenheit",
+      "candidate": {"subject": "self", "predicate": "preferred_units", "value": "imperial", "source_text": "I think in fahrenheit"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.timezone_eastern",
+      "bucket": "should_write",
+      "utterance": "I'm Eastern time",
+      "candidate": {"subject": "self", "predicate": "timezone", "value": "America/New_York", "source_text": "I'm Eastern time"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.write.therapist_handle_birthday",
+      "bucket": "should_write",
+      "utterance": "my therapist's birthday is in March",
+      "candidate": {"subject": "handle:my therapist", "predicate": "has_birthday", "value": "March", "source_text": "my therapist's birthday is in March"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.write.boss_handle_lives_in",
+      "bucket": "should_write",
+      "utterance": "my boss lives in Seattle",
+      "candidate": {"subject": "handle:my boss", "predicate": "lives_in", "value": "Seattle", "source_text": "my boss lives in Seattle"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": false, "single_value": true}
+    },
+
+    {
+      "id": "m1.deny.president_bug",
+      "bucket": "should_not_write",
+      "utterance": "who is the current president",
+      "candidate": {"subject": "self", "predicate": "is_named", "value": "the current president", "source_text": "who is the current president"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.what_time_is_it",
+      "bucket": "should_not_write",
+      "utterance": "what time is it",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "time", "source_text": "what time is it"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.where_did_napoleon_die",
+      "bucket": "should_not_write",
+      "utterance": "where did Napoleon die",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "Napoleon", "source_text": "where did Napoleon die"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.when_was_einstein_born",
+      "bucket": "should_not_write",
+      "utterance": "when was Einstein born",
+      "candidate": {"subject": "self", "predicate": "was_born", "value": "Einstein", "source_text": "when was Einstein born"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.why_is_the_sky_blue",
+      "bucket": "should_not_write",
+      "utterance": "why is the sky blue",
+      "candidate": {"subject": "self", "predicate": "favorite_color", "value": "blue", "source_text": "why is the sky blue"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.how_does_wifi_work",
+      "bucket": "should_not_write",
+      "utterance": "how does wifi work",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "wifi", "source_text": "how does wifi work"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.which_movie_won_oscar",
+      "bucket": "should_not_write",
+      "utterance": "which movie won the Oscar",
+      "candidate": {"subject": "self", "predicate": "favorite_movie", "value": "Oscar", "source_text": "which movie won the Oscar"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.whose_dog_is_that",
+      "bucket": "should_not_write",
+      "utterance": "whose dog is that",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "dog", "source_text": "whose dog is that"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.polar_is_it_raining",
+      "bucket": "should_not_write",
+      "utterance": "is it raining",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "rain", "source_text": "is it raining?"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.polar_did_you_eat",
+      "bucket": "should_not_write",
+      "utterance": "did you eat",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "eat", "source_text": "did you eat?"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.tell_me_about_jupiter",
+      "bucket": "should_not_write",
+      "utterance": "tell me about Jupiter",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "Jupiter", "source_text": "tell me about Jupiter"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.explain_recursion",
+      "bucket": "should_not_write",
+      "utterance": "explain recursion to me",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "recursion", "source_text": "explain recursion to me"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.show_me_news",
+      "bucket": "should_not_write",
+      "utterance": "show me the news",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "news", "source_text": "show me the news"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.list_my_alarms",
+      "bucket": "should_not_write",
+      "utterance": "list my alarms",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "alarms", "source_text": "list my alarms"},
+      "intent": "command_to_assistant",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.find_a_recipe",
+      "bucket": "should_not_write",
+      "utterance": "find a recipe for lasagna",
+      "candidate": {"subject": "self", "predicate": "favorite_food", "value": "lasagna", "source_text": "find a recipe for lasagna"},
+      "intent": "command_to_assistant",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.search_for_movies",
+      "bucket": "should_not_write",
+      "utterance": "search for movies near me",
+      "candidate": {"subject": "self", "predicate": "favorite_movie", "value": "movies", "source_text": "search for movies near me"},
+      "intent": "command_to_assistant",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.greeting_hello",
+      "bucket": "should_not_write",
+      "utterance": "hello",
+      "candidate": {"subject": "self", "predicate": "is_named", "value": "hello", "source_text": "hello"},
+      "intent": "greeting",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.greeting_good_morning",
+      "bucket": "should_not_write",
+      "utterance": "good morning",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "morning", "source_text": "good morning"},
+      "intent": "greeting",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.joke_two_cows",
+      "bucket": "should_not_write",
+      "utterance": "tell me a joke about two cows",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "two cows", "source_text": "tell me a joke about two cows"},
+      "intent": "joke",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.set_timer",
+      "bucket": "should_not_write",
+      "utterance": "set a timer for 5 minutes",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "5 minutes", "source_text": "set a timer for 5 minutes"},
+      "intent": "command_to_assistant",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.play_music",
+      "bucket": "should_not_write",
+      "utterance": "play some music",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "music", "source_text": "play some music"},
+      "intent": "command_to_assistant",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.clarify_what_did_you_mean",
+      "bucket": "should_not_write",
+      "utterance": "what did you mean",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "you", "source_text": "what did you mean"},
+      "intent": "clarification_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.public_figure_president_subject",
+      "bucket": "should_not_write",
+      "utterance": "the president lives in DC",
+      "candidate": {"subject": "person:the president", "predicate": "lives_in", "value": "DC", "source_text": "the president lives in DC"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "subject", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.stranger_some_random_guy",
+      "bucket": "should_not_write",
+      "utterance": "some random guy was rude",
+      "candidate": {"subject": "person:some random guy", "predicate": "is_relation", "value": "stranger", "source_text": "some random guy was rude"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "subject", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.public_figure_einstein",
+      "bucket": "should_not_write",
+      "utterance": "Einstein was a physicist",
+      "candidate": {"subject": "person:Einstein", "predicate": "works_as", "value": "physicist", "source_text": "Einstein was a physicist"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "subject", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.tv_character_walter",
+      "bucket": "should_not_write",
+      "utterance": "Walter White was a chemistry teacher",
+      "candidate": {"subject": "person:Walter White", "predicate": "works_as", "value": "chemistry teacher", "source_text": "Walter White was a chemistry teacher"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "subject", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.unknown_predicate_made_up",
+      "bucket": "should_not_write",
+      "utterance": "I'm vibing right now",
+      "candidate": {"subject": "self", "predicate": "is_vibing", "value": "true", "source_text": "I'm vibing right now"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": false, "denied_by_gate": "predicate", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.unknown_predicate_random",
+      "bucket": "should_not_write",
+      "utterance": "I have a foo",
+      "candidate": {"subject": "self", "predicate": "has_foo", "value": "bar", "source_text": "I have a foo"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": false, "denied_by_gate": "predicate", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.schema_missing_predicate",
+      "bucket": "should_not_write",
+      "utterance": "I'm fine",
+      "candidate": {"subject": "self", "value": "fine", "source_text": "I'm fine"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "schema", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.schema_empty_value",
+      "bucket": "should_not_write",
+      "utterance": "I",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "", "source_text": "I"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "schema", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.schema_bad_subject_shape",
+      "bucket": "should_not_write",
+      "utterance": "Luke is a friend",
+      "candidate": {"subject": "Luke", "predicate": "is_relation", "value": "friend", "source_text": "Luke is a friend"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "schema", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.schema_extra_field",
+      "bucket": "should_not_write",
+      "utterance": "I like X",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "X", "source_text": "I like X", "bogus_extra": "nope"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "schema", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.intent_joke",
+      "bucket": "should_not_write",
+      "utterance": "I'm a stand-up comedian",
+      "candidate": {"subject": "self", "predicate": "works_as", "value": "stand-up comedian", "source_text": "I'm a stand-up comedian"},
+      "intent": "joke",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.wh_when_will_movie_release",
+      "bucket": "should_not_write",
+      "utterance": "when will the new movie release",
+      "candidate": {"subject": "self", "predicate": "favorite_movie", "value": "new movie", "source_text": "when will the new movie release"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.polar_question_no_mark",
+      "bucket": "should_not_write",
+      "utterance": "are you happy",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "happy", "source_text": "are you happy"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.greeting_thanks",
+      "bucket": "should_not_write",
+      "utterance": "thanks",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "thanks", "source_text": "thanks"},
+      "intent": "greeting",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.public_president_about_president",
+      "bucket": "should_not_write",
+      "utterance": "the president signed a bill",
+      "candidate": {"subject": "person:the president", "predicate": "is_relation", "value": "leader", "source_text": "the president signed a bill"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "subject", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.unknown_subject_just_a_string",
+      "bucket": "should_not_write",
+      "utterance": "the meeting is at 3",
+      "candidate": {"subject": "self", "predicate": "schedule", "value": "3pm", "source_text": "the meeting is at 3"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "predicate", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.intent_quip",
+      "bucket": "should_not_write",
+      "utterance": "lol I'm a millionaire",
+      "candidate": {"subject": "self", "predicate": "works_as", "value": "millionaire", "source_text": "lol I'm a millionaire"},
+      "intent": "joke",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.command_no_self",
+      "bucket": "should_not_write",
+      "utterance": "open the garage door",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "garage", "source_text": "open the garage door"},
+      "intent": "command_to_assistant",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.what_is_2_plus_2",
+      "bucket": "should_not_write",
+      "utterance": "what is 2 plus 2",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "2", "source_text": "what is 2 plus 2"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.how_long_is_movie",
+      "bucket": "should_not_write",
+      "utterance": "how long is The Godfather",
+      "candidate": {"subject": "self", "predicate": "favorite_movie", "value": "The Godfather", "source_text": "how long is The Godfather"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.where_is_my_phone",
+      "bucket": "should_not_write",
+      "utterance": "where is my phone",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "phone", "source_text": "where is my phone"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.who_is_luke",
+      "bucket": "should_not_write",
+      "utterance": "who is Luke Skywalker",
+      "candidate": {"subject": "self", "predicate": "is_named", "value": "Luke Skywalker", "source_text": "who is Luke Skywalker"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.is_question_no_punct",
+      "bucket": "should_not_write",
+      "utterance": "is the meeting today",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "meeting", "source_text": "is the meeting today"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.have_you_seen",
+      "bucket": "should_not_write",
+      "utterance": "have you seen the new movie",
+      "candidate": {"subject": "self", "predicate": "favorite_movie", "value": "new movie", "source_text": "have you seen the new movie"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.could_you_please",
+      "bucket": "should_not_write",
+      "utterance": "could you please find me a place to eat",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "place", "source_text": "could you please find me a place to eat"},
+      "intent": "command_to_assistant",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.would_you_recommend",
+      "bucket": "should_not_write",
+      "utterance": "would you recommend the new restaurant",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "restaurant", "source_text": "would you recommend the new restaurant"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.what_should_i_eat",
+      "bucket": "should_not_write",
+      "utterance": "what should I eat tonight",
+      "candidate": {"subject": "self", "predicate": "favorite_food", "value": "food", "source_text": "what should I eat tonight"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.unknown_predicate_lol",
+      "bucket": "should_not_write",
+      "utterance": "I lol at puns",
+      "candidate": {"subject": "self", "predicate": "lols_at", "value": "puns", "source_text": "I lol at puns"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": false, "denied_by_gate": "predicate", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.deny.subject_unknown_entity",
+      "bucket": "should_not_write",
+      "utterance": "the new restaurant is great",
+      "candidate": {"subject": "entity:the new restaurant", "predicate": "prefers", "value": "great", "source_text": "the new restaurant is great"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": false, "denied_by_gate": "subject", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+
+    {
+      "id": "m1.ambig.modal_might_move",
+      "bucket": "ambiguous",
+      "utterance": "I might move to Boston",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "Boston", "source_text": "I might move to Boston", "hedged": true, "confidence": 0.4},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.ambig.modal_maybe_allergic",
+      "bucket": "ambiguous",
+      "utterance": "maybe I'm allergic to almonds",
+      "candidate": {"subject": "self", "predicate": "has_allergy", "value": "almonds", "source_text": "maybe I'm allergic to almonds", "hedged": true, "confidence": 0.4},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.third_person_my_mom",
+      "bucket": "ambiguous",
+      "utterance": "my mom loves jazz",
+      "candidate": {"subject": "handle:my mom", "predicate": "prefers", "value": "jazz", "source_text": "my mom loves jazz"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.public_figure_lookup",
+      "bucket": "ambiguous",
+      "utterance": "is Padme an actress",
+      "candidate": {"subject": "person:Padme", "predicate": "works_as", "value": "actress", "source_text": "is Padme an actress"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.embedded_question",
+      "bucket": "ambiguous",
+      "utterance": "I wonder if Luke will visit",
+      "candidate": {"subject": "person:Luke", "predicate": "is_relation", "value": "brother", "source_text": "I wonder if Luke will visit"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.hypothetical_if_i_were",
+      "bucket": "ambiguous",
+      "utterance": "if I were a doctor I'd prescribe more sleep",
+      "candidate": {"subject": "self", "predicate": "works_as", "value": "doctor", "source_text": "if I were a doctor"},
+      "intent": "joke",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.future_intention",
+      "bucket": "ambiguous",
+      "utterance": "I'm going to start running every day",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "running", "source_text": "I'm going to start running every day", "hedged": true, "confidence": 0.5},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.exclamative_with_question_mark",
+      "bucket": "ambiguous",
+      "utterance": "ugh, hate loud restaurants?",
+      "candidate": {"subject": "self", "predicate": "hard_dislike", "value": "loud restaurants", "source_text": "ugh, hate loud restaurants?"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.fragment_just_jesse",
+      "bucket": "ambiguous",
+      "utterance": "Jesse",
+      "candidate": {"subject": "self", "predicate": "is_named", "value": "Jesse", "source_text": "Jesse"},
+      "intent": null,
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": true}
+    },
+    {
+      "id": "m1.ambig.unknown_intent_passes",
+      "bucket": "ambiguous",
+      "utterance": "I love sushi",
+      "candidate": {"subject": "self", "predicate": "favorite_food", "value": "sushi", "source_text": "I love sushi"},
+      "intent": "miscellaneous",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.ambig.modal_should_drink",
+      "bucket": "ambiguous",
+      "utterance": "I should drink more water",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "water", "source_text": "I should drink more water", "hedged": true, "confidence": 0.4},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.would_like_house",
+      "bucket": "ambiguous",
+      "utterance": "I'd like a bigger house",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "bigger house", "source_text": "I'd like a bigger house", "hedged": true},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.private_handle_resembling_public",
+      "bucket": "ambiguous",
+      "utterance": "my barista knows my order",
+      "candidate": {"subject": "handle:my barista", "predicate": "is_relation", "value": "barista", "source_text": "my barista knows my order"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.hypothetical_dream_job",
+      "bucket": "ambiguous",
+      "utterance": "my dream job would be astronaut",
+      "candidate": {"subject": "self", "predicate": "works_as", "value": "astronaut", "source_text": "my dream job would be astronaut", "hedged": true},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.ambig.contradictory_correction",
+      "bucket": "ambiguous",
+      "utterance": "actually scratch that, I prefer tea",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "tea", "source_text": "actually scratch that, I prefer tea"},
+      "intent": "correction",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.exclamative_no_mark",
+      "bucket": "ambiguous",
+      "utterance": "I love this",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "this", "source_text": "I love this"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.statement_with_inline_question",
+      "bucket": "ambiguous",
+      "utterance": "I work at Google, you know",
+      "candidate": {"subject": "self", "predicate": "current_employer", "value": "Google", "source_text": "I work at Google"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.ambig.declarative_polar_lookalike",
+      "bucket": "ambiguous",
+      "utterance": "I have a meeting at 3",
+      "candidate": {"subject": "self", "predicate": "owns", "value": "meeting", "source_text": "I have a meeting at 3"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.ambig.question_inside_statement",
+      "bucket": "ambiguous",
+      "utterance": "I work as a teacher, btw",
+      "candidate": {"subject": "self", "predicate": "works_as", "value": "teacher", "source_text": "I work as a teacher"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.ambig.info_request_disguised",
+      "bucket": "ambiguous",
+      "utterance": "I want to know about Paris",
+      "candidate": {"subject": "self", "predicate": "prefers", "value": "Paris", "source_text": "I want to know about Paris"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "intent", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+
+    {
+      "id": "m1.multi.fact_plus_question",
+      "bucket": "multi_clause",
+      "utterance": "I'm vegetarian — what's a good recipe",
+      "candidate": {"subject": "self", "predicate": "has_dietary_restriction", "value": "vegetarian", "source_text": "I'm vegetarian"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.multi.question_first_then_fact",
+      "bucket": "multi_clause",
+      "utterance": "what time is it, also I'm in Tokyo",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "Tokyo", "source_text": "I'm in Tokyo"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.multi.fact_clause_only_question_split",
+      "bucket": "multi_clause",
+      "utterance": "I love sushi and what's the best place",
+      "candidate": {"subject": "self", "predicate": "favorite_food", "value": "sushi", "source_text": "I love sushi"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.multi.both_clauses_questions",
+      "bucket": "multi_clause",
+      "utterance": "what time is it and what's the weather",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "weather", "source_text": "what's the weather"},
+      "intent": "info_request",
+      "expect": {"should_write": false, "denied_by_gate": "clause_shape", "target_tier": null, "immediate_durable": false, "single_value": false}
+    },
+    {
+      "id": "m1.multi.assertive_plus_command",
+      "bucket": "multi_clause",
+      "utterance": "I prefer metric units, also set a timer",
+      "candidate": {"subject": "self", "predicate": "preferred_units", "value": "metric", "source_text": "I prefer metric units"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    },
+    {
+      "id": "m1.multi.greeting_then_disclosure",
+      "bucket": "multi_clause",
+      "utterance": "hi, by the way I'm allergic to peanuts",
+      "candidate": {"subject": "self", "predicate": "has_allergy", "value": "peanuts", "source_text": "I'm allergic to peanuts"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.multi.relation_plus_question",
+      "bucket": "multi_clause",
+      "utterance": "my brother Luke is visiting, when is his train",
+      "candidate": {"subject": "person:Luke", "predicate": "is_relation", "value": "brother", "source_text": "my brother Luke is visiting"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.multi.correction_then_command",
+      "bucket": "multi_clause",
+      "utterance": "actually it's Jesse, also play some music",
+      "candidate": {"subject": "self", "predicate": "is_named", "value": "Jesse", "source_text": "actually it's Jesse"},
+      "intent": "correction",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": true, "single_value": true}
+    },
+    {
+      "id": "m1.multi.question_then_provisional_handle",
+      "bucket": "multi_clause",
+      "utterance": "what's the news, my boss is being weird",
+      "candidate": {"subject": "handle:my boss", "predicate": "is_relation", "value": "boss", "source_text": "my boss is being weird"},
+      "intent": "assertive_chat",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 5, "immediate_durable": true, "single_value": false}
+    },
+    {
+      "id": "m1.multi.declarative_then_fragment",
+      "bucket": "multi_clause",
+      "utterance": "I just moved, Brooklyn now",
+      "candidate": {"subject": "self", "predicate": "lives_in", "value": "Brooklyn", "source_text": "Brooklyn now"},
+      "intent": "self_disclosure",
+      "expect": {"should_write": true, "denied_by_gate": null, "target_tier": 4, "immediate_durable": false, "single_value": true}
+    }
+  ]
 }

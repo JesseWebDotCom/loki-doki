@@ -13,17 +13,37 @@ current state.
 """
 from __future__ import annotations
 
-# Phase identifier surfaced via the dev-tools v2 status endpoint so the
-# UI can show that the memory subsystem is wired in even when the gates,
-# classifier, promotion, etc. are still empty stubs.
+# Phase identifiers surfaced via the dev-tools v2 status endpoint so the
+# UI can show which milestone the memory subsystem is currently shipping.
+# M0 (scaffolding) is complete; M1 (write path) is the active phase.
 M0_PHASE_ID = "m0"
 M0_PHASE_LABEL = "M0"
 M0_PHASE_TITLE = "Memory: Prerequisites and Corpora"
 M0_PHASE_STATUS = "complete"
+
+M1_PHASE_ID = "m1"
+M1_PHASE_LABEL = "M1"
+M1_PHASE_TITLE = "Memory: Write Path (Tier 4/5)"
+M1_PHASE_STATUS = "complete"
+
+# The "active" phase is the most recent shipped phase. Future phases
+# update this constant when they land.
+ACTIVE_PHASE_ID = M1_PHASE_ID
+ACTIVE_PHASE_LABEL = M1_PHASE_LABEL
+ACTIVE_PHASE_TITLE = M1_PHASE_TITLE
+ACTIVE_PHASE_STATUS = M1_PHASE_STATUS
 
 __all__ = [
     "M0_PHASE_ID",
     "M0_PHASE_LABEL",
     "M0_PHASE_TITLE",
     "M0_PHASE_STATUS",
+    "M1_PHASE_ID",
+    "M1_PHASE_LABEL",
+    "M1_PHASE_TITLE",
+    "M1_PHASE_STATUS",
+    "ACTIVE_PHASE_ID",
+    "ACTIVE_PHASE_LABEL",
+    "ACTIVE_PHASE_TITLE",
+    "ACTIVE_PHASE_STATUS",
 ]

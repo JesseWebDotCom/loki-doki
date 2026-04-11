@@ -46,6 +46,9 @@ def test_v2_pipeline_handles_obvious_compound_request_end_to_end():
     assert result.parsed.token_count > 0
     assert len(result.extractions) == 2
     assert len(result.resolutions) == 2
+    # The 13 steps are: normalize, signals, fast_lane (bypassed), parse,
+    # split, extract, memory_write (M1), route, select_implementation,
+    # resolve, execute, request_spec, combine.
     assert [step.status for step in result.trace.steps] == [
         "done",
         "done",
@@ -59,8 +62,11 @@ def test_v2_pipeline_handles_obvious_compound_request_end_to_end():
         "done",
         "done",
         "done",
+        "done",
     ]
     assert all(step.timing_ms >= 0.0 for step in result.trace.steps)
+    # The new memory_write step is the 7th in the trace.
+    assert result.trace.steps[6].name == "memory_write"
 
 
 def test_v2_pipeline_extracts_and_resolves_chunk_context():

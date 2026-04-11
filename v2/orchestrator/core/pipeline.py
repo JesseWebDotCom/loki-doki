@@ -14,6 +14,8 @@ from v2.orchestrator.core.types import (
 from v2.orchestrator.execution.executor import execute_chunk_async
 from v2.orchestrator.execution.request_spec import build_request_spec
 from v2.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
+from v2.orchestrator.memory.extractor import ExtractionContext, extract_candidates
+from v2.orchestrator.memory.writer import WriteRunResult, process_candidates
 from v2.orchestrator.observability.tracing import build_trace_summary, start_trace
 from v2.orchestrator.pipeline.combiner import combine_request_spec
 from v2.orchestrator.pipeline.extractor import extract_chunk_data
@@ -89,6 +91,34 @@ async def run_pipeline_async(
         references=[item.references for item in extractions],
         predicates=[item.predicates for item in extractions],
         entities=[item.entities for item in extractions],
+    )
+
+    finish = trace.timed("memory_write")
+    memory_write_result = _run_memory_write_path(parsed, chunks, safe_context)
+    finish(
+        accepted=len(memory_write_result.accepted),
+        rejected=len(memory_write_result.rejected),
+        accepted_summary=[
+            {
+                "subject": d.candidate.subject if d.candidate else "",
+                "predicate": d.candidate.predicate if d.candidate else "",
+                "value": d.candidate.value if d.candidate else "",
+                "tier": int(d.target_tier) if d.target_tier else None,
+                "immediate_durable": (
+                    d.write_outcome.immediate_durable if d.write_outcome else False
+                ),
+            }
+            for d in memory_write_result.accepted
+        ],
+        rejected_summary=[
+            {
+                "subject": (d.candidate.subject if d.candidate else ""),
+                "predicate": (d.candidate.predicate if d.candidate else ""),
+                "denied_at": (d.rejection.failed_gate if d.rejection else ""),
+                "reason": (d.rejection.reason if d.rejection else d.reason),
+            }
+            for d in memory_write_result.rejected
+        ],
     )
 
     routable = [chunk for chunk in chunks if chunk.role == "primary_request"]
@@ -242,6 +272,59 @@ def _strip_doc(parsed: ParsedInput) -> ParsedInput:
     """Drop the spaCy ``Doc`` reference so the result can be JSON-serialised."""
     parsed.doc = None
     return parsed
+
+
+def _run_memory_write_path(
+    parsed: ParsedInput,
+    chunks: list,  # type: ignore[type-arg]
+    safe_context: dict[str, Any],
+) -> WriteRunResult:
+    """Run the M1 write path on the current turn.
+
+    Memory writes are **opt-in**: the dev-tools v2 prototype runner enables
+    them by passing ``context["memory_writes_enabled"] = True`` (or by
+    passing ``context["memory_store"]`` directly with a custom store, used
+    by tests). When neither is present the path is a no-op so the
+    existing v2 regression suite isn't affected by storage side-effects.
+
+    The extractor walks the spaCy parse tree (which is already in
+    ``parsed.doc``) and proposes candidates per primary chunk. The writer
+    then runs the gate chain, classifier, and store dispatch.
+    """
+    enabled = bool(safe_context.get("memory_writes_enabled"))
+    custom_store = safe_context.get("memory_store")
+    if not enabled and custom_store is None:
+        return WriteRunResult()
+    parse_doc = getattr(parsed, "doc", None)
+    if parse_doc is None:
+        return WriteRunResult()
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    decomposed_intent = safe_context.get("decomposed_intent")
+    resolved_people = safe_context.get("resolved_people") or []
+    known_entities = safe_context.get("known_entities") or []
+    aggregate = WriteRunResult()
+    for chunk in chunks:
+        if chunk.role != "primary_request":
+            continue
+        ext_context = ExtractionContext(
+            owner_user_id=owner_user_id,
+            chunk_index=chunk.index,
+            source_text=chunk.text,
+        )
+        candidates = extract_candidates(parse_doc, context=ext_context)
+        if not candidates:
+            continue
+        run = process_candidates(
+            candidates,
+            parse_doc=parse_doc,
+            resolved_people=resolved_people,
+            known_entities=known_entities,
+            decomposed_intent=decomposed_intent,
+            store=custom_store,
+        )
+        aggregate.accepted.extend(run.accepted)
+        aggregate.rejected.extend(run.rejected)
+    return aggregate
 
 
 def _fast_lane_result(

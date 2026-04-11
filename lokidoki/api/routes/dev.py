@@ -13,7 +13,12 @@ from lokidoki.auth.users import User
 from v2.orchestrator.core.types import RequestChunk, ResolutionResult, RouteMatch
 from v2.orchestrator.execution.executor import execute_chunk_async
 from v2.orchestrator.core.pipeline import run_pipeline_async
-from v2.orchestrator.memory import M0_PHASE_LABEL, M0_PHASE_STATUS, M0_PHASE_TITLE
+from v2.orchestrator.memory import (
+    ACTIVE_PHASE_ID,
+    ACTIVE_PHASE_LABEL,
+    ACTIVE_PHASE_STATUS,
+    ACTIVE_PHASE_TITLE,
+)
 from v2.orchestrator.memory.slots import SLOT_SPECS, WORST_CASE_TOTAL_BUDGET
 from v2.orchestrator.memory.tiers import TIER_SPECS, Tier
 from v2.orchestrator.registry.runtime import get_runtime
@@ -238,31 +243,43 @@ def _v2_memory_status() -> dict[str, Any]:
     ]
     return {
         "active_phase": {
-            "id": "m0",
-            "label": M0_PHASE_LABEL,
-            "title": M0_PHASE_TITLE,
-            "status": M0_PHASE_STATUS,
+            "id": ACTIVE_PHASE_ID,
+            "label": ACTIVE_PHASE_LABEL,
+            "title": ACTIVE_PHASE_TITLE,
+            "status": ACTIVE_PHASE_STATUS,
             "summary": (
-                "M0 is scaffolding-only: the v2/orchestrator/memory/ package "
-                "imports cleanly, the seven tiers and six prompt slots are "
-                "registered with budgets, schema migrations are drafted but "
-                "not yet applied to dev/prod, and the empty M1–M6 corpus "
-                "fixtures exist. The president-bug regression row is in "
-                "tests/fixtures/v2_regression_prompts.json and currently "
-                "fails as expected — M1 is the only phase that fixes it."
+                "M1 is shipped: the v2 write path is live for Tier 4 "
+                "(semantic-self) and Tier 5 (social). The five-gate chain "
+                "(clause_shape → subject → predicate → schema → intent) "
+                "denies the president bug at clause_shape, the deterministic "
+                "tier classifier routes self-assertions to Tier 4 and "
+                "person/handle assertions to Tier 5, immediate-durable "
+                "predicates (allergies, names, pronouns) write on the first "
+                "observation, single-value predicates (lives_in, current_employer, "
+                "favorite_*) supersede prior values to confidence floor 0.1, and "
+                "provisional handles (\"my boss\") merge into named rows when "
+                "the user later names them. Memory writes are opt-in via "
+                "context['memory_writes_enabled'] so the existing v2 regression "
+                "suite is unaffected. The v2 store lives in its own SQLite file "
+                "(data/v2_memory.sqlite) — zero shared mutable state with v1."
             ),
             "deliverables": [
-                "Module scaffolding under v2/orchestrator/memory/",
-                "Predicates: TIER4/TIER5 enums, IMMEDIATE_DURABLE, SINGLE_VALUE",
-                "Schema migrations drafted (apply_v2_memory_schema)",
-                "Corpus fixtures: extraction, recall, people resolution, persona",
-                "President bug regression row (currently failing)",
-                "Bake-off doc template at docs/benchmarks/_template.md",
+                "Layer 1 gate chain: 5 gates with parse-tree clause-shape detection",
+                "Layer 2 deterministic tier classifier",
+                "Layer 3 promotion stub (no-op until M4)",
+                "Immediate-durable bypass for safety-critical predicates",
+                "Single-value predicate supersession (recency-weighted)",
+                "Provisional-handle write + merge logic",
+                "Cross-user isolation enforced by owner_user_id everywhere",
+                "Tier 4/5 writes via V2MemoryStore (own SQLite file)",
+                "131-case extraction corpus (50 should-write / 51 should-not / 20 ambiguous / 10 multi-clause)",
+                "M1 phase-gate tests: precision >= 0.98, recall >= 0.70, latency < 50ms median",
+                "Pipeline integration: memory_write step (opt-in, no-op when disabled)",
             ],
         },
         "phases": [
             {"id": "m0", "label": "M0", "title": "Prerequisites and corpora", "status": "complete"},
-            {"id": "m1", "label": "M1", "title": "Write path: gates + classifier + Tier 4/5 writes", "status": "not_started"},
+            {"id": "m1", "label": "M1", "title": "Write path: gates + classifier + Tier 4/5 writes", "status": "complete"},
             {"id": "m2", "label": "M2", "title": "Read path: Tier 4 retrieval, delete substring heuristics", "status": "not_started"},
             {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "not_started"},
             {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "not_started"},

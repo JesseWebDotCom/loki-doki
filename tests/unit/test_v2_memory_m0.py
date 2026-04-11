@@ -182,12 +182,16 @@ def test_m0_corpus_fixtures_exist_with_m0_schema(filename: str, expected_owner: 
     payload = json.loads(path.read_text())
     # Each fixture has a $schema description, version, phase_owner, case_schema, cases.
     assert "$schema" in payload
-    assert payload.get("version") == 1
+    # Version 1 was the M0 empty-shell shape; M1 bumps the extraction corpus
+    # to version 2 once it populates cases. Both versions are valid here.
+    assert payload.get("version") in (1, 2)
     assert payload.get("phase_owner") == expected_owner
     assert "case_schema" in payload, f"{filename} missing case_schema"
-    assert payload.get("cases") == [], (
-        f"{filename} should be empty in M0 — populate in {expected_owner}"
-    )
+    cases = payload.get("cases")
+    assert isinstance(cases, list), f"{filename} cases must be a list"
+    # The M0 gate is "fixture exists with the right schema". The phase
+    # owner is responsible for populating cases when their phase ships.
+    # Until then, ``cases`` is allowed to be empty *or* populated.
 
 
 # ----- Deliverable 6: schema migrations apply to scratch SQLite -----------
@@ -300,34 +304,18 @@ def test_m0_president_bug_regression_row_exists() -> None:
     assert memory["denied_by_gate"] == "clause_shape"
 
 
-def test_m0_gate_chain_stub_currently_fails_president_bug_expected_reason() -> None:
-    """The president bug currently fails because the gate chain is a stub.
-
-    This test pins the *failure mode* so M1's PR diff makes it obvious when
-    the bug is actually fixed (the assertion at the bottom is expected to
-    flip from `m0_stub` to `clause_shape` when M1 lands).
+def test_m0_president_bug_regression_row_uses_clause_shape() -> None:
+    """The president-bug regression row's `denied_by_gate` field is the
+    contract M1's gate chain must satisfy. M0 only verifies the contract
+    exists; the M1 phase-gate tests verify the chain actually denies it
+    via Gate 1 (parse-tree clause shape).
     """
-    from v2.orchestrator.memory.gates import run_gate_chain
-
-    candidate = {
-        "subject": "user",
-        "predicate": "is",
-        "value": "the current president",
-        "source_utterance": "who is the current president",
-    }
-    result = run_gate_chain(candidate)
-    assert result.accepted is False, (
-        "M0 stub must deny everything; if this is True the gate chain has "
-        "real logic and you should be in M1, not M0."
-    )
-    # M0 fails at the stub gate, NOT at clause_shape — that is the explicit
-    # gap M1 closes. When M1 lands, this assertion will flip to clause_shape.
-    failure_reasons = {r.reason for r in result.results}
-    assert "m0_stub" in failure_reasons, (
-        "Expected M0 stub denial reason. If this is missing, the gate chain "
-        "has real logic and the M0→M1 transition has happened — flip the "
-        "expected reason in this test to 'clause_shape'."
-    )
+    payload = json.loads((FIXTURES / "v2_regression_prompts.json").read_text())
+    cases = {case["id"]: case for case in payload["cases"]}
+    case = cases["memory.president_bug.who_is_the_president"]
+    memory = case["expect"]["memory"]
+    assert memory["denied_by_gate"] == "clause_shape"
+    assert memory["should_write"] is False
 
 
 # ----- Deliverable 8: dev-tools v2 status endpoint surfaces memory ---------
@@ -336,14 +324,26 @@ def test_m0_gate_chain_stub_currently_fails_president_bug_expected_reason() -> N
 def test_m0_dev_v2_status_payload_includes_memory_section() -> None:
     """The /dev/v2/status endpoint must surface the memory subsystem so the
     React V2PrototypeStatusPanel can render it. We call the helper directly
-    rather than spinning up FastAPI to keep this test hermetic."""
+    rather than spinning up FastAPI to keep this test hermetic.
+
+    The active phase advances as later milestones land — this test only
+    asserts that the payload *is structurally complete* and that M0's
+    foundations (seven tiers, six slots, four fixtures, regression row)
+    remain visible. Per-phase status is asserted in each phase's own
+    test file.
+    """
     from lokidoki.api.routes.dev import _v2_memory_status
 
     payload = _v2_memory_status()
-    assert payload["active_phase"]["id"] == "m0"
+    assert "active_phase" in payload
+    assert payload["active_phase"]["id"] in {"m0", "m1", "m2", "m3", "m4", "m5", "m6"}
     assert payload["active_phase"]["status"] == "complete"
     assert len(payload["phases"]) == 7  # M0..M6
     assert {p["id"] for p in payload["phases"]} == {"m0", "m1", "m2", "m3", "m4", "m5", "m6"}
+    # M0 itself stays marked complete forever — that's the contract this
+    # test guards on behalf of M0's deliverables.
+    m0_phase = next(p for p in payload["phases"] if p["id"] == "m0")
+    assert m0_phase["status"] == "complete"
     # Tiers 1..7 surfaced.
     assert sorted(t["tier"] for t in payload["tiers"]) == [1, 2, 3, 4, 5, 6, 7]
     # Slot worst-case budget surfaced.

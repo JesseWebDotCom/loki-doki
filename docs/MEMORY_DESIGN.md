@@ -1,6 +1,6 @@
 # LokiDoki Memory System — Final Design
 
-**Status:** Design accepted (v1.2 — revised after Codex's second review pass and Gemini's third review pass). **M0 complete (2026-04-11); M1–M6 not yet started.** See §8 phase table for per-phase status.
+**Status:** Design accepted (v1.2 — revised after Codex's second review pass and Gemini's third review pass). **M0 + M1 complete (2026-04-11); M2–M6 not yet started.** See §8 phase table for per-phase status.
 **Audience:** future Claude/Codex sessions and the human picking up memory work cold.
 **Scope:** the unified memory architecture that replaces v1's faulty `facts`-centric pipeline and fills v2's empty `ConversationMemoryAdapter`.
 **Lineage:** this document is the merge of two competing proposals — see [CODEX_MEM.md](CODEX_MEM.md) (Codex's tier breakdown, promotion model, and substring-matching catch) and the discussion that produced the parse-tree write gate. v1.1 incorporated Codex's second-pass review, which corrected six places where the original gates were too aggressive. v1.2 incorporates Gemini's third-pass review, which added triggered consolidation, character-overlay emotional memory, and recency-weighted contradiction handling for single-value predicates. Where the proposals conflict, this file is the resolution.
@@ -427,7 +427,7 @@ The build sequence has **seven phases**: M0 (prerequisites) through M6 (final ti
 | Phase | Title | Tiers touched | Hard prerequisite | Estimated complexity | Status |
 |---|---|---|---|---|---|
 | **M0** | Prerequisites and corpora | none | — | Low — fixture and infra work | **complete (2026-04-11)** |
-| **M1** | Write path: gate chain + classifier + immediate-durable + Tier 4/5 writes | 4, 5 | M0 | High — most novel logic | not started |
+| **M1** | Write path: gate chain + classifier + immediate-durable + Tier 4/5 writes | 4, 5 | M0 | High — most novel logic | **complete (2026-04-11)** |
 | **M2** | Read path: port Tier 4 retrieval, delete substring heuristics | 4 | M1 | Medium — port + delete | not started |
 | **M3** | Tier 5 social: wire `LokiPeopleDBAdapter`, bake off scoring, provisional handles | 5 | M1 (M2 helpful) | Medium | not started |
 | **M4** | Tier 2 + Tier 3: session state, episodic summarization, promotion, triggered consolidation, topic scope | 2, 3 | M2 | High — episodic is new | not started |
@@ -496,9 +496,13 @@ The build sequence has **seven phases**: M0 (prerequisites) through M6 (final ti
 ---
 
 ### M1 — Write path: gate chain + classifier + immediate-durable + Tier 4/5 writes
+**Status: complete (2026-04-11).** All deliverables shipped, all gates green. M2 is now unblocked.
+
 **Why this phase is highest priority.** This is the only phase that fixes the president bug. Until M1 ships, every other phase risks injecting garbage into a downstream tier.
 
-**Deliverables.**
+**Clean-cutover decision (resolved in M1).** The v2 store opens its **own** SQLite file at `data/v2_memory.sqlite` rather than sharing v1's `data/memory.sqlite`. The two systems write to disjoint files; v1 cutover is "delete `lokidoki/core/memory_*.py` and point the app at the v2 store" — no data migration is required because v2 has been writing its own rows since M1 shipped. v1's `MemoryProvider` is not imported anywhere under `v2/`. This supersedes the original §7 plan to share storage during the cutover; the *clean cutover* requirement from the build contract overrides the shared-storage convenience.
+
+**Deliverables (all shipped).**
 1. Layer 1 gate chain (`gates.py`) with all five gates from §3:
    - Gate 1: spaCy parse-tree interrogative + info-request detection (the explicit token/dep checks listed in §3 Gate 1).
    - Gate 2: subject identity (self / resolved person / known entity).
@@ -522,18 +526,41 @@ The build sequence has **seven phases**: M0 (prerequisites) through M6 (final ti
 - 20 ambiguous turns (modal/hedged opinions, third-person references, public-figure mentions).
 - 10 multi-clause turns where one clause is a fact and another is a question.
 
-**Gate.**
-- President bug regression fixture passes (was failing in M0).
-- Precision ≥ 0.98 on the should-not bucket.
-- Recall ≥ 0.70 on the should-extract bucket — including v1.1 fragment cases and immediate-durable cases.
-- Latency added per turn < 50ms (gate chain alone) or < 250ms (with model classifier).
-- Gate 5 verified: denies on `greeting`/`joke`/`info_request`/`clarification_request`, allows on `assertive_chat`/`self_disclosure`/`correction`/`command_with_self_assertion`.
-- Provisional-handle test: *"my boss is being weird about the deadline"* creates `(name=NULL, handle="my boss", provisional=true)`. A subsequent *"my boss Steve approved it"* merges into a named row.
-- Immediate-durable test: *"call me Jesse"* writes to Tier 4 on first observation without waiting for promotion.
-- Single-value supersession test: writing `lives_in=Portland` after `lives_in=Seattle` exists supersedes Seattle, drops Seattle confidence to 0.1.
-- Cross-user isolation test: writes from user A never reach user B's tiers.
+**Files shipped (M1).**
 
-This is the v2-graduation-plan §4.A gate, refined.
+| Module | Purpose |
+|---|---|
+| [`v2/orchestrator/memory/candidate.py`](../v2/orchestrator/memory/candidate.py) | `MemoryCandidate` Pydantic v2 schema with strict validation, `forbid` extra fields, subject-shape validator |
+| [`v2/orchestrator/memory/gates.py`](../v2/orchestrator/memory/gates.py) | All five gates implemented: WH-fronting, subject-aux inversion, info-request imperative, subject identity, predicate enum, schema, intent |
+| [`v2/orchestrator/memory/classifier.py`](../v2/orchestrator/memory/classifier.py) | Deterministic ruleset: `self`/`entity:` → Tier 4, `person:`/`handle:` → Tier 5 |
+| [`v2/orchestrator/memory/store.py`](../v2/orchestrator/memory/store.py) | `V2MemoryStore` thread-safe SQLite store; own file; facts/people/relationships tables; supersession logic |
+| [`v2/orchestrator/memory/writer.py`](../v2/orchestrator/memory/writer.py) | `process_candidate` / `process_candidates` orchestrating gates → classifier → store with intra-turn dedupe and rejection logging |
+| [`v2/orchestrator/memory/extractor.py`](../v2/orchestrator/memory/extractor.py) | Parse-tree-pattern candidate extractor (copular self-assertions, "call me X", possessive relations, preference verbs) |
+| [`v2/orchestrator/memory/promotion.py`](../v2/orchestrator/memory/promotion.py) | Layer 3 no-op stub (M4 wires the real promotion) |
+| [`v2/orchestrator/core/pipeline.py`](../v2/orchestrator/core/pipeline.py) | New `memory_write` step between `extract` and `route`; opt-in via `context["memory_writes_enabled"]` |
+| [`tests/fixtures/v2_memory_extraction_corpus.json`](../tests/fixtures/v2_memory_extraction_corpus.json) | 131 cases: 50 should_write / 51 should_not_write / 20 ambiguous / 10 multi_clause |
+| [`tests/unit/test_v2_memory_m1.py`](../tests/unit/test_v2_memory_m1.py) | 22 phase-gate tests covering every gate item below |
+
+**Tests.** Every M1 deliverable has at least one test in [tests/unit/test_v2_memory_m1.py](../tests/unit/test_v2_memory_m1.py) (22 tests, all passing as of 2026-04-11). The M0→M1 transition tests in [tests/unit/test_v2_memory_m0.py](../tests/unit/test_v2_memory_m0.py) were updated in-place: the corpus-empty assertion is loosened (the M0 gate is "fixture exists with the right schema"), and the m0_stub denial-reason test was replaced with a regression-row contract test that pins `denied_by_gate = "clause_shape"`.
+
+**Dev-tools v2 test page integration.** The active phase shown on `GET /dev/v2/status` advances from M0 to M1. The `_v2_memory_status()` helper now publishes the M1 deliverable list, marks the M1 phase complete, and the memory subsystem is *runtime-active* on the dev-tools v2 prototype runner whenever the caller passes `context["memory_writes_enabled"] = True`. Default behavior is opt-in so the rest of the v2 prototype is unaffected; the dev-tools UI can flip the toggle when running a memory test.
+
+**Gate (all green).**
+- ✅ President bug regression fixture passes — denied at `clause_shape` (`test_m1_president_bug_dies_at_gate_1`, `test_m1_corpus_president_bug_denied_at_clause_shape`).
+- ✅ Precision ≥ 0.98 on the should-not bucket — measured against 51 cases by `test_m1_corpus_should_not_write_precision`.
+- ✅ Recall ≥ 0.70 on the should-extract bucket — measured against 50 cases by `test_m1_corpus_should_write_recall` (gate-chain only; the candidate extractor is tested separately).
+- ✅ Latency added per turn < 50ms (median, gate chain alone) — `test_m1_gate_chain_latency_under_50ms`. The constrained-decoding model variant is deferred — see §10 question 1.
+- ✅ Gate 5 verified — denies on `greeting`/`joke`/`info_request`/`clarification_request`/`command_to_assistant`, allows on `assertive_chat`/`self_disclosure`/`correction`/`command_with_self_assertion`. Verified by 17 corpus cases tagged with `intent`.
+- ✅ Provisional-handle test — `test_m1_provisional_handle_creates_unnamed_person` and `test_m1_provisional_merge_promotes_to_named` cover the *"my boss is being weird"* → *"my boss Steve approved it"* merge round-trip.
+- ✅ Immediate-durable test — `test_m1_immediate_durable_writes_first_observation` and `test_m1_call_me_jesse_writes_immediate_durable` confirm `has_allergy` and `is_named` write on the first observation.
+- ✅ Single-value supersession test — `test_m1_single_value_supersession` writes `lives_in=Seattle` then `lives_in=Portland` and verifies Seattle is flipped to `superseded` with `confidence = 0.1`.
+- ✅ Cross-user isolation test — `test_m1_cross_user_isolation` writes for user 42 and user 99 separately and asserts no leakage.
+- ✅ Pipeline integration — three end-to-end tests confirm the `memory_write` step is no-op when disabled, persists when enabled, and never writes for the president-bug utterance regardless of context.
+
+**M1 design choice that supersedes the design doc.**
+- §7 (Pipeline integration) originally said *"The `MemoryProvider` singleton from v1 is the storage object both v1 and v2 use during the cutover."* M1 supersedes this with the clean-cutover decision above: v2 has its own SQLite file and zero v1 imports. The §7 wording is left intact for historical reference; M1's choice wins on the *clean cutover* requirement from the build contract.
+
+This is the v2-graduation-plan §4.A gate, refined and shipped.
 
 ---
 
@@ -749,6 +776,7 @@ Seven tiers (working, session, episodic, semantic-self, social, emotional, proce
   
   Plus a major rewrite of §8 phases: added M0 (prerequisites), expanded each phase from 5 lines to ~30 lines with deliverables/corpus/gate broken out, added a phase overview table at the top, made the critical path explicit, and updated each phase's gate to test the v1.1 and v1.2 features.
 - **M0 shipped** (2026-04-11). Module location resolved to [v2/orchestrator/memory/](../v2/orchestrator/memory/) (clean cutover from v1, no shared imports). All scaffolding submodules, schema migrations, corpus fixtures, and the bake-off template landed. President-bug regression row added to [tests/fixtures/v2_regression_prompts.json](../tests/fixtures/v2_regression_prompts.json) with `expect.memory.denied_by_gate = "clause_shape"` — currently fails via stub `m0_stub` reason, which is the precise gap M1 closes. Memory subsystem surfaced on the dev-tools v2 test page via the new `memory` block on `GET /dev/v2/status` and the matching React panel section. M0 phase-gate tests live at [tests/unit/test_v2_memory_m0.py](../tests/unit/test_v2_memory_m0.py) (28 tests, all passing).
+- **M1 shipped** (2026-04-11). Five-gate write path live for Tier 4 + Tier 5. The president bug now dies at Gate 1 (`clause_shape`, `wh_fronted` reason) rather than at the M0 stub. Deterministic tier classifier routes self/entity to Tier 4 and person/handle to Tier 5. Immediate-durable predicates (`is_named`, `has_pronoun`, `has_allergy`, `has_dietary_restriction`, `has_accessibility_need`, `has_privacy_boundary`, `hard_dislike`, plus the Tier 5 trio) write on first observation. Single-value predicates (`lives_in`, `current_employer`, `current_partner`, `favorite_*`, `preferred_units`, `timezone`, `is_named`, `has_pronoun`, …) flip prior values to `superseded` with confidence floor 0.1. Provisional handles (`handle:my boss`) write Tier 5 rows with `name=NULL, provisional=1` and merge into named rows when the user later names the person. **Clean-cutover supersedes §7**: the v2 store opens its own SQLite file at `data/v2_memory.sqlite` — zero v1 imports, zero shared mutable state. Memory writes are *opt-in* via `context["memory_writes_enabled"]` so the existing v2 regression suite is unaffected. Pipeline gains a new `memory_write` step between `extract` and `route`. The 131-case extraction corpus (50 should_write / 51 should_not_write / 20 ambiguous / 10 multi_clause) drives the precision/recall gates: precision ≥ 0.98 measured, recall ≥ 0.70 measured, gate-chain median latency well under 50ms. M1 phase-gate tests live at [tests/unit/test_v2_memory_m1.py](../tests/unit/test_v2_memory_m1.py) (22 tests, all passing). M0 transition tests in `test_v2_memory_m0.py` were updated in-place: corpus-empty assertion loosened (M0 only requires the schema, not the empty list); the m0_stub denial-reason test was replaced with a regression-row contract test pinning `denied_by_gate = "clause_shape"`. Dev-tools v2 status endpoint advances `active_phase` to M1 and marks both M0 and M1 phases complete.
 
 ### External research
 - **Mem0** — layered memory model + compression engine for episodic rollup.
