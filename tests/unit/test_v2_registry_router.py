@@ -91,8 +91,14 @@ def test_v2_router_handles_spelling_phrase_variant():
 
 
 def test_v2_router_routes_branded_named_thing_lookup_to_knowledge_query():
+    # Use a phrasing that is NOT a literal example in the registry so
+    # this exercises embedding generalization, not exact-match lookup.
+    # "project glasswing" is present as "what is project glasswing";
+    # "who came up with ..." is a paraphrase pattern that must still
+    # land on knowledge_query via cosine similarity to nearby examples
+    # ("who invented the lightbulb", "what is project glasswing").
     runtime = get_runtime()
-    chunk = RequestChunk(text="what is claude mythos", index=0)
+    chunk = RequestChunk(text="who came up with project glasswing", index=0)
 
     match = route_chunk(chunk, runtime)
 
@@ -101,10 +107,14 @@ def test_v2_router_routes_branded_named_thing_lookup_to_knowledge_query():
 
 
 def test_v2_registry_gives_generic_alias_caps_multiple_examples():
+    # NOTE: ``direct_chat`` is intentionally excluded. It is a pure
+    # floor fallback — the router skips it in the cosine loop
+    # (see v2/orchestrator/routing/router.py), so its examples are
+    # not used for routing. Requiring a coverage floor on them would
+    # embed dead weight and make the data disagree with the router.
     entries = {entry["capability"]: entry for entry in load_function_registry()}
 
     for capability in (
-        "direct_chat",
         "chat",
         "query",
         "define_word",
@@ -127,7 +137,7 @@ def test_v2_router_prefers_prebuilt_vector_similarity_over_lexical_match():
             {
                 "capability": "set_timer",
                 "texts": ["set a timer"],
-                "vectors": [[0.0, 1.0]],
+                "vectors": [[-1.0, 0.0]],
                 "vector_dim": 2,
             },
             {
@@ -149,3 +159,86 @@ def test_v2_router_prefers_prebuilt_vector_similarity_over_lexical_match():
     assert match.capability == "get_current_time"
     assert match.confidence == 1.0
     assert match.matched_text == "what time is it"
+
+
+def test_v2_router_promotes_near_floor_knowledge_match_to_retrieval():
+    class StubRuntime:
+        router_index = [
+            {
+                "capability": "knowledge_query",
+                "texts": ["what is project glasswing"],
+                "vectors": [[1.0, 0.0]],
+                "vector_dim": 2,
+            },
+            {
+                "capability": "set_timer",
+                "texts": ["set a timer"],
+                "vectors": [[-1.0, 0.0]],
+                "vector_dim": 2,
+            },
+        ]
+
+        def embed_query(self, text: str) -> list[float]:
+            assert text == "what is mythos preview"
+            return [0.5, 0.8660254]
+
+    chunk = RequestChunk(text="what is mythos preview", index=0)
+
+    match = route_chunk(chunk, StubRuntime())
+
+    assert match.capability == "knowledge_query"
+    assert match.confidence > 0.55
+    assert match.matched_text == "what is project glasswing"
+
+
+def test_v2_router_keeps_non_retrieval_near_floor_match_as_direct_chat():
+    class StubRuntime:
+        router_index = [
+            {
+                "capability": "set_timer",
+                "texts": ["set a timer"],
+                "vectors": [[1.0, 0.0]],
+                "vector_dim": 2,
+            },
+        ]
+
+        def embed_query(self, text: str) -> list[float]:
+            assert text == "timer maybe"
+            return [0.5, 0.8660254]
+
+    chunk = RequestChunk(text="timer maybe", index=0)
+
+    match = route_chunk(chunk, StubRuntime())
+
+    assert match.capability == "direct_chat"
+    assert match.confidence == 0.55
+
+
+def test_v2_router_matches_showtimes_prompt_with_zip_code():
+    runtime = get_runtime()
+    chunk = RequestChunk(text="show me movie times for hoppers in 06461", index=0)
+
+    match = route_chunk(chunk, runtime)
+
+    assert match.capability == "get_movie_showtimes"
+    assert match.confidence > 0.55
+
+
+def test_v2_router_matches_fix_my_code_to_code_assistance():
+    runtime = get_runtime()
+    chunk = RequestChunk(text="fix my code", index=0)
+
+    match = route_chunk(chunk, runtime)
+
+    assert match.capability == "code_assistance"
+    assert match.confidence > 0.55
+
+
+def test_v2_router_matches_frustrated_code_turn_to_emotional_support():
+    runtime = get_runtime()
+    chunk = RequestChunk(text="i'm frustrated my code isn't working", index=0)
+
+    match = route_chunk(chunk, runtime)
+
+    assert match.capability == "emotional_support"
+    assert match.confidence > 0.55

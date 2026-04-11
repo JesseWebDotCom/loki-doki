@@ -626,7 +626,9 @@
       "when is the new batman movie showing",
       "showtimes for inception tonight",
       "what time does the godfather start",
-      "movie times for the mario movie"
+      "movie times for the mario movie",
+      "show me movie times for hoppers in 06461",
+      "showtimes for hoppers near 06461"
     ],
     "enabled": true,
     "implementations": [
@@ -765,6 +767,18 @@
         "method": "wikipedia_scraper",
         "priority": 2,
         "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "ddg_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "ddg_scraper",
+        "priority": 2,
+        "timeout_ms": 8000,
         "requires_internet": true
       }
     ]
@@ -971,6 +985,8 @@
       "build a react form",
       "implement a binary search in go",
       "debug this error",
+      "fix my code",
+      "explain this code",
       "fix this stack trace",
       "optimize this sql query",
       "refactor this function",
@@ -1449,6 +1465,7 @@
       "i'm really sad today",
       "i'm anxious about tomorrow",
       "i feel overwhelmed",
+      "i'm frustrated my code isn't working",
       "i need to vent",
       "i'm having a rough day",
       "i feel lonely"
@@ -1486,11 +1503,7 @@
   {
     "capability": "direct_chat",
     "description": "Fallback conversational response when no capability strongly matches.",
-    "examples": [
-      "tell me something",
-      "chat with me",
-      "how are you doing"
-    ],
+    "examples": [],
     "enabled": true,
     "implementations": [
       {
@@ -3153,8 +3166,8 @@
     "capability": "query",
     "description": "Answer a factual or explanatory knowledge question.",
     "examples": [
-      "why is the sky blue",
-      "what is claude mythos",
+      "how does a microwave work",
+      "what year was python created",
       "tell me about langchain"
     ],
     "enabled": true,

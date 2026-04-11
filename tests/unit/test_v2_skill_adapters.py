@@ -103,35 +103,158 @@ async def test_weather_adapter_graceful_failure_when_all_mechs_fail(monkeypatch)
 
 
 # ---- knowledge adapter -----------------------------------------------------
+#
+# knowledge_query runs two independent sources in parallel (Wikipedia and
+# DuckDuckGo web search) and picks the winner by subject-coverage score.
+# Each source has its own internal mechanism waterfall. Tests install a
+# fake for each source via monkeypatch.setattr so neither ever makes a
+# real HTTP call.
+
+
+def _install_wiki_fake(monkeypatch: pytest.MonkeyPatch, adapter_module, fake) -> None:
+    monkeypatch.setattr(adapter_module, "_WIKI", fake, raising=True)
+
+
+def _install_ddg_fake(monkeypatch: pytest.MonkeyPatch, adapter_module, fake) -> None:
+    monkeypatch.setattr(adapter_module, "_DDG", fake, raising=True)
 
 
 @pytest.mark.anyio
-async def test_knowledge_adapter_uses_lead(monkeypatch):
+async def test_knowledge_adapter_prefers_wiki_when_both_match(monkeypatch):
+    """When both sources cover the subject equally, Wikipedia wins by
+    preference (first in the sources list) — it's authoritative."""
     from v2.orchestrator.skills import knowledge as adapter
 
-    fake = _RecordingFake({
-        "mediawiki_api": _ok({"title": "Copper", "lead": "Copper is a chemical element."}),
+    wiki = _RecordingFake({
+        "mediawiki_api": _ok({
+            "title": "Copper",
+            "lead": "Copper is a chemical element and a ductile metal used in pennies.",
+        }),
     })
-    _install_fake(monkeypatch, adapter, fake)
+    ddg = _RecordingFake({
+        "ddg_api": _ok({
+            "abstract": "Copper is a reddish-brown metal used in pennies and wiring.",
+        }),
+    })
+    _install_wiki_fake(monkeypatch, adapter, wiki)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
 
-    result = await adapter.handle({"chunk_text": "how much copper is in a us penny"})
-    assert "Copper is a chemical element." in result["output_text"]
-    assert fake.calls[0][0] == "mediawiki_api"
+    result = await adapter.handle({"chunk_text": "what is copper"})
+    assert "chemical element" in result["output_text"]  # wiki's lead wins ties
+    assert result["data"]["winner"] == "wikipedia"
+    assert result["data"]["winner_score"] == 1.0
 
 
 @pytest.mark.anyio
-async def test_knowledge_adapter_falls_through_to_scraper(monkeypatch):
+async def test_knowledge_adapter_switches_to_web_when_wiki_off_subject(monkeypatch):
+    """The "claude mythos" case — Wikipedia returns its closest article
+    ("Claude"), which only covers half the query; web search returns a
+    snippet mentioning the full subject, so web wins on score."""
     from v2.orchestrator.skills import knowledge as adapter
 
-    fake = _RecordingFake({
+    wiki = _RecordingFake({
+        "mediawiki_api": _ok({
+            "title": "Claude",
+            "lead": "Claude is a series of large language models developed by Anthropic.",
+        }),
+    })
+    ddg = _RecordingFake({
+        "ddg_api": _ok({
+            "abstract": "Claude Mythos is an upcoming narrative game.",
+        }),
+    })
+    _install_wiki_fake(monkeypatch, adapter, wiki)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "what is claude mythos"})
+    assert "Claude Mythos" in result["output_text"]
+    assert result["data"]["winner"] == "web"
+    # Wiki only matched "claude" (1/2) — web matched both.
+    wiki_candidate = next(c for c in result["data"]["candidates"] if c["source"] == "wikipedia")
+    web_candidate = next(c for c in result["data"]["candidates"] if c["source"] == "web")
+    assert wiki_candidate["score"] == 0.5
+    assert web_candidate["score"] == 1.0
+
+
+@pytest.mark.anyio
+async def test_knowledge_adapter_fails_when_both_score_below_threshold(monkeypatch):
+    """Novel query that neither source has any info on — the skill must
+    fail so the LLM fallback handles it instead of grounding synthesis on
+    an unrelated article."""
+    from v2.orchestrator.skills import knowledge as adapter
+
+    wiki = _RecordingFake({
+        "mediawiki_api": _ok({
+            "title": "Zebra",
+            "lead": "A zebra is an African equine.",
+        }),
+    })
+    ddg = _RecordingFake({
+        "ddg_api": _ok({
+            "abstract": "Unrelated marketing copy about shoes.",
+        }),
+    })
+    _install_wiki_fake(monkeypatch, adapter, wiki)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "what is kzqx plyvar"})
+    assert result["success"] is False
+    assert "couldn't find" in result["output_text"].lower()
+    assert result["data"]["winner"] is None
+
+
+@pytest.mark.anyio
+async def test_knowledge_adapter_fails_when_both_sources_fail(monkeypatch):
+    """Both sources' internal waterfalls exhaust without success — skill
+    must report failure cleanly for the LLM fallback."""
+    from v2.orchestrator.skills import knowledge as adapter
+
+    wiki = _RecordingFake({
+        "mediawiki_api": _fail("wiki api down"),
+        "web_scraper": _fail("wiki scraper down"),
+    })
+    ddg = _RecordingFake({
+        "ddg_api": _fail("ddg api down"),
+        "ddg_scraper": _fail("ddg scraper down"),
+    })
+    _install_wiki_fake(monkeypatch, adapter, wiki)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "who invented the lightbulb"})
+    assert result["success"] is False
+    # Both sources were given a chance at their full internal waterfall.
+    assert [c[0] for c in wiki.calls] == ["mediawiki_api", "web_scraper"]
+    assert [c[0] for c in ddg.calls] == ["ddg_api", "ddg_scraper"]
+
+
+@pytest.mark.anyio
+async def test_knowledge_adapter_wiki_internal_waterfall_still_works(monkeypatch):
+    """Wikipedia's own api→scraper waterfall must still be tried before
+    we even score it against the web candidate."""
+    from v2.orchestrator.skills import knowledge as adapter
+
+    wiki = _RecordingFake({
         "mediawiki_api": _fail("api down"),
-        "web_scraper": _ok({"title": "X", "lead": "Scraped lead."}),
+        "web_scraper": _ok({
+            "title": "Copper",
+            "lead": "Copper is a chemical element used in pennies.",
+        }),
     })
-    _install_fake(monkeypatch, adapter, fake)
+    ddg = _RecordingFake({
+        "ddg_api": _fail("ddg down"),
+        "ddg_scraper": _fail("ddg html down"),
+    })
+    _install_wiki_fake(monkeypatch, adapter, wiki)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
 
-    result = await adapter.handle({"chunk_text": "what is X"})
-    assert result["output_text"] == "Scraped lead."
-    assert [c[0] for c in fake.calls] == ["mediawiki_api", "web_scraper"]
+    result = await adapter.handle({"chunk_text": "what is copper"})
+    # AdapterResult.to_payload only emits the ``success`` key on failure —
+    # success is implied when the key is absent. Check the trace data
+    # and output_text instead.
+    assert "success" not in result
+    assert "chemical element" in result["output_text"]
+    assert [c[0] for c in wiki.calls] == ["mediawiki_api", "web_scraper"]
+    assert result["data"]["winner"] == "wikipedia"
 
 
 # ---- showtimes adapter -----------------------------------------------------

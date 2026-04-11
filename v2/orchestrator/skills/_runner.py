@@ -9,10 +9,22 @@ graceful failure shape when every mechanism failed.
 
 Keeping this logic in one place means individual adapters stay tiny and
 the fallback semantics (try API → try cache → degrade) are consistent.
+
+Two runner shapes are exposed:
+
+- ``run_mechanisms`` — sequential waterfall on one skill, first success
+  wins. Used by most adapters (weather, units, etc.).
+- ``run_sources_parallel_scored`` — fan out N independent source
+  coroutines concurrently, score each success, return the highest-
+  scoring result. Used when multiple independent sources (Wikipedia
+  vs web search) might each be authoritative on different topics and
+  the caller needs the best answer rather than the first one.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -116,6 +128,133 @@ async def run_mechanisms(
     )
 
 
+async def run_sources_parallel_scored(
+    sources: list[tuple[str, Awaitable[AdapterResult]]],
+    *,
+    score: Callable[[AdapterResult], float],
+    threshold: float,
+    fallback_text: str,
+) -> AdapterResult:
+    """Fan out independent sources, score each success, return the winner.
+
+    Each ``sources`` entry is ``(source_name, coroutine)`` where the
+    coroutine eventually returns an :class:`AdapterResult`. The runner
+    awaits all coroutines concurrently via :func:`asyncio.gather` so
+    the wall-clock cost is roughly the slowest source, not the sum.
+
+    For every successful result, ``score(result)`` is called to compute
+    a float coverage score. Any candidate whose score is below
+    ``threshold`` is treated as "off-subject" and discarded. Among the
+    qualifying candidates, the one with the highest score wins; ties
+    are broken by ``sources`` list order (earlier = preferred).
+
+    If every source failed or every score was below ``threshold``, a
+    failed :class:`AdapterResult` is returned with ``fallback_text``
+    as the user-facing message. The full per-candidate breakdown
+    (including scores and errors) is attached to ``data["candidates"]``
+    on both the success and failure paths so downstream tracing /
+    Dev Tools can show why a given source won or lost.
+    """
+    names = [name for name, _ in sources]
+    coros = [coro for _, coro in sources]
+    settled = await asyncio.gather(*coros, return_exceptions=True)
+
+    candidates: list[dict[str, Any]] = []
+    for name, outcome in zip(names, settled, strict=True):
+        if isinstance(outcome, BaseException):
+            log.warning("v2 parallel source %s raised %s", name, outcome)
+            candidates.append(
+                {
+                    "source": name,
+                    "success": False,
+                    "score": 0.0,
+                    "mechanism_used": "",
+                    "error": str(outcome),
+                }
+            )
+            continue
+        result = outcome  # type: AdapterResult
+        if not result.success:
+            candidates.append(
+                {
+                    "source": name,
+                    "success": False,
+                    "score": 0.0,
+                    "mechanism_used": result.mechanism_used,
+                    "error": result.error,
+                }
+            )
+            continue
+        try:
+            raw_score = float(score(result))
+        except Exception as exc:  # noqa: BLE001 - scorer bugs must never crash the skill
+            log.warning("v2 parallel source %s scoring raised %s", name, exc)
+            raw_score = 0.0
+        candidates.append(
+            {
+                "source": name,
+                "success": True,
+                "score": round(raw_score, 3),
+                "mechanism_used": result.mechanism_used,
+                "output_text": result.output_text,
+                "source_url": result.source_url,
+                "source_title": result.source_title,
+                "_result": result,
+            }
+        )
+
+    qualified = [
+        (index, candidate)
+        for index, candidate in enumerate(candidates)
+        if candidate["success"] and candidate["score"] >= threshold
+    ]
+
+    # Strip the private ``_result`` pointer before exposing candidates
+    # on the trace payload — it's only needed internally to pick the
+    # winner and would otherwise leak a skill object into the JSON.
+    def _clean(entry: dict[str, Any]) -> dict[str, Any]:
+        return {k: v for k, v in entry.items() if k != "_result"}
+
+    clean_candidates = [_clean(c) for c in candidates]
+
+    if not qualified:
+        return AdapterResult(
+            output_text=fallback_text,
+            success=False,
+            mechanism_used="parallel",
+            error="no qualifying sources",
+            data={
+                "candidates": clean_candidates,
+                "threshold": threshold,
+                "winner": None,
+            },
+        )
+
+    # Sort by descending score; ties fall back to original source list
+    # order (``index`` is stable and ascending), which is the caller's
+    # preference order.
+    qualified.sort(key=lambda item: (-item[1]["score"], item[0]))
+    _, winner = qualified[0]
+    winning_result: AdapterResult = winner["_result"]
+
+    merged_data: dict[str, Any] = {}
+    if winning_result.data:
+        merged_data.update(winning_result.data)
+    merged_data["candidates"] = clean_candidates
+    merged_data["winner"] = winner["source"]
+    merged_data["winner_score"] = winner["score"]
+    merged_data["threshold"] = threshold
+
+    return AdapterResult(
+        output_text=winning_result.output_text,
+        success=True,
+        mechanism_used=winning_result.mechanism_used,
+        source_url=winning_result.source_url,
+        source_title=winning_result.source_title,
+        data=merged_data,
+    )
+
+
 # Re-exported for adapters that want to construct AdapterResult directly
 # (e.g. when the v1 skill returned success but the data is empty).
-__all__ = ["AdapterResult", "run_mechanisms"]
+__all__ = ["AdapterResult", "run_mechanisms", "run_sources_parallel_scored"]

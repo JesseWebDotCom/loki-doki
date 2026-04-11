@@ -27,6 +27,15 @@ from v2.orchestrator.registry.runtime import CapabilityRuntime, get_runtime
 # the floor to the threshold collapses that band — borderline matches
 # become direct_chat, which LLM answers from the user's actual words.
 ROUTE_FLOOR = 0.55
+RETRIEVAL_FALLBACK_MARGIN = 0.08
+RETRIEVAL_FALLBACK_CAPABILITIES = frozenset(
+    {
+        "knowledge_query",
+        "query",
+        "lookup_definition",
+        "define_word",
+    }
+)
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -65,6 +74,13 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
                 best_text = text
 
     if best_score < ROUTE_FLOOR:
+        if _should_promote_retrieval_fallback(best_capability, best_score):
+            return RouteMatch(
+                chunk_index=chunk.index,
+                capability=best_capability,
+                confidence=round(ROUTE_FLOOR + 0.01, 3),
+                matched_text=best_text,
+            )
         # Best match was noise — defer to the conversational fallback so
         # the combiner / LLM layer can ask for clarification instead of
         # confidently running the wrong skill.
@@ -78,6 +94,19 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
         confidence=round(confidence, 3),
         matched_text=best_text,
     )
+
+
+def _should_promote_retrieval_fallback(capability: str, score: float) -> bool:
+    """Promote near-floor factual lookups into retrieval instead of LLM chat.
+
+    Retrieval-backed capabilities can safely validate the guess by
+    trying the underlying source. That makes a near-miss much cheaper
+    than sending a named-thing question straight to ``direct_chat`` and
+    asking the LLM to answer from memory.
+    """
+    if capability not in RETRIEVAL_FALLBACK_CAPABILITIES:
+        return False
+    return score >= (ROUTE_FLOOR - RETRIEVAL_FALLBACK_MARGIN)
 
 
 async def route_chunk_async(
