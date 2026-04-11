@@ -222,5 +222,6 @@ async def test_v2_skill_run_endpoint_executes_selected_capability(_fresh_memory)
     body = response.json()
     assert body["capability"] == "calculate_tip"
     assert body["handler_name"] == "core.calculator.tip"
+    assert body["timing_ms"] >= 0
     assert body["execution"]["success"] is True
     assert "36" in body["execution"]["output_text"]

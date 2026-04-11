@@ -209,10 +209,34 @@ const V2SkillsExplorer: React.FC = () => {
                 {runError && <div className="mt-3 rounded-lg border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-300">{runError}</div>}
                 {runResult && (
                   <div className="mt-3 rounded-xl border border-border/20 bg-card/40 p-3">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                      Result · {runResult.execution.success ? 'success' : 'failure'}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                        Result · {runResult.execution.success ? 'success' : 'failure'}
+                      </div>
+                      <div className="rounded-lg border border-border/20 bg-background/50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-primary">
+                        {runResult.timing_ms.toFixed(2)} ms
+                      </div>
                     </div>
-                    <div className="mt-2 text-sm">{runResult.execution.output_text || <span className="italic text-muted-foreground">No output</span>}</div>
+                    <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Response</div>
+                      <div className="mt-2 text-sm font-medium text-foreground">
+                        {runResult.execution.output_text || <span className="italic text-muted-foreground">No output</span>}
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-lg border border-border/20 bg-background/50 p-3">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Capability</div>
+                        <div className="mt-1 text-xs text-foreground">{runResult.capability}</div>
+                      </div>
+                      <div className="rounded-lg border border-border/20 bg-background/50 p-3">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Handler</div>
+                        <div className="mt-1 break-all text-xs text-foreground">{runResult.handler_name}</div>
+                      </div>
+                      <div className="rounded-lg border border-border/20 bg-background/50 p-3">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Attempts</div>
+                        <div className="mt-1 text-xs text-foreground">{runResult.execution.attempts}</div>
+                      </div>
+                    </div>
                     <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-[11px] text-muted-foreground">
                       {JSON.stringify(runResult, null, 2)}
                     </pre>

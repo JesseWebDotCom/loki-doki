@@ -1,6 +1,7 @@
 """Developer-only prototype endpoints."""
 from __future__ import annotations
 
+import time
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
@@ -259,7 +260,9 @@ async def run_v2_skill(
         confidence=1.0,
         params=dict(request.params),
     )
+    started = time.perf_counter()
     execution = await execute_chunk_async(chunk, route, implementation, resolution)
+    elapsed_ms = (time.perf_counter() - started) * 1000
     return {
         "capability": request.capability,
         "handler_name": implementation.handler_name,
@@ -268,6 +271,7 @@ async def run_v2_skill(
         "message": request.message,
         "params": request.params,
         "resolved_target": resolved_target,
+        "timing_ms": round(elapsed_ms, 3),
         "execution": {
             "success": execution.success,
             "output_text": execution.output_text,

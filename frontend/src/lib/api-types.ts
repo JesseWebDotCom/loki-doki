@@ -424,6 +424,7 @@ export interface V2SkillRunResponse {
   message: string;
   params: Record<string, unknown>;
   resolved_target: string;
+  timing_ms: number;
   execution: {
     success: boolean;
     output_text: string;
