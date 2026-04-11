@@ -11,11 +11,14 @@ from __future__ import annotations
 from v2.orchestrator.adapters.movie_context import MovieContextAdapter
 from v2.orchestrator.core.types import ChunkExtraction, RequestChunk, ResolutionResult, RouteMatch
 
+# Only capabilities that are *intrinsically* about a previously-mentioned
+# title go through the recent-media context lookup. Capabilities like
+# ``get_movie_showtimes`` carry their title in the chunk text itself
+# ("the new mario movie"), so the handler reads the chunk directly and
+# does not need this resolver to bind a recent context entity.
 MEDIA_CAPABILITIES = {
     "recall_recent_media",
     "get_movie_rating",
-    "get_movie_showtimes",
-    "search_movies",
 }
 
 

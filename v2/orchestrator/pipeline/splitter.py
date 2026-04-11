@@ -90,8 +90,20 @@ def _split_subordinate(doc: Any) -> tuple[str, str]:
             # Word matches a subordinator string but is not actually one
             # in this sentence (e.g. "if" used as a noun) — skip.
             continue
-        # Slice the supporting clause from this token to end of sentence.
         sub_start = token.idx
+        # Sentence-initial "when" / "while" / "if" is interrogative or
+        # conditional and the WHOLE clause is the primary request — there
+        # is no preceding clause to peel off. spaCy still tags it as
+        # SCONJ in a question like "when is my sister's birthday", so we
+        # have to disambiguate by position.
+        if not doc.text[:sub_start].strip():
+            return doc.text.strip(), ""
+        # If the subordinator follows a coordinating conjunction
+        # ("... and when ...", "... or while ..."), defer to the
+        # coordinator split — the user is asking two coordinated
+        # questions, not stating a main clause + subordinate clause.
+        if token.i > 0 and doc[token.i - 1].lower_ in {"and", "or"}:
+            continue
         primary = doc.text[:sub_start].strip().rstrip(",;:")
         supporting = doc.text[sub_start:].strip()
         return primary, supporting

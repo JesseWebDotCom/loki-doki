@@ -3,9 +3,30 @@ the full v2 orchestrator pipeline and asserts on the outcome shape.
 
 A new edge case = one new entry in
 ``tests/fixtures/v2_regression_prompts.json``. No code change needed.
+
+Supported per-case ``expect`` keys:
+
+- ``fast_lane_matched`` (bool)
+- ``capability`` (str — appears either as the fast-lane capability or
+  in any route)
+- ``chunk_count`` / ``primary_chunk_count`` / ``supporting_context_chunk_count``
+- ``response_contains`` / ``response_contains_all``
+- ``gemma_used`` / ``gemma_reason``
+- ``subjects_contain`` (list[str] — every needle must appear, lowercased,
+  inside at least one chunk's subject_candidates / references / chunk text)
+- ``resolved_person`` (str — the chunk-level resolution must surface this
+  person_name in its params; the people DB alias resolver did its job)
+- ``max_step_ms`` (dict[str, float] — per-step timing ceiling; only the
+  steps named are checked)
+- ``max_total_ms`` (float — total pipeline timing ceiling)
+
+Per-step / total timings are validated against a *warmed* pipeline. The
+fixture is run twice and only the second run is timed, so spaCy /
+fastembed cold-start cost is excluded.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -24,6 +45,20 @@ def _load_cases() -> list[dict[str, Any]]:
 
 
 _CASES = _load_cases()
+
+
+def _warm_pipeline_once() -> None:
+    """Warm spaCy + fastembed at import time so per-step timing assertions
+    measure steady-state cost, not cold-start cost."""
+
+    async def _warm() -> None:
+        await run_pipeline_async("hello")
+        await run_pipeline_async("what time is the new mario movie playing")
+
+    asyncio.run(_warm())
+
+
+_warm_pipeline_once()
 
 
 @pytest.mark.parametrize("case", _CASES, ids=[case["id"] for case in _CASES])
@@ -87,4 +122,45 @@ async def test_v2_regression_prompt(case):
     if "gemma_reason" in expect:
         assert result.request_spec.gemma_reason == expect["gemma_reason"], (
             f"{case['id']}: gemma_reason={result.request_spec.gemma_reason}"
+        )
+
+    if "subjects_contain" in expect:
+        haystack_parts: list[str] = []
+        for extraction in result.extractions:
+            haystack_parts.extend(extraction.subject_candidates)
+            haystack_parts.extend(extraction.references)
+        for chunk in result.chunks:
+            haystack_parts.append(chunk.text)
+        haystack = " ".join(haystack_parts).lower()
+        for needle in expect["subjects_contain"]:
+            assert needle.lower() in haystack, (
+                f"{case['id']}: expected subject/reference '{needle}' in {haystack_parts}"
+            )
+
+    if "resolved_person" in expect:
+        expected = expect["resolved_person"].lower()
+        resolved_names = [
+            str((res.params or {}).get("person_name") or "").lower()
+            for res in result.resolutions
+        ]
+        assert expected in resolved_names, (
+            f"{case['id']}: expected resolved person '{expected}' in {resolved_names}"
+        )
+
+    if "max_step_ms" in expect:
+        timings_by_step = {step.name: step.timing_ms for step in result.trace.steps}
+        for step_name, ceiling_ms in expect["max_step_ms"].items():
+            assert step_name in timings_by_step, (
+                f"{case['id']}: step '{step_name}' missing from trace"
+            )
+            actual = timings_by_step[step_name]
+            assert actual <= ceiling_ms, (
+                f"{case['id']}: step '{step_name}' took {actual}ms (limit {ceiling_ms}ms)"
+            )
+
+    if "max_total_ms" in expect:
+        actual_total = result.trace_summary.total_timing_ms
+        assert actual_total <= expect["max_total_ms"], (
+            f"{case['id']}: total pipeline took {actual_total}ms "
+            f"(limit {expect['max_total_ms']}ms)"
         )

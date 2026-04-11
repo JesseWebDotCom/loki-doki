@@ -18,6 +18,9 @@ PRONOUN_TARGETS = frozenset({"it", "this", "that", "they", "them", "him", "her",
 
 # Capabilities where the pronoun ("it" in "what time is it") is a dummy
 # subject, not a real referent. The pronoun resolver must NOT run for these.
+# Same goes for definite-determiner phrases inside a knowledge query — "the
+# runtime of the godfather" is a noun-phrase argument to the query, not a
+# referent that needs context binding.
 DIRECT_UTILITY_CAPABILITIES = {
     "get_current_time",
     "get_current_date",
@@ -25,7 +28,11 @@ DIRECT_UTILITY_CAPABILITIES = {
     "acknowledgment_response",
     "spell_word",
     "calculate_math",
-    "get_weather_forecast",
+    "convert_units",
+    "get_weather",
+    "get_movie_showtimes",
+    "lookup_person_birthday",
+    "knowledge_query",
 }
 
 # Pronoun → preferred entity types (best-effort guess from English usage).

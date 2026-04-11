@@ -52,6 +52,24 @@ CONNECTORS: tuple[str, ...] = (
     " if ", " so that ", " but ", " also ", " then ", " while ",
 )
 
+#: Closed-class English family relationship terms. Used by the people
+#: resolver as a hook so phrases like "my sister's birthday" can surface
+#: "sister" as a person mention even when spaCy does not label it as a
+#: PERSON entity. This is entity extraction (a closed alias lookup), not
+#: user-intent classification, so it does not violate CLAUDE.md's rule
+#: against keyword-classifying user intent.
+FAMILY_RELATIONS: frozenset[str] = frozenset({
+    "mom", "mother", "mama", "ma", "mommy",
+    "dad", "father", "papa", "pa", "daddy",
+    "sister", "sis",
+    "brother", "bro",
+    "aunt", "uncle", "cousin",
+    "grandma", "grandmother", "nana",
+    "grandpa", "grandfather",
+    "son", "daughter",
+    "wife", "husband",
+})
+
 #: Short interjections / acknowledgments treated as standalone speech acts.
 INTERJECTIONS: frozenset[str] = frozenset({
     "hello", "hi", "hey", "yo", "ok", "okay",

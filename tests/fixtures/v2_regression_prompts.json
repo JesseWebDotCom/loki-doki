@@ -139,6 +139,189 @@
         "gemma_used": true,
         "gemma_reason": "unresolved_chunk"
       }
+    },
+    {
+      "id": "routing.greeting_short",
+      "utterance": "hi",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "greeting_response",
+        "response_contains": "hello",
+        "max_total_ms": 200
+      }
+    },
+    {
+      "id": "routing.fast_lane_time",
+      "utterance": "what time is it",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "get_current_time",
+        "max_total_ms": 200,
+        "max_step_ms": {"fast_lane": 50, "normalize": 10}
+      }
+    },
+    {
+      "id": "routing.weather_will_it_rain",
+      "utterance": "is it going to rain",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "get_weather",
+        "gemma_used": false,
+        "response_contains": "weather",
+        "max_total_ms": 500,
+        "max_step_ms": {"parse": 200, "route": 200}
+      }
+    },
+    {
+      "id": "routing.movie_showtimes_mario",
+      "utterance": "what time is the new mario movie playing",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "get_movie_showtimes",
+        "gemma_used": false,
+        "response_contains": "showtimes",
+        "subjects_contain": ["mario", "movie"],
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "routing.knowledge_copper_in_penny",
+      "utterance": "how much copper is in a us penny",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "copper",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "routing.person_birthday_sister",
+      "utterance": "when is my sister's birthday",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "lookup_person_birthday",
+        "primary_chunk_count": 1,
+        "supporting_context_chunk_count": 0,
+        "subjects_contain": ["sister"],
+        "resolved_person": "Leia",
+        "response_contains": "Leia",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "routing.fast_lane_spell_misspelled",
+      "utterance": "how do you spell missisippi",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "spell_word",
+        "response_contains": "missisippi",
+        "max_total_ms": 200
+      }
+    },
+    {
+      "id": "routing.fast_lane_volume_conversion",
+      "utterance": "how many quarts in a gallon",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "convert_units",
+        "response_contains": "4",
+        "max_total_ms": 200
+      }
+    },
+    {
+      "id": "routing.fast_lane_temperature_conversion",
+      "utterance": "72 degrees f is how much in celcius",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "convert_units",
+        "response_contains": "22.22",
+        "max_total_ms": 200
+      }
+    },
+    {
+      "id": "routing.knowledge_who_is_arthur_miller",
+      "utterance": "who is arthud miller",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "arthud miller",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "routing.knowledge_runtime_godfather",
+      "utterance": "what is the runtime of the godfather",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "godfather",
+        "subjects_contain": ["godfather", "runtime"],
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "routing.knowledge_taxi_finale",
+      "utterance": "did the tv show taxi have a finale",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "taxi",
+        "subjects_contain": ["taxi", "finale"],
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "subject_resolution.sister_to_leia_in_statement",
+      "utterance": "I think I'll take my sister to the movies",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "subjects_contain": ["sister"],
+        "resolved_person": "Leia",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "subject_resolution.brother_to_luke_birthday",
+      "utterance": "when is my brother's birthday",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "lookup_person_birthday",
+        "subjects_contain": ["brother"],
+        "resolved_person": "Luke",
+        "response_contains": "Luke",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "compound.coordinated_questions_split_two_primaries",
+      "utterance": "do children have to file taxes and when is the yearly due date",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "primary_chunk_count": 2,
+        "supporting_context_chunk_count": 0,
+        "max_total_ms": 600
+      }
     }
   ]
 }

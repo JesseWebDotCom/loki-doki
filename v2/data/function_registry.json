@@ -139,6 +139,111 @@
     ]
   },
   {
+    "capability": "convert_units",
+    "description": "Convert a quantity between units of measure (length, volume, mass, temperature).",
+    "examples": [
+      "how many quarts in a gallon",
+      "how many feet in a mile",
+      "convert 5 miles to kilometers",
+      "72 degrees f is how much in celsius",
+      "what is 100 fahrenheit in celsius"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.units.convert",
+        "handler_name": "core.units.convert",
+        "priority": 5,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_weather",
+    "description": "Report the current weather forecast or whether precipitation is expected.",
+    "examples": [
+      "is it going to rain",
+      "what's the weather",
+      "will it be sunny tomorrow",
+      "is it raining outside",
+      "how cold is it outside",
+      "what's the forecast for today"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.weather.forecast",
+        "handler_name": "skills.weather.forecast",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "get_movie_showtimes",
+    "description": "Look up local movie showtimes for a film title.",
+    "examples": [
+      "what time is the new mario movie playing",
+      "when is the new batman movie showing",
+      "showtimes for inception tonight",
+      "what time does the godfather start",
+      "movie times for the mario movie"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.movies.showtimes",
+        "handler_name": "skills.movies.showtimes",
+        "priority": 30,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "lookup_person_birthday",
+    "description": "Tell the user when a known person's birthday is.",
+    "examples": [
+      "when is my sister's birthday",
+      "when is my brother's birthday",
+      "when is mom's birthday",
+      "when is dad's birthday",
+      "what day is leia's birthday",
+      "tell me when my sister was born"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.people.birthday",
+        "handler_name": "core.people.birthday",
+        "priority": 10,
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "capability": "knowledge_query",
+    "description": "Answer a general factual or trivia question that needs world knowledge (people, places, history, science, media facts).",
+    "examples": [
+      "who is arthur miller",
+      "what is the runtime of the godfather",
+      "did the tv show taxi have a finale",
+      "how much copper is in a us penny",
+      "who invented the lightbulb",
+      "what year did world war 2 end",
+      "how tall is mount everest",
+      "what is the capital of france"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "core.knowledge.lookup",
+        "handler_name": "core.knowledge.lookup",
+        "priority": 50,
+        "enabled": true
+      }
+    ]
+  },
+  {
     "capability": "direct_chat",
     "description": "Fallback conversational response when no capability strongly matches.",
     "examples": ["tell me something", "chat with me"],

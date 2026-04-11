@@ -11,6 +11,7 @@ from __future__ import annotations
 from v2.orchestrator.linguistics.english import (
     CONNECTORS,
     DETERMINERS,
+    FAMILY_RELATIONS,
     FINITE_AUX,
     INTERJECTIONS,
     NUMBER_WORDS,
@@ -23,6 +24,7 @@ from v2.orchestrator.linguistics.english import (
 __all__ = [
     "CONNECTORS",
     "DETERMINERS",
+    "FAMILY_RELATIONS",
     "FINITE_AUX",
     "INTERJECTIONS",
     "NUMBER_WORDS",

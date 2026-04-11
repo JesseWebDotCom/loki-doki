@@ -26,6 +26,7 @@ class PersonRecord:
     relationship: str
     aliases: list[str] = field(default_factory=list)
     priority: int = 50  # lower wins; family relationships < coworkers
+    birthday: str | None = None  # human-readable, e.g. "June 12"
 
 
 @dataclass(slots=True)
@@ -42,29 +43,33 @@ _DEFAULT_ROSTER: tuple[PersonRecord, ...] = (
         id="person.padme",
         name="Padme",
         relationship="mother",
-        aliases=["mom", "mother", "mama", "padme"],
+        aliases=["mom", "mother", "mama", "mommy", "padme"],
         priority=10,
+        birthday="April 22",
     ),
     PersonRecord(
         id="person.anakin",
         name="Anakin",
         relationship="father",
-        aliases=["dad", "father", "papa", "anakin"],
+        aliases=["dad", "father", "papa", "daddy", "anakin"],
         priority=10,
+        birthday="August 15",
     ),
     PersonRecord(
         id="person.leia",
         name="Leia",
         relationship="sister",
-        aliases=["sis", "leia"],
+        aliases=["sis", "sister", "leia"],
         priority=20,
+        birthday="June 12",
     ),
     PersonRecord(
         id="person.luke",
         name="Luke",
         relationship="brother",
-        aliases=["bro", "luke"],
+        aliases=["bro", "brother", "luke"],
         priority=20,
+        birthday="September 25",
     ),
     PersonRecord(
         id="person.obiwan",
@@ -72,6 +77,7 @@ _DEFAULT_ROSTER: tuple[PersonRecord, ...] = (
         relationship="mentor",
         aliases=["obi-wan", "obiwan", "ben"],
         priority=40,
+        birthday="March 20",
     ),
     PersonRecord(
         id="person.han",
@@ -79,6 +85,7 @@ _DEFAULT_ROSTER: tuple[PersonRecord, ...] = (
         relationship="friend",
         aliases=["han", "han solo"],
         priority=40,
+        birthday="July 13",
     ),
 )
 
@@ -106,15 +113,18 @@ class PeopleDBAdapter:
         if exact:
             return self._rank(needle, exact, score=100)
 
-        # 2. Substring match (e.g. "Han Solo" → "han solo").
-        substring = [
-            record
-            for record in self._records
-            if needle in record.name.lower()
-            or any(needle in alias.lower() for alias in record.aliases)
-        ]
-        if substring:
-            return self._rank(needle, substring, score=85)
+        # 2. Substring match (e.g. "Han Solo" → "han solo"). Require the
+        # needle to be at least 3 characters so a single-letter pronoun
+        # like "i" cannot accidentally match "anakin" / "leia" / etc.
+        if len(needle) >= 3:
+            substring = [
+                record
+                for record in self._records
+                if needle in record.name.lower()
+                or any(needle in alias.lower() for alias in record.aliases)
+            ]
+            if substring:
+                return self._rank(needle, substring, score=85)
 
         # 3. Fuzzy fallback.
         if fuzz is not None:

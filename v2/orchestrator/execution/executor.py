@@ -212,6 +212,77 @@ def _send_text_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"output_text": f"Texting {name} now."}
 
 
+def _convert_units_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic unit-conversion fallback for the routed (non-fast-lane) path.
+
+    The fast lane already handles the trivial cases. This handler exists so a
+    routed ``convert_units`` chunk still resolves cleanly when the fast lane is
+    bypassed (e.g. inside a compound utterance) — it re-uses the same fast-lane
+    matcher against the chunk text.
+    """
+    from v2.orchestrator.pipeline.fast_lane import _match_unit_conversion, _normalize
+
+    chunk_text = str(payload.get("chunk_text") or "")
+    lemma = _normalize(chunk_text)
+    result = _match_unit_conversion(lemma)
+    if result is not None and result.matched and result.response_text:
+        return {"output_text": result.response_text}
+    return {"output_text": "I couldn't parse that conversion."}
+
+
+def _weather_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stub weather provider used by the v2 prototype.
+
+    A real backend would hit a weather API. The prototype returns a
+    deterministic forecast string so routing tests can assert on shape.
+    """
+    return {
+        "output_text": "Weather forecast: clear with a high near 72°F.",
+        "provider": "stub",
+    }
+
+
+def _showtimes_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stub movie-showtimes provider used by the v2 prototype."""
+    chunk_text = str(payload.get("chunk_text") or "").lower()
+    title = "the requested movie"
+    # Pull a noun-ish title fragment for a friendlier stub answer.
+    for marker in (" movie ", " film "):
+        if marker in chunk_text:
+            head = chunk_text.split(marker, 1)[0]
+            tokens = [tok for tok in head.split() if tok not in {"what", "time", "is", "the", "new", "when", "does"}]
+            if tokens:
+                title = " ".join(tokens) + " movie"
+            break
+    return {"output_text": f"Showtimes for {title}: 4:30 PM, 7:00 PM, and 9:45 PM."}
+
+
+def _person_birthday_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Look up the resolved person's birthday from the people DB params."""
+    params = payload.get("params") or {}
+    name = params.get("person_name") or payload.get("resolved_target") or ""
+    birthday = params.get("birthday")
+    if not name:
+        return {"output_text": "I'm not sure which person you mean."}
+    if not birthday:
+        return {"output_text": f"I don't have a birthday on file for {name}."}
+    return {"output_text": f"{name}'s birthday is {birthday}."}
+
+
+def _knowledge_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stub knowledge-query provider.
+
+    Real factual lookup would defer to a retrieval skill or a thinking-mode
+    LLM. The prototype returns a marker string that names the topic so
+    routing tests can confirm the question reached this capability.
+    """
+    chunk_text = str(payload.get("chunk_text") or "").strip()
+    return {
+        "output_text": f"Knowledge query (stub): {chunk_text}",
+        "provider": "stub",
+    }
+
+
 def _echo_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"output_text": str(payload.get("chunk_text") or "")}
 
@@ -227,6 +298,11 @@ _HANDLER_REGISTRY: dict[str, HandlerFn] = {
     "context.media.recall_recent": _recall_media_handler,
     "skills.home_assistant.toggle": _control_device_handler,
     "skills.messaging.send_text": _send_text_handler,
+    "core.units.convert": _convert_units_handler,
+    "skills.weather.forecast": _weather_handler,
+    "skills.movies.showtimes": _showtimes_handler,
+    "core.people.birthday": _person_birthday_handler,
+    "core.knowledge.lookup": _knowledge_handler,
     "fallback.direct_chat": _echo_handler,
 }
 
