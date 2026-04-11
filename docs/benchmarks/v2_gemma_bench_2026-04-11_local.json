@@ -1,0 +1,1054 @@
+{
+  "models": [
+    "gemma4:e4b",
+    "gemma4:e2b",
+    "gemma:2b",
+    "qwen3:4b",
+    "qwen3:8b",
+    "llama3.1:8b"
+  ],
+  "replicates": 3,
+  "prompt_count": 9,
+  "results": [
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "dc.json_acronym",
+      "family": "direct_chat",
+      "user_request": "what does json stand for",
+      "response_text": "JSON stands for JavaScript Object Notation. It is a lightweight data-interchange format that uses human-readable text to transmit data objects consisting of attribute-value pairs and array of values.",
+      "warm_ms_min": 813.8801660388708,
+      "warm_ms_median": 824.4823750574142,
+      "warm_ms_mean": 821.5418887169411,
+      "warm_ms_replicates": [
+        824.4823750574142,
+        813.8801660388708,
+        826.2631250545382
+      ],
+      "response_chars": 199,
+      "response_words": 28,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "dc.ring_privacy",
+      "family": "direct_chat",
+      "user_request": "do my ring cameras spy on me",
+      "response_text": "Generally, ring cameras are designed for security monitoring and are not intended to spy on you when you are in your own home. However, it's important to review your camera's privacy settings and understand where the recording and storage are taking place to ensure your comfort and privacy.",
+      "warm_ms_min": 832.4689579894766,
+      "warm_ms_median": 1154.3006249703467,
+      "warm_ms_mean": 1110.699985991232,
+      "warm_ms_replicates": [
+        832.4689579894766,
+        1345.330375013873,
+        1154.3006249703467
+      ],
+      "response_chars": 291,
+      "response_words": 48,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "dc.wifi_slow",
+      "family": "direct_chat",
+      "user_request": "why is my wifi so slow",
+      "response_text": "I think slow Wi-Fi can be caused by too many connected devices, outdated router firmware, or interference from other electronics. Trying to reboot your modem and router can often resolve these kinds of slowdowns.",
+      "warm_ms_min": 859.5871250145137,
+      "warm_ms_median": 861.4176250994205,
+      "warm_ms_mean": 869.3038887189081,
+      "warm_ms_replicates": [
+        859.5871250145137,
+        861.4176250994205,
+        886.9069160427898
+      ],
+      "response_chars": 212,
+      "response_words": 34,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "dc.casual_chat",
+      "family": "direct_chat",
+      "user_request": "tell me a fun fact about octopuses",
+      "response_text": "I find that octopuses have three hearts! Two of them pump blood through the gills, and the third circulates blood to the rest of the body.",
+      "warm_ms_min": 722.3767500836402,
+      "warm_ms_median": 724.4720829185098,
+      "warm_ms_mean": 770.6134166801348,
+      "warm_ms_replicates": [
+        864.9914170382544,
+        724.4720829185098,
+        722.3767500836402
+      ],
+      "response_chars": 138,
+      "response_words": 26,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "dc.opinion",
+      "family": "direct_chat",
+      "user_request": "what's the difference between machine learning and ai",
+      "response_text": "I think the main difference is that Artificial Intelligence is the broad concept of making machines smart, while Machine Learning is a specific method or technique that allows machines to learn from data without being explicitly programmed. Essentially, ML is a way to *achieve* AI.",
+      "warm_ms_min": 1047.5744579453021,
+      "warm_ms_median": 1073.6110410653055,
+      "warm_ms_mean": 1067.319055320695,
+      "warm_ms_replicates": [
+        1080.7716669514775,
+        1047.5744579453021,
+        1073.6110410653055
+      ],
+      "response_chars": 282,
+      "response_words": 45,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "cb.time_running_late",
+      "family": "combine",
+      "user_request": "what time is it because im running late",
+      "response_text": "The current time is 3:42 PM.",
+      "warm_ms_min": 326.4675410464406,
+      "warm_ms_median": 361.604499979876,
+      "warm_ms_mean": 358.1423610060786,
+      "warm_ms_replicates": [
+        361.604499979876,
+        326.4675410464406,
+        386.3550419919193
+      ],
+      "response_chars": 28,
+      "response_words": 6,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "cb.weather_picnic",
+      "family": "combine",
+      "user_request": "whats the weather like im planning a picnic this afternoon",
+      "response_text": "It will be 72F and partly cloudy this afternoon in San Francisco.",
+      "warm_ms_min": 453.4436670364812,
+      "warm_ms_median": 454.03324998915195,
+      "warm_ms_mean": 457.124041665035,
+      "warm_ms_replicates": [
+        454.03324998915195,
+        463.8952079694718,
+        453.4436670364812
+      ],
+      "response_chars": 65,
+      "response_words": 12,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "cb.directions_traffic",
+      "family": "combine",
+      "user_request": "how long to drive to the airport im worried about traffic",
+      "response_text": "The drive to the airport is about 22 miles and should take approximately 35 minutes via US-101 N. Since you are worried about traffic, do you have a specific time you plan to leave?",
+      "warm_ms_min": 970.3023750334978,
+      "warm_ms_median": 970.42229201179,
+      "warm_ms_mean": 974.4132083530227,
+      "warm_ms_replicates": [
+        982.5149580137804,
+        970.3023750334978,
+        970.42229201179
+      ],
+      "response_chars": 181,
+      "response_words": 34,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e4b",
+      "prompt_id": "eo.knicks_score",
+      "family": "direct_chat",
+      "user_request": "whats the score of the knicks game",
+      "response_text": "I am unable to provide the score for the Knicks game because the result for the primary request was empty. Could you please provide the specific date or opponent for the game you are interested in?",
+      "warm_ms_min": 503.5835829330608,
+      "warm_ms_median": 515.0108329253271,
+      "warm_ms_mean": 623.9156109513715,
+      "warm_ms_replicates": [
+        515.0108329253271,
+        503.5835829330608,
+        853.1524169957265
+      ],
+      "response_chars": 197,
+      "response_words": 36,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "dc.json_acronym",
+      "family": "direct_chat",
+      "user_request": "what does json stand for",
+      "response_text": "I know that JSON stands for JavaScript Object Notation. It is a lightweight data-interchange format that is easy for humans to read and write, and easy for machines to parse and generate.",
+      "warm_ms_min": 563.1959999445826,
+      "warm_ms_median": 566.6972909821197,
+      "warm_ms_mean": 566.2802912993357,
+      "warm_ms_replicates": [
+        568.9475829713047,
+        566.6972909821197,
+        563.1959999445826
+      ],
+      "response_chars": 187,
+      "response_words": 32,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "dc.ring_privacy",
+      "family": "direct_chat",
+      "user_request": "do my ring cameras spy on me",
+      "response_text": "I do not have any information about your specific ring camera setup or what they might be doing. You should check the privacy settings within the Ring application or consult their official privacy policy for accurate details.",
+      "warm_ms_min": 578.3256249269471,
+      "warm_ms_median": 581.1845830176026,
+      "warm_ms_mean": 584.2838333143542,
+      "warm_ms_replicates": [
+        581.1845830176026,
+        593.341291998513,
+        578.3256249269471
+      ],
+      "response_chars": 225,
+      "response_words": 37,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "dc.wifi_slow",
+      "family": "direct_chat",
+      "user_request": "why is my wifi so slow",
+      "response_text": "I am sorry, I do not have the specialized skills to diagnose Wi-Fi issues. You might want to check your router settings or try restarting your modem and router to see if that helps improve the speed.",
+      "warm_ms_min": 567.3352079465985,
+      "warm_ms_median": 575.2933329204097,
+      "warm_ms_mean": 583.1818329558397,
+      "warm_ms_replicates": [
+        567.3352079465985,
+        575.2933329204097,
+        606.9169580005109
+      ],
+      "response_chars": 199,
+      "response_words": 37,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "dc.casual_chat",
+      "family": "direct_chat",
+      "user_request": "tell me a fun fact about octopuses",
+      "response_text": "I find that octopuses have three hearts, which is quite fascinating! Additionally, their blood is blue because it contains copper-based proteins instead of iron. They are also incredibly intelligent creatures.",
+      "warm_ms_min": 578.4805830335245,
+      "warm_ms_median": 622.8463749866933,
+      "warm_ms_mean": 609.220402664505,
+      "warm_ms_replicates": [
+        626.3342499732971,
+        622.8463749866933,
+        578.4805830335245
+      ],
+      "response_chars": 209,
+      "response_words": 30,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "dc.opinion",
+      "family": "direct_chat",
+      "user_request": "what's the difference between machine learning and ai",
+      "response_text": "I see. Machine learning is a subset of artificial intelligence, which is a broader field focused on creating systems that can perform tasks that typically require human intelligence. Essentially, machine learning involves training computers to learn from data without being explicitly programmed, while AI is the overarching goal of making machines intelligent.",
+      "warm_ms_min": 607.3849579552189,
+      "warm_ms_median": 611.9116669287905,
+      "warm_ms_mean": 667.6172916389381,
+      "warm_ms_replicates": [
+        607.3849579552189,
+        611.9116669287905,
+        783.5552500328049
+      ],
+      "response_chars": 361,
+      "response_words": 52,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "cb.time_running_late",
+      "family": "combine",
+      "user_request": "what time is it because im running late",
+      "response_text": "The current time is 3:42 PM. You are running late.",
+      "warm_ms_min": 335.20241698715836,
+      "warm_ms_median": 340.00599989667535,
+      "warm_ms_mean": 357.5095972822358,
+      "warm_ms_replicates": [
+        397.32037496287376,
+        335.20241698715836,
+        340.00599989667535
+      ],
+      "response_chars": 50,
+      "response_words": 10,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "cb.weather_picnic",
+      "family": "combine",
+      "user_request": "whats the weather like im planning a picnic this afternoon",
+      "response_text": "The weather this afternoon in San Francisco will be 72F and partly cloudy. This information is relevant to planning your picnic.",
+      "warm_ms_min": 451.4096250059083,
+      "warm_ms_median": 454.6891659265384,
+      "warm_ms_mean": 453.8636663152526,
+      "warm_ms_replicates": [
+        455.49220801331103,
+        451.4096250059083,
+        454.6891659265384
+      ],
+      "response_chars": 128,
+      "response_words": 21,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "cb.directions_traffic",
+      "family": "combine",
+      "user_request": "how long to drive to the airport im worried about traffic",
+      "response_text": "The drive to the airport is about 22 miles, taking approximately 35 minutes via US-101 N. I cannot provide more information regarding the traffic concern.",
+      "warm_ms_min": 559.8507079994306,
+      "warm_ms_median": 560.3659170446917,
+      "warm_ms_mean": 561.0744583730897,
+      "warm_ms_replicates": [
+        563.0067500751466,
+        560.3659170446917,
+        559.8507079994306
+      ],
+      "response_chars": 154,
+      "response_words": 25,
+      "error": ""
+    },
+    {
+      "model": "gemma4:e2b",
+      "prompt_id": "eo.knicks_score",
+      "family": "direct_chat",
+      "user_request": "whats the score of the knicks game",
+      "response_text": "The score of the Knicks game is not available. Can you provide more information?",
+      "warm_ms_min": 342.0897499890998,
+      "warm_ms_median": 347.16091596055776,
+      "warm_ms_mean": 346.6684023151174,
+      "warm_ms_replicates": [
+        350.7545409956947,
+        347.16091596055776,
+        342.0897499890998
+      ],
+      "response_chars": 80,
+      "response_words": 14,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "dc.json_acronym",
+      "family": "direct_chat",
+      "user_request": "what does json stand for",
+      "response_text": "Sure, I can help with that. JSON stands for **JavaScript Object Notation**. It's a language used to define data structures in a computer program. It's often used to store and exchange data between different applications.",
+      "warm_ms_min": 350.92354204971343,
+      "warm_ms_median": 447.8500409750268,
+      "warm_ms_mean": 429.5072640137126,
+      "warm_ms_replicates": [
+        489.7482090163976,
+        350.92354204971343,
+        447.8500409750268
+      ],
+      "response_chars": 220,
+      "response_words": 35,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "dc.ring_privacy",
+      "family": "direct_chat",
+      "user_request": "do my ring cameras spy on me",
+      "response_text": "I'm not able to access or provide information about your personal\nring cameras, so I cannot answer this question.",
+      "warm_ms_min": 273.1635420350358,
+      "warm_ms_median": 312.1443750569597,
+      "warm_ms_mean": 305.1445697201416,
+      "warm_ms_replicates": [
+        312.1443750569597,
+        330.1257920684293,
+        273.1635420350358
+      ],
+      "response_chars": 113,
+      "response_words": 19,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "dc.wifi_slow",
+      "family": "direct_chat",
+      "user_request": "why is my wifi so slow",
+      "response_text": "I'm unable to diagnose the slow WiFi speed, as I lack the necessary diagnostic tools and context. \n\nWould you like to try checking your router's settings or contacting your internet service provider for further assistance?",
+      "warm_ms_min": 385.4041669983417,
+      "warm_ms_median": 439.9962500901893,
+      "warm_ms_mean": 554.453833688361,
+      "warm_ms_replicates": [
+        385.4041669983417,
+        837.9610839765519,
+        439.9962500901893
+      ],
+      "response_chars": 222,
+      "response_words": 35,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "dc.casual_chat",
+      "family": "direct_chat",
+      "user_request": "tell me a fun fact about octopuses",
+      "response_text": "Sure, here's a fun fact about octopuses: They can change their skin color to match their surroundings, like camouflage!",
+      "warm_ms_min": 309.2857919400558,
+      "warm_ms_median": 320.6183750880882,
+      "warm_ms_mean": 316.93663898234564,
+      "warm_ms_replicates": [
+        320.6183750880882,
+        320.905749918893,
+        309.2857919400558
+      ],
+      "response_chars": 119,
+      "response_words": 19,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "dc.opinion",
+      "family": "direct_chat",
+      "user_request": "what's the difference between machine learning and ai",
+      "response_text": "I'm not able to provide a direct answer to the question, as I don't possess the necessary knowledge to explain the difference between machine learning and AI. However, I can offer a rephrased version of the question that might be easier to understand:\n\n\"What is the distinction between AI and machine learning?\"",
+      "warm_ms_min": 611.5151670528576,
+      "warm_ms_median": 611.5319159580395,
+      "warm_ms_mean": 662.921611025619,
+      "warm_ms_replicates": [
+        765.71775006596,
+        611.5151670528576,
+        611.5319159580395
+      ],
+      "response_chars": 311,
+      "response_words": 52,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "cb.time_running_late",
+      "family": "combine",
+      "user_request": "what time is it because im running late",
+      "response_text": "Sure, here's the natural-language response:\n\n\"It's 3:42 PM because you're running late.\"",
+      "warm_ms_min": 319.3454999709502,
+      "warm_ms_median": 320.591582916677,
+      "warm_ms_mean": 377.58876363902044,
+      "warm_ms_replicates": [
+        492.8292080294341,
+        320.591582916677,
+        319.3454999709502
+      ],
+      "response_chars": 88,
+      "response_words": 12,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "cb.weather_picnic",
+      "family": "combine",
+      "user_request": "whats the weather like im planning a picnic this afternoon",
+      "response_text": "Sure, here's the natural-language response:\n\n\"The weather today is pleasant in San Francisco, with temperatures ranging from 72F to partly cloudy. Enjoy your picnic!\"",
+      "warm_ms_min": 358.47170802298933,
+      "warm_ms_median": 391.3143330719322,
+      "warm_ms_mean": 410.63793034603196,
+      "warm_ms_replicates": [
+        482.1277499431744,
+        358.47170802298933,
+        391.3143330719322
+      ],
+      "response_chars": 166,
+      "response_words": 24,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "cb.directions_traffic",
+      "family": "combine",
+      "user_request": "how long to drive to the airport im worried about traffic",
+      "response_text": "Sure, here's the natural-language response:\n\n\"The request specifies a journey with a long travel time, but it also mentions concerns about traffic. I would recommend checking the current traffic conditions and planning your trip accordingly.\"",
+      "warm_ms_min": 357.9259159741923,
+      "warm_ms_median": 459.4129170291126,
+      "warm_ms_mean": 457.9530833289027,
+      "warm_ms_replicates": [
+        357.9259159741923,
+        556.5204169834033,
+        459.4129170291126
+      ],
+      "response_chars": 242,
+      "response_words": 35,
+      "error": ""
+    },
+    {
+      "model": "gemma:2b",
+      "prompt_id": "eo.knicks_score",
+      "family": "direct_chat",
+      "user_request": "whats the score of the knicks game",
+      "response_text": "The score of the Knicks game is not provided in the context. Therefore, I cannot generate a response from the given context.",
+      "warm_ms_min": 285.2292089955881,
+      "warm_ms_median": 286.4784999983385,
+      "warm_ms_mean": 286.92852802729857,
+      "warm_ms_replicates": [
+        289.077875087969,
+        286.4784999983385,
+        285.2292089955881
+      ],
+      "response_chars": 124,
+      "response_words": 22,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "dc.json_acronym",
+      "family": "direct_chat",
+      "user_request": "what does json stand for",
+      "response_text": "We are given a question: \"what does json stand for\"\n As LokiDoki, I am a friendly conversational assistant. The user's question is about what JSON stands for.\n I know that JSON stands for \"JavaScript Object Notation\".\n I must answer in the first person, concisely (1-3 sentences), and directly without any internal terminology.\n\n Steps:\n 1. Answer directly: JSON stands for \"JavaScript Object Notation\".\n 2. Since the user asked for what it stands for, I can say it in one sentence.\n\n Important: Never mention \"the request\", \"the spec\", etc.\n\n Let's craft the answer:\n   \"I know that JSON stands for 'JavaScript Object Notation'.\"\n\n But note: the rule says \"Keep the answer to 1\u20133 sentences unless the user clearly asked for detail\". \n The user didn't ask for detail, so one sentence is enough.\n\n However, the rule also says: \"Never restate or summarise the question\". We are not restating the question, we are answering.\n\n Let me check: the user asked \"what does json stand for\", so we answer with the expansion.\n\n But note: the rule says \"If you genuinely don't know, say so briefly and suggest one re",
+      "warm_ms_min": 3796.6430840315297,
+      "warm_ms_median": 3861.431458964944,
+      "warm_ms_mean": 3929.5327643242977,
+      "warm_ms_replicates": [
+        3861.431458964944,
+        3796.6430840315297,
+        4130.523749976419
+      ],
+      "response_chars": 1103,
+      "response_words": 183,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "dc.ring_privacy",
+      "family": "direct_chat",
+      "user_request": "do my ring cameras spy on me",
+      "response_text": "We are given a user question: \"do my ring cameras spy on me\"\n As LokiDoki, I am a friendly conversational assistant with general knowledge (not specialized in Ring cameras).\n I must answer directly and concisely in first person.\n\n Steps:\n 1. The user is asking if their Ring cameras can spy on them (i.e., record without their knowledge).\n 2. I know that Ring cameras are designed to be used by the owner and have privacy features. However, they can be set up to record in the background without the user being aware (like motion detection) but typically require the user to be aware of the settings.\n 3. Important: Ring cameras are not designed to spy on the user without consent. They are for security and the user has control over the settings.\n\n But note: The user might be concerned about privacy. I should address the common concern.\n\n My answer should be:\n   - Direct and concise (1-3 sentences)\n   - In first person: \"I\" (as the assistant)\n   - Never mention internal terms.\n\n Let's think: \n   \"I don't think your Ring cameras are spying on you. They are designed to record when you're home and you can control the settings to prevent unauthorized recording.\"",
+      "warm_ms_min": 3498.5458330484107,
+      "warm_ms_median": 3575.3339589573443,
+      "warm_ms_mean": 3566.0463750051954,
+      "warm_ms_replicates": [
+        3575.3339589573443,
+        3498.5458330484107,
+        3624.2593330098316
+      ],
+      "response_chars": 1167,
+      "response_words": 199,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "dc.wifi_slow",
+      "family": "direct_chat",
+      "user_request": "why is my wifi so slow",
+      "response_text": "We are given a user question: \"why is my wifi so slow\"\n As LokiDoki, I am a friendly conversational assistant with specialized skills that don't match this question, so I answer directly from my own knowledge.\n\n Rules:\n - Answer directly and concisely.\n - Speak in first person (\"I\").\n - Never mention forbidden terms (like \"the request\", etc.)\n - Never restate the question.\n - Keep to 1-3 sentences unless the user asked for detail (they didn't, so 1-3 sentences).\n - If I don't know, say so briefly and suggest one rephrase.\n\n My knowledge: \n   Common reasons for slow WiFi: \n     - Distance from the router\n     - Interference from other devices or walls\n     - Overloaded network (too many devices)\n     - Weak router signal\n     - Outdated firmware or hardware issues\n\n But note: I am not a network expert, but I can give a general, friendly answer.\n\n Since the user is asking in a casual way, I'll keep it simple and friendly.\n\n Approach:\n   I'll say: \"I've seen this happen a lot! It could be because you're too far from the router, there's too much interference from other devices, or",
+      "warm_ms_min": 3489.068458904512,
+      "warm_ms_median": 3490.794457960874,
+      "warm_ms_mean": 3507.32849992346,
+      "warm_ms_replicates": [
+        3542.1225829049945,
+        3489.068458904512,
+        3490.794457960874
+      ],
+      "response_chars": 1093,
+      "response_words": 183,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "dc.casual_chat",
+      "family": "direct_chat",
+      "user_request": "tell me a fun fact about octopuses",
+      "response_text": "We are given a user question: \"tell me a fun fact about octopuses\"\n As LokiDoki, I am a friendly conversational assistant with general knowledge (since the user's question doesn't match any specialized skills I have to avoid).\n Rules: \n   - Answer directly and concisely in first person (\"I\")\n   - Never mention forbidden terms\n   - Never restate the question\n   - Keep to 1-3 sentences unless the user asks for detail (they didn't, so 1-3 sentences)\n   - If I don't know, say so and suggest a rephrase (but I do know a fun fact about octopuses)\n\n I know: Octopuses have three hearts, two of which pump blood to the gills, and the third pumps it to the rest of the body. Also, they have blue blood (due to hemocyanin) and can change color to communicate.\n\n Let me pick one fun fact: \n   \"Octopuses have three hearts! Two pump blood to the gills, and the third pumps it to the rest of the body.\"\n\n But to be more fun and concise: \n   \"I've learned that octopuses have three hearts, which is pretty cool!\"\n\n However,",
+      "warm_ms_min": 3519.0662920940667,
+      "warm_ms_median": 3535.997667000629,
+      "warm_ms_mean": 3563.1262643728405,
+      "warm_ms_replicates": [
+        3535.997667000629,
+        3519.0662920940667,
+        3634.314834023826
+      ],
+      "response_chars": 1014,
+      "response_words": 178,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "dc.opinion",
+      "family": "direct_chat",
+      "user_request": "what's the difference between machine learning and ai",
+      "response_text": "We are given a question: \"what's the difference between machine learning and ai\"\n As LokiDoki, I am a friendly conversational assistant with general knowledge. I don't have specialized skills in this area, so I answer from my own knowledge.\n\n Rules:\n - Answer directly and concisely.\n - Speak in first person (\"I\").\n - Never mention forbidden terms.\n - Never restate the question.\n - Keep to 1-3 sentences unless the user asks for detail (they didn't, so 1-3 sentences).\n - If I don't know, say so and suggest a rephrase (but I do know this).\n\n My knowledge:\n - AI (Artificial Intelligence) is a broad field that aims to create machines that can perform tasks that typically require human intelligence, such as reasoning, problem-solving, perception, and learning.\n - Machine Learning (ML) is a subset of AI that focuses on building systems that can learn from data without being explicitly programmed. It uses algorithms to find patterns in data and make predictions or decisions.\n\n Therefore, the difference:\n   AI is the overarching concept of machines performing intelligent tasks, while ML is a specific technique within AI that enables machines to learn from data.\n\n Let's craft a concise answer in first person (I):\n\n \"",
+      "warm_ms_min": 3597.3609590437263,
+      "warm_ms_median": 3610.847125062719,
+      "warm_ms_mean": 3612.688861360463,
+      "warm_ms_replicates": [
+        3610.847125062719,
+        3597.3609590437263,
+        3629.8584999749437
+      ],
+      "response_chars": 1226,
+      "response_words": 198,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "cb.time_running_late",
+      "family": "combine",
+      "user_request": "what time is it because im running late",
+      "response_text": "We are given a RequestSpec in JSON. We must return a single natural-language response.\n\n Steps:\n 1. Read the RequestSpec: \n    - trace_id: \"bench-cb-what tim\"\n    - original_request: \"what time is it because im running late\"\n    - chunks: \n        a. Primary request chunk: \n            text: \"what time is it\"\n            role: \"primary_request\"\n            capability: \"get_current_time\"\n            confidence: 0:95\n            params: {}\n            result: {\"output_text\": \"3:42 PM\"}\n            unresolved: []\n            success: true\n            error: null\n        b. Supporting context chunk:\n            text: \"because im running late\"\n            role: \"supporting_context\"\n            capability: \"\"\n            confidence: 0.0\n            params: {}\n            result: {}\n            unresolved: []\n            success: true\n            error: null\n\n 2. Rules:\n    - Use ONLY information present in the RequestSpec. Do not invent facts.\n    - Mention each successful chunk's result. \n        * The primary chunk succeeded and returned \"3:42 PM\".\n        * The supporting context chunk succeeded but has no result (result: {}).",
+      "warm_ms_min": 3654.9106249585748,
+      "warm_ms_median": 3658.666249946691,
+      "warm_ms_mean": 3659.965749946423,
+      "warm_ms_replicates": [
+        3654.9106249585748,
+        3658.666249946691,
+        3666.3203749340028
+      ],
+      "response_chars": 1141,
+      "response_words": 128,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "cb.weather_picnic",
+      "family": "combine",
+      "user_request": "whats the weather like im planning a picnic this afternoon",
+      "response_text": "We are given a RequestSpec in JSON. We must return a single natural-language response.\n\n Steps:\n 1. Read the RequestSpec: \n    - trace_id: \"bench-cb-whats th\" (we don't need to use this for response)\n    - original_request: \"whats the weather like im planning a picnic this afternoon\"\n    - chunks: \n        * First chunk: \n            text: \"whats the weather like\"\n            role: \"primary_request\"\n            capability: \"get_weather\"\n            confidence: 0.95\n            params: {}\n            result: {\"output_text\": \"72F and partly cloudy this afternoon in San Francisco\"}\n            unresolved: []\n            success: true\n            error: null\n        * Second chunk:\n            text: \"im planning a: \"im planning a picnic this afternoon\"\n            role: \"supporting_context\"\n            capability: \"\" (empty, meaning no capability)\n            confidence: 0.0\n            params: {}\n            result: {} (empty)\n            unresolved: []\n            success: true\n            error: null\n\n    - supporting_context: [\"im planning a picnic this afternoon\"] (this is the context provided for the supporting context)\n    - context_keys: []",
+      "warm_ms_min": 3605.245375074446,
+      "warm_ms_median": 3638.541084015742,
+      "warm_ms_mean": 3630.5739727104083,
+      "warm_ms_replicates": [
+        3638.541084015742,
+        3605.245375074446,
+        3647.9354590410367
+      ],
+      "response_chars": 1162,
+      "response_words": 132,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "cb.directions_traffic",
+      "family": "combine",
+      "user_request": "how long to drive to the airport im worried about traffic",
+      "response_text": "We are given a RequestSpec in JSON. We must return a single natural-language response.\n\n Steps:\n 1. Read the RequestSpec: \n    - trace_id: \"bench-cb-how long\"\n    - original_request: \"how long to drive to the airport im worried about traffic\"\n    - chunks: \n        * First chunk (primary_request): \n            text: \"how long to drive to the airport\"\n            role: \"primary_request\"\n            capability: \"get_directions\"\n            confidence: 0.95\n            params: {}\n            result: {\"output_text\": \"22 miles, about 35 minutes via US-101 N\"}\n            unresolved: []\n            success: true\n            error: null\n        * Second chunk (supporting_context):\n            text: \"im worried about traffic\"\n            role: \"supporting_context\"\n            capability: \"\"\n            confidence: 0.0\n            params: {}\n            result: {}\n            unresolved: []\n            success: true\n            error: null\n\n 2. Rules to follow:\n    - Use ONLY information present in the RequestSpec. Do not invent facts.\n    - Mention each successful chunk's result.\n    - For unresolved chunks, ask one short clarifying question",
+      "warm_ms_min": 3669.650834053755,
+      "warm_ms_median": 3922.5590840214863,
+      "warm_ms_mean": 3886.748556008873,
+      "warm_ms_replicates": [
+        3669.650834053755,
+        3922.5590840214863,
+        4068.0357499513775
+      ],
+      "response_chars": 1151,
+      "response_words": 130,
+      "error": ""
+    },
+    {
+      "model": "qwen3:4b",
+      "prompt_id": "eo.knicks_score",
+      "family": "direct_chat",
+      "user_request": "whats the score of the knicks game",
+      "response_text": "We are given a RequestSpec in JSON. Let's break down what we have:\n\n- The `original_request` is: \"whats the score of the knicks game\"\n- The `chunks` array has one chunk:\n   - `text`: \"whats the score of the knicks game\"\n   - `role`: \"primary_request\"\n   - `capability`: \"get_score\"\n   - `confidence`: 0:85 (so 85% confident)\n   - `params`: {} (no parameters)\n   - `result`: {\"output_text\": \"\"} (empty string, meaning no result was produced)\n   - `unresolved`: [] (no unresolved issues)\n   - `success`: true (the chunk was successful in processing)\n   - `error`: null\n\nThe problem: The combiner could not produce a clean answer. We are to return a single natural-language response.\n\nRules to follow:\n- Use ONLY information present in the RequestSpec. Do not invent facts.\n- Mention each successful chunk's result. (In this case, the chunk was successful but the result is empty string -> so we have to note that the chunk succeeded but no output was generated)\n- For unresolved chunks, ask one short clarifying question. (",
+      "warm_ms_min": 3861.9102089433,
+      "warm_ms_median": 3909.980457974598,
+      "warm_ms_mean": 3929.7763193026185,
+      "warm_ms_replicates": [
+        3909.980457974598,
+        4017.4382909899577,
+        3861.9102089433
+      ],
+      "response_chars": 1021,
+      "response_words": 163,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "dc.json_acronym",
+      "family": "direct_chat",
+      "user_request": "what does json stand for",
+      "response_text": "JSON stands for JavaScript Object Notation, which is a lightweight format for representing data in a structured way. It is commonly used for transmitting data between a server and a web application.",
+      "warm_ms_min": 698.3535840408877,
+      "warm_ms_median": 994.3581249099225,
+      "warm_ms_mean": 904.2020836301768,
+      "warm_ms_replicates": [
+        698.3535840408877,
+        1019.8945419397205,
+        994.3581249099225
+      ],
+      "response_chars": 198,
+      "response_words": 32,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "dc.ring_privacy",
+      "family": "direct_chat",
+      "user_request": "do my ring cameras spy on me",
+      "response_text": "I don't have access to your devices or personal data. Ring cameras are designed to provide home security and can record video, but they are not intended to spy on users. Always ensure you understand the privacy settings and terms of service for any device you use.",
+      "warm_ms_min": 1346.697665983811,
+      "warm_ms_median": 1349.9466250650585,
+      "warm_ms_mean": 1373.1833886510383,
+      "warm_ms_replicates": [
+        1349.9466250650585,
+        1422.9058749042451,
+        1346.697665983811
+      ],
+      "response_chars": 264,
+      "response_words": 47,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "dc.wifi_slow",
+      "family": "direct_chat",
+      "user_request": "why is my wifi so slow",
+      "response_text": "I can't access your device's settings or network information, but common reasons for slow Wi-Fi include interference from other devices, a weak signal, or high network congestion. Try moving closer to the router or restarting your modem.",
+      "warm_ms_min": 1201.7245419556275,
+      "warm_ms_median": 1209.152042050846,
+      "warm_ms_mean": 1246.2419863247003,
+      "warm_ms_replicates": [
+        1327.8493749676272,
+        1209.152042050846,
+        1201.7245419556275
+      ],
+      "response_chars": 237,
+      "response_words": 37,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "dc.casual_chat",
+      "family": "direct_chat",
+      "user_request": "tell me a fun fact about octopuses",
+      "response_text": "I can tell you that octopuses have three hearts! Two pump blood to the gills, and the third pumps it to the rest of the body, and it actually stops beating when they swim.",
+      "warm_ms_min": 1099.1122090490535,
+      "warm_ms_median": 1120.6862080143765,
+      "warm_ms_mean": 1117.1784030351166,
+      "warm_ms_replicates": [
+        1120.6862080143765,
+        1131.7367920419201,
+        1099.1122090490535
+      ],
+      "response_chars": 171,
+      "response_words": 34,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "dc.opinion",
+      "family": "direct_chat",
+      "user_request": "what's the difference between machine learning and ai",
+      "response_text": "I am a conversational assistant, not an expert in machine learning or AI. However, I can tell you that artificial intelligence (AI) is a broader concept that includes machine learning, which is a subset of AI focused on enabling systems to learn from data. If you'd like a more detailed explanation, feel free to ask!",
+      "warm_ms_min": 1709.003874915652,
+      "warm_ms_median": 1784.3939170707017,
+      "warm_ms_mean": 1770.6486666575074,
+      "warm_ms_replicates": [
+        1818.5482079861686,
+        1784.3939170707017,
+        1709.003874915652
+      ],
+      "response_chars": 317,
+      "response_words": 55,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "cb.time_running_late",
+      "family": "combine",
+      "user_request": "what time is it because im running late",
+      "response_text": "The current time is 3:42 PM. Since you're running late, let me know if you need help with anything else.",
+      "warm_ms_min": 766.2871660431847,
+      "warm_ms_median": 797.6760829333216,
+      "warm_ms_mean": 788.6297636820624,
+      "warm_ms_replicates": [
+        801.926042069681,
+        797.6760829333216,
+        766.2871660431847
+      ],
+      "response_chars": 104,
+      "response_words": 20,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "cb.weather_picnic",
+      "family": "combine",
+      "user_request": "whats the weather like im planning a picnic this afternoon",
+      "response_text": "The weather this afternoon in San Francisco will be 72F and partly cloudy, which is ideal for your picnic. Since you're planning a picnic, you might want to bring a light blanket or umbrella just in case. Enjoy your outdoor time!",
+      "warm_ms_min": 1301.8986249808222,
+      "warm_ms_median": 1421.130583039485,
+      "warm_ms_mean": 1381.5038333414122,
+      "warm_ms_replicates": [
+        1421.4822920039296,
+        1421.130583039485,
+        1301.8986249808222
+      ],
+      "response_chars": 229,
+      "response_words": 41,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "cb.directions_traffic",
+      "family": "combine",
+      "user_request": "how long to drive to the airport im worried about traffic",
+      "response_text": "The drive to the airport is 22 miles and typically takes about 35 minutes via US-101 N. I noticed you're worried about traffic, so would you like real-time traffic updates or alternative routes?",
+      "warm_ms_min": 1183.4756669122726,
+      "warm_ms_median": 1185.6693750014529,
+      "warm_ms_mean": 1188.1359029794112,
+      "warm_ms_replicates": [
+        1185.6693750014529,
+        1183.4756669122726,
+        1195.2626670245081
+      ],
+      "response_chars": 194,
+      "response_words": 33,
+      "error": ""
+    },
+    {
+      "model": "qwen3:8b",
+      "prompt_id": "eo.knicks_score",
+      "family": "direct_chat",
+      "user_request": "whats the score of the knicks game",
+      "response_text": "I currently don't have the latest score for the Knicks game. Could you please confirm the date or provide more details about the game?",
+      "warm_ms_min": 740.9784579649568,
+      "warm_ms_median": 980.0143750617281,
+      "warm_ms_mean": 903.5347499884665,
+      "warm_ms_replicates": [
+        989.6114169387147,
+        980.0143750617281,
+        740.9784579649568
+      ],
+      "response_chars": 134,
+      "response_words": 24,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "dc.json_acronym",
+      "family": "direct_chat",
+      "user_request": "what does json stand for",
+      "response_text": "I think JSON stands for JavaScript Object Notation. It's a lightweight data interchange format used to represent structured data in a human-readable way.",
+      "warm_ms_min": 704.2482079705223,
+      "warm_ms_median": 705.7309590745717,
+      "warm_ms_mean": 707.9328333493322,
+      "warm_ms_replicates": [
+        713.8193330029026,
+        704.2482079705223,
+        705.7309590745717
+      ],
+      "response_chars": 153,
+      "response_words": 23,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "dc.ring_privacy",
+      "family": "direct_chat",
+      "user_request": "do my ring cameras spy on me",
+      "response_text": "I'm not aware of any specific features in Ring cameras that would allow them to spy on users. However, I can tell you that some Ring devices have a feature called \"Shared Users\" which allows friends and family to access live video feeds with your permission. It's always a good idea to review the settings and permissions on your device to ensure it's configured as you intend.",
+      "warm_ms_min": 1498.3054590411484,
+      "warm_ms_median": 1508.5082079749554,
+      "warm_ms_mean": 1605.5657223332673,
+      "warm_ms_replicates": [
+        1508.5082079749554,
+        1498.3054590411484,
+        1809.8834999836981
+      ],
+      "response_chars": 377,
+      "response_words": 67,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "dc.wifi_slow",
+      "family": "direct_chat",
+      "user_request": "why is my wifi so slow",
+      "response_text": "I'd be happy to help with that! There are a few possible reasons why your WiFi might be slow. One common cause is interference from other devices in the area, such as cordless phones or microwaves, which can disrupt your internet signal. You could try moving your router to a different location or switching off any nearby devices that might be causing the issue.",
+      "warm_ms_min": 920.0450000353158,
+      "warm_ms_median": 985.7743750326335,
+      "warm_ms_mean": 1210.6325140145298,
+      "warm_ms_replicates": [
+        920.0450000353158,
+        985.7743750326335,
+        1726.0781669756398
+      ],
+      "response_chars": 363,
+      "response_words": 64,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "dc.casual_chat",
+      "family": "direct_chat",
+      "user_request": "tell me a fun fact about octopuses",
+      "response_text": "Octopuses have been observed using tools in the wild. I've read that they use shells to build shelters and even use rocks to open shells for food. It's quite fascinating!",
+      "warm_ms_min": 904.8573329346254,
+      "warm_ms_median": 1156.7941659595817,
+      "warm_ms_mean": 1086.730527652738,
+      "warm_ms_replicates": [
+        1198.5400840640068,
+        1156.7941659595817,
+        904.8573329346254
+      ],
+      "response_chars": 170,
+      "response_words": 30,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "dc.opinion",
+      "family": "direct_chat",
+      "user_request": "what's the difference between machine learning and ai",
+      "response_text": "I'd be happy to help clarify that! Machine learning is a subset of Artificial Intelligence (AI) that focuses on developing algorithms that can learn from data and improve their performance over time. AI, on the other hand, encompasses a broader range of techniques, including machine learning, but also includes areas like natural language processing, computer vision, and expert systems.",
+      "warm_ms_min": 1305.076250107959,
+      "warm_ms_median": 1502.9842080548406,
+      "warm_ms_mean": 1494.8062083761517,
+      "warm_ms_replicates": [
+        1305.076250107959,
+        1502.9842080548406,
+        1676.358166965656
+      ],
+      "response_chars": 388,
+      "response_words": 59,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "cb.time_running_late",
+      "family": "combine",
+      "user_request": "what time is it because im running late",
+      "response_text": "It's currently 3:42 PM. I couldn't find any information about your location or time zone to provide a more specific answer. Is there a particular time zone you'd like the current time for?",
+      "warm_ms_min": 768.77683296334,
+      "warm_ms_median": 1011.9055830873549,
+      "warm_ms_mean": 949.7360277067249,
+      "warm_ms_replicates": [
+        768.77683296334,
+        1068.5256670694798,
+        1011.9055830873549
+      ],
+      "response_chars": 188,
+      "response_words": 33,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "cb.weather_picnic",
+      "family": "combine",
+      "user_request": "whats the weather like im planning a picnic this afternoon",
+      "response_text": "The weather is expected to be partly cloudy with a high of 72F in San Francisco this afternoon. However, I couldn't find any information about the specific location you're planning your picnic at - could you please tell me which city or area you'll be having it?",
+      "warm_ms_min": 1289.1674590064213,
+      "warm_ms_median": 1292.8292920114473,
+      "warm_ms_mean": 1315.7844866703574,
+      "warm_ms_replicates": [
+        1292.8292920114473,
+        1365.356708993204,
+        1289.1674590064213
+      ],
+      "response_chars": 262,
+      "response_words": 47,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "cb.directions_traffic",
+      "family": "combine",
+      "user_request": "how long to drive to the airport im worried about traffic",
+      "response_text": "It will take approximately 35 minutes to drive to the airport via US-101 N. However, I'd like to clarify: are you planning to leave immediately or do you have some flexibility in your schedule?",
+      "warm_ms_min": 1022.8601669659838,
+      "warm_ms_median": 1077.6585830608383,
+      "warm_ms_mean": 1101.4433193486184,
+      "warm_ms_replicates": [
+        1077.6585830608383,
+        1203.811208019033,
+        1022.8601669659838
+      ],
+      "response_chars": 193,
+      "response_words": 34,
+      "error": ""
+    },
+    {
+      "model": "llama3.1:8b",
+      "prompt_id": "eo.knicks_score",
+      "family": "direct_chat",
+      "user_request": "whats the score of the knicks game",
+      "response_text": "The New York Knicks' score is not available in the current information. Can you please specify which game you are referring to?",
+      "warm_ms_min": 558.7059580720961,
+      "warm_ms_median": 613.1695420481265,
+      "warm_ms_mean": 604.717000038363,
+      "warm_ms_replicates": [
+        558.7059580720961,
+        613.1695420481265,
+        642.2754999948665
+      ],
+      "response_chars": 127,
+      "response_words": 22,
+      "error": ""
+    }
+  ],
+  "summaries": [
+    {
+      "model": "gemma4:e4b",
+      "direct_chat_avg_warm_ms": 858.8824303393873,
+      "combine_avg_warm_ms": 595.3533473269393,
+      "overall_avg_warm_ms": 771.0394026685713,
+      "overall_median_warm_ms": 824.4823750574142,
+      "overall_p95_warm_ms": 1073.6110410653055,
+      "successful_runs": 9,
+      "failed_runs": 0,
+      "avg_response_words": 29.88888888888889
+    },
+    {
+      "model": "gemma4:e2b",
+      "direct_chat_avg_warm_ms": 550.8490274660289,
+      "combine_avg_warm_ms": 451.6870276226352,
+      "overall_avg_warm_ms": 517.795027518231,
+      "overall_median_warm_ms": 566.6972909821197,
+      "overall_p95_warm_ms": 611.9116669287905,
+      "successful_runs": 9,
+      "failed_runs": 0,
+      "avg_response_words": 28.666666666666668
+    },
+    {
+      "model": "gemma:2b",
+      "direct_chat_avg_warm_ms": 403.103242861107,
+      "combine_avg_warm_ms": 390.43961100590724,
+      "overall_avg_warm_ms": 398.88203224270706,
+      "overall_median_warm_ms": 391.3143330719322,
+      "overall_p95_warm_ms": 459.4129170291126,
+      "successful_runs": 9,
+      "failed_runs": 0,
+      "avg_response_words": 28.11111111111111
+    },
+    {
+      "model": "qwen3:4b",
+      "direct_chat_avg_warm_ms": 3664.064187653518,
+      "combine_avg_warm_ms": 3739.922139327973,
+      "overall_avg_warm_ms": 3689.350171545003,
+      "overall_median_warm_ms": 3638.541084015742,
+      "overall_p95_warm_ms": 3909.980457974598,
+      "successful_runs": 9,
+      "failed_runs": 0,
+      "avg_response_words": 166
+    },
+    {
+      "model": "qwen3:8b",
+      "direct_chat_avg_warm_ms": 1239.7585486954388,
+      "combine_avg_warm_ms": 1134.8253469914198,
+      "overall_avg_warm_ms": 1204.7808147940991,
+      "overall_median_warm_ms": 1185.6693750014529,
+      "overall_p95_warm_ms": 1421.130583039485,
+      "successful_runs": 9,
+      "failed_runs": 0,
+      "avg_response_words": 35.888888888888886
+    },
+    {
+      "model": "llama3.1:8b",
+      "direct_chat_avg_warm_ms": 1078.826909690785,
+      "combine_avg_warm_ms": 1127.4644860532135,
+      "overall_avg_warm_ms": 1095.0394351449277,
+      "overall_median_warm_ms": 1077.6585830608383,
+      "overall_p95_warm_ms": 1502.9842080548406,
+      "successful_runs": 9,
+      "failed_runs": 0,
+      "avg_response_words": 42.111111111111114
+    }
+  ]
+}

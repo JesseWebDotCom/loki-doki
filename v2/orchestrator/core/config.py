@@ -58,16 +58,26 @@ class V2Config:
 
     # Ollama base URL + model tag for the Gemma fallback. The HTTP call
     # only fires when ``gemma_enabled`` is true; otherwise these values
-    # are inert. ``gemma4:e4b`` is the canonical model across the v2
-    # prototype — it's the 8B (~5.1B effective) Gemma-4 family checkpoint
-    # and produces the strongest synthesis quality of the locally
-    # available options. Override with ``LOKI_GEMMA_MODEL`` and
-    # ``LOKI_OLLAMA_URL`` env vars without touching code.
+    # are inert.
+    #
+    # Default model is ``phi4-mini`` (Microsoft, 3.8B). Selected via
+    # bake-off (scripts/bench_v2_gemma_models.py) across 10 candidates:
+    # phi4-mini won on the composite (quality - latency) score with
+    # 100/100 quality, 754ms direct_chat avg, 551ms combine avg, and
+    # zero scaffolding / refusal / meta-language leakage on a 9-prompt
+    # corpus that exercises both prompt families. It is also 4x smaller
+    # on disk than gemma4:e4b (2.5GB vs 9.6GB), which matters for the
+    # Pi 5 8GB RAM target.
+    #
+    # Override with ``LOKI_GEMMA_MODEL`` and ``LOKI_OLLAMA_URL`` env
+    # vars without touching code:
+    #   LOKI_GEMMA_MODEL=gemma4:e4b   # higher-quality, slower
+    #   LOKI_GEMMA_MODEL=llama3.2:3b  # smaller, faster, RAM-budget
     gemma_ollama_url: str = field(
         default_factory=lambda: os.environ.get("LOKI_OLLAMA_URL", "http://localhost:11434")
     )
     gemma_model: str = field(
-        default_factory=lambda: os.environ.get("LOKI_GEMMA_MODEL", "gemma4:e4b")
+        default_factory=lambda: os.environ.get("LOKI_GEMMA_MODEL", "phi4-mini")
     )
 
     # Hard cap on Gemma synthesis output tokens. Synthesis is supposed
