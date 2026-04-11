@@ -33,6 +33,10 @@ DIRECT_UTILITY_CAPABILITIES = {
     "get_movie_showtimes",
     "lookup_person_birthday",
     "knowledge_query",
+    # direct_chat is the conversational catch-all. Its handler echoes the
+    # chunk text so the chunk text *is* the answer — pronouns inside it
+    # ("fix it", "explain it") are not referents that need binding.
+    "direct_chat",
 }
 
 # Pronoun → preferred entity types (best-effort guess from English usage).

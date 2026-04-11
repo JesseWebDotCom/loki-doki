@@ -244,17 +244,45 @@ def _weather_handler(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _showtimes_handler(payload: dict[str, Any]) -> dict[str, Any]:
     """Stub movie-showtimes provider used by the v2 prototype."""
-    chunk_text = str(payload.get("chunk_text") or "").lower()
-    title = "the requested movie"
-    # Pull a noun-ish title fragment for a friendlier stub answer.
+    chunk_text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
+    title = _extract_showtimes_title(chunk_text)
+    return {"output_text": f"Showtimes for {title}: 4:30 PM, 7:00 PM, and 9:45 PM."}
+
+
+def _extract_showtimes_title(chunk_text: str) -> str:
+    """Best-effort title extraction from a showtimes utterance.
+
+    Three strategies, in order:
+      1. ``movie times for X (in/at/on ...)?`` — pull X.
+      2. ``what time is the X movie playing`` — pull X + "movie".
+      3. Fallback: the chunk text itself.
+    """
+    if not chunk_text:
+        return "the requested movie"
+
+    stop_after = (" in ", " at ", " on ", " near ", " for ", " tonight", " tomorrow", " today")
+
+    if " for " in chunk_text:
+        tail = chunk_text.split(" for ", 1)[1]
+        for marker in stop_after:
+            if marker in tail and not marker.startswith(" for"):
+                tail = tail.split(marker, 1)[0]
+        candidate = tail.strip()
+        if candidate:
+            return candidate
+
     for marker in (" movie ", " film "):
         if marker in chunk_text:
             head = chunk_text.split(marker, 1)[0]
-            tokens = [tok for tok in head.split() if tok not in {"what", "time", "is", "the", "new", "when", "does"}]
+            tokens = [
+                tok
+                for tok in head.split()
+                if tok not in {"what", "time", "is", "the", "a", "an", "new", "when", "does", "show", "me"}
+            ]
             if tokens:
-                title = " ".join(tokens) + " movie"
-            break
-    return {"output_text": f"Showtimes for {title}: 4:30 PM, 7:00 PM, and 9:45 PM."}
+                return " ".join(tokens) + " movie"
+
+    return "the requested movie"
 
 
 def _person_birthday_handler(payload: dict[str, Any]) -> dict[str, Any]:

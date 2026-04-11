@@ -4,8 +4,17 @@ from __future__ import annotations
 import asyncio
 import math
 
+from v2.orchestrator.core.config import CONFIG
 from v2.orchestrator.core.types import RequestChunk, RouteMatch
 from v2.orchestrator.registry.runtime import CapabilityRuntime, get_runtime
+
+# Hard floor on cosine similarity. When the best registry match scores
+# below this, the router refuses to commit to that capability and falls
+# back to ``direct_chat`` (which the combiner / Gemma fallback then turns
+# into a generic clarification response). Without this floor MiniLM picks
+# its best-of-noise match for every vague utterance — "fix this" routes
+# to ``acknowledgment_response`` because "got it" is the closest example.
+ROUTE_FLOOR = 0.45
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -29,6 +38,11 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
     best_text = ""
 
     for item in active_runtime.router_index:
+        if item["capability"] == "direct_chat":
+            # direct_chat is the floor-based fallback, never the
+            # best-cosine winner — its examples are intentionally vague
+            # and would otherwise dominate the index.
+            continue
         texts = item.get("texts") or []
         vectors = item.get("vectors") or []
         for text, vector in zip(texts, vectors, strict=True):
@@ -37,6 +51,13 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
                 best_score = score
                 best_capability = item["capability"]
                 best_text = text
+
+    if best_score < ROUTE_FLOOR:
+        # Best match was noise — defer to the conversational fallback so
+        # the combiner / Gemma layer can ask for clarification instead of
+        # confidently running the wrong skill.
+        best_capability = "direct_chat"
+        best_text = ""
 
     confidence = max(best_score, 0.55 if best_capability == "direct_chat" else best_score)
     return RouteMatch(

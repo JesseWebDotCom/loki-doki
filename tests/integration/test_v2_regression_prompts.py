@@ -19,6 +19,8 @@ Supported per-case ``expect`` keys:
 - ``max_step_ms`` (dict[str, float] — per-step timing ceiling; only the
   steps named are checked)
 - ``max_total_ms`` (float — total pipeline timing ceiling)
+- ``tone_signal`` / ``interaction_signal`` (str — equality check on the
+  detected tone / interaction signal)
 
 Per-step / total timings are validated against a *warmed* pipeline. The
 fixture is run twice and only the second run is timed, so spaCy /
@@ -163,4 +165,14 @@ async def test_v2_regression_prompt(case):
         assert actual_total <= expect["max_total_ms"], (
             f"{case['id']}: total pipeline took {actual_total}ms "
             f"(limit {expect['max_total_ms']}ms)"
+        )
+
+    if "tone_signal" in expect:
+        assert result.signals.tone_signal == expect["tone_signal"], (
+            f"{case['id']}: tone_signal={result.signals.tone_signal}"
+        )
+
+    if "interaction_signal" in expect:
+        assert result.signals.interaction_signal == expect["interaction_signal"], (
+            f"{case['id']}: interaction_signal={result.signals.interaction_signal}"
         )

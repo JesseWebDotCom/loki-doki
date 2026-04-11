@@ -14,7 +14,20 @@ def detect_interaction_signals(cleaned_text: str) -> InteractionSignalResult:
             urgency="low",
             confidence=0.9,
         )
-    if any(phrase in lower for phrase in ("dammit", "ugh", "this is annoying")):
+    frustration_phrases = (
+        "dammit",
+        "ugh",
+        "this is annoying",
+        "i'm frustrated",
+        "im frustrated",
+        "i am frustrated",
+        "so frustrated",
+        "this sucks",
+        "wtf",
+        "for crying out loud",
+        "give me a break",
+    )
+    if any(phrase in lower for phrase in frustration_phrases):
         return InteractionSignalResult(
             interaction_signal="none",
             tone_signal="frustration",

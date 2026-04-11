@@ -222,7 +222,7 @@
   },
   {
     "capability": "knowledge_query",
-    "description": "Answer a general factual or trivia question that needs world knowledge (people, places, history, science, media facts).",
+    "description": "Answer a general factual, definitional, explanatory, comparative, or troubleshooting question that needs world knowledge (people, places, history, science, media facts, how things work, why things happen, definitions, comparisons).",
     "examples": [
       "who is arthur miller",
       "what is the runtime of the godfather",
@@ -231,7 +231,20 @@
       "who invented the lightbulb",
       "what year did world war 2 end",
       "how tall is mount everest",
-      "what is the capital of france"
+      "what is the capital of france",
+      "define photosynthesis",
+      "what does cpu stand for",
+      "explain how wifi works",
+      "explain how a battery works",
+      "why is the sky blue",
+      "why do leaves change color in fall",
+      "what is the difference between a virus and bacteria",
+      "what's the difference between ram and rom",
+      "how do i fix slow wifi",
+      "why is my phone battery draining so fast",
+      "how do i stay motivated",
+      "what is the best laptop for gaming",
+      "how do you make sourdough bread"
     ],
     "enabled": true,
     "implementations": [

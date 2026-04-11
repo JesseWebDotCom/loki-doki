@@ -322,6 +322,347 @@
         "supporting_context_chunk_count": 0,
         "max_total_ms": 600
       }
+    },
+    {
+      "id": "chatgpt_table.fastpath.greeting_hi_there",
+      "utterance": "Hi there",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "greeting_response",
+        "response_contains": "hello",
+        "max_total_ms": 200
+      }
+    },
+    {
+      "id": "chatgpt_table.fastpath.thanks",
+      "utterance": "Thanks",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "acknowledgment_response",
+        "response_contains": "welcome",
+        "max_total_ms": 200
+      }
+    },
+    {
+      "id": "chatgpt_table.fastpath.spell_how_do_i_variant",
+      "utterance": "How do I spell restaurant",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "spell_word",
+        "response_contains": "restaurant",
+        "max_total_ms": 200
+      }
+    },
+    {
+      "id": "chatgpt_table.knowledge.define_photosynthesis",
+      "utterance": "Define photosynthesis",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "photosynthesis",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.knowledge.why_sky_blue",
+      "utterance": "Why is the sky blue",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "sky",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.knowledge.cpu_acronym",
+      "utterance": "What does CPU stand for",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "cpu",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.knowledge.explain_wifi",
+      "utterance": "Explain how WiFi works",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "wifi",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.knowledge.virus_vs_bacteria",
+      "utterance": "What's the difference between a virus and bacteria",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "response_contains": "virus",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.skill.convert_miles_to_km",
+      "utterance": "Convert 10 miles to kilometers",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": true,
+        "capability": "convert_units",
+        "response_contains": "16",
+        "response_contains_all": ["16", "kilometer"],
+        "max_total_ms": 200
+      }
+    },
+    {
+      "id": "chatgpt_table.skill.weather_today",
+      "utterance": "What's the weather today",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "get_weather",
+        "gemma_used": false,
+        "response_contains": "weather",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.skill.weather_tomorrow",
+      "utterance": "What's the weather tomorrow",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "get_weather",
+        "gemma_used": false,
+        "response_contains": "weather",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.skill.time_in_tokyo",
+      "utterance": "What time is it in Tokyo",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "get_current_time",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.skill.plan_trip_to_nyc_falls_to_chat",
+      "utterance": "Plan a 3 day trip to NYC",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.multi.time_because_movie_supporting_context",
+      "utterance": "What time is it because I don't want to miss my 8pm movie",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "primary_chunk_count": 1,
+        "supporting_context_chunk_count": 1,
+        "capability": "get_current_time",
+        "gemma_reason": "supporting_context",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.multi.fix_code_and_explain_it_splits",
+      "utterance": "Fix my code and explain it",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "primary_chunk_count": 2,
+        "supporting_context_chunk_count": 0,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.noisy.fix_slow_wifi",
+      "utterance": "how do i fix my wfi its slow",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.noisy.best_laptop_for_gaming",
+      "utterance": "wat is best laptop 4 gaming under 1000",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.noisy.phone_battery_drain",
+      "utterance": "why my phone battery die so fast",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.emotional.feel_stuck_falls_to_chat",
+      "utterance": "I feel stuck in life",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.emotional.frustrated_tone_signal",
+      "utterance": "I'm frustrated my code isn't working",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "tone_signal": "frustration",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.emotional.stay_motivated",
+      "utterance": "How do I stay motivated",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "knowledge_query",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.tool.movie_times_inception_zip",
+      "utterance": "Show me movie times for Inception in 06461",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "get_movie_showtimes",
+        "gemma_used": false,
+        "response_contains": "inception",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.tool.turn_on_lights",
+      "utterance": "Turn on the lights",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "control_device",
+        "gemma_used": false,
+        "response_contains": "lights",
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.writing.refund_email_falls_to_chat",
+      "utterance": "Write a professional email asking for a refund",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.writing.summarize_article_falls_to_chat",
+      "utterance": "Summarize this article",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.edge.is_this_good_falls_to_chat",
+      "utterance": "Is this good",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.edge.fix_this_falls_to_chat",
+      "utterance": "Fix this",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.edge.thoughts_falls_to_chat",
+      "utterance": "Thoughts",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.tech.debug_error_falls_to_chat",
+      "utterance": "Debug this error",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
+    },
+    {
+      "id": "chatgpt_table.tech.write_python_scraper_falls_to_chat",
+      "utterance": "Write a Python scraper",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "gemma_used": false,
+        "max_total_ms": 500
+      }
     }
   ]
 }

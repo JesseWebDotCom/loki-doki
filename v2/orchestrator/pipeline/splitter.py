@@ -186,8 +186,24 @@ def _looks_like_command(lower: str) -> bool:
         "text ",
         "call ",
         "remind ",
+        "fix ",
+        "explain ",
+        "explain it",
+        "write ",
+        "debug ",
+        "summarize ",
+        "summarise ",
+        "translate ",
+        "convert ",
+        "create ",
+        "generate ",
+        "rewrite ",
+        "review ",
+        "find ",
+        "look up",
+        "search ",
     )
-    return lower.startswith(command_starts)
+    return lower.startswith(command_starts) or lower in {"explain it", "fix it", "debug it"}
 
 
 def _string_only_split(text: str) -> list[RequestChunk]:

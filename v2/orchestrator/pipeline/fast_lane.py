@@ -69,7 +69,9 @@ DATE_TEMPLATES = (
     "what day of the week is it",
     "what is today",
 )
-SPELL_PATTERN = re.compile(r"^(?:how (?:do you|would you) )?spell (?P<word>[a-zA-Z][a-zA-Z\-']*)$")
+SPELL_PATTERN = re.compile(
+    r"^(?:how (?:do you|do i|would you|would i) )?spell (?P<word>[a-zA-Z][a-zA-Z\-']*)$"
+)
 PERCENT_PATTERN = re.compile(
     r"^(?P<n>\d+(?:\.\d+)?)\s*(?:percent|%)\s*of\s*(?P<m>\d+(?:\.\d+)?)$"
 )
@@ -80,45 +82,76 @@ PERCENT_PATTERN = re.compile(
 # Adding a new conversion is a one-line table edit, no rule code needed.
 
 _UNIT_ALIASES: dict[str, str] = {
-    # volume
+    # volume — US customary
     "gallon": "gallon", "gallons": "gallon", "gal": "gallon",
     "quart": "quart", "quarts": "quart", "qt": "quart", "qts": "quart",
     "pint": "pint", "pints": "pint", "pt": "pint", "pts": "pint",
     "cup": "cup", "cups": "cup",
-    # length
+    # volume — metric
+    "liter": "liter", "liters": "liter", "litre": "liter", "litres": "liter", "l": "liter",
+    # length — US customary
     "mile": "mile", "miles": "mile", "mi": "mile",
     "yard": "yard", "yards": "yard", "yd": "yard", "yds": "yard",
     "foot": "foot", "feet": "foot", "ft": "foot",
     "inch": "inch", "inches": "inch", "in": "inch",
-    "kilometer": "kilometer", "kilometers": "kilometer", "km": "kilometer",
-    "meter": "meter", "meters": "meter", "m": "meter",
-    "centimeter": "centimeter", "centimeters": "centimeter", "cm": "centimeter",
-    # mass
+    # length — metric
+    "kilometer": "kilometer", "kilometers": "kilometer", "kilometre": "kilometer",
+    "kilometres": "kilometer", "km": "kilometer", "kms": "kilometer",
+    "meter": "meter", "meters": "meter", "metre": "meter", "metres": "meter", "m": "meter",
+    "centimeter": "centimeter", "centimeters": "centimeter",
+    "centimetre": "centimeter", "centimetres": "centimeter", "cm": "centimeter",
+    # mass — US customary
     "pound": "pound", "pounds": "pound", "lb": "pound", "lbs": "pound",
     "ounce": "ounce", "ounces": "ounce", "oz": "ounce",
+    # mass — metric
+    "kilogram": "kilogram", "kilograms": "kilogram", "kg": "kilogram", "kgs": "kilogram",
+    "gram": "gram", "grams": "gram", "g": "gram",
 }
 
 # (smaller_unit, larger_unit) -> count of smaller in one larger.
 _UNIT_RATIOS: dict[tuple[str, str], float] = {
-    # volume
+    # volume — US customary
     ("quart", "gallon"): 4,
     ("pint", "gallon"): 8,
     ("cup", "gallon"): 16,
     ("pint", "quart"): 2,
     ("cup", "quart"): 4,
     ("cup", "pint"): 2,
-    # length
+    # length — US customary
     ("foot", "mile"): 5280,
     ("yard", "mile"): 1760,
     ("inch", "mile"): 63360,
     ("inch", "foot"): 12,
     ("foot", "yard"): 3,
     ("inch", "yard"): 36,
+    # length — metric
     ("meter", "kilometer"): 1000,
     ("centimeter", "meter"): 100,
     ("centimeter", "kilometer"): 100000,
-    # mass
+    # length — cross-system (US ↔ metric)
+    ("meter", "mile"): 1609.344,
+    ("centimeter", "mile"): 160934.4,
+    ("centimeter", "foot"): 30.48,
+    ("centimeter", "inch"): 2.54,
+    ("centimeter", "yard"): 91.44,
+    ("meter", "yard"): 0.9144,
+    # mass — US customary
     ("ounce", "pound"): 16,
+}
+
+# Direct ratios for unit pairs that don't fit the (smaller, larger) frame —
+# typically when the relationship is fractional both ways and we want a
+# friendlier reading. ``_RATIOS_DIRECT[(from, to)] = factor`` such that
+# ``to_amount = from_amount * factor``.
+_RATIOS_DIRECT: dict[tuple[str, str], float] = {
+    ("mile", "kilometer"): 1.609344,
+    ("kilometer", "mile"): 0.621371,
+    ("pound", "kilogram"): 0.453592,
+    ("kilogram", "pound"): 2.20462,
+    ("gallon", "liter"): 3.78541,
+    ("liter", "gallon"): 0.264172,
+    ("ounce", "gram"): 28.3495,
+    ("gram", "ounce"): 0.035274,
 }
 
 _TEMP_ALIASES: dict[str, str] = {
@@ -390,6 +423,7 @@ def _ratio_convert(amount: float, from_unit: str, to_unit: str) -> str | None:
         return None
     if canonical_from == canonical_to:
         return f"{_format_number(amount)} {_pluralize(canonical_to, amount)}"
+    # First try the (smaller, larger) ratio table.
     direct = _UNIT_RATIOS.get((canonical_to, canonical_from))
     if direct is not None:
         result = amount * direct
@@ -398,6 +432,11 @@ def _ratio_convert(amount: float, from_unit: str, to_unit: str) -> str | None:
     if inverse is not None:
         result = amount / inverse
         return f"{_format_number(result)} {_pluralize(canonical_to, result)}"
+    # Fall through to the cross-system direct table (mile↔km, lb↔kg, ...).
+    direct_factor = _RATIOS_DIRECT.get((canonical_from, canonical_to))
+    if direct_factor is not None:
+        result = amount * direct_factor
+        return f"{_format_number(round(result, 4))} {_pluralize(canonical_to, result)}"
     return None
 
 
