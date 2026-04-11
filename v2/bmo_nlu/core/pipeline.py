@@ -71,15 +71,30 @@ def run_pipeline(raw_text: str) -> PipelineResult:
     finish = trace.timed("route")
     routes = [route_chunk(chunk) for chunk in chunks]
     finish(
-        capabilities=[route.capability for route in routes],
-        confidences=[route.confidence for route in routes],
+        chunks=[
+            {
+                "chunk_index": route.chunk_index,
+                "text": chunk.text,
+                "capability": route.capability,
+                "confidence": route.confidence,
+            }
+            for chunk, route in zip(chunks, routes, strict=True)
+        ],
     )
 
     finish = trace.timed("resolve")
     resolutions = resolve_chunks(chunks, extractions, routes)
     finish(
-        resolved_targets=[item.resolved_target for item in resolutions],
-        sources=[item.source for item in resolutions],
+        chunks=[
+            {
+                "chunk_index": resolution.chunk_index,
+                "text": chunk.text,
+                "resolved_target": resolution.resolved_target,
+                "source": resolution.source,
+                "confidence": resolution.confidence,
+            }
+            for chunk, resolution in zip(chunks, resolutions, strict=True)
+        ],
     )
 
     finish = trace.timed("execute")
@@ -88,8 +103,15 @@ def run_pipeline(raw_text: str) -> PipelineResult:
         for chunk, route, resolution in zip(chunks, routes, resolutions, strict=True)
     ]
     finish(
-        count=len(executions),
-        outputs=[execution.output_text for execution in executions],
+        chunks=[
+            {
+                "chunk_index": execution.chunk_index,
+                "text": chunk.text,
+                "capability": execution.capability,
+                "output_text": execution.output_text,
+            }
+            for chunk, execution in zip(chunks, executions, strict=True)
+        ],
     )
 
     finish = trace.timed("request_spec")

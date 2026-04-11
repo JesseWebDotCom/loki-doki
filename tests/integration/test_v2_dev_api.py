@@ -69,3 +69,5 @@ async def test_v2_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
     assert len(body["resolutions"]) == 2
     assert body["request_spec"]["original_request"] == "hello and how do you spell restaurant"
     assert body["trace_summary"]["slowest_step_name"] in {step["name"] for step in body["trace"]["steps"]}
+    route_step = next(step for step in body["trace"]["steps"] if step["name"] == "route")
+    assert route_step["details"]["chunks"][1]["capability"] == "spell_word"

@@ -67,3 +67,16 @@ def test_v2_pipeline_builds_request_spec_and_trace_summary():
     assert result.request_spec.chunks[1].params["resolved_target"] == "necessary"
     assert result.trace_summary.total_timing_ms >= 0.0
     assert result.trace_summary.slowest_step_name in [step.name for step in result.trace.steps]
+
+
+def test_v2_pipeline_trace_contains_per_chunk_stage_details():
+    result = run_pipeline("hello and how do you spell restaurant")
+
+    route_step = next(step for step in result.trace.steps if step.name == "route")
+    resolve_step = next(step for step in result.trace.steps if step.name == "resolve")
+    execute_step = next(step for step in result.trace.steps if step.name == "execute")
+
+    assert route_step.details["chunks"][0]["capability"] == "greeting_response"
+    assert route_step.details["chunks"][1]["capability"] == "spell_word"
+    assert resolve_step.details["chunks"][1]["resolved_target"] == "restaurant"
+    assert execute_step.details["chunks"][1]["output_text"] == "restaurant"
