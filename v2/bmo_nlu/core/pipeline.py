@@ -4,7 +4,13 @@ from __future__ import annotations
 import asyncio
 import time
 
-from v2.bmo_nlu.core.types import ParsedInput, PipelineResult, ResponseObject, TraceData, TraceSummary
+from v2.bmo_nlu.core.types import (
+    ParsedInput,
+    PipelineResult,
+    ResponseObject,
+    TraceData,
+    TraceSummary,
+)
 from v2.bmo_nlu.execution.executor import execute_chunk, execute_chunk_async
 from v2.bmo_nlu.execution.request_spec import build_request_spec
 from v2.bmo_nlu.pipeline.combiner import combine_outputs
@@ -55,9 +61,17 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
             chunks=[],
             extractions=[],
             routes=[],
+            implementations=[],
             resolutions=[],
             executions=[],
-            request_spec=build_request_spec(raw_text=raw_text, chunks=[], routes=[], resolutions=[], executions=[]),
+            request_spec=build_request_spec(
+                raw_text=raw_text,
+                chunks=[],
+                routes=[],
+                implementations=[],
+                resolutions=[],
+                executions=[],
+            ),
             response=response,
             trace=trace,
             trace_summary=_build_trace_summary(trace),
@@ -95,6 +109,28 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
         ],
     )
 
+    finish = trace.timed("select_implementation")
+    selected = list(
+        await asyncio.gather(*(_timed_select(chunk.index, route.capability, runtime) for chunk, route in zip(chunks, routes, strict=True)))
+    )
+    implementations = [item["implementation"] for item in selected]
+    finish(
+        chunks=[
+            {
+                "chunk_index": item["implementation"].chunk_index,
+                "text": chunk.text,
+                "capability": item["implementation"].capability,
+                "handler_name": item["implementation"].handler_name,
+                "implementation_id": item["implementation"].implementation_id,
+                "priority": item["implementation"].priority,
+                "candidate_count": item["implementation"].candidate_count,
+                "candidates": item["candidates"],
+                "timing_ms": item["timing_ms"],
+            }
+            for chunk, item in zip(chunks, selected, strict=True)
+        ],
+    )
+
     finish = trace.timed("resolve")
     resolved = list(
         await asyncio.gather(
@@ -123,8 +159,14 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
     executed = list(
         await asyncio.gather(
             *(
-                _timed_execute(chunk, route, resolution)
-                for chunk, route, resolution in zip(chunks, routes, resolutions, strict=True)
+                _timed_execute(chunk, route, implementation, resolution)
+                for chunk, route, implementation, resolution in zip(
+                    chunks,
+                    routes,
+                    implementations,
+                    resolutions,
+                    strict=True,
+                )
             )
         )
     )
@@ -147,6 +189,7 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
         raw_text=raw_text,
         chunks=chunks,
         routes=routes,
+        implementations=implementations,
         resolutions=resolutions,
         executions=executions,
     )
@@ -164,6 +207,7 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
         chunks=chunks,
         extractions=extractions,
         routes=routes,
+        implementations=implementations,
         resolutions=resolutions,
         executions=executions,
         request_spec=request_spec,
@@ -192,13 +236,36 @@ async def _timed_route(chunk, runtime):
     return {"route": route, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
 
 
+async def _timed_select(chunk_index, capability, runtime):
+    started = time.perf_counter()
+    implementation = runtime.select_handler(chunk_index, capability)
+    candidates = sorted(
+        [
+            {
+                "id": str(item.get("id") or ""),
+                "handler_name": str(item.get("handler_name") or ""),
+                "priority": int(item.get("priority", 999)),
+                "enabled": bool(item.get("enabled", True)),
+            }
+            for item in (runtime.capabilities.get(capability) or {}).get("implementations", [])
+            if item.get("enabled", True)
+        ],
+        key=lambda item: item["priority"],
+    )
+    return {
+        "implementation": implementation,
+        "candidates": candidates,
+        "timing_ms": round((time.perf_counter() - started) * 1000, 3),
+    }
+
+
 async def _timed_resolve(chunk, extraction, route):
     started = time.perf_counter()
     resolution = await resolve_chunk_async(chunk, extraction, route)
     return {"resolution": resolution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
 
 
-async def _timed_execute(chunk, route, resolution):
+async def _timed_execute(chunk, route, implementation, resolution):
     started = time.perf_counter()
-    execution = await execute_chunk_async(chunk, route, resolution)
+    execution = await execute_chunk_async(chunk, route, implementation, resolution)
     return {"execution": execution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}

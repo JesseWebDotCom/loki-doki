@@ -300,6 +300,15 @@ export interface V2RunResponse {
     chunk_index: number;
     capability: string;
     confidence: number;
+    matched_text: string;
+  }>;
+  implementations: Array<{
+    chunk_index: number;
+    capability: string;
+    handler_name: string;
+    implementation_id: string;
+    priority: number;
+    candidate_count: number;
   }>;
   resolutions: Array<{
     chunk_index: number;
@@ -320,6 +329,9 @@ export interface V2RunResponse {
       role: string;
       capability: string;
       confidence: number;
+      handler_name: string;
+      implementation_id: string;
+      candidate_count: number;
       params: Record<string, unknown>;
       result: Record<string, unknown>;
       success: boolean;

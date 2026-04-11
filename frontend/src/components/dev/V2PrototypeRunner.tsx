@@ -129,19 +129,22 @@ const V2PrototypeRunner: React.FC = () => {
               {result.chunks.map((chunk, index) => {
                 const extraction = result.extractions.find((item) => item.chunk_index === chunk.index);
                 const route = result.routes.find((item) => item.chunk_index === chunk.index);
+                const implementation = result.implementations.find((item) => item.chunk_index === chunk.index);
                 const resolution = result.resolutions.find((item) => item.chunk_index === chunk.index);
                 const execution = result.executions.find((item) => item.chunk_index === chunk.index);
                 const routeTrace = result.trace.steps.find((step) => step.name === 'route')?.details?.chunks as Array<Record<string, unknown>> | undefined;
+                const implementationTrace = result.trace.steps.find((step) => step.name === 'select_implementation')?.details?.chunks as Array<Record<string, unknown>> | undefined;
                 const resolveTrace = result.trace.steps.find((step) => step.name === 'resolve')?.details?.chunks as Array<Record<string, unknown>> | undefined;
                 const executeTrace = result.trace.steps.find((step) => step.name === 'execute')?.details?.chunks as Array<Record<string, unknown>> | undefined;
                 const routeTiming = Number(routeTrace?.find((item) => item.chunk_index === chunk.index)?.timing_ms ?? 0);
+                const implementationTiming = Number(implementationTrace?.find((item) => item.chunk_index === chunk.index)?.timing_ms ?? 0);
                 const resolveTiming = Number(resolveTrace?.find((item) => item.chunk_index === chunk.index)?.timing_ms ?? 0);
                 const executeTiming = Number(executeTrace?.find((item) => item.chunk_index === chunk.index)?.timing_ms ?? 0);
                 return (
                   <div key={chunk.index} className="rounded-xl border border-border/20 bg-background/40 p-3">
                     <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Chunk {index + 1}</div>
                     <div className="mt-2 text-sm font-medium">{chunk.text}</div>
-                    <div className="mt-3 grid gap-2 md:grid-cols-3">
+                    <div className="mt-3 grid gap-2 md:grid-cols-4">
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Extract</div>
                         <div className="mt-1 text-[11px] text-muted-foreground">
@@ -159,6 +162,21 @@ const V2PrototypeRunner: React.FC = () => {
                         <div className="text-[11px] text-muted-foreground">
                           matched on {(routeTrace?.find((item) => item.chunk_index === chunk.index)?.matched_text as string | undefined) ?? 'n/a'}
                         </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Implementation</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {implementation?.handler_name ?? 'none'} · {implementationTiming.toFixed(2)} ms
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {(implementation?.implementation_id ?? 'n/a')} (p{implementation?.priority ?? 0})
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {implementation?.candidate_count ?? 0} candidates
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Resolve</div>
                         <div className="text-[11px] text-muted-foreground">
                           {resolution?.resolved_target ?? 'none'} via {resolution?.source ?? 'none'} · {resolveTiming.toFixed(2)} ms
                         </div>

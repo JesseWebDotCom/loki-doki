@@ -66,8 +66,12 @@ async def test_v2_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
     assert all("timing_ms" in step for step in body["trace"]["steps"])
     assert body["parsed"]["token_count"] >= 1
     assert len(body["extractions"]) == 2
+    assert len(body["implementations"]) == 2
     assert len(body["resolutions"]) == 2
     assert body["request_spec"]["original_request"] == "hello and how do you spell restaurant"
     assert body["trace_summary"]["slowest_step_name"] in {step["name"] for step in body["trace"]["steps"]}
     route_step = next(step for step in body["trace"]["steps"] if step["name"] == "route")
+    select_step = next(step for step in body["trace"]["steps"] if step["name"] == "select_implementation")
     assert route_step["details"]["chunks"][1]["capability"] == "spell_word"
+    assert select_step["details"]["chunks"][1]["handler_name"] == "core.dictionary.spell"
+    assert select_step["details"]["chunks"][1]["candidate_count"] == 2

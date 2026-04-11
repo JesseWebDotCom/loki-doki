@@ -60,6 +60,16 @@ class RouteMatch:
 
 
 @dataclass(slots=True)
+class ImplementationSelection:
+    chunk_index: int
+    capability: str
+    handler_name: str
+    implementation_id: str
+    priority: int
+    candidate_count: int = 0
+
+
+@dataclass(slots=True)
 class ResolutionResult:
     chunk_index: int
     resolved_target: str
@@ -85,6 +95,9 @@ class RequestChunkResult:
     role: str
     capability: str
     confidence: float
+    handler_name: str = ""
+    implementation_id: str = ""
+    candidate_count: int = 0
     params: dict[str, Any] = field(default_factory=dict)
     result: dict[str, Any] = field(default_factory=dict)
     success: bool = True
@@ -158,6 +171,7 @@ class PipelineResult:
     chunks: list[RequestChunk]
     extractions: list[ChunkExtraction]
     routes: list[RouteMatch]
+    implementations: list[ImplementationSelection]
     resolutions: list[ResolutionResult]
     executions: list[ExecutionResult]
     request_spec: RequestSpec

@@ -1262,6 +1262,13 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** End-to-end request handling with deterministic logic only.
 
+**Status:** Completed
+
+**Completed in repo:**
+- Isolated `v2/` prototype runner exposed only through Dev Tools
+- Normalize, signals, fast-lane, parse, split, extract, resolve, execute, combine, and RequestSpec stages
+- Full structured trace with step status, per-step timing, and per-chunk timing/details in the Dev Tools UI
+
 **Build:**
 - `normalizer.py`
 - `parser.py` (spaCy, single parse)
@@ -1285,6 +1292,19 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 
 **Goal:** Replace brittle string routing with semantic similarity.
 
+**Status:** In progress
+
+**Completed in repo:**
+- Registry-backed routing runtime
+- Static capability registry in `v2/data/function_registry.json`
+- Confidence scores surfaced in trace
+- Matched registry text surfaced in trace and Dev Tools
+- Concrete implementation selection stage added after routing, with handler id, priority, candidate count, and timing
+
+**Remaining for this phase:**
+- Swap the current deterministic similarity scorer for real MiniLM embeddings
+- Add startup embedding/index build behavior instead of text-only runtime scoring
+
 **Build:**
 - `registry/loader.py`
 - `registry/builder.py`
@@ -1302,6 +1322,11 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 ### Phase 3 — Real Resolver
 
 **Goal:** Resolve people, devices, movies, and pronouns using local data.
+
+**Status:** Not started
+
+**Notes:**
+- Current prototype resolver is still deterministic and local-only, but it is not yet wired to real people/device/media adapters.
 
 **Build:**
 - `resolution/people_resolver.py`
@@ -1323,6 +1348,17 @@ See [Section 6, Parallel: Interaction & Tone Signals](#parallel-interaction--ton
 ### Phase 4 — Parallel Execution
 
 **Goal:** Reduce latency for compound requests.
+
+**Status:** Partially completed
+
+**Completed in repo:**
+- Pipeline converted to `async`
+- `asyncio.gather()` used for route / select implementation / resolve / execute
+- Per-step and per-chunk timing visible in trace and Dev Tools
+
+**Remaining for this phase:**
+- Add `asyncio.to_thread()` wrappers where blocking libraries are introduced
+- Measure and document sequential vs parallel latency once real adapters are connected
 
 **Build:**
 - Convert pipeline to `async`

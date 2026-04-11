@@ -46,7 +46,20 @@ def test_v2_pipeline_handles_obvious_compound_request_end_to_end():
     assert result.parsed.token_count > 0
     assert len(result.extractions) == 2
     assert len(result.resolutions) == 2
-    assert [step.status for step in result.trace.steps] == ["done", "done", "bypassed", "done", "done", "done", "done", "done", "done", "done", "done"]
+    assert [step.status for step in result.trace.steps] == [
+        "done",
+        "done",
+        "bypassed",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+    ]
     assert all(step.timing_ms >= 0.0 for step in result.trace.steps)
 
 
@@ -66,6 +79,8 @@ def test_v2_pipeline_builds_request_spec_and_trace_summary():
     assert result.request_spec.original_request == "hello and how do you spell necessary"
     assert len(result.request_spec.chunks) == 2
     assert result.request_spec.chunks[0].capability == "greeting_response"
+    assert result.request_spec.chunks[0].handler_name == "core.greetings.reply"
+    assert result.request_spec.chunks[1].candidate_count == 2
     assert result.request_spec.chunks[1].params["resolved_target"] == "necessary"
     assert result.trace_summary.total_timing_ms >= 0.0
     assert result.trace_summary.slowest_step_name in [step.name for step in result.trace.steps]
@@ -75,6 +90,7 @@ def test_v2_pipeline_trace_contains_per_chunk_stage_details():
     result = run_pipeline("hello and how do you spell restaurant")
 
     route_step = next(step for step in result.trace.steps if step.name == "route")
+    select_step = next(step for step in result.trace.steps if step.name == "select_implementation")
     resolve_step = next(step for step in result.trace.steps if step.name == "resolve")
     execute_step = next(step for step in result.trace.steps if step.name == "execute")
 
@@ -82,6 +98,10 @@ def test_v2_pipeline_trace_contains_per_chunk_stage_details():
     assert route_step.details["chunks"][1]["capability"] == "spell_word"
     assert "spell restaurant" in route_step.details["chunks"][1]["matched_text"]
     assert route_step.details["chunks"][0]["timing_ms"] >= 0.0
+    assert select_step.details["chunks"][1]["handler_name"] == "core.dictionary.spell"
+    assert select_step.details["chunks"][1]["candidate_count"] == 2
+    assert select_step.details["chunks"][1]["candidates"][0]["priority"] == 5
+    assert select_step.details["chunks"][1]["timing_ms"] >= 0.0
     assert resolve_step.details["chunks"][1]["resolved_target"] == "restaurant"
     assert resolve_step.details["chunks"][1]["timing_ms"] >= 0.0
     assert execute_step.details["chunks"][1]["output_text"] == "restaurant"
@@ -94,5 +114,10 @@ async def test_v2_async_pipeline_matches_sync_shape():
 
     assert [chunk.text for chunk in result.chunks] == ["hello", "how do you spell restaurant"]
     assert [route.capability for route in result.routes] == ["greeting_response", "spell_word"]
+    assert [implementation.handler_name for implementation in result.implementations] == [
+        "core.greetings.reply",
+        "core.dictionary.spell",
+    ]
+    assert result.implementations[1].candidate_count == 2
     assert [resolution.resolved_target for resolution in result.resolutions] == ["greeting", "restaurant"]
     assert result.response.output_text.lower().startswith("hello")

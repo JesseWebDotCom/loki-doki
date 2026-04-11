@@ -4,21 +4,31 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 
-from v2.bmo_nlu.core.types import ExecutionResult, RequestChunk, ResolutionResult, RouteMatch
+from v2.bmo_nlu.core.types import (
+    ExecutionResult,
+    ImplementationSelection,
+    RequestChunk,
+    ResolutionResult,
+    RouteMatch,
+)
 
 
-def execute_chunk(chunk: RequestChunk, route: RouteMatch, resolution: ResolutionResult) -> ExecutionResult:
+def execute_chunk(
+    chunk: RequestChunk,
+    route: RouteMatch,
+    implementation: ImplementationSelection,
+    resolution: ResolutionResult,
+) -> ExecutionResult:
     """Execute a routed chunk with simple deterministic handlers."""
     capability = route.capability
-    lower = chunk.text.lower().strip()
 
-    if capability == "greeting_response":
+    if implementation.handler_name == "core.greetings.reply":
         output = "Hello."
-    elif capability == "acknowledgment_response":
+    elif implementation.handler_name == "core.acknowledgments.reply":
         output = "You're welcome."
-    elif capability == "spell_word":
+    elif implementation.handler_name == "core.dictionary.spell":
         output = resolution.resolved_target
-    elif capability == "get_current_time":
+    elif implementation.handler_name == "core.time.get_local_time":
         output = datetime.now().strftime("%-I:%M %p")
     else:
         output = chunk.text
@@ -29,8 +39,9 @@ def execute_chunk(chunk: RequestChunk, route: RouteMatch, resolution: Resolution
 async def execute_chunk_async(
     chunk: RequestChunk,
     route: RouteMatch,
+    implementation: ImplementationSelection,
     resolution: ResolutionResult,
 ) -> ExecutionResult:
     """Async wrapper for future parallel execution."""
     await asyncio.sleep(0)
-    return execute_chunk(chunk, route, resolution)
+    return execute_chunk(chunk, route, implementation, resolution)

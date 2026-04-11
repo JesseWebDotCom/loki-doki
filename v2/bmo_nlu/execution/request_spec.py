@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from v2.bmo_nlu.core.types import (
     ExecutionResult,
+    ImplementationSelection,
     RequestChunk,
     RequestChunkResult,
     RequestSpec,
@@ -16,17 +17,20 @@ def build_request_spec(
     raw_text: str,
     chunks: list[RequestChunk],
     routes: list[RouteMatch],
+    implementations: list[ImplementationSelection],
     resolutions: list[ResolutionResult],
     executions: list[ExecutionResult],
 ) -> RequestSpec:
     """Build the structured snapshot used before final combination."""
     route_by_chunk = {item.chunk_index: item for item in routes}
+    implementation_by_chunk = {item.chunk_index: item for item in implementations}
     resolution_by_chunk = {item.chunk_index: item for item in resolutions}
     execution_by_chunk = {item.chunk_index: item for item in executions}
 
     spec_chunks: list[RequestChunkResult] = []
     for chunk in chunks:
         route = route_by_chunk[chunk.index]
+        implementation = implementation_by_chunk[chunk.index]
         resolution = resolution_by_chunk[chunk.index]
         execution = execution_by_chunk[chunk.index]
         spec_chunks.append(
@@ -35,6 +39,9 @@ def build_request_spec(
                 role=chunk.role,
                 capability=route.capability,
                 confidence=route.confidence,
+                handler_name=implementation.handler_name,
+                implementation_id=implementation.implementation_id,
+                candidate_count=implementation.candidate_count,
                 params={
                     "resolved_target": resolution.resolved_target,
                     "source": resolution.source,
