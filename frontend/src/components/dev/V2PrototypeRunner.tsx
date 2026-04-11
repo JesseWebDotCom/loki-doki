@@ -9,6 +9,73 @@ const SAMPLE_PROMPT = 'hello and how do you spell restaurant';
 type DevTab = 'request' | 'skills';
 
 /**
+ * Pull a "Produced by" badge line out of a v2 run so the reader can see
+ * — at a glance — which subsystem actually wrote the response. The
+ * options are mutually exclusive in priority order:
+ *
+ *   1. Fast-lane match → answered by the deterministic fast lane.
+ *   2. Gemma used      → synthesized by the LLM fallback.
+ *   3. Skill executed  → answered by the named skill (we surface the
+ *      capability, handler, mechanism, and confidence so it's obvious
+ *      whether the route was strong, borderline, or a guess).
+ *   4. Nothing useful  → flag it loudly so we don't ship a blank reply.
+ */
+const buildSourceBadges = (result: V2RunResponse): string[] => {
+  const badges: string[] = [];
+
+  if (result.fast_lane.matched) {
+    badges.push(`🚀 fast-lane: \`${result.fast_lane.capability ?? 'unknown'}\``);
+    return badges;
+  }
+
+  const primaryChunk = result.request_spec.chunks.find(
+    (chunk) => chunk.role === 'primary_request',
+  );
+  const primaryExecution = primaryChunk
+    ? result.executions.find((exec) => exec.capability === primaryChunk.capability)
+    : result.executions[0];
+  const capability = primaryChunk?.capability ?? primaryExecution?.capability ?? 'unknown';
+  const handler = primaryChunk?.handler_name ?? primaryExecution?.handler_name ?? '?';
+  const confidence = primaryChunk?.confidence;
+  const mechanism = primaryExecution?.raw_result?.mechanism_used as string | undefined;
+  const success = primaryExecution?.success ?? primaryChunk?.success;
+  const outputText = result.response.output_text?.trim() ?? '';
+
+  if (result.request_spec.gemma_used) {
+    const reason = result.request_spec.gemma_reason ?? 'fallback';
+    badges.push(`🧠 gemma: \`${reason}\``);
+    badges.push(`↳ skill attempted: \`${capability}\` via \`${handler}\``);
+    if (mechanism) badges.push(`↳ mechanism: \`${mechanism}\``);
+    if (typeof confidence === 'number') {
+      badges.push(`↳ route confidence: ${confidence.toFixed(2)}`);
+    }
+    return badges;
+  }
+
+  if (capability === 'direct_chat') {
+    badges.push('⚠️ direct_chat (echo) — no skill matched and Gemma did not run');
+    return badges;
+  }
+
+  if (success === false) {
+    badges.push(`❌ skill failed: \`${capability}\` via \`${handler}\``);
+    return badges;
+  }
+
+  if (!outputText) {
+    badges.push(`⚠️ skill returned empty: \`${capability}\` via \`${handler}\``);
+    return badges;
+  }
+
+  badges.push(`🛠️ skill: \`${capability}\` via \`${handler}\``);
+  if (mechanism) badges.push(`↳ mechanism: \`${mechanism}\``);
+  if (typeof confidence === 'number') {
+    badges.push(`↳ route confidence: ${confidence.toFixed(2)}`);
+  }
+  return badges;
+};
+
+/**
  * Build a markdown blob containing the user prompt, the v2 trace, and the
  * final response so the user can paste a complete reproduction into an
  * issue / chat. Kept here (not in a util module) because it is the only
@@ -17,6 +84,11 @@ type DevTab = 'request' | 'skills';
 const buildCopyBlob = (prompt: string, result: V2RunResponse): string => {
   const lines: string[] = [];
   lines.push('# v2 prototype run');
+  lines.push('');
+  lines.push('## Produced by');
+  for (const badge of buildSourceBadges(result)) {
+    lines.push(`- ${badge}`);
+  }
   lines.push('');
   lines.push('## Prompt');
   lines.push('```');
@@ -182,6 +254,16 @@ const V2PrototypeRunner: React.FC = () => {
                     {copied ? <Check size={12} /> : <Copy size={12} />}
                     {copied ? 'Copied' : 'Copy run'}
                   </button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {buildSourceBadges(result).map((badge, index) => (
+                    <span
+                      key={`${badge}-${index}`}
+                      className="rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary"
+                    >
+                      {badge}
+                    </span>
+                  ))}
                 </div>
                 <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm font-medium text-foreground">
                   {result.response.output_text || <span className="italic text-muted-foreground">No output</span>}

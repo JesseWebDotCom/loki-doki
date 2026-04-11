@@ -70,21 +70,44 @@ Rules:
 - For unresolved chunks, ask one short clarifying question.
 - Honor any supporting_context clauses (motivation, deadlines, etc.).
 - Keep the response under three sentences unless the user asked for detail.
+- NEVER describe the request itself, the spec, "the user", "chunks",
+  "the output text", or any internal terminology. Speak directly to the
+  user as a helpful assistant. The user must never see meta-language.
 
 RequestSpec (JSON): {spec}
 """
+
+
+DIRECT_CHAT_PROMPT = """You are LokiDoki, a friendly conversational assistant.
+The user asked a question that none of LokiDoki's specialised skills
+matched, so you are answering directly from your own knowledge.
+
+Rules:
+- Answer the user's question directly and concisely.
+- Speak in the first person ("I"), as a helpful assistant talking to the user.
+- Never mention "the request", "the spec", "chunks", "output text",
+  "RequestSpec", "the user", or any other internal terminology.
+- Never restate or summarise the question. Just answer it.
+- Keep the answer to 1–3 sentences unless the user clearly asked for detail.
+- If you genuinely don't know, say so briefly and suggest one rephrase.
+
+User's question: {user_question}
+
+Your answer:"""
 
 
 _REQUIRED_SLOTS = {
     "split": frozenset({"utterance"}),
     "resolve": frozenset({"chunk_text", "capability", "unresolved", "context"}),
     "combine": frozenset({"spec"}),
+    "direct_chat": frozenset({"user_question"}),
 }
 
 _TEMPLATES: dict[str, str] = {
     "split": SPLIT_PROMPT,
     "resolve": RESOLVE_PROMPT,
     "combine": COMBINE_PROMPT,
+    "direct_chat": DIRECT_CHAT_PROMPT,
 }
 
 

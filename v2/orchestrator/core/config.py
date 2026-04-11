@@ -58,10 +58,17 @@ class V2Config:
 
     # Ollama base URL + model tag for the Gemma fallback. The HTTP call
     # only fires when ``gemma_enabled`` is true; otherwise these values
-    # are inert. The default model tag matches a small Gemma function
-    # model that fits CLAUDE.md's "Skills-First, LLM-Last" budget.
-    gemma_ollama_url: str = "http://localhost:11434"
-    gemma_model: str = "gemma3:270m"
+    # are inert. ``gemma4:e4b`` is the canonical model across the v2
+    # prototype — it's the 8B (~5.1B effective) Gemma-4 family checkpoint
+    # and produces the strongest synthesis quality of the locally
+    # available options. Override with ``LOKI_GEMMA_MODEL`` and
+    # ``LOKI_OLLAMA_URL`` env vars without touching code.
+    gemma_ollama_url: str = field(
+        default_factory=lambda: os.environ.get("LOKI_OLLAMA_URL", "http://localhost:11434")
+    )
+    gemma_model: str = field(
+        default_factory=lambda: os.environ.get("LOKI_GEMMA_MODEL", "gemma4:e4b")
+    )
 
     # Hard cap on Gemma synthesis output tokens. Synthesis is supposed
     # to be a single short response, so the budget stays tight.

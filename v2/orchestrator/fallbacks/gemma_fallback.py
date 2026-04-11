@@ -87,9 +87,35 @@ def build_gemma_payload(spec: RequestSpec) -> dict[str, Any]:
 
 
 def build_combine_prompt(spec: RequestSpec) -> str:
-    """Render the combine prompt that the Gemma client would send."""
+    """Render the combine prompt that the Gemma client would send.
+
+    Two prompt families:
+
+    * ``direct_chat`` — when the router fell through with no matching
+      skill, the only thing in the spec is the user's verbatim
+      utterance. We render the ``direct_chat`` template so Gemma
+      answers the question directly from its own knowledge instead of
+      writing a meta-summary about the spec.
+    * ``combine`` — when one or more skills produced output and we
+      just need to weave them into a single natural-language reply.
+    """
+    if _is_direct_chat_only(spec):
+        return render_prompt("direct_chat", user_question=spec.original_request)
     payload = build_gemma_payload(spec)
     return render_prompt("combine", spec=json.dumps(payload, ensure_ascii=False))
+
+
+def _is_direct_chat_only(spec: RequestSpec) -> bool:
+    """True when every primary chunk routed to ``direct_chat``.
+
+    This is the case where the deterministic combiner has nothing to
+    combine — the executor's echo handler returned the input verbatim
+    and there is no real skill output to synthesize.
+    """
+    primary = [chunk for chunk in spec.chunks if chunk.role == "primary_request"]
+    if not primary:
+        return False
+    return all(chunk.capability == "direct_chat" for chunk in primary)
 
 
 def build_split_prompt(utterance: str) -> str:
@@ -138,12 +164,24 @@ async def gemma_synthesize_async(spec: RequestSpec) -> ResponseObject:
     pipeline.
     """
     if not CONFIG.gemma_enabled:
+        # Disabled-stub is the configured behavior under tests, not a
+        # degradation — leave ``gemma_reason`` untouched so callers
+        # that exact-match it still pass.
         return _stub_synthesize(spec)
     try:
         return await _call_real_gemma(spec)
     except Exception as exc:  # noqa: BLE001 - we never want Gemma to break the pipeline
-        log.warning("Gemma fallback degraded to stub: %s", exc)
-        spec.gemma_reason = (spec.gemma_reason or "") + " (degraded:gemma_error)"
+        log.warning(
+            "Gemma fallback degraded to stub: model=%s url=%s error=%s",
+            CONFIG.gemma_model,
+            CONFIG.gemma_ollama_url,
+            exc,
+        )
+        # Surface the underlying error on the spec so the dev tools UI
+        # can show *why* the call failed instead of just "skipped".
+        spec.gemma_reason = (
+            f"{spec.gemma_reason or ''} (degraded:{type(exc).__name__}:{exc})"
+        ).strip()
         return _stub_synthesize(spec)
 
 

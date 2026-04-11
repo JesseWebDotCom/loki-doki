@@ -90,6 +90,77 @@ async def test_call_gemma_uses_injected_factory(gemma_enabled):
     assert call["num_predict"] == v2_config.CONFIG.gemma_num_predict
 
 
+def _spec_direct_chat_only(question: str) -> RequestSpec:
+    """Build a RequestSpec mirroring the executor's direct_chat path:
+    one primary chunk routed to direct_chat with the input echoed
+    back as ``output_text``."""
+    return RequestSpec(
+        trace_id="trace-dc",
+        original_request=question,
+        chunks=[
+            RequestChunkResult(
+                text=question,
+                role="primary_request",
+                capability="direct_chat",
+                confidence=0.55,
+                success=True,
+                result={"output_text": question},
+            )
+        ],
+        gemma_used=True,
+        gemma_reason="direct_chat",
+    )
+
+
+@pytest.mark.anyio
+async def test_direct_chat_prompt_asks_question_not_spec_summary(gemma_enabled):
+    """When the only chunk is direct_chat, the prompt sent to Gemma must
+    use the conversational template (asking the user's question
+    directly), NOT the combine template that asks Gemma to summarize a
+    RequestSpec — that's the bug that produced
+    'The primary request, "do my ring cameras spy on me," was
+    successfully processed with the output text...'"""
+    fake = FakeInferenceClient(response="Ring cameras can record audio and video; check the privacy settings.")
+    set_inference_client_factory(lambda: fake)
+
+    spec = _spec_direct_chat_only("do my ring cameras spy on me")
+    response = await gemma_synthesize_async(spec)
+
+    assert "Ring cameras" in response.output_text
+    assert len(fake.calls) == 1
+    sent_prompt = fake.calls[0]["prompt"]
+    # The conversational template includes the user-question slot.
+    assert "User's question: do my ring cameras spy on me" in sent_prompt
+    # The combine template's literal "RequestSpec (JSON):" header (the
+    # marker that Gemma was being asked to summarize a spec) MUST NOT
+    # appear. The direct_chat template *names* "RequestSpec" in its
+    # rule list ("never mention RequestSpec…"), so a substring check
+    # for the bare word would false-positive.
+    assert "RequestSpec (JSON):" not in sent_prompt
+
+
+def test_build_combine_prompt_uses_combine_template_when_skill_output_present():
+    """Skill chunks (e.g. get_current_time + supporting context) must
+    still go through the combine template, not the direct_chat one."""
+    from v2.orchestrator.fallbacks.gemma_fallback import build_combine_prompt
+
+    prompt = build_combine_prompt(_spec_with_supporting_context())
+    assert "RequestSpec (JSON):" in prompt
+    assert "what time is it" in prompt
+    assert "because im late" in prompt
+    # Direct-chat marker MUST NOT appear when there's a real skill chunk.
+    assert "User's question:" not in prompt
+
+
+def test_build_combine_prompt_uses_direct_chat_template_for_direct_chat_only():
+    from v2.orchestrator.fallbacks.gemma_fallback import build_combine_prompt
+
+    prompt = build_combine_prompt(_spec_direct_chat_only("what does json stand for"))
+    assert "User's question: what does json stand for" in prompt
+    # The combine template's RequestSpec header must NOT be sent.
+    assert "RequestSpec (JSON):" not in prompt
+
+
 @pytest.mark.anyio
 async def test_gemma_synthesize_async_calls_real_path_when_enabled(gemma_enabled):
     fake = FakeInferenceClient(response="It's 3:42 PM and you still have time.")
@@ -117,7 +188,10 @@ async def test_gemma_synthesize_async_degrades_to_stub_on_error(gemma_enabled):
     # raw error reaching the user.
     assert response.output_text  # never empty
     assert "Noted" in response.output_text or "3:42 PM" in response.output_text
-    assert spec.gemma_reason and "degraded:gemma_error" in spec.gemma_reason
+    # The reason now includes the underlying exception type + message
+    # so the dev tools UI can show *why* the call failed.
+    assert spec.gemma_reason and "degraded:" in spec.gemma_reason
+    assert "RuntimeError" in spec.gemma_reason
 
 
 @pytest.mark.anyio
@@ -144,4 +218,5 @@ async def test_gemma_synthesize_async_treats_empty_response_as_failure(gemma_ena
 
     # Empty Gemma reply degrades to stub, not propagated as blank.
     assert response.output_text != ""
-    assert spec.gemma_reason and "degraded:gemma_error" in spec.gemma_reason
+    assert spec.gemma_reason and "degraded:" in spec.gemma_reason
+    assert "empty response" in spec.gemma_reason

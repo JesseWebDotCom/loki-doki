@@ -14,8 +14,8 @@ from v2.orchestrator.fallbacks.gemma_fallback import (
 from v2.orchestrator.fallbacks.prompts import PromptRenderError, list_templates, render_prompt
 
 
-def test_list_templates_exposes_all_three_families():
-    assert set(list_templates()) == {"split", "resolve", "combine"}
+def test_list_templates_exposes_all_four_families():
+    assert set(list_templates()) == {"split", "resolve", "combine", "direct_chat"}
 
 
 def test_render_prompt_split_substitutes_utterance():
