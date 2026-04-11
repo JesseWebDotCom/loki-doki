@@ -13,7 +13,7 @@ from v2.orchestrator.core.types import (
 )
 from v2.orchestrator.execution.executor import execute_chunk_async
 from v2.orchestrator.execution.request_spec import build_request_spec
-from v2.orchestrator.fallbacks.gemma_fallback import decide_gemma, gemma_synthesize_async
+from v2.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
 from v2.orchestrator.observability.tracing import build_trace_summary, start_trace
 from v2.orchestrator.pipeline.combiner import combine_request_spec
 from v2.orchestrator.pipeline.extractor import extract_chunk_data
@@ -208,14 +208,14 @@ async def run_pipeline_async(
     )
     finish(chunk_count=len(request_spec.chunks), trace_id=request_spec.trace_id)
 
-    decision = decide_gemma(request_spec)
-    request_spec.gemma_used = decision.needed
-    request_spec.gemma_reason = decision.reason
+    decision = decide_llm(request_spec)
+    request_spec.llm_used = decision.needed
+    request_spec.llm_reason = decision.reason
 
     finish = trace.timed("combine")
     if decision.needed:
-        response = await gemma_synthesize_async(request_spec)
-        finish(mode="gemma", reason=decision.reason, output_text=response.output_text)
+        response = await llm_synthesize_async(request_spec)
+        finish(mode="llm", reason=decision.reason, output_text=response.output_text)
     else:
         response = combine_request_spec(request_spec)
         finish(mode="deterministic", output_text=response.output_text)

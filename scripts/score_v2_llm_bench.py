@@ -1,6 +1,6 @@
-"""Merge + score the two v2 Gemma bake-off runs.
+"""Merge + score the two v2 LLM bake-off runs.
 
-Input: /tmp/v2_gemma_bench_local.json + /tmp/v2_gemma_bench_new.json
+Input: /tmp/v2_llm_bench_local.json + /tmp/v2_llm_bench_new.json
 Output: stdout — combined leaderboard sorted by a quality-aware score.
 
 Quality grading is rule-based and conservative. We penalise:
@@ -135,8 +135,8 @@ def load_results(path: Path) -> list[dict]:
 def main() -> int:
     all_results: list[ScoredResult] = []
     for path in [
-        Path("/tmp/v2_gemma_bench_local.json"),
-        Path("/tmp/v2_gemma_bench_new.json"),
+        Path("/tmp/v2_llm_bench_local.json"),
+        Path("/tmp/v2_llm_bench_new.json"),
     ]:
         for r in load_results(path):
             if r.get("error"):

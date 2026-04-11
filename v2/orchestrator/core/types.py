@@ -130,8 +130,15 @@ class RequestSpec:
     supporting_context: list[str] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
     runtime_version: int = 2
-    gemma_used: bool = False
-    gemma_reason: str | None = None
+    llm_used: bool = False
+    llm_reason: str | None = None
+    # Exact Ollama model tag that produced the synthesized response.
+    # Set inside ``llm_synthesize_async`` when the real model path
+    # runs; ``None`` when the deterministic stub answered (the test /
+    # dev mode where ``CONFIG.llm_enabled`` is False). Surfaced via
+    # the API so the dev tools UI can show which model is actually
+    # being used.
+    llm_model: str | None = None
 
 
 @dataclass(slots=True)

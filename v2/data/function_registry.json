@@ -944,7 +944,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true
@@ -995,7 +995,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true
@@ -1036,7 +1036,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true
@@ -1085,7 +1085,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true
@@ -1129,7 +1129,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true
@@ -1464,7 +1464,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true
@@ -3190,7 +3190,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true
@@ -3268,7 +3268,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true
@@ -3378,7 +3378,7 @@
     },
     "mechanisms": [
       {
-        "method": "ollama_gemma",
+        "method": "ollama_llm",
         "priority": 1,
         "timeout_ms": 10000,
         "requires_internet": true

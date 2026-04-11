@@ -1,8 +1,8 @@
-"""Unit tests for the v2 Gemma fallback decision + stub synthesizer."""
+"""Unit tests for the v2 LLM fallback decision + stub synthesizer."""
 from __future__ import annotations
 
 from v2.orchestrator.core.types import RequestChunkResult, RequestSpec
-from v2.orchestrator.fallbacks.gemma_fallback import build_gemma_payload, decide_gemma, gemma_synthesize
+from v2.orchestrator.fallbacks.llm_fallback import build_llm_payload, decide_llm, llm_synthesize
 
 
 def _spec(chunks: list[RequestChunkResult], supporting: list[str] | None = None) -> RequestSpec:
@@ -14,7 +14,7 @@ def _spec(chunks: list[RequestChunkResult], supporting: list[str] | None = None)
     )
 
 
-def test_decide_gemma_skips_clean_single_chunk():
+def test_decide_llm_skips_clean_single_chunk():
     chunk = RequestChunkResult(
         text="hello",
         role="primary_request",
@@ -22,11 +22,11 @@ def test_decide_gemma_skips_clean_single_chunk():
         confidence=0.95,
         result={"output_text": "Hello."},
     )
-    decision = decide_gemma(_spec([chunk]))
+    decision = decide_llm(_spec([chunk]))
     assert decision.needed is False
 
 
-def test_decide_gemma_triggers_on_unresolved():
+def test_decide_llm_triggers_on_unresolved():
     chunk = RequestChunkResult(
         text="what was that movie",
         role="primary_request",
@@ -35,12 +35,12 @@ def test_decide_gemma_triggers_on_unresolved():
         unresolved=["recent_media"],
         success=False,
     )
-    decision = decide_gemma(_spec([chunk]))
+    decision = decide_llm(_spec([chunk]))
     assert decision.needed is True
     assert decision.reason == "unresolved_chunk"
 
 
-def test_decide_gemma_triggers_on_low_confidence():
+def test_decide_llm_triggers_on_low_confidence():
     # Use a non-direct_chat capability so we exercise the confidence
     # branch instead of the direct_chat short-circuit. Provide a real
     # output_text so we don't trip the empty_output branch first.
@@ -52,29 +52,29 @@ def test_decide_gemma_triggers_on_low_confidence():
         success=True,
         result={"output_text": "Some Wikipedia answer"},
     )
-    decision = decide_gemma(_spec([chunk]))
+    decision = decide_llm(_spec([chunk]))
     assert decision.needed is True
     assert decision.reason == "low_confidence"
 
 
-def test_decide_gemma_always_runs_for_direct_chat():
-    """direct_chat has no real backend — it must always hand off to Gemma."""
+def test_decide_llm_always_runs_for_direct_chat():
+    """direct_chat has no real backend — it must always hand off to LLM."""
     chunk = RequestChunkResult(
         text="what does json stand for",
         role="primary_request",
         capability="direct_chat",
-        confidence=0.95,  # even high confidence must not bypass Gemma
+        confidence=0.95,  # even high confidence must not bypass LLM
         success=True,
         result={"output_text": "what does json stand for"},
     )
-    decision = decide_gemma(_spec([chunk]))
+    decision = decide_llm(_spec([chunk]))
     assert decision.needed is True
     assert decision.reason == "direct_chat"
 
 
-def test_decide_gemma_triggers_on_empty_output():
+def test_decide_llm_triggers_on_empty_output():
     """A skill that returns success=True with no output_text must hand
-    off to Gemma — a blank response is a dead end for the user."""
+    off to LLM — a blank response is a dead end for the user."""
     chunk = RequestChunkResult(
         text="what's the score of the knicks game",
         role="primary_request",
@@ -83,12 +83,12 @@ def test_decide_gemma_triggers_on_empty_output():
         success=True,
         result={"output_text": "   "},  # whitespace-only counts as empty
     )
-    decision = decide_gemma(_spec([chunk]))
+    decision = decide_llm(_spec([chunk]))
     assert decision.needed is True
     assert decision.reason == "empty_output"
 
 
-def test_decide_gemma_triggers_on_missing_output_text_key():
+def test_decide_llm_triggers_on_missing_output_text_key():
     """Same as empty_output but the key is missing entirely."""
     chunk = RequestChunkResult(
         text="weather in atlantis",
@@ -98,13 +98,13 @@ def test_decide_gemma_triggers_on_missing_output_text_key():
         success=True,
         result={},
     )
-    decision = decide_gemma(_spec([chunk]))
+    decision = decide_llm(_spec([chunk]))
     assert decision.needed is True
     assert decision.reason == "empty_output"
 
 
-def test_decide_gemma_skips_when_output_text_is_present():
-    """Healthy skill output should NOT trigger Gemma."""
+def test_decide_llm_skips_when_output_text_is_present():
+    """Healthy skill output should NOT trigger LLM."""
     chunk = RequestChunkResult(
         text="what time is it",
         role="primary_request",
@@ -113,12 +113,12 @@ def test_decide_gemma_skips_when_output_text_is_present():
         success=True,
         result={"output_text": "3:42 PM"},
     )
-    decision = decide_gemma(_spec([chunk]))
+    decision = decide_llm(_spec([chunk]))
     assert decision.needed is False
 
 
-def test_decide_gemma_triggers_at_threshold_boundary():
-    """A route at exactly the confidence threshold must still trigger Gemma."""
+def test_decide_llm_triggers_at_threshold_boundary():
+    """A route at exactly the confidence threshold must still trigger LLM."""
     from v2.orchestrator.core.config import CONFIG
 
     chunk = RequestChunkResult(
@@ -129,12 +129,12 @@ def test_decide_gemma_triggers_at_threshold_boundary():
         success=True,
         result={"output_text": "Some borderline answer"},
     )
-    decision = decide_gemma(_spec([chunk]))
+    decision = decide_llm(_spec([chunk]))
     assert decision.needed is True
     assert decision.reason == "low_confidence"
 
 
-def test_decide_gemma_triggers_on_supporting_context_chunk():
+def test_decide_llm_triggers_on_supporting_context_chunk():
     primary = RequestChunkResult(
         text="what time is it",
         role="primary_request",
@@ -148,12 +148,12 @@ def test_decide_gemma_triggers_on_supporting_context_chunk():
         capability="",
         confidence=0.0,
     )
-    decision = decide_gemma(_spec([primary, supporting]))
+    decision = decide_llm(_spec([primary, supporting]))
     assert decision.needed is True
     assert decision.reason == "supporting_context"
 
 
-def test_gemma_synthesize_handles_missing_recent_movie():
+def test_llm_synthesize_handles_missing_recent_movie():
     chunk = RequestChunkResult(
         text="what was that movie",
         role="primary_request",
@@ -162,7 +162,7 @@ def test_gemma_synthesize_handles_missing_recent_movie():
         unresolved=["recent_media"],
         success=False,
     )
-    response = gemma_synthesize(_spec([chunk]))
+    response = llm_synthesize(_spec([chunk]))
     assert "don't have a recent movie" in response.output_text.lower()
 
 
@@ -185,8 +185,8 @@ def test_combiner_does_not_mirror_direct_chat_input():
     assert "built-in answer" in response.output_text.lower()
 
 
-def test_gemma_synthesize_does_not_mirror_direct_chat_input():
-    """When Gemma is disabled and direct_chat falls through to the stub,
+def test_llm_synthesize_does_not_mirror_direct_chat_input():
+    """When LLM is disabled and direct_chat falls through to the stub,
     the synthesizer must NOT echo the user's words back at them."""
     user_words = "what does json stand for"
     chunk = RequestChunkResult(
@@ -197,12 +197,12 @@ def test_gemma_synthesize_does_not_mirror_direct_chat_input():
         success=True,
         result={"output_text": user_words},  # the echo handler's output
     )
-    response = gemma_synthesize(_spec([chunk]))
+    response = llm_synthesize(_spec([chunk]))
     assert response.output_text != user_words
     assert "built-in answer" in response.output_text.lower()
 
 
-def test_gemma_synthesize_lists_ambiguous_movie_candidates():
+def test_llm_synthesize_lists_ambiguous_movie_candidates():
     chunk = RequestChunkResult(
         text="what was that movie",
         role="primary_request",
@@ -212,12 +212,12 @@ def test_gemma_synthesize_lists_ambiguous_movie_candidates():
         success=False,
         params={"candidates": ["Rogue One", "A New Hope"]},
     )
-    response = gemma_synthesize(_spec([chunk]))
+    response = llm_synthesize(_spec([chunk]))
     assert "Rogue One" in response.output_text
     assert "A New Hope" in response.output_text
 
 
-def test_build_gemma_payload_serialises_chunks_and_context():
+def test_build_llm_payload_serialises_chunks_and_context():
     chunk = RequestChunkResult(
         text="hello",
         role="primary_request",
@@ -226,7 +226,7 @@ def test_build_gemma_payload_serialises_chunks_and_context():
     )
     spec = _spec([chunk])
     spec.context = {"recent_entities": []}
-    payload = build_gemma_payload(spec)
+    payload = build_llm_payload(spec)
     assert payload["original_request"] == "test"
     assert payload["chunks"][0]["capability"] == "greeting_response"
     assert "recent_entities" in payload["context_keys"]

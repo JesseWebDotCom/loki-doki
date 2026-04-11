@@ -10,7 +10,7 @@ from v2.orchestrator.registry.runtime import CapabilityRuntime, get_runtime
 
 # Hard floor on cosine similarity. When the best registry match scores
 # below this, the router refuses to commit to that capability and falls
-# back to ``direct_chat`` (which the combiner / Gemma fallback then turns
+# back to ``direct_chat`` (which the combiner / LLM fallback then turns
 # into a generic clarification response). Without this floor MiniLM picks
 # its best-of-noise match for every vague utterance — "fix this" routes
 # to ``acknowledgment_response`` because "got it" is the closest example.
@@ -54,7 +54,7 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
 
     if best_score < ROUTE_FLOOR:
         # Best match was noise — defer to the conversational fallback so
-        # the combiner / Gemma layer can ask for clarification instead of
+        # the combiner / LLM layer can ask for clarification instead of
         # confidently running the wrong skill.
         best_capability = "direct_chat"
         best_text = ""

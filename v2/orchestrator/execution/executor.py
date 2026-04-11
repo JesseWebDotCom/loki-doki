@@ -3,7 +3,7 @@
 Each handler is dispatched through :func:`run_handler`, which adds a
 per-call timeout and a configurable retry budget. The executor never
 raises into the pipeline — failures are captured on
-:class:`ExecutionResult` so the combiner / Gemma fallback can decide
+:class:`ExecutionResult` so the combiner / LLM fallback can decide
 how to surface them.
 """
 from __future__ import annotations
@@ -259,7 +259,7 @@ def _echo_handler(payload: dict[str, Any]) -> dict[str, Any]:
 # (inheriting its fallback chain and offline caches) or implement an
 # offline-first mechanism chain backed by a curated KB and a persistent
 # JSON store under ``v2/data/``. Generative capabilities call
-# ``llm_skills`` which talks to Ollama when ``CONFIG.gemma_enabled`` is
+# ``llm_skills`` which talks to Ollama when ``CONFIG.llm_enabled`` is
 # True and degrades to deterministic stubs otherwise. ``SKILL_STUBS.md``
 # tracks the remaining LLM-fallback stubs and any cross-cutting work.
 

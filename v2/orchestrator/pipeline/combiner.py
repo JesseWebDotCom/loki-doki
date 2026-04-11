@@ -13,12 +13,12 @@ def combine_request_spec(spec: RequestSpec) -> ResponseObject:
         if chunk.capability == "direct_chat":
             # The direct_chat handler is an echo, so its output_text is
             # whatever the user said. Never deliver that as the answer.
-            # ``decide_gemma`` is supposed to route direct_chat to Gemma
+            # ``decide_llm`` is supposed to route direct_chat to LLM
             # before we get here; this branch is a defensive guard for
-            # the case where Gemma is unavailable and the synthesizer
+            # the case where LLM is unavailable and the synthesizer
             # fell back to the deterministic combiner.
             parts.append(
-                "I don't have a built-in answer for that — try enabling Gemma "
+                "I don't have a built-in answer for that — try enabling LLM "
                 "or rephrasing as a question I can route to a skill."
             )
             continue

@@ -1,4 +1,4 @@
-"""Unit coverage for v2 Gemma prompt templates."""
+"""Unit coverage for v2 LLM prompt templates."""
 from __future__ import annotations
 
 import json
@@ -6,7 +6,7 @@ import json
 import pytest
 
 from v2.orchestrator.core.types import RequestChunkResult, RequestSpec
-from v2.orchestrator.fallbacks.gemma_fallback import (
+from v2.orchestrator.fallbacks.llm_fallback import (
     build_combine_prompt,
     build_resolve_prompt,
     build_split_prompt,

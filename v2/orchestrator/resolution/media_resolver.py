@@ -3,7 +3,7 @@
 Handles "that movie" / "the film" / "what was that movie" by reading the
 :class:`MovieContextAdapter`. Ambiguity (multiple recent movies) and
 absence (no recent movie at all) are surfaced explicitly so the
-combiner can decide whether to ask the user, fall through to Gemma, or
+combiner can decide whether to ask the user, fall through to LLM, or
 deliver a clean answer.
 """
 from __future__ import annotations

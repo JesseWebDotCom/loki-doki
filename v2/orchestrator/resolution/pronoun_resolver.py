@@ -3,7 +3,7 @@
 Walks the chunk's references ("it", "that", "they", "him", "her") and
 binds them to the most recently mentioned entity in conversation memory.
 The resolver does not guess: ambiguous or missing referents are flagged
-so the combiner / Gemma fallback can ask the user.
+so the combiner / LLM fallback can ask the user.
 """
 from __future__ import annotations
 

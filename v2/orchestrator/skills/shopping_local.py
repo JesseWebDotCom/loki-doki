@@ -14,7 +14,7 @@ Mechanism chain (mirrors v1 ``BaseSkill.execute_mechanism`` pattern):
   2. ``local_store`` — overlay any user-added picks from
      ``v2/data/shopping.json``.
   3. graceful failure — return a polite "no curated picks" sentence
-     and an ``AdapterResult.success=False`` so the combiner / Gemma
+     and an ``AdapterResult.success=False`` so the combiner / LLM
      fallback can take over without raising.
 
 The catalog intentionally lists three picks per category (good /

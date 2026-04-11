@@ -1,4 +1,4 @@
-"""Bake-off harness for the v2 Gemma fallback path.
+"""Bake-off harness for the v2 LLM fallback path.
 
 Runs the same set of representative prompts across multiple Ollama
 models so we can pick the best default for each prompt family
@@ -33,10 +33,10 @@ The warmup procedure for each model is:
 
 Usage:
 
-  python scripts/bench_v2_gemma_models.py \
+  python scripts/bench_v2_llm_models.py \
       --models gemma4:e4b gemma4:e2b qwen3:4b qwen3:8b llama3.1:8b \
       --replicates 3 \
-      --output /tmp/v2_gemma_bench.json
+      --output /tmp/v2_llm_bench.json
 """
 from __future__ import annotations
 
@@ -51,8 +51,8 @@ from typing import Any
 
 from v2.orchestrator.core import config as v2_config
 from v2.orchestrator.core.types import RequestChunkResult, RequestSpec
-from v2.orchestrator.fallbacks.gemma_fallback import build_combine_prompt
-from v2.orchestrator.fallbacks.ollama_client import call_gemma, set_inference_client_factory
+from v2.orchestrator.fallbacks.llm_fallback import build_combine_prompt
+from v2.orchestrator.fallbacks.ollama_client import call_llm, set_inference_client_factory
 
 
 # ---------------------------------------------------------------------------
@@ -85,8 +85,8 @@ def _direct_chat_spec(user_question: str) -> RequestSpec:
                 result={"output_text": user_question},
             )
         ],
-        gemma_used=True,
-        gemma_reason="direct_chat",
+        llm_used=True,
+        llm_reason="direct_chat",
     )
 
 
@@ -117,8 +117,8 @@ def _combine_spec_with_supporting_context(
             ),
         ],
         supporting_context=[supporting_text],
-        gemma_used=True,
-        gemma_reason="supporting_context",
+        llm_used=True,
+        llm_reason="supporting_context",
     )
 
 
@@ -127,7 +127,7 @@ def _empty_skill_spec(
     primary_capability: str,
 ) -> RequestSpec:
     """A skill that succeeded but returned an empty output_text — should
-    fall through to Gemma via the new ``empty_output`` trigger."""
+    fall through to LLM via the new ``empty_output`` trigger."""
     return RequestSpec(
         trace_id=f"bench-eo-{user_request[:8]}",
         original_request=user_request,
@@ -141,8 +141,8 @@ def _empty_skill_spec(
                 result={"output_text": ""},
             )
         ],
-        gemma_used=True,
-        gemma_reason="empty_output",
+        llm_used=True,
+        llm_reason="empty_output",
     )
 
 
@@ -217,7 +217,7 @@ PROMPTS: list[BenchPrompt] = [
         ),
     ),
 
-    # ---- empty_output: skill returned blank, gemma must answer from scratch ----
+    # ---- empty_output: skill returned blank, llm must answer from scratch ----
     BenchPrompt(
         id="eo.knicks_score",
         family="direct_chat",  # treated like direct_chat in prompt selection
@@ -268,11 +268,11 @@ async def _warmup_model(model: str) -> tuple[bool, str]:
     prompt and wait for the response so subsequent calls don't pay
     the load cost.
     """
-    object.__setattr__(v2_config.CONFIG, "gemma_model", model)
+    object.__setattr__(v2_config.CONFIG, "llm_model", model)
     try:
         # The first call after a model switch is the expensive one — it
         # has to load weights into VRAM. We don't time it.
-        await call_gemma("hi")
+        await call_llm("hi")
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
     return True, ""
@@ -286,7 +286,7 @@ async def _run_single(model: str, prompt: BenchPrompt, replicates: int) -> RunRe
     additional discarded warmup call before timing.
     """
     rendered_prompt = build_combine_prompt(prompt.spec)
-    object.__setattr__(v2_config.CONFIG, "gemma_model", model)
+    object.__setattr__(v2_config.CONFIG, "llm_model", model)
 
     # Prompt-template warmup: warms the KV cache for this exact prompt
     # shape so the first measured call doesn't pay the prefill cost.
@@ -347,7 +347,7 @@ async def _run_single(model: str, prompt: BenchPrompt, replicates: int) -> RunRe
 async def _timed_call(prompt: str):
     start = time.perf_counter()
     try:
-        text = await call_gemma(prompt)
+        text = await call_llm(prompt)
     except Exception as exc:  # noqa: BLE001
         return exc, (time.perf_counter() - start) * 1000
     return text, (time.perf_counter() - start) * 1000
@@ -416,7 +416,7 @@ async def _run_bench(
     replicates: int,
 ) -> dict[str, Any]:
     set_inference_client_factory(None)
-    object.__setattr__(v2_config.CONFIG, "gemma_enabled", True)
+    object.__setattr__(v2_config.CONFIG, "llm_enabled", True)
 
     results: list[RunResult] = []
     for model in models:
@@ -497,8 +497,8 @@ def _load_corpus_prompts(path: Path) -> list[BenchPrompt]:
     """Load utterances from a v2 regression-fixture JSON file and turn
     each one into a ``direct_chat`` BenchPrompt.
 
-    The fixtures aren't all gemma-relevant in the real pipeline (most
-    of them get answered by skills before gemma sees them), but for
+    The fixtures aren't all llm-relevant in the real pipeline (most
+    of them get answered by skills before llm sees them), but for
     *quality stress-testing* the right thing to do is force the model
     to answer each utterance from its own knowledge. This catches
     refusals, scaffolding leakage, and meta-language drift on a much
@@ -536,8 +536,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--output",
-        default="/tmp/v2_gemma_bench.json",
-        help="Where to write the full result blob (default: /tmp/v2_gemma_bench.json)",
+        default="/tmp/v2_llm_bench.json",
+        help="Where to write the full result blob (default: /tmp/v2_llm_bench.json)",
     )
     parser.add_argument(
         "--family",

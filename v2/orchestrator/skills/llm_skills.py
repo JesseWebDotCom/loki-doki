@@ -5,14 +5,14 @@ need a generative model. The v2 prototype already speaks to Ollama via
 :mod:`v2.orchestrator.fallbacks.ollama_client`, so each handler:
 
   1. Builds a short, capability-specific prompt from the chunk text.
-  2. Calls Ollama through ``call_gemma()``.
+  2. Calls Ollama through ``call_llm()``.
   3. Returns the model output as ``output_text``.
   4. Falls back to a deterministic stub answer when:
-     - ``CONFIG.gemma_enabled`` is False (default in tests + dev), or
+     - ``CONFIG.llm_enabled`` is False (default in tests + dev), or
      - the Ollama call fails / times out / returns empty.
 
 The stub fallbacks are the same canned strings the original
-``v2/SKILL_STUBS.md`` documents — flipping ``gemma_enabled`` to True
+``v2/SKILL_STUBS.md`` documents — flipping ``llm_enabled`` to True
 upgrades every one of these handlers to a real model call without any
 other code change.
 """
@@ -22,7 +22,7 @@ import logging
 from typing import Any, Callable
 
 from v2.orchestrator.core.config import CONFIG
-from v2.orchestrator.fallbacks.ollama_client import call_gemma
+from v2.orchestrator.fallbacks.ollama_client import call_llm
 from v2.orchestrator.skills._runner import AdapterResult
 
 log = logging.getLogger("v2.skills.llm")
@@ -83,7 +83,7 @@ financial advice. Do NOT ask invasive follow-up questions.
 """
 
 
-# ---- stub fallbacks (used when gemma is disabled or fails) -----------------
+# ---- stub fallbacks (used when llm is disabled or fails) -----------------
 
 _EMAIL_STUB = (
     "Subject: Refund Request\n\n"
@@ -138,8 +138,8 @@ async def _llm_or_stub(
             success=False,
             error="empty request",
         ).to_payload()
-    if not CONFIG.gemma_enabled:
-        log.debug("v2.skills.%s: gemma disabled, returning stub", skill_name)
+    if not CONFIG.llm_enabled:
+        log.debug("v2.skills.%s: llm disabled, returning stub", skill_name)
         return AdapterResult(
             output_text=stub,
             success=True,
@@ -148,9 +148,9 @@ async def _llm_or_stub(
         ).to_payload()
     prompt = prompt_template.format(request=request)
     try:
-        text = await call_gemma(prompt)
+        text = await call_llm(prompt)
     except Exception as exc:  # noqa: BLE001 - never let the LLM crash the pipeline
-        log.warning("v2.skills.%s: gemma call failed (%s) — falling back to stub", skill_name, exc)
+        log.warning("v2.skills.%s: llm call failed (%s) — falling back to stub", skill_name, exc)
         return AdapterResult(
             output_text=stub,
             success=True,
@@ -169,8 +169,8 @@ async def _llm_or_stub(
     return AdapterResult(
         output_text=text,
         success=True,
-        mechanism_used="ollama_gemma",
-        data={"request": request, "provider": "ollama_gemma"},
+        mechanism_used="ollama_llm",
+        data={"request": request, "provider": "ollama_llm"},
     ).to_payload()
 
 

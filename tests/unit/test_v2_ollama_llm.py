@@ -1,4 +1,4 @@
-"""Tests for the v2 Ollama Gemma client wiring (Phase 5).
+"""Tests for the v2 Ollama LLM client wiring (Phase 5).
 
 Uses a fake :class:`InferenceClient` factory so the tests never make a
 real HTTP call. The factory is installed via
@@ -10,16 +10,16 @@ import pytest
 
 from v2.orchestrator.core import config as v2_config
 from v2.orchestrator.core.types import RequestChunkResult, RequestSpec
-from v2.orchestrator.fallbacks import gemma_fallback
-from v2.orchestrator.fallbacks.gemma_fallback import gemma_synthesize_async
+from v2.orchestrator.fallbacks import llm_fallback
+from v2.orchestrator.fallbacks.llm_fallback import llm_synthesize_async
 from v2.orchestrator.fallbacks.ollama_client import (
-    call_gemma,
+    call_llm,
     set_inference_client_factory,
 )
 
 
 class FakeInferenceClient:
-    def __init__(self, response: str = "fake gemma reply") -> None:
+    def __init__(self, response: str = "fake llm reply") -> None:
         self.response = response
         self.calls: list[dict] = []
         self.closed = False
@@ -41,11 +41,11 @@ class ExplodingInferenceClient:
 
 
 @pytest.fixture
-def gemma_enabled():
-    """Temporarily enable Gemma without leaking the flag across tests."""
-    object.__setattr__(v2_config.CONFIG, "gemma_enabled", True)
+def llm_enabled():
+    """Temporarily enable LLM without leaking the flag across tests."""
+    object.__setattr__(v2_config.CONFIG, "llm_enabled", True)
     yield
-    object.__setattr__(v2_config.CONFIG, "gemma_enabled", False)
+    object.__setattr__(v2_config.CONFIG, "llm_enabled", False)
     set_inference_client_factory(None)
 
 
@@ -69,25 +69,25 @@ def _spec_with_supporting_context() -> RequestSpec:
             ),
         ],
         supporting_context=["because im late"],
-        gemma_used=True,
-        gemma_reason="supporting_context",
+        llm_used=True,
+        llm_reason="supporting_context",
     )
 
 
 @pytest.mark.anyio
-async def test_call_gemma_uses_injected_factory(gemma_enabled):
+async def test_call_llm_uses_injected_factory(llm_enabled):
     fake = FakeInferenceClient(response="hello from fake")
     set_inference_client_factory(lambda: fake)
 
-    reply = await call_gemma("test prompt")
+    reply = await call_llm("test prompt")
 
     assert reply == "hello from fake"
     assert len(fake.calls) == 1
     call = fake.calls[0]
-    assert call["model"] == v2_config.CONFIG.gemma_model
+    assert call["model"] == v2_config.CONFIG.llm_model
     assert call["prompt"] == "test prompt"
     assert call["think"] is False
-    assert call["num_predict"] == v2_config.CONFIG.gemma_num_predict
+    assert call["num_predict"] == v2_config.CONFIG.llm_num_predict
 
 
 def _spec_direct_chat_only(question: str) -> RequestSpec:
@@ -107,16 +107,16 @@ def _spec_direct_chat_only(question: str) -> RequestSpec:
                 result={"output_text": question},
             )
         ],
-        gemma_used=True,
-        gemma_reason="direct_chat",
+        llm_used=True,
+        llm_reason="direct_chat",
     )
 
 
 @pytest.mark.anyio
-async def test_direct_chat_prompt_asks_question_not_spec_summary(gemma_enabled):
-    """When the only chunk is direct_chat, the prompt sent to Gemma must
+async def test_direct_chat_prompt_asks_question_not_spec_summary(llm_enabled):
+    """When the only chunk is direct_chat, the prompt sent to LLM must
     use the conversational template (asking the user's question
-    directly), NOT the combine template that asks Gemma to summarize a
+    directly), NOT the combine template that asks LLM to summarize a
     RequestSpec — that's the bug that produced
     'The primary request, "do my ring cameras spy on me," was
     successfully processed with the output text...'"""
@@ -124,7 +124,7 @@ async def test_direct_chat_prompt_asks_question_not_spec_summary(gemma_enabled):
     set_inference_client_factory(lambda: fake)
 
     spec = _spec_direct_chat_only("do my ring cameras spy on me")
-    response = await gemma_synthesize_async(spec)
+    response = await llm_synthesize_async(spec)
 
     assert "Ring cameras" in response.output_text
     assert len(fake.calls) == 1
@@ -132,7 +132,7 @@ async def test_direct_chat_prompt_asks_question_not_spec_summary(gemma_enabled):
     # The conversational template includes the user-question slot.
     assert "User's question: do my ring cameras spy on me" in sent_prompt
     # The combine template's literal "RequestSpec (JSON):" header (the
-    # marker that Gemma was being asked to summarize a spec) MUST NOT
+    # marker that LLM was being asked to summarize a spec) MUST NOT
     # appear. The direct_chat template *names* "RequestSpec" in its
     # rule list ("never mention RequestSpec…"), so a substring check
     # for the bare word would false-positive.
@@ -142,7 +142,7 @@ async def test_direct_chat_prompt_asks_question_not_spec_summary(gemma_enabled):
 def test_build_combine_prompt_uses_combine_template_when_skill_output_present():
     """Skill chunks (e.g. get_current_time + supporting context) must
     still go through the combine template, not the direct_chat one."""
-    from v2.orchestrator.fallbacks.gemma_fallback import build_combine_prompt
+    from v2.orchestrator.fallbacks.llm_fallback import build_combine_prompt
 
     prompt = build_combine_prompt(_spec_with_supporting_context())
     assert "RequestSpec (JSON):" in prompt
@@ -153,7 +153,7 @@ def test_build_combine_prompt_uses_combine_template_when_skill_output_present():
 
 
 def test_build_combine_prompt_uses_direct_chat_template_for_direct_chat_only():
-    from v2.orchestrator.fallbacks.gemma_fallback import build_combine_prompt
+    from v2.orchestrator.fallbacks.llm_fallback import build_combine_prompt
 
     prompt = build_combine_prompt(_spec_direct_chat_only("what does json stand for"))
     assert "User's question: what does json stand for" in prompt
@@ -162,11 +162,11 @@ def test_build_combine_prompt_uses_direct_chat_template_for_direct_chat_only():
 
 
 @pytest.mark.anyio
-async def test_gemma_synthesize_async_calls_real_path_when_enabled(gemma_enabled):
+async def test_llm_synthesize_async_calls_real_path_when_enabled(llm_enabled):
     fake = FakeInferenceClient(response="It's 3:42 PM and you still have time.")
     set_inference_client_factory(lambda: fake)
 
-    response = await gemma_synthesize_async(_spec_with_supporting_context())
+    response = await llm_synthesize_async(_spec_with_supporting_context())
 
     assert response.output_text == "It's 3:42 PM and you still have time."
     # The combine prompt should have been rendered and sent through.
@@ -178,11 +178,11 @@ async def test_gemma_synthesize_async_calls_real_path_when_enabled(gemma_enabled
 
 
 @pytest.mark.anyio
-async def test_gemma_synthesize_async_degrades_to_stub_on_error(gemma_enabled):
+async def test_llm_synthesize_async_degrades_to_stub_on_error(llm_enabled):
     set_inference_client_factory(lambda: ExplodingInferenceClient())
 
     spec = _spec_with_supporting_context()
-    response = await gemma_synthesize_async(spec)
+    response = await llm_synthesize_async(spec)
 
     # Stub path: deterministic supporting-context note rather than the
     # raw error reaching the user.
@@ -190,17 +190,17 @@ async def test_gemma_synthesize_async_degrades_to_stub_on_error(gemma_enabled):
     assert "Noted" in response.output_text or "3:42 PM" in response.output_text
     # The reason now includes the underlying exception type + message
     # so the dev tools UI can show *why* the call failed.
-    assert spec.gemma_reason and "degraded:" in spec.gemma_reason
-    assert "RuntimeError" in spec.gemma_reason
+    assert spec.llm_reason and "degraded:" in spec.llm_reason
+    assert "RuntimeError" in spec.llm_reason
 
 
 @pytest.mark.anyio
-async def test_gemma_synthesize_async_uses_stub_when_disabled():
-    # No fixture: gemma_enabled stays False (default).
+async def test_llm_synthesize_async_uses_stub_when_disabled():
+    # No fixture: llm_enabled stays False (default).
     fake = FakeInferenceClient(response="should never be called")
     set_inference_client_factory(lambda: fake)
     try:
-        response = await gemma_synthesize_async(_spec_with_supporting_context())
+        response = await llm_synthesize_async(_spec_with_supporting_context())
         # Stub path used; fake was never called.
         assert fake.calls == []
         assert "3:42 PM" in response.output_text
@@ -209,14 +209,14 @@ async def test_gemma_synthesize_async_uses_stub_when_disabled():
 
 
 @pytest.mark.anyio
-async def test_gemma_synthesize_async_treats_empty_response_as_failure(gemma_enabled):
+async def test_llm_synthesize_async_treats_empty_response_as_failure(llm_enabled):
     fake = FakeInferenceClient(response="   ")
     set_inference_client_factory(lambda: fake)
 
     spec = _spec_with_supporting_context()
-    response = await gemma_synthesize_async(spec)
+    response = await llm_synthesize_async(spec)
 
-    # Empty Gemma reply degrades to stub, not propagated as blank.
+    # Empty LLM reply degrades to stub, not propagated as blank.
     assert response.output_text != ""
-    assert spec.gemma_reason and "degraded:" in spec.gemma_reason
-    assert "empty response" in spec.gemma_reason
+    assert spec.llm_reason and "degraded:" in spec.llm_reason
+    assert "empty response" in spec.llm_reason

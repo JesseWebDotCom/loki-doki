@@ -422,10 +422,10 @@ async def test_time_in_location_unknown_city_graceful():
 
 
 @pytest.mark.anyio
-async def test_llm_skills_return_stub_when_gemma_disabled():
+async def test_llm_skills_return_stub_when_llm_disabled():
     from v2.orchestrator.skills import llm_skills
 
-    # CONFIG.gemma_enabled defaults to False in tests, so every call
+    # CONFIG.llm_enabled defaults to False in tests, so every call
     # should return its deterministic stub immediately.
     result = await llm_skills.generate_email({"chunk_text": "write a refund email"})
     assert "Subject" in result["output_text"]

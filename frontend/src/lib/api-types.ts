@@ -357,8 +357,9 @@ export interface V2RunResponse {
     supporting_context: string[];
     context: Record<string, unknown>;
     runtime_version: number;
-    gemma_used?: boolean;
-    gemma_reason?: string | null;
+    llm_used?: boolean;
+    llm_reason?: string | null;
+    llm_model?: string | null;
   };
   response: {
     output_text: string;

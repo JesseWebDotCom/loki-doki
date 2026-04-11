@@ -11,7 +11,7 @@ Supported per-case ``expect`` keys:
   in any route)
 - ``chunk_count`` / ``primary_chunk_count`` / ``supporting_context_chunk_count``
 - ``response_contains`` / ``response_contains_all``
-- ``gemma_used`` / ``gemma_reason``
+- ``llm_used`` / ``llm_reason``
 - ``subjects_contain`` (list[str] — every needle must appear, lowercased,
   inside at least one chunk's subject_candidates / references / chunk text)
 - ``resolved_person`` (str — the chunk-level resolution must surface this
@@ -116,14 +116,14 @@ async def test_v2_regression_prompt(case):
                 f"{case['id']}: expected '{needle}' in response '{haystack}'"
             )
 
-    if "gemma_used" in expect:
-        assert result.request_spec.gemma_used is expect["gemma_used"], (
-            f"{case['id']}: gemma_used={result.request_spec.gemma_used}"
+    if "llm_used" in expect:
+        assert result.request_spec.llm_used is expect["llm_used"], (
+            f"{case['id']}: llm_used={result.request_spec.llm_used}"
         )
 
-    if "gemma_reason" in expect:
-        assert result.request_spec.gemma_reason == expect["gemma_reason"], (
-            f"{case['id']}: gemma_reason={result.request_spec.gemma_reason}"
+    if "llm_reason" in expect:
+        assert result.request_spec.llm_reason == expect["llm_reason"], (
+            f"{case['id']}: llm_reason={result.request_spec.llm_reason}"
         )
 
     if "subjects_contain" in expect:

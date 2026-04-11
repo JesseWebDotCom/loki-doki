@@ -3,7 +3,7 @@
 Pulls candidate person mentions from a chunk's spaCy entities + noun
 chunks, then asks the :class:`PeopleDBAdapter` to bind them to a
 concrete record. Ambiguity surfaces as ``unresolved`` markers so the
-combiner / Gemma fallback can ask the user instead of guessing.
+combiner / LLM fallback can ask the user instead of guessing.
 """
 from __future__ import annotations
 

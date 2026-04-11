@@ -1,9 +1,9 @@
-"""Gemma prompt templates for the v2 orchestrator.
+"""LLM prompt templates for the v2 orchestrator.
 
 Each template is a single string with a small set of named substitution
-slots. They are deliberately terse — Gemma is a small local model and
+slots. They are deliberately terse — LLM is a small local model and
 every token costs latency on every fallback turn. The templates live
-beside :mod:`gemma_fallback` so the prompt budget can be tuned without
+beside :mod:`llm_fallback` so the prompt budget can be tuned without
 touching the decision logic.
 
 Three template families:
@@ -116,7 +116,7 @@ class PromptRenderError(ValueError):
 
 
 def render_prompt(name: str, **slots: Any) -> str:
-    """Render a Gemma prompt template, validating that every slot is filled."""
+    """Render a LLM prompt template, validating that every slot is filled."""
     template = _TEMPLATES.get(name)
     if template is None:
         raise PromptRenderError(f"unknown prompt template: {name!r}")

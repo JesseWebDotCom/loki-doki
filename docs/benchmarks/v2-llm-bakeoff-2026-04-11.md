@@ -1,8 +1,8 @@
-# V2 Gemma Fallback Model Bake-Off — 2026-04-11
+# V2 LLM Fallback Model Bake-Off — 2026-04-11
 
 ## Goal
 
-The v2 prototype's Gemma fallback path runs whenever the deterministic
+The v2 prototype's LLM fallback path runs whenever the deterministic
 combiner can't produce an answer (no skill matched, skill returned
 empty, low routing confidence, supporting context to weave in). The
 default model was `gemma3:270m` (which wasn't installed) → degraded to
@@ -20,7 +20,7 @@ excluded) and rule-based response quality.
 
 ## Methodology
 
-**Harness:** [scripts/bench_v2_gemma_models.py](../../scripts/bench_v2_gemma_models.py)
+**Harness:** [scripts/bench_v2_llm_models.py](../../scripts/bench_v2_llm_models.py)
 
 **Fairness rules:**
 
@@ -168,9 +168,9 @@ goes long.
 Override with env vars without touching code:
 
 ```sh
-LOKI_GEMMA_MODEL=phi4-mini    # tied on small set, slower at scale
-LOKI_GEMMA_MODEL=gemma4:e4b   # highest quality, 4x larger on disk
-LOKI_GEMMA_MODEL=llama3.2:3b  # smallest, fastest, RAM-budget
+LOKI_LLM_MODEL=phi4-mini    # tied on small set, slower at scale
+LOKI_LLM_MODEL=gemma4:e4b   # highest quality, 4x larger on disk
+LOKI_LLM_MODEL=llama3.2:3b  # smallest, fastest, RAM-budget
 ```
 
 > ⚠️ **Must be the `-instruct-2507` variant.** The default `qwen3:4b`
@@ -222,51 +222,51 @@ answer this"*. Examples that hit both:
 - "movie times for inception"
 - "summarize this article"
 
-These are **never supposed to land on Gemma in production** — every
+These are **never supposed to land on LLM in production** — every
 one of them is handled by a real skill (`get_current_time`,
 `get_weather`, `get_movie_showtimes`, `summarize_text`) before the
 fallback path runs. The bake-off's `--corpus` mode forcibly routes all
 84 utterances to direct_chat to stress-test how the model behaves on
 prompts it shouldn't actually receive. So a 12% refusal rate on this
 artificial test is fine — it represents the worst case where the
-skill layer is broken and Gemma is taking over for everything.
+skill layer is broken and LLM is taking over for everything.
 
 ### Phase 2 reproducibility
 
 ```sh
 # Run a model against the full 84-prompt regression corpus
-PYTHONPATH=. LOKI_GEMMA_ENABLED=1 python scripts/bench_v2_gemma_models.py \
+PYTHONPATH=. LOKI_LLM_ENABLED=1 python scripts/bench_v2_llm_models.py \
     --models qwen3:4b-instruct-2507-q4_K_M \
     --replicates 1 \
     --corpus tests/fixtures/v2_regression_prompts.json \
-    --output /tmp/v2_gemma_corpus_qwen3instruct.json
+    --output /tmp/v2_llm_corpus_qwen3instruct.json
 ```
 
 Raw results from this run are checked in alongside this report:
 
-- [v2_gemma_corpus_2026-04-11_phi4mini.json](v2_gemma_corpus_2026-04-11_phi4mini.json)
-- [v2_gemma_corpus_2026-04-11_qwen3instruct.json](v2_gemma_corpus_2026-04-11_qwen3instruct.json)
-- [v2_gemma_bench_2026-04-11_qwen3instruct.json](v2_gemma_bench_2026-04-11_qwen3instruct.json) (9-prompt curated)
+- [v2_llm_corpus_2026-04-11_phi4mini.json](v2_llm_corpus_2026-04-11_phi4mini.json)
+- [v2_llm_corpus_2026-04-11_qwen3instruct.json](v2_llm_corpus_2026-04-11_qwen3instruct.json)
+- [v2_llm_bench_2026-04-11_qwen3instruct.json](v2_llm_bench_2026-04-11_qwen3instruct.json) (9-prompt curated)
 
 ## Reproducing
 
 ```sh
 # Run the bake-off (any subset of models you have pulled)
-PYTHONPATH=. LOKI_GEMMA_ENABLED=1 python scripts/bench_v2_gemma_models.py \
+PYTHONPATH=. LOKI_LLM_ENABLED=1 python scripts/bench_v2_llm_models.py \
     --models phi4-mini gemma3:4b gemma4:e4b llama3.1:8b \
     --replicates 3 \
-    --output /tmp/v2_gemma_bench.json
+    --output /tmp/v2_llm_bench.json
 
 # Score and rank the results
-python scripts/score_v2_gemma_bench.py
+python scripts/score_v2_llm_bench.py
 ```
 
 The harness writes raw per-prompt latencies + responses to its `--output`
 JSON so quality can be re-graded later as the rules evolve. Both raw
 JSONs from this run are checked in alongside this report:
 
-- [v2_gemma_bench_2026-04-11_local.json](v2_gemma_bench_2026-04-11_local.json)
-- [v2_gemma_bench_2026-04-11_new.json](v2_gemma_bench_2026-04-11_new.json)
+- [v2_llm_bench_2026-04-11_local.json](v2_llm_bench_2026-04-11_local.json)
+- [v2_llm_bench_2026-04-11_new.json](v2_llm_bench_2026-04-11_new.json)
 
 ## Open follow-ups
 

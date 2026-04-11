@@ -60,7 +60,7 @@
         "chunk_count": 2,
         "primary_chunk_count": 2,
         "response_contains_all": ["hello", "necessary"],
-        "gemma_used": false
+        "llm_used": false
       }
     },
     {
@@ -72,7 +72,7 @@
         "chunk_count": 2,
         "primary_chunk_count": 2,
         "response_contains": "restaurant",
-        "gemma_used": false
+        "llm_used": false
       }
     },
     {
@@ -94,8 +94,8 @@
         "fast_lane_matched": false,
         "primary_chunk_count": 1,
         "supporting_context_chunk_count": 1,
-        "gemma_used": true,
-        "gemma_reason": "supporting_context"
+        "llm_used": true,
+        "llm_reason": "supporting_context"
       }
     },
     {
@@ -108,7 +108,7 @@
         "fast_lane_matched": false,
         "capability": "recall_recent_media",
         "response_contains": "Padme",
-        "gemma_used": false
+        "llm_used": false
       }
     },
     {
@@ -119,8 +119,8 @@
         "fast_lane_matched": false,
         "capability": "recall_recent_media",
         "response_contains": "don't have a recent movie",
-        "gemma_used": true,
-        "gemma_reason": "unresolved_chunk"
+        "llm_used": true,
+        "llm_reason": "unresolved_chunk"
       }
     },
     {
@@ -136,8 +136,8 @@
         "fast_lane_matched": false,
         "capability": "recall_recent_media",
         "response_contains_all": ["Rogue One", "A New Hope"],
-        "gemma_used": true,
-        "gemma_reason": "unresolved_chunk"
+        "llm_used": true,
+        "llm_reason": "unresolved_chunk"
       }
     },
     {
@@ -169,7 +169,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_weather",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "weather",
         "max_total_ms": 500,
         "max_step_ms": {"parse": 200, "route": 200}
@@ -182,7 +182,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_movie_showtimes",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "showtimes",
         "subjects_contain": ["mario", "movie"],
         "max_total_ms": 500
@@ -195,7 +195,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "copper",
         "max_total_ms": 500
       }
@@ -212,7 +212,7 @@
         "subjects_contain": ["sister"],
         "resolved_person": "Leia",
         "response_contains": "Leia",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -256,7 +256,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "arthud miller",
         "max_total_ms": 500
       }
@@ -268,7 +268,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "godfather",
         "subjects_contain": ["godfather", "runtime"],
         "max_total_ms": 500
@@ -281,7 +281,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "taxi",
         "subjects_contain": ["taxi", "finale"],
         "max_total_ms": 500
@@ -308,7 +308,7 @@
         "subjects_contain": ["brother"],
         "resolved_person": "Luke",
         "response_contains": "Luke",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -363,7 +363,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "photosynthesis",
         "max_total_ms": 500
       }
@@ -375,7 +375,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "sky",
         "max_total_ms": 500
       }
@@ -387,7 +387,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "cpu",
         "max_total_ms": 500
       }
@@ -399,7 +399,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "wifi",
         "max_total_ms": 500
       }
@@ -411,7 +411,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "virus",
         "max_total_ms": 500
       }
@@ -435,7 +435,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_weather",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "weather",
         "max_total_ms": 500
       }
@@ -447,7 +447,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_weather",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "weather",
         "max_total_ms": 500
       }
@@ -459,7 +459,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_time_in_location",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "tokyo",
         "max_total_ms": 500
       }
@@ -471,7 +471,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "create_plan",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "day",
         "max_total_ms": 500
       }
@@ -485,7 +485,7 @@
         "primary_chunk_count": 1,
         "supporting_context_chunk_count": 1,
         "capability": "get_current_time",
-        "gemma_reason": "supporting_context",
+        "llm_reason": "supporting_context",
         "max_total_ms": 500
       }
     },
@@ -507,7 +507,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -518,7 +518,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "find_products",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -529,7 +529,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -540,7 +540,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "emotional_support",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "hear",
         "max_total_ms": 500
       }
@@ -562,7 +562,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "knowledge_query",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -573,7 +573,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_movie_showtimes",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "inception",
         "max_total_ms": 500
       }
@@ -585,7 +585,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "control_device",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "lights",
         "max_total_ms": 500
       }
@@ -597,7 +597,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "generate_email",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "refund",
         "max_total_ms": 500
       }
@@ -609,7 +609,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "summarize_text",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "summary",
         "max_total_ms": 500
       }
@@ -621,8 +621,8 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "direct_chat",
-        "gemma_used": true,
-        "gemma_reason": "direct_chat",
+        "llm_used": true,
+        "llm_reason": "direct_chat",
         "max_total_ms": 500
       }
     },
@@ -633,8 +633,8 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "direct_chat",
-        "gemma_used": true,
-        "gemma_reason": "direct_chat",
+        "llm_used": true,
+        "llm_reason": "direct_chat",
         "max_total_ms": 500
       }
     },
@@ -645,8 +645,8 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "direct_chat",
-        "gemma_used": true,
-        "gemma_reason": "direct_chat",
+        "llm_used": true,
+        "llm_reason": "direct_chat",
         "max_total_ms": 500
       }
     },
@@ -657,7 +657,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "code_assistance",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -668,7 +668,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "code_assistance",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -679,7 +679,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_indoor_temperature",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "temperature",
         "max_total_ms": 500
       }
@@ -691,7 +691,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_indoor_temperature",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -702,7 +702,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "detect_presence",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "living room",
         "max_total_ms": 500
       }
@@ -714,7 +714,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "detect_presence",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "kitchen",
         "max_total_ms": 500
       }
@@ -726,7 +726,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_device_state",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "garage",
         "max_total_ms": 500
       }
@@ -738,7 +738,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_device_state",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -749,7 +749,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "control_device",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -760,7 +760,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_time_in_location",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "london",
         "max_total_ms": 500
       }
@@ -772,7 +772,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "generate_email",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -783,7 +783,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "code_assistance",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -794,7 +794,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "code_assistance",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -805,7 +805,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "summarize_text",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -816,7 +816,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "create_plan",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -827,7 +827,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "weigh_options",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "options",
         "max_total_ms": 500
       }
@@ -839,7 +839,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "weigh_options",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -850,7 +850,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "find_products",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -861,7 +861,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "emotional_support",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -872,7 +872,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "emotional_support",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -883,7 +883,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "lookup_definition",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "ephemeral",
         "max_total_ms": 500
       }
@@ -895,7 +895,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "lookup_definition",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -906,7 +906,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_news_headlines",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -917,7 +917,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_news_headlines",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -928,7 +928,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "find_recipe",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "lasagna",
         "max_total_ms": 500
       }
@@ -940,7 +940,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "find_recipe",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -951,7 +951,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "tell_joke",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -962,7 +962,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "tell_joke",
-        "gemma_used": false,
+        "llm_used": false,
         "max_total_ms": 500
       }
     },
@@ -973,7 +973,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "lookup_tv_show",
-        "gemma_used": false,
+        "llm_used": false,
         "response_contains": "breaking",
         "max_total_ms": 500
       }

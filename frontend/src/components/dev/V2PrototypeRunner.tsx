@@ -14,7 +14,7 @@ type DevTab = 'request' | 'skills';
  * options are mutually exclusive in priority order:
  *
  *   1. Fast-lane match → answered by the deterministic fast lane.
- *   2. Gemma used      → synthesized by the LLM fallback.
+ *   2. LLM used      → synthesized by the LLM fallback.
  *   3. Skill executed  → answered by the named skill (we surface the
  *      capability, handler, mechanism, and confidence so it's obvious
  *      whether the route was strong, borderline, or a guess).
@@ -41,9 +41,15 @@ const buildSourceBadges = (result: V2RunResponse): string[] => {
   const success = primaryExecution?.success ?? primaryChunk?.success;
   const outputText = result.response.output_text?.trim() ?? '';
 
-  if (result.request_spec.gemma_used) {
-    const reason = result.request_spec.gemma_reason ?? 'fallback';
-    badges.push(`🧠 gemma: \`${reason}\``);
+  if (result.request_spec.llm_used) {
+    const reason = result.request_spec.llm_reason ?? 'fallback';
+    const model = result.request_spec.llm_model;
+    // Surface the actual model tag (e.g. qwen3:4b-instruct-2507-q4_K_M)
+    // when the real Ollama path ran. When llm_model is null/undefined
+    // the deterministic stub answered (this is the test/dev mode where
+    // CONFIG.llm_enabled is False).
+    badges.push(`🧠 llm: \`${model ?? 'stub (no model)'}\``);
+    badges.push(`↳ reason: \`${reason}\``);
     badges.push(`↳ skill attempted: \`${capability}\` via \`${handler}\``);
     if (mechanism) badges.push(`↳ mechanism: \`${mechanism}\``);
     if (typeof confidence === 'number') {
@@ -53,7 +59,7 @@ const buildSourceBadges = (result: V2RunResponse): string[] => {
   }
 
   if (capability === 'direct_chat') {
-    badges.push('⚠️ direct_chat (echo) — no skill matched and Gemma did not run');
+    badges.push('⚠️ direct_chat (echo) — no skill matched and LLM did not run');
     return badges;
   }
 
@@ -103,9 +109,9 @@ const buildCopyBlob = (prompt: string, result: V2RunResponse): string => {
   lines.push(`Trace total: ${result.trace_summary.total_timing_ms.toFixed(2)} ms`);
   lines.push(`Slowest step: ${result.trace_summary.slowest_step_name || 'n/a'}`);
   lines.push(
-    `Gemma: ${
-      result.request_spec.gemma_used
-        ? `used (${result.request_spec.gemma_reason ?? 'fallback'})`
+    `LLM: ${
+      result.request_spec.llm_used
+        ? `used (${result.request_spec.llm_model ?? 'stub'} / ${result.request_spec.llm_reason ?? 'fallback'})`
         : 'skipped'
     }`,
   );
@@ -308,9 +314,11 @@ const V2PrototypeRunner: React.FC = () => {
                     <div className="mt-2 text-sm font-medium">{result.request_spec.chunks.length} chunks</div>
                   </div>
                   <div className="rounded-xl border border-border/20 bg-background/40 p-3">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Gemma</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">LLM</div>
                     <div className="mt-2 text-sm font-medium">
-                      {result.request_spec.gemma_used ? `used (${result.request_spec.gemma_reason ?? 'fallback'})` : 'skipped'}
+                      {result.request_spec.llm_used
+                        ? `${result.request_spec.llm_model ?? 'stub'} (${result.request_spec.llm_reason ?? 'fallback'})`
+                        : 'skipped'}
                     </div>
                   </div>
                 </div>

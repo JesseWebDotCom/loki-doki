@@ -1,10 +1,10 @@
-"""Gemma fallback decision + synthesis for the v2 prototype.
+"""LLM fallback decision + synthesis for the v2 prototype.
 
-The decider is intentionally narrow: Gemma is *only* engaged when the
+The decider is intentionally narrow: LLM is *only* engaged when the
 deterministic combiner cannot produce a clean answer. The synthesizer
 runs in stub mode by default — it formats the structured RequestSpec
 into a coherent string without calling any external model — so the
-deterministic test suite stays hermetic. When ``CONFIG.gemma_enabled``
+deterministic test suite stays hermetic. When ``CONFIG.llm_enabled``
 is true a real model call would be wired in here.
 """
 from __future__ import annotations
@@ -18,17 +18,17 @@ from v2.orchestrator.core.config import CONFIG
 from v2.orchestrator.core.types import RequestSpec, ResponseObject
 from v2.orchestrator.fallbacks.prompts import render_prompt
 
-log = logging.getLogger("v2.orchestrator.gemma")
+log = logging.getLogger("v2.orchestrator.llm")
 
 
 @dataclass(slots=True)
-class GemmaDecision:
+class LLMDecision:
     needed: bool
     reason: str | None = None
 
 
-def decide_gemma(spec: RequestSpec) -> GemmaDecision:
-    """Inspect a RequestSpec and decide whether Gemma should run."""
+def decide_llm(spec: RequestSpec) -> LLMDecision:
+    """Inspect a RequestSpec and decide whether LLM should run."""
     primary_chunks = [chunk for chunk in spec.chunks if chunk.role == "primary_request"]
     supporting = [chunk for chunk in spec.chunks if chunk.role == "supporting_context"]
 
@@ -36,34 +36,34 @@ def decide_gemma(spec: RequestSpec) -> GemmaDecision:
         # ``direct_chat`` is the explicit "no skill applies, please
         # synthesize a conversational answer" capability. It has no
         # backend on its own and the executor returns the chunk text
-        # verbatim. Always hand it to Gemma so the user never sees
+        # verbatim. Always hand it to LLM so the user never sees
         # their own utterance mirrored back.
-        return GemmaDecision(needed=True, reason="direct_chat")
+        return LLMDecision(needed=True, reason="direct_chat")
     if any(chunk.unresolved for chunk in primary_chunks):
-        return GemmaDecision(needed=True, reason="unresolved_chunk")
+        return LLMDecision(needed=True, reason="unresolved_chunk")
     if any(not chunk.success for chunk in primary_chunks):
-        return GemmaDecision(needed=True, reason="failed_execution")
+        return LLMDecision(needed=True, reason="failed_execution")
     # Skill returned success=True but no actual content (e.g. an API
     # returned 200 OK with an empty result set). A blank response is a
-    # dead end for the user — Gemma's training-data answer, even if
+    # dead end for the user — LLM's training-data answer, even if
     # potentially outdated, is strictly better than nothing.
     if any(
         chunk.success and not str((chunk.result or {}).get("output_text") or "").strip()
         for chunk in primary_chunks
     ):
-        return GemmaDecision(needed=True, reason="empty_output")
+        return LLMDecision(needed=True, reason="empty_output")
     # ``<=`` so a borderline route at exactly the threshold still
-    # triggers Gemma — strict ``<`` was letting confidence==0.55 pass
+    # triggers LLM — strict ``<`` was letting confidence==0.55 pass
     # straight through to the deterministic combiner.
     if any(chunk.confidence <= CONFIG.route_confidence_threshold for chunk in primary_chunks):
-        return GemmaDecision(needed=True, reason="low_confidence")
+        return LLMDecision(needed=True, reason="low_confidence")
     if supporting:
-        return GemmaDecision(needed=True, reason="supporting_context")
-    return GemmaDecision(needed=False)
+        return LLMDecision(needed=True, reason="supporting_context")
+    return LLMDecision(needed=False)
 
 
-def build_gemma_payload(spec: RequestSpec) -> dict[str, Any]:
-    """Serialise a RequestSpec into the structured payload Gemma sees."""
+def build_llm_payload(spec: RequestSpec) -> dict[str, Any]:
+    """Serialise a RequestSpec into the structured payload LLM sees."""
     return {
         "trace_id": spec.trace_id,
         "original_request": spec.original_request,
@@ -87,13 +87,13 @@ def build_gemma_payload(spec: RequestSpec) -> dict[str, Any]:
 
 
 def build_combine_prompt(spec: RequestSpec) -> str:
-    """Render the combine prompt that the Gemma client would send.
+    """Render the combine prompt that the LLM client would send.
 
     Two prompt families:
 
     * ``direct_chat`` — when the router fell through with no matching
       skill, the only thing in the spec is the user's verbatim
-      utterance. We render the ``direct_chat`` template so Gemma
+      utterance. We render the ``direct_chat`` template so LLM
       answers the question directly from its own knowledge instead of
       writing a meta-summary about the spec.
     * ``combine`` — when one or more skills produced output and we
@@ -101,7 +101,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     """
     if _is_direct_chat_only(spec):
         return render_prompt("direct_chat", user_question=spec.original_request)
-    payload = build_gemma_payload(spec)
+    payload = build_llm_payload(spec)
     return render_prompt("combine", spec=json.dumps(payload, ensure_ascii=False))
 
 
@@ -140,47 +140,51 @@ def build_resolve_prompt(
     )
 
 
-def gemma_synthesize(spec: RequestSpec) -> ResponseObject:
+def llm_synthesize(spec: RequestSpec) -> ResponseObject:
     """Produce a final natural-language response from a RequestSpec.
 
-    Synchronous entry point. When ``CONFIG.gemma_enabled`` is true the
-    pipeline should prefer :func:`gemma_synthesize_async` so the HTTP
+    Synchronous entry point. When ``CONFIG.llm_enabled`` is true the
+    pipeline should prefer :func:`llm_synthesize_async` so the HTTP
     call to Ollama can run on the event loop. The sync path is kept so
-    tests / scripts that call ``gemma_synthesize`` directly with the
+    tests / scripts that call ``llm_synthesize`` directly with the
     stub still work.
     """
-    if CONFIG.gemma_enabled:  # pragma: no cover - real model path
+    if CONFIG.llm_enabled:  # pragma: no cover - real model path
         return _stub_synthesize(spec)  # sync callers always get the stub
     return _stub_synthesize(spec)
 
 
-async def gemma_synthesize_async(spec: RequestSpec) -> ResponseObject:
-    """Async variant of :func:`gemma_synthesize`.
+async def llm_synthesize_async(spec: RequestSpec) -> ResponseObject:
+    """Async variant of :func:`llm_synthesize`.
 
-    When ``CONFIG.gemma_enabled`` is true this calls the real Ollama
-    Gemma client; otherwise it falls through to the deterministic stub.
+    When ``CONFIG.llm_enabled`` is true this calls the real Ollama
+    LLM client; otherwise it falls through to the deterministic stub.
     The Ollama call is wrapped in a try/except so a misbehaving model
     or network failure degrades to the stub instead of crashing the
     pipeline.
     """
-    if not CONFIG.gemma_enabled:
+    if not CONFIG.llm_enabled:
         # Disabled-stub is the configured behavior under tests, not a
-        # degradation — leave ``gemma_reason`` untouched so callers
+        # degradation — leave ``llm_reason`` untouched so callers
         # that exact-match it still pass.
         return _stub_synthesize(spec)
+    # Record the model tag we are about to call so the dev tools UI
+    # can show the actual model name even if the call later fails. We
+    # capture it here (before the call) so a failure path still has it.
+    spec.llm_model = CONFIG.llm_model
     try:
-        return await _call_real_gemma(spec)
-    except Exception as exc:  # noqa: BLE001 - we never want Gemma to break the pipeline
+        return await _call_real_llm(spec)
+    except Exception as exc:  # noqa: BLE001 - we never want LLM to break the pipeline
         log.warning(
-            "Gemma fallback degraded to stub: model=%s url=%s error=%s",
-            CONFIG.gemma_model,
-            CONFIG.gemma_ollama_url,
+            "LLM fallback degraded to stub: model=%s url=%s error=%s",
+            CONFIG.llm_model,
+            CONFIG.llm_ollama_url,
             exc,
         )
         # Surface the underlying error on the spec so the dev tools UI
         # can show *why* the call failed instead of just "skipped".
-        spec.gemma_reason = (
-            f"{spec.gemma_reason or ''} (degraded:{type(exc).__name__}:{exc})"
+        spec.llm_reason = (
+            f"{spec.llm_reason or ''} (degraded:{type(exc).__name__}:{exc})"
         ).strip()
         return _stub_synthesize(spec)
 
@@ -210,11 +214,11 @@ def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
             continue
         if chunk.capability == "direct_chat":
             # The direct_chat handler echoes the chunk text verbatim;
-            # without a real Gemma model we have nothing useful to
+            # without a real LLM model we have nothing useful to
             # synthesize, so emit a graceful no-answer line instead of
             # mirroring the user's words back at them.
             parts.append(
-                "I don't have a built-in answer for that — try enabling Gemma "
+                "I don't have a built-in answer for that — try enabling LLM "
                 "or rephrasing as a question I can route to a skill."
             )
             continue
@@ -229,23 +233,23 @@ def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
     return ResponseObject(output_text=text)
 
 
-async def _call_real_gemma(spec: RequestSpec) -> ResponseObject:
-    """Real Gemma client path.
+async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
+    """Real LLM client path.
 
-    Renders the combine prompt and sends it to a local Ollama Gemma
+    Renders the combine prompt and sends it to a local Ollama LLM
     model via :mod:`v2.orchestrator.fallbacks.ollama_client`. The
     function is async so it integrates cleanly with the pipeline's
-    ``asyncio`` event loop. Caller (``gemma_synthesize_async``) is
+    ``asyncio`` event loop. Caller (``llm_synthesize_async``) is
     responsible for catching exceptions and degrading to the stub.
     """
-    from v2.orchestrator.fallbacks.ollama_client import call_gemma
+    from v2.orchestrator.fallbacks.ollama_client import call_llm
 
     prompt = build_combine_prompt(spec)
-    raw = await call_gemma(prompt)
+    raw = await call_llm(prompt)
     text = raw.strip()
     if not text:
         # Empty response is treated as a failure so the caller can
         # degrade. Returning empty would propagate to the user as a
         # blank reply.
-        raise RuntimeError("Gemma returned an empty response")
+        raise RuntimeError("LLM returned an empty response")
     return ResponseObject(output_text=text)

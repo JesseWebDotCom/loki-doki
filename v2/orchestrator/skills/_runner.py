@@ -27,7 +27,7 @@ class AdapterResult:
 
     ``output_text`` is the only field the executor / combiner consumes;
     everything else is preserved on the result blob so the trace, the Dev
-    Tools panel, and the Gemma fallback prompt can see provenance.
+    Tools panel, and the LLM fallback prompt can see provenance.
     """
 
     output_text: str
