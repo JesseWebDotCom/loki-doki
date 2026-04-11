@@ -280,14 +280,31 @@ export interface V2RunResponse {
     response_text?: string | null;
     reason?: string | null;
   };
+  parsed: {
+    token_count: number;
+    tokens: string[];
+    sentences: string[];
+  };
   chunks: Array<{
     text: string;
     index: number;
     role: string;
   }>;
+  extractions: Array<{
+    chunk_index: number;
+    references: string[];
+    predicates: string[];
+    subject_candidates: string[];
+  }>;
   routes: Array<{
     chunk_index: number;
     capability: string;
+    confidence: number;
+  }>;
+  resolutions: Array<{
+    chunk_index: number;
+    resolved_target: string;
+    source: string;
     confidence: number;
   }>;
   executions: Array<{

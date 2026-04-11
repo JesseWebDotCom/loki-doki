@@ -41,5 +41,18 @@ def test_v2_pipeline_handles_obvious_compound_request_end_to_end():
     assert len(result.executions) == 2
     assert "hello" in result.response.output_text.lower()
     assert "necessary" in result.response.output_text.lower()
-    assert [step.status for step in result.trace.steps] == ["done", "done", "bypassed", "done", "done", "done", "done"]
+    assert result.parsed.token_count > 0
+    assert len(result.extractions) == 2
+    assert len(result.resolutions) == 2
+    assert [step.status for step in result.trace.steps] == ["done", "done", "bypassed", "done", "done", "done", "done", "done", "done", "done"]
     assert all(step.timing_ms >= 0.0 for step in result.trace.steps)
+
+
+def test_v2_pipeline_extracts_and_resolves_chunk_context():
+    result = run_pipeline("what time is it and how do you spell restaurant")
+
+    assert result.parsed.sentences == ["what time is it and how do you spell restaurant"]
+    assert result.extractions[0].references == ["time"]
+    assert result.extractions[1].references == ["restaurant"]
+    assert result.resolutions[0].resolved_target == "current_time"
+    assert result.resolutions[1].resolved_target == "restaurant"

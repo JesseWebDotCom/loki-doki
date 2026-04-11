@@ -64,3 +64,6 @@ async def test_v2_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
     assert body["trace"]["steps"][-1]["name"] == "combine"
     assert all("status" in step for step in body["trace"]["steps"])
     assert all("timing_ms" in step for step in body["trace"]["steps"])
+    assert body["parsed"]["token_count"] >= 1
+    assert len(body["extractions"]) == 2
+    assert len(body["resolutions"]) == 2

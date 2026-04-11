@@ -37,9 +37,32 @@ class RequestChunk:
 
 
 @dataclass(slots=True)
+class ParsedInput:
+    token_count: int
+    tokens: list[str]
+    sentences: list[str]
+
+
+@dataclass(slots=True)
+class ChunkExtraction:
+    chunk_index: int
+    references: list[str] = field(default_factory=list)
+    predicates: list[str] = field(default_factory=list)
+    subject_candidates: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class RouteMatch:
     chunk_index: int
     capability: str
+    confidence: float
+
+
+@dataclass(slots=True)
+class ResolutionResult:
+    chunk_index: int
+    resolved_target: str
+    source: str
     confidence: float
 
 
@@ -99,8 +122,11 @@ class PipelineResult:
     normalized: NormalizedInput
     signals: InteractionSignalResult
     fast_lane: FastLaneResult
+    parsed: ParsedInput
     chunks: list[RequestChunk]
+    extractions: list[ChunkExtraction]
     routes: list[RouteMatch]
+    resolutions: list[ResolutionResult]
     executions: list[ExecutionResult]
     response: ResponseObject
     trace: TraceData

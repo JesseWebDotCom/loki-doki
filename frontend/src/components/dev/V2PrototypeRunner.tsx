@@ -95,6 +95,61 @@ const V2PrototypeRunner: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            <div className="mt-4 rounded-xl border border-border/20 bg-background/40 p-3">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Parsed</div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                {result.parsed.token_count} tokens
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {result.parsed.tokens.map((token) => (
+                  <span key={token} className="rounded-md border border-border/30 bg-card/60 px-2 py-0.5 text-[10px]">
+                    {token}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {result.chunks.map((chunk, index) => {
+                const extraction = result.extractions.find((item) => item.chunk_index === chunk.index);
+                const route = result.routes.find((item) => item.chunk_index === chunk.index);
+                const resolution = result.resolutions.find((item) => item.chunk_index === chunk.index);
+                const execution = result.executions.find((item) => item.chunk_index === chunk.index);
+                return (
+                  <div key={chunk.index} className="rounded-xl border border-border/20 bg-background/40 p-3">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Chunk {index + 1}</div>
+                    <div className="mt-2 text-sm font-medium">{chunk.text}</div>
+                    <div className="mt-3 grid gap-2 md:grid-cols-3">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Extract</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          refs: {(extraction?.references ?? []).join(', ') || 'none'}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          predicates: {(extraction?.predicates ?? []).join(', ') || 'none'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Route / Resolve</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {route?.capability ?? 'none'} ({((route?.confidence ?? 0) * 100).toFixed(0)}%)
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {resolution?.resolved_target ?? 'none'} via {resolution?.source ?? 'none'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execute</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {execution?.output_text ?? 'no output'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className="rounded-xl border border-border/30 bg-card/50 p-5 shadow-m1">

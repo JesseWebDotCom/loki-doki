@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from v2.bmo_nlu.core.types import ExecutionResult, RequestChunk, RouteMatch
+from v2.bmo_nlu.core.types import ExecutionResult, RequestChunk, ResolutionResult, RouteMatch
 
 
-def execute_chunk(chunk: RequestChunk, route: RouteMatch) -> ExecutionResult:
+def execute_chunk(chunk: RequestChunk, route: RouteMatch, resolution: ResolutionResult) -> ExecutionResult:
     """Execute a routed chunk with simple deterministic handlers."""
     capability = route.capability
     lower = chunk.text.lower().strip()
@@ -16,10 +16,7 @@ def execute_chunk(chunk: RequestChunk, route: RouteMatch) -> ExecutionResult:
     elif capability == "acknowledgment_response":
         output = "You're welcome."
     elif capability == "spell_word":
-        if lower.startswith("how do you spell "):
-            output = chunk.text[len("how do you spell "):].strip()
-        else:
-            output = chunk.text[len("spell "):].strip()
+        output = resolution.resolved_target
     elif capability == "get_current_time":
         output = datetime.now().strftime("%-I:%M %p")
     else:
