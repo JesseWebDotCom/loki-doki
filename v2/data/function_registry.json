@@ -1,0 +1,32 @@
+[
+  {
+    "capability": "greeting_response",
+    "description": "Respond to a short greeting from the user.",
+    "examples": ["hello", "hi", "hey", "hello there", "hi there"],
+    "enabled": true
+  },
+  {
+    "capability": "acknowledgment_response",
+    "description": "Respond to a short acknowledgment or thanks.",
+    "examples": ["thanks", "thank you", "got it"],
+    "enabled": true
+  },
+  {
+    "capability": "get_current_time",
+    "description": "Tell the user the current local time.",
+    "examples": ["what time is it", "what's the time", "tell me the current time"],
+    "enabled": true
+  },
+  {
+    "capability": "spell_word",
+    "description": "Spell or repeat a requested word for the user.",
+    "examples": ["how do you spell restaurant", "spell restaurant", "spell necessary"],
+    "enabled": true
+  },
+  {
+    "capability": "direct_chat",
+    "description": "Fallback conversational response when no capability strongly matches.",
+    "examples": ["tell me something", "chat with me"],
+    "enabled": true
+  }
+]

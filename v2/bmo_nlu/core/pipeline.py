@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from v2.bmo_nlu.core.types import ParsedInput, PipelineResult, ResponseObject, TraceData, TraceSummary
 from v2.bmo_nlu.execution.executor import execute_chunk, execute_chunk_async
@@ -12,6 +13,7 @@ from v2.bmo_nlu.pipeline.fast_lane import check_fast_lane
 from v2.bmo_nlu.pipeline.normalizer import normalize_text
 from v2.bmo_nlu.pipeline.parser import parse_text
 from v2.bmo_nlu.pipeline.splitter import split_requests
+from v2.bmo_nlu.registry.runtime import get_runtime
 from v2.bmo_nlu.resolution.resolver import resolve_chunk_async, resolve_chunks
 from v2.bmo_nlu.routing.router import route_chunk, route_chunk_async
 from v2.bmo_nlu.signals.interaction_signals import detect_interaction_signals
@@ -25,6 +27,7 @@ def run_pipeline(raw_text: str) -> PipelineResult:
 async def run_pipeline_async(raw_text: str) -> PipelineResult:
     """Run the current Phase 1 v2 prototype pipeline asynchronously."""
     trace = TraceData()
+    runtime = get_runtime()
 
     finish = trace.timed("normalize")
     normalized = normalize_text(raw_text)
@@ -76,59 +79,65 @@ async def run_pipeline_async(raw_text: str) -> PipelineResult:
     )
 
     finish = trace.timed("route")
-    routes = list(await asyncio.gather(*(route_chunk_async(chunk) for chunk in chunks)))
+    routed = list(await asyncio.gather(*(_timed_route(chunk, runtime) for chunk in chunks)))
+    routes = [item["route"] for item in routed]
     finish(
         chunks=[
             {
-                "chunk_index": route.chunk_index,
+                "chunk_index": item["route"].chunk_index,
                 "text": chunk.text,
-                "capability": route.capability,
-                "confidence": route.confidence,
+                "capability": item["route"].capability,
+                "confidence": item["route"].confidence,
+                "timing_ms": item["timing_ms"],
             }
-            for chunk, route in zip(chunks, routes, strict=True)
+            for chunk, item in zip(chunks, routed, strict=True)
         ],
     )
 
     finish = trace.timed("resolve")
-    resolutions = list(
+    resolved = list(
         await asyncio.gather(
             *(
-                resolve_chunk_async(chunk, extraction, route)
+                _timed_resolve(chunk, extraction, route)
                 for chunk, extraction, route in zip(chunks, extractions, routes, strict=True)
             )
         )
     )
+    resolutions = [item["resolution"] for item in resolved]
     finish(
         chunks=[
             {
-                "chunk_index": resolution.chunk_index,
+                "chunk_index": item["resolution"].chunk_index,
                 "text": chunk.text,
-                "resolved_target": resolution.resolved_target,
-                "source": resolution.source,
-                "confidence": resolution.confidence,
+                "resolved_target": item["resolution"].resolved_target,
+                "source": item["resolution"].source,
+                "confidence": item["resolution"].confidence,
+                "timing_ms": item["timing_ms"],
             }
-            for chunk, resolution in zip(chunks, resolutions, strict=True)
+            for chunk, item in zip(chunks, resolved, strict=True)
         ],
     )
 
     finish = trace.timed("execute")
-    executions = list(
+    executed = list(
         await asyncio.gather(
             *(
-                execute_chunk_async(chunk, route, resolution)
+                _timed_execute(chunk, route, resolution)
                 for chunk, route, resolution in zip(chunks, routes, resolutions, strict=True)
             )
         )
     )
+    executions = [item["execution"] for item in executed]
     finish(
         chunks=[
             {
-                "chunk_index": execution.chunk_index,
+                "chunk_index": item["execution"].chunk_index,
                 "text": chunk.text,
-                "capability": execution.capability,
-                "output_text": execution.output_text,
+                "capability": item["execution"].capability,
+                "output_text": item["execution"].output_text,
+                "timing_ms": item["timing_ms"],
             }
-            for chunk, execution in zip(chunks, executions, strict=True)
+            for chunk, item in zip(chunks, executed, strict=True)
         ],
     )
 
@@ -174,3 +183,21 @@ def _build_trace_summary(trace: TraceData) -> TraceSummary:
         slowest_step_timing_ms=slowest.timing_ms,
         step_count=len(trace.steps),
     )
+
+
+async def _timed_route(chunk, runtime):
+    started = time.perf_counter()
+    route = await route_chunk_async(chunk, runtime)
+    return {"route": route, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
+
+
+async def _timed_resolve(chunk, extraction, route):
+    started = time.perf_counter()
+    resolution = await resolve_chunk_async(chunk, extraction, route)
+    return {"resolution": resolution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
+
+
+async def _timed_execute(chunk, route, resolution):
+    started = time.perf_counter()
+    execution = await execute_chunk_async(chunk, route, resolution)
+    return {"execution": execution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
