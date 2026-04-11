@@ -152,6 +152,8 @@ async def run_pipeline_async(raw_text: str, context: dict[str, Any] | None = Non
                 "resolved_target": item["resolution"].resolved_target,
                 "source": item["resolution"].source,
                 "confidence": item["resolution"].confidence,
+                "context_value": item["resolution"].context_value,
+                "candidate_values": item["resolution"].candidate_values,
                 "timing_ms": item["timing_ms"],
             }
             for chunk, item in zip(chunks, resolved, strict=True)

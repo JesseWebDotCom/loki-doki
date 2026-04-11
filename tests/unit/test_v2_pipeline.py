@@ -105,6 +105,45 @@ def test_v2_pipeline_resolves_recent_movie_from_context():
     assert result.request_spec.context["recent_entities"][0]["name"] == "Dune: Part Two"
 
 
+def test_v2_pipeline_marks_recent_movie_request_unresolved_without_context():
+    result = run_pipeline("what was that movie")
+
+    assert [route.capability for route in result.routes] == ["recall_recent_media"]
+    assert result.resolutions[0].source == "unresolved_context"
+    assert result.response.output_text == "I don't have a recent movie in context yet."
+    assert result.request_spec.chunks[0].success is False
+    assert result.request_spec.chunks[0].unresolved == ["recent_media"]
+    assert result.request_spec.chunks[0].error == "missing recent movie context"
+    assert result.request_spec.supporting_context == []
+    resolve_step = next(step for step in result.trace.steps if step.name == "resolve")
+    assert resolve_step.details["chunks"][0]["source"] == "unresolved_context"
+    assert resolve_step.details["chunks"][0]["candidate_values"] == []
+
+
+def test_v2_pipeline_marks_recent_movie_request_ambiguous_with_multiple_candidates():
+    result = run_pipeline(
+        "what was that movie",
+        context={
+            "recent_entities": [
+                {"type": "movie", "name": "Rogue One"},
+                {"type": "movie", "name": "A New Hope"},
+            ]
+        },
+    )
+
+    assert [route.capability for route in result.routes] == ["recall_recent_media"]
+    assert result.resolutions[0].source == "ambiguous_context"
+    assert result.response.output_text == "I found multiple recent movies: Rogue One, A New Hope."
+    assert result.request_spec.chunks[0].success is False
+    assert result.request_spec.chunks[0].unresolved == ["recent_media_ambiguous"]
+    assert result.request_spec.chunks[0].error == "multiple recent movies match"
+    assert result.request_spec.supporting_context == ["movie:Rogue One", "movie:A New Hope"]
+    resolve_step = next(step for step in result.trace.steps if step.name == "resolve")
+    assert resolve_step.details["chunks"][0]["source"] == "ambiguous_context"
+    assert resolve_step.details["chunks"][0]["candidate_values"] == ["Rogue One", "A New Hope"]
+    assert resolve_step.details["chunks"][0]["context_value"] is None
+
+
 def test_v2_pipeline_trace_contains_per_chunk_stage_details():
     result = run_pipeline("hello and how do you spell restaurant")
 

@@ -76,6 +76,7 @@ class ResolutionResult:
     source: str
     confidence: float
     context_value: str | None = None
+    candidate_values: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

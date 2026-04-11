@@ -37,6 +37,8 @@ def build_request_spec(
         implementation = implementation_by_chunk[chunk.index]
         resolution = resolution_by_chunk[chunk.index]
         execution = execution_by_chunk[chunk.index]
+        unresolved = _build_unresolved_markers(route, resolution)
+        error = _build_error_message(route, resolution)
         spec_chunks.append(
             RequestChunkResult(
                 text=chunk.text,
@@ -49,12 +51,14 @@ def build_request_spec(
                 params={
                     "resolved_target": resolution.resolved_target,
                     "source": resolution.source,
+                    "candidates": resolution.candidate_values,
                 },
                 result={
                     "output_text": execution.output_text,
                 },
-                success=True,
-                unresolved=[],
+                success=not unresolved,
+                error=error,
+                unresolved=unresolved,
             )
         )
 
@@ -69,8 +73,26 @@ def build_request_spec(
 
 
 def _build_supporting_context(resolutions: list[ResolutionResult]) -> list[str]:
-    return [
-        f"movie:{item.context_value}"
-        for item in resolutions
-        if item.source == "recent_context" and item.context_value
-    ]
+    supporting: list[str] = []
+    for item in resolutions:
+        if item.source == "recent_context" and item.context_value:
+            supporting.append(f"movie:{item.context_value}")
+        elif item.source == "ambiguous_context":
+            supporting.extend(f"movie:{candidate}" for candidate in item.candidate_values)
+    return supporting
+
+
+def _build_unresolved_markers(route: RouteMatch, resolution: ResolutionResult) -> list[str]:
+    if route.capability == "recall_recent_media" and resolution.source == "unresolved_context":
+        return ["recent_media"]
+    if route.capability == "recall_recent_media" and resolution.source == "ambiguous_context":
+        return ["recent_media_ambiguous"]
+    return []
+
+
+def _build_error_message(route: RouteMatch, resolution: ResolutionResult) -> str | None:
+    if route.capability == "recall_recent_media" and resolution.source == "unresolved_context":
+        return "missing recent movie context"
+    if route.capability == "recall_recent_media" and resolution.source == "ambiguous_context":
+        return "multiple recent movies match"
+    return None

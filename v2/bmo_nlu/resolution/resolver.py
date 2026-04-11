@@ -23,6 +23,7 @@ def resolve_chunks(
         resolved_target = route.capability
         source = "route"
         context_value: str | None = None
+        candidate_values: list[str] = []
 
         if route.capability == "get_current_time":
             resolved_target = "current_time"
@@ -31,10 +32,14 @@ def resolve_chunks(
             resolved_target = extraction.references[0]
             source = "chunk_reference"
         elif route.capability == "recall_recent_media":
-            if recent_media:
-                resolved_target = recent_media
+            if len(recent_media) == 1:
+                resolved_target = recent_media[0]
                 source = "recent_context"
-                context_value = recent_media
+                context_value = recent_media[0]
+            elif len(recent_media) > 1:
+                resolved_target = recent_media[0]
+                source = "ambiguous_context"
+                candidate_values = recent_media
             else:
                 resolved_target = "recent movie"
                 source = "unresolved_context"
@@ -49,6 +54,7 @@ def resolve_chunks(
                 source=source,
                 confidence=route.confidence,
                 context_value=context_value,
+                candidate_values=candidate_values,
             )
         )
 
@@ -67,12 +73,13 @@ async def resolve_chunk_async(
     return resolved[0]
 
 
-def _pick_recent_media(context: dict[str, Any] | None) -> str | None:
+def _pick_recent_media(context: dict[str, Any] | None) -> list[str]:
     if not context:
-        return None
+        return []
     entities = context.get("recent_entities")
     if not isinstance(entities, list):
-        return None
+        return []
+    names: list[str] = []
     for entity in entities:
         if not isinstance(entity, dict):
             continue
@@ -81,5 +88,5 @@ def _pick_recent_media(context: dict[str, Any] | None) -> str | None:
             continue
         name = str(entity.get("name") or "").strip()
         if name:
-            return name
-    return None
+            names.append(name)
+    return names

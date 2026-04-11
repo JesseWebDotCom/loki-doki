@@ -100,3 +100,53 @@ async def test_v2_dev_endpoint_accepts_recent_context_for_media_resolution(_fres
     assert body["resolutions"][0]["resolved_target"] == "Rogue One"
     assert body["resolutions"][0]["source"] == "recent_context"
     assert body["request_spec"]["supporting_context"] == ["movie:Rogue One"]
+
+
+@pytest.mark.anyio
+async def test_v2_dev_endpoint_marks_missing_media_context_unresolved(_fresh_memory):
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+    async with _client() as ac:
+        response = await ac.post(
+            "/api/v1/dev/v2/run",
+            json={"message": "what was that movie"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["response"]["output_text"] == "I don't have a recent movie in context yet."
+    assert body["resolutions"][0]["source"] == "unresolved_context"
+    assert body["request_spec"]["chunks"][0]["success"] is False
+    assert body["request_spec"]["chunks"][0]["unresolved"] == ["recent_media"]
+    assert body["request_spec"]["chunks"][0]["error"] == "missing recent movie context"
+    resolve_step = next(step for step in body["trace"]["steps"] if step["name"] == "resolve")
+    assert resolve_step["details"]["chunks"][0]["candidate_values"] == []
+
+
+@pytest.mark.anyio
+async def test_v2_dev_endpoint_marks_ambiguous_media_context_unresolved(_fresh_memory):
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+    async with _client() as ac:
+        response = await ac.post(
+            "/api/v1/dev/v2/run",
+            json={
+                "message": "what was that movie",
+                "context": {
+                    "recent_entities": [
+                        {"type": "movie", "name": "Rogue One"},
+                        {"type": "movie", "name": "A New Hope"},
+                    ]
+                },
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["response"]["output_text"] == "I found multiple recent movies: Rogue One, A New Hope."
+    assert body["resolutions"][0]["source"] == "ambiguous_context"
+    assert body["request_spec"]["chunks"][0]["success"] is False
+    assert body["request_spec"]["chunks"][0]["unresolved"] == ["recent_media_ambiguous"]
+    assert body["request_spec"]["chunks"][0]["error"] == "multiple recent movies match"
+    resolve_step = next(step for step in body["trace"]["steps"] if step["name"] == "resolve")
+    assert resolve_step["details"]["chunks"][0]["candidate_values"] == ["Rogue One", "A New Hope"]

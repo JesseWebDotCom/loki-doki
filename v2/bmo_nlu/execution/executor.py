@@ -33,6 +33,8 @@ def execute_chunk(
     elif implementation.handler_name == "context.media.recall_recent":
         if resolution.source == "recent_context":
             output = resolution.resolved_target
+        elif resolution.source == "ambiguous_context":
+            output = f"I found multiple recent movies: {', '.join(resolution.candidate_values)}."
         else:
             output = "I don't have a recent movie in context yet."
     else:
