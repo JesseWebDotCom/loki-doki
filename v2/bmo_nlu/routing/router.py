@@ -51,6 +51,5 @@ async def route_chunk_async(
     chunk: RequestChunk,
     runtime: CapabilityRuntime | None = None,
 ) -> RouteMatch:
-    """Async wrapper for future parallel routing."""
-    await asyncio.sleep(0)
-    return route_chunk(chunk, runtime)
+    """Offload routing work so embedding calls do not block the event loop."""
+    return await asyncio.to_thread(route_chunk, chunk, runtime)

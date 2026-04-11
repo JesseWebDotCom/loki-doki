@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Clock3, FlaskConical, Play, Sparkles } from 'lucide-react';
 
-import { runV2Prototype } from '../../lib/api';
-import type { V2RunResponse } from '../../lib/api-types';
+import { getV2PrototypeStatus, runV2Prototype } from '../../lib/api';
+import type { V2RunResponse, V2StatusResponse } from '../../lib/api-types';
+import V2PrototypeStatusPanel from './V2PrototypeStatusPanel';
 
 const SAMPLE_PROMPT = 'hello and how do you spell restaurant';
 
@@ -17,6 +18,31 @@ const V2PrototypeRunner: React.FC = () => {
   const [result, setResult] = useState<V2RunResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [status, setStatus] = useState<V2StatusResponse | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadStatus = async () => {
+      setLoadingStatus(true);
+      setStatusError(null);
+      try {
+        const next = await getV2PrototypeStatus();
+        if (!cancelled) setStatus(next);
+      } catch (err) {
+        if (!cancelled) {
+          setStatusError(err instanceof Error ? err.message : 'Failed to load v2 status.');
+        }
+      } finally {
+        if (!cancelled) setLoadingStatus(false);
+      }
+    };
+    void loadStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const run = async () => {
     setRunning(true);
@@ -33,6 +59,8 @@ const V2PrototypeRunner: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      <V2PrototypeStatusPanel loading={loadingStatus} error={statusError} status={status} />
+
       <div className="rounded-xl border border-border/30 bg-card/50 p-5 shadow-m1">
         <div className="flex items-center gap-2 border-b border-border/10 pb-4">
           <FlaskConical className="h-5 w-5 text-primary" />

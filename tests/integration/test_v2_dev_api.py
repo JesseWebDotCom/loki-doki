@@ -33,6 +33,14 @@ async def test_v2_dev_endpoint_requires_admin_auth():
     assert r.status_code == 409
 
 
+@pytest.mark.anyio
+async def test_v2_status_endpoint_requires_admin_auth():
+    async with _client() as ac:
+        r = await ac.get("/api/v1/dev/v2/status")
+
+    assert r.status_code == 409
+
+
 async def _admin_override() -> User:
     return User(
         id=1,
@@ -150,3 +158,21 @@ async def test_v2_dev_endpoint_marks_ambiguous_media_context_unresolved(_fresh_m
     assert body["request_spec"]["chunks"][0]["error"] == "multiple recent movies match"
     resolve_step = next(step for step in body["trace"]["steps"] if step["name"] == "resolve")
     assert resolve_step["details"]["chunks"][0]["candidate_values"] == ["Rogue One", "A New Hope"]
+
+
+@pytest.mark.anyio
+async def test_v2_status_endpoint_returns_phase_and_dependency_summary(_fresh_memory):
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+    async with _client() as ac:
+        response = await ac.get("/api/v1/dev/v2/status")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["current_focus"]
+    assert any(phase["label"] == "Phase 1" and phase["status"] == "complete" for phase in body["phases"])
+    assert any(phase["label"] == "Phase 5" and phase["status"] == "not_started" for phase in body["phases"])
+    dependency_keys = {item["key"] for item in body["dependencies"]}
+    assert {"fastapi", "fastembed", "minilm", "spacy", "en_core_web_sm"} <= dependency_keys
+    minilm = next(item for item in body["dependencies"] if item["key"] == "minilm")
+    assert minilm["version"] == "sentence-transformers/all-MiniLM-L6-v2"

@@ -67,9 +67,8 @@ async def resolve_chunk_async(
     route: RouteMatch,
     context: dict[str, Any] | None = None,
 ) -> ResolutionResult:
-    """Async wrapper for per-chunk resolution."""
-    await asyncio.sleep(0)
-    resolved = resolve_chunks([chunk], [extraction], [route], context)
+    """Offload resolution work so future adapters can stay sync internally."""
+    resolved = await asyncio.to_thread(resolve_chunks, [chunk], [extraction], [route], context)
     return resolved[0]
 
 

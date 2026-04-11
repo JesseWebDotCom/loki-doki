@@ -183,6 +183,10 @@ export async function runV2Prototype(message: string) {
   return postJson<import("./api-types").V2RunResponse>("/dev/v2/run", { message });
 }
 
+export async function getV2PrototypeStatus() {
+  return getJson<import("./api-types").V2StatusResponse>("/dev/v2/status");
+}
+
 export interface SourceMessage {
   id: number;
   session_id: number;

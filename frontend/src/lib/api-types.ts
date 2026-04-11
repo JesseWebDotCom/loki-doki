@@ -356,6 +356,30 @@ export interface V2RunResponse {
   };
 }
 
+export interface V2DependencyStatus {
+  key: string;
+  label: string;
+  version: string;
+  status: string;
+  running: boolean;
+  detail: string;
+}
+
+export interface V2PhaseStatus {
+  id: string;
+  label: string;
+  title: string;
+  status: string;
+  completed: string[];
+  remaining: string[];
+}
+
+export interface V2StatusResponse {
+  current_focus: string;
+  phases: V2PhaseStatus[];
+  dependencies: V2DependencyStatus[];
+}
+
 export interface TrackedProcess {
   label: string;
   running: boolean;

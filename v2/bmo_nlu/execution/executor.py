@@ -49,6 +49,5 @@ async def execute_chunk_async(
     implementation: ImplementationSelection,
     resolution: ResolutionResult,
 ) -> ExecutionResult:
-    """Async wrapper for future parallel execution."""
-    await asyncio.sleep(0)
-    return execute_chunk(chunk, route, implementation, resolution)
+    """Offload synchronous handler execution from the event loop."""
+    return await asyncio.to_thread(execute_chunk, chunk, route, implementation, resolution)
