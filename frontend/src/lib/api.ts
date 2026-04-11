@@ -42,6 +42,7 @@ export type {
   PersonMedia,
   ReconcileCandidate,
   ReconcileGroup,
+  V2RunResponse,
 } from "./api-types";
 
 const API_BASE = "/api/v1";
@@ -176,6 +177,10 @@ export async function getSessionMessages(sessionId: string | number) {
   return getJson<{ session_id: number; messages: Array<Record<string, any>> }>(
     `/memory/sessions/${sessionId}/messages`,
   );
+}
+
+export async function runV2Prototype(message: string) {
+  return postJson<import("./api-types").V2RunResponse>("/dev/v2/run", { message });
 }
 
 export interface SourceMessage {

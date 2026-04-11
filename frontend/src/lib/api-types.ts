@@ -255,6 +255,54 @@ export interface LoadedModel {
   expires_at: string;
 }
 
+export interface V2TraceStep {
+  name: string;
+  status: string;
+  timing_ms: number;
+  details: Record<string, unknown>;
+}
+
+export interface V2RunResponse {
+  normalized: {
+    raw_text: string;
+    cleaned_text: string;
+    lowered_text: string;
+  };
+  signals: {
+    interaction_signal: string;
+    tone_signal: string;
+    urgency: string;
+    confidence: number;
+  };
+  fast_lane: {
+    matched: boolean;
+    capability?: string | null;
+    response_text?: string | null;
+    reason?: string | null;
+  };
+  chunks: Array<{
+    text: string;
+    index: number;
+    role: string;
+  }>;
+  routes: Array<{
+    chunk_index: number;
+    capability: string;
+    confidence: number;
+  }>;
+  executions: Array<{
+    chunk_index: number;
+    capability: string;
+    output_text: string;
+  }>;
+  response: {
+    output_text: string;
+  };
+  trace: {
+    steps: V2TraceStep[];
+  };
+}
+
 export interface TrackedProcess {
   label: string;
   running: boolean;

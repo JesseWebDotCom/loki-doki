@@ -278,7 +278,7 @@ class TestNearDuplicateSuppression:
 
 class TestFuzzyExpandQuery:
     def test_repairs_misspelled_person_name(self):
-        expanded = fuzzy_expand_query("how is artiee doing", ["Luke", "Nora"])
+        expanded = fuzzy_expand_query("how is lukee doing", ["Luke", "Nora"])
         assert "luke" in expanded.lower()
 
     def test_no_expansion_for_exact_match(self):
@@ -400,7 +400,7 @@ class TestFactMatchesQuery:
 
     def test_fuzzy_match(self):
         fact = {"subject": "luke", "predicate": "likes", "value": "movies"}
-        assert fact_matches_query(fact, "does artiee like films") is True
+        assert fact_matches_query(fact, "does lukee like films") is True
 
     def test_no_match(self):
         fact = {"subject": "luke", "predicate": "likes", "value": "movies"}

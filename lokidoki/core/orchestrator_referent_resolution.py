@@ -257,14 +257,21 @@ class ReferentResolver:
                 ))
 
         rel_map = {int(r["person_id"]): (r.get("relation") or "").strip() for r in relationships if r.get("person_id") is not None}
-        for idx, p in enumerate(people[:8]):
+        person_rank = 0
+        for p in people[:8]:
             name = (p.get("name") or "").strip()
             if not name:
+                continue
+            # The linked user profile row lives in the same people table.
+            # It should not compete with third-person referent resolution
+            # like "what's his name", or it can tie with a real person and
+            # force an unnecessary fallback.
+            if p.get("linked_user_id") is not None:
                 continue
             relation = rel_map.get(int(p.get("id") or 0), "")
             type_name = "person"
             if self._type_matches(ask, type_name):
-                score = 4.5 - min(idx, 3)
+                score = 4.5 - min(person_rank, 3)
                 if relation:
                     score += 0.5
                 candidates.append(ReferentCandidate(
@@ -277,6 +284,7 @@ class ReferentResolver:
                     score=score,
                     metadata={"relationship": relation},
                 ))
+                person_rank += 1
 
         if anchor_text and self._type_matches(ask, "person"):
             matched_person = fuzzy_match_name(anchor_text, alias_people, score_cutoff=82)

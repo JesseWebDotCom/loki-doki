@@ -105,10 +105,13 @@ def delete_person(
 def list_people(conn: sqlite3.Connection, user_id: int) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT p.id, p.name, p.aliases, p.created_at, "
+        "       u.id AS linked_user_id, u.username AS linked_username, "
         "       (SELECT COUNT(*) FROM facts f "
         "        WHERE f.owner_user_id = p.owner_user_id "
         "          AND f.subject_ref_id = p.id) AS fact_count "
         "FROM people p "
+        "LEFT JOIN person_user_links pul ON pul.person_id = p.id "
+        "LEFT JOIN users u ON u.id = pul.user_id "
         "WHERE p.owner_user_id = ? "
         "ORDER BY LOWER(p.name)",
         (user_id,),
