@@ -700,7 +700,7 @@ wheels = [
 ]
 
 [[package]]
-name = "lokidoki-core"
+name = "lokidoki"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
