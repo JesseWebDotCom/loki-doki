@@ -2,32 +2,37 @@
 from __future__ import annotations
 
 import asyncio
-from difflib import SequenceMatcher
+import math
 
 from v2.bmo_nlu.core.types import RequestChunk, RouteMatch
 from v2.bmo_nlu.registry.runtime import CapabilityRuntime, get_runtime
 
 
-def _score_text(query: str, candidate: str) -> float:
-    query_tokens = set(query.split())
-    candidate_tokens = set(candidate.split())
-    overlap = len(query_tokens & candidate_tokens)
-    token_score = overlap / max(len(query_tokens), 1)
-    ratio_score = SequenceMatcher(None, query, candidate).ratio()
-    return max(token_score, ratio_score)
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    numerator = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return numerator / (left_norm * right_norm)
 
 
 def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -> RouteMatch:
     """Map a chunk to a prototype capability using the cached registry."""
     active_runtime = runtime or get_runtime()
     query = " ".join(chunk.text.lower().split())
+    query_vector = active_runtime.embed_query(query)
     best_capability = "direct_chat"
     best_score = 0.0
     best_text = ""
 
     for item in active_runtime.router_index:
-        for text in item["texts"]:
-            score = _score_text(query, text)
+        texts = item.get("texts") or []
+        vectors = item.get("vectors") or []
+        for text, vector in zip(texts, vectors, strict=True):
+            score = _cosine_similarity(query_vector, vector)
             if score > best_score:
                 best_score = score
                 best_capability = item["capability"]
