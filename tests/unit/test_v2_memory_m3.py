@@ -518,16 +518,14 @@ def test_m3_render_social_context_handles_named_handle_and_relations() -> None:
 # ----- Dev-tools status: M3 active ---------------------------------------
 
 
-def test_m3_dev_v2_status_active_phase_is_m3() -> None:
+def test_m3_dev_v2_status_phase_is_complete() -> None:
+    """M3 must always be marked complete on the dev-tools status, even
+    after later half-step phases (M3.5+) advance the active phase."""
     from lokidoki.api.routes.dev import _v2_memory_status
 
     payload = _v2_memory_status()
-    assert payload["active_phase"]["id"] == "m3"
-    assert payload["active_phase"]["status"] == "complete"
     m3_phase = next(p for p in payload["phases"] if p["id"] == "m3")
     assert m3_phase["status"] == "complete"
-    deliverables = " ".join(payload["active_phase"]["deliverables"]).lower()
-    assert "social" in deliverables or "tier 5" in deliverables
 
 
 # ----- End-to-end pipeline integration ----------------------------------

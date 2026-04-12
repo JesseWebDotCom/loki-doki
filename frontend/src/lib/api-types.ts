@@ -448,6 +448,60 @@ export interface V2StatusResponse {
   memory?: V2MemoryStatus;
 }
 
+export interface V2MemoryFactRow {
+  id: number;
+  owner_user_id: number;
+  subject: string;
+  predicate: string;
+  value: string;
+  confidence: number;
+  status: string;
+  observation_count: number;
+  source_text: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2MemoryPersonRow {
+  id: number;
+  owner_user_id: number;
+  name: string | null;
+  handle: string | null;
+  provisional: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface V2MemoryRelationshipRow {
+  id: number;
+  owner_user_id: number;
+  person_id: number;
+  relation_label: string;
+  created_at: string;
+}
+
+export interface V2MemoryDumpResponse {
+  owner_user_id: number;
+  db_path: string;
+  active_facts: V2MemoryFactRow[];
+  superseded_facts: V2MemoryFactRow[];
+  people: V2MemoryPersonRow[];
+  relationships: V2MemoryRelationshipRow[];
+  summary: {
+    active_fact_count: number;
+    superseded_fact_count: number;
+    person_count: number;
+    relationship_count: number;
+  };
+}
+
+export interface V2MemoryResetResponse {
+  owner_user_id: number;
+  db_path: string;
+  facts_cleared: number;
+  people_cleared: number;
+}
+
 export interface V2SkillEntry {
   capability: string;
   description: string;

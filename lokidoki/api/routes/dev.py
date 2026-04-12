@@ -8,6 +8,13 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 
+from lokidoki.api.dev_memory import (
+    DEV_DB_PATH,
+    DEV_OWNER_USER_ID,
+    dump_dev_store,
+    get_dev_store,
+    reset_dev_store,
+)
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
 from v2.orchestrator.core.types import RequestChunk, ResolutionResult, RouteMatch
@@ -30,6 +37,15 @@ router = APIRouter()
 class V2RunRequest(BaseModel):
     message: str
     context: dict[str, Any] = Field(default_factory=dict)
+    # Memory toggles. When ``memory_enabled`` is true the dev-tools test
+    # store is wired into ``context`` so the run actually exercises the
+    # write + read paths. ``need_preference`` and ``need_social`` gate
+    # the per-tier read slots independently. Defaults are all False so
+    # the existing v2 prototype behavior is preserved when the dev tool
+    # has memory turned off.
+    memory_enabled: bool = False
+    need_preference: bool = True
+    need_social: bool = True
 
     @field_validator("message")
     @classmethod
@@ -248,41 +264,50 @@ def _v2_memory_status() -> dict[str, Any]:
             "title": ACTIVE_PHASE_TITLE,
             "status": ACTIVE_PHASE_STATUS,
             "summary": (
-                "M3 is shipped: Tier 5 social read path is live. The v2 "
-                "memory store now exposes a deterministic four-strategy "
-                "person resolver (exact name -> handle -> substring -> "
-                "rapidfuzz fuzzy fallback) backed by the people and "
-                "relationships tables that M1 already writes to. The "
-                "{social_context} prompt slot renders the resolved persons "
-                "into both the combine and direct_chat templates with a "
-                "hard 200-char word-boundary budget. Provisional handles "
-                "(\"my boss\") merge into named rows via "
-                "merge_provisional_handle while preserving relationship "
-                "edges. Lazy retrieval is gated by context['need_social'] "
-                "so casual turns never touch the people graph. The 32-case "
-                "M3 resolution corpus drives the >=0.90 top-1 accuracy "
-                "gate. need_preference and need_social compose: a single "
-                "turn can request both Tier 4 facts and Tier 5 people."
+                "M3.5 (auto-merge) and M2.5 (vector RRF source) shipped on "
+                "top of M0-M3. The dev tools v2 test page now has a Memory "
+                "section with toggles (Enable memory / need_preference / "
+                "need_social) and a Memory state panel that shows the "
+                "current dev test store contents (active facts, superseded "
+                "facts, people, relationships) with a Reset button. Memory "
+                "writes/reads happen against a separate dev SQLite file at "
+                "data/v2_dev_memory.sqlite — production memory is never "
+                "touched by the dev tools. Try: \"I'm allergic to peanuts\" "
+                "then \"what am I allergic to\" — the second turn pulls the "
+                "fact into {user_facts}. Or \"my brother Luke loves movies\" "
+                "then \"when is Luke visiting\" — the second turn pulls "
+                "Luke into {social_context}. M2.5 wires a third RRF source "
+                "(cosine similarity over embeddings stored on the facts "
+                "row) so vocabulary mismatches like \"what foods should I "
+                "avoid\" -> \"has_allergy=peanuts\" are bridged. M3.5 "
+                "auto-merges a provisional handle row when a later turn "
+                "names the person under the same relation: \"my boss is "
+                "being weird\" then \"my boss Steve approved it\" ends "
+                "with one row, named Steve, with the handle preserved."
             ),
             "deliverables": [
-                "Deterministic four-strategy person resolver (exact / handle / substring / fuzzy)",
-                "PersonHit + PersonResolution dataclasses for typed read results",
-                "{social_context} slot rendered into combine + direct_chat prompts",
-                "Hard 200-char word-boundary budget on social_context",
-                "Lazy retrieval: need_social gates the fetch",
-                "Provisional-handle merge: handle:'my boss' -> name 'Steve' preserves relationships",
-                "idx_people_owner_handle index applied via core schema",
-                "32-case people resolution corpus across exact/handle/substring/fuzzy/ambiguous/merge/isolation buckets",
-                "Top-1 accuracy >= 0.90 phase gate measured against the corpus",
-                "Cross-user isolation in the social read path",
-                "Pipeline composes need_preference and need_social independently",
+                "Dev tools: Enable-memory toggle + need_preference + need_social",
+                "Dev tools: V2MemoryPanel showing facts/people/relationships + Reset",
+                "Dev tools: Memory activity card on every run (writes/reads/slot contents)",
+                "Dev tools: separate dev SQLite at data/v2_dev_memory.sqlite (prod untouched)",
+                "Endpoints: GET /dev/v2/memory/dump and POST /dev/v2/memory/reset",
+                "Gate 2 carve-out: identity-establishing predicates allow new persons",
+                "Extractor patterns: my favorite X is Y, I live in X, I work at X (in addition to existing copular/possessive patterns)",
+                "M2.5: facts.embedding column populated on insert via routing embedding backend",
+                "M2.5: _vector_search adds cosine similarity as third RRF source",
+                "M2.5: vocabulary-bridge cases (foods <-> dietary restriction) recall correctly",
+                "M3.5: _maybe_promote_provisional_by_relation auto-merges across turns",
+                "M3.5: 9 phase tests + end-to-end pipeline merge case",
+                "Public-figure stranger guard: 'the president' / 'some random guy' denied",
             ],
         },
         "phases": [
             {"id": "m0", "label": "M0", "title": "Prerequisites and corpora", "status": "complete"},
             {"id": "m1", "label": "M1", "title": "Write path: gates + classifier + Tier 4/5 writes", "status": "complete"},
             {"id": "m2", "label": "M2", "title": "Read path: Tier 4 FTS5 + RRF retrieval", "status": "complete"},
+            {"id": "m2_5", "label": "M2.5", "title": "Vector embeddings as third RRF source", "status": "complete"},
             {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "complete"},
+            {"id": "m3_5", "label": "M3.5", "title": "Auto-merge by relation", "status": "complete"},
             {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "not_started"},
             {"id": "m5", "label": "M5", "title": "Tier 7 procedural: behavior events + 7a/7b split", "status": "not_started"},
             {"id": "m6", "label": "M6", "title": "Tier 6 affective: rolling window + character overlay", "status": "not_started"},
@@ -320,8 +345,61 @@ async def run_v2_pipeline(
     request: V2RunRequest,
     _: User = Depends(require_admin),
 ):
-    """Run the isolated v2 prototype pipeline."""
-    return (await run_pipeline_async(request.message, context=request.context)).to_dict()
+    """Run the isolated v2 prototype pipeline.
+
+    When ``memory_enabled`` is True the request context is enriched
+    with the dev-tools test store and the requested per-tier need_*
+    flags. The dev test store is **separate from** the production v2
+    store at data/v2_memory.sqlite — dev tool runs never pollute
+    real user memory.
+    """
+    context = dict(request.context)
+    if request.memory_enabled:
+        context["memory_writes_enabled"] = True
+        context["memory_store"] = get_dev_store()
+        context["owner_user_id"] = DEV_OWNER_USER_ID
+        context["need_preference"] = request.need_preference
+        context["need_social"] = request.need_social
+    pipeline_result = await run_pipeline_async(request.message, context=context)
+    # Strip non-serializable bits (the store contains a threading RLock
+    # that asdict() chokes on) BEFORE to_dict() walks the tree. We keep
+    # the assembled memory_slots so the dev tools UI can show what was
+    # injected into the prompt.
+    spec_context = pipeline_result.request_spec.context or {}
+    if "memory_store" in spec_context:
+        spec_context.pop("memory_store", None)
+    return pipeline_result.to_dict()
+
+
+@router.get("/v2/memory/dump")
+async def dump_v2_memory(_: User = Depends(require_admin)):
+    """Return everything in the dev-tools test memory store."""
+    payload = dump_dev_store()
+    return {
+        "owner_user_id": DEV_OWNER_USER_ID,
+        "db_path": str(DEV_DB_PATH),
+        "active_facts": payload["active_facts"],
+        "superseded_facts": payload["superseded_facts"],
+        "people": payload["people"],
+        "relationships": payload["relationships"],
+        "summary": {
+            "active_fact_count": len(payload["active_facts"]),
+            "superseded_fact_count": len(payload["superseded_facts"]),
+            "person_count": len(payload["people"]),
+            "relationship_count": len(payload["relationships"]),
+        },
+    }
+
+
+@router.post("/v2/memory/reset")
+async def reset_v2_memory(_: User = Depends(require_admin)):
+    """Wipe the dev-tools test memory store."""
+    summary = reset_dev_store()
+    return {
+        "owner_user_id": DEV_OWNER_USER_ID,
+        "db_path": str(DEV_DB_PATH),
+        **summary,
+    }
 
 
 @router.get("/v2/skills")

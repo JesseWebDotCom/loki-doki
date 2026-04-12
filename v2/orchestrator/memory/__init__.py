@@ -36,12 +36,22 @@ M3_PHASE_LABEL = "M3"
 M3_PHASE_TITLE = "Memory: Tier 5 Social (people graph + provisional handles)"
 M3_PHASE_STATUS = "complete"
 
+M3_5_PHASE_ID = "m3_5"
+M3_5_PHASE_LABEL = "M3.5"
+M3_5_PHASE_TITLE = "Memory: Auto-merge by relation"
+M3_5_PHASE_STATUS = "complete"
+
+M2_5_PHASE_ID = "m2_5"
+M2_5_PHASE_LABEL = "M2.5"
+M2_5_PHASE_TITLE = "Memory: Vector embeddings as third RRF source"
+M2_5_PHASE_STATUS = "complete"
+
 # The "active" phase is the most recent shipped phase. Future phases
 # update this constant when they land.
-ACTIVE_PHASE_ID = M3_PHASE_ID
-ACTIVE_PHASE_LABEL = M3_PHASE_LABEL
-ACTIVE_PHASE_TITLE = M3_PHASE_TITLE
-ACTIVE_PHASE_STATUS = M3_PHASE_STATUS
+ACTIVE_PHASE_ID = M3_5_PHASE_ID
+ACTIVE_PHASE_LABEL = M3_5_PHASE_LABEL
+ACTIVE_PHASE_TITLE = M3_5_PHASE_TITLE
+ACTIVE_PHASE_STATUS = M3_5_PHASE_STATUS
 
 __all__ = [
     "M0_PHASE_ID",

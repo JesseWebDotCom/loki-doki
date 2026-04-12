@@ -245,6 +245,93 @@ def _walk_sentence(
                 **base_kwargs,
             )
 
+    # Pattern 6a: "my favorite X is Y" → (self, favorite_X, Y)
+    # Closed enum of supported "favorite_X" predicates so we don't
+    # silently widen Tier 4 with arbitrary axes.
+    favorite_axes = {
+        "color": "favorite_color",
+        "colour": "favorite_color",
+        "food": "favorite_food",
+        "movie": "favorite_movie",
+        "film": "favorite_movie",
+    }
+    for token in tokens:
+        # Find a copular root with an attr/acomp complement.
+        if token.dep_ != "ROOT" or token.lemma_.lower() not in {"be"}:
+            continue
+        nsubj = next((c for c in token.children if c.dep_ == "nsubj"), None)
+        if nsubj is None or nsubj.pos_ not in {"NOUN", "PROPN"}:
+            continue
+        # The subject noun must have a "my" possessive child and an
+        # "favorite" amod child for this pattern.
+        has_my = any(c.dep_ == "poss" and c.lower_ == "my" for c in nsubj.children)
+        amod_favorite = any(
+            c.dep_ == "amod" and c.lower_ in {"favorite", "favourite"}
+            for c in nsubj.children
+        )
+        if not (has_my and amod_favorite):
+            continue
+        axis_key = nsubj.lemma_.lower()
+        if axis_key not in favorite_axes:
+            continue
+        complement = next(
+            (c for c in token.children if c.dep_ in {"attr", "acomp"}),
+            None,
+        )
+        if complement is None:
+            continue
+        value = _span_text(complement)
+        if value:
+            yield MemoryCandidate(
+                subject="self",
+                predicate=favorite_axes[axis_key],
+                value=value,
+                **base_kwargs,
+            )
+
+    # Pattern 6b: "I live in <Loc>" / "I live at <Loc>" → (self, lives_in, Loc)
+    # Pattern 6c: "I work at <Org>" / "I work for <Org>" → (self, current_employer, Org)
+    location_verbs = {"live"}
+    work_verbs = {"work"}
+    for token in tokens:
+        if token.dep_ != "ROOT":
+            continue
+        lemma = token.lemma_.lower()
+        if lemma not in (location_verbs | work_verbs):
+            continue
+        if not any(_is_first_person_subject(c) for c in token.children):
+            continue
+        prep = next(
+            (
+                c
+                for c in token.children
+                if c.dep_ == "prep" and c.lower_ in {"in", "at", "for"}
+            ),
+            None,
+        )
+        if prep is None:
+            continue
+        pobj = next((c for c in prep.children if c.dep_ == "pobj"), None)
+        if pobj is None:
+            continue
+        place = _span_text(pobj)
+        if not place:
+            continue
+        if lemma in location_verbs and prep.lower_ in {"in", "at"}:
+            yield MemoryCandidate(
+                subject="self",
+                predicate="lives_in",
+                value=place,
+                **base_kwargs,
+            )
+        elif lemma in work_verbs and prep.lower_ in {"at", "for"}:
+            yield MemoryCandidate(
+                subject="self",
+                predicate="current_employer",
+                value=place,
+                **base_kwargs,
+            )
+
     # Pattern 6: "I love/hate X"
     for token in tokens:
         if token.lemma_.lower() not in _PREFERENCE_LEMMAS:

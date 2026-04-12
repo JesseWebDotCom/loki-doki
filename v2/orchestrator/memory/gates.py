@@ -205,17 +205,35 @@ def gate_clause_shape(
 # ---------------------------------------------------------------------------
 
 
+# Identity-establishing predicates can introduce a new person on the
+# first mention — that's how Tier 5 rows are born. Gate 2 allows
+# `person:X` candidates with one of these predicates even when X isn't
+# already resolved; the writer creates the row. For non-identity
+# predicates (like `lives_in` or `prefers` on someone else), the
+# subject must resolve to an existing person to prevent garbage rows
+# like `(person:the president, lives_in, DC)`.
+_IDENTITY_ESTABLISHING_PREDICATES: frozenset[str] = frozenset(
+    {"is_relation", "is_named", "has_pronoun"}
+)
+
+
 def gate_subject(
     candidate: MemoryCandidate,
     resolved_people: Iterable[str] | None = None,
     *,
     known_entities: Iterable[str] | None = None,
 ) -> GateResult:
-    """Gate 2 — subject must be self / resolved person / known entity / handle.
+    """Gate 2 — subject must be self / resolved person / handle / new
+    person under an identity-establishing predicate / known entity.
 
-    Strangers, public figures, and hypothetical people are denied.
-    Provisional handles ('handle:my boss') are allowed; M1 stores them
-    as Tier 5 rows with `provisional=true`.
+    The intent of Gate 2 (per design §3 v1.1) is to block public
+    figures, strangers, and hypothetical people while allowing
+    private people in the user's life — including the **first
+    mention** of a new family member or friend. M3 makes this
+    distinction explicit: ``person:Luke`` paired with predicate
+    ``is_relation`` means "Luke is being introduced as a relation",
+    which is exactly the row creation event. Without this carve-out
+    Gate 2 would deadlock the chicken-and-egg of social writes.
     """
     subject = candidate.subject
     if subject == "self":
@@ -226,10 +244,28 @@ def gate_subject(
         return GateResult(GateName.SUBJECT, passed=True, reason="provisional_handle")
 
     if subject.startswith("person:"):
-        name = subject.split(":", 1)[1].strip().lower()
+        name = subject.split(":", 1)[1].strip()
+        if not name:
+            return GateResult(GateName.SUBJECT, passed=False, reason="empty_person_name")
+        # Public-figure / stranger guard. The set is intentionally tiny
+        # and matches on the canonical *name* the extractor produced,
+        # not on user input. Adding entries requires a corpus case.
+        public_or_stranger = _looks_like_public_figure_or_stranger(name)
+        if public_or_stranger:
+            return GateResult(
+                GateName.SUBJECT,
+                passed=False,
+                reason=f"public_or_stranger:{public_or_stranger}",
+            )
         resolved = {n.lower() for n in (resolved_people or [])}
-        if name in resolved:
+        if name.lower() in resolved:
             return GateResult(GateName.SUBJECT, passed=True, reason="resolved_person")
+        if candidate.predicate in _IDENTITY_ESTABLISHING_PREDICATES:
+            return GateResult(
+                GateName.SUBJECT,
+                passed=True,
+                reason="new_person_via_identity_predicate",
+            )
         return GateResult(
             GateName.SUBJECT,
             passed=False,
@@ -248,6 +284,35 @@ def gate_subject(
         )
 
     return GateResult(GateName.SUBJECT, passed=False, reason="unknown_subject_shape")
+
+
+# Public-figure / stranger guard set. We use a *closed* lower-cased set
+# of canonical generic-public phrases the extractor might produce. This
+# is matched against the extractor's structured ``name`` argument, not
+# against user input — the user could say "the president" and the
+# extractor's parse-tree pattern would produce ``person:the president``,
+# at which point this guard fires.
+_PUBLIC_OR_STRANGER_NAMES: frozenset[str] = frozenset(
+    {
+        "the president",
+        "the prime minister",
+        "the king",
+        "the queen",
+        "some random guy",
+        "some random person",
+        "that guy on tv",
+        "that woman on tv",
+        "that person",
+        "stranger",
+    }
+)
+
+
+def _looks_like_public_figure_or_stranger(name: str) -> str | None:
+    lowered = name.strip().lower()
+    if lowered in _PUBLIC_OR_STRANGER_NAMES:
+        return lowered
+    return None
 
 
 # ---------------------------------------------------------------------------

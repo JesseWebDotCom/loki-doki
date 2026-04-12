@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Check, Clock3, Copy, FlaskConical, Play, Sparkles, Wrench } from 'lucide-react';
+import { Brain, Check, Clock3, Copy, FlaskConical, Play, Sparkles, Wrench } from 'lucide-react';
 
 import { runV2Prototype } from '../../lib/api';
 import type { V2RunResponse } from '../../lib/api-types';
+import V2MemoryPanel from './V2MemoryPanel';
 import V2SkillsExplorer from './V2SkillsExplorer';
 
 const SAMPLE_PROMPT = 'hello and how do you spell restaurant';
@@ -147,6 +148,13 @@ const V2PrototypeRunner: React.FC = () => {
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<DevTab>('request');
+  const [memoryEnabled, setMemoryEnabled] = useState(false);
+  const [needPreference, setNeedPreference] = useState(true);
+  const [needSocial, setNeedSocial] = useState(true);
+  // Bumped after every successful run so V2MemoryPanel re-fetches the
+  // dev store dump and the user immediately sees the side-effects of
+  // their last run.
+  const [memoryRefreshNonce, setMemoryRefreshNonce] = useState(0);
 
   const handleCopyRun = async () => {
     if (!result) return;
@@ -166,8 +174,15 @@ const V2PrototypeRunner: React.FC = () => {
     setRunning(true);
     setError(null);
     try {
-      const next = await runV2Prototype(message);
+      const next = await runV2Prototype(message, {
+        memory_enabled: memoryEnabled,
+        need_preference: needPreference,
+        need_social: needSocial,
+      });
       setResult(next);
+      if (memoryEnabled) {
+        setMemoryRefreshNonce((n) => n + 1);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Prototype run failed.');
     } finally {
@@ -240,12 +255,54 @@ const V2PrototypeRunner: React.FC = () => {
                 Load Example
               </button>
             </div>
+            <div className="mt-4 rounded-xl border border-border/30 bg-background/30 p-3">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                <Brain size={12} />
+                Memory (M0–M3)
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={memoryEnabled}
+                    onChange={(event) => setMemoryEnabled(event.target.checked)}
+                  />
+                  <span className="font-bold">Enable memory</span>
+                  <span className="text-muted-foreground">(uses dev test store)</span>
+                </label>
+                <label className={`flex items-center gap-2 ${!memoryEnabled ? 'opacity-50' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={needPreference}
+                    disabled={!memoryEnabled}
+                    onChange={(event) => setNeedPreference(event.target.checked)}
+                  />
+                  <span>need_preference (Tier 4)</span>
+                </label>
+                <label className={`flex items-center gap-2 ${!memoryEnabled ? 'opacity-50' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={needSocial}
+                    disabled={!memoryEnabled}
+                    onChange={(event) => setNeedSocial(event.target.checked)}
+                  />
+                  <span>need_social (Tier 5)</span>
+                </label>
+              </div>
+              {memoryEnabled && (
+                <div className="mt-2 text-[10px] italic text-muted-foreground">
+                  Try: "I&apos;m allergic to peanuts" → "what am I allergic to". Or "my brother Luke loves movies" → "when is Luke visiting".
+                </div>
+              )}
+            </div>
             {error && (
               <div className="mt-4 rounded-xl border border-red-400/30 bg-red-400/5 p-3 text-xs text-red-300">
                 {error}
               </div>
             )}
           </div>
+
+          {memoryEnabled && <V2MemoryPanel refreshNonce={memoryRefreshNonce} />}
 
           {result && (
             <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -274,6 +331,80 @@ const V2PrototypeRunner: React.FC = () => {
                 <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm font-medium text-foreground">
                   {result.response.output_text || <span className="italic text-muted-foreground">No output</span>}
                 </div>
+
+                {memoryEnabled && (() => {
+                  const writeStep = result.trace.steps.find((s) => s.name === 'memory_write');
+                  const readStep = result.trace.steps.find((s) => s.name === 'memory_read');
+                  const writeDetails = (writeStep?.details ?? {}) as Record<string, unknown>;
+                  const readDetails = (readStep?.details ?? {}) as Record<string, unknown>;
+                  const accepted = (writeDetails.accepted as number) ?? 0;
+                  const rejected = (writeDetails.rejected as number) ?? 0;
+                  const acceptedSummary = (writeDetails.accepted_summary as Array<Record<string, unknown>>) ?? [];
+                  const rejectedSummary = (writeDetails.rejected_summary as Array<Record<string, unknown>>) ?? [];
+                  const slotsAssembled = (readDetails.slots_assembled as string[]) ?? [];
+                  const userFactsChars = (readDetails.user_facts_chars as number) ?? 0;
+                  const socialContextChars = (readDetails.social_context_chars as number) ?? 0;
+                  const memorySlots =
+                    (result.request_spec.context as Record<string, unknown> | undefined)?.memory_slots as
+                      | Record<string, string>
+                      | undefined;
+
+                  return (
+                    <div className="mt-3 rounded-xl border border-violet-400/30 bg-violet-400/5 p-4">
+                      <div className="flex items-center gap-2">
+                        <Brain size={14} className="text-violet-300" />
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-violet-300">
+                          Memory activity
+                        </div>
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2 text-[11px]">
+                        <div>
+                          <div className="font-bold text-violet-200">Write path</div>
+                          <div className="text-muted-foreground">
+                            accepted={accepted} · rejected={rejected}
+                          </div>
+                          {acceptedSummary.length > 0 && (
+                            <ul className="mt-1 space-y-0.5">
+                              {acceptedSummary.map((row, i) => (
+                                <li key={i} className="text-emerald-300">
+                                  ✓ {String(row.subject)} {String(row.predicate)}={String(row.value)} (T{String(row.tier ?? '?')})
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {rejectedSummary.length > 0 && (
+                            <ul className="mt-1 space-y-0.5">
+                              {rejectedSummary.map((row, i) => (
+                                <li key={i} className="text-amber-300">
+                                  ✗ {String(row.subject || '?')} {String(row.predicate || '?')} — denied at {String(row.denied_at)}: {String(row.reason)}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-bold text-violet-200">Read path</div>
+                          <div className="text-muted-foreground">
+                            slots: {slotsAssembled.length === 0 ? '(none)' : slotsAssembled.join(', ')}
+                          </div>
+                          <div className="text-muted-foreground">
+                            user_facts: {userFactsChars} chars · social_context: {socialContextChars} chars
+                          </div>
+                          {memorySlots?.user_facts && (
+                            <div className="mt-1 rounded border border-border/20 bg-card/40 px-2 py-1 font-mono text-[10px] text-foreground">
+                              {memorySlots.user_facts}
+                            </div>
+                          )}
+                          {memorySlots?.social_context && (
+                            <div className="mt-1 rounded border border-border/20 bg-card/40 px-2 py-1 font-mono text-[10px] text-foreground">
+                              {memorySlots.social_context}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl border border-border/20 bg-background/40 p-3">

@@ -27,7 +27,9 @@ store.
 """
 from __future__ import annotations
 
+import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
@@ -181,6 +183,93 @@ def _bm25_search(
         log.warning("v2 memory reader BM25 failed: %s", exc)
         return []
     return [(int(row["fact_id"]), float(row["score"])) for row in rows]
+
+
+def _embed_query(query: str) -> list[float] | None:
+    """Compute the query embedding using the same backend as the store.
+
+    Returns None when the embedding backend isn't available — callers
+    treat this as "skip the vector source" rather than crash.
+    """
+    if not query or not query.strip():
+        return None
+    try:
+        from v2.orchestrator.routing.embeddings import get_embedding_backend
+    except Exception as exc:  # noqa: BLE001
+        log.debug("v2 memory reader: embedding backend unavailable: %s", exc)
+        return None
+    try:
+        backend = get_embedding_backend()
+        vectors = backend.embed([query])
+    except Exception as exc:  # noqa: BLE001
+        log.debug("v2 memory reader: embedding query failed: %s", exc)
+        return None
+    if not vectors or not vectors[0]:
+        return None
+    return list(vectors[0])
+
+
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+    for av, bv in zip(a, b):
+        dot += av * bv
+        norm_a += av * av
+        norm_b += bv * bv
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (math.sqrt(norm_a) * math.sqrt(norm_b))
+
+
+# Cosine similarity floor — vectors below this are dropped from the
+# vector source. Tuned conservatively because the hash fallback embedding
+# backend produces noisier vectors than fastembed.
+VECTOR_SIM_FLOOR: float = 0.15
+
+
+def _vector_search(
+    store: V2MemoryStore,
+    owner_user_id: int,
+    query: str,
+    *,
+    limit: int = 20,
+) -> list[tuple[int, float]]:
+    """Cosine-similarity scan over the embedding column.
+
+    Returns a list of (fact_id, similarity) ordered by similarity
+    descending. Returns [] when the embedding backend isn't available
+    or when no row clears VECTOR_SIM_FLOOR.
+
+    This is the third source for RRF fusion in :func:`read_user_facts`,
+    sitting alongside BM25 and the structured subject scan.
+    """
+    query_vec = _embed_query(query)
+    if query_vec is None:
+        return []
+    try:
+        rows = store._conn.execute(
+            "SELECT id, embedding FROM facts "
+            "WHERE owner_user_id = ? AND status = 'active' "
+            "AND embedding IS NOT NULL",
+            (owner_user_id,),
+        ).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("v2 memory reader vector scan failed: %s", exc)
+        return []
+    scored: list[tuple[int, float]] = []
+    for row in rows:
+        try:
+            row_vec = json.loads(row["embedding"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        sim = _cosine(query_vec, row_vec)
+        if sim >= VECTOR_SIM_FLOOR:
+            scored.append((int(row["id"]), float(sim)))
+    scored.sort(key=lambda pair: -pair[1])
+    return scored[:limit]
 
 
 def _subject_scan(
@@ -488,10 +577,17 @@ def read_user_facts(
 
     bm25_hits = _bm25_search(store, owner_user_id, terms, limit=20)
     subject_hits = _subject_scan(store, owner_user_id, terms, limit=20)
+    # M2.5 third source — embedding cosine similarity. The query
+    # passed to the vector source is the *raw query string*, not the
+    # cleaned terms, so vocabulary mismatches like "what do I eat" ->
+    # "dietary restriction vegetarian" can be bridged via semantic
+    # similarity even when no token overlaps.
+    vector_hits = _vector_search(store, owner_user_id, query, limit=20)
     fused = score_facts_rrf(
         [
             ("bm25", bm25_hits),
             ("subject", subject_hits),
+            ("vector", vector_hits),
         ]
     )
     if not fused:

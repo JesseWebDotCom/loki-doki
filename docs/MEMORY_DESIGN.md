@@ -1,6 +1,6 @@
 # LokiDoki Memory System — Final Design
 
-**Status:** Design accepted (v1.2 — revised after Codex's second review pass and Gemini's third review pass). **M0 + M1 + M2 + M3 complete (2026-04-11); M4–M6 not yet started.** See §8 phase table for per-phase status.
+**Status:** Design accepted (v1.2 — revised after Codex's second review pass and Gemini's third review pass). **M0 + M1 + M2 + M2.5 + M3 + M3.5 complete (2026-04-11); M4–M6 not yet started.** Dev tools v2 test page now has runtime memory toggles + a memory state panel. See §8 phase table for per-phase status.
 **Audience:** future Claude/Codex sessions and the human picking up memory work cold.
 **Scope:** the unified memory architecture that replaces v1's faulty `facts`-centric pipeline and fills v2's empty `ConversationMemoryAdapter`.
 **Lineage:** this document is the merge of two competing proposals — see [CODEX_MEM.md](CODEX_MEM.md) (Codex's tier breakdown, promotion model, and substring-matching catch) and the discussion that produced the parse-tree write gate. v1.1 incorporated Codex's second-pass review, which corrected six places where the original gates were too aggressive. v1.2 incorporates Gemini's third-pass review, which added triggered consolidation, character-overlay emotional memory, and recency-weighted contradiction handling for single-value predicates. Where the proposals conflict, this file is the resolution.
@@ -429,7 +429,9 @@ The build sequence has **seven phases**: M0 (prerequisites) through M6 (final ti
 | **M0** | Prerequisites and corpora | none | — | Low — fixture and infra work | **complete (2026-04-11)** |
 | **M1** | Write path: gate chain + classifier + immediate-durable + Tier 4/5 writes | 4, 5 | M0 | High — most novel logic | **complete (2026-04-11)** |
 | **M2** | Read path: port Tier 4 retrieval, delete substring heuristics | 4 | M1 | Medium — port + delete | **complete (2026-04-11)** |
+| **M2.5** | Vector embeddings as third RRF source (vocabulary bridge) | 4 | M2 | Low–medium | **complete (2026-04-11)** |
 | **M3** | Tier 5 social: wire `LokiPeopleDBAdapter`, bake off scoring, provisional handles | 5 | M1 (M2 helpful) | Medium | **complete (2026-04-11)** |
+| **M3.5** | Auto-merge by relation (cross-turn handle promotion) | 5 | M3 | Low | **complete (2026-04-11)** |
 | **M4** | Tier 2 + Tier 3: session state, episodic summarization, promotion, triggered consolidation, topic scope | 2, 3 | M2 | High — episodic is new | not started |
 | **M5** | Tier 7 procedural: behavior events, nightly aggregation, 7a/7b split | 7a, 7b | M2 | Medium | not started |
 | **M6** | Tier 6 affective: rolling window, character overlay, privacy opt-out | 6 | M2 | Low–medium | not started |
@@ -669,6 +671,104 @@ This is the v2-graduation-plan §4.D gate, refined and shipped.
 
 ---
 
+### M2.5 — Vector embeddings as third RRF source
+**Status: complete (2026-04-11).** Vocabulary-bridge follow-up to M2.
+
+**Why this phase exists.** M2 ships BM25 + structured subject scan as the two RRF sources. That's enough for queries whose terms overlap with stored predicate/value text after Porter stemming, but it can't bridge true semantic mismatches (*"what foods should I avoid"* against *"has_allergy=peanuts"*). M2.5 adds a third RRF source — cosine similarity over per-fact embeddings — so the recall path covers the cases the M2 corpus left as a known follow-up.
+
+**Files shipped (M2.5).**
+
+| Module | Purpose |
+|---|---|
+| [`v2/orchestrator/memory/store.py`](../v2/orchestrator/memory/store.py) | New `embedding TEXT` column on `facts`; `compute_fact_embedding()` helper that humanizes the predicate, joins with value + source_text, and serializes the resulting vector as JSON; `write_semantic_fact()` populates the column on insert |
+| [`v2/orchestrator/memory/reader.py`](../v2/orchestrator/memory/reader.py) | `_embed_query()`, `_cosine()`, `_vector_search()`, `VECTOR_SIM_FLOOR=0.15`. `read_user_facts()` now passes a third source `("vector", vector_hits)` into `score_facts_rrf()` |
+| [`tests/unit/test_v2_memory_m2_5.py`](../tests/unit/test_v2_memory_m2_5.py) | 16 phase-gate tests including end-to-end pipeline test of vocabulary bridge |
+
+**Embedding backend.** Reuses [`v2.orchestrator.routing.embeddings.get_embedding_backend()`](../v2/orchestrator/routing/embeddings.py) so the same vector model (fastembed/MiniLM when available, hash fallback otherwise) is used for routing AND memory. No new dependencies. Hash fallback works under tests without network access.
+
+**Gate (all green).**
+- ✅ `facts.embedding` column populated on insert (`test_m25_embedding_populated_on_insert`).
+- ✅ Vector search returns hits above `VECTOR_SIM_FLOOR` (`test_m25_vector_search_returns_relevant_hits`).
+- ✅ `read_user_facts` fuses three sources via RRF (`test_m25_read_user_facts_uses_three_rrf_sources`).
+- ✅ Vector source bridges the M2 vocabulary stretch — *"what do I eat"* recalls `has_dietary_restriction=vegetarian` (`test_m25_vector_source_bridges_vocabulary_mismatch`).
+- ✅ Cross-user isolation in the vector path (`test_m25_vector_search_cross_user_isolation`).
+- ✅ Graceful fallback when embedding is corrupt or NULL (`test_m25_vector_search_handles_corrupt_embedding`, `test_m25_read_user_facts_still_works_when_embedding_missing`).
+- ✅ End-to-end pipeline test: write *"I'm allergic to peanuts"* via M1, then recall *"what foods should I avoid"* via M2 + M2.5 vector source (`test_m25_pipeline_end_to_end_vocab_bridge`).
+
+---
+
+### M3.5 — Auto-merge by relation (cross-turn handle promotion)
+**Status: complete (2026-04-11).** Cross-turn UX follow-up to M3.
+
+**Why this phase exists.** M3 ships the manual `merge_provisional_handle()` API. M3 corpus also exercises it. But the natural conversational pattern is *"my boss is being weird"* (turn 1, provisional handle) followed by *"my boss Steve approved it"* (turn 2, named person under same relation). Without auto-merge, turn 2 creates a duplicate row. M3.5 closes the gap so the writer auto-promotes the existing provisional row in place.
+
+**Files shipped (M3.5).**
+
+| Module | Purpose |
+|---|---|
+| [`v2/orchestrator/memory/store.py`](../v2/orchestrator/memory/store.py) | `_maybe_promote_provisional_by_relation()` helper; `_upsert_named_person()` accepts a `relation_for_auto_merge` keyword that triggers the lookup; `write_social_fact()` passes the relation hint when the candidate predicate is `is_relation` |
+| [`tests/unit/test_v2_memory_m3_5.py`](../tests/unit/test_v2_memory_m3_5.py) | 9 phase-gate tests covering all promote/skip paths + end-to-end pipeline merge |
+
+**Auto-merge safety conditions.** The merge fires only when **all** of these hold:
+- The incoming candidate is `(person:X, is_relation, R)` for owner U.
+- Exactly **one** provisional row for owner U has `relationship.relation_label = R` and a non-NULL handle.
+- No existing named row for `(owner=U, name=X, provisional=0)` already exists.
+- No other named row collides post-promotion.
+
+If any condition fails, the auto-merge silently falls through and a fresh named row is created. The user can still call `merge_provisional_handle()` manually later.
+
+**Gate (all green).**
+- ✅ Single matching provisional → promoted in place (`test_m35_auto_merge_promotes_provisional_in_place`).
+- ✅ Existing handle preserved as searchable alias (`test_m35_auto_merge_resolvable_by_old_handle_and_new_name`).
+- ✅ Relationship edges preserved (`test_m35_auto_merge_preserves_relationship_edges`).
+- ✅ Zero matches → fresh named row (`test_m35_no_merge_when_no_provisional_exists`).
+- ✅ Multiple matches → defer (`test_m35_no_merge_when_multiple_provisional_match_same_relation`).
+- ✅ Wrong relation → no merge (`test_m35_no_merge_when_relation_does_not_match`).
+- ✅ Pre-existing named row collision → no merge (`test_m35_no_merge_when_named_row_with_same_name_already_exists`).
+- ✅ Cross-user isolation (`test_m35_auto_merge_does_not_cross_owner_boundary`).
+- ✅ End-to-end pipeline merge (`test_m35_end_to_end_provisional_then_named`).
+
+---
+
+### Dev tools v2 test page — runtime memory wiring
+**Status: complete (2026-04-11).** Closes the gap from M0/M1/M2/M3 where the dev tools page surfaced *status* but never *runtime activity*.
+
+**Why this section exists.** Through M3, the v2 dev tools test page only displayed memory phase metadata — it never set the `memory_writes_enabled` / `need_preference` / `need_social` context flags, so opening the page and typing *"I'm allergic to peanuts"* didn't actually write any memory. Users couldn't tell whether the system worked. This section closes the loop.
+
+**Files shipped.**
+
+| Module | Purpose |
+|---|---|
+| [`lokidoki/api/dev_memory.py`](../lokidoki/api/dev_memory.py) | Singleton `V2MemoryStore` backed by `data/v2_dev_memory.sqlite` — **separate from production** `data/v2_memory.sqlite`. `get_dev_store()`, `reset_dev_store()`, `dump_dev_store()`. Fixed `DEV_OWNER_USER_ID = 1`. |
+| [`lokidoki/api/routes/dev.py`](../lokidoki/api/routes/dev.py) | `V2RunRequest` gains `memory_enabled`, `need_preference`, `need_social` fields. `run_v2_pipeline()` enriches the context with the dev test store when memory is enabled. New endpoints `GET /dev/v2/memory/dump` and `POST /dev/v2/memory/reset`. |
+| [`frontend/src/lib/api.ts`](../frontend/src/lib/api.ts) | `runV2Prototype(message, options)`, `dumpV2Memory()`, `resetV2Memory()`. |
+| [`frontend/src/lib/api-types.ts`](../frontend/src/lib/api-types.ts) | `V2MemoryDumpResponse`, `V2MemoryResetResponse`, `V2MemoryFactRow`, `V2MemoryPersonRow`, `V2MemoryRelationshipRow`. |
+| [`frontend/src/components/dev/V2MemoryPanel.tsx`](../frontend/src/components/dev/V2MemoryPanel.tsx) | New panel: 4-cell summary, active facts list, superseded facts list, people list with provisional badges, Refresh + Reset buttons. Auto-refreshes after every memory-enabled run. |
+| [`frontend/src/components/dev/V2PrototypeRunner.tsx`](../frontend/src/components/dev/V2PrototypeRunner.tsx) | New "Memory (M0–M3)" toggle row above Run; "Memory activity" card shown after each memory-enabled run summarizing what was written/read/injected; mounts `<V2MemoryPanel>` when memory is enabled. |
+| [`tests/unit/test_v2_dev_memory_endpoints.py`](../tests/unit/test_v2_dev_memory_endpoints.py) | 11 backend tests including end-to-end "write turn 1, read turn 2" through the route handler. |
+
+**How a user tests it (manual UX).**
+
+1. Open Dev Tools → V2 Request Prototype.
+2. Tick **Enable memory**. The Memory state panel appears below the response.
+3. Type *"I'm allergic to peanuts"* and click Run Prototype.
+4. The Memory activity card shows `accepted=1` with `self has_allergy=peanuts (T4)`. The Memory state panel auto-refreshes to show 1 active fact.
+5. Type *"what am I allergic to"* and click Run Prototype.
+6. The Memory activity card now shows the read path: `slots: user_facts; user_facts: 39 chars` and the rendered slot string `has_allergy=peanuts`.
+7. Click **Reset** to wipe the dev store.
+
+Try the social path: *"my brother Luke loves movies"* → Memory state shows Luke; *"when is Luke visiting"* → social_context slot rendered.
+
+Try M3.5 cross-turn merge: *"my boss is being weird"* (provisional row); *"my boss Steve approved it"* (auto-merge to named row, handle preserved, observable in the people list).
+
+Try M2.5 vocabulary bridge: *"I'm allergic to peanuts"* → *"what foods should I avoid"* — the user_facts slot still gets populated even though no token in the query overlaps with the stored predicate/value (the vector source bridges).
+
+**The dev test store (`data/v2_dev_memory.sqlite`) is separate from production.** Wiping it via the Reset button or via `POST /dev/v2/memory/reset` never touches `data/v2_memory.sqlite`. The path is shown in the Memory state panel header.
+
+---
+
+---
+
 ### M4 — Tier 2 + Tier 3: session state, episodic summarization, promotion, triggered consolidation, topic scope
 **Why this phase exists.** M1 closed the write hole and M2 closed the read hole for Tier 4; M3 closed Tier 5. M4 introduces the time dimension: session state for cross-turn coherence, episodic summaries for cross-session recall, and the promotion logic that turns recurrence into durability.
 
@@ -832,6 +932,9 @@ Seven tiers (working, session, episodic, semantic-self, social, emotional, proce
   
   Plus a major rewrite of §8 phases: added M0 (prerequisites), expanded each phase from 5 lines to ~30 lines with deliverables/corpus/gate broken out, added a phase overview table at the top, made the critical path explicit, and updated each phase's gate to test the v1.1 and v1.2 features.
 - **M0 shipped** (2026-04-11). Module location resolved to [v2/orchestrator/memory/](../v2/orchestrator/memory/) (clean cutover from v1, no shared imports). All scaffolding submodules, schema migrations, corpus fixtures, and the bake-off template landed. President-bug regression row added to [tests/fixtures/v2_regression_prompts.json](../tests/fixtures/v2_regression_prompts.json) with `expect.memory.denied_by_gate = "clause_shape"` — currently fails via stub `m0_stub` reason, which is the precise gap M1 closes. Memory subsystem surfaced on the dev-tools v2 test page via the new `memory` block on `GET /dev/v2/status` and the matching React panel section. M0 phase-gate tests live at [tests/unit/test_v2_memory_m0.py](../tests/unit/test_v2_memory_m0.py) (28 tests, all passing).
+- **Dev tools v2 test page wired up** (2026-04-11). The dev tools page now actually exercises the memory subsystem at runtime — toggles for Enable memory / need_preference / need_social, a memory activity card showing what was written/read/injected on every run, a memory state panel that lists facts/people/relationships from the dev test store with a Reset button, and a separate `data/v2_dev_memory.sqlite` file so dev tool runs never touch production memory. Backend exposes `GET /dev/v2/memory/dump` and `POST /dev/v2/memory/reset`. Frontend gets `V2MemoryPanel` and a memory section on `V2PrototypeRunner`. 11 backend tests cover the endpoints + end-to-end write/read flows.
+- **M3.5 shipped** (2026-04-11). Auto-merge by relation. The writer now promotes a single matching provisional handle row in place when a later turn names the person under the same relation: *"my boss is being weird"* + *"my boss Steve approved it"* now produce ONE row (named Steve, handle "my boss" preserved) instead of two. The merge fires only when exactly one provisional row has the matching relationship label, no named-name collision exists, and the owner_user_id matches — defaulting to "create a fresh row" in any ambiguous case. 9 phase-gate tests cover all promote/skip paths plus the end-to-end pipeline merge scenario.
+- **M2.5 shipped** (2026-04-11). Vector embeddings as third RRF source. The store now persists a JSON-encoded embedding on each fact via the existing `v2.orchestrator.routing.embeddings.get_embedding_backend()` (fastembed/MiniLM when available, hash fallback otherwise — no new dependencies). The reader runs cosine similarity over active embeddings and feeds the result as a third source into Reciprocal Rank Fusion alongside BM25 and the structured subject scan. This bridges vocabulary mismatches the M2 BM25-only path couldn't handle (e.g. *"what foods should I avoid"* recalls `has_allergy=peanuts`). 16 phase-gate tests including the original M2 vocabulary-stretching corpus case (now passing). Graceful fallback when embedding is corrupt, NULL, or the backend is unavailable.
 - **M3 shipped** (2026-04-11). Tier 5 social read path live. The v2 store now has a deterministic four-strategy person resolver (exact name → handle → substring ≥3 chars → rapidfuzz fuzzy ≥80) implemented under `v2.orchestrator.memory.reader.resolve_person()` against `V2MemoryStore` directly — zero v1 imports. The `{social_context}` slot is rendered into both `COMBINE_PROMPT` and `DIRECT_CHAT_PROMPT` with a 200-char word-boundary truncation. The pipeline `memory_read` step now composes Tier 4 (`need_preference`) and Tier 5 (`need_social`) independently — a single turn can request both. Provisional handle merge (`merge_provisional_handle()`) preserves relationship edges and leaves the handle as a searchable alias on the now-named row, so future queries for either form land on the same `person_id`. **Clean-cutover supersedes §8 deliverable 1**: instead of wiring `LokiPeopleDBAdapter` (which was designed against v1's sqlite shape), M3 reads from `V2MemoryStore`'s own `people` / `relationships` tables. v1's `LokiPeopleDBAdapter` is left intact for legacy v2 dev tests but no new code consumes it. 32-case people resolution corpus drives the top-1 accuracy ≥ 0.90 gate; 28 phase-gate tests in `test_v2_memory_m3.py` (all passing). M2→M3 transition test (`test_v2_memory_m2.py`) loosened in-place. Known M3 follow-up: auto-merge from extractor patterns (M3.5).
 - **M2 shipped** (2026-04-11). Tier 4 read path live. The v2 store now owns a `facts_fts` FTS5 virtual table kept in sync via INSERT/UPDATE/DELETE triggers; the triggers store the **humanized predicate** prefixed to source_text so the BM25 query can match a user query like *"where do I live"* against the stored predicate `lives_in` without ever inspecting user-input strings. The reader runs BM25 + a structured subject-column scan, fuses them via Reciprocal Rank Fusion (k=60), and returns top-k hits as `FactHit` records. The `{user_facts}` slot is rendered into both `COMBINE_PROMPT` and `DIRECT_CHAT_PROMPT` with a hard 250-char word-boundary truncation. The pipeline gains a new `memory_read` step that's gated by `context["need_preference"]` so casual greetings never touch the store. **Clean-cutover supersedes §8 deliverable 2**: instead of deleting v1's `_query_mentions` / `_is_explicitly_relevant`, the M2 grep guard forbids those names from appearing as live code in `v2/orchestrator/memory/`; v1's `memory_phase2.py` is left intact and gets deleted at cutover time. 18-case recall corpus drives the gate; 21 phase-gate tests in `test_v2_memory_m2.py` (all passing). M1→M2 transition tests (`test_v2_memory_m1.py`, `test_v2_pipeline.py`) loosened in-place. Known M2 follow-up: vector embedding source (sqlite-vec) not yet wired as a third RRF input; the corpus is structured so every M2 case is solvable with BM25 + subject-scan only.
 - **M1 shipped** (2026-04-11). Five-gate write path live for Tier 4 + Tier 5. The president bug now dies at Gate 1 (`clause_shape`, `wh_fronted` reason) rather than at the M0 stub. Deterministic tier classifier routes self/entity to Tier 4 and person/handle to Tier 5. Immediate-durable predicates (`is_named`, `has_pronoun`, `has_allergy`, `has_dietary_restriction`, `has_accessibility_need`, `has_privacy_boundary`, `hard_dislike`, plus the Tier 5 trio) write on first observation. Single-value predicates (`lives_in`, `current_employer`, `current_partner`, `favorite_*`, `preferred_units`, `timezone`, `is_named`, `has_pronoun`, …) flip prior values to `superseded` with confidence floor 0.1. Provisional handles (`handle:my boss`) write Tier 5 rows with `name=NULL, provisional=1` and merge into named rows when the user later names the person. **Clean-cutover supersedes §7**: the v2 store opens its own SQLite file at `data/v2_memory.sqlite` — zero v1 imports, zero shared mutable state. Memory writes are *opt-in* via `context["memory_writes_enabled"]` so the existing v2 regression suite is unaffected. Pipeline gains a new `memory_write` step between `extract` and `route`. The 131-case extraction corpus (50 should_write / 51 should_not_write / 20 ambiguous / 10 multi_clause) drives the precision/recall gates: precision ≥ 0.98 measured, recall ≥ 0.70 measured, gate-chain median latency well under 50ms. M1 phase-gate tests live at [tests/unit/test_v2_memory_m1.py](../tests/unit/test_v2_memory_m1.py) (22 tests, all passing). M0 transition tests in `test_v2_memory_m0.py` were updated in-place: corpus-empty assertion loosened (M0 only requires the schema, not the empty list); the m0_stub denial-reason test was replaced with a regression-row contract test pinning `denied_by_gate = "clause_shape"`. Dev-tools v2 status endpoint advances `active_phase` to M1 and marks both M0 and M1 phases complete.

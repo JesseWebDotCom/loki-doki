@@ -179,8 +179,27 @@ export async function getSessionMessages(sessionId: string | number) {
   );
 }
 
-export async function runV2Prototype(message: string) {
-  return postJson<import("./api-types").V2RunResponse>("/dev/v2/run", { message });
+export interface V2RunOptions {
+  memory_enabled?: boolean;
+  need_preference?: boolean;
+  need_social?: boolean;
+}
+
+export async function runV2Prototype(message: string, options: V2RunOptions = {}) {
+  return postJson<import("./api-types").V2RunResponse>("/dev/v2/run", {
+    message,
+    memory_enabled: options.memory_enabled ?? false,
+    need_preference: options.need_preference ?? true,
+    need_social: options.need_social ?? true,
+  });
+}
+
+export async function dumpV2Memory() {
+  return getJson<import("./api-types").V2MemoryDumpResponse>("/dev/v2/memory/dump");
+}
+
+export async function resetV2Memory() {
+  return postJson<import("./api-types").V2MemoryResetResponse>("/dev/v2/memory/reset", {});
 }
 
 export async function getV2PrototypeStatus() {

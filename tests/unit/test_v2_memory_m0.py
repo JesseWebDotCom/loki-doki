@@ -336,10 +336,14 @@ def test_m0_dev_v2_status_payload_includes_memory_section() -> None:
 
     payload = _v2_memory_status()
     assert "active_phase" in payload
-    assert payload["active_phase"]["id"] in {"m0", "m1", "m2", "m3", "m4", "m5", "m6"}
+    # The active phase id is whatever the most recently shipped phase
+    # is — could be m0..m6 or any half-step (m2_5, m3_5). The contract
+    # is that the active phase exists and is complete.
     assert payload["active_phase"]["status"] == "complete"
-    assert len(payload["phases"]) == 7  # M0..M6
-    assert {p["id"] for p in payload["phases"]} == {"m0", "m1", "m2", "m3", "m4", "m5", "m6"}
+    # M0..M6 are always present in the roadmap; half-step phases (M2.5,
+    # M3.5, …) may or may not be listed depending on which have shipped.
+    phase_ids = {p["id"] for p in payload["phases"]}
+    assert {"m0", "m1", "m2", "m3", "m4", "m5", "m6"} <= phase_ids
     # M0 itself stays marked complete forever — that's the contract this
     # test guards on behalf of M0's deliverables.
     m0_phase = next(p for p in payload["phases"] if p["id"] == "m0")

@@ -10,7 +10,9 @@ cutover from v1 to v2 is "delete v1 modules, point the app at this store"
 different files.
 
 Phase status: M1 — implements Tier 4 (semantic_self) and Tier 5 (social)
-write paths only. Reads land in M2 (Tier 4) and M3 (Tier 5).
+write paths. Reads land in M2 (Tier 4) and M3 (Tier 5). M2.5 added a
+JSON-encoded ``embedding`` column populated lazily by the embedding
+backend on insert; the reader fuses BM25 + subject-scan + vector via RRF.
 
 Storage shape (M1 subset):
 
@@ -37,6 +39,8 @@ file.
 """
 from __future__ import annotations
 
+import json
+import logging
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -51,6 +55,8 @@ from v2.orchestrator.memory.predicates import (
     is_single_value,
 )
 from v2.orchestrator.memory.tiers import Tier
+
+log = logging.getLogger("v2.orchestrator.memory.store")
 
 # Default location for the v2 memory file. The file lives under
 # ``data/`` next to the rest of the v2 prototype state. Tests pass a
@@ -74,6 +80,13 @@ CREATE TABLE IF NOT EXISTS facts (
     observation_count INTEGER NOT NULL DEFAULT 1,
     source_text TEXT,
     superseded_by INTEGER,
+    -- M2.5: pre-computed embedding stored as a JSON array of floats.
+    -- Lazy-populated on the write path so the BM25 + vector hybrid in
+    -- the reader can fuse them via RRF without a side car table or
+    -- sqlite-vec dependency. The column may be NULL for rows written
+    -- before M2.5 shipped or for rows where the embedding backend
+    -- failed.
+    embedding TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -262,13 +275,14 @@ class V2MemoryStore:
 
             now = _now()
             if existing is None:
+                embedding_json = compute_fact_embedding(candidate)
                 cursor = self._conn.execute(
                     """
                     INSERT INTO facts(
                         owner_user_id, subject, predicate, value,
                         confidence, status, observation_count, source_text,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, ?)
+                        embedding, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?)
                     """,
                     (
                         candidate.owner_user_id,
@@ -277,6 +291,7 @@ class V2MemoryStore:
                         candidate.value,
                         candidate.confidence,
                         candidate.source_text,
+                        embedding_json,
                         now,
                         now,
                     ),
@@ -369,7 +384,20 @@ class V2MemoryStore:
             note = ""
             if subject.startswith("person:"):
                 name = subject.split(":", 1)[1].strip()
-                person_id = self._upsert_named_person(candidate.owner_user_id, name)
+                # Auto-merge handle: if this is an `is_relation` write
+                # for a named person, look for a provisional handle row
+                # with the same relationship and promote it in place
+                # instead of creating a duplicate. This is the M3.5
+                # cross-turn merge for "my boss is being weird" then
+                # later "my boss Steve approved it".
+                relation_hint = (
+                    candidate.value if candidate.predicate == "is_relation" else None
+                )
+                person_id = self._upsert_named_person(
+                    candidate.owner_user_id,
+                    name,
+                    relation_for_auto_merge=relation_hint,
+                )
                 note = "person_upsert"
             elif subject.startswith("handle:"):
                 handle = subject.split(":", 1)[1].strip()
@@ -446,13 +474,46 @@ class V2MemoryStore:
                 note=note,
             )
 
-    def _upsert_named_person(self, owner_user_id: int, name: str) -> int:
+    def _upsert_named_person(
+        self,
+        owner_user_id: int,
+        name: str,
+        *,
+        relation_for_auto_merge: str | None = None,
+    ) -> int:
+        """Upsert a named person row.
+
+        When ``relation_for_auto_merge`` is provided AND no row already
+        exists for ``(owner_user_id, name)``, the upsert first looks
+        for a provisional handle row whose relationship label matches
+        the incoming relation. If exactly one such row exists, the
+        provisional row is **promoted** in place: name set, provisional
+        flipped to 0, the existing handle and relationship edges
+        preserved. This is the M3.5 auto-merge for utterances like
+        *"my boss Steve approved it"* arriving after *"my boss is
+        being weird"*.
+
+        Per design §3 Layer 2 + §3 Gate 2 the auto-merge is **safe**
+        because:
+            - the resolution is single-candidate (no ambiguity)
+            - the gate chain has already approved the candidate
+            - a duplicate-named row would just create the same
+              provisional/named pair the user manually merges later
+        """
         existing = self._conn.execute(
             "SELECT id FROM people WHERE owner_user_id = ? AND name = ? AND provisional = 0",
             (owner_user_id, name),
         ).fetchone()
         if existing is not None:
             return int(existing["id"])
+
+        if relation_for_auto_merge:
+            promoted_id = self._maybe_promote_provisional_by_relation(
+                owner_user_id, name=name, relation=relation_for_auto_merge
+            )
+            if promoted_id is not None:
+                return promoted_id
+
         cursor = self._conn.execute(
             """
             INSERT INTO people(owner_user_id, name, handle, provisional)
@@ -461,6 +522,57 @@ class V2MemoryStore:
             (owner_user_id, name),
         )
         return int(cursor.lastrowid)
+
+    def _maybe_promote_provisional_by_relation(
+        self,
+        owner_user_id: int,
+        *,
+        name: str,
+        relation: str,
+    ) -> int | None:
+        """Look for a single provisional row whose relationships include
+        ``relation``. If exactly one matches, promote it in place by
+        setting its name and clearing the provisional flag, and return
+        its id. If zero or multiple match, return None and the caller
+        creates a fresh named row.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT DISTINCT p.id, p.handle
+            FROM people p
+            JOIN relationships r
+                ON r.owner_user_id = p.owner_user_id
+               AND r.person_id = p.id
+            WHERE p.owner_user_id = ?
+              AND p.provisional = 1
+              AND p.handle IS NOT NULL
+              AND r.relation_label = ?
+            """,
+            (owner_user_id, relation),
+        ).fetchall()
+        if len(rows) != 1:
+            return None
+        target_id = int(rows[0]["id"])
+        # Defensive: don't auto-merge if a *different* named row with
+        # the same name already exists for this owner — that would
+        # create cross-contamination. The caller's prior check on
+        # (name=name, provisional=0) catches the same-name case, but
+        # we re-check here to be safe across concurrent writes.
+        named_collision = self._conn.execute(
+            "SELECT id FROM people WHERE owner_user_id = ? AND name = ? AND provisional = 0 AND id <> ?",
+            (owner_user_id, name, target_id),
+        ).fetchone()
+        if named_collision is not None:
+            return None
+        self._conn.execute(
+            """
+            UPDATE people
+            SET name = ?, provisional = 0, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, _now(), target_id),
+        )
+        return target_id
 
     def _upsert_provisional_handle(self, owner_user_id: int, handle: str) -> int:
         existing = self._conn.execute(
@@ -575,6 +687,49 @@ class V2MemoryStore:
 
 def _now() -> str:
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _humanize_predicate(predicate: str) -> str:
+    """Convert ``lives_in`` -> ``lives in`` for embedding text."""
+    return predicate.replace("_", " ")
+
+
+def compute_fact_embedding(candidate: MemoryCandidate) -> str | None:
+    """Compute and serialize the embedding for a fact write candidate.
+
+    The embedding text is the humanized predicate joined with the value
+    and source_text — same shape that goes into the FTS5 index. We use
+    the existing v2 routing embedding backend so the same vector model
+    is used for both routing and memory; this keeps dependencies small
+    and means the hash-fallback path works under tests without
+    fastembed installed.
+
+    Returns a JSON-encoded list[float] string, or None when the
+    embedding backend fails or returns an empty vector.
+    """
+    try:
+        from v2.orchestrator.routing.embeddings import get_embedding_backend
+    except Exception as exc:  # noqa: BLE001
+        log.debug("v2 memory: embedding backend unavailable: %s", exc)
+        return None
+    text_parts = [
+        _humanize_predicate(candidate.predicate),
+        candidate.value,
+    ]
+    if candidate.source_text:
+        text_parts.append(candidate.source_text)
+    text = " ".join(p for p in text_parts if p).strip()
+    if not text:
+        return None
+    try:
+        backend = get_embedding_backend()
+        vectors = backend.embed([text])
+    except Exception as exc:  # noqa: BLE001 — embedding is best-effort
+        log.warning("v2 memory: embedding backend.embed failed: %s", exc)
+        return None
+    if not vectors or not vectors[0]:
+        return None
+    return json.dumps(vectors[0])
 
 
 # ---------------------------------------------------------------------------
