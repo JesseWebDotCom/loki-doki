@@ -40,6 +40,12 @@ function setup() {
 }
 
 describe("WizardPage", () => {
+  it("masks the pin fields", () => {
+    const { getByTestId } = setup();
+    expect(getByTestId("wizard-pin").getAttribute("type")).toBe("password");
+    expect(getByTestId("wizard-pin2").getAttribute("type")).toBe("password");
+  });
+
   it("rejects PIN that is too short", async () => {
     const { getByTestId } = setup();
     fireEvent.change(getByTestId("wizard-username"), {

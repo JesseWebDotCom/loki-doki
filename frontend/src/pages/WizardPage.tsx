@@ -79,9 +79,11 @@ const WizardPage: React.FC = () => {
           <label className={label}>PIN (4–8 digits)</label>
           <input
             className={input}
+            type="password"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
             inputMode="numeric"
+            autoComplete="new-password"
             data-testid="wizard-pin"
           />
         </div>
@@ -89,9 +91,11 @@ const WizardPage: React.FC = () => {
           <label className={label}>Confirm PIN</label>
           <input
             className={input}
+            type="password"
             value={pin2}
             onChange={(e) => setPin2(e.target.value)}
             inputMode="numeric"
+            autoComplete="new-password"
             data-testid="wizard-pin2"
           />
         </div>
