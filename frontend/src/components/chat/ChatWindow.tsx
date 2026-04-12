@@ -125,7 +125,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             <ThinkingIndicator
               pipeline={pipeline}
               avatar={renderAvatar(characterState ?? 'thinking')}
-              assistantName={assistantName}
             />
           )}
           {isThinking && pipeline?.streamingResponse && (

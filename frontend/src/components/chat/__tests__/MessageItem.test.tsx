@@ -88,7 +88,8 @@ describe('MessageItem sources', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /thought for 680ms/i }));
 
-    expect(screen.getByText('Skills')).toBeTruthy();
-    expect(screen.getByText('knowledge_wiki')).toBeTruthy();
+    expect(screen.getByText('What I Used')).toBeTruthy();
+    expect(screen.getByText('I checked Wikipedia')).toBeTruthy();
+    expect(screen.getByText('Wikipedia')).toBeTruthy();
   });
 });

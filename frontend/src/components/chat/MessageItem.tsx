@@ -62,7 +62,6 @@ const MessageItem: React.FC<MessageProps> = ({
   clarification,
   messageKey,
   avatar,
-  assistantName,
   pipeline,
   mentionedPeople = [],
   messageId,
@@ -108,142 +107,92 @@ const MessageItem: React.FC<MessageProps> = ({
   const displayTime = formatMessageTime(timestamp);
   const hoverDateTime = formatMessageDateTime(timestamp);
 
-  return (
-    <div className={`group/msg mb-12 flex w-full items-start gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-      {!isUser && avatar}
-      <div className={`flex max-w-[92%] flex-col sm:max-w-[84%] ${isUser ? 'items-end' : 'items-start'}`}>
-        <div
-          data-testid="message-bubble"
-          className={`rounded-3xl border px-7 py-5 transition-all duration-300 shadow-m3 ${
-          isUser
-            ? 'bg-primary/10 border-primary/20 text-foreground'
-            : 'bg-card border-border/40 text-foreground'
-        }`}>
-          {!isUser && (
-            <div className="mb-3 space-y-2">
-              <div className="flex items-center gap-2.5 opacity-70">
-                <span className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
-                  {assistantName || 'assistant'}
-                </span>
-                <span className="font-mono text-xs italic text-muted-foreground/40" title={hoverDateTime}>
-                  {displayTime}
-                </span>
-              </div>
-              {pipeline && <PipelineInfoPopover pipeline={pipeline} />}
-            </div>
-          )}
-          
-          <div className={`prose-onyx text-base leading-8 font-medium tracking-tight sm:text-[1.02rem] ${isUser ? 'text-foreground' : 'text-foreground/90'}`}>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkBreaks]}
-              components={{
-                p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
-                ul: ({ children }) => <ul className="mb-4 ml-6 list-disc space-y-1.5">{children}</ul>,
-                ol: ({ children }) => <ol className="mb-4 ml-6 list-decimal space-y-1.5">{children}</ol>,
-                li: ({ children }) => <li className="leading-8">{children}</li>,
-                strong: ({ children }) => <strong className="font-bold text-primary/90">{children}</strong>,
-                a: ({ href, children }) => {
-                  if (href?.startsWith('#cite-')) {
-                    const index = parseInt(href.replace('#cite-', ''), 10);
-                    const source = sources[index - 1];
-                    if (!source) return null;
-                    return <SourceChip index={index} source={source} />;
-                  }
-                  // Person mention chip: /people?focus=ID
-                  if (href?.startsWith('/people?focus=')) {
-                    const personId = parseInt(new URLSearchParams(href.split('?')[1]).get('focus') || '0', 10);
-                    const person = mentionedPeople.find((p) => p.id === personId);
-                    return (
-                      <a
-                        href={href}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors no-underline align-middle mx-0.5 cursor-pointer"
-                        title={person ? `View ${person.name}'s profile${person.relation ? ` (${person.relation})` : ''}` : 'View profile'}
-                      >
-                        {person?.photo_url ? (
-                          <img src={person.photo_url} alt="" className="w-4 h-4 rounded-full object-cover" />
-                        ) : (
-                          <span className="w-4 h-4 rounded-full bg-primary/20 text-[8px] font-bold flex items-center justify-center">
-                            {(String(children) || '?').charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                        {children}
-                      </a>
-                    );
-                  }
-                  return (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex cursor-pointer items-center gap-1 font-semibold text-primary underline-offset-4 decoration-primary/30 transition-all hover:underline"
-                    >
-                      {children}
-                    </a>
-                  );
-                },
-                code: ({ children }) => (
-                  <code className="rounded-md border border-border/20 bg-muted px-1.5 py-0.5 font-mono text-sm">
-                    {children}
-                  </code>
-                ),
-                pre: ({ children }) => (
-                  <pre className="my-4 overflow-x-auto rounded-2xl border border-border/30 bg-muted p-4 font-mono text-sm shadow-inner">
-                    {children}
-                  </pre>
-                ),
-                blockquote: ({ children }) => (
-                  <blockquote className="my-4 rounded-r-lg border-l-4 border-primary/30 bg-muted/20 py-1 pl-4 italic text-muted-foreground">
-                    {children}
-                  </blockquote>
-                ),
-              }}
-            >
-              {processedContent}
-            </ReactMarkdown>
-          </div>
-
-          {!isUser && confirmations.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-border/20 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-primary/70">
-                <Brain size={11} />
-                Memory updated
-              </div>
-              {confirmations.map((c) => (
-                <div
-                  key={c.fact_id}
-                  className="flex items-center gap-2 text-[11px] text-muted-foreground pl-1"
+  const contentMarkup = (
+    <div className={`prose-onyx font-medium tracking-tight ${isUser ? 'text-base leading-8 text-foreground sm:text-[1.02rem]' : 'text-[1.14rem] leading-9 text-foreground/95 sm:text-[1.36rem] sm:leading-[2.45rem]'}`}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        components={{
+          p: ({ children }) => <p className={`last:mb-0 ${isUser ? 'mb-4' : 'mb-5'}`}>{children}</p>,
+          ul: ({ children }) => <ul className={`ml-6 list-disc ${isUser ? 'mb-4 space-y-1.5' : 'mb-5 space-y-2'}`}>{children}</ul>,
+          ol: ({ children }) => <ol className={`ml-6 list-decimal ${isUser ? 'mb-4 space-y-1.5' : 'mb-5 space-y-2'}`}>{children}</ol>,
+          li: ({ children }) => <li className={isUser ? 'leading-8' : 'leading-9 sm:leading-[2.45rem]'}>{children}</li>,
+          h1: ({ children }) => <h1 className="mb-5 mt-1 text-[2.35rem] font-bold leading-tight tracking-[-0.04em] text-foreground sm:text-[3.7rem]">{children}</h1>,
+          h2: ({ children }) => <h2 className="mb-4 mt-1 text-[1.8rem] font-bold leading-tight tracking-[-0.03em] text-foreground sm:text-[2.6rem]">{children}</h2>,
+          h3: ({ children }) => <h3 className="mb-3 mt-1 text-[1.35rem] font-semibold leading-tight text-foreground sm:text-[1.7rem]">{children}</h3>,
+          strong: ({ children }) => <strong className="font-bold text-primary/90">{children}</strong>,
+          a: ({ href, children }) => {
+            if (href?.startsWith('#cite-')) {
+              const index = parseInt(href.replace('#cite-', ''), 10);
+              const source = sources[index - 1];
+              if (!source) return null;
+              return <SourceChip index={index} source={source} />;
+            }
+            if (href?.startsWith('/people?focus=')) {
+              const personId = parseInt(new URLSearchParams(href.split('?')[1]).get('focus') || '0', 10);
+              const person = mentionedPeople.find((p) => p.id === personId);
+              return (
+                <a
+                  href={href}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors no-underline align-middle mx-0.5 cursor-pointer"
+                  title={person ? `View ${person.name}'s profile${person.relation ? ` (${person.relation})` : ''}` : 'View profile'}
                 >
-                  <Brain size={11} className={c.status === 'ambiguous' ? 'text-amber-400' : 'text-primary/70'} />
-                  <span className="truncate">
-                    <span className="font-medium text-foreground/80">{c.subject}</span>{' '}
-                    <span className="font-mono text-[10px]">{c.predicate}</span>{' '}
-                    <span className="font-medium text-foreground/80">{c.value}</span>
-                    {c.contradiction_action === 'revise' && c.previous_value && (
-                      <span className="text-amber-400/80"> (was: {c.previous_value})</span>
-                    )}
-                    {c.contradiction_action === 'supersede' && c.previous_value && (
-                      <span className="text-amber-400/80"> (replaces: {c.previous_value})</span>
-                    )}
-                    {c.status === 'ambiguous' && (
-                      <span className="text-amber-400/80"> — needs disambiguation</span>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+                  {person?.photo_url ? (
+                    <img src={person.photo_url} alt="" className="w-4 h-4 rounded-full object-cover" />
+                  ) : (
+                    <span className="w-4 h-4 rounded-full bg-primary/20 text-[8px] font-bold flex items-center justify-center">
+                      {(String(children) || '?').charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  {children}
+                </a>
+              );
+            }
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex cursor-pointer items-center gap-1 font-semibold text-primary underline-offset-4 decoration-primary/30 transition-all hover:underline"
+              >
+                {children}
+              </a>
+            );
+          },
+          code: ({ children }) => (
+            <code className="rounded-md border border-border/20 bg-muted px-1.5 py-0.5 font-mono text-sm">
+              {children}
+            </code>
+          ),
+          pre: ({ children }) => (
+            <pre className="my-4 overflow-x-auto rounded-2xl border border-border/30 bg-muted p-4 font-mono text-sm shadow-inner">
+              {children}
+            </pre>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="my-4 rounded-r-lg border-l-4 border-primary/30 bg-muted/20 py-1 pl-4 italic text-muted-foreground">
+              {children}
+            </blockquote>
+          ),
+        }}
+      >
+        {processedContent}
+      </ReactMarkdown>
+    </div>
+  );
 
-          {!isUser && clarification && (
-            <div className="mt-3 text-[11px] italic text-primary/70 border-l-2 border-primary/40 pl-3">
-              {clarification}
-            </div>
-          )}
-        </div>
-
-        <div className="relative z-10 min-h-10 w-full pt-2.5">
-          {isUser && (
+  return (
+    <div className={`group/msg mb-12 w-full ${isUser ? 'flex justify-end' : ''}`}>
+      {isUser ? (
+        <div className="flex max-w-[92%] flex-col items-end sm:max-w-[84%]">
+          <div
+            data-testid="message-bubble"
+            className="rounded-3xl border border-primary/20 bg-primary/10 px-7 py-5 text-foreground shadow-m3 transition-all duration-300"
+          >
+            {contentMarkup}
+          </div>
+          <div className="relative z-10 min-h-10 w-full pt-3">
             <div className="flex items-center justify-end gap-2 px-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
-              <span 
+              <span
                 className="cursor-default font-mono text-xs italic text-muted-foreground/60 transition-colors hover:text-muted-foreground"
                 title={hoverDateTime}
               >
@@ -264,146 +213,199 @@ const MessageItem: React.FC<MessageProps> = ({
                 </Tooltip>
               </TooltipProvider>
             </div>
+          </div>
+        </div>
+      ) : (
+        <div className="w-full">
+          {(avatar || pipeline) && (
+            <div className="flex items-start gap-4">
+              {avatar}
+              <div className="min-w-0 flex-1 pt-1">
+                {pipeline ? <PipelineInfoPopover pipeline={pipeline} /> : null}
+              </div>
+            </div>
           )}
 
-          {!isUser && (
-            <div className="flex items-center gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity px-2">
-            <TooltipProvider delayDuration={300}>
-              {myKey && (
-                <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => tts.speak(myKey, content)}
-                        disabled={tts.muted || isActive}
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        {isPending ? <LoaderCircle size={14} className="animate-spin" /> : <Play size={14} />}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">
-                      {tts.muted ? 'Voice muted' : 'Play'}
-                    </TooltipContent>
-                  </Tooltip>
+          <div data-testid="message-bubble" className="mt-5 w-full text-foreground">
+            {contentMarkup}
 
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => tts.stop()}
-                        disabled={!isActive}
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        <Square size={14} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">Stop</TooltipContent>
-                  </Tooltip>
-
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={tts.toggleMute}
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
-                      >
-                        {tts.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">
-                      {tts.muted ? 'Unmute' : 'Mute'}
-                    </TooltipContent>
-                  </Tooltip>
-                  <div className="w-px h-4 bg-border/40 mx-1" />
-                </>
-              )}
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
+            {confirmations.length > 0 && (
+              <div className="mt-5 border-t border-border/20 pt-4 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-primary/70">
+                  <Brain size={11} />
+                  Memory updated
+                </div>
+                {confirmations.map((c) => (
+                  <div
+                    key={c.fact_id}
+                    className="flex items-center gap-2 text-[11px] text-muted-foreground pl-1"
                   >
-                    {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">{copied ? 'Copied!' : 'Copy'}</TooltipContent>
-              </Tooltip>
+                    <Brain size={11} className={c.status === 'ambiguous' ? 'text-amber-400' : 'text-primary/70'} />
+                    <span className="truncate">
+                      <span className="font-medium text-foreground/80">{c.subject}</span>{' '}
+                      <span className="font-mono text-[10px]">{c.predicate}</span>{' '}
+                      <span className="font-medium text-foreground/80">{c.value}</span>
+                      {c.contradiction_action === 'revise' && c.previous_value && (
+                        <span className="text-amber-400/80"> (was: {c.previous_value})</span>
+                      )}
+                      {c.contradiction_action === 'supersede' && c.previous_value && (
+                        <span className="text-amber-400/80"> (replaces: {c.previous_value})</span>
+                      )}
+                      {c.status === 'ambiguous' && (
+                        <span className="text-amber-400/80"> — needs disambiguation</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => handleFeedback(1)}
-                    className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
-                      feedbackState === 1
-                        ? 'text-green-400 bg-green-400/10'
-                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-card'
-                    }`}
-                  >
-                    <ThumbsUp size={14} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">Good response</TooltipContent>
-              </Tooltip>
+            {clarification && (
+              <div className="mt-5 border-l-2 border-primary/40 pl-3 text-[11px] italic text-primary/70">
+                {clarification}
+              </div>
+            )}
+          </div>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => handleFeedback(-1)}
-                    className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
-                      feedbackState === -1
-                        ? 'text-red-400 bg-red-400/10'
-                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-card'
-                    }`}
-                  >
-                    <ThumbsDown size={14} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">Bad response</TooltipContent>
-              </Tooltip>
+          <div className="relative z-10 min-h-10 w-full pt-3">
+            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100 px-2">
+              <TooltipProvider delayDuration={300}>
+                {myKey && (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => tts.speak(myKey, content)}
+                          disabled={tts.muted || isActive}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          {isPending ? <LoaderCircle size={14} className="animate-spin" /> : <Play size={14} />}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        {tts.muted ? 'Voice muted' : 'Play'}
+                      </TooltipContent>
+                    </Tooltip>
 
-              {onRetry && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => tts.stop()}
+                          disabled={!isActive}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <Square size={14} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">Stop</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={tts.toggleMute}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
+                        >
+                          {tts.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        {tts.muted ? 'Unmute' : 'Mute'}
+                      </TooltipContent>
+                    </Tooltip>
+                    <div className="mx-1 h-4 w-px bg-border/40" />
+                  </>
+                )}
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={onRetry}
+                      onClick={handleCopy}
                       className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
                     >
-                      <RefreshCw size={14} />
+                      {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">Retry</TooltipContent>
+                  <TooltipContent side="bottom" className="text-xs">{copied ? 'Copied!' : 'Copy'}</TooltipContent>
                 </Tooltip>
-              )}
 
-              {sources.length > 0 && onOpenSources && (
-                <>
-                  <div className="w-px h-4 bg-border/40 mx-1" />
-                  <button
-                    type="button"
-                    onClick={onOpenSources}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-sm font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
-                  >
-                    {primarySource ? (
-                      <FaviconImage
-                        hostname={primarySource.hostname}
-                        remoteUrl={primarySource.faviconUrl}
-                        className="h-4 w-4 rounded-[4px] bg-card object-cover"
-                      />
-                    ) : null}
-                    <span>Sources</span>
-                  </button>
-                </>
-              )}
-            </TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => handleFeedback(1)}
+                      className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
+                        feedbackState === 1
+                          ? 'text-green-400 bg-green-400/10'
+                          : 'text-muted-foreground/60 hover:text-foreground hover:bg-card'
+                      }`}
+                    >
+                      <ThumbsUp size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">Good response</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => handleFeedback(-1)}
+                      className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
+                        feedbackState === -1
+                          ? 'text-red-400 bg-red-400/10'
+                          : 'text-muted-foreground/60 hover:text-foreground hover:bg-card'
+                      }`}
+                    >
+                      <ThumbsDown size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">Bad response</TooltipContent>
+                </Tooltip>
+
+                {onRetry && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={onRetry}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
+                      >
+                        <RefreshCw size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">Retry</TooltipContent>
+                  </Tooltip>
+                )}
+
+                {sources.length > 0 && onOpenSources && (
+                  <>
+                    <div className="mx-1 h-4 w-px bg-border/40" />
+                    <button
+                      type="button"
+                      onClick={onOpenSources}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-sm font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
+                    >
+                      {primarySource ? (
+                        <FaviconImage
+                          hostname={primarySource.hostname}
+                          remoteUrl={primarySource.faviconUrl}
+                          className="h-4 w-4 rounded-[4px] bg-card object-cover"
+                        />
+                      ) : null}
+                      <span>Sources</span>
+                    </button>
+                  </>
+                )}
+              </TooltipProvider>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {!isUser && messageId && pendingRating !== null && (
         <FeedbackDialog
@@ -415,7 +417,6 @@ const MessageItem: React.FC<MessageProps> = ({
         />
       )}
     </div>
-  </div>
 );
 };
 
