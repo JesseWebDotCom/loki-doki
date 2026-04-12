@@ -243,6 +243,33 @@ async def test_gedcom_missing_name_is_exposed_as_unnamed_person(_isolated_memory
 
 
 @pytest.mark.anyio
+async def test_gedcom_import_builds_name_from_givn_and_surn_when_name_is_blank(_isolated_memory):
+    async with await _client() as ac:
+        gedcom = "\n".join([
+            "0 HEAD",
+            "0 @I402404484362@ INDI",
+            "1 NAME //",
+            "2 GIVN Lorraine Elizabeth",
+            "2 SURN Torres",
+            "2 SOUR @S1580938199@",
+            "3 _APID 1,7158::1019048",
+            "2 SOUR @S1580938587@",
+            "0 TRLR",
+        ])
+        imp = await ac.post(
+            "/api/v1/people/admin/import-gedcom",
+            files={"file": ("family.ged", gedcom.encode("utf-8"), "text/plain")},
+        )
+        assert imp.status_code == 200
+
+        graph = await ac.get("/api/v1/people")
+        assert graph.status_code == 200
+        names = [person["name"] for person in graph.json()["people"]]
+        assert "Lorraine Elizabeth Torres" in names
+        assert "Unnamed person" not in names
+
+
+@pytest.mark.anyio
 async def test_reconcile_candidates_and_merge_endpoint(_isolated_memory):
     mp, uid = _isolated_memory
 

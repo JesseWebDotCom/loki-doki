@@ -109,6 +109,20 @@ def _normalize_gedcom_date(raw_date: Optional[str]) -> tuple[Optional[str], str]
     return normalized, base_precision
 
 
+def _clean_gedcom_name(raw_name: Optional[str]) -> str:
+    cleaned = (raw_name or "").replace("/", " ").strip()
+    return " ".join(cleaned.split())
+
+
+def _build_gedcom_name_from_parts(person: dict) -> str:
+    name_parts = person.get("name_parts") or {}
+    parts = [
+        (name_parts.get("givn") or "").strip(),
+        (name_parts.get("surn") or "").strip(),
+    ]
+    return " ".join(part for part in parts if part)
+
+
 def _parse_gedcom(text: str) -> dict:
     people: dict[str, dict] = {}
     families: dict[str, dict] = {}
@@ -151,11 +165,20 @@ def _parse_gedcom(text: str) -> dict:
                 continue
         if current_type == "INDI":
             if level == 1 and tag == "NAME":
-                current["name"] = value.replace("/", "").strip()
+                cleaned_name = _clean_gedcom_name(value)
+                if cleaned_name:
+                    current["name"] = cleaned_name
+                    current["_name_explicit"] = True
             elif level == 1 and tag == "SEX":
                 current["sex"] = value
             elif level == 1 and tag in {"FAMC", "FAMS"}:
                 current.setdefault(tag.lower(), []).append(value)
+            elif level == 2 and tag in {"GIVN", "SURN"}:
+                current.setdefault("name_parts", {})[tag.lower()] = value.strip()
+                if not current.get("_name_explicit"):
+                    built_name = _build_gedcom_name_from_parts(current)
+                    if built_name:
+                        current["name"] = built_name
             elif level == 2 and tag == "DATE" and current_event:
                 field = event_fields.get(current_event)
                 if field:
