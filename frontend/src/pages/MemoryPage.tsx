@@ -192,14 +192,14 @@ const MemoryPage: React.FC = () => {
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
       <Sidebar phase="idle" />
       <main className="flex-1 flex flex-col bg-background overflow-y-auto">
-        <header className="p-10 border-b border-border/10">
-          <div className="max-w-4xl mx-auto flex items-center gap-4">
+        <header className="border-b border-border/10 px-[var(--app-shell-gutter)] pt-10 pb-8 sm:pt-12">
+          <div className="mx-auto flex max-w-[var(--app-content-max)] items-center gap-4">
             <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20 text-primary">
               <Brain size={28} />
             </div>
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Memory</h1>
-              <p className="text-muted-foreground text-sm font-medium">
+              <p className="text-base font-medium text-muted-foreground">
                 {selfFacts.length} about you • {people.length} people •{" "}
                 {facts.length} facts
                 {conflicts.length > 0 && ` • ${conflicts.length} conflicts`}
@@ -210,10 +210,10 @@ const MemoryPage: React.FC = () => {
           </div>
         </header>
 
-        <section className="p-10 flex-1">
-          <div className="max-w-4xl mx-auto space-y-8">
+        <section className="flex-1 px-[var(--app-shell-gutter)] pb-16 pt-8">
+          <div className="mx-auto max-w-[var(--app-content-max)] space-y-8">
             <div className="flex items-center justify-between gap-4">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+              <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
                 Scope
               </span>
               <select
@@ -221,7 +221,7 @@ const MemoryPage: React.FC = () => {
                 onChange={(e) =>
                   setProjectFilter(e.target.value ? Number(e.target.value) : null)
                 }
-                className="bg-card border border-border/20 rounded-lg px-3 py-1.5 text-xs font-medium text-foreground focus:outline-none focus:border-primary/40"
+                className="rounded-xl border border-border/20 bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-primary/40 focus:outline-none"
               >
                 <option value="">All memories</option>
                 {projects.map((p) => (
@@ -233,7 +233,7 @@ const MemoryPage: React.FC = () => {
             </div>
 
             <div
-              className="flex gap-2 border-b border-border/10 pb-2"
+              className="flex gap-2 border-b border-border/10 pb-3"
               role="tablist"
               aria-label="Memory views"
             >
@@ -243,7 +243,7 @@ const MemoryPage: React.FC = () => {
                   role="tab"
                   aria-selected={activeTab === tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${
                     activeTab === tab.id
                       ? "bg-primary/10 text-primary border border-primary/20"
                       : "text-muted-foreground hover:bg-card/50 border border-transparent"
@@ -251,7 +251,7 @@ const MemoryPage: React.FC = () => {
                 >
                   {tab.icon}
                   {tab.label}
-                  <span className="text-[10px] font-mono opacity-60">({tab.count})</span>
+                  <span className="text-xs font-mono opacity-60">({tab.count})</span>
                 </button>
               ))}
             </div>

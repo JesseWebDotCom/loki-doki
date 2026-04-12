@@ -468,15 +468,15 @@ const PeoplePage: React.FC = () => {
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
       <Sidebar phase="idle" />
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="p-8 border-b border-border/10 bg-gradient-to-r from-card via-background to-card">
-          <div className="w-full px-4 sm:px-6 flex items-center justify-between gap-6">
+        <header className="border-b border-border/10 bg-gradient-to-r from-card via-background to-card px-[var(--app-shell-gutter)] pt-8 pb-7 sm:pt-10">
+          <div className="mx-auto flex w-full max-w-[var(--app-content-max)] items-center justify-between gap-6">
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20 text-primary">
                 <Users size={28} />
               </div>
               <div>
                 <h1 className="text-3xl font-bold tracking-tight">People</h1>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-base font-medium text-muted-foreground">
                   Structured graph, photos, overlays, and family import/export.
                 </p>
               </div>
@@ -487,7 +487,7 @@ const PeoplePage: React.FC = () => {
                   value={newPersonName}
                   onChange={(e) => setNewPersonName(e.target.value)}
                   placeholder="New person..."
-                  className="w-32 bg-background/80 border border-border/20 rounded-xl px-3 py-2 text-xs"
+                  className="w-36 rounded-xl border border-border/20 bg-background/80 px-3 py-2.5 text-sm"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && newPersonName.trim()) {
                       void createGraphPerson({ name: newPersonName.trim(), bucket: bucket === "all" ? "family" : bucket }).then(async (result) => {
@@ -508,7 +508,7 @@ const PeoplePage: React.FC = () => {
                       setSelectedId(result.id);
                     });
                   }}
-                  className="px-3 py-2 rounded-xl bg-primary/10 border border-primary/30 text-primary text-xs font-bold"
+                  className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm font-bold text-primary"
                 >
                   + Add
                 </button>
@@ -519,7 +519,7 @@ const PeoplePage: React.FC = () => {
                   key={mode}
                   type="button"
                   onClick={() => setView(mode)}
-                  className={`px-4 py-2 rounded-xl border text-xs font-bold uppercase tracking-wide ${
+                  className={`rounded-xl border px-4 py-2.5 text-sm font-bold uppercase tracking-wide ${
                     view === mode ? "bg-primary/10 border-primary/30 text-primary" : "bg-card/40 border-border/20 text-muted-foreground"
                   }`}
                 >
@@ -530,8 +530,8 @@ const PeoplePage: React.FC = () => {
           </div>
         </header>
 
-        <section className="flex-1 overflow-hidden p-6">
-          <div className={`w-full px-4 sm:px-6 grid gap-6 h-full ${isTreeView && showTreeDetailPanel ? "lg:grid-cols-[minmax(0,1fr)_24rem]" : isTreeView ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_24rem]"}`}>
+        <section className="flex-1 overflow-hidden px-[var(--app-shell-gutter)] pb-8 pt-8">
+          <div className={`mx-auto grid h-full w-full max-w-[var(--app-content-max)] gap-6 ${isTreeView && showTreeDetailPanel ? "lg:grid-cols-[minmax(0,1fr)_24rem]" : isTreeView ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_24rem]"}`}>
             <div className="min-h-0 flex flex-col rounded-3xl border border-border/20 bg-card/40 shadow-m2 overflow-hidden">
               <div className="p-4 border-b border-border/10 flex flex-wrap items-center gap-3">
                 <input

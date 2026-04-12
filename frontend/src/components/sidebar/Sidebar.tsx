@@ -332,9 +332,13 @@ const Sidebar: React.FC<SidebarProps> = ({
             <MessageSquare size={16} />
           </Link>
         </nav>
-        <div className="mt-2 flex w-full flex-col items-center gap-2 border-t border-sidebar-border/40 pt-2">
-          <ProfileMenu compact />
-          <StatusIcons compact />
+        <div className="mt-2 flex w-full flex-col items-center border-t border-sidebar-border/40 pt-2">
+          <div className="flex h-10 w-10 items-center justify-center">
+            <ProfileMenu compact />
+          </div>
+          <div className="mt-2 flex h-10 w-10 items-center justify-center">
+            <StatusIcons compact />
+          </div>
         </div>
       </aside>
     );
@@ -520,9 +524,9 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Profile + Status (bottom-left) */}
-      <div className="pt-2 pb-1 mt-1 border-t border-sidebar-border/40">
+      <div className="mt-1 border-t border-sidebar-border/40 px-2 pt-2 pb-1">
         <ProfileMenu />
-        <div className="mt-1 px-2">
+        <div className="mt-0.5 flex h-10 items-center px-2">
           <StatusIcons />
         </div>
       </div>

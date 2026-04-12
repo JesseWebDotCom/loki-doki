@@ -45,21 +45,21 @@ const FeedbackPage: React.FC = () => {
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
       <Sidebar />
       <main className="flex-1 flex flex-col bg-background overflow-hidden">
-        <header className="p-10 border-b border-border/10">
-          <div className="max-w-5xl mx-auto flex items-center justify-between">
+        <header className="border-b border-border/10 px-[var(--app-shell-gutter)] pt-10 pb-8 sm:pt-12">
+          <div className="mx-auto flex max-w-[var(--app-content-max)] items-center justify-between gap-6">
             <div className="flex items-center gap-4">
               <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20 text-primary shadow-m3">
                 <MessageSquare size={28} />
               </div>
               <div>
                 <h1 className="text-3xl font-bold tracking-tight">Feedback Review</h1>
-                <p className="text-muted-foreground text-sm font-medium">
+                <p className="text-base font-medium text-muted-foreground">
                   Reviewing {feedback.length} quality signals from your interactions.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-card/50 border border-border/20 p-1.5 rounded-xl">
+            <div className="flex items-center gap-2 rounded-2xl border border-border/20 bg-card/50 p-1.5">
               <Button 
                 variant={filterRating === undefined ? 'default' : 'ghost'}
                 size="sm"
@@ -88,8 +88,8 @@ const FeedbackPage: React.FC = () => {
           </div>
         </header>
 
-        <section className="flex-1 overflow-y-auto p-10 bg-gradient-to-b from-transparent to-card/20">
-          <div className="max-w-5xl mx-auto space-y-6">
+        <section className="flex-1 overflow-y-auto bg-gradient-to-b from-transparent to-card/20 px-[var(--app-shell-gutter)] pb-16 pt-8">
+          <div className="mx-auto max-w-[var(--app-content-max)] space-y-6">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-20 gap-4">
                 <div className="animate-spin text-primary">◌</div>

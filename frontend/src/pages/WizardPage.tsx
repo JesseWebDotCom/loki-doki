@@ -11,12 +11,12 @@ import { useAuth } from "../auth/useAuth";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 const card =
-  "w-full max-w-md rounded-xl border border-neutral-800 bg-[#171717] p-8 shadow-2xl";
-const label = "block text-sm font-medium text-neutral-300 mb-1";
+  "w-full max-w-lg rounded-[1.75rem] border border-white/8 bg-[#171717] p-10 shadow-2xl shadow-black/30";
+const label = "mb-2 block text-sm font-medium text-neutral-300";
 const input =
-  "w-full rounded-md border border-neutral-700 bg-[#0A0A0A] px-3 py-2 text-neutral-100 focus:border-violet-400 focus:outline-none";
+  "w-full rounded-xl border border-neutral-700 bg-[#0A0A0A] px-4 py-3 text-base text-neutral-100 focus:border-violet-400 focus:outline-none";
 const btn =
-  "w-full rounded-md bg-violet-500 px-4 py-2 font-semibold text-white hover:bg-violet-400 disabled:opacity-50";
+  "w-full rounded-xl bg-violet-500 px-4 py-3 text-base font-semibold text-white hover:bg-violet-400 disabled:opacity-50";
 
 const WizardPage: React.FC = () => {
   useDocumentTitle('Welcome');
@@ -59,14 +59,14 @@ const WizardPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0A0A0A]">
+    <div className="flex min-h-screen items-center justify-center bg-[#0A0A0A] px-6 py-10">
       <form className={card} onSubmit={onSubmit}>
-        <h1 className="mb-1 text-2xl font-bold text-white">Welcome to LokiDoki</h1>
-        <p className="mb-6 text-sm text-neutral-400">
+        <h1 className="mb-2 text-4xl font-bold tracking-tight text-white">Welcome to LokiDoki</h1>
+        <p className="mb-8 text-base leading-7 text-neutral-400">
           Create the first admin account.
         </p>
 
-        <div className="mb-4">
+        <div className="mb-5">
           <label className={label}>Username</label>
           <input
             className={input}
@@ -75,7 +75,7 @@ const WizardPage: React.FC = () => {
             data-testid="wizard-username"
           />
         </div>
-        <div className="mb-4">
+        <div className="mb-5">
           <label className={label}>PIN (4–8 digits)</label>
           <input
             className={input}
@@ -87,7 +87,7 @@ const WizardPage: React.FC = () => {
             data-testid="wizard-pin"
           />
         </div>
-        <div className="mb-4">
+        <div className="mb-5">
           <label className={label}>Confirm PIN</label>
           <input
             className={input}
@@ -99,7 +99,7 @@ const WizardPage: React.FC = () => {
             data-testid="wizard-pin2"
           />
         </div>
-        <div className="mb-4">
+        <div className="mb-5">
           <label className={label}>Admin Password</label>
           <input
             className={input}
@@ -109,7 +109,7 @@ const WizardPage: React.FC = () => {
             data-testid="wizard-pwd"
           />
         </div>
-        <div className="mb-6">
+        <div className="mb-8">
           <label className={label}>Confirm Password</label>
           <input
             className={input}
@@ -123,7 +123,7 @@ const WizardPage: React.FC = () => {
         {error && (
           <div
             data-testid="wizard-error"
-            className="mb-4 rounded-md border border-red-900 bg-red-950/40 p-2 text-sm text-red-300"
+            className="mb-5 rounded-xl border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300"
           >
             {error}
           </div>
