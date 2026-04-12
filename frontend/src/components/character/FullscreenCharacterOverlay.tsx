@@ -129,11 +129,11 @@ const FullscreenCharacterOverlay: React.FC<Props> = ({
       <div className="w-full max-w-3xl px-6 pb-12 pt-4 flex flex-col items-center gap-8">
         {/* "Movie" Subtitles */}
         <div 
-          className={`px-6 py-3 rounded-2xl bg-black/60 backdrop-blur-sm border border-white/10 transition-all duration-300 min-h-[3.5rem] flex items-center justify-center text-center ${
+          className={`px-8 py-4 rounded-2xl bg-secondary/80 backdrop-blur-md border border-border/40 transition-all duration-300 min-h-[4rem] flex items-center justify-center text-center shadow-m4 ${
             tts.spokenText ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
           }`}
         >
-          <p className="text-xl sm:text-2xl font-medium text-white tracking-wide drop-shadow-sm max-w-2xl leading-relaxed">
+          <p className="text-xl sm:text-2xl font-semibold text-foreground tracking-wide drop-shadow-sm max-w-2xl leading-relaxed">
             {tts.spokenText}
           </p>
         </div>
@@ -149,12 +149,12 @@ const FullscreenCharacterOverlay: React.FC<Props> = ({
             onKeyDown={(e) => e.key === 'Enter' && onSend()}
             placeholder={placeholder || `Chat with ${character.name}…`}
             disabled={isProcessing}
-            className="w-full rounded-[1.45rem] border border-border/20 bg-card/40 backdrop-blur-md py-4 pl-6 pr-16 text-lg font-medium shadow-m4 transition-all placeholder:text-muted-foreground/45 focus:border-primary/50 focus:outline-none focus:ring-4 focus:ring-primary/5 disabled:opacity-50"
+            className="w-full rounded-[1.45rem] border border-border/40 bg-card/60 backdrop-blur-md py-4 pl-6 pr-16 text-lg font-medium shadow-m4 transition-all placeholder:text-muted-foreground/45 focus:border-primary/50 focus:outline-none focus:ring-4 focus:ring-primary/5 disabled:opacity-50"
           />
           <button
             onClick={onSend}
             disabled={isProcessing || !input.trim()}
-            className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xl bg-primary text-white shadow-m2 shadow-primary/20 transition-all hover:bg-primary/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-m2 shadow-primary/20 transition-all hover:bg-primary/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Send size={20} />
           </button>

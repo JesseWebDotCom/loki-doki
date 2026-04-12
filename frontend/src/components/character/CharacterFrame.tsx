@@ -63,7 +63,7 @@ const CharacterFrame: React.FC<Props> = ({
       </button>
       {hover && (
         <div className="absolute left-1/2 -translate-x-1/2 top-full pt-2 z-30">
-          <div className="flex items-center gap-1 px-2 py-1 rounded-xl bg-card/90 backdrop-blur border border-border/40 shadow-m2">
+          <div className="flex items-center gap-1 px-2 py-1 rounded-xl bg-secondary/95 backdrop-blur border border-border/60 shadow-m4">
             <ToolbarBtn
               icon={<Minimize2 size={13} />}
               active={mode === "mini"}
