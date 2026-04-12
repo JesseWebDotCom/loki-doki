@@ -94,9 +94,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-12 pt-12 pb-4 space-y-4 scroll-smooth scrollbar-hide bg-background"
+        className="flex-1 overflow-y-auto px-[var(--app-shell-gutter)] pt-10 pb-4 scroll-smooth scrollbar-hide bg-background sm:pt-12"
       >
-        <div className="max-w-4xl mx-auto">
+        <div
+          className="mx-auto space-y-6"
+          style={{ maxWidth: 'var(--app-content-max)' }}
+        >
           {messages.map((msg, idx) => {
             const myKey = `msg-${idx}`;
             // Mini mode renders ONE avatar in the whole chat, attached
@@ -140,16 +143,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
       {/* Floating Scroll to Bottom Button */}
       <div
-        className={`absolute bottom-8 left-1/2 -translate-x-1/2 transition-all duration-500 ease-out pointer-events-none ${
+        className={`absolute bottom-10 left-1/2 -translate-x-1/2 transition-all duration-500 ease-out pointer-events-none ${
           showScrollButton ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-50'
         }`}
       >
         <button
           onClick={scrollToBottom}
-          className="pointer-events-auto cursor-pointer flex items-center justify-center w-12 h-12 rounded-full bg-primary/95 text-primary-foreground shadow-m4 hover:bg-primary hover:shadow-m4 active:scale-90 transition-all backdrop-blur-md border border-white/20 ring-4 ring-primary/10"
+          className="pointer-events-auto flex h-14 w-14 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-primary/95 text-primary-foreground shadow-m4 ring-4 ring-primary/10 transition-all backdrop-blur-md hover:bg-primary hover:shadow-m4 active:scale-90"
           title="Scroll to bottom"
         >
-          <ArrowDown size={24} className={showScrollButton ? 'animate-bounce-subtle' : ''}/>
+          <ArrowDown size={26} className={showScrollButton ? 'animate-bounce-subtle' : ''}/>
         </button>
       </div>
     </div>

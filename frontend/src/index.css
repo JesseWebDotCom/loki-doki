@@ -11,9 +11,12 @@
   /* DYNAMIC: Maps to ThemeProvider selection */
   --font-primary: Roboto, Inter, system-ui, sans-serif;
   --font-sans: var(--font-primary);
+  --app-shell-gutter: clamp(1.25rem, 1vw + 1rem, 2.25rem);
+  --app-content-max: 72rem;
   
   font-family: var(--font-primary);
-  line-height: 1.5;
+  font-size: 17px;
+  line-height: 1.6;
   font-weight: 400;
 
   color-scheme: light;
@@ -165,11 +168,17 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-primary);
+    font-size: 1rem;
     background-color: var(--background);
     margin: 0;
     display: flex;
     place-content: center;
     min-width: 320px;
+    min-height: 100vh;
+  }
+
+  #root {
+    width: 100%;
     min-height: 100vh;
   }
 }

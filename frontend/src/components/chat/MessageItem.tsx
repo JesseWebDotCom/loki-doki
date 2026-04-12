@@ -109,34 +109,36 @@ const MessageItem: React.FC<MessageProps> = ({
   const hoverDateTime = formatMessageDateTime(timestamp);
 
   return (
-    <div className={`flex w-full mb-10 items-start gap-3 group/msg ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`group/msg mb-12 flex w-full items-start gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && avatar}
-      <div className={`flex flex-col max-w-[85%] sm:max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
-        <div className={`rounded-2xl px-6 py-4 border transition-all duration-300 shadow-m3 ${
+      <div className={`flex max-w-[92%] flex-col sm:max-w-[84%] ${isUser ? 'items-end' : 'items-start'}`}>
+        <div
+          data-testid="message-bubble"
+          className={`rounded-3xl border px-7 py-5 transition-all duration-300 shadow-m3 ${
           isUser
             ? 'bg-primary/10 border-primary/20 text-foreground'
             : 'bg-card border-border/40 text-foreground'
         }`}>
           {!isUser && (
-            <div className="flex items-center gap-2 mb-3 opacity-70">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            <div className="mb-3 flex items-center gap-2.5 opacity-70">
+              <span className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
                 {assistantName || 'assistant'}
               </span>
-              <span className="text-[10px] text-muted-foreground/40 font-mono italic" title={hoverDateTime}>
+              <span className="font-mono text-xs italic text-muted-foreground/40" title={hoverDateTime}>
                 {displayTime}
               </span>
               {pipeline && <PipelineInfoPopover pipeline={pipeline} />}
             </div>
           )}
           
-          <div className={`prose-onyx text-[15px] leading-relaxed font-medium tracking-tight ${isUser ? 'text-foreground' : 'text-foreground/90'}`}>
+          <div className={`prose-onyx text-base leading-8 font-medium tracking-tight sm:text-[1.02rem] ${isUser ? 'text-foreground' : 'text-foreground/90'}`}>
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkBreaks]}
               components={{
                 p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
-                ul: ({ children }) => <ul className="list-disc ml-6 mb-4 space-y-1">{children}</ul>,
-                ol: ({ children }) => <ol className="list-decimal ml-6 mb-4 space-y-1">{children}</ol>,
-                li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                ul: ({ children }) => <ul className="mb-4 ml-6 list-disc space-y-1.5">{children}</ul>,
+                ol: ({ children }) => <ol className="mb-4 ml-6 list-decimal space-y-1.5">{children}</ol>,
+                li: ({ children }) => <li className="leading-8">{children}</li>,
                 strong: ({ children }) => <strong className="font-bold text-primary/90">{children}</strong>,
                 a: ({ href, children }) => {
                   if (href?.startsWith('#cite-')) {
@@ -171,24 +173,24 @@ const MessageItem: React.FC<MessageProps> = ({
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary hover:underline underline-offset-4 decoration-primary/30 transition-all font-semibold inline-flex items-center gap-1 cursor-pointer"
+                      className="inline-flex cursor-pointer items-center gap-1 font-semibold text-primary underline-offset-4 decoration-primary/30 transition-all hover:underline"
                     >
                       {children}
                     </a>
                   );
                 },
                 code: ({ children }) => (
-                  <code className="bg-muted px-1.5 py-0.5 rounded-md font-mono text-sm border border-border/20">
+                  <code className="rounded-md border border-border/20 bg-muted px-1.5 py-0.5 font-mono text-sm">
                     {children}
                   </code>
                 ),
                 pre: ({ children }) => (
-                  <pre className="bg-muted p-4 rounded-xl font-mono text-sm overflow-x-auto my-4 border border-border/30 shadow-inner">
+                  <pre className="my-4 overflow-x-auto rounded-2xl border border-border/30 bg-muted p-4 font-mono text-sm shadow-inner">
                     {children}
                   </pre>
                 ),
                 blockquote: ({ children }) => (
-                  <blockquote className="border-l-4 border-primary/30 pl-4 py-1 italic text-muted-foreground my-4 bg-muted/20 rounded-r-lg">
+                  <blockquote className="my-4 rounded-r-lg border-l-4 border-primary/30 bg-muted/20 py-1 pl-4 italic text-muted-foreground">
                     {children}
                   </blockquote>
                 ),
@@ -236,11 +238,11 @@ const MessageItem: React.FC<MessageProps> = ({
           )}
         </div>
 
-        <div className="relative min-h-10 w-full pt-2 z-10">
+        <div className="relative z-10 min-h-10 w-full pt-2.5">
           {isUser && (
-            <div className="flex items-center gap-2 opacity-0 group-hover/msg:opacity-100 transition-opacity px-2 justify-end">
+            <div className="flex items-center justify-end gap-2 px-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
               <span 
-                className="text-[10px] text-muted-foreground/60 font-mono italic cursor-default hover:text-muted-foreground transition-colors"
+                className="cursor-default font-mono text-xs italic text-muted-foreground/60 transition-colors hover:text-muted-foreground"
                 title={hoverDateTime}
               >
                 {displayTime}

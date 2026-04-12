@@ -593,8 +593,11 @@ const ChatPage: React.FC = () => {
           />
         )}
 
-        <div className="pb-10 px-10 bg-transparent">
-          <div className="max-w-4xl mx-auto relative group">
+        <div className="bg-transparent px-[var(--app-shell-gutter)] pb-10 pt-3 sm:pb-12">
+          <div
+            className="relative mx-auto group"
+            style={{ maxWidth: 'var(--app-content-max)' }}
+          >
             {!connectivity.backendReachable && (
               <div className="mb-3 rounded-2xl border border-red-400/20 bg-red-950/40 px-4 py-3 text-sm text-red-100 shadow-m1">
                 LokiDoki cannot reach the local backend right now. You can keep typing, but sending is paused until the service reconnects.
@@ -615,14 +618,14 @@ const ChatPage: React.FC = () => {
                     : 'Chat with your character…'
               }
               disabled={isProcessing}
-              className="w-full bg-card/50 border border-border/50 rounded-2xl py-5 pl-8 pr-16 focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/5 transition-all placeholder-gray-700 shadow-m4 text-lg font-medium disabled:opacity-50"
+              className="w-full rounded-[1.45rem] border border-border/50 bg-card/50 py-3.5 pl-6 pr-16 text-sm font-medium shadow-m4 transition-all placeholder:text-muted-foreground/45 focus:border-primary/50 focus:outline-none focus:ring-4 focus:ring-primary/5 disabled:opacity-50 sm:text-base"
             />
             <button
               onClick={handleSend}
               disabled={isProcessing}
-              className="absolute right-4 top-4 p-3 bg-primary hover:bg-primary/90 text-white rounded-xl transition-all shadow-m2 shadow-primary/20 active:scale-95 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              className="absolute right-3.5 top-1/2 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xl bg-primary text-white shadow-m2 shadow-primary/20 transition-all hover:bg-primary/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Send size={20} />
+              <Send size={18} />
             </button>
           </div>
 

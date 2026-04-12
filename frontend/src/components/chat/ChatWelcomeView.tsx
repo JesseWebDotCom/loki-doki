@@ -21,10 +21,10 @@ interface Props {
 const ChatWelcomeView: React.FC<Props> = ({ activeChar }) => {
   const name = activeChar?.name ?? "LokiDoki";
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-      <div className="max-w-xl animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
+      <div className="max-w-2xl animate-in fade-in slide-in-from-bottom-4 duration-700">
         {activeChar && (
-          <div className="mb-6 flex justify-center">
+          <div className="mb-7 flex justify-center">
             <RiggedDicebearAvatar
               style={activeChar.avatar_style}
               seed={activeChar.avatar_seed}
@@ -34,10 +34,10 @@ const ChatWelcomeView: React.FC<Props> = ({ activeChar }) => {
             />
           </div>
         )}
-        <h1 className="text-2xl font-bold tracking-tight mb-2">
+        <h1 className="mb-3 text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
           Hi, I'm {name}.
         </h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-base leading-8 text-muted-foreground sm:text-lg">
           Ask me anything to get started.
         </p>
       </div>

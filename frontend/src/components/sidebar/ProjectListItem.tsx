@@ -31,7 +31,7 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
             <div
               onClick={() => onSelect(project.id)}
               className={cn(
-                "group flex items-center justify-between px-2 py-2 rounded-lg text-sm cursor-pointer transition-all border",
+                "group flex items-center justify-between rounded-xl border px-3 py-2.5 text-sm cursor-pointer transition-all",
                 isActive
                   ? "bg-primary/10 text-primary border-primary/20 shadow-sm"
                   : "text-muted-foreground hover:bg-card/50 hover:text-foreground border-transparent"
@@ -42,19 +42,19 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
                   const Icon = getIconComponent(project.icon);
                   return (
                     <div
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
                       style={{
                         color: swatchVar(project.icon_color),
                         backgroundColor: `color-mix(in oklch, ${swatchVar(project.icon_color)} 14%, transparent)`,
                       }}
                     >
-                      <Icon size={14} />
+                      <Icon size={15} />
                     </div>
                   );
                 })()}
-                <span className="truncate font-bold text-sm">{project.name}</span>
+                <span className="truncate text-sm font-semibold">{project.name}</span>
               </div>
-              <MoreVertical size={14} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
+              <MoreVertical size={15} className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
             </div>
       </ContextMenuTrigger>
       <ContextMenuContent>

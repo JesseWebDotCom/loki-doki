@@ -36,36 +36,36 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
       <DropdownMenuTrigger asChild>
         {compact ? (
           <button
-            className="w-8 h-8 flex items-center justify-center rounded-md text-primary hover:bg-card/50 transition-colors focus:outline-none cursor-pointer"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-primary transition-colors hover:bg-card/50 focus:outline-none cursor-pointer"
             aria-label="Open profile menu"
             title={username}
           >
             {profileImage ? (
-              <img src={profileImage} alt={username} className="w-5 h-5 rounded-md object-cover border border-primary/20" />
+              <img src={profileImage} alt={username} className="h-7 w-7 rounded-xl border border-primary/20 object-cover" />
             ) : (
-              <span className="w-5 h-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[10px]">
+              <span className="flex h-7 w-7 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-xs font-bold">
                 {currentUser ? initial : <User size={10} />}
               </span>
             )}
           </button>
         ) : (
         <button
-          className="w-full flex items-center rounded-md hover:bg-card/50 transition-colors group focus:outline-none cursor-pointer"
+          className="group flex w-full items-center rounded-xl px-1.5 py-2 transition-colors hover:bg-card/50 focus:outline-none cursor-pointer"
           aria-label="Open profile menu"
         >
-          <span className="w-8 h-8 flex items-center justify-center text-primary shrink-0">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center text-primary">
             {profileImage ? (
-              <img src={profileImage} alt={username} className="w-5 h-5 rounded-md object-cover border border-primary/20" />
+              <img src={profileImage} alt={username} className="h-8 w-8 rounded-xl border border-primary/20 object-cover" />
             ) : (
-              <span className="w-5 h-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[10px]">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-sm font-bold">
                 {currentUser ? initial : <User size={10} />}
               </span>
             )}
           </span>
-          <span className="flex-1 ml-1 text-left min-w-0 text-xs font-medium text-sidebar-foreground truncate">
+          <span className="ml-1.5 min-w-0 flex-1 truncate text-left text-base font-medium text-sidebar-foreground">
             {username}
           </span>
-          <ChevronUp size={12} className="mr-2 text-muted-foreground group-hover:text-foreground transition-colors" />
+          <ChevronUp size={15} className="mr-2 text-muted-foreground transition-colors group-hover:text-foreground" />
         </button>
         )}
       </DropdownMenuTrigger>

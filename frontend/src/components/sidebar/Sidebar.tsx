@@ -32,6 +32,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../ui/collapsible';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../ui/tooltip';
 import ChatListItem from './ChatListItem';
 import ProjectListItem from './ProjectListItem';
 import ProjectModal from './ProjectModal';
@@ -80,8 +86,46 @@ const StatusIcons: React.FC<{ compact?: boolean }> = ({ compact }) => {
       title: `Disk ${s.system.disk.used_percent.toFixed(0)}%`,
     },
   ];
+
+  const summaryTone = items.some((item) => item.color === 'text-red-400')
+    ? 'bg-red-400'
+    : items.some((item) => item.color === 'text-amber-400')
+      ? 'bg-amber-400'
+      : 'bg-emerald-400';
+
+  if (compact) {
+    return (
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-card/50 hover:text-foreground cursor-default"
+              aria-label="System status"
+            >
+              <span className={`block h-2.5 w-2.5 rounded-full ${summaryTone}`} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={10} className="w-52 rounded-xl px-3 py-3">
+            <div className="space-y-2">
+              {items.map((it) => {
+                const Icon = it.icon;
+                return (
+                  <div key={it.title} className="flex items-center gap-2 text-xs text-background/90">
+                    <Icon size={14} className={it.color} />
+                    <span>{it.title}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
   return (
-    <div className={`flex items-center ${compact ? 'justify-center gap-2.5' : 'gap-3 px-2'}`}>
+    <div className="flex items-center gap-3 px-2">
       {items.map((it) => {
         const Icon = it.icon;
         return (
@@ -235,11 +279,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   // ---------------- Collapsed (icon-only rail) ----------------
   if (collapsed) {
     const slot =
-      'w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0';
+      'flex h-10 w-10 items-center justify-center rounded-xl transition-colors';
     return (
       <aside
-        className="border-r border-sidebar-border bg-sidebar flex flex-col px-2 py-3 h-screen select-none shadow-m4 z-20 overflow-hidden transition-[width] duration-300 ease-in-out"
-        style={{ width: '3rem' }}
+        className="border-r border-sidebar-border bg-sidebar flex h-screen flex-col items-center px-1.5 py-3 select-none shadow-m4 z-20 overflow-hidden transition-[width] duration-300 ease-in-out"
+        style={{ width: '3.5rem' }}
       >
         <button
           onClick={() => setCollapsed(false)}
@@ -250,7 +294,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Ghost size={16} className="transition-opacity duration-150 group-hover:opacity-0" />
           <PanelLeftOpen size={16} className="absolute opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
         </button>
-        <nav className="space-y-0.5 flex-1">
+        <nav className="flex flex-1 flex-col items-center gap-2">
           <button
             onClick={() => handleNewSessionFallback()}
             title="New Chat"
@@ -288,11 +332,9 @@ const Sidebar: React.FC<SidebarProps> = ({
             <MessageSquare size={16} />
           </Link>
         </nav>
-        <div className="pt-2 pb-1 mt-1 border-t border-sidebar-border/40 -mx-2 px-2">
+        <div className="mt-2 flex w-full flex-col items-center gap-2 border-t border-sidebar-border/40 pt-2">
           <ProfileMenu compact />
-          <div className="mt-2">
-            <StatusIcons compact />
-          </div>
+          <StatusIcons compact />
         </div>
       </aside>
     );
@@ -302,71 +344,71 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       className="border-r border-sidebar-border bg-sidebar flex flex-col px-2 py-3 h-screen select-none shadow-m4 z-20 overflow-hidden transition-[width] duration-300 ease-in-out"
-      style={{ width: '15rem' }}
+      style={{ width: '17rem' }}
     >
       {/* Branding + collapse toggle. Ghost icon sits in the same w-8 h-8 slot
           as every nav row so collapsing the rail leaves it visually pinned. */}
-      <div className="flex items-center mb-4 group">
-        <div className="w-8 h-8 flex items-center justify-center text-primary shrink-0">
-          <Ghost size={16} />
+      <div className="mb-5 flex items-center group">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center text-primary">
+          <Ghost size={18} />
         </div>
-        <h2 className="flex-1 ml-1 text-sm font-bold tracking-tight text-sidebar-foreground">
+        <h2 className="ml-1 flex-1 text-base font-bold tracking-tight text-sidebar-foreground">
           lokidoki
         </h2>
         <button
           onClick={() => setCollapsed(true)}
           title="Collapse sidebar"
-          className="w-8 h-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-card/50 hover:text-foreground transition-colors cursor-pointer"
+          className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-card/50 hover:text-foreground cursor-pointer"
         >
-          <PanelLeftClose size={16} />
+          <PanelLeftClose size={18} />
         </button>
       </div>
 
       {/* Navigation. Each row is w-full but the icon stays in a fixed 32px slot
           flush to the left edge, matching the collapsed rail exactly. */}
-      <nav className="space-y-0.5 mb-4">
+      <nav className="mb-5 space-y-1">
         <button
           type="button"
           onClick={() => handleNewSessionFallback()}
-          className={`w-full flex items-center rounded-md transition-colors text-xs font-medium cursor-pointer ${
+          className={`flex w-full items-center rounded-xl transition-colors text-sm font-medium cursor-pointer ${
             isChat ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
-          <span className="w-8 h-8 flex items-center justify-center shrink-0">
-            <PenLine size={16} />
+          <span className="flex h-10 w-10 items-center justify-center shrink-0">
+            <PenLine size={18} />
           </span>
           <span className="ml-1">New Chat</span>
         </button>
         <Link
           to="/people"
-          className={`flex items-center rounded-md transition-colors text-xs font-medium cursor-pointer ${
+          className={`flex items-center rounded-xl transition-colors text-sm font-medium cursor-pointer ${
             isPeople ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
-          <span className="w-8 h-8 flex items-center justify-center shrink-0">
-            <Network size={16} />
+          <span className="flex h-10 w-10 items-center justify-center shrink-0">
+            <Network size={18} />
           </span>
           <span className="ml-1">People</span>
         </Link>
         <Link
           to="/memory"
-          className={`flex items-center rounded-md transition-colors text-xs font-medium cursor-pointer ${
+          className={`flex items-center rounded-xl transition-colors text-sm font-medium cursor-pointer ${
             isMemory ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
-          <span className="w-8 h-8 flex items-center justify-center shrink-0">
-            <Brain size={16} />
+          <span className="flex h-10 w-10 items-center justify-center shrink-0">
+            <Brain size={18} />
           </span>
           <span className="ml-1">Memory</span>
         </Link>
         <Link
           to="/feedback"
-          className={`flex items-center rounded-md transition-colors text-xs font-medium cursor-pointer ${
+          className={`flex items-center rounded-xl transition-colors text-sm font-medium cursor-pointer ${
             isFeedback ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
-          <span className="w-8 h-8 flex items-center justify-center shrink-0">
-            <MessageSquare size={16} />
+          <span className="flex h-10 w-10 items-center justify-center shrink-0">
+            <MessageSquare size={18} />
           </span>
           <span className="ml-1">Feedback</span>
         </Link>
@@ -376,8 +418,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 pb-4">
         {/* Projects Section */}
         <Collapsible open={showProjects} onOpenChange={setShowProjects}>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider hover:text-foreground transition-all cursor-pointer">
+          <div className="mb-2 flex items-center justify-between px-2">
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 transition-all hover:text-foreground cursor-pointer">
               Projects
             </CollapsibleTrigger>
             <button
@@ -388,7 +430,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               }}
               className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all cursor-pointer"
             >
-              <FolderPlus size={12} />
+              <FolderPlus size={14} />
             </button>
           </div>
           <CollapsibleContent className="space-y-1 px-1">
@@ -431,7 +473,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
             {projects.length === 0 && (
-              <div className="text-[10px] text-muted-foreground/30 px-3 py-2 italic text-center">
+              <div className="px-3 py-2 text-xs italic text-center text-muted-foreground/30">
                 No projects.
               </div>
             )}
@@ -440,8 +482,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Chats Section */}
         <Collapsible open={showChats} onOpenChange={setShowChats}>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider hover:text-foreground transition-all cursor-pointer">
+          <div className="mb-2 flex items-center justify-between px-2">
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 transition-all hover:text-foreground cursor-pointer">
               Recents
             </CollapsibleTrigger>
             <button
@@ -451,7 +493,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               }}
               className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all cursor-pointer"
             >
-              <Plus size={12} />
+              <Plus size={14} />
             </button>
           </div>
           <CollapsibleContent className="space-y-1 px-2">
@@ -469,7 +511,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               />
             ))}
             {globalSessions.length === 0 && (
-              <div className="text-[10px] text-muted-foreground/30 px-3 py-2 italic text-center">
+              <div className="px-3 py-2 text-xs italic text-center text-muted-foreground/30">
                 No independent chats.
               </div>
             )}

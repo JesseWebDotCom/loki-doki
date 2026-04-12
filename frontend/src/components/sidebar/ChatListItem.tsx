@@ -105,7 +105,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
         <div
           onClick={() => !isEditing && onSelect(id)}
           className={cn(
-            "group flex items-center justify-between pl-2 pr-1 py-2 rounded-lg text-sm cursor-pointer transition-all border",
+            "group flex items-center justify-between rounded-xl border py-2.5 pl-3 pr-1.5 text-sm cursor-pointer transition-all",
             isActive
               ? "bg-primary/10 text-primary border-primary/20 shadow-sm"
               : "text-muted-foreground hover:bg-card/50 hover:text-foreground border-transparent"
@@ -137,11 +137,11 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
                     }
                     setIsEditing(false);
                   }}
-                  className="bg-transparent border-none outline-none w-full text-xs text-foreground"
+                  className="w-full border-none bg-transparent text-sm text-foreground outline-none"
                 />
               </form>
             ) : (
-              <span className="truncate font-medium text-sm">{title || id}</span>
+              <span className="truncate text-sm font-medium">{title || id}</span>
             )}
           </div>
           <DropdownMenu>
@@ -149,10 +149,10 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
-                className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity p-1 rounded hover:bg-card/80 text-muted-foreground hover:text-primary cursor-pointer"
+                className="rounded-lg p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-card/80 hover:text-primary group-hover:opacity-100 data-[state=open]:opacity-100 cursor-pointer"
                 aria-label="Chat actions"
               >
-                <MoreVertical size={14} className="text-muted-foreground" />
+                <MoreVertical size={15} className="text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
