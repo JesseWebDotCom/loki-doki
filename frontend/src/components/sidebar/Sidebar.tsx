@@ -526,7 +526,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* Profile + Status (bottom-left) */}
       <div className="mt-1 border-t border-sidebar-border/40 px-2 pt-2 pb-1">
         <ProfileMenu />
-        <div className="mt-0.5 flex h-10 items-center px-2">
+        <div className="-mt-1 flex h-10 items-center px-2">
           <StatusIcons />
         </div>
       </div>
