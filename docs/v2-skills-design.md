@@ -44,6 +44,9 @@ These rules are required for the v2 migration to be considered complete.
 | No user-text reparsing inside skills | Skills must not parse `payload["chunk_text"]` with local heuristics to recover user intent or missing typed params. If a capability needs `location`, `zip`, `movie_title`, `person`, `date`, or similar fields, decomposition/resolution must emit them structurally in `params`. Machine-text repair of model output is acceptable; reinterpreting the user's text inside each skill is not. |
 | Capability-to-skill separation | User-facing capabilities can stay domain-oriented like `get_weather` or `tell_joke`, but implementation selection must happen through standalone skills. Example: `get_weather` can resolve to `weather_openmeteo` or `weather_owm`; `tell_joke` can resolve to `jokes_icanhazdadjoke` or `jokes_jokes4us`. |
 | Config ownership | Config keys belong to the standalone skill that declares them. Weather provider A's default location config must not be silently borrowed by weather provider B unless the schema explicitly supports shared inheritance. |
+| Error taxonomy | The common handler contract must expose a small `error_kind` enum instead of flattening all failures into `success=false`. At minimum: `invalid_params`, `no_data`, `offline`, `provider_down`, `rate_limited`, `timeout`, `internal_error`. |
+| First-class aliasing | Capability aliases must be represented explicitly in schema, e.g. canonical `summarize_text` with alias `summarize`, rather than duplicated full entries that silently drift. |
+| Budget ceiling | Capability execution must have a capability-level `max_chunk_budget_ms` ceiling in addition to per-mechanism `timeout_ms`, so fallback chains cannot consume unbounded wall-clock time on constrained hardware. |
 
 ### Immediate Design Consequences
 
@@ -54,6 +57,8 @@ These rules are required for the v2 migration to be considered complete.
 | Central v2 files directly import provider modules such as `from lokidoki.skills.weather_openmeteo.skill import OpenMeteoSkill` | Move toward registry/discovery-based loading so optional skills are not assumed to exist. |
 | Domain wrappers mix multiple responsibilities in one file | Split provider implementations into standalone packages and keep only thin selection/execution code at the domain/capability layer. |
 | Skills recover missing fields by reparsing `payload["chunk_text"]` with helpers like `_extract_location(...)` | Move all user-text understanding and typed field extraction upstream into decomposition/resolution. Skills should consume structured `params` plus merged `_config`, not re-run ad hoc parsing on raw user text. |
+| Capability aliases like `greet` / `greeting_response` and `summarize` / `summarize_text` are duplicated as separate rows | Represent aliases explicitly in capability schema so descriptions, params, and implementation mappings cannot drift apart. |
+| Per-mechanism timeout exists, but total per-capability time can still balloon across fallback chains | Add `max_chunk_budget_ms` at the capability level and stop executing mechanisms once the chunk budget is exhausted. |
 
 ## Runtime V2 Capability Table
 
@@ -139,7 +144,7 @@ These rules are required for the v2 migration to be considered complete.
 | Sports | `get_score` | `skills.sports.score` | ESPN scoreboard JSON | `real/provider` | new in v2 | Yes | Yes | Registry text says live web search, but the actual backend is ESPN. |
 | Sports | `get_standings` | `skills.sports.standings` | ESPN standings JSON | `real/provider` | new in v2 | Yes | Yes | Registry text says live web search, but the actual backend is ESPN. |
 | Sports | `get_schedule` | `skills.sports.schedule` | ESPN scoreboard JSON | `real/provider` | new in v2 | Yes | Yes | Registry text says live web search, but the actual backend is ESPN. |
-| Sports | `get_player_stats` | `skills.sports.player_stats` | placeholder/error path | `limited` | new in v2 | Yes | No | Registry advertises `ddg_search`, but the handler still returns “provider wiring still in progress.” |
+| Sports | `get_player_stats` | `skills.sports.player_stats` | DDG snippets via `sports_search.get_player_stats` → `search_web._search` | `limited` | new in v2 | Yes | Yes, via unstructured web search | Registry advertises `ddg_search` and the runtime does call DDG, but results are generic snippets — no real sports/player provider. An older `sports_api.get_player_stats` handler that returned “provider wiring still in progress” still lives in `v2/orchestrator/skills/sports_api.py` but is dead code (the executor does not route to it). |
 | Writing | `summarize_text`, `summarize` | `skills.writing.summarize` | Ollama LLM when enabled, stub otherwise | `stub-fallback` | new in v2 | No provider required beyond LLM | Partial | Alias pair to the same handler. |
 | Writing | `translate` | `skills.writing.translate` | MyMemory translation API | `real/provider` | new in v2 | Yes | Yes | Real provider today, not local/self-hosted. |
 | Code | `code_assistance`, `assist` | `skills.code.assistant` | Ollama LLM when enabled, stub otherwise | `stub-fallback` | new in v2 | No provider required beyond LLM | Partial | Alias pair to the same handler. |
@@ -166,7 +171,7 @@ These rules are required for the v2 migration to be considered complete.
 | `recipe_mealdb` | recipe lookup | `full port` | `find_recipe` | Direct v1-backed adapter. |
 | `search_ddg` | generic web search, news search | `partial port` | used internally by `knowledge_query`; orphan helper exists in `search_web.py` | There is no first-class `search_web` capability in the v2 registry. |
 | `smarthome_mock` | mock device state/actions | `partial port` | `control_device`, `get_device_state`, `get_indoor_temperature`, `set_scene` | Still mock/local, not real HA integration. |
-| `trivia_opentdb` | trivia | `missing` | none | Directory exists, but no manifest/implementation surfaced in the repo audit. |
+| `trivia_opentdb` | trivia | `missing` | none | `lokidoki/skills/trivia_opentdb/` is a completely empty directory — no manifest, no skill module, no data. |
 | `tvshows_tvmaze` | TV detail, episode listing | `partial port` | `lookup_tv_show`, `get_tv_schedule` | Schedule exists; richer episode/detail surface is not fully preserved. |
 | `unit_conversion` | unit conversion | `full port` | `convert_units`, `convert` | Direct v1-backed adapter. |
 | `weather_openmeteo` | weather/forecast | `partial port` | `get_weather`, `get_forecast` | Core backend preserved, but v1 config/default-location behavior is not fully wired. |
@@ -178,7 +183,7 @@ These rules are required for the v2 migration to be considered complete.
 |---|---|---|
 | High | Wire real people storage into runtime resolver | `lookup_birthday` and any future family/relationship surface depend on a real people graph, but runtime still uses empty in-memory `PeopleDBAdapter()`. |
 | High | Add first-class generic web-search capability | v1 `search_ddg.search_web` no longer exists as a routable v2 capability even though DDG is still present in the codebase. |
-| High | Wire a real player-stats provider | `get_player_stats` is still effectively unimplemented. |
+| High | Wire a real player-stats provider | `get_player_stats` currently falls back to generic DDG snippets via `sports_search` → `search_web._search` instead of a structured sports/player provider, and a stale placeholder handler still lives in `sports_api.py`. |
 | High | Replace local travel KBs with real providers | `search_flights`, `search_hotels`, and `get_visa_info` all present as user-facing capabilities but are still curated/local. |
 | High | Replace local streaming catalog with a real movie provider | `get_streaming` is only live for some TV via TVMaze; movie streaming is curated. |
 | Medium | Restore movie detail/search surface | v1 had TMDB and Wikipedia movie-detail/search packages; v2 currently has no equivalent capability. |
@@ -198,6 +203,8 @@ The goal is not just to make every capability "respond", but to make every v2 sk
 - loaded dynamically rather than hard-imported as though every optional skill is installed
 - receiving merged per-skill config with v1 global-then-user override semantics
 - consuming typed structured params from decomposition/resolution rather than reparsing raw `chunk_text`
+- exposing a real `error_kind` instead of a bare success/fail flattening
+- respecting a capability-level execution budget
 - carrying source metadata where external facts are involved
 - covered by unit + integration tests and a phase gate
 
@@ -210,18 +217,25 @@ The safest path is to land this in dependency order.
 | Goal | Make the registry, handler wiring, and capability contracts truthful before adding new providers. |
 | Why first | Right now several capability descriptions promise "live web search" while the runtime uses curated local KBs. That makes the system hard to reason about and will sabotage future migration work. |
 | Work | Define the canonical v2 standalone-skill contract: every concrete integration is its own provider-specific skill package with unique name, description, icon/favicon, manifest, and config schema. This should mirror the v1 provider naming style rather than domain-monolith files. |
+| Work | Define the plugin discovery seam explicitly. Core discovers built-in manifests from `lokidoki/skills/*/manifest.json` and optional manifests from an installed-plugins location such as `~/.lokidoki/plugins/**/manifest.json` or another configured plugin root. Dynamic loading is not complete until both discovery roots are part of the runtime contract. |
 | Work | Separate domain capabilities from provider implementations. Capability names can stay user-facing (`get_weather`, `tell_joke`), but implementation entries in the registry must point to standalone skills such as `weather_openmeteo`, `weather_owm`, `jokes_icanhazdadjoke`, `jokes_jokes4us`. |
 | Work | Normalize `function_registry.json` descriptions/mechanisms so they match the real handler behavior for travel, streaming, sports, and people. Remove or clearly mark legacy alias capabilities that only exist for compatibility. Add a `maturity` or `state` field to every registry entry so the runtime, dev tools, and docs all read from one canonical value. |
-| Work | Standardize one contract for all skills: `output_text`, `success`, `mechanism_used`, `data`, and `sources`. Require this in every adapter, including built-ins and local skills. |
+| Work | Standardize one contract for all skills: `output_text`, `success`, `error_kind`, `mechanism_used`, `data`, and `sources`. Require this in every adapter, including built-ins and local skills. |
+| Work | Add first-class capability aliasing to the schema, e.g. canonical capability plus `aliases: []`, and migrate duplicated alias rows to that model or explicitly retire them. |
+| Work | Add `max_chunk_budget_ms` to the capability contract so fallback chains cannot exceed a bounded wall-clock budget per chunk even when each individual mechanism timeout is valid. |
 | Work | Remove central hard imports of optional provider skills from runtime files. Runtime selection should discover installed standalone skills from manifests/registry and only load what actually exists. |
-| Work | Audit orphan modules such as `v2/orchestrator/skills/search_web.py` and either register them as first-class capabilities or delete/inline them so there is no shadow surface that is not actually routable. |
+| Work | Audit shadow/orphan modules. `v2/orchestrator/skills/search_web.py` is not registered as a capability but is consumed as a private helper by `sports_search.py` — either promote it to a first-class `search_web` capability or collapse it into its sole caller. `v2/orchestrator/skills/sports_search.py` also ships `get_score` / `get_standings` / `get_schedule` handlers that the executor never routes (those go to `sports_api` instead), and `v2/orchestrator/skills/sports_api.py` ships a `get_player_stats` placeholder that is also not routed. Delete the dead handlers or wire them so each capability has exactly one executable path. |
 | Work | Restore v1 config passthrough where already supported by the old skill packages: weather default location, Fandango `default_zip`, preferred theater, and other per-user/default config fields. Replace hardcoded fallbacks like `_DEFAULT_LOCATION = "your area"` and hardcoded fixture ZIP defaults with merged per-skill config resolution. |
 | Work | Ban skill-local user-text heuristics for missing parameters. If a skill currently contains helper code that reparses `chunk_text` to find `location`, `zip`, `title`, `origin`, `destination`, or similar fields, move that logic upstream into decomposer schema + resolver output so the skill only reads structured `params`. |
+| Work | Add an early drift CI test: fail if capability-registry handler references do not match executor/runtime wiring, or if this design document's capability table names handlers/capabilities that do not exist. This guard belongs in Phase 1, not Phase 8. |
 | Gate | Every entry in `function_registry.json` accurately describes its real backend and mechanisms; no capability points to dead or misleading semantics. |
-| Gate | Every skill result type includes the same provenance fields, even if `sources=[]` for local skills. |
+| Gate | Every skill result type includes the same provenance and failure fields, even if `sources=[]` for local skills. |
 | Gate | No central runtime module assumes a specific optional provider skill is installed by importing it directly. |
 | Gate | Every standalone skill with config needs reads merged global/user config instead of hardcoded pseudo-defaults. |
 | Gate | No skill recovers missing user intent by reparsing raw `chunk_text`; required user fields arrive structurally in `params` or are intentionally absent. |
+| Gate | Capability aliases are represented explicitly in schema rather than duplicated full rows. |
+| Gate | Capability execution honors `max_chunk_budget_ms` in addition to per-mechanism timeouts. |
+| Gate | Drift CI fails on registry ↔ runtime ↔ docs mismatch. |
 
 ### Phase 2 — Core Runtime Wiring
 
@@ -229,11 +243,11 @@ The safest path is to land this in dependency order.
 |---|---|
 | Goal | Replace placeholder runtime adapters with the real adapters that already exist in the codebase. |
 | Why second | Several skills are blocked not by missing providers, but by runtime wiring that still uses empty/default adapters. |
-| Work | Introduce a dynamic skill-loader seam for v2 so provider-specific skills are selected from the registry/runtime manifest rather than imported directly by executor modules. |
+| Work | Introduce a dynamic skill-loader seam for v2 so provider-specific skills are selected from the registry/runtime manifest rather than imported directly by executor modules. The loader must read both built-in core skills and installed plugin skills from the configured plugin root. |
 | Work | Extend decomposition/resolution so capabilities receive typed parameter extraction for the fields their skills actually need. This is the right place to infer `location`, `zip`, `movie title`, `flight number`, `origin`, `destination`, `city`, and similar inputs. |
 | Work | Wire `LokiPeopleDBAdapter` into `v2/orchestrator/resolution/resolver.py` instead of `PeopleDBAdapter()`, passing the authenticated user and the real `MemoryProvider` path through the context, as called out in `docs/v2-graduation-plan.md`. |
 | Work | Replace `HomeAssistantAdapter()` defaults with either `LokiSmartHomeAdapter` or a real HA-backed adapter seam. The key requirement is that resolver/device lookup no longer depends on hardcoded demo devices. |
-| Work | Replace ephemeral `ConversationMemoryAdapter(context)` usage with a backed implementation for recent-entity recall so `recall_recent_media` and follow-up resolution survive across turns. |
+| Work | Replace ephemeral `ConversationMemoryAdapter(context)` usage with a backed implementation for recent-entity recall so `recall_recent_media` and follow-up resolution survive across turns. The natural backing is the v2 memory pipeline described in `docs/MEMORY_DESIGN.md` (Tier 4/5 read path shipped in M1–M3, cross-session promotion in flight in M4), not a new ad hoc store. |
 | Work | Add source propagation from adapters into the v2 response object and synthesis path, closing the citations gap already identified in the graduation plan. |
 | Gate | People, device, and conversation-memory resolution all use real runtime-backed adapters, not empty/test defaults. |
 | Gate | External-provider skills surface usable `sources` metadata end-to-end. |
@@ -279,7 +293,7 @@ The safest path is to land this in dependency order.
 | Work | Replace local calendar/alarm/reminder/notes/contact/message/email/call/music backends with profile-aware adapters. On mac, this likely means native or file-backed integrations; on Pi, it may mean local services or plugin-backed implementations. |
 | Work | Keep the current JSON stores as dev/test adapters so the v2 pipeline remains hermetic in tests. The runtime should choose adapters by profile, not by hardcoded prototype defaults. |
 | Work | Split each device capability into an interface layer plus per-profile adapters. Avoid letting the v2 pipeline import profile-specific code directly from handlers. |
-| Work | Upgrade smart-home control, state, temperature, presence, and scenes onto a real Home Assistant integration while preserving CPU-only fallback behavior required by the repo contract. |
+| Work | Upgrade smart-home control, state, temperature, presence, and scenes onto a real Home Assistant integration while preserving CPU-only fallback behavior required by the repo contract. Any device-audio or playback integration must go through the existing CPU-only provider seam; no skill may instantiate its own separate STT/TTS/audio pipeline. |
 | Gate | Device skills perform real actions or read real state on supported profiles. |
 | Gate | JSON-store adapters remain available only for test/dev mode, not as the production runtime default. |
 
@@ -289,7 +303,7 @@ The safest path is to land this in dependency order.
 |---|---|
 | Goal | Remove the remaining `limited` and placeholder paths that still block a "fully working v2" claim. |
 | Why sixth | By this point the plumbing and major provider migrations are done, so the remaining gaps are narrow but important. |
-| Work | Wire a real player-stats provider for `get_player_stats`. This is already called out in the catalog as still needing structured provider wiring. |
+| Work | Wire a real player-stats provider for `get_player_stats` so it stops relying on unstructured DDG snippets via `sports_search` → `search_web._search`, and delete the stale `sports_api.get_player_stats` placeholder once a real path exists. This is already called out in the catalog as still needing structured provider wiring. |
 | Work | Expand `lookup_fact` beyond its current small Wikidata property map so the capability can answer a broader set of fact questions without silently degrading. |
 | Work | Expand `substitute_ingredient` beyond the tiny local table, ideally to a structured culinary source or a constrained LLM-assisted rule set with citations. |
 | Work | Upgrade `get_time_in_location` from a static city map to a fuller timezone resolver that can safely handle more user phrasings and locations. |
@@ -318,7 +332,7 @@ The safest path is to land this in dependency order.
 | Why last | This phase turns the rebuilt skill surface into a maintainable contract instead of a one-time migration. |
 | Work | Enforce a policy that any capability answering current or factual external questions must attach source metadata. Local/prototype skills should say they are local when relevant. |
 | Work | Add a per-capability online/offline matrix to the registry and dev tools so users and developers can tell whether a skill is provider-backed, fallback-backed, or offline-safe. |
-| Work | Add a regression test that compares this audit document against the registry state for key fields like capability existence, handler name, and declared maturity. |
+| Work | Expand the Phase 1 drift CI guard into a broader contract test that compares this design document, the capability registry, and runtime wiring for key fields like capability existence, handler name, alias mapping, and declared maturity. |
 | Work | Turn the high-level gaps in this document into phase gates: a capability family should not be marked done until provider wiring, source metadata, tests, and profile/runtime selection are all green. |
 | Gate | The registry, docs, and runtime behavior stay in sync automatically enough that drift is caught in CI. |
 | Gate | The team can truthfully say the v2 skill surface is fully working because each family has a concrete acceptance gate, not just a handler that returns text. |

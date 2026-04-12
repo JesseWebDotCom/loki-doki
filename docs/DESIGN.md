@@ -228,6 +228,12 @@ This is a hard rule:
   - icon/favicon asset
   - `config_schema`
 
+Dynamic discovery must have an explicit seam:
+
+- built-in skills are discovered from `lokidoki/skills/*/manifest.json`
+- optional plugin skills are discovered from an installed plugin root such as `~/.lokidoki/plugins/**/manifest.json` or another configured plugin directory
+- central runtime code must not treat direct imports in executor modules as the real registry, because that would collapse the core/plugin repo boundary
+
 #### Domain contracts
 
 Not every broad topic should be treated as one giant contract. We split by **capability family**, not by vague theme.
@@ -294,10 +300,12 @@ LokiDoki uses three distinct registries/layers. These must not be collapsed into
     - One entry per capability/function, e.g. `tell_joke`, `get_weather`, `get_showtimes`
     - Owns:
       - capability/function name
+      - explicit aliases for compatibility, e.g. canonical `summarize_text` with `aliases: ["summarize"]`
       - user-facing description
       - routing examples
       - parameter schema
       - capability-family/domain-contract identifier
+      - capability-level execution budget such as `max_chunk_budget_ms`
     - Does **not** own:
       - provider-specific mechanisms
       - provider-specific `requires_internet`
@@ -343,10 +351,12 @@ The metadata split is mandatory:
 
 - **Capability registry owns**
   - capability/function name
+  - aliases
   - user-facing description
   - routing examples
   - parameter schema
   - capability-family/domain-contract id
+  - capability-level execution budget
 - **Skill registry owns**
   - `skill_id`
   - provider-specific description
@@ -365,6 +375,8 @@ So:
 - examples stay with the capability
 - provider mechanics stay with the standalone skill
 - enabled/disabled execution state lives in the runtime registry
+- aliases are part of the capability contract, not duplicate capability rows
+- chunk budgets are part of the capability contract, not provider-specific mechanism metadata
 
 #### Runtime subset rule
 
@@ -381,6 +393,29 @@ This matches the current project direction:
 - a full catalog may include skills that are installed but disabled
 - a profile may exclude skills that are unsupported on `mac`, `pi_cpu`, or `pi_hailo`
 - routing and execution must only see the enabled/runtime subset
+
+#### Common execution result contract
+
+Every capability implementation must return the same normalized execution shape, whether it is built-in, local, plugin-backed, or provider-backed:
+
+- `output_text`
+- `success`
+- `error_kind`
+- `mechanism_used`
+- `data`
+- `sources`
+
+`success` alone is not expressive enough. The contract must expose a small `error_kind` taxonomy so synthesis can react appropriately:
+
+- `invalid_params`
+- `no_data`
+- `offline`
+- `provider_down`
+- `rate_limited`
+- `timeout`
+- `internal_error`
+
+This prevents the runtime from flattening "bad input", "no matching result", "provider outage", and "no network" into the same failure mode.
 
 #### Typed parameter extraction is upstream, not in skills
 
@@ -408,6 +443,30 @@ If a required field is absent, the skill should fail clearly or request
 clarification. It should not scan `chunk_text` for ad hoc markers like
 `" in "` or `" at "`.
 
+#### Capability aliasing is first-class
+
+Capability aliases must be represented as aliases on the canonical capability entry, not as duplicated full registry rows.
+
+Examples:
+
+- canonical `summarize_text` with alias `summarize`
+- canonical `lookup_definition` with alias `define_word`
+- canonical `greeting_response` with alias `greet`
+
+Duplicated rows are a drift source because descriptions, parameter schemas, maturity labels, and implementation mappings can diverge over time.
+
+#### Capability budgets are first-class
+
+Per-mechanism `timeout_ms` is not enough on constrained hardware. A single capability can still burn too much wall-clock time across multiple fallbacks.
+
+The capability contract must therefore include a capability-level budget such as `max_chunk_budget_ms`:
+
+- each mechanism still has its own timeout
+- the runner also tracks total elapsed time for the capability
+- once the capability budget is exhausted, the runner short-circuits instead of continuing through the fallback chain
+
+This is especially important on Raspberry Pi targets where several "reasonable" per-mechanism timeouts can still add up to a poor user experience.
+
 #### Per-skill config injection is part of execution
 
 `docs/SKILL_STUBS.md` also correctly calls out that v2 adapters have been
@@ -418,6 +477,30 @@ missing the v1-style `_config` injection path. The design requirement is:
   - global defaults
   - user overrides
 - this merged config is passed to the skill as per-skill execution config
+
+#### Drift protection is a Phase 1 architecture requirement
+
+Registry drift is not a cleanup task for the end of the migration. It is a foundation requirement.
+
+The repo should have an early CI guard that fails when:
+
+- capability-registry handler references do not match executor/runtime wiring
+- canonical capabilities and their aliases are inconsistent
+- docs describe a capability or handler that the runtime cannot execute
+
+The goal is to prevent the capability registry, runtime wiring, and design docs from silently diverging while the v2 migration is still in flight.
+
+#### Device audio integrations must respect the repo audio seam
+
+If a future skill controls playback or device audio, it must go through the existing profile-aware, CPU-only audio/provider seam.
+
+Skills must not:
+
+- instantiate their own STT/TTS stack
+- bypass the repo's audio routing rules
+- create an alternate playback path that ignores the profile contract
+
+This keeps skill work compatible with the repo-wide rule that STT, TTS, and wake word stay CPU-only even when Hailo is present.
 
 This is how skills access:
 
