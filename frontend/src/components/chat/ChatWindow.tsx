@@ -18,6 +18,7 @@ interface ChatWindowProps {
   activeAssistantKey?: string | null;
   assistantName?: string;
   onRetry?: (messageIndex: number) => void;
+  onOpenSources?: (messageIndex: number) => void;
 }
 
 const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -31,6 +32,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   activeAssistantKey,
   assistantName,
   onRetry,
+  onOpenSources,
 }) => {
   // Per-message mini avatars only render in mini mode. Docked mode
   // shows the big right-column avatar instead, and rendering both at
@@ -111,6 +113,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   avatar={isActive ? renderAvatar(characterState ?? 'idle') : undefined}
                   assistantName={assistantName}
                   onRetry={onRetry ? () => onRetry(idx) : undefined}
+                  onOpenSources={onOpenSources ? () => onOpenSources(idx) : undefined}
                 />
               </React.Fragment>
             );

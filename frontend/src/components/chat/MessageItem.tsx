@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Link as LinkIcon, Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw } from 'lucide-react';
+import { Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw } from 'lucide-react';
 import { useTTSState } from '../../utils/tts';
 import {
   Tooltip,
@@ -15,6 +15,9 @@ import type { SourceInfo, SilentConfirmation } from '../../lib/api';
 import type { PipelineState } from '../../pages/ChatPage';
 import PipelineInfoPopover from './PipelineInfoPopover';
 import { FeedbackDialog } from './FeedbackDialog';
+import SourceChip from './SourceChip';
+import { getSourcePresentation } from './sourcePresentation';
+import FaviconImage from './FaviconImage';
 
 interface MentionedPerson {
   id: number;
@@ -39,54 +42,15 @@ interface MessageProps {
   messageId?: number;
   /** Retry callback — removes this message and re-sends the prior user turn. */
   onRetry?: () => void;
+  onOpenSources?: () => void;
 }
-
-/**
- * Citation component to render the chain-anchor icon with tooltip.
- */
-const Citation: React.FC<{ index: number; sources: SourceInfo[] }> = ({ index, sources }) => {
-  const source = sources[index - 1]; // [src:1] -> index 0
-
-  if (source) {
-    return (
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 transition-colors mx-0.5 align-middle shadow-sm"
-              aria-label={`Source: ${source.title}`}
-            >
-              <LinkIcon size={10} />
-            </a>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs p-3 rounded-xl border-border/50 bg-popover text-popover-foreground shadow-m3">
-            <p className="font-bold text-xs mb-1">{source.title}</p>
-            <p className="text-[10px] text-muted-foreground truncate opacity-70">{source.url}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  return (
-    <span
-      className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-muted/50 border border-border/30 text-muted-foreground mx-0.5 align-middle"
-      title={`Source ${index} unavailable`}
-    >
-      <LinkIcon size={10} />
-    </span>
-  );
-};
 
 /**
  * Pre-processes content to transform [src:N] into markdown links that our 
  * custom link component can recognize as citations.
  */
 function preprocessContent(content: string): string {
-  return content.replace(/\[src:(\d+)\]/g, ' [🔗$1](#cite-$1)');
+  return content.replace(/\s*\[src:(\d+)\]/g, '\u00A0[🔗$1](#cite-$1)');
 }
 
 const MessageItem: React.FC<MessageProps> = ({
@@ -103,6 +67,7 @@ const MessageItem: React.FC<MessageProps> = ({
   mentionedPeople = [],
   messageId,
   onRetry,
+  onOpenSources,
 }) => {
   const isUser = role === 'user';
   const tts = useTTSState();
@@ -118,6 +83,7 @@ const MessageItem: React.FC<MessageProps> = ({
 
   // Transform citations into markdown-recognizable links
   const processedContent = isUser ? content : preprocessContent(content);
+  const primarySource = sources[0] ? getSourcePresentation(sources[0]) : null;
 
   const isActive = isSpeaking || isPending;
 
@@ -175,7 +141,9 @@ const MessageItem: React.FC<MessageProps> = ({
                 a: ({ href, children }) => {
                   if (href?.startsWith('#cite-')) {
                     const index = parseInt(href.replace('#cite-', ''), 10);
-                    return <Citation index={index} sources={sources} />;
+                    const source = sources[index - 1];
+                    if (!source) return null;
+                    return <SourceChip index={index} source={source} />;
                   }
                   // Person mention chip: /people?focus=ID
                   if (href?.startsWith('/people?focus=')) {
@@ -407,6 +375,26 @@ const MessageItem: React.FC<MessageProps> = ({
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs">Retry</TooltipContent>
                 </Tooltip>
+              )}
+
+              {sources.length > 0 && onOpenSources && (
+                <>
+                  <div className="w-px h-4 bg-border/40 mx-1" />
+                  <button
+                    type="button"
+                    onClick={onOpenSources}
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-sm font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
+                  >
+                    {primarySource ? (
+                      <FaviconImage
+                        hostname={primarySource.hostname}
+                        remoteUrl={primarySource.faviconUrl}
+                        className="h-4 w-4 rounded-[4px] bg-card object-cover"
+                      />
+                    ) : null}
+                    <span>Sources</span>
+                  </button>
+                </>
               )}
             </TooltipProvider>
           </div>

@@ -11,6 +11,7 @@ import ChatWindow from '../components/chat/ChatWindow';
 import ChatWelcomeView from '../components/chat/ChatWelcomeView';
 import ProjectLandingView from '../components/projects/ProjectLandingView';
 import ProjectModal from '../components/sidebar/ProjectModal';
+import SourcesPanel from '../components/chat/SourcesPanel';
 import {
   sendChatMessage,
   getSessionMessages,
@@ -70,6 +71,11 @@ export interface PipelineState {
   clarification: string | null;
 }
 
+interface OpenSourcesState {
+  title: string;
+  sources: SourceInfo[];
+}
+
 const INITIAL_PIPELINE: PipelineState = {
   phase: 'idle',
   augmentation: null,
@@ -92,6 +98,7 @@ const ChatPage: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
+  const [openSources, setOpenSources] = useState<OpenSourcesState | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [projectChats, setProjectChats] = useState<any[]>([]);
   const [isEditingProject, setIsEditingProject] = useState(false);
@@ -480,6 +487,7 @@ const ChatPage: React.FC = () => {
     setPipeline(INITIAL_PIPELINE);
     setCurrentSessionId(undefined);
     setActiveProjectId(projectId || null);
+    setOpenSources(null);
     // Same reason as above — defer to the effect that watches
     // isProcessing/currentSessionId so focus lands AFTER the
     // re-render rather than before.
@@ -495,6 +503,7 @@ const ChatPage: React.FC = () => {
     setCurrentSessionId(sessionId);
     setPipeline(INITIAL_PIPELINE);
     setMessages([]);
+    setOpenSources(null);
     try {
       const res = await getSessionMessages(sessionId);
       const loaded: Message[] = (res.messages || []).map((m: any) => ({
@@ -509,6 +518,16 @@ const ChatPage: React.FC = () => {
       setMessages([]);
     }
   };
+
+  const handleOpenSources = useCallback((messageIndex: number) => {
+    const message = messages[messageIndex];
+    if (!message || message.role !== 'assistant' || !message.sources?.length) return;
+    const preview = message.content.replace(/\s+/g, ' ').trim();
+    setOpenSources({
+      title: preview.slice(0, 72) + (preview.length > 72 ? '…' : ''),
+      sources: message.sources,
+    });
+  }, [messages]);
 
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
@@ -529,7 +548,10 @@ const ChatPage: React.FC = () => {
         onProjectsChanged={() => setDataVersion((v) => v + 1)}
       />
 
-      <main className={`flex-1 flex flex-col relative bg-background shadow-inner transition-[padding] duration-300 ${activeChar && characterMode === 'docked' ? 'pr-[380px]' : ''}`}>
+      <main className={`flex-1 flex flex-col relative bg-background shadow-inner transition-[padding] duration-300 ${
+        (activeChar && characterMode === 'docked' ? 'pr-[380px] ' : '') +
+        (openSources ? 'sm:pr-[380px]' : '')
+      }`}>
         {activeChar && characterMode === 'docked' && (
           <div
             className="absolute right-10 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center"
@@ -567,6 +589,7 @@ const ChatPage: React.FC = () => {
             activeAssistantKey={activeAssistantKey}
             assistantName={activeChar?.name}
             onRetry={handleRetry}
+            onOpenSources={handleOpenSources}
           />
         )}
 
@@ -604,6 +627,13 @@ const ChatPage: React.FC = () => {
           </div>
 
         </div>
+
+        <SourcesPanel
+          open={openSources !== null}
+          title={openSources?.title}
+          sources={openSources?.sources ?? []}
+          onClose={() => setOpenSources(null)}
+        />
       </main>
 
       <ProjectModal
