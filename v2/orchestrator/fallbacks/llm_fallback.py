@@ -106,17 +106,23 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     """
     user_facts = ""
     social_context = ""
+    recent_context = ""
+    relevant_episodes = ""
     if isinstance(spec.context, dict):
         slots = spec.context.get("memory_slots") or {}
         if isinstance(slots, dict):
             user_facts = str(slots.get("user_facts") or "")
             social_context = str(slots.get("social_context") or "")
+            recent_context = str(slots.get("recent_context") or "")
+            relevant_episodes = str(slots.get("relevant_episodes") or "")
     if _is_direct_chat_only(spec):
         return render_prompt(
             "direct_chat",
             user_question=spec.original_request,
             user_facts=user_facts,
             social_context=social_context,
+            recent_context=recent_context,
+            relevant_episodes=relevant_episodes,
         )
     payload = build_llm_payload(spec)
     return render_prompt(
@@ -124,6 +130,8 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         spec=json.dumps(payload, ensure_ascii=False),
         user_facts=user_facts,
         social_context=social_context,
+        recent_context=recent_context,
+        relevant_episodes=relevant_episodes,
     )
 
 

@@ -16,8 +16,14 @@ from v2.orchestrator.execution.request_spec import build_request_spec
 from v2.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
 from v2.orchestrator.memory.extractor import ExtractionContext, extract_candidates
 from v2.orchestrator.memory.slots import (
+    assemble_recent_context_slot,
+    assemble_relevant_episodes_slot,
     assemble_social_context_slot,
     assemble_user_facts_slot,
+)
+from v2.orchestrator.memory.summarizer import (
+    SessionObservation,
+    queue_session_close,
 )
 from v2.orchestrator.memory.store import V2MemoryStore
 from v2.orchestrator.memory.writer import WriteRunResult, process_candidates
@@ -47,6 +53,11 @@ async def run_pipeline_async(
     trace = start_trace()
     runtime = get_runtime()
     safe_context = context or {}
+
+    # Session lifecycle (M4): create a session when the caller provides
+    # a memory store + owner but no existing session_id. The session_id
+    # persists in safe_context for the rest of the turn.
+    _ensure_session(safe_context)
 
     finish = trace.timed("normalize")
     normalized = normalize_text(raw_text)
@@ -170,6 +181,10 @@ async def run_pipeline_async(
         ],
     )
 
+    # Bridge v2 session state into context["recent_entities"] so the
+    # existing pronoun resolver can consult last-seen entities (M4).
+    _bridge_session_state_to_recent_entities(safe_context)
+
     finish = trace.timed("resolve")
     resolved = list(
         await asyncio.gather(
@@ -243,6 +258,15 @@ async def run_pipeline_async(
     )
     finish(chunk_count=len(request_spec.chunks), trace_id=request_spec.trace_id)
 
+    # Session state update (M4): record last-seen entities from
+    # resolved chunks so the pronoun resolver can use them next turn.
+    _run_session_state_update(safe_context, resolutions)
+
+    # Auto-raise need_session_context if any resolution has unresolved
+    # referents (M4). This ensures the read path assembles the
+    # recent_context slot even if the decomposer didn't set the flag.
+    _auto_raise_need_session_context(safe_context, resolutions)
+
     finish = trace.timed("memory_read")
     memory_slots = _run_memory_read_path(raw_text, safe_context)
     if memory_slots:
@@ -251,6 +275,8 @@ async def run_pipeline_async(
         slots_assembled=sorted(memory_slots.keys()),
         user_facts_chars=len(memory_slots.get("user_facts", "")),
         social_context_chars=len(memory_slots.get("social_context", "")),
+        recent_context_chars=len(memory_slots.get("recent_context", "")),
+        relevant_episodes_chars=len(memory_slots.get("relevant_episodes", "")),
     )
 
     decision = decide_llm(request_spec)
@@ -264,6 +290,11 @@ async def run_pipeline_async(
     else:
         response = combine_request_spec(request_spec)
         finish(mode="deterministic", output_text=response.output_text)
+
+    # Session close hook (M4): if the caller flagged this as the closing
+    # turn, queue the session-close summarization job. The work runs
+    # out-of-band so the user-visible latency is unaffected.
+    _maybe_queue_session_close(safe_context, memory_write_result)
 
     return PipelineResult(
         normalized=normalized,
@@ -283,6 +314,167 @@ async def run_pipeline_async(
     )
 
 
+def _bridge_session_state_to_recent_entities(safe_context: dict[str, Any]) -> None:
+    """Populate context["recent_entities"] from the v2 session's last-seen map.
+
+    This bridges M4's Tier 2 session state into the format that
+    ``ConversationMemoryAdapter`` reads, so the existing pronoun resolver
+    can bind "it"/"that" to the most recently mentioned entity without
+    changes to its own code.
+    """
+    store = safe_context.get("memory_store")
+    if not isinstance(store, V2MemoryStore):
+        return
+    session_id = safe_context.get("session_id")
+    if session_id is None:
+        return
+    state = store.get_session_state(int(session_id))
+    last_seen = state.get("last_seen")
+    if not isinstance(last_seen, dict) or not last_seen:
+        return
+    entities: list[dict[str, str]] = safe_context.get("recent_entities") or []
+    # Convert last_seen entries to the format ConversationMemoryAdapter expects:
+    # [{"name": "...", "type": "..."}]
+    seen_names: set[str] = {e.get("name", "").lower() for e in entities if isinstance(e, dict)}
+    for key, entry in last_seen.items():
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name", "")).strip()
+        if not name or name.lower() in seen_names:
+            continue
+        # key is "last_<type>", extract the type
+        entity_type = key.removeprefix("last_").strip("_")
+        entities.append({"name": name, "type": entity_type})
+        seen_names.add(name.lower())
+    safe_context["recent_entities"] = entities
+
+
+def _auto_raise_need_session_context(
+    safe_context: dict[str, Any],
+    resolutions: list,
+) -> None:
+    """Set need_session_context=True if any resolution has unresolved referents.
+
+    Per MEMORY_DESIGN.md §4: "The pronoun resolver may also raise
+    need_session_context even if the decomposer didn't, when it detects
+    an unresolved reference."
+    """
+    for resolution in resolutions:
+        unresolved = getattr(resolution, "unresolved", None) or []
+        if any(str(u).startswith("referent:") for u in unresolved):
+            safe_context["need_session_context"] = True
+            return
+
+
+def _ensure_session(safe_context: dict[str, Any]) -> None:
+    """Create a session row when memory is enabled but no session exists yet.
+
+    The session_id is stored on ``safe_context["session_id"]`` and persists
+    for the lifetime of the pipeline call. Subsequent turns in the same
+    session should pass the same ``session_id`` in their context.
+    """
+    if safe_context.get("session_id") is not None:
+        return
+    store = safe_context.get("memory_store")
+    if not isinstance(store, V2MemoryStore):
+        return
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    if not owner_user_id:
+        return
+    enabled = bool(safe_context.get("memory_writes_enabled")) or safe_context.get("memory_store") is not None
+    if not enabled:
+        return
+    session_id = store.create_session(owner_user_id)
+    safe_context["session_id"] = session_id
+
+
+def _run_session_state_update(
+    safe_context: dict[str, Any],
+    resolutions: list,
+) -> None:
+    """Update the session's last-seen map from resolved entities (M4).
+
+    After resolution, each chunk may have a ``resolved_target`` with an
+    entity type. We record the most recent one per type so the pronoun
+    resolver can use it on the next turn.
+    """
+    store = safe_context.get("memory_store")
+    if not isinstance(store, V2MemoryStore):
+        return
+    session_id = safe_context.get("session_id")
+    if session_id is None:
+        return
+    for resolution in resolutions:
+        resolved = getattr(resolution, "resolved_target", None)
+        params = getattr(resolution, "params", None) or {}
+        if not resolved:
+            continue
+        # Infer entity type from the resolution's params or source
+        entity_type = str(params.get("entity_type", ""))
+        if not entity_type:
+            source = getattr(resolution, "source", "") or ""
+            if "people" in source:
+                entity_type = "person"
+            elif "movie" in source or "media" in source:
+                entity_type = "movie"
+            elif "device" in source:
+                entity_type = "device"
+            else:
+                entity_type = "entity"
+        store.update_last_seen(
+            int(session_id),
+            entity_type=entity_type,
+            entity_name=str(resolved),
+        )
+
+
+def _maybe_queue_session_close(
+    safe_context: dict[str, Any],
+    memory_write_result: WriteRunResult,
+) -> None:
+    """Queue session-close summarization when the caller flags session_closing.
+
+    The actual summarization runs out-of-band (tests call
+    ``run_pending_summaries()`` synchronously to flush).
+    """
+    if not safe_context.get("session_closing"):
+        return
+    store = safe_context.get("memory_store")
+    if not isinstance(store, V2MemoryStore):
+        return
+    session_id = safe_context.get("session_id")
+    if session_id is None:
+        return
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    if not owner_user_id:
+        return
+
+    # Build observations from this turn's accepted memory writes.
+    # In a real multi-turn session, the caller accumulates observations
+    # across turns in safe_context["session_observations"].
+    observations: list[SessionObservation] = list(
+        safe_context.get("session_observations") or []
+    )
+    for decision in memory_write_result.accepted:
+        if decision.candidate:
+            observations.append(
+                SessionObservation(
+                    subject=decision.candidate.subject,
+                    predicate=decision.candidate.predicate,
+                    value=decision.candidate.value,
+                    source_text=decision.candidate.source_text or "",
+                )
+            )
+
+    queue_session_close(
+        store=store,
+        session_id=int(session_id),
+        owner_user_id=owner_user_id,
+        observations=observations,
+        explicit_topic_scope=safe_context.get("topic_scope"),
+    )
+
+
 def _strip_doc(parsed: ParsedInput) -> ParsedInput:
     """Drop the spaCy ``Doc`` reference so the result can be JSON-serialised."""
     parsed.doc = None
@@ -293,7 +485,7 @@ def _run_memory_read_path(
     raw_text: str,
     safe_context: dict[str, Any],
 ) -> dict[str, str]:
-    """Lazy memory read step (M2 + M3).
+    """Lazy memory read step (M2 + M3 + M4).
 
     Each tier slot is gated by its own ``need_*`` flag so callers only
     pay the latency cost for the slots they actually want. The flags
@@ -328,6 +520,26 @@ def _run_memory_read_path(
             query=query,
         )
         out["social_context"] = rendered
+
+    # Tier 2 — session context (M4)
+    session_id = safe_context.get("session_id")
+    if safe_context.get("need_session_context") and session_id is not None:
+        rendered, _ctx = assemble_recent_context_slot(
+            store=store,
+            session_id=int(session_id),
+        )
+        out["recent_context"] = rendered
+
+    # Tier 3 — episodic recall (M4)
+    if safe_context.get("need_episode"):
+        topic_scope = safe_context.get("topic_scope")
+        rendered, _hits = assemble_relevant_episodes_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+            query=query,
+            topic_scope=topic_scope,
+        )
+        out["relevant_episodes"] = rendered
 
     return out
 

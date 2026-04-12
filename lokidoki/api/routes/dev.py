@@ -46,6 +46,8 @@ class V2RunRequest(BaseModel):
     memory_enabled: bool = False
     need_preference: bool = True
     need_social: bool = True
+    need_session_context: bool = True
+    need_episode: bool = True
 
     @field_validator("message")
     @classmethod
@@ -308,7 +310,7 @@ def _v2_memory_status() -> dict[str, Any]:
             {"id": "m2_5", "label": "M2.5", "title": "Vector embeddings as third RRF source", "status": "complete"},
             {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "complete"},
             {"id": "m3_5", "label": "M3.5", "title": "Auto-merge by relation", "status": "complete"},
-            {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "not_started"},
+            {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "complete"},
             {"id": "m5", "label": "M5", "title": "Tier 7 procedural: behavior events + 7a/7b split", "status": "not_started"},
             {"id": "m6", "label": "M6", "title": "Tier 6 affective: rolling window + character overlay", "status": "not_started"},
         ],
@@ -360,6 +362,8 @@ async def run_v2_pipeline(
         context["owner_user_id"] = DEV_OWNER_USER_ID
         context["need_preference"] = request.need_preference
         context["need_social"] = request.need_social
+        context["need_session_context"] = request.need_session_context
+        context["need_episode"] = request.need_episode
     pipeline_result = await run_pipeline_async(request.message, context=context)
     # Strip non-serializable bits (the store contains a threading RLock
     # that asdict() chokes on) BEFORE to_dict() walks the tree. We keep

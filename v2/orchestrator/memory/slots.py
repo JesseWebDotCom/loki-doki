@@ -20,8 +20,12 @@ from dataclasses import dataclass
 from typing import Final, Iterable
 
 from v2.orchestrator.memory.reader import (
+    EpisodeHit,
     FactHit,
     PersonHit,
+    SessionContext,
+    read_episodes,
+    read_recent_context,
     read_social_context,
     read_user_facts,
 )
@@ -52,6 +56,8 @@ assert WORST_CASE_TOTAL_BUDGET == 1470, "Slot budget total drifted from §4"
 
 USER_FACTS_BUDGET: Final[int] = 250
 SOCIAL_CONTEXT_BUDGET: Final[int] = 200
+RECENT_CONTEXT_BUDGET: Final[int] = 300
+RELEVANT_EPISODES_BUDGET: Final[int] = 400
 
 
 def truncate_to_budget(slot_name: str, value: str) -> str:
@@ -138,6 +144,66 @@ def assemble_social_context_slot(
     return render_social_context(hits), hits
 
 
+def render_recent_context(session_ctx: SessionContext) -> str:
+    """Render Tier 2 session context into the ``{recent_context}`` slot.
+
+    Format: a semicolon-separated list of ``last_<type>=<name>`` pairs
+    from the session's last-seen map. Truncated to 300 chars.
+    """
+    if not session_ctx.last_seen:
+        return ""
+    parts: list[str] = []
+    for key, entry in sorted(session_ctx.last_seen.items()):
+        name = entry.get("name", "") if isinstance(entry, dict) else str(entry)
+        if name:
+            parts.append(f"{key}={name}")
+    rendered = "; ".join(parts)
+    return truncate_to_budget("recent_context", rendered)
+
+
+def assemble_recent_context_slot(
+    *,
+    store: V2MemoryStore,
+    session_id: int,
+) -> tuple[str, SessionContext]:
+    """End-to-end slot assembly for Tier 2. Returns (slot_string, context)."""
+    ctx = read_recent_context(store, session_id)
+    return render_recent_context(ctx), ctx
+
+
+def render_relevant_episodes(hits: Iterable[EpisodeHit]) -> str:
+    """Render Tier 3 episode hits into the ``{relevant_episodes}`` slot.
+
+    Format per episode: ``[<start_at>] <title>: <summary_truncated>``.
+    Multiple episodes separated by `` | ``. Truncated to 400 chars.
+    """
+    parts: list[str] = []
+    for hit in hits:
+        # Compact: date + title + first ~100 chars of summary
+        summary_short = hit.summary[:100]
+        if len(hit.summary) > 100:
+            summary_short = summary_short.rsplit(" ", 1)[0] + "..."
+        date_part = hit.start_at[:10] if hit.start_at else "?"
+        parts.append(f"[{date_part}] {hit.title}: {summary_short}")
+    rendered = " | ".join(parts)
+    return truncate_to_budget("relevant_episodes", rendered)
+
+
+def assemble_relevant_episodes_slot(
+    *,
+    store: V2MemoryStore,
+    owner_user_id: int,
+    query: str,
+    top_k: int = 2,
+    topic_scope: str | None = None,
+) -> tuple[str, list[EpisodeHit]]:
+    """End-to-end slot assembly for Tier 3. Returns (slot_string, hits)."""
+    hits = read_episodes(
+        store, owner_user_id, query, top_k=top_k, topic_scope=topic_scope,
+    )
+    return render_relevant_episodes(hits), hits
+
+
 def assemble_slots(context: dict) -> dict[str, str]:
     """Return all six prompt slots.
 
@@ -165,4 +231,25 @@ def assemble_slots(context: dict) -> dict[str, str]:
             query=query,
         )
         out["social_context"] = rendered
+
+    # Tier 2 (M4)
+    session_id = context.get("session_id")
+    if context.get("need_session_context") and session_id is not None:
+        rendered, _ctx = assemble_recent_context_slot(
+            store=store,
+            session_id=int(session_id),
+        )
+        out["recent_context"] = rendered
+
+    # Tier 3 (M4)
+    if context.get("need_episode"):
+        topic_scope = context.get("topic_scope")
+        rendered, _hits = assemble_relevant_episodes_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+            query=query,
+            topic_scope=topic_scope,
+        )
+        out["relevant_episodes"] = rendered
+
     return out

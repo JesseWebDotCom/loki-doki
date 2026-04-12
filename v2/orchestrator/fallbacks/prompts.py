@@ -78,9 +78,15 @@ Rules:
   the slot back at the user.
 - If social_context is non-empty, treat it as people the user knows
   (label=relation list). Use it silently — never quote the slot.
+- If recent_context is non-empty, it holds what was recently discussed
+  (last_<type>=name pairs). Use silently for pronoun resolution.
+- If relevant_episodes is non-empty, it holds summaries of past
+  conversations. Use silently to inform your answer.
 
 user_facts: {user_facts}
 social_context: {social_context}
+recent_context: {recent_context}
+relevant_episodes: {relevant_episodes}
 
 RequestSpec (JSON): {spec}
 """
@@ -102,9 +108,15 @@ Rules:
   Never quote the slot literally.
 - If social_context is non-empty, use it silently as background about
   the people the user knows. Never quote the slot.
+- If recent_context is non-empty, it holds what was recently discussed.
+  Use silently for pronoun resolution.
+- If relevant_episodes is non-empty, it holds past conversation summaries.
+  Use silently to inform your answer.
 
 user_facts: {user_facts}
 social_context: {social_context}
+recent_context: {recent_context}
+relevant_episodes: {relevant_episodes}
 
 User's question: {user_question}
 

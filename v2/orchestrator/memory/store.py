@@ -866,6 +866,71 @@ class V2MemoryStore:
             self.set_session_state(session_id, state)
             return int(entry["count"])
 
+    # Maximum number of turns a last-seen entry survives before being
+    # considered stale. Tunable; the design says "turn-distance > N drops
+    # the entity" without pinning N. 5 is a reasonable default for a
+    # conversational assistant — far enough to survive topical tangents,
+    # close enough to prevent stale pronoun bindings.
+    LAST_SEEN_MAX_TURN_DISTANCE: int = 5
+
+    def decay_session_state(
+        self,
+        session_id: int,
+        *,
+        current_turn_index: int,
+    ) -> dict[str, Any]:
+        """Drop last-seen entries older than LAST_SEEN_MAX_TURN_DISTANCE turns.
+
+        Each ``last_seen`` entry can optionally carry a ``turn`` integer;
+        entries where ``current_turn_index - entry["turn"] > max_distance``
+        are removed. Entries without a ``turn`` key are assumed to be
+        current (added by the legacy ``update_last_seen`` which doesn't
+        track turn index yet).
+
+        Returns the updated state.
+        """
+        with self._lock:
+            state = self.get_session_state(session_id)
+            last_seen = state.get("last_seen")
+            if not isinstance(last_seen, dict) or not last_seen:
+                return state
+            max_dist = self.LAST_SEEN_MAX_TURN_DISTANCE
+            keys_to_drop: list[str] = []
+            for key, entry in last_seen.items():
+                if not isinstance(entry, dict):
+                    keys_to_drop.append(key)
+                    continue
+                turn = entry.get("turn")
+                if turn is not None and (current_turn_index - int(turn)) > max_dist:
+                    keys_to_drop.append(key)
+            for key in keys_to_drop:
+                del last_seen[key]
+            state["last_seen"] = last_seen
+            self.set_session_state(session_id, state)
+            return state
+
+    def update_last_seen_with_turn(
+        self,
+        session_id: int,
+        *,
+        entity_type: str,
+        entity_name: str,
+        turn_index: int,
+    ) -> dict[str, Any]:
+        """Like ``update_last_seen`` but also records the turn index for decay."""
+        if not entity_type or not entity_name:
+            return self.get_session_state(session_id)
+        key = f"last_{entity_type}"
+        with self._lock:
+            state = self.get_session_state(session_id)
+            last_seen = state.get("last_seen") or {}
+            if not isinstance(last_seen, dict):
+                last_seen = {}
+            last_seen[key] = {"name": entity_name, "at": _now(), "turn": turn_index}
+            state["last_seen"] = last_seen
+            self.set_session_state(session_id, state)
+            return state
+
     def get_consolidation_counter(
         self,
         session_id: int,
