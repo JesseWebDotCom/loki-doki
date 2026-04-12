@@ -257,7 +257,7 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline, currentPhase = 'comple
         type="button"
         aria-label={totalLabel}
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center gap-3 rounded-[1.65rem] bg-onyx px-5 py-4 text-left transition-colors hover:bg-onyx-1 cursor-pointer"
+        className="flex w-full items-center gap-3 rounded-[1.65rem] bg-card px-5 py-4 text-left transition-colors hover:bg-muted/80 cursor-pointer"
       >
         {isLive ? (
           <Loader2 size={14} className="shrink-0 animate-spin text-green-500" />
