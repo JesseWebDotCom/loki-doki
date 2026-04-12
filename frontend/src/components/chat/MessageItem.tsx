@@ -120,13 +120,15 @@ const MessageItem: React.FC<MessageProps> = ({
             : 'bg-card border-border/40 text-foreground'
         }`}>
           {!isUser && (
-            <div className="mb-3 flex items-center gap-2.5 opacity-70">
-              <span className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
-                {assistantName || 'assistant'}
-              </span>
-              <span className="font-mono text-xs italic text-muted-foreground/40" title={hoverDateTime}>
-                {displayTime}
-              </span>
+            <div className="mb-3 space-y-2">
+              <div className="flex items-center gap-2.5 opacity-70">
+                <span className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
+                  {assistantName || 'assistant'}
+                </span>
+                <span className="font-mono text-xs italic text-muted-foreground/40" title={hoverDateTime}>
+                  {displayTime}
+                </span>
+              </div>
               {pipeline && <PipelineInfoPopover pipeline={pipeline} />}
             </div>
           )}
