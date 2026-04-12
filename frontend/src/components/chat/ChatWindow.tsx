@@ -94,7 +94,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-12 space-y-4 scroll-smooth scrollbar-hide bg-background"
+        className="flex-1 overflow-y-auto px-12 pt-12 pb-4 space-y-4 scroll-smooth scrollbar-hide bg-background"
       >
         <div className="max-w-4xl mx-auto">
           {messages.map((msg, idx) => {

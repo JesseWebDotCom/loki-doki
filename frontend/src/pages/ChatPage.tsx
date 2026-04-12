@@ -570,7 +570,7 @@ const ChatPage: React.FC = () => {
           />
         )}
 
-        <div className="p-10 bg-background/50 backdrop-blur-xl border-t border-border/20">
+        <div className="pb-10 px-10 bg-transparent">
           <div className="max-w-4xl mx-auto relative group">
             {!connectivity.backendReachable && (
               <div className="mb-3 rounded-2xl border border-red-400/20 bg-red-950/40 px-4 py-3 text-sm text-red-100 shadow-m1">
