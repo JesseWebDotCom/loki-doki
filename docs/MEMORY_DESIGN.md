@@ -1,9 +1,9 @@
 # LokiDoki Memory System — Final Design
 
-**Status:** Design accepted (v1.2 — revised after Codex's second review pass and Gemini's third review pass). **M0 + M1 + M2 + M2.5 + M3 + M3.5 complete (2026-04-11); M4–M6 not yet started.** Dev tools v2 test page now has runtime memory toggles + a memory state panel. See §8 phase table for per-phase status.
+**Status:** Design accepted (v1.3 — revised after Codex's second review pass, Gemini's third review pass, and comparative review against Open WebUI's memory subsystem). **M0 + M1 + M2 + M2.5 + M3 + M3.5 complete (2026-04-11); M4 in progress (paused 2026-04-12); M5–M6 not yet started.** Dev tools v2 test page now has runtime memory toggles + a memory state panel. See §8 phase table for per-phase status.
 **Audience:** future Claude/Codex sessions and the human picking up memory work cold.
 **Scope:** the unified memory architecture that replaces v1's faulty `facts`-centric pipeline and fills v2's empty `ConversationMemoryAdapter`.
-**Lineage:** this document is the merge of two competing proposals — see [CODEX_MEM.md](CODEX_MEM.md) (Codex's tier breakdown, promotion model, and substring-matching catch) and the discussion that produced the parse-tree write gate. v1.1 incorporated Codex's second-pass review, which corrected six places where the original gates were too aggressive. v1.2 incorporates Gemini's third-pass review, which added triggered consolidation, character-overlay emotional memory, and recency-weighted contradiction handling for single-value predicates. Where the proposals conflict, this file is the resolution.
+**Lineage:** this document is the merge of two competing proposals — see [CODEX_MEM.md](CODEX_MEM.md) (Codex's tier breakdown, promotion model, and substring-matching catch) and the discussion that produced the parse-tree write gate. v1.1 incorporated Codex's second-pass review, which corrected six places where the original gates were too aggressive. v1.2 incorporates Gemini's third-pass review, which added triggered consolidation, character-overlay emotional memory, and recency-weighted contradiction handling for single-value predicates. v1.3 incorporates a comparative review against Open WebUI's production memory subsystem, adopting five practical patterns (explicit memory commands, vector resync, global toggle, user-facing CRUD, relevance floors) while explicitly rejecting Open WebUI's flat single-type model and ungated writes. Where the proposals conflict, this file is the resolution.
 **Authority:** if [docs/spec.md](spec.md) and this file conflict, `docs/spec.md` wins on product/architecture; this file wins on memory subsystem implementation. If [docs/v2-graduation-plan.md](v2-graduation-plan.md) and this file conflict, the graduation plan's phase gates win — this file refines the §4.A–§4.E sections, it does not override them.
 
 ---
@@ -194,8 +194,11 @@ Memory writes are **allowed** when the intent is one of:
 - `self_disclosure`
 - `correction` (the user is correcting a previous fact: *"actually it's Jesse, not Jess"*)
 - `command_to_assistant_with_self_assertion` (*"call me Jesse from now on"* — both a command and an identity assertion)
+- `explicit_remember` (*"remember that I hate cilantro"*, *"don't forget my anniversary is March 5th"*) — see **Explicit memory commands** below.
 
 The intent label is a structured field on the decomposer output; it is not derived from substring matches on the user input. If the decomposer cannot label the intent confidently, the candidate falls through to Gate 1's clause-shape check and is decided there.
+
+**Explicit memory commands (v1.3).** When the user explicitly asks the assistant to remember something (*"remember that…"*, *"don't forget…"*, *"keep in mind…"*), the intent is `explicit_remember`. This intent **bypasses Gate 1** (clause shape) entirely — the user may phrase their instruction as a question (*"can you remember that I'm vegetarian?"*) or a command (*"remember my anniversary is March 5th"*), and the interrogative/imperative shape is irrelevant because the user's intent to store is unambiguous. Gate 2 (subject identity), Gate 3 (predicate validity), and Gate 4 (schema validation) still apply — the user can't bypass structural integrity by saying "remember." The candidate also bypasses Layer 3 promotion and writes directly to Tier 4 or Tier 5 on first observation (same path as immediate-durable predicates). Rationale: Open WebUI's tool-based `add_memory()` pattern demonstrates that users expect explicit memory instructions to stick immediately. Our gate chain handles this better than a raw tool call — the user's instruction is still validated and typed — but the *immediacy* expectation is the same.
 
 This is the v2-graduation-plan §3.1 requirement, made structural and made non-suppressive of normal conversation.
 
@@ -270,15 +273,17 @@ The pronoun resolver may **also** raise `need_session_context` even if the decom
 
 ### Per-tier retrieval mechanisms
 
-| Tier | Retrieval mechanism |
-|---|---|
-| 1 — Working | Already in `RequestSpec` |
-| 2 — Session | Direct keyed lookup on `session_state` JSON; bounded last-N message scan |
-| 3 — Episodic | FTS5 + temporal proximity (recency-weighted), optional vector if backfill caught up |
-| 4 — Semantic-self | v1's FTS5 + sqlite-vec hybrid with RRF — port unchanged from [memory_search.py](../lokidoki/core/memory_search.py) |
-| 5 — Social | Graph traversal + FTS5 over `name` / `aliases` + relationship-edge walk |
-| 6 — Emotional | Direct read of last 14-day affect window |
-| 7 — Procedural | Direct read of `user_profile` row |
+| Tier | Retrieval mechanism | Relevance floor |
+|---|---|---|
+| 1 — Working | Already in `RequestSpec` | n/a |
+| 2 — Session | Direct keyed lookup on `session_state` JSON; bounded last-N message scan | n/a (keyed lookup) |
+| 3 — Episodic | FTS5 + temporal proximity (recency-weighted), optional vector if backfill caught up | RRF score ≥ 0.01 |
+| 4 — Semantic-self | v1's FTS5 + sqlite-vec hybrid with RRF — port unchanged from [memory_search.py](../lokidoki/core/memory_search.py) | RRF score ≥ 0.01; vector cosine ≥ `VECTOR_SIM_FLOOR` (0.15) |
+| 5 — Social | Graph traversal + FTS5 over `name` / `aliases` + relationship-edge walk | Resolver confidence threshold |
+| 6 — Emotional | Direct read of last 14-day affect window | n/a (direct read) |
+| 7 — Procedural | Direct read of `user_profile` row | n/a (direct read) |
+
+**Relevance floors (v1.3).** Every ranked-retrieval tier (3, 4, 5) has an explicit relevance floor below which results are **not injected** into the synthesis prompt — even if `need_*` is true and even if the retrieval returned results. This prevents low-confidence memory from polluting the context when the query happens to partially match stored content. Open WebUI's design lacks relevance thresholds entirely (always injects top-k regardless of similarity), which causes hallucination-from-irrelevant-memory — a failure mode we avoid by gating on score, not just rank. The floor values are tuned per-tier against the recall corpus; the values above are starting points for M4.
 
 Hindsight's parallel-retrieval RRF + cross-encoder rerank pattern is the right model for Tier 4. We may extend it to Tier 3 in M4 if the bake-off shows it helps.
 
@@ -341,6 +346,16 @@ The change is that contradiction now runs *per tier*, with tier-specific rules:
 
 The single-value predicate list is a Python constant in the same module as the immediate-durable predicate list; both are tested by the M1 corpus.
 
+### Vector store resync (v1.3)
+
+The relational store (SQLite tables) is the **source of truth** for all memory tiers. The vector indices (`vec_facts`, `vec_episodes`, per-fact `embedding` column) are secondary indices that can be rebuilt from the relational data at any time. This dual-write + resync pattern (validated by Open WebUI's production deployment across 12 vector backends) provides three guarantees:
+
+1. **Corruption recovery.** If vector indices become corrupted, stale, or desynchronized (embedding model upgrade, partial write failure, disk corruption), a `rebuild_vectors(owner_user_id)` operation re-embeds all active facts and episodes from the relational tables. No memory is lost.
+2. **Embedding model migration.** When the embedding backend changes (fastembed version bump, switch from hash fallback to real model), the resync rebuilds all vectors under the new model without touching the relational data.
+3. **Async backfill safety.** The existing async backfill from [memory_provider.py:70-126](../lokidoki/core/memory_provider.py#L70-L126) can race with writes. The resync is the recovery path when that race produces stale embeddings.
+
+Implementation: `V2MemoryStore.rebuild_vectors(owner_user_id)` walks all active facts (and, after M4, episodes) for the user, re-embeds each via `get_embedding_backend()`, and upserts the embedding column. Exposed via `POST /api/memory/rebuild-vectors` (user-scoped, not admin) and via the dev tools Reset flow. **Lands in M4** alongside the episodic vector store.
+
 ### Eviction
 
 - Tier 3 episodes older than 6 months with `recall_count = 0` get rolled up into a coarser period summary ("Q1 2026") and the originals are dropped.
@@ -352,6 +367,33 @@ The single-value predicate list is a Python constant in the same module as the i
 - New `forget(subject)` and `forget_episode(id)` capabilities surfaced through the existing `/api/memory` routes.
 - Episodes mention their own ID in the synthesis output for *"forget that"* follow-ups.
 - Tier 6 has its own opt-out toggle (most sensitive).
+
+### Global memory toggle (v1.3)
+
+A single **master switch** in user settings disables all memory writes and reads across all tiers. When off:
+- No write candidates are extracted or evaluated (the gate chain is never entered).
+- No retrieval runs; all `need_*` flags are ignored.
+- All prompt slots render as empty strings.
+- The Tier 6 and Tier 7 per-turn observation writes are suppressed.
+- Existing memory is **not deleted** — it is simply not consulted. Toggling memory back on resumes access to all previously stored data.
+
+This is distinct from the per-tier opt-outs (Tier 6 sentiment, Tier 7b telemetry) which disable specific tiers. The global toggle is the nuclear option for users who want zero memory behavior temporarily or permanently.
+
+Implementation: `user_settings.memory_enabled` (boolean, default `true`). Checked once at session start; cached on the request context. The pipeline's `memory_write` and `memory_read` steps short-circuit when the flag is false. **Lands in M4** (when the session-state infrastructure is live).
+
+### User-facing memory management (v1.3)
+
+Users need a way to view, search, edit, and delete their stored memories — not just developers via the dev tools panel. A **Settings > Memory** page provides full CRUD access to the user's own memory:
+
+- **Facts list** (Tier 4): searchable, sortable by predicate or recency, inline edit of value, delete with confirmation.
+- **People list** (Tier 5): shows name/handle, relationship edges, provisional badge. Edit name/handle, merge duplicates, delete.
+- **Episodes list** (Tier 3, after M4): shows title, date range, topic scope. Read-only summary; delete.
+- **Mood window** (Tier 6, after M6): shows recent sentiment trajectory per character. "Forget my mood" button.
+- **Style profile** (Tier 7a, after M5): shows derived style preferences (tone, verbosity, etc.). Read-only; the user corrects these by stating preferences in chat.
+- **Global toggle** (see above): prominent switch at the top.
+- **Rebuild vectors** button: triggers `rebuild_vectors` for the user.
+
+The management page is **read-heavy, write-light** — most users will browse, occasionally delete, rarely edit. The UI follows the Onyx Material design system and uses shadcn/ui primitives per [CLAUDE.md](../CLAUDE.md). **Lands incrementally**: Tier 4/5 CRUD in M4, Tier 3 in M4, Tier 7a in M5, Tier 6 in M6.
 
 ### The reflect job
 
@@ -934,7 +976,7 @@ These are not blocking M1, but they need to be answered before later phases.
 
 ## 11. The one-paragraph summary
 
-Seven tiers (working, session, episodic, semantic-self, social, emotional, procedural — with procedural split into prompt-safe style and prompt-forbidden telemetry, and emotional overlaid by `character_id`), one SQLite database, three layers of write defense (parse-tree non-interrogative gate → tier classifier → recurrence-driven promotion) plus two fast-paths (immediate-durable predicates for safety-critical facts and triggered consolidation for in-session repetition), lazy per-tier retrieval injected as separate named slots in the combine prompt with hard char budgets totaling ~1,470 chars, provisional handles for unnamed recurring people, a `topic_scope` tag on episodes for recurring threads, recency-weighted contradiction handling for an expanded single-value predicate list, and a background reflect job that turns repeated episodes into stable preferences and observed behaviors into procedural understanding. The president bug dies at Gate 1 because *"who is the current president"* is unambiguously interrogative. Casual chat (*"my brother Luke loves movies"*, *"call me Jesse"*, *"allergic to peanuts"*) writes normally — the gates block questions, not conversation. The substring-matching retrieval heuristics get deleted, not ported. v1's strongest assets (the people graph and the FTS5 + sqlite-vec hybrid) get preserved in their own first-class tiers. The procedural tier is what makes the system feel humanistic — the 7a/7b split is what keeps it from feeling surveillant — and the character overlay on Tier 6 is what lets each persona feel like *it* knows the user, not like the same model wearing different masks.
+Seven tiers (working, session, episodic, semantic-self, social, emotional, procedural — with procedural split into prompt-safe style and prompt-forbidden telemetry, and emotional overlaid by `character_id`), one SQLite database, three layers of write defense (parse-tree non-interrogative gate → tier classifier → recurrence-driven promotion) plus three fast-paths (immediate-durable predicates for safety-critical facts, triggered consolidation for in-session repetition, and explicit `remember` commands that bypass clause-shape gating and promotion), lazy per-tier retrieval with per-tier relevance floors injected as separate named slots in the combine prompt with hard char budgets totaling ~1,470 chars, provisional handles for unnamed recurring people, a `topic_scope` tag on episodes for recurring threads, recency-weighted contradiction handling for an expanded single-value predicate list, vector store resync from the relational source of truth, a global memory toggle, a user-facing memory management UI, and a background reflect job that turns repeated episodes into stable preferences and observed behaviors into procedural understanding. The president bug dies at Gate 1 because *"who is the current president"* is unambiguously interrogative. Casual chat (*"my brother Luke loves movies"*, *"call me Jesse"*, *"allergic to peanuts"*) writes normally — the gates block questions, not conversation. Explicit memory commands (*"remember that I hate cilantro"*) write immediately, bypassing clause-shape and promotion while still validating structure. The substring-matching retrieval heuristics get deleted, not ported. v1's strongest assets (the people graph and the FTS5 + sqlite-vec hybrid) get preserved in their own first-class tiers. The procedural tier is what makes the system feel humanistic — the 7a/7b split is what keeps it from feeling surveillant — and the character overlay on Tier 6 is what lets each persona feel like *it* knows the user, not like the same model wearing different masks.
 
 ---
 
@@ -968,6 +1010,12 @@ Seven tiers (working, session, episodic, semantic-self, social, emotional, proce
 - **M2.5 shipped** (2026-04-11). Vector embeddings as third RRF source. The store now persists a JSON-encoded embedding on each fact via the existing `v2.orchestrator.routing.embeddings.get_embedding_backend()` (fastembed/MiniLM when available, hash fallback otherwise — no new dependencies). The reader runs cosine similarity over active embeddings and feeds the result as a third source into Reciprocal Rank Fusion alongside BM25 and the structured subject scan. This bridges vocabulary mismatches the M2 BM25-only path couldn't handle (e.g. *"what foods should I avoid"* recalls `has_allergy=peanuts`). 16 phase-gate tests including the original M2 vocabulary-stretching corpus case (now passing). Graceful fallback when embedding is corrupt, NULL, or the backend is unavailable.
 - **M3 shipped** (2026-04-11). Tier 5 social read path live. The v2 store now has a deterministic four-strategy person resolver (exact name → handle → substring ≥3 chars → rapidfuzz fuzzy ≥80) implemented under `v2.orchestrator.memory.reader.resolve_person()` against `V2MemoryStore` directly — zero v1 imports. The `{social_context}` slot is rendered into both `COMBINE_PROMPT` and `DIRECT_CHAT_PROMPT` with a 200-char word-boundary truncation. The pipeline `memory_read` step now composes Tier 4 (`need_preference`) and Tier 5 (`need_social`) independently — a single turn can request both. Provisional handle merge (`merge_provisional_handle()`) preserves relationship edges and leaves the handle as a searchable alias on the now-named row, so future queries for either form land on the same `person_id`. **Clean-cutover supersedes §8 deliverable 1**: instead of wiring `LokiPeopleDBAdapter` (which was designed against v1's sqlite shape), M3 reads from `V2MemoryStore`'s own `people` / `relationships` tables. v1's `LokiPeopleDBAdapter` is left intact for legacy v2 dev tests but no new code consumes it. 32-case people resolution corpus drives the top-1 accuracy ≥ 0.90 gate; 28 phase-gate tests in `test_v2_memory_m3.py` (all passing). M2→M3 transition test (`test_v2_memory_m2.py`) loosened in-place. Known M3 follow-up: auto-merge from extractor patterns (M3.5).
 - **M2 shipped** (2026-04-11). Tier 4 read path live. The v2 store now owns a `facts_fts` FTS5 virtual table kept in sync via INSERT/UPDATE/DELETE triggers; the triggers store the **humanized predicate** prefixed to source_text so the BM25 query can match a user query like *"where do I live"* against the stored predicate `lives_in` without ever inspecting user-input strings. The reader runs BM25 + a structured subject-column scan, fuses them via Reciprocal Rank Fusion (k=60), and returns top-k hits as `FactHit` records. The `{user_facts}` slot is rendered into both `COMBINE_PROMPT` and `DIRECT_CHAT_PROMPT` with a hard 250-char word-boundary truncation. The pipeline gains a new `memory_read` step that's gated by `context["need_preference"]` so casual greetings never touch the store. **Clean-cutover supersedes §8 deliverable 2**: instead of deleting v1's `_query_mentions` / `_is_explicitly_relevant`, the M2 grep guard forbids those names from appearing as live code in `v2/orchestrator/memory/`; v1's `memory_phase2.py` is left intact and gets deleted at cutover time. 18-case recall corpus drives the gate; 21 phase-gate tests in `test_v2_memory_m2.py` (all passing). M1→M2 transition tests (`test_v2_memory_m1.py`, `test_v2_pipeline.py`) loosened in-place. Known M2 follow-up: vector embedding source (sqlite-vec) not yet wired as a third RRF input; the corpus is structured so every M2 case is solvable with BM25 + subject-scan only.
+- **v1.3** (2026-04-12). Comparative review against Open WebUI's memory subsystem (production-scale open-source, single flat memory type, dual-write SQLite+vector, tool-based LLM memory management). Five improvements adopted:
+  1. **Explicit memory commands** (`explicit_remember` intent on Gate 5). When the user says *"remember that…"* or *"don't forget…"*, the intent bypasses Gate 1 (clause shape) and Layer 3 (promotion) — writes directly to Tier 4/5 on first observation. Gates 2–4 still apply. Inspired by Open WebUI's `add_memory()` tool, but safer: our gate chain validates structure and types where Open WebUI accepts raw text.
+  2. **Vector store resync** (§5). `rebuild_vectors(owner_user_id)` re-embeds all active facts/episodes from the relational source of truth. Provides corruption recovery, embedding model migration, and async backfill race recovery. Adopted from Open WebUI's `/reset` endpoint pattern.
+  3. **Global memory toggle** (§5). A single `memory_enabled` switch in user settings disables all reads/writes across all tiers without deleting data. Distinct from per-tier opt-outs. Adopted from Open WebUI's `ENABLE_MEMORIES` config.
+  4. **User-facing memory management UI** (§5). Settings > Memory page with full CRUD for facts, people, episodes, mood, and style. Lands incrementally per phase. Adopted from Open WebUI's Settings > Personalization > Manage page.
+  5. **Relevance floors on retrieval** (§4). Every ranked-retrieval tier (3, 4, 5) has an explicit minimum score below which results are not injected. Prevents the irrelevant-memory-injection failure mode that Open WebUI exhibits by always injecting top-k regardless of similarity score.
 - **M1 shipped** (2026-04-11). Five-gate write path live for Tier 4 + Tier 5. The president bug now dies at Gate 1 (`clause_shape`, `wh_fronted` reason) rather than at the M0 stub. Deterministic tier classifier routes self/entity to Tier 4 and person/handle to Tier 5. Immediate-durable predicates (`is_named`, `has_pronoun`, `has_allergy`, `has_dietary_restriction`, `has_accessibility_need`, `has_privacy_boundary`, `hard_dislike`, plus the Tier 5 trio) write on first observation. Single-value predicates (`lives_in`, `current_employer`, `current_partner`, `favorite_*`, `preferred_units`, `timezone`, `is_named`, `has_pronoun`, …) flip prior values to `superseded` with confidence floor 0.1. Provisional handles (`handle:my boss`) write Tier 5 rows with `name=NULL, provisional=1` and merge into named rows when the user later names the person. **Clean-cutover supersedes §7**: the v2 store opens its own SQLite file at `data/v2_memory.sqlite` — zero v1 imports, zero shared mutable state. Memory writes are *opt-in* via `context["memory_writes_enabled"]` so the existing v2 regression suite is unaffected. Pipeline gains a new `memory_write` step between `extract` and `route`. The 131-case extraction corpus (50 should_write / 51 should_not_write / 20 ambiguous / 10 multi_clause) drives the precision/recall gates: precision ≥ 0.98 measured, recall ≥ 0.70 measured, gate-chain median latency well under 50ms. M1 phase-gate tests live at [tests/unit/test_v2_memory_m1.py](../tests/unit/test_v2_memory_m1.py) (22 tests, all passing). M0 transition tests in `test_v2_memory_m0.py` were updated in-place: corpus-empty assertion loosened (M0 only requires the schema, not the empty list); the m0_stub denial-reason test was replaced with a regression-row contract test pinning `denied_by_gate = "clause_shape"`. Dev-tools v2 status endpoint advances `active_phase` to M1 and marks both M0 and M1 phases complete.
 
 ### External research
@@ -976,6 +1024,7 @@ Seven tiers (working, session, episodic, semantic-self, social, emotional, proce
 - **Pieces** — 5-layer taxonomy (working / short-term / long-term / entity / episodic).
 - **"Six types of memory" framing** — added procedural as a first-class tier.
 - **MemPalace** — cited as interesting-not-foundational per the README corrections of 2026-04-07 and the fake-site warnings of 2026-04-11. The "store everything raw, filter at retrieval" philosophy is wrong for our footprint; the hierarchical metaphor is overkill for our scale.
+- **Open WebUI** (v1.3 comparison, 2026-04-12) — production-scale open-source chat UI with a memory subsystem. Flat single-type "user facts" model (no tiers, no categories, no episodes, no social graph). Dual-write architecture: SQLite/Postgres relational store + pluggable vector DB (12 backends, default ChromaDB). Two injection modes: forced top-k injection into system message, or LLM-initiated tool-based memory (model calls `add_memory`/`search_memories`/etc. as native function calls). No write gating, no deduplication, no relevance thresholds, no automatic extraction. Useful patterns adopted: dual-write with resync capability (§5 vector store resync), explicit user memory commands (§3 Gate 5 `explicit_remember` intent), user-facing memory management UI (§5 user-facing memory management), global memory toggle (§5 global memory toggle), relevance floors on retrieval (§4 relevance floors). Patterns explicitly rejected: single flat memory type (our seven tiers earn their place), no write gating (our gate chain exists for a reason), no relevance threshold on retrieval (causes irrelevant memory injection), tool-based memory as primary surface (our gate chain provides better safety than raw `add_memory()` calls).
 
 ### Authority
 - If this file conflicts with [docs/spec.md](spec.md), spec.md wins on product/architecture.
