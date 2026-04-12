@@ -197,6 +197,76 @@ CREATE TABLE IF NOT EXISTS relationships (
     FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
     UNIQUE (owner_user_id, person_id, relation_label)
 );
+
+-- M4: sessions + session_state for Tier 2 (active thread).
+-- session_state is a JSON blob holding last-seen maps, in-session
+-- consolidation counters, and any other per-session ephemera. The
+-- column is nullable so a freshly inserted session row reads as the
+-- empty dict.
+CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at TEXT,
+    session_state TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_owner_started
+    ON sessions(owner_user_id, started_at DESC);
+
+-- M4: Tier 3 episodic memory. Episodes are written by the out-of-band
+-- session-close summarization job; they are time-anchored, summarized
+-- past interactions with optional topic_scope tags. The summary text is
+-- mirrored into episodes_fts via the triggers below so the M4 reader can
+-- run BM25 over the summary alongside temporal-proximity scoring.
+CREATE TABLE IF NOT EXISTS episodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    session_id INTEGER,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT,
+    sentiment TEXT,
+    entities TEXT,
+    topic_scope TEXT,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    superseded_by INTEGER,
+    recall_count INTEGER NOT NULL DEFAULT 0,
+    last_recalled_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+    FOREIGN KEY (superseded_by) REFERENCES episodes(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_episodes_owner_start
+    ON episodes(owner_user_id, start_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_episodes_topic_scope
+    ON episodes(owner_user_id, topic_scope) WHERE topic_scope IS NOT NULL;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
+    title,
+    summary,
+    content='episodes',
+    content_rowid='id',
+    tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS episodes_fts_ai AFTER INSERT ON episodes BEGIN
+    INSERT INTO episodes_fts(rowid, title, summary) VALUES (new.id, new.title, new.summary);
+END;
+
+CREATE TRIGGER IF NOT EXISTS episodes_fts_ad AFTER DELETE ON episodes BEGIN
+    INSERT INTO episodes_fts(episodes_fts, rowid, title, summary)
+    VALUES('delete', old.id, old.title, old.summary);
+END;
+
+CREATE TRIGGER IF NOT EXISTS episodes_fts_au AFTER UPDATE ON episodes BEGIN
+    INSERT INTO episodes_fts(episodes_fts, rowid, title, summary)
+    VALUES('delete', old.id, old.title, old.summary);
+    INSERT INTO episodes_fts(rowid, title, summary) VALUES (new.id, new.title, new.summary);
+END;
 """
 
 
@@ -683,6 +753,251 @@ class V2MemoryStore:
         sql += " ORDER BY id"
         rows = self._conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    # -------------------------------------------------------------------
+    # Tier 2 — sessions + session_state (M4)
+    # -------------------------------------------------------------------
+
+    def create_session(self, owner_user_id: int) -> int:
+        """Open a new session row for ``owner_user_id``. Returns its id."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "INSERT INTO sessions(owner_user_id, session_state) VALUES (?, ?)",
+                (owner_user_id, json.dumps({})),
+            )
+            return int(cursor.lastrowid)
+
+    def close_session(self, session_id: int) -> None:
+        """Mark a session as closed by stamping ``ended_at``."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE id = ?",
+                (_now(), session_id),
+            )
+
+    def get_session_state(self, session_id: int) -> dict[str, Any]:
+        """Return the session_state JSON for a session as a dict.
+
+        Returns ``{}`` for an unknown session, a session with no state
+        yet, or a session whose state column is corrupt — the M4
+        consumers all treat the missing-state case as "no signal".
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT session_state FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return {}
+        raw = row["session_state"]
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def set_session_state(self, session_id: int, state: dict[str, Any]) -> None:
+        """Replace the entire session_state for a session."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE sessions SET session_state = ? WHERE id = ?",
+                (json.dumps(state), session_id),
+            )
+
+    def update_last_seen(
+        self,
+        session_id: int,
+        *,
+        entity_type: str,
+        entity_name: str,
+    ) -> dict[str, Any]:
+        """Record the most recent entity of ``entity_type`` for the session.
+
+        The Tier 2 design (§2) calls for a per-type "last seen" map
+        (``last_movie``, ``last_person``, ``last_location``…) that the
+        pronoun resolver can consult on the next turn. This is the
+        canonical writer; the pronoun resolver reads the map back via
+        :meth:`get_session_state`.
+        """
+        if not entity_type or not entity_name:
+            return self.get_session_state(session_id)
+        key = f"last_{entity_type}"
+        with self._lock:
+            state = self.get_session_state(session_id)
+            last_seen = state.get("last_seen") or {}
+            if not isinstance(last_seen, dict):
+                last_seen = {}
+            last_seen[key] = {"name": entity_name, "at": _now()}
+            state["last_seen"] = last_seen
+            self.set_session_state(session_id, state)
+            return state
+
+    def bump_consolidation_counter(
+        self,
+        session_id: int,
+        *,
+        owner_user_id: int,
+        subject: str,
+        predicate: str,
+    ) -> int:
+        """Increment the in-session frequency counter for a (subject,predicate).
+
+        Returns the post-increment count. The counter lives in
+        ``session_state['consolidation']`` keyed by
+        ``"{owner}:{subject}:{predicate}"`` so a single dict can hold
+        every counter for the session, including 24h-rolling-window
+        entries that survive a session close.
+        """
+        key = f"{owner_user_id}:{subject}:{predicate}"
+        with self._lock:
+            state = self.get_session_state(session_id)
+            counters = state.get("consolidation") or {}
+            if not isinstance(counters, dict):
+                counters = {}
+            entry = counters.get(key) or {"count": 0, "first_at": _now(), "last_at": _now()}
+            if not isinstance(entry, dict):
+                entry = {"count": 0, "first_at": _now(), "last_at": _now()}
+            entry["count"] = int(entry.get("count", 0)) + 1
+            entry["last_at"] = _now()
+            counters[key] = entry
+            state["consolidation"] = counters
+            self.set_session_state(session_id, state)
+            return int(entry["count"])
+
+    def get_consolidation_counter(
+        self,
+        session_id: int,
+        *,
+        owner_user_id: int,
+        subject: str,
+        predicate: str,
+    ) -> int:
+        key = f"{owner_user_id}:{subject}:{predicate}"
+        state = self.get_session_state(session_id)
+        counters = state.get("consolidation") or {}
+        if not isinstance(counters, dict):
+            return 0
+        entry = counters.get(key) or {}
+        if not isinstance(entry, dict):
+            return 0
+        return int(entry.get("count", 0))
+
+    # -------------------------------------------------------------------
+    # Tier 3 — episodes (M4)
+    # -------------------------------------------------------------------
+
+    def write_episode(
+        self,
+        *,
+        owner_user_id: int,
+        title: str,
+        summary: str,
+        entities: list[dict[str, Any]] | None = None,
+        sentiment: str | None = None,
+        topic_scope: str | None = None,
+        session_id: int | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
+        confidence: float = 0.5,
+    ) -> int:
+        """Insert an episode row. Returns the new id.
+
+        Episodes are written by the out-of-band session-close
+        summarization job (or directly by tests). The FTS5 trigger
+        on the episodes table populates ``episodes_fts`` automatically
+        from the ``title`` + ``summary`` columns.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO episodes(
+                    owner_user_id, session_id, title, summary,
+                    start_at, end_at, sentiment, entities, topic_scope,
+                    confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    owner_user_id,
+                    session_id,
+                    title,
+                    summary,
+                    start_at or _now(),
+                    end_at,
+                    sentiment,
+                    json.dumps(entities) if entities is not None else None,
+                    topic_scope,
+                    confidence,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def get_episodes(
+        self,
+        owner_user_id: int,
+        *,
+        topic_scope: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return the most recent episodes for an owner, newest first."""
+        if topic_scope is not None:
+            sql = (
+                "SELECT * FROM episodes "
+                "WHERE owner_user_id = ? AND topic_scope = ? "
+                "ORDER BY start_at DESC, id DESC LIMIT ?"
+            )
+            params: tuple[Any, ...] = (owner_user_id, topic_scope, limit)
+        else:
+            sql = (
+                "SELECT * FROM episodes "
+                "WHERE owner_user_id = ? "
+                "ORDER BY start_at DESC, id DESC LIMIT ?"
+            )
+            params = (owner_user_id, limit)
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def count_episodes_with_claim(
+        self,
+        owner_user_id: int,
+        *,
+        subject: str,
+        predicate: str,
+        value: str,
+    ) -> int:
+        """Count distinct sessions whose episodes hold a (subject,predicate,value) claim.
+
+        Used by the M4 promotion engine: a claim emitted in 3+ separate
+        sessions promotes from Tier 3 into Tier 4 / Tier 5 via the gate
+        chain. The walk is intentionally cheap — JSON_EACH on the
+        entities column would be ideal but we want this to work on
+        sqlite builds without JSON1, so we scan + parse in Python.
+        """
+        rows = self._conn.execute(
+            "SELECT session_id, entities FROM episodes "
+            "WHERE owner_user_id = ? AND entities IS NOT NULL",
+            (owner_user_id,),
+        ).fetchall()
+        sessions: set[int | None] = set()
+        for row in rows:
+            try:
+                entities = json.loads(row["entities"] or "[]")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(entities, list):
+                continue
+            for ent in entities:
+                if not isinstance(ent, dict):
+                    continue
+                if (
+                    str(ent.get("subject", "")) == subject
+                    and str(ent.get("predicate", "")) == predicate
+                    and str(ent.get("value", "")) == value
+                ):
+                    sessions.add(row["session_id"])
+                    break
+        return len(sessions)
 
 
 def _now() -> str:
