@@ -5,12 +5,12 @@ import { useAuth } from "../auth/useAuth";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 const card =
-  "w-full max-w-lg rounded-[1.75rem] border border-white/8 bg-[#171717] p-10 shadow-2xl shadow-black/30";
-const label = "mb-2 block text-sm font-medium text-neutral-300";
+  "w-full max-w-lg rounded-[1.75rem] border border-border bg-card p-10 shadow-m4 transition-all";
+const label = "mb-2 block text-sm font-medium text-muted-foreground";
 const input =
-  "w-full rounded-xl border border-neutral-700 bg-[#0A0A0A] px-4 py-3 text-base text-neutral-100 focus:border-violet-400 focus:outline-none";
+  "w-full rounded-xl border border-input bg-background px-4 py-3 text-base text-foreground focus:ring-2 focus:ring-ring focus:outline-none transition-all";
 const btn =
-  "w-full rounded-xl bg-violet-500 px-4 py-3 text-base font-semibold text-white hover:bg-violet-400 disabled:opacity-50";
+  "w-full rounded-xl bg-primary px-4 py-3 text-base font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all active:scale-[0.98]";
 
 const LoginPage: React.FC = () => {
   useDocumentTitle('Sign in');
@@ -23,6 +23,7 @@ const LoginPage: React.FC = () => {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!username.trim() || !pin.trim()) return;
     setBusy(true);
     setError(null);
     try {
@@ -36,10 +37,10 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0A0A0A] px-6 py-10">
+    <div className="flex min-h-screen w-full items-center justify-center bg-background px-6 py-10">
       <form className={card} onSubmit={onSubmit}>
-        <h1 className="mb-2 text-4xl font-bold tracking-tight text-white">Sign in</h1>
-        <p className="mb-8 text-base leading-7 text-neutral-400">
+        <h1 className="mb-2 text-4xl font-bold tracking-tight text-foreground">Sign in</h1>
+        <p className="mb-8 text-base leading-7 text-muted-foreground">
           Unlock LokiDoki with your username and PIN.
         </p>
         <div className="mb-5">
@@ -49,6 +50,7 @@ const LoginPage: React.FC = () => {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             data-testid="login-username"
+            placeholder="Username"
           />
         </div>
         <div className="mb-8">
@@ -60,10 +62,11 @@ const LoginPage: React.FC = () => {
             type="password"
             inputMode="numeric"
             data-testid="login-pin"
+            placeholder="••••"
           />
         </div>
         {error && (
-          <div className="mb-5 rounded-xl border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+          <div className="mb-5 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}

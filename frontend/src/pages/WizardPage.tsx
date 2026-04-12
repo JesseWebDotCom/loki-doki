@@ -11,12 +11,12 @@ import { useAuth } from "../auth/useAuth";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 const card =
-  "w-full max-w-lg rounded-[1.75rem] border border-white/8 bg-[#171717] p-10 shadow-2xl shadow-black/30";
-const label = "mb-2 block text-sm font-medium text-neutral-300";
+  "w-full max-w-lg rounded-[1.75rem] border border-border bg-card p-10 shadow-m4 transition-all";
+const label = "mb-2 block text-sm font-medium text-muted-foreground";
 const input =
-  "w-full rounded-xl border border-neutral-700 bg-[#0A0A0A] px-4 py-3 text-base text-neutral-100 focus:border-violet-400 focus:outline-none";
+  "w-full rounded-xl border border-input bg-background px-4 py-3 text-base text-foreground focus:ring-2 focus:ring-ring focus:outline-none transition-all";
 const btn =
-  "w-full rounded-xl bg-violet-500 px-4 py-3 text-base font-semibold text-white hover:bg-violet-400 disabled:opacity-50";
+  "w-full rounded-xl bg-primary px-4 py-3 text-base font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all active:scale-[0.98]";
 
 const WizardPage: React.FC = () => {
   useDocumentTitle('Welcome');
@@ -59,10 +59,10 @@ const WizardPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0A0A0A] px-6 py-10">
+    <div className="flex min-h-screen w-full items-center justify-center bg-background px-6 py-10">
       <form className={card} onSubmit={onSubmit}>
-        <h1 className="mb-2 text-4xl font-bold tracking-tight text-white">Welcome to LokiDoki</h1>
-        <p className="mb-8 text-base leading-7 text-neutral-400">
+        <h1 className="mb-2 text-4xl font-bold tracking-tight text-foreground">Welcome to LokiDoki</h1>
+        <p className="mb-8 text-base leading-7 text-muted-foreground">
           Create the first admin account.
         </p>
 
@@ -73,6 +73,7 @@ const WizardPage: React.FC = () => {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             data-testid="wizard-username"
+            placeholder="e.g. admin"
           />
         </div>
         <div className="mb-5">
@@ -85,6 +86,7 @@ const WizardPage: React.FC = () => {
             inputMode="numeric"
             autoComplete="new-password"
             data-testid="wizard-pin"
+            placeholder="••••"
           />
         </div>
         <div className="mb-5">
@@ -97,6 +99,7 @@ const WizardPage: React.FC = () => {
             inputMode="numeric"
             autoComplete="new-password"
             data-testid="wizard-pin2"
+            placeholder="••••"
           />
         </div>
         <div className="mb-5">
@@ -107,6 +110,7 @@ const WizardPage: React.FC = () => {
             value={pwd}
             onChange={(e) => setPwd(e.target.value)}
             data-testid="wizard-pwd"
+            placeholder="Minimum 8 characters"
           />
         </div>
         <div className="mb-8">
@@ -117,13 +121,14 @@ const WizardPage: React.FC = () => {
             value={pwd2}
             onChange={(e) => setPwd2(e.target.value)}
             data-testid="wizard-pwd2"
+            placeholder="Confirm password"
           />
         </div>
 
         {error && (
           <div
             data-testid="wizard-error"
-            className="mb-5 rounded-xl border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300"
+            className="mb-5 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive"
           >
             {error}
           </div>
