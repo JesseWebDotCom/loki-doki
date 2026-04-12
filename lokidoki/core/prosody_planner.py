@@ -43,7 +43,8 @@ def _split_segments(text: str) -> list[str]:
     if _is_list_text(text):
         return [re.sub(r"^(?:[-*]|\d+\.)\s+", "", line).strip() for line in lines]
     protected = re.sub(r"\b(Dr|Mr|Mrs|Ms|Prof|St)\.", lambda m: m.group(1) + "<prd>", text)
-    parts = re.split(r"(?<=[.!?])\s+", protected)
+    # Split at major punctuation: . ! ? ; : and also at commas followed by space
+    parts = re.split(r"(?<=[.!?])\s+|(?<=[;:])\s+|(?<=,)\s+", protected)
     parts = [part.replace("<prd>", ".") for part in parts]
     return [part.strip() for part in parts if part.strip()]
 
@@ -66,6 +67,10 @@ def _segment_pause(segment: str, *, idx: int, total: int, base: float, list_mode
         return 0.3
     if segment.endswith("?"):
         return base + 0.2
+    if segment.endswith(","):
+        return min(base, 0.15)
+    if segment.endswith((";", ":")):
+        return min(base, 0.25)
     if "\n\n" in segment:
         return max(base, 0.5)
     return base

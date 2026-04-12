@@ -18,13 +18,16 @@ def test_question_and_topic_shift_get_distinct_pauses():
 
     assert [segment.text for segment in segments] == [
         "The short answer is yes.",
-        "Also, we can revisit it tomorrow.",
+        "Also,",
+        "we can revisit it tomorrow.",
         "What do you think?",
     ]
     assert segments[0].length_scale == 1.0
+    assert segments[0].post_silence_s == 0.4
     assert segments[1].length_scale == 0.95
-    assert segments[1].post_silence_s == 0.4
-    assert segments[2].post_silence_s == 0.0
+    assert segments[1].post_silence_s == 0.15
+    assert segments[2].post_silence_s == 0.4
+    assert segments[3].post_silence_s == 0.0
 
 
 def test_list_items_get_uniform_pacing():

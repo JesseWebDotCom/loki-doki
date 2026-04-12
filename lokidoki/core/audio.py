@@ -164,6 +164,7 @@ def synthesize_stream(
                 "sample_rate": last_sample_rate,
                 "phonemes": phonemes,
                 "samples_per_phoneme": samples_per_phoneme,
+                "text": segment.text,
             }
         if idx < len(segments) - 1 and segment.post_silence_s > 0:
             yield {
@@ -171,6 +172,7 @@ def synthesize_stream(
                 "sample_rate": last_sample_rate,
                 "phonemes": [],
                 "samples_per_phoneme": 0,
+                "text": "",
             }
 
 

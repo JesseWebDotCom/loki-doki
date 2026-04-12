@@ -149,6 +149,7 @@ async def text_to_speech_stream(
                     "sample_rate": chunk["sample_rate"],
                     "phonemes": chunk["phonemes"],
                     "samples_per_phoneme": chunk["samples_per_phoneme"],
+                    "text": chunk.get("text", ""),
                 }) + "\n"
         except Exception as exc:
             yield json.dumps({"error": str(exc)}) + "\n"

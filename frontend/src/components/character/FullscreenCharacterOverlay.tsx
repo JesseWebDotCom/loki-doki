@@ -3,6 +3,7 @@ import { Minimize2, Send } from 'lucide-react';
 import RiggedDicebearAvatar from './RiggedDicebearAvatar';
 import type { CharacterRow } from '../../lib/api';
 import type { HeadTiltState } from './useHeadTilt';
+import { useTTSState } from '../../utils/tts';
 
 interface Props {
   character: CharacterRow;
@@ -32,6 +33,7 @@ const FullscreenCharacterOverlay: React.FC<Props> = ({
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const tts = useTTSState();
 
   useEffect(() => {
     const el = overlayRef.current;
@@ -123,9 +125,21 @@ const FullscreenCharacterOverlay: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bottom Center Input Bar */}
-      <div className="w-full max-w-2xl px-6 pb-12 pt-4">
-        <div className="relative group">
+      {/* Subtitles & Input area */}
+      <div className="w-full max-w-3xl px-6 pb-12 pt-4 flex flex-col items-center gap-8">
+        {/* "Movie" Subtitles */}
+        <div 
+          className={`px-6 py-3 rounded-2xl bg-black/60 backdrop-blur-sm border border-white/10 transition-all duration-300 min-h-[3.5rem] flex items-center justify-center text-center ${
+            tts.spokenText ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+          }`}
+        >
+          <p className="text-xl sm:text-2xl font-medium text-white tracking-wide drop-shadow-sm max-w-2xl leading-relaxed">
+            {tts.spokenText}
+          </p>
+        </div>
+
+        {/* Console Input Bar */}
+        <div className="relative w-full max-w-2xl group">
           <input
             ref={inputRef}
             autoFocus

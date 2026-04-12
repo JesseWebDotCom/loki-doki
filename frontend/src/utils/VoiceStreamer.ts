@@ -5,13 +5,16 @@
  * them through a WebAudio AudioContext as soon as each chunk arrives.
  * Phonemes are scheduled on a parallel timeline so a viseme callback can
  * fire ~38ms ahead of the corresponding audio for visual lip-sync.
+ * Text segments (subtitles) are also scheduled to fire exactly when their
+ * audio starts.
  *
  * NO WAV-on-disk anywhere in this pipeline. PCM in, AudioBuffer out.
  */
 
-export interface VisemeEvent {
+export interface TimelineEvent {
   t: number;
-  v: string;
+  v?: string; // viseme
+  text?: string; // subtitle segment
 }
 
 export type VoiceStreamOptions = {
@@ -26,21 +29,24 @@ export type VoiceStreamOptions = {
 export class VoiceStreamer {
   private ctx: AudioContext | null = null;
   private nextChunkStartTime = 0;
-  private timeline: VisemeEvent[] = [];
+  private timeline: TimelineEvent[] = [];
   private timelineIdx = 0;
   private rafId: number | null = null;
   private isStreamActive = false;
   private stopped = false;
   private activeSources = new Set<AudioBufferSourceNode>();
   private onVisemeChange: (v: string) => void;
+  private onTextChange: (text: string) => void;
   private onEnd: () => void;
 
   constructor(
     onVisemeChange: (v: string) => void = () => {},
     onEnd: () => void = () => {},
+    onTextChange: (text: string) => void = () => {},
   ) {
     this.onVisemeChange = onVisemeChange;
     this.onEnd = onEnd;
+    this.onTextChange = onTextChange;
   }
 
   public async prepare() {
@@ -106,6 +112,7 @@ export class VoiceStreamer {
             chunk.phonemes,
             chunk.sample_rate,
             chunk.samples_per_phoneme,
+            chunk.text || '',
             options,
           );
         }
@@ -120,6 +127,7 @@ export class VoiceStreamer {
     phonemes: string[],
     sampleRate: number,
     samplesPerPhoneme: number,
+    text: string,
     options: VoiceStreamOptions,
   ) {
     if (!this.ctx || this.stopped) return;
@@ -144,6 +152,11 @@ export class VoiceStreamer {
       options.onPlaybackStart?.();
     }
 
+    // Schedule the subtitle text to appear exactly when audio starts
+    if (text) {
+      this.timeline.push({ t: startTime, text });
+    }
+
     const sampleDuration = 1 / sampleRate;
     let offset = 0;
     let lastV = '';
@@ -158,6 +171,10 @@ export class VoiceStreamer {
       offset += samplesPerPhoneme * sampleDuration;
     });
 
+    // Visemes and text events might be slightly out of order if we aren't careful,
+    // so sort the timeline by timestamp before the scheduler reads it.
+    this.timeline.sort((a, b) => a.t - b.t);
+
     this.startScheduler();
   }
 
@@ -166,31 +183,38 @@ export class VoiceStreamer {
     const tick = () => {
       if (!this.ctx) return;
       const now = this.ctx.currentTime;
-      // Drain every entry whose time is now in the past, but only emit
-      // the MOST RECENT one to React. Reason: React 18 batches multiple
-      // setState calls inside a single sync block, so firing several
-      // visemes back-to-back per frame (which happens whenever rAF is
-      // even slightly delayed) collapses to the last one anyway and
-      // visibly looks like the mouth froze partway through the line.
-      // Emitting only the latest gives a smooth one-update-per-frame
-      // stream and never loses the trailing shape.
-      let latestDue: string | null = null;
+      
+      let latestDueViseme: string | null = null;
+      let latestDueText: string | null = null;
+
       while (
         this.timelineIdx < this.timeline.length &&
         this.timeline[this.timelineIdx].t <= now
       ) {
-        latestDue = this.timeline[this.timelineIdx].v;
+        const entry = this.timeline[this.timelineIdx];
+        if (entry.v !== undefined) {
+          latestDueViseme = entry.v;
+        }
+        if (entry.text !== undefined) {
+          latestDueText = entry.text;
+        }
         this.timelineIdx++;
       }
-      if (latestDue !== null) {
-        this.onVisemeChange(latestDue);
+
+      if (latestDueViseme !== null) {
+        this.onVisemeChange(latestDueViseme);
       }
+      if (latestDueText !== null) {
+        this.onTextChange(latestDueText);
+      }
+
       if (
         !this.isStreamActive &&
         this.timelineIdx >= this.timeline.length &&
         now > this.nextChunkStartTime + 0.1
       ) {
         this.onVisemeChange('closed');
+        this.onTextChange('');
         this.rafId = null;
         this.onEnd();
         return;
@@ -233,6 +257,7 @@ export class VoiceStreamer {
     this.isStreamActive = false;
     this.flush();
     this.onVisemeChange('closed');
+    this.onTextChange('');
     this.onEnd();
   }
 
