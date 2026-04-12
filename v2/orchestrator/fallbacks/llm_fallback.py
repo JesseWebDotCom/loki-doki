@@ -99,10 +99,11 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     * ``combine`` — when one or more skills produced output and we
       just need to weave them into a single natural-language reply.
 
-    Both templates render the M2 ``{user_facts}`` slot. The slot is
-    populated by the pipeline's `memory_read` step (when memory is
-    enabled) and stashed at ``spec.context["memory_slots"]["user_facts"]``.
-    Empty when memory is off or the read returned nothing.
+    Both templates render memory slots and persona slots. Memory slots
+    are populated by the pipeline's `memory_read` step (when memory is
+    enabled) and stashed at ``spec.context["memory_slots"]``. Persona
+    slots come from ``spec.context["character_name"]`` and
+    ``spec.context["behavior_prompt"]``.
     """
     user_facts = ""
     social_context = ""
@@ -115,6 +116,9 @@ def build_combine_prompt(spec: RequestSpec) -> str:
             social_context = str(slots.get("social_context") or "")
             recent_context = str(slots.get("recent_context") or "")
             relevant_episodes = str(slots.get("relevant_episodes") or "")
+
+    character_name, behavior_prompt = _extract_persona(spec)
+
     if _is_direct_chat_only(spec):
         return render_prompt(
             "direct_chat",
@@ -123,6 +127,8 @@ def build_combine_prompt(spec: RequestSpec) -> str:
             social_context=social_context,
             recent_context=recent_context,
             relevant_episodes=relevant_episodes,
+            character_name=character_name,
+            behavior_prompt=behavior_prompt,
         )
     payload = build_llm_payload(spec)
     return render_prompt(
@@ -132,7 +138,55 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         social_context=social_context,
         recent_context=recent_context,
         relevant_episodes=relevant_episodes,
+        character_name=character_name,
+        behavior_prompt=behavior_prompt,
+        confidence_guide=_build_confidence_guide(spec),
     )
+
+
+_STRUCTURAL_SOURCES = frozenset({
+    "people_db", "home_assistant", "device_registry", "calendar",
+    "contacts", "local_kb",
+})
+
+
+def _extract_persona(spec: RequestSpec) -> tuple[str, str]:
+    """Return (character_name, behavior_prompt) from spec context.
+
+    Falls back to "LokiDoki" / "" when persona is absent, so the
+    templates always have a valid character_name.
+    """
+    ctx = spec.context if isinstance(spec.context, dict) else {}
+    name = str(ctx.get("character_name") or "").strip() or "LokiDoki"
+    prompt = str(ctx.get("behavior_prompt") or "").strip()
+    if prompt and not prompt.endswith("\n"):
+        prompt += "\n"
+    return name, prompt
+
+
+def _build_confidence_guide(spec: RequestSpec) -> str:
+    """Render per-chunk confidence annotations for the combine prompt.
+
+    High-confidence chunks backed by structural sources (people_db,
+    home_assistant, etc.) are marked as trustworthy pass-throughs.
+    Low-confidence or borderline chunks get a warning so the LLM
+    uses its own judgment instead of parroting potentially wrong
+    skill output.
+    """
+    primary = [c for c in spec.chunks if c.role == "primary_request"]
+    if not primary:
+        return "No chunks to evaluate."
+    lines: list[str] = []
+    threshold = CONFIG.route_confidence_threshold
+    for chunk in primary:
+        source = (chunk.params.get("source") or "") if chunk.params else ""
+        if chunk.confidence > threshold and source in _STRUCTURAL_SOURCES:
+            lines.append(f'"{chunk.text}": high confidence, structural source — trust this result.')
+        elif chunk.confidence > threshold:
+            lines.append(f'"{chunk.text}": high confidence — use this result.')
+        else:
+            lines.append(f'"{chunk.text}": low confidence — this may not be relevant; use your judgment.')
+    return " ".join(lines)
 
 
 def _is_direct_chat_only(spec: RequestSpec) -> bool:

@@ -105,4 +105,43 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C03 (Persona+Synthesis), C04 (SSE Streaming), or C05 (Prompts/Decomposer) — all independent.
 
+## C03 — Persona Injection + Confidence-Aware Synthesis (2026-04-12)
+
+**Status:** Complete. All C03 gates green. 31 new tests (13 persona + 15 synthesis + 3 existing prompts pass). 1337 unit tests total, zero regressions.
+
+**What shipped:**
+
+1. **Persona slots in prompts.py** — `COMBINE_PROMPT` and `DIRECT_CHAT_PROMPT` now include `{character_name}` and `{behavior_prompt}` slots. Character name defaults to "LokiDoki" when absent. Empty behavior_prompt adds no extra tokens (the slot renders as empty string).
+
+2. **Persona threading in llm_fallback.py** — `_extract_persona(spec)` reads `character_name` and `behavior_prompt` from `spec.context`. `build_combine_prompt` passes both to both template families. The pipeline threads persona via `context["character_name"]` and `context["behavior_prompt"]` (same pattern as v1's `chat.py:73-91`).
+
+3. **Confidence-aware synthesis** — `_build_confidence_guide(spec)` annotates each primary chunk with trust level:
+   - High confidence + structural source (people_db, home_assistant, etc.) → "trust this result"
+   - High confidence + non-structural → "use this result"
+   - Low confidence (≤ threshold 0.55) → "may not be relevant; use your judgment"
+   The guide renders into `{confidence_guide}` in the combine template.
+
+4. **Removed "mention each successful chunk's result"** — the old parrot instruction that forced LLM to echo low-confidence skill output is gone.
+
+5. **"I don't know" path** — combine prompt now explicitly says: "If every chunk is low-confidence or direct_chat with no skill data, you may say 'I don't know' or suggest a rephrase. Do not fabricate."
+
+6. **Persona isolation enforced** — test asserts `DECOMPOSITION_PROMPT` has no `{character_name}` or `{behavior_prompt}` slots, and `Decomposer.__init__` takes no persona args. This enforces CHARACTER_SYSTEM.md §2.3.
+
+7. **test_v2_persona.py** — 13 tests: persona in combine (3), persona in direct_chat (3), empty persona no extra tokens (2), persona never reaches decomposer (2), decomposer constructor check (1), plus 2 structural checks.
+
+8. **test_v2_synthesis.py** — 15 tests: confidence guide for high/low/borderline/mixed/empty chunks (7), no-parrot instruction (2), "I don't know" path (3), confidence guide rendered in final prompt (1), structural source annotation (2).
+
+**Gate checklist:**
+- [x] Persona slot in combine + direct_chat templates
+- [x] Persona never reaches the decomposer (test assertion)
+- [x] Combine prompt does not say "mention each successful chunk's result"
+- [x] Confidence metadata reaches the combine prompt
+- [x] "I don't know" path works for all-low-confidence specs
+
+**Nothing deferred.** All gate items completed within this chunk.
+
+**Final test count:** 1337 unit tests (2 skipped). Zero regressions.
+
+**Next chunk:** C04 (SSE Streaming), C05 (Prompts/Decomposer), C06 (Citations, needs C03 ✓), C07 (Skills Runtime, needs C02 ✓), or C08/C09 (Memory M5/M6) — all now unblocked or independent.
+
 <!-- Append new entries below this line -->
