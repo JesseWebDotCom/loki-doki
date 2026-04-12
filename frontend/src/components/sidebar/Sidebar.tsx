@@ -245,7 +245,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => setCollapsed(false)}
           title="Expand sidebar"
           aria-label="Expand sidebar"
-          className={`group relative mb-4 text-primary hover:bg-card/50 ${slot}`}
+          className={`group relative mb-4 text-primary hover:bg-card/50 cursor-pointer ${slot}`}
         >
           <Ghost size={16} className="transition-opacity duration-150 group-hover:opacity-0" />
           <PanelLeftOpen size={16} className="absolute opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
@@ -254,7 +254,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => handleNewSessionFallback()}
             title="New Chat"
-            className={`${slot} ${
+            className={`${slot} cursor-pointer ${
               isChat ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-primary'
             }`}
           >
@@ -263,7 +263,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Link
             to="/people"
             title="People"
-            className={`${slot} ${
+            className={`${slot} cursor-pointer ${
               isPeople ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
             }`}
           >
@@ -272,7 +272,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Link
             to="/memory"
             title="Memory"
-            className={`${slot} ${
+            className={`${slot} cursor-pointer ${
               isMemory ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
             }`}
           >
@@ -281,7 +281,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Link
             to="/feedback"
             title="Feedback"
-            className={`${slot} ${
+            className={`${slot} cursor-pointer ${
               isFeedback ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
             }`}
           >
@@ -316,7 +316,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <button
           onClick={() => setCollapsed(true)}
           title="Collapse sidebar"
-          className="w-8 h-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-card/50 hover:text-foreground transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-card/50 hover:text-foreground transition-colors cursor-pointer"
         >
           <PanelLeftClose size={16} />
         </button>
@@ -328,7 +328,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={() => handleNewSessionFallback()}
-          className={`w-full flex items-center rounded-md transition-colors text-xs font-medium ${
+          className={`w-full flex items-center rounded-md transition-colors text-xs font-medium cursor-pointer ${
             isChat ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
@@ -339,7 +339,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </button>
         <Link
           to="/people"
-          className={`flex items-center rounded-md transition-colors text-xs font-medium ${
+          className={`flex items-center rounded-md transition-colors text-xs font-medium cursor-pointer ${
             isPeople ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
@@ -350,7 +350,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </Link>
         <Link
           to="/memory"
-          className={`flex items-center rounded-md transition-colors text-xs font-medium ${
+          className={`flex items-center rounded-md transition-colors text-xs font-medium cursor-pointer ${
             isMemory ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
@@ -361,7 +361,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </Link>
         <Link
           to="/feedback"
-          className={`flex items-center rounded-md transition-colors text-xs font-medium ${
+          className={`flex items-center rounded-md transition-colors text-xs font-medium cursor-pointer ${
             isFeedback ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
           }`}
         >
@@ -377,7 +377,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         {/* Projects Section */}
         <Collapsible open={showProjects} onOpenChange={setShowProjects}>
           <div className="flex items-center justify-between px-2 mb-1">
-            <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider hover:text-foreground transition-all">
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider hover:text-foreground transition-all cursor-pointer">
               Projects
             </CollapsibleTrigger>
             <button
@@ -386,7 +386,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 setEditingProject(null);
                 setIsProjectModalOpen(true);
               }}
-              className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
+              className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all cursor-pointer"
             >
               <FolderPlus size={12} />
             </button>
@@ -441,7 +441,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         {/* Chats Section */}
         <Collapsible open={showChats} onOpenChange={setShowChats}>
           <div className="flex items-center justify-between px-2 mb-1">
-            <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider hover:text-foreground transition-all">
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider hover:text-foreground transition-all cursor-pointer">
               Recents
             </CollapsibleTrigger>
             <button
@@ -449,7 +449,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 e.stopPropagation();
                 handleNewSessionFallback();
               }}
-              className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
+              className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all cursor-pointer"
             >
               <Plus size={12} />
             </button>

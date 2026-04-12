@@ -97,7 +97,7 @@ const ToolbarBtn: React.FC<{
     type="button"
     title={title}
     onClick={onClick}
-    className={`inline-flex items-center justify-center w-6 h-6 rounded-md transition ${
+    className={`inline-flex items-center justify-center w-6 h-6 rounded-md transition cursor-pointer ${
       active
         ? "bg-primary/15 text-primary"
         : "text-muted-foreground hover:text-primary hover:bg-primary/10"

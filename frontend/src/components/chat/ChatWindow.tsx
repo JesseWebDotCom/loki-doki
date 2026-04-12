@@ -147,7 +147,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       >
         <button
           onClick={scrollToBottom}
-          className="pointer-events-auto flex items-center justify-center w-12 h-12 rounded-full bg-primary/95 text-primary-foreground shadow-m4 hover:bg-primary hover:shadow-m4 active:scale-90 transition-all backdrop-blur-md border border-white/20 ring-4 ring-primary/10"
+          className="pointer-events-auto cursor-pointer flex items-center justify-center w-12 h-12 rounded-full bg-primary/95 text-primary-foreground shadow-m4 hover:bg-primary hover:shadow-m4 active:scale-90 transition-all backdrop-blur-md border border-white/20 ring-4 ring-primary/10"
           title="Scroll to bottom"
         >
           <ArrowDown size={24} className={showScrollButton ? 'animate-bounce-subtle' : ''}/>

@@ -161,7 +161,7 @@ const MessageItem: React.FC<MessageProps> = ({
                 onClick={() => tts.speak(myKey, content)}
                 disabled={tts.muted || isActive}
                 title={tts.muted ? 'Voice muted' : 'Play / replay'}
-                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition disabled:opacity-30 disabled:hover:bg-transparent"
+                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
               >
                 {isPending ? (
                   <LoaderCircle size={13} className="animate-spin" />
@@ -174,7 +174,7 @@ const MessageItem: React.FC<MessageProps> = ({
                 onClick={() => tts.stop()}
                 disabled={!isActive}
                 title="Stop"
-                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition disabled:opacity-30 disabled:hover:bg-transparent"
+                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
               >
                 <Square size={13} />
               </button>
@@ -182,7 +182,7 @@ const MessageItem: React.FC<MessageProps> = ({
                 type="button"
                 onClick={tts.toggleMute}
                 title={tts.muted ? 'Unmute (allow auto-play)' : 'Mute (silence auto-play)'}
-                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition"
+                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition cursor-pointer"
               >
                 {tts.muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
               </button>
@@ -211,7 +211,7 @@ const MessageItem: React.FC<MessageProps> = ({
                   return (
                     <a
                       href={href}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors no-underline align-middle mx-0.5"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors no-underline align-middle mx-0.5 cursor-pointer"
                       title={person ? `View ${person.name}'s profile${person.relation ? ` (${person.relation})` : ''}` : 'View profile'}
                     >
                       {person?.photo_url ? (
@@ -230,7 +230,7 @@ const MessageItem: React.FC<MessageProps> = ({
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary hover:underline underline-offset-4 decoration-primary/30 transition-all font-semibold inline-flex items-center gap-1"
+                    className="text-primary hover:underline underline-offset-4 decoration-primary/30 transition-all font-semibold inline-flex items-center gap-1 cursor-pointer"
                   >
                     {children}
                   </a>
@@ -302,7 +302,7 @@ const MessageItem: React.FC<MessageProps> = ({
                   <button
                     type="button"
                     onClick={handleCopy}
-                    className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition"
+                    className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition cursor-pointer"
                   >
                     {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                   </button>
@@ -315,7 +315,7 @@ const MessageItem: React.FC<MessageProps> = ({
                   <button
                     type="button"
                     onClick={() => handleFeedback(1)}
-                    className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition ${
+                    className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
                       feedbackState === 1
                         ? 'text-green-400 bg-green-400/10'
                         : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50'
@@ -332,7 +332,7 @@ const MessageItem: React.FC<MessageProps> = ({
                   <button
                     type="button"
                     onClick={() => handleFeedback(-1)}
-                    className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition ${
+                    className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
                       feedbackState === -1
                         ? 'text-red-400 bg-red-400/10'
                         : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50'
@@ -350,7 +350,7 @@ const MessageItem: React.FC<MessageProps> = ({
                     <button
                       type="button"
                       onClick={onRetry}
-                      className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition"
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition cursor-pointer"
                     >
                       <RefreshCw size={14} />
                     </button>

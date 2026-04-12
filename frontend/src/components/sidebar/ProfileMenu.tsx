@@ -36,7 +36,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
       <DropdownMenuTrigger asChild>
         {compact ? (
           <button
-            className="w-8 h-8 flex items-center justify-center rounded-md text-primary hover:bg-card/50 transition-colors focus:outline-none"
+            className="w-8 h-8 flex items-center justify-center rounded-md text-primary hover:bg-card/50 transition-colors focus:outline-none cursor-pointer"
             aria-label="Open profile menu"
             title={username}
           >
@@ -50,7 +50,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ compact = false }) => {
           </button>
         ) : (
         <button
-          className="w-full flex items-center rounded-md hover:bg-card/50 transition-colors group focus:outline-none"
+          className="w-full flex items-center rounded-md hover:bg-card/50 transition-colors group focus:outline-none cursor-pointer"
           aria-label="Open profile menu"
         >
           <span className="w-8 h-8 flex items-center justify-center text-primary shrink-0">

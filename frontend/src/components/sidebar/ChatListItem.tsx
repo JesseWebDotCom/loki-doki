@@ -149,7 +149,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
-                className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity p-1 rounded hover:bg-card/80 text-muted-foreground hover:text-primary"
+                className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity p-1 rounded hover:bg-card/80 text-muted-foreground hover:text-primary cursor-pointer"
                 aria-label="Chat actions"
               >
                 <MoreVertical size={14} className="text-muted-foreground" />

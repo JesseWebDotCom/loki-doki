@@ -597,7 +597,7 @@ const ChatPage: React.FC = () => {
             <button
               onClick={handleSend}
               disabled={isProcessing}
-              className="absolute right-4 top-4 p-3 bg-primary hover:bg-primary/90 text-white rounded-xl transition-all shadow-m2 shadow-primary/20 active:scale-95 disabled:opacity-50"
+              className="absolute right-4 top-4 p-3 bg-primary hover:bg-primary/90 text-white rounded-xl transition-all shadow-m2 shadow-primary/20 active:scale-95 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
               <Send size={20} />
             </button>
