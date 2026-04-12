@@ -62,25 +62,27 @@ const CharacterFrame: React.FC<Props> = ({
         />
       </button>
       {hover && (
-        <div className="absolute left-1/2 -translate-x-1/2 top-full flex items-center gap-1 px-2 py-1 rounded-xl bg-card/90 backdrop-blur border border-border/40 shadow-m2 z-30">
-          <ToolbarBtn
-            icon={<Minimize2 size={13} />}
-            active={mode === "mini"}
-            title="Mini"
-            onClick={() => onModeChange("mini")}
-          />
-          <ToolbarBtn
-            icon={<Columns2 size={13} />}
-            active={mode === "docked"}
-            title="Docked"
-            onClick={() => onModeChange("docked")}
-          />
-          <ToolbarBtn
-            icon={<Maximize2 size={13} />}
-            active={mode === "fullscreen"}
-            title="Fullscreen"
-            onClick={() => onModeChange("fullscreen")}
-          />
+        <div className="absolute left-1/2 -translate-x-1/2 top-full pt-2 z-30">
+          <div className="flex items-center gap-1 px-2 py-1 rounded-xl bg-card/90 backdrop-blur border border-border/40 shadow-m2">
+            <ToolbarBtn
+              icon={<Minimize2 size={13} />}
+              active={mode === "mini"}
+              title="Mini"
+              onClick={() => onModeChange("mini")}
+            />
+            <ToolbarBtn
+              icon={<Columns2 size={13} />}
+              active={mode === "docked"}
+              title="Docked"
+              onClick={() => onModeChange("docked")}
+            />
+            <ToolbarBtn
+              icon={<Maximize2 size={13} />}
+              active={mode === "fullscreen"}
+              title="Fullscreen"
+              onClick={() => onModeChange("fullscreen")}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -96,7 +98,10 @@ const ToolbarBtn: React.FC<{
   <button
     type="button"
     title={title}
-    onClick={onClick}
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick();
+    }}
     className={`inline-flex items-center justify-center w-6 h-6 rounded-md transition cursor-pointer ${
       active
         ? "bg-primary/15 text-primary"

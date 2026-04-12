@@ -18,7 +18,11 @@ const STORAGE_KEY = "lokidoki.character.mode";
 function readInitial(): CharacterMode {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    if (v === "mini" || v === "docked" || v === "fullscreen") return v;
+    if (v === "mini" || v === "docked") return v;
+    // We never start in fullscreen mode automatically — it requires
+    // a user gesture and can feel like a "stuck" UI if browser blocks
+    // the actual fullscreen request.
+    if (v === "fullscreen") return "docked";
   } catch {
     /* localStorage unavailable */
   }

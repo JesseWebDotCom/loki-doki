@@ -22,6 +22,7 @@ import {
   type CharacterRow,
 } from '../lib/api';
 import CharacterFrame from '../components/character/CharacterFrame';
+import FullscreenCharacterOverlay from '../components/character/FullscreenCharacterOverlay';
 import type { HeadTiltState } from '../components/character/useHeadTilt';
 import { useCharacterMode } from '../utils/characterMode';
 import { useAuth } from '../auth/useAuth';
@@ -109,6 +110,7 @@ const ChatPage: React.FC = () => {
   const [activeChar, setActiveChar] = useState<CharacterRow | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  const [characterMode, setCharacterMode] = useCharacterMode();
   // Keeps the chat input focused across send-cycles and session
   // changes — without this the user has to click back into the box
   // every turn (and after starting a new chat).
@@ -131,10 +133,10 @@ const ChatPage: React.FC = () => {
   // guaranteed to be re-enabled by the time .focus() runs — which
   // is why setTimeout(0) inside the send handler was unreliable.
   useEffect(() => {
-    if (!isProcessing) {
+    if (!isProcessing && characterMode !== 'fullscreen') {
       inputRef.current?.focus();
     }
-  }, [isProcessing, currentSessionId]);
+  }, [isProcessing, currentSessionId, characterMode]);
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(id);
@@ -157,11 +159,6 @@ const ChatPage: React.FC = () => {
     if (shockTimer.current != null) window.clearTimeout(shockTimer.current);
   }, []);
 
-  // Character display mode lives in a shared store so the avatar's
-  // hover toolbar AND the Settings → Character section both write to
-  // the same source of truth. Fullscreen is reserved for a future
-  // iteration — for now it falls back to the docked layout.
-  const [characterMode, setCharacterMode] = useCharacterMode();
 
   // In mini mode each assistant message gets its own avatar, but only
   // ONE is awake at a time: the message currently being TTS-spoken
@@ -529,6 +526,10 @@ const ChatPage: React.FC = () => {
     });
   }, [messages]);
 
+  const handleExitFullscreen = useCallback(() => {
+    setCharacterMode('docked');
+  }, [setCharacterMode]);
+
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
       <Sidebar
@@ -638,6 +639,25 @@ const ChatPage: React.FC = () => {
           onClose={() => setOpenSources(null)}
         />
       </main>
+
+      {activeChar && characterMode === 'fullscreen' && (
+        <FullscreenCharacterOverlay
+          character={activeChar}
+          state={characterState}
+          onExit={handleExitFullscreen}
+          input={input}
+          setInput={setInput}
+          onSend={handleSend}
+          isProcessing={isProcessing}
+          placeholder={
+            !connectivity.backendReachable
+              ? 'Backend offline. Start LokiDoki to resume chat…'
+              : activeChar
+                ? `Chat with ${activeChar.name}…`
+                : 'Chat with your character…'
+          }
+        />
+      )}
 
       <ProjectModal
         isOpen={isEditingProject}
