@@ -1,5 +1,6 @@
 import pytest
 import shlex
+from pathlib import Path
 from lokidoki.core.model_manager import ModelPolicy
 from lokidoki.main import BOOTSTRAP_STEPS
 
@@ -65,3 +66,12 @@ class TestBootstrapSteps:
         fast_model = ModelPolicy().fast_model
         assert "/api/tags" in cmd, "pull-model should inspect installed Ollama tags first"
         assert f"ollama pull {shlex.quote(fast_model)}" in cmd
+
+    def test_bootstrap_html_renders_every_step_id(self):
+        """The loading UI must render a visible tile for every backend bootstrap step."""
+        html = Path("lokidoki/static/bootstrap.html").read_text()
+
+        for step_id, _, _ in BOOTSTRAP_STEPS:
+            assert f'id="{step_id}"' in html, (
+                f"bootstrap.html is missing a rendered step tile for '{step_id}'"
+            )
