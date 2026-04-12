@@ -179,11 +179,392 @@ To avoid hard-coded routing, LokiDoki uses a dynamic discovery engine:
 2.  **Dynamic Intent Map**: The system prompt for the Router (Gemma 2B) is composed dynamically by aggregating the `intents` from all *enabled* skills. 
 3.  **Token-Efficient Prompting (Zero-Markdown)**: Every prompt is a character-dense, minimalist block. We **do not use Markdown headers or structural formatting** unless it is statistically proven to increase LLM accuracy for a specific task. By default, metadata and context are passed in a dense, whitespace-stripped string to maximize KV cache performance on the Pi 5.
 
+### IV.a Skill Standards, Contracts, And Naming
+
+LokiDoki has two layers of skill contract:
+
+1.  **Common skill base/schema** — every skill follows the same runtime and manifest contract.
+2.  **Domain contract** — each skill family declares the required function/intents for that family.
+
+#### Common skill base/schema
+
+Every skill must conform to the common runtime contract:
+
+- **Runtime base**: each skill implements the shared `BaseSkill` execution interface.
+- **Mechanism result shape**: each mechanism returns the shared `MechanismResult` structure.
+- **Skill result shape**: execution returns the shared `SkillResult` structure.
+- **Manifest contract**: every skill ships a `manifest.json` with at least:
+  - `skill_id`
+  - `name`
+  - `description`
+  - `intents`
+  - `parameters`
+  - `mechanisms`
+
+Optional manifest fields such as `categories`, `search_config`, and `config_schema` are still part of the common schema when relevant.
+
+This common base is mandatory, but it is **not enough** by itself. We also need domain-level standards so multiple skills in the same family behave consistently.
+
+#### Standalone provider-specific skill rule
+
+Every concrete integration must be a **standalone skill**, named for its provider or backend, following the v1 pattern:
+
+- `weather_openmeteo`
+- `weather_owm`
+- `smarthome_homeassistant`
+- `jokes_icanhazdadjoke`
+- `jokes_jokes4us`
+
+This is a hard rule:
+
+- We do **not** keep a single hardcoded domain file like "the weather skill" or "the jokes skill".
+- Central runtime code must **not** import optional provider skills directly and assume they exist.
+- Skills are discovered dynamically from manifests and selected through the registry.
+- Each standalone skill must have its own:
+  - package/module
+  - `skill_id`
+  - `name`
+  - `description`
+  - icon/favicon asset
+  - `config_schema`
+
+#### Domain contracts
+
+Not every broad topic should be treated as one giant contract. We split by **capability family**, not by vague theme.
+
+This is critical because providers in the same broad domain often support only part of the surface.
+
+Example:
+
+- `movies_fandango` might support:
+  - `get_showtimes`
+  - `get_ratings`
+  - `get_trailer`
+- `movies_youtube` might support:
+  - `get_trailer`
+
+That is valid. `movies_youtube` is **not** invalid just because it does not support showtimes or ratings.
+
+So the contract system works like this:
+
+- a skill only has to satisfy the capability-family contracts it explicitly claims
+- broad domains like `movies` or `weather` are organizational labels, not all-or-nothing interface requirements
+- validation happens per capability family, not per broad domain
+
+Examples of capability-family contracts:
+
+- **Weather provider contract**
+  - required intents: `get_weather`, `get_forecast`
+- **Web search provider contract**
+  - required intents: `search_web`
+  - optional intents: `search_news`
+- **Joke provider contract**
+  - required intents: `tell_joke`
+- **Movie showtimes provider contract**
+  - required intents: `get_showtimes`
+- **Movie trailer provider contract**
+  - required intents: `get_trailer`
+- **Movie ratings provider contract**
+  - required intents: `get_ratings`
+- **Movie catalog provider contract**
+  - required intents: `get_movie_detail`, `search_movies`
+- **TV detail provider contract**
+  - required intents: `get_tv_detail`
+  - optional intents: `get_episodes`
+- **Smart-home control provider contract**
+  - required intents: `control_device`, `get_device_status`
+
+This means:
+
+- a **movie showtimes** skill must expose `get_showtimes`
+- a **movie trailer** skill must expose `get_trailer`
+- a **movie ratings** skill must expose `get_ratings`
+- a **movie catalog** skill must expose `get_movie_detail` and `search_movies`
+- a **joke** skill must expose `tell_joke`
+- a **weather** skill must expose `get_weather` and `get_forecast`
+
+The registry must validate these contracts. If a skill declares itself part of a capability family, but does not expose the required intents for that family, it is invalid.
+
+#### Registry model
+
+LokiDoki uses three distinct registries/layers. These must not be collapsed into one file or one object.
+
+1.  **Capability Registry**
+    - Purpose: user-facing routing contract
+    - One entry per capability/function, e.g. `tell_joke`, `get_weather`, `get_showtimes`
+    - Owns:
+      - capability/function name
+      - user-facing description
+      - routing examples
+      - parameter schema
+      - capability-family/domain-contract identifier
+    - Does **not** own:
+      - provider-specific mechanisms
+      - provider-specific `requires_internet`
+      - provider-specific icon/favicon
+      - provider-specific descriptions
+
+2.  **Skill Registry**
+    - Purpose: discovered standalone skills, whether enabled or not
+    - One entry per standalone provider skill, e.g. `jokes_icanhazdadjoke`, `jokes_jokes4us`, `movies_fandango`, `movies_youtube`
+    - Owns:
+      - `skill_id`
+      - provider-specific name
+      - provider-specific description
+      - icon/favicon
+      - supported intents/functions
+      - `mechanisms`
+      - `requires_internet`
+      - `config_schema`
+      - provider-specific metadata
+    - This is the manifest-driven discovery layer
+
+3.  **Runtime Registry**
+    - Purpose: executable subset for the current runtime/profile/user
+    - Built from:
+      - capability registry
+      - discovered skill registry
+      - enable/disable state
+      - profile/platform availability
+      - user/global config
+    - Contains only the enabled, executable implementations the current runtime can actually use
+
+This means:
+
+- capability examples stay with the **capability registry**
+- provider metadata such as `mechanisms`, `requires_internet`, provider description, and icon stay with the **skill registry**
+- runtime selection happens in the **runtime registry**
+
+The runtime registry is therefore a **subset view**, not the source of truth for every possible installed skill.
+
+#### What metadata belongs where
+
+The metadata split is mandatory:
+
+- **Capability registry owns**
+  - capability/function name
+  - user-facing description
+  - routing examples
+  - parameter schema
+  - capability-family/domain-contract id
+- **Skill registry owns**
+  - `skill_id`
+  - provider-specific description
+  - icon/favicon
+  - supported intents/functions
+  - `mechanisms`
+  - `requires_internet`
+  - `config_schema`
+  - provider-specific examples and limits
+- **Runtime registry owns**
+  - only the enabled/available implementations for this runtime
+  - ranking/priority after profile + availability filtering
+
+So:
+
+- examples stay with the capability
+- provider mechanics stay with the standalone skill
+- enabled/disabled execution state lives in the runtime registry
+
+#### Runtime subset rule
+
+The system must distinguish between:
+
+- **all discovered skills** — installed/discoverable whether enabled or not
+- **enabled skills** — allowed by admin/user toggles and valid for the current profile
+- **runtime implementations** — the final executable subset the pipeline can route to right now
+
+The runtime registry is built from that filtered subset only.
+
+This matches the current project direction:
+
+- a full catalog may include skills that are installed but disabled
+- a profile may exclude skills that are unsupported on `mac`, `pi_cpu`, or `pi_hailo`
+- routing and execution must only see the enabled/runtime subset
+
+#### Typed parameter extraction is upstream, not in skills
+
+`docs/SKILL_STUBS.md` correctly identifies typed parameter extraction as a
+cross-cutting missing layer in the current v2 prototype. That is now a
+design requirement:
+
+- decomposition/resolution owns typed extraction
+- skills consume structured `parameters`
+- skills consume merged per-skill config
+- skills do **not** recover missing structure by reparsing raw user text
+
+Examples of fields that must be emitted structurally before skill execution:
+
+- `location`
+- `zip`
+- `movie_title`
+- `origin`
+- `destination`
+- `flight_number`
+- `city`
+- `date`
+
+If a required field is absent, the skill should fail clearly or request
+clarification. It should not scan `chunk_text` for ad hoc markers like
+`" in "` or `" at "`.
+
+#### Per-skill config injection is part of execution
+
+`docs/SKILL_STUBS.md` also correctly calls out that v2 adapters have been
+missing the v1-style `_config` injection path. The design requirement is:
+
+- every standalone skill receives merged config at execution time
+- the merge order is:
+  - global defaults
+  - user overrides
+- this merged config is passed to the skill as per-skill execution config
+
+This is how skills access:
+
+- API keys
+- default ZIP code
+- default location
+- preferred theater
+- provider-specific timeout/cache overrides when supported
+
+Hardcoded pseudo-defaults inside provider handlers are not acceptable
+when the skill manifest already declares a config field.
+
+#### Prototype note
+
+`docs/v2_prototype.md` describes an earlier prototype shape with:
+
+- a static `v2/data/function_registry.json`
+- single-file skills under `v2/skills/`
+
+That prototype shape is useful historical context, but the current
+design standard supersedes it where they conflict:
+
+- provider implementations belong in standalone skills with manifests
+- capability registry, skill registry, and runtime registry stay separate
+- central runtime code does not hardcode one provider per domain
+- static prototype wiring must give way to dynamic discovery + runtime filtering
+
+#### Function and intent naming conventions
+
+All user-facing functions/intents use **snake_case** and are **verb-first**.
+
+Rules:
+
+- Use a clear action verb followed by the target noun.
+- Prefer domain-stable names over provider names.
+- Do not encode the provider into the function name.
+- Use the same function names across providers in the same domain contract.
+
+Approved verb patterns:
+
+- `get_*` — read or retrieve state/data
+- `search_*` — search across a corpus or provider
+- `lookup_*` — focused factual lookup for one entity
+- `list_*` — enumerate a set of items
+- `tell_*` — short expressive generation, e.g. `tell_joke`
+- `create_*` — create a new object
+- `update_*` — update an existing object
+- `delete_*` — remove an existing object
+- `set_*` — set a value or state
+- `control_*` — imperative device/media action
+- `send_*` — send a message or outbound communication
+- `play_*` — start media playback
+- `convert_*` — convert units or currencies
+- `calculate_*` — arithmetic or deterministic calculation
+- `summarize_*` — summarize content
+- `translate_*` — translate content
+
+Examples:
+
+- Good:
+  - `get_weather`
+  - `get_forecast`
+  - `tell_joke`
+  - `get_showtimes`
+  - `get_movie_detail`
+  - `search_movies`
+  - `search_web`
+  - `control_device`
+- Bad:
+  - `openmeteo_weather`
+  - `dadjoke`
+  - `movieInfo`
+  - `do_weather_lookup`
+  - `tmdb_search_movies`
+
+#### Skill ID naming conventions
+
+Skill IDs identify the standalone implementation, so they **do** include the provider/backend.
+
+Pattern:
+
+- `<domain>_<provider>`
+
+Examples:
+
+- `weather_openmeteo`
+- `weather_owm`
+- `search_ddg`
+- `movies_tmdb`
+- `movies_wiki`
+- `jokes_icanhazdadjoke`
+- `jokes_jokes4us`
+
+#### Config contract
+
+Every skill must receive merged config using the v1 semantics:
+
+- global config first
+- user config overrides second
+- delivered to the skill as merged per-skill config
+
+Hardcoded fake defaults inside v2 skills are not acceptable when the skill already declares config in its manifest.
+
+Examples of what must move out of ad hoc handler code and into per-skill config:
+
+- default weather location
+- default showtimes ZIP
+- preferred theater
+- provider API keys
+
+#### No downstream user-text reparsing
+
+Skills must not reinterpret the user's raw text to recover missing structure.
+
+That means:
+
+- skills should read structured `parameters`
+- decomposition/resolution owns typed extraction like `location`, `zip`, `movie_title`, `origin`, `destination`, `date`
+- skills may repair **machine-generated** malformed values if necessary
+- skills may **not** use local heuristics on user text as a substitute for missing typed extraction
+
+Bad pattern:
+
+- a weather skill scanning `chunk_text` for `" in "`, `" at "`, `" for "` to guess a location
+
+Correct pattern:
+
+- the decomposer/resolver emits `parameters.location`
+- the skill reads `parameters.location` plus its merged config
+
+#### Design consequence
+
+The final architecture is:
+
+- **Capability/function name** stays domain-stable, e.g. `get_weather`
+- **Multiple standalone skills** may implement that same capability contract, e.g. `weather_openmeteo`, `weather_owm`
+- **A skill may implement only part of a broad domain**, as long as it satisfies the capability-family contracts it claims
+- **Registry/routing** decides which installed standalone skill to use
+- **Capability registry**, **skill registry**, and **runtime registry** stay separate
+- **No central hardcoded import** chooses the provider in application code
+- **Every skill** follows the common schema/base and its domain contract
+
 ### V. Skill Execution & Parallelism Policy
 To ensure low latency and resource efficiency on the Pi 5, LokiDoki uses a "First-Successful-Win" strategy:
 
 1.  **Parallel Intent Execution**: If a prompt is decomposed into multiple "Asks" (e.g., Weather + TV), they are **always executed in parallel**.
-2.  **Multi-Provider Racing (Eager Parallelism)**: For domains with multiple mechanisms (e.g., `search_google` vs `search_yahoo`):
+2.  **Multi-Provider Racing (Eager Parallelism)**: For capabilities with multiple eligible provider skills or multiple mechanisms inside one skill:
     - **The Race**: Both are fired simultaneously by the Orchestrator.
     - **Early Exit**: The Orchestrator accepts the **first valid response** that returns.
     - **Cancellation**: As soon as a result is captured, all other "competing" mechanisms are **instantly cancelled** to free up Pi CPU and network resources.
@@ -205,17 +586,17 @@ To maximize the Pi 5's limited context window and ensure high-speed inference, L
 
 ## 8. Skill Provider Strategy
 
-Every skill is named after its primary provider and follows a multi-mechanism fallback priority.
+Every standalone skill is named after its primary provider/backend and follows a multi-mechanism fallback priority. Capability names stay provider-agnostic; provider names belong in `skill_id`.
 
-| Skill ID | Domain | Provider | Mechanism 1 (Priority) | Mechanism 2 (Fallback) |
+| Skill ID | Capability Family | Provider | Mechanism 1 (Priority) | Mechanism 2 (Fallback) |
 | :--- | :--- | :--- | :--- | :--- |
-| `weather_owm` | `weather` | OpenWeatherMap | Official API | Local Cache |
-| `search_ddg` | `search` | DuckDuckGo | JSON API | Web Scraper |
-| `tvshows_tvmaze` | `tvshows` | TVMaze | Public API | Local DB Cache |
-| `knowledge_wiki` | `knowledge` | Wikipedia | MediaWiki API (JSON) | **Web Scraper (BS4)** |
-| `movies_tmdb` | `movies` | TMDB | TMDB API | n/a |
-| `movies_serp` | `movies` | SerpAPI (or Custom) | Search API | Web Scraper |
-| `smarthome_mock` | `smarthome` | Mock HA | Local State JSON | n/a |
+| `weather_owm` | `weather_provider` | OpenWeatherMap | Official API | Local Cache |
+| `search_ddg` | `web_search_provider` | DuckDuckGo | JSON API | Web Scraper |
+| `tvshows_tvmaze` | `tv_detail_provider` | TVMaze | Public API | Local DB Cache |
+| `knowledge_wiki` | `knowledge_provider` | Wikipedia | MediaWiki API (JSON) | **Web Scraper (BS4)** |
+| `movies_tmdb` | `movie_catalog_provider` | TMDB | TMDB API | n/a |
+| `movies_serp` | `movie_showtimes_provider` or `movie_catalog_provider` | SerpAPI (or Custom) | Search API | Web Scraper |
+| `smarthome_mock` | `smarthome_control_provider` | Mock HA | Local State JSON | n/a |
 
 ### VII. BM25 as a Skill Accelerator
 Beyond memory, BM25 is used to optimize "High-Volume" skills on the Pi 5:
