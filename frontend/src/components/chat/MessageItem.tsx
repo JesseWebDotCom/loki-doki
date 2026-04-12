@@ -141,168 +141,186 @@ const MessageItem: React.FC<MessageProps> = ({
   };
 
   return (
-    <div className={`flex w-full mb-8 items-start gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex w-full mb-8 items-start gap-3 group/msg ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && avatar}
-      <div className={`max-w-[85%] sm:max-w-[80%] rounded-2xl px-6 py-4 border transition-all duration-300 shadow-m3 ${
-        isUser
-          ? 'bg-primary/10 border-primary/20 text-foreground'
-          : 'bg-card border-border/40 text-foreground'
-      }`}>
-        <div className="flex items-center gap-2 mb-3 opacity-70">
-          <span className={`text-[10px] font-bold uppercase tracking-widest ${isUser ? 'text-primary' : 'text-muted-foreground'}`}>
-            {isUser ? (userName || 'user') : (assistantName || 'assistant')}
-          </span>
-          <span className="text-[10px] text-muted-foreground/40 font-mono italic">{timestamp}</span>
-          {!isUser && pipeline && <PipelineInfoPopover pipeline={pipeline} />}
-          {!isUser && myKey && (
-            <div className="ml-auto flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => tts.speak(myKey, content)}
-                disabled={tts.muted || isActive}
-                title={tts.muted ? 'Voice muted' : 'Play / replay'}
-                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
-              >
-                {isPending ? (
-                  <LoaderCircle size={13} className="animate-spin" />
-                ) : (
-                  <Play size={13} />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => tts.stop()}
-                disabled={!isActive}
-                title="Stop"
-                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
-              >
-                <Square size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={tts.toggleMute}
-                title={tts.muted ? 'Unmute (allow auto-play)' : 'Mute (silence auto-play)'}
-                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition cursor-pointer"
-              >
-                {tts.muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-              </button>
-            </div>
-          )}
-        </div>
-        
-        <div className={`prose-onyx text-[15px] leading-relaxed font-medium tracking-tight ${isUser ? 'text-foreground' : 'text-foreground/90'}`}>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkBreaks]}
-            components={{
-              p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
-              ul: ({ children }) => <ul className="list-disc ml-6 mb-4 space-y-1">{children}</ul>,
-              ol: ({ children }) => <ol className="list-decimal ml-6 mb-4 space-y-1">{children}</ol>,
-              li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-              strong: ({ children }) => <strong className="font-bold text-primary/90">{children}</strong>,
-              a: ({ href, children }) => {
-                if (href?.startsWith('#cite-')) {
-                  const index = parseInt(href.replace('#cite-', ''), 10);
-                  return <Citation index={index} sources={sources} />;
-                }
-                // Person mention chip: /people?focus=ID
-                if (href?.startsWith('/people?focus=')) {
-                  const personId = parseInt(new URLSearchParams(href.split('?')[1]).get('focus') || '0', 10);
-                  const person = mentionedPeople.find((p) => p.id === personId);
+      <div className={`flex flex-col gap-2 max-w-[85%] sm:max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
+        <div className={`rounded-2xl px-6 py-4 border transition-all duration-300 shadow-m3 ${
+          isUser
+            ? 'bg-primary/10 border-primary/20 text-foreground'
+            : 'bg-card border-border/40 text-foreground'
+        }`}>
+          <div className="flex items-center gap-2 mb-3 opacity-70">
+            <span className={`text-[10px] font-bold uppercase tracking-widest ${isUser ? 'text-primary' : 'text-muted-foreground'}`}>
+              {isUser ? (userName || 'user') : (assistantName || 'assistant')}
+            </span>
+            <span className="text-[10px] text-muted-foreground/40 font-mono italic">{timestamp}</span>
+            {!isUser && pipeline && <PipelineInfoPopover pipeline={pipeline} />}
+          </div>
+          
+          <div className={`prose-onyx text-[15px] leading-relaxed font-medium tracking-tight ${isUser ? 'text-foreground' : 'text-foreground/90'}`}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkBreaks]}
+              components={{
+                p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+                ul: ({ children }) => <ul className="list-disc ml-6 mb-4 space-y-1">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal ml-6 mb-4 space-y-1">{children}</ol>,
+                li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                strong: ({ children }) => <strong className="font-bold text-primary/90">{children}</strong>,
+                a: ({ href, children }) => {
+                  if (href?.startsWith('#cite-')) {
+                    const index = parseInt(href.replace('#cite-', ''), 10);
+                    return <Citation index={index} sources={sources} />;
+                  }
+                  // Person mention chip: /people?focus=ID
+                  if (href?.startsWith('/people?focus=')) {
+                    const personId = parseInt(new URLSearchParams(href.split('?')[1]).get('focus') || '0', 10);
+                    const person = mentionedPeople.find((p) => p.id === personId);
+                    return (
+                      <a
+                        href={href}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors no-underline align-middle mx-0.5 cursor-pointer"
+                        title={person ? `View ${person.name}'s profile${person.relation ? ` (${person.relation})` : ''}` : 'View profile'}
+                      >
+                        {person?.photo_url ? (
+                          <img src={person.photo_url} alt="" className="w-4 h-4 rounded-full object-cover" />
+                        ) : (
+                          <span className="w-4 h-4 rounded-full bg-primary/20 text-[8px] font-bold flex items-center justify-center">
+                            {(String(children) || '?').charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        {children}
+                      </a>
+                    );
+                  }
                   return (
                     <a
                       href={href}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors no-underline align-middle mx-0.5 cursor-pointer"
-                      title={person ? `View ${person.name}'s profile${person.relation ? ` (${person.relation})` : ''}` : 'View profile'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline underline-offset-4 decoration-primary/30 transition-all font-semibold inline-flex items-center gap-1 cursor-pointer"
                     >
-                      {person?.photo_url ? (
-                        <img src={person.photo_url} alt="" className="w-4 h-4 rounded-full object-cover" />
-                      ) : (
-                        <span className="w-4 h-4 rounded-full bg-primary/20 text-[8px] font-bold flex items-center justify-center">
-                          {(String(children) || '?').charAt(0).toUpperCase()}
-                        </span>
-                      )}
                       {children}
                     </a>
                   );
-                }
-                return (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline underline-offset-4 decoration-primary/30 transition-all font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
+                },
+                code: ({ children }) => (
+                  <code className="bg-muted px-1.5 py-0.5 rounded-md font-mono text-sm border border-border/20">
                     {children}
-                  </a>
-                );
-              },
-              code: ({ children }) => (
-                <code className="bg-muted px-1.5 py-0.5 rounded-md font-mono text-sm border border-border/20">
-                  {children}
-                </code>
-              ),
-              pre: ({ children }) => (
-                <pre className="bg-muted p-4 rounded-xl font-mono text-sm overflow-x-auto my-4 border border-border/30 shadow-inner">
-                  {children}
-                </pre>
-              ),
-              blockquote: ({ children }) => (
-                <blockquote className="border-l-4 border-primary/30 pl-4 py-1 italic text-muted-foreground my-4 bg-muted/20 rounded-r-lg">
-                  {children}
-                </blockquote>
-              ),
-            }}
-          >
-            {processedContent}
-          </ReactMarkdown>
+                  </code>
+                ),
+                pre: ({ children }) => (
+                  <pre className="bg-muted p-4 rounded-xl font-mono text-sm overflow-x-auto my-4 border border-border/30 shadow-inner">
+                    {children}
+                  </pre>
+                ),
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-4 border-primary/30 pl-4 py-1 italic text-muted-foreground my-4 bg-muted/20 rounded-r-lg">
+                    {children}
+                  </blockquote>
+                ),
+              }}
+            >
+              {processedContent}
+            </ReactMarkdown>
+          </div>
+
+          {!isUser && confirmations.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-border/20 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-primary/70">
+                <Brain size={11} />
+                Memory updated
+              </div>
+              {confirmations.map((c) => (
+                <div
+                  key={c.fact_id}
+                  className="flex items-center gap-2 text-[11px] text-muted-foreground pl-1"
+                >
+                  <Brain size={11} className={c.status === 'ambiguous' ? 'text-amber-400' : 'text-primary/70'} />
+                  <span className="truncate">
+                    <span className="font-medium text-foreground/80">{c.subject}</span>{' '}
+                    <span className="font-mono text-[10px]">{c.predicate}</span>{' '}
+                    <span className="font-medium text-foreground/80">{c.value}</span>
+                    {c.contradiction_action === 'revise' && c.previous_value && (
+                      <span className="text-amber-400/80"> (was: {c.previous_value})</span>
+                    )}
+                    {c.contradiction_action === 'supersede' && c.previous_value && (
+                      <span className="text-amber-400/80"> (replaces: {c.previous_value})</span>
+                    )}
+                    {c.status === 'ambiguous' && (
+                      <span className="text-amber-400/80"> — needs disambiguation</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!isUser && clarification && (
+            <div className="mt-3 text-[11px] italic text-primary/70 border-l-2 border-primary/40 pl-3">
+              {clarification}
+            </div>
+          )}
         </div>
 
-        {!isUser && confirmations.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-border/20 space-y-1.5">
-            <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-primary/70">
-              <Brain size={11} />
-              Memory updated
-            </div>
-            {confirmations.map((c) => (
-              <div
-                key={c.fact_id}
-                className="flex items-center gap-2 text-[11px] text-muted-foreground pl-1"
-              >
-                <Brain size={11} className={c.status === 'ambiguous' ? 'text-amber-400' : 'text-primary/70'} />
-                <span className="truncate">
-                  <span className="font-medium text-foreground/80">{c.subject}</span>{' '}
-                  <span className="font-mono text-[10px]">{c.predicate}</span>{' '}
-                  <span className="font-medium text-foreground/80">{c.value}</span>
-                  {c.contradiction_action === 'revise' && c.previous_value && (
-                    <span className="text-amber-400/80"> (was: {c.previous_value})</span>
-                  )}
-                  {c.contradiction_action === 'supersede' && c.previous_value && (
-                    <span className="text-amber-400/80"> (replaces: {c.previous_value})</span>
-                  )}
-                  {c.status === 'ambiguous' && (
-                    <span className="text-amber-400/80"> — needs disambiguation</span>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!isUser && clarification && (
-          <div className="mt-3 text-[11px] italic text-primary/70 border-l-2 border-primary/40 pl-3">
-            {clarification}
-          </div>
-        )}
-
         {!isUser && (
-          <div className="mt-3 pt-2 border-t border-border/10 flex items-center gap-1">
+          <div className="flex items-center gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity px-2">
             <TooltipProvider delayDuration={300}>
+              {myKey && (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => tts.speak(myKey, content)}
+                        disabled={tts.muted || isActive}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        {isPending ? <LoaderCircle size={14} className="animate-spin" /> : <Play size={14} />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      {tts.muted ? 'Voice muted' : 'Play'}
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => tts.stop()}
+                        disabled={!isActive}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        <Square size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">Stop</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={tts.toggleMute}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
+                      >
+                        {tts.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      {tts.muted ? 'Unmute' : 'Mute'}
+                    </TooltipContent>
+                  </Tooltip>
+                  <div className="w-px h-4 bg-border/40 mx-1" />
+                </>
+              )}
+
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     onClick={handleCopy}
-                    className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition cursor-pointer"
+                    className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
                   >
                     {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                   </button>
@@ -318,7 +336,7 @@ const MessageItem: React.FC<MessageProps> = ({
                     className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
                       feedbackState === 1
                         ? 'text-green-400 bg-green-400/10'
-                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50'
+                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-card'
                     }`}
                   >
                     <ThumbsUp size={14} />
@@ -335,7 +353,7 @@ const MessageItem: React.FC<MessageProps> = ({
                     className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
                       feedbackState === -1
                         ? 'text-red-400 bg-red-400/10'
-                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50'
+                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-card'
                     }`}
                   >
                     <ThumbsDown size={14} />
@@ -350,7 +368,7 @@ const MessageItem: React.FC<MessageProps> = ({
                     <button
                       type="button"
                       onClick={onRetry}
-                      className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition cursor-pointer"
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
                     >
                       <RefreshCw size={14} />
                     </button>
