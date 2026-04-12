@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from v2.orchestrator.skills._runner import AdapterResult
+from v2.orchestrator.execution.errors import ErrorKind
 
 _LEAGUES = {
     "nba": ("basketball", "nba"),
@@ -119,5 +120,6 @@ async def get_player_stats(payload: dict[str, Any]) -> dict[str, Any]:
     return AdapterResult(
         output_text=f"Player stats lookup for '{query}' is not fully structured yet; provider wiring still in progress.",
         success=False,
+        error_kind=ErrorKind.no_data,
         error="player stats provider incomplete",
     ).to_payload()

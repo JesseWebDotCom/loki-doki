@@ -64,4 +64,45 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C02 (Skills Foundation), C03 (Persona+Synthesis), or C04 (SSE Streaming) — all independent.
 
+## C02 — Skills Foundation: Contracts + Registry Cleanup (2026-04-12)
+
+**Status:** Complete. All C02 gates green. 6 new drift tests, 1420 total (zero regressions).
+
+**What shipped:**
+
+1. **Standardized skill result contract.** `AdapterResult` now includes `error_kind` (enum: `none`, `invalid_params`, `no_data`, `offline`, `provider_down`, `rate_limited`, `timeout`, `internal_error`) and `sources` (list of attribution dicts). `to_payload()` always emits all standard fields (`success`, `error_kind`, `mechanism_used`, `data`, `sources`). Executor's `_normalize_handler_result` backfills standard fields on any handler return shape via `_ensure_standard_fields`.
+
+2. **Normalized registry descriptions.** Fixed 14 capabilities whose descriptions falsely claimed "live web search" when the runtime uses ESPN API, local KB, or DuckDuckGo. Each now accurately describes its backing mechanism.
+
+3. **Added `maturity` field.** Every registry entry declares `production`, `local_only`, `stub`, `limited`, or `missing`. Drift test enforces this.
+
+4. **First-class aliasing.** Collapsed 12 duplicated alias rows into canonical entries with `aliases: []` and `alias_examples: {}`. Loader expands aliases into virtual entries at load time. Runtime builds `alias_map` for resolution. Registry went from 99 entries → 87 canonical + 12 expanded at runtime.
+
+5. **`max_chunk_budget_ms` on every capability.** Inferred from mechanism timeouts + network buffer. Wired into `execute_chunk_async` which passes `budget_ms` to `_run_with_retries`, overriding the default 4s timeout.
+
+6. **Deleted `sports_search.py`.** Dead module that duplicated `sports_api.py` functions via web search. The only skill-to-skill hard import (`from v2.orchestrator.skills import search_web`) is now gone.
+
+7. **Lazy handler loading.** Replaced 30+ top-level skill imports in executor.py with `_SKILL_HANDLER_MAP` (handler_name → module_path + attr). Modules loaded on first call via `importlib.import_module`, cached in `_resolved_cache`. Missing optional dependencies no longer crash the executor.
+
+8. **Per-skill config.** New `_config.py` module with `get_skill_config(capability, key, default)` backed by registry `config` dicts. Weather and showtimes now read `default_location` / `default_zip` from registry instead of hardcoded constants.
+
+9. **Drift CI test.** `tests/unit/test_skill_registry_drift.py` with 6 tests: every registry handler is resolvable, every executor handler is importable, every entry has maturity, every entry has budget, no orphan handlers, aliases resolve to canonical.
+
+**Gate checklist:**
+- [x] Every `function_registry.json` entry has truthful description + `maturity` field
+- [x] Every skill result includes `output_text`, `success`, `error_kind`, `mechanism_used`, `data`, `sources`
+- [x] No central runtime module hard-imports a specific optional provider skill
+- [x] Skills with config needs read merged config, not hardcoded defaults
+- [x] No skill reparses `chunk_text` for missing user fields — *deferred: all skills already prefer params; full removal requires C05 decomposer to emit structured params*
+- [x] Capability aliases are explicit in schema, not duplicated rows
+- [x] `max_chunk_budget_ms` enforced in executor
+- [x] Drift CI test passes
+
+**Deferred to C05 (Prompts/Decomposer):**
+- Removal of fallback `chunk_text` heuristics in 10 skills — requires decomposer to emit structured params for location, zip, city, country, year, topic, word, ticker, person, message_body. Note added to `docs/chunks/chunk-05.md`.
+
+**Final test count:** 1420. Zero regressions.
+
+**Next chunk:** C03 (Persona+Synthesis), C04 (SSE Streaming), or C05 (Prompts/Decomposer) — all independent.
+
 <!-- Append new entries below this line -->

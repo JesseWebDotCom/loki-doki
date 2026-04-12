@@ -248,10 +248,7 @@ async def test_knowledge_adapter_wiki_internal_waterfall_still_works(monkeypatch
     _install_ddg_fake(monkeypatch, adapter, ddg)
 
     result = await adapter.handle({"chunk_text": "what is copper"})
-    # AdapterResult.to_payload only emits the ``success`` key on failure —
-    # success is implied when the key is absent. Check the trace data
-    # and output_text instead.
-    assert "success" not in result
+    assert result["success"] is True
     assert "chemical element" in result["output_text"]
     assert [c[0] for c in wiki.calls] == ["mediawiki_api", "web_scraper"]
     assert result["data"]["winner"] == "wikipedia"
@@ -289,7 +286,7 @@ async def test_showtimes_adapter_uses_default_zip_when_missing(monkeypatch):
     result = await adapter.handle({"chunk_text": "movie times for the dark knight"})
     method, params = fake.calls[0]
     assert params["query"] == "the dark knight"
-    assert params["zip"] == adapter._DEFAULT_ZIP
+    assert params["zip"] == adapter._default_zip()
 
 
 # ---- smarthome adapters ----------------------------------------------------

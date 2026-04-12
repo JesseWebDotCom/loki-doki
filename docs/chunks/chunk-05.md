@@ -38,6 +38,18 @@ These are small structured fields the parse tree + a tiny model can handle. The 
 
 ---
 
+## Deferred from C02 (Skills Foundation)
+
+**Skill-local text heuristics.** C02 confirmed that 10 skills fall back to
+`chunk_text` parsing (regex/keyword) when `params` are absent. All check
+`params` first, so the fix is to have the decomposer/resolver emit structured
+params for: `location` (weather), `zip` (showtimes), `city` (time_in_location),
+`country`/`year` (holidays), `topic` (news), `word` (dictionary), `ticker`
+(markets), `person`/`fact_type` (people_facts), `message_body` (contacts).
+Once params are reliably populated, the fallback heuristics can be removed.
+
+---
+
 ## What to Build
 
 1. **Audit v2's decomposer needs.** List every structured field the pipeline consumes from a "decomposer": `need_preference`, `need_social`, `need_session_context`, `need_episode`, `intent`, `sentiment`, `complexity`. Check which are already derived deterministically. **Note from C01:** `need_session_context` and `need_episode` are wired as context flags but not yet emitted by a decomposer — they're currently caller-set (dev tools toggles or auto-raised by the pronoun resolver). This chunk should decide how they get set automatically.

@@ -27,7 +27,19 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "greet"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250,
+    "alias_examples": {
+      "greet": [
+        "hello there",
+        "hey there",
+        "good morning"
+      ]
+    }
   },
   {
     "capability": "acknowledgment_response",
@@ -55,7 +67,19 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "acknowledge"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250,
+    "alias_examples": {
+      "acknowledge": [
+        "got it",
+        "ok thanks",
+        "understood"
+      ]
+    }
   },
   {
     "capability": "get_current_time",
@@ -88,7 +112,9 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 220
   },
   {
     "capability": "get_current_date",
@@ -115,7 +141,9 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 220
   },
   {
     "capability": "get_holiday",
@@ -162,7 +190,9 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "list_holidays",
@@ -205,7 +235,9 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "time_until",
@@ -244,7 +276,9 @@
         "timeout_ms": 300,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 500
   },
   {
     "capability": "spell_word",
@@ -282,7 +316,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "recall_recent_media",
@@ -310,7 +346,9 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 220
   },
   {
     "capability": "control_device",
@@ -354,7 +392,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "send_text_message",
@@ -391,7 +431,19 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "send_text"
+    ],
+    "maturity": "stub",
+    "max_chunk_budget_ms": 300,
+    "alias_examples": {
+      "send_text": [
+        "text Leia that i am running late",
+        "send a message to Luke saying dinner is ready",
+        "text my sister i'll be there in 10 minutes"
+      ]
+    }
   },
   {
     "capability": "convert_units",
@@ -433,7 +485,19 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "convert"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250,
+    "alias_examples": {
+      "convert": [
+        "convert 5 miles to kilometers",
+        "how many cups are in a quart",
+        "72 fahrenheit to celsius"
+      ]
+    }
   },
   {
     "capability": "calculate_tip",
@@ -474,7 +538,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "convert_currency",
@@ -521,7 +587,9 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_exchange_rate",
@@ -564,7 +632,9 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_weather",
@@ -616,7 +686,22 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "get_forecast"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000,
+    "alias_examples": {
+      "get_forecast": [
+        "what is the forecast for today",
+        "will it rain tomorrow",
+        "weather this afternoon"
+      ]
+    },
+    "config": {
+      "default_location": "your area"
+    }
   },
   {
     "capability": "get_movie_showtimes",
@@ -668,7 +753,12 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000,
+    "config": {
+      "default_zip": "06461"
+    }
   },
   {
     "capability": "lookup_person_birthday",
@@ -703,7 +793,19 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "lookup_birthday"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300,
+    "alias_examples": {
+      "lookup_birthday": [
+        "when is Leia birthday",
+        "when is my sister birthday",
+        "when is Luke's birthday"
+      ]
+    }
   },
   {
     "capability": "knowledge_query",
@@ -781,7 +883,19 @@
         "timeout_ms": 8000,
         "requires_internet": true
       }
-    ]
+    ],
+    "aliases": [
+      "query"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 8000,
+    "alias_examples": {
+      "query": [
+        "how does a microwave work",
+        "what year was python created",
+        "tell me about langchain"
+      ]
+    }
   },
   {
     "capability": "get_indoor_temperature",
@@ -816,7 +930,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "detect_presence",
@@ -857,7 +973,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 400
   },
   {
     "capability": "get_device_state",
@@ -892,7 +1010,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "get_time_in_location",
@@ -927,7 +1047,9 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 400
   },
   {
     "capability": "generate_email",
@@ -975,7 +1097,9 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 8000
   },
   {
     "capability": "code_assistance",
@@ -1028,7 +1152,19 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "assist"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 8000,
+    "alias_examples": {
+      "assist": [
+        "debug this stack trace",
+        "explain this python function",
+        "write a sql query to group by month"
+      ]
+    }
   },
   {
     "capability": "summarize_text",
@@ -1069,7 +1205,17 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "summarize"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 8000,
+    "alias_examples": {
+      "summarize": [
+        "summarize this article"
+      ]
+    }
   },
   {
     "capability": "create_plan",
@@ -1118,7 +1264,9 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 8000
   },
   {
     "capability": "weigh_options",
@@ -1162,7 +1310,9 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 8000
   },
   {
     "capability": "find_products",
@@ -1204,7 +1354,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "lookup_definition",
@@ -1243,7 +1395,19 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "aliases": [
+      "define_word"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000,
+    "alias_examples": {
+      "define_word": [
+        "what does ephemeral mean",
+        "define serendipity",
+        "what is the definition of opaque"
+      ]
+    }
   },
   {
     "capability": "get_news_headlines",
@@ -1282,7 +1446,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_briefing",
@@ -1310,7 +1476,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "search_news",
@@ -1347,7 +1515,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "find_recipe",
@@ -1386,7 +1556,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "tell_joke",
@@ -1415,7 +1587,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "lookup_tv_show",
@@ -1455,7 +1629,9 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "emotional_support",
@@ -1498,12 +1674,28 @@
         "timeout_ms": 20,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "empathize"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 8000,
+    "alias_examples": {
+      "empathize": [
+        "i feel overwhelmed",
+        "i'm having a rough day",
+        "i feel really anxious right now"
+      ]
+    }
   },
   {
     "capability": "direct_chat",
     "description": "Fallback conversational response when no capability strongly matches.",
-    "examples": [],
+    "examples": [
+      "chat with me",
+      "tell me something",
+      "let's just talk"
+    ],
     "enabled": true,
     "implementations": [
       {
@@ -1526,7 +1718,19 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "aliases": [
+      "chat"
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250,
+    "alias_examples": {
+      "chat": [
+        "chat with me",
+        "tell me something",
+        "let's just talk"
+      ]
+    }
   },
   {
     "capability": "create_event",
@@ -1569,7 +1773,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "get_events",
@@ -1605,7 +1811,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "update_event",
@@ -1648,7 +1856,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "delete_event",
@@ -1679,7 +1889,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "set_alarm",
@@ -1717,7 +1929,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "set_timer",
@@ -1751,7 +1965,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "set_reminder",
@@ -1785,7 +2001,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "cancel_alarm",
@@ -1819,7 +2037,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "list_alarms",
@@ -1844,7 +2064,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "search_contacts",
@@ -1875,7 +2097,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "read_messages",
@@ -1910,7 +2134,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "read_emails",
@@ -1945,7 +2171,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "make_call",
@@ -1976,7 +2204,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "create_note",
@@ -2010,7 +2240,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "append_to_list",
@@ -2044,7 +2276,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "read_list",
@@ -2074,7 +2308,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "search_notes",
@@ -2104,7 +2340,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "play_music",
@@ -2139,7 +2377,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "control_playback",
@@ -2170,7 +2410,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "get_now_playing",
@@ -2196,7 +2438,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "set_volume",
@@ -2226,7 +2470,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "lookup_track",
@@ -2256,7 +2502,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_directions",
@@ -2301,7 +2549,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_eta",
@@ -2341,7 +2591,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "find_nearby",
@@ -2381,11 +2633,13 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_transit",
-    "description": "Find transit information using live web search.",
+    "description": "Find transit directions via web search fallback.",
     "examples": [
       "next train from Hoboken to Penn Station"
     ],
@@ -2411,11 +2665,13 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "get_streaming",
-    "description": "Find streaming availability using live web search.",
+    "description": "Find streaming availability from a curated local catalog.",
     "examples": [
       "where can i watch Oppenheimer"
     ],
@@ -2453,11 +2709,13 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "search_flights",
-    "description": "Search flights using live web search.",
+    "description": "Search flights from a curated local routes knowledge base.",
     "examples": [
       "flights from JFK to London next Friday"
     ],
@@ -2496,11 +2754,13 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "get_flight_status",
-    "description": "Find flight status using live web search.",
+    "description": "Check flight status via web search fallback.",
     "examples": [
       "is AA 271 on time"
     ],
@@ -2526,11 +2786,13 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "limited",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "search_hotels",
-    "description": "Search hotels using live web search.",
+    "description": "Search hotels from a curated local chains knowledge base.",
     "examples": [
       "hotels in Rome for 3 nights in June"
     ],
@@ -2564,11 +2826,13 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "get_visa_info",
-    "description": "Look up visa information using live web search.",
+    "description": "Look up visa requirements via web search fallback.",
     "examples": [
       "do i need a visa for Thailand on a US passport"
     ],
@@ -2598,11 +2862,13 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "look_up_symptom",
-    "description": "Look up symptom information using live medical web search.",
+    "description": "Look up symptom information via MedlinePlus (DuckDuckGo web search).",
     "examples": [
       "what causes a sharp pain behind the knee"
     ],
@@ -2628,11 +2894,13 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "limited",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "check_medication",
-    "description": "Look up medication information using live medical web search.",
+    "description": "Look up medication information via MedlinePlus (DuckDuckGo web search).",
     "examples": [
       "what is metformin for",
       "can i take ibuprofen with amoxicillin"
@@ -2669,7 +2937,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "limited",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "log_workout",
@@ -2707,7 +2977,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "get_fitness_summary",
@@ -2737,11 +3009,13 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "lookup_fact",
-    "description": "Look up a person fact using live web search.",
+    "description": "Look up a person fact via DuckDuckGo web search.",
     "examples": [
       "how tall is Beyonce",
       "what is Keanu Reeves nationality"
@@ -2784,7 +3058,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "limited",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "set_scene",
@@ -2815,7 +3091,9 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 400
   },
   {
     "capability": "get_nutrition",
@@ -2849,7 +3127,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "substitute_ingredient",
@@ -2883,7 +3163,9 @@
         "timeout_ms": 50,
         "requires_internet": false
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 250
   },
   {
     "capability": "order_food",
@@ -2917,129 +3199,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
-  },
-  {
-    "capability": "greet",
-    "description": "Respond to a short greeting.",
-    "examples": [
-      "hi",
-      "hello there",
-      "good evening"
     ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "core.greeting.alias",
-        "handler_name": "core.greetings.reply",
-        "priority": 10,
-        "enabled": true
-      }
-    ],
-    "parameters": {},
-    "mechanisms": [
-      {
-        "method": "builtin",
-        "priority": 1,
-        "timeout_ms": 50,
-        "requires_internet": false
-      }
-    ]
-  },
-  {
-    "capability": "acknowledge",
-    "description": "Respond to a short acknowledgment.",
-    "examples": [
-      "thanks",
-      "got it",
-      "ok thanks"
-    ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "core.ack.alias",
-        "handler_name": "core.acknowledgments.reply",
-        "priority": 10,
-        "enabled": true
-      }
-    ],
-    "parameters": {},
-    "mechanisms": [
-      {
-        "method": "builtin",
-        "priority": 1,
-        "timeout_ms": 50,
-        "requires_internet": false
-      }
-    ]
-  },
-  {
-    "capability": "chat",
-    "description": "General conversational fallback.",
-    "examples": [
-      "chat with me",
-      "tell me something",
-      "let's just talk"
-    ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "core.chat.alias",
-        "handler_name": "fallback.direct_chat",
-        "priority": 100,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "text": {
-        "type": "string",
-        "required": false
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "echo",
-        "priority": 1,
-        "timeout_ms": 50,
-        "requires_internet": false
-      }
-    ]
-  },
-  {
-    "capability": "define_word",
-    "description": "Look up a dictionary definition of a word.",
-    "examples": [
-      "what does ephemeral mean",
-      "define serendipity",
-      "what is the definition of opaque"
-    ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "skills.dictionary.alias",
-        "handler_name": "skills.dictionary.lookup",
-        "priority": 20,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "word": {
-        "type": "string",
-        "required": true
-      },
-      "lang": {
-        "type": "string",
-        "required": false
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "dictionaryapi_dev",
-        "priority": 1,
-        "timeout_ms": 5000,
-        "requires_internet": true
-      }
-    ]
+    "maturity": "stub",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "calculate",
@@ -3071,170 +3233,9 @@
         "timeout_ms": 100,
         "requires_internet": false
       }
-    ]
-  },
-  {
-    "capability": "convert",
-    "description": "Convert between units of measure.",
-    "examples": [
-      "convert 5 miles to kilometers",
-      "how many cups are in a quart",
-      "72 fahrenheit to celsius"
     ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "core.units.alias",
-        "handler_name": "core.units.convert",
-        "priority": 10,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "amount": {
-        "type": "number",
-        "required": true
-      },
-      "from_unit": {
-        "type": "string",
-        "required": true
-      },
-      "to_unit": {
-        "type": "string",
-        "required": true
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "offline_table",
-        "priority": 1,
-        "timeout_ms": 50,
-        "requires_internet": false
-      }
-    ]
-  },
-  {
-    "capability": "get_forecast",
-    "description": "Report the weather forecast.",
-    "examples": [
-      "what is the forecast for today",
-      "will it rain tomorrow",
-      "weather this afternoon"
-    ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "skills.weather.alias",
-        "handler_name": "skills.weather.forecast",
-        "priority": 20,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "location": {
-        "type": "string",
-        "required": false
-      },
-      "date": {
-        "type": "string",
-        "format": "date",
-        "required": false
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "open_meteo_geocode",
-        "priority": 1,
-        "timeout_ms": 5000,
-        "requires_internet": true
-      },
-      {
-        "method": "open_meteo_forecast",
-        "priority": 2,
-        "timeout_ms": 5000,
-        "requires_internet": true
-      },
-      {
-        "method": "local_cache",
-        "priority": 3,
-        "timeout_ms": 200,
-        "requires_internet": false
-      }
-    ]
-  },
-  {
-    "capability": "query",
-    "description": "Answer a factual or explanatory knowledge question.",
-    "examples": [
-      "how does a microwave work",
-      "what year was python created",
-      "tell me about langchain"
-    ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "core.knowledge.alias",
-        "handler_name": "core.knowledge.lookup",
-        "priority": 20,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "question": {
-        "type": "string",
-        "required": true
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "wikipedia_api",
-        "priority": 1,
-        "timeout_ms": 5000,
-        "requires_internet": true
-      },
-      {
-        "method": "wikipedia_scraper",
-        "priority": 2,
-        "timeout_ms": 5000,
-        "requires_internet": true
-      }
-    ]
-  },
-  {
-    "capability": "summarize",
-    "description": "Summarize a piece of source text.",
-    "examples": [
-      "summarize this article"
-    ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "skills.writing.summarize.alias",
-        "handler_name": "skills.writing.summarize",
-        "priority": 40,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "source": {
-        "type": "string",
-        "required": true
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "ollama_llm",
-        "priority": 1,
-        "timeout_ms": 10000,
-        "requires_internet": true
-      },
-      {
-        "method": "template_stub",
-        "priority": 1,
-        "timeout_ms": 20,
-        "requires_internet": false
-      }
-    ]
+    "maturity": "production",
+    "max_chunk_budget_ms": 300
   },
   {
     "capability": "translate",
@@ -3270,53 +3271,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
-  },
-  {
-    "capability": "assist",
-    "description": "Assist with code generation, debugging, or explanation.",
-    "examples": [
-      "debug this stack trace",
-      "explain this python function",
-      "write a sql query to group by month"
     ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "skills.code.alias",
-        "handler_name": "skills.code.assistant",
-        "priority": 40,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "intent": {
-        "type": "string",
-        "required": true
-      },
-      "language": {
-        "type": "string",
-        "required": false
-      },
-      "code": {
-        "type": "string",
-        "required": false
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "ollama_llm",
-        "priority": 1,
-        "timeout_ms": 10000,
-        "requires_internet": true
-      },
-      {
-        "method": "template_stub",
-        "priority": 1,
-        "timeout_ms": 20,
-        "requires_internet": false
-      }
-    ]
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_tv_schedule",
@@ -3356,85 +3313,13 @@
         "timeout_ms": 200,
         "requires_internet": false
       }
-    ]
-  },
-  {
-    "capability": "send_text",
-    "description": "Send a short text message using the local prototype message backend.",
-    "examples": [
-      "text Leia that i am running late",
-      "send a message to Luke saying dinner is ready",
-      "text my sister i'll be there in 10 minutes"
     ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "skills.messaging.alias",
-        "handler_name": "skills.messaging.send_text",
-        "priority": 20,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "person": {
-        "type": "string",
-        "required": true
-      },
-      "body": {
-        "type": "string",
-        "required": false
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "local_messages",
-        "priority": 1,
-        "timeout_ms": 100,
-        "requires_internet": false
-      }
-    ]
-  },
-  {
-    "capability": "empathize",
-    "description": "Respond with empathy and supportive language.",
-    "examples": [
-      "i feel overwhelmed",
-      "i'm having a rough day",
-      "i feel really anxious right now"
-    ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "skills.support.alias",
-        "handler_name": "skills.support.empathy",
-        "priority": 40,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "feeling": {
-        "type": "string",
-        "required": false
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "ollama_llm",
-        "priority": 1,
-        "timeout_ms": 10000,
-        "requires_internet": true
-      },
-      {
-        "method": "template_stub",
-        "priority": 1,
-        "timeout_ms": 20,
-        "requires_internet": false
-      }
-    ]
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_stock_price",
-    "description": "Look up a live stock price from Yahoo Finance.",
+    "description": "Look up a stock price from a curated local knowledge graph.",
     "examples": [
       "what is Apple stock at",
       "how is TSLA doing"
@@ -3461,7 +3346,9 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_stock_info",
@@ -3492,11 +3379,13 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "local_only",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_score",
-    "description": "Look up a live sports score using live web search.",
+    "description": "Look up a live sports score via ESPN scoreboard API.",
     "examples": [
       "what is the score of the Lakers game"
     ],
@@ -3522,11 +3411,13 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_standings",
-    "description": "Look up sports standings using live web search.",
+    "description": "Look up sports standings via ESPN standings API.",
     "examples": [
       "NFL standings",
       "what place are the Red Sox in"
@@ -3558,11 +3449,13 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_schedule",
-    "description": "Look up sports schedules using live web search.",
+    "description": "Look up sports schedules via ESPN scoreboard API.",
     "examples": [
       "when do the Yankees play next"
     ],
@@ -3588,11 +3481,13 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000
   },
   {
     "capability": "get_player_stats",
-    "description": "Look up player stats using live web search.",
+    "description": "Look up player stats via ESPN API (stub \u2014 provider incomplete).",
     "examples": [
       "how many touchdowns does Mahomes have this year"
     ],
@@ -3626,38 +3521,8 @@
         "timeout_ms": 5000,
         "requires_internet": true
       }
-    ]
-  },
-  {
-    "capability": "lookup_birthday",
-    "description": "Look up a known person birthday from the people resolver and prototype people data.",
-    "examples": [
-      "when is Leia birthday",
-      "when is my sister birthday",
-      "when is Luke's birthday"
     ],
-    "enabled": true,
-    "implementations": [
-      {
-        "id": "core.people.birthday.alias",
-        "handler_name": "core.people.birthday",
-        "priority": 15,
-        "enabled": true
-      }
-    ],
-    "parameters": {
-      "person": {
-        "type": "string",
-        "required": true
-      }
-    },
-    "mechanisms": [
-      {
-        "method": "people_db",
-        "priority": 1,
-        "timeout_ms": 100,
-        "requires_internet": false
-      }
-    ]
+    "maturity": "stub",
+    "max_chunk_budget_ms": 6000
   }
 ]

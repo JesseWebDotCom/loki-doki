@@ -61,7 +61,7 @@ def _install_slow_handlers():
         "core.time.get_local_time_backup",
     )
     for handler_name in targets:
-        snapshot[handler_name] = executor_module._HANDLER_REGISTRY[handler_name]
+        snapshot[handler_name] = executor_module._BUILTIN_HANDLERS[handler_name]
 
     register_handler("core.greetings.reply", _slow_greeting)
     register_handler("core.dictionary.spell", _slow_spell)

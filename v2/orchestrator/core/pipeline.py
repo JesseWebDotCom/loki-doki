@@ -214,15 +214,21 @@ async def run_pipeline_async(
     )
 
     finish = trace.timed("execute")
+    # Look up per-capability budget from registry for timeout enforcement.
+    budgets = [
+        (runtime.capabilities.get(route.capability) or {}).get("max_chunk_budget_ms")
+        for route in routes
+    ]
     executed = list(
         await asyncio.gather(
             *(
-                _timed_execute(chunk, route, implementation, resolution)
-                for chunk, route, implementation, resolution in zip(
+                _timed_execute(chunk, route, implementation, resolution, budget_ms=budget)
+                for chunk, route, implementation, resolution, budget in zip(
                     routable,
                     routes,
                     implementations,
                     resolutions,
+                    budgets,
                     strict=True,
                 )
             )
@@ -669,7 +675,7 @@ async def _timed_resolve(chunk, extraction, route, context):
     return {"resolution": resolution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
 
 
-async def _timed_execute(chunk, route, implementation, resolution):
+async def _timed_execute(chunk, route, implementation, resolution, *, budget_ms=None):
     started = time.perf_counter()
-    execution = await execute_chunk_async(chunk, route, implementation, resolution)
+    execution = await execute_chunk_async(chunk, route, implementation, resolution, budget_ms=budget_ms)
     return {"execution": execution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}

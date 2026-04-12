@@ -25,10 +25,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from lokidoki.core.skill_executor import BaseSkill, MechanismResult
+from v2.orchestrator.execution.errors import ErrorKind
 
 log = logging.getLogger("v2.skills")
 
@@ -44,26 +45,29 @@ class AdapterResult:
 
     output_text: str
     success: bool = True
+    error_kind: ErrorKind = ErrorKind.none
     mechanism_used: str = ""
     source_url: str = ""
     source_title: str = ""
     data: dict[str, Any] | None = None
+    sources: list[dict[str, str]] = field(default_factory=list)
     error: str = ""
 
     def to_payload(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {"output_text": self.output_text}
-        if self.mechanism_used:
-            payload["mechanism_used"] = self.mechanism_used
+        payload: dict[str, Any] = {
+            "output_text": self.output_text,
+            "success": self.success,
+            "error_kind": self.error_kind.value,
+            "mechanism_used": self.mechanism_used,
+            "data": self.data,
+            "sources": self.sources,
+        }
         if self.source_url:
             payload["source_url"] = self.source_url
         if self.source_title:
             payload["source_title"] = self.source_title
-        if self.data is not None:
-            payload["data"] = self.data
-        if not self.success:
-            payload["success"] = False
-            if self.error:
-                payload["error"] = self.error
+        if self.error:
+            payload["error"] = self.error
         return payload
 
 
@@ -123,6 +127,7 @@ async def run_mechanisms(
     return AdapterResult(
         output_text=on_all_failed,
         success=False,
+        error_kind=ErrorKind.provider_down,
         mechanism_used=last_method,
         error=last_error,
     )
@@ -221,6 +226,7 @@ async def run_sources_parallel_scored(
         return AdapterResult(
             output_text=fallback_text,
             success=False,
+            error_kind=ErrorKind.no_data,
             mechanism_used="parallel",
             error="no qualifying sources",
             data={
@@ -257,4 +263,4 @@ async def run_sources_parallel_scored(
 
 # Re-exported for adapters that want to construct AdapterResult directly
 # (e.g. when the v1 skill returned success but the data is empty).
-__all__ = ["AdapterResult", "run_mechanisms", "run_sources_parallel_scored"]
+__all__ = ["AdapterResult", "ErrorKind", "run_mechanisms", "run_sources_parallel_scored"]

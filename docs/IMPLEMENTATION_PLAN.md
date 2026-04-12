@@ -47,7 +47,7 @@ Chunks are ordered by dependency. Each chunk = one Claude Code chat session.
 | Chunk | Title | Depends On | Briefing | Est. Size | Status |
 |---|---|---|---|---|---|
 | **C01** | Memory M4: session state + episodic + promotion | M0-M3.5 (done) | `chunks/chunk-01.md` | Large | **complete** |
-| **C02** | Skills Foundation: contracts + registry cleanup | none | `chunks/chunk-02.md` | Large | not started |
+| **C02** | Skills Foundation: contracts + registry cleanup | none | `chunks/chunk-02.md` | Large | **complete** |
 | **C03** | Persona + Synthesis (graduation 4.F + 4.H) | none | `chunks/chunk-03.md` | Medium | not started |
 | **C04** | SSE Streaming wrapper (graduation 4.J) | none | `chunks/chunk-04.md` | Medium | not started |
 | **C05** | Prompts / Decomposer refinement (graduation 4.C) | none | `chunks/chunk-05.md` | Medium | not started |

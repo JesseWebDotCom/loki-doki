@@ -19,10 +19,13 @@ from typing import Any
 from lokidoki.skills.movies_fandango.skill import FandangoShowtimesSkill
 
 from v2.orchestrator.skills._runner import AdapterResult, run_mechanisms
+from v2.orchestrator.skills._config import get_skill_config
 
 _SKILL = FandangoShowtimesSkill()
 
-_DEFAULT_ZIP = "06461"
+
+def _default_zip() -> str:
+    return get_skill_config("get_movie_showtimes", "default_zip", "06461")
 
 _TITLE_BLOCKLIST = {
     "what",
@@ -61,7 +64,7 @@ def _extract_zip(payload: dict[str, Any]) -> str:
     match = _ZIP_RE.search(chunk_text)
     if match:
         return match.group(1)
-    return _DEFAULT_ZIP
+    return _default_zip()
 
 
 def _extract_title(payload: dict[str, Any]) -> str:

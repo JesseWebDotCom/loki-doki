@@ -1,7 +1,7 @@
 """Cached runtime capability registry for the v2 prototype."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 from v2.orchestrator.core.types import ImplementationSelection
@@ -15,6 +15,7 @@ class CapabilityRuntime:
     capabilities: dict[str, dict]
     router_index: list[dict]
     embedding_backend: EmbeddingBackend
+    alias_map: dict[str, str] = field(default_factory=dict)
 
     def embed_query(self, text: str) -> list[float]:
         """Embed one normalized query using the startup-selected backend."""
@@ -23,9 +24,14 @@ class CapabilityRuntime:
             return [0.0] * self.embedding_backend.dimensions
         return vectors[0]
 
+    def resolve_capability(self, capability: str) -> str:
+        """Resolve an alias to its canonical capability name."""
+        return self.alias_map.get(capability, capability)
+
     def select_handler(self, chunk_index: int, capability: str) -> ImplementationSelection:
         """Return the highest-priority enabled implementation for a capability."""
-        capability_data = self.capabilities.get(capability) or {}
+        resolved = self.resolve_capability(capability)
+        capability_data = self.capabilities.get(resolved) or self.capabilities.get(capability) or {}
         implementations = capability_data.get("implementations") or []
         enabled = [item for item in implementations if item.get("enabled", True)]
         if not enabled:
@@ -39,6 +45,7 @@ class CapabilityRuntime:
             )
         ordered = sorted(enabled, key=lambda item: int(item.get("priority", 999)))
         selected = ordered[0]
+        budget_ms = capability_data.get("max_chunk_budget_ms")
         return ImplementationSelection(
             chunk_index=chunk_index,
             capability=capability,
@@ -55,8 +62,16 @@ def get_runtime() -> CapabilityRuntime:
     items = load_function_registry()
     backend = get_embedding_backend()
     capabilities = {item["capability"]: item for item in items if item.get("enabled", True)}
+    # Build alias -> canonical mapping from the expanded loader output.
+    # The loader already expands aliases into virtual entries, so each
+    # alias shares implementations with its canonical entry.
+    alias_map: dict[str, str] = {}
+    for item in items:
+        for alias in item.get("aliases") or []:
+            alias_map[alias] = item["capability"]
     return CapabilityRuntime(
         capabilities=capabilities,
         router_index=build_router_index(items, embed_texts=backend.embed),
         embedding_backend=backend,
+        alias_map=alias_map,
     )

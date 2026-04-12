@@ -16,13 +16,15 @@ from typing import Any
 from lokidoki.skills.weather_openmeteo.skill import OpenMeteoSkill
 
 from v2.orchestrator.skills._runner import AdapterResult, run_mechanisms
+from v2.orchestrator.skills._config import get_skill_config
 
 # Process-singleton — the v1 skill caches successful lookups in
 # ``self._cache`` and we want that cache to survive across requests.
 _SKILL = OpenMeteoSkill()
 
 
-_DEFAULT_LOCATION = "your area"
+def _default_location() -> str:
+    return get_skill_config("get_weather", "default_location", "your area")
 
 
 def _extract_location(payload: dict[str, Any]) -> str:
@@ -31,7 +33,7 @@ def _extract_location(payload: dict[str, Any]) -> str:
     The v2 routing layer doesn't yet do typed parameter extraction, so
     the location lives inside ``chunk_text``. We try a couple of common
     surface forms — only when one of them matches do we return a
-    location. Otherwise we fall back to ``_DEFAULT_LOCATION`` rather
+    location. Otherwise we fall back to ``_default_location()`` rather
     than handing the whole chunk to the v1 geocoder, which would mangle
     "is it going to rain" into a literal place lookup.
     """
@@ -40,14 +42,14 @@ def _extract_location(payload: dict[str, Any]) -> str:
         return str(explicit)
     chunk_text = str(payload.get("chunk_text") or "").strip(" ?.!")
     if not chunk_text:
-        return _DEFAULT_LOCATION
+        return _default_location()
     lower = chunk_text.lower()
     for marker in (" in ", " for ", " at "):
         if marker in lower:
             tail = chunk_text[lower.index(marker) + len(marker):].strip()
             if tail:
                 return tail
-    return _DEFAULT_LOCATION
+    return _default_location()
 
 
 def _format_success(result, method: str) -> str:
@@ -72,7 +74,7 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
     """v2 handler entry point."""
     location = _extract_location(payload)
     if not location:
-        location = _DEFAULT_LOCATION
+        location = _default_location()
     attempts = [
         ("open_meteo", {"location": location}),
         ("local_cache", {"location": location}),
