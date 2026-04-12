@@ -25,6 +25,27 @@ from lokidoki.core.person_pronunciation import (
 router = APIRouter()
 
 MEDIA_ROOT = "data/media"
+_GEDCOM_MONTHS = {
+    "JAN": "01",
+    "FEB": "02",
+    "MAR": "03",
+    "APR": "04",
+    "MAY": "05",
+    "JUN": "06",
+    "JUL": "07",
+    "AUG": "08",
+    "SEP": "09",
+    "OCT": "10",
+    "NOV": "11",
+    "DEC": "12",
+}
+_GEDCOM_QUALIFIER_PRECISION = {
+    "BEF": "before",
+    "AFT": "after",
+    "ABT": "approx",
+    "CAL": "calculated",
+    "EST": "estimated",
+}
 
 
 def _display_person_name(name: Optional[str]) -> str:
@@ -57,12 +78,44 @@ def _decorate_media(row: dict) -> dict:
     return out
 
 
+def _normalize_gedcom_date(raw_date: Optional[str]) -> tuple[Optional[str], str]:
+    """Convert common GEDCOM dates into machine-usable values plus precision."""
+    cleaned = " ".join((raw_date or "").strip().upper().split())
+    if not cleaned:
+        return None, "unknown"
+    parts = cleaned.split(" ")
+    qualifier = None
+    if parts and parts[0] in _GEDCOM_QUALIFIER_PRECISION:
+        qualifier = parts.pop(0)
+    normalized: Optional[str] = None
+    base_precision = "verbatim"
+    if len(parts) == 3 and parts[0].isdigit() and parts[1] in _GEDCOM_MONTHS and parts[2].isdigit():
+        day = int(parts[0])
+        year = int(parts[2])
+        normalized = f"{year:04d}-{_GEDCOM_MONTHS[parts[1]]}-{day:02d}"
+        base_precision = "exact"
+    elif len(parts) == 2 and parts[0] in _GEDCOM_MONTHS and parts[1].isdigit():
+        year = int(parts[1])
+        normalized = f"{year:04d}-{_GEDCOM_MONTHS[parts[0]]}"
+        base_precision = "month"
+    elif len(parts) == 1 and parts[0].isdigit():
+        year = int(parts[0])
+        normalized = f"{year:04d}"
+        base_precision = "year"
+    if normalized is None:
+        return cleaned, "verbatim"
+    if qualifier:
+        return normalized, _GEDCOM_QUALIFIER_PRECISION[qualifier]
+    return normalized, base_precision
+
+
 def _parse_gedcom(text: str) -> dict:
     people: dict[str, dict] = {}
     families: dict[str, dict] = {}
     current: dict | None = None
     current_type = ""
     current_event: Optional[str] = None
+    event_fields = {"BIRT": "birth_date", "DEAT": "death_date", "MARR": "marriage_date"}
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line:
@@ -92,9 +145,10 @@ def _parse_gedcom(text: str) -> dict:
             continue
         if current is None:
             continue
-        if level == 1 and tag in {"BIRT", "DEAT", "MARR"}:
-            current_event = tag
-            continue
+        if level == 1:
+            current_event = tag if tag in {"BIRT", "DEAT", "MARR"} else None
+            if current_event:
+                continue
         if current_type == "INDI":
             if level == 1 and tag == "NAME":
                 current["name"] = value.replace("/", "").strip()
@@ -103,7 +157,9 @@ def _parse_gedcom(text: str) -> dict:
             elif level == 1 and tag in {"FAMC", "FAMS"}:
                 current.setdefault(tag.lower(), []).append(value)
             elif level == 2 and tag == "DATE" and current_event:
-                current[current_event.lower() + "_date"] = value
+                field = event_fields.get(current_event)
+                if field:
+                    current[field] = value
         elif current_type == "FAM":
             if level == 1 and tag in {"HUSB", "WIFE"}:
                 current[tag.lower()] = value
@@ -543,22 +599,38 @@ async def import_gedcom(
     def _go(conn):
         id_map: dict[str, int] = {}
         for person in parsed["people"].values():
+            birth_date_raw = person.get("birth_date")
+            birth_date, birth_precision = _normalize_gedcom_date(birth_date_raw)
+            death_date_raw = person.get("death_date")
+            death_date, death_precision = _normalize_gedcom_date(death_date_raw)
             pid = gql.create_person_graph(
                 conn,
                 admin.id,
                 name=_display_person_name(person.get("name") or person["id"]),
                 bucket="family",
-                living_status="deceased" if person.get("deat_date") else "unknown",
-                birth_date=person.get("birt_date"),
-                death_date=person.get("deat_date"),
+                living_status="deceased" if death_date else "unknown",
+                birth_date=birth_date,
+                death_date=death_date,
             )
             id_map[person["id"]] = pid
-            if person.get("birt_date"):
+            if birth_date:
                 gql.create_person_event(
                     conn,
                     person_id=pid,
                     event_type="birthday",
-                    event_date=person.get("birt_date"),
+                    event_date=birth_date,
+                    date_precision=birth_precision,
+                    value=birth_date_raw or "",
+                    source="gedcom",
+                )
+            if death_date:
+                gql.create_person_event(
+                    conn,
+                    person_id=pid,
+                    event_type="death",
+                    event_date=death_date,
+                    date_precision=death_precision,
+                    value=death_date_raw or "",
                     source="gedcom",
                 )
         edge_count = 0

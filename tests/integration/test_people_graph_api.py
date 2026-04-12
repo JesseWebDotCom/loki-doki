@@ -121,6 +121,105 @@ async def test_admin_can_import_and_export_gedcom(_isolated_memory):
 
 
 @pytest.mark.anyio
+async def test_gedcom_import_persists_birth_and_death_dates_as_normalized_values(_isolated_memory):
+    async with await _client() as ac:
+        gedcom = "\n".join([
+            "0 HEAD",
+            "0 @I1@ INDI",
+            "1 NAME Anakin /Skywalker/",
+            "1 BIRT",
+            "2 DATE 1 JAN 1970",
+            "1 DEAT",
+            "2 DATE 2 FEB 2005",
+            "0 TRLR",
+        ])
+        imp = await ac.post(
+            "/api/v1/people/admin/import-gedcom",
+            files={"file": ("family.ged", gedcom.encode("utf-8"), "text/plain")},
+        )
+        assert imp.status_code == 200
+
+        graph = await ac.get("/api/v1/people")
+        assert graph.status_code == 200
+        person = next(person for person in graph.json()["people"] if person["name"] == "Anakin Skywalker")
+        assert person["birth_date"] == "1970-01-01"
+        assert person["death_date"] == "2005-02-02"
+        assert person["living_status"] == "deceased"
+
+        detail = await ac.get(f"/api/v1/people/{person['id']}")
+        assert detail.status_code == 200
+        events = detail.json()["events"]
+        birthday = next(event for event in events if event["event_type"] == "birthday")
+        death = next(event for event in events if event["event_type"] == "death")
+        assert birthday["event_date"] == "1970-01-01"
+        assert birthday["date_precision"] == "exact"
+        assert death["event_date"] == "2005-02-02"
+        assert death["date_precision"] == "exact"
+
+
+@pytest.mark.anyio
+async def test_gedcom_import_preserves_qualified_date_precision(_isolated_memory):
+    async with await _client() as ac:
+        gedcom = "\n".join([
+            "0 HEAD",
+            "0 @I402404390909@ INDI",
+            "1 NAME Leia /Organa/",
+            "1 BIRT",
+            "2 DATE BEF 1951",
+            "0 TRLR",
+        ])
+        imp = await ac.post(
+            "/api/v1/people/admin/import-gedcom",
+            files={"file": ("family.ged", gedcom.encode("utf-8"), "text/plain")},
+        )
+        assert imp.status_code == 200
+
+        graph = await ac.get("/api/v1/people")
+        assert graph.status_code == 200
+        person = next(person for person in graph.json()["people"] if person["name"] == "Leia Organa")
+        assert person["birth_date"] == "1951"
+
+        detail = await ac.get(f"/api/v1/people/{person['id']}")
+        assert detail.status_code == 200
+        birthday = next(event for event in detail.json()["events"] if event["event_type"] == "birthday")
+        assert birthday["event_date"] == "1951"
+        assert birthday["date_precision"] == "before"
+
+
+@pytest.mark.anyio
+async def test_gedcom_import_does_not_overwrite_birthdate_with_later_non_birth_event_date(_isolated_memory):
+    async with await _client() as ac:
+        gedcom = "\n".join([
+            "0 HEAD",
+            "0 @I1@ INDI",
+            "1 NAME Padme /Amidala/",
+            "1 BIRT",
+            "2 DATE 22 Oct 1974",
+            "2 PLAC Bridgeport, Fairfield, Connecticut, USA",
+            "1 EVEN",
+            "2 TYPE Residence",
+            "2 DATE BET 2012 AND 2019",
+            "0 TRLR",
+        ])
+        imp = await ac.post(
+            "/api/v1/people/admin/import-gedcom",
+            files={"file": ("family.ged", gedcom.encode("utf-8"), "text/plain")},
+        )
+        assert imp.status_code == 200
+
+        graph = await ac.get("/api/v1/people")
+        assert graph.status_code == 200
+        person = next(person for person in graph.json()["people"] if person["name"] == "Padme Amidala")
+        assert person["birth_date"] == "1974-10-22"
+
+        detail = await ac.get(f"/api/v1/people/{person['id']}")
+        assert detail.status_code == 200
+        birthday = next(event for event in detail.json()["events"] if event["event_type"] == "birthday")
+        assert birthday["event_date"] == "1974-10-22"
+        assert birthday["value"] == "22 Oct 1974"
+
+
+@pytest.mark.anyio
 async def test_gedcom_missing_name_is_exposed_as_unnamed_person(_isolated_memory):
     async with await _client() as ac:
         gedcom = "\n".join([

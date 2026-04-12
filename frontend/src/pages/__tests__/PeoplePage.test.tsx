@@ -40,16 +40,50 @@ beforeEach(() => {
   mocked.getPeopleGraph.mockResolvedValue({
     people: [
       { id: 1, name: "Jesse", bucket: "family", relationship_state: "active", interaction_preference: "normal" },
-      { id: 2, name: "Mira", bucket: "family", relationship_state: "former", interaction_preference: "avoid" },
     ],
-    edges: [{ id: 1, from_person_id: 1, from_person_name: "Jesse", to_person_id: 2, to_person_name: "Mira", edge_type: "spouse", confidence: 0.8 }],
+    edges: [
+      { id: 1, from_person_id: 1, from_person_name: "Jesse", to_person_id: 2, to_person_name: "Mira", edge_type: "spouse", confidence: 0.8 },
+      { id: 2, from_person_id: 3, from_person_name: "Luke", to_person_id: 1, to_person_name: "Jesse", edge_type: "parent", confidence: 0.8 },
+    ],
   });
-  mocked.getStructuredPersonDetail.mockResolvedValue({
-    person: { id: 1, name: "Jesse", bucket: "family", relationship_state: "active", interaction_preference: "normal" },
-    media: [],
-    events: [{ id: 1, event_type: "birthday", event_date: "1988-05-01" }],
-    facts: [{ id: 1, predicate: "likes", value: "movies" }],
-    edges: [{ id: 1, from_person_id: 1, from_person_name: "Jesse", to_person_id: 2, to_person_name: "Mira", edge_type: "spouse", confidence: 0.8 }],
+  mocked.getStructuredPersonDetail.mockImplementation(async (id: number) => {
+    if (id === 2) {
+      return {
+        person: { id: 2, name: "Mira", bucket: "family", relationship_state: "active", interaction_preference: "normal" },
+        media: [],
+        events: [],
+        facts: [],
+        edges: [
+          { id: 1, from_person_id: 1, from_person_name: "Jesse", to_person_id: 2, to_person_name: "Mira", edge_type: "spouse", confidence: 0.8 },
+          { id: 5, from_person_id: 6, from_person_name: "Padme", to_person_id: 2, to_person_name: "Mira", edge_type: "parent", confidence: 0.8 },
+          { id: 6, from_person_id: 7, from_person_name: "Han", to_person_id: 2, to_person_name: "Mira", edge_type: "parent", confidence: 0.8 },
+        ],
+      };
+    }
+    if (id === 3) {
+      return {
+        person: { id: 3, name: "Luke", bucket: "family", relationship_state: "active", interaction_preference: "normal" },
+        media: [],
+        events: [],
+        facts: [],
+        edges: [
+          { id: 2, from_person_id: 3, from_person_name: "Luke", to_person_id: 1, to_person_name: "Jesse", edge_type: "parent", confidence: 0.8 },
+          { id: 3, from_person_id: 3, from_person_name: "Luke", to_person_id: 4, to_person_name: "Leia", edge_type: "spouse", confidence: 0.8 },
+          { id: 4, from_person_id: 5, from_person_name: "Anakin", to_person_id: 3, to_person_name: "Luke", edge_type: "parent", confidence: 0.8 },
+        ],
+      };
+    }
+    return {
+      person: { id: 1, name: "Jesse", bucket: "family", relationship_state: "active", interaction_preference: "normal" },
+      media: [],
+      events: [{ id: 1, event_type: "birthday", event_date: "1988-05-01" }],
+      facts: [{ id: 1, predicate: "likes", value: "movies" }],
+      edges: [
+        { id: 1, from_person_id: 1, from_person_name: "Jesse", to_person_id: 2, to_person_name: "Mira", edge_type: "spouse", confidence: 0.8 },
+        { id: 2, from_person_id: 3, from_person_name: "Luke", to_person_id: 1, to_person_name: "Jesse", edge_type: "parent", confidence: 0.8 },
+        { id: 8, from_person_id: 8, from_person_name: "Leia Senior", to_person_id: 1, to_person_name: "Jesse", edge_type: "parent", confidence: 0.8 },
+      ],
+    };
   });
   mocked.getProfilePhotoOptions.mockResolvedValue({ options: [] });
   mocked.getReconcileCandidates.mockResolvedValue({
@@ -111,8 +145,34 @@ describe("PeoplePage", () => {
       </MemoryRouter>,
     );
     fireEvent.click(await screen.findByRole("button", { name: /list/i }));
-    expect(await screen.findByText("Mira")).toBeTruthy();
-    expect(screen.getByText("former")).toBeTruthy();
+    expect((await screen.findAllByText("Mira")).length).toBeGreaterThan(0);
+    expect(screen.getByText("unknown")).toBeTruthy();
+  });
+
+  it("keeps focus on an edge-only relative and expands their family in tree view", async () => {
+    render(
+      <MemoryRouter>
+        <PeoplePage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId("people-tree-view")).toBeTruthy();
+    fireEvent.click((await screen.findAllByText("Luke"))[0]);
+
+    expect((await screen.findAllByText("Leia")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Anakin")).length).toBeGreaterThan(0);
+  });
+
+  it("loads spouse-side parents into the tree when the focused person has a spouse", async () => {
+    render(
+      <MemoryRouter>
+        <PeoplePage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId("people-tree-view")).toBeTruthy();
+    expect((await screen.findAllByText("Padme")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Han")).length).toBeGreaterThan(0);
   });
 
   it("opens a side-by-side reconciliation review dialog", async () => {

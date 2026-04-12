@@ -4,6 +4,8 @@ import Sidebar from "../components/sidebar/Sidebar";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 import { useAuth } from "../auth/useAuth";
 import { FocusedTreeCanvas } from "../components/people/FocusedTreeCanvas";
+import { buildGraphPeopleMap } from "../components/people/graphPeople";
+import { describeRelationshipForPerson } from "../components/people/relationshipLabels";
 import { ReconcileDuplicatesPanel } from "../components/people/ReconcileDuplicatesPanel";
 import {
   createGraphPerson,
@@ -22,6 +24,55 @@ import {
 import type { PeopleEdge, Person, PersonMedia, ReconcileGroup } from "../lib/api";
 
 type ViewMode = "tree" | "list" | "imports";
+
+type StructuredPersonDetail = {
+  person: Person;
+  media: PersonMedia[];
+  events: Array<Record<string, any>>;
+  facts: Array<Record<string, any>>;
+  edges: PeopleEdge[];
+};
+
+function dedupeEdges(edges: PeopleEdge[]): PeopleEdge[] {
+  const merged = new Map<number, PeopleEdge>();
+  for (const edge of edges) {
+    merged.set(edge.id, edge);
+  }
+  return [...merged.values()];
+}
+
+function findSpouseIds(personId: number, edges: PeopleEdge[]): number[] {
+  const spouseTerms = new Set(["spouse", "wife", "husband", "partner", "fiancé", "fiancée", "fiance", "fiancee", "ex", "ex-wife", "ex-husband"]);
+  const ids = new Set<number>();
+  for (const edge of edges) {
+    const edgeType = (edge.edge_type || "").trim().toLowerCase();
+    if (!spouseTerms.has(edgeType)) {
+      continue;
+    }
+    if (edge.from_person_id === personId) {
+      ids.add(edge.to_person_id);
+    } else if (edge.to_person_id === personId) {
+      ids.add(edge.from_person_id);
+    }
+  }
+  return [...ids];
+}
+
+function findParentIds(personId: number, edges: PeopleEdge[]): number[] {
+  const parentTerms = new Set(["parent", "mother", "father", "mom", "dad", "mama", "papa", "step-mom", "step-dad", "stepmom", "stepdad"]);
+  const childTerms = new Set(["child", "son", "daughter", "kid"]);
+  const ids = new Set<number>();
+  for (const edge of edges) {
+    const edgeType = (edge.edge_type || "").trim().toLowerCase();
+    if (parentTerms.has(edgeType) && edge.to_person_id === personId) {
+      ids.add(edge.from_person_id);
+    }
+    if (childTerms.has(edgeType) && edge.from_person_id === personId) {
+      ids.add(edge.to_person_id);
+    }
+  }
+  return [...ids];
+}
 
 const PeoplePage: React.FC = () => {
   useDocumentTitle("People");
@@ -48,6 +99,12 @@ const PeoplePage: React.FC = () => {
   const [, setProfileOptions] = useState<PersonMedia[]>([]);
   const [reconcileGroups, setReconcileGroups] = useState<ReconcileGroup[]>([]);
   const [showTreeDetailPanel, setShowTreeDetailPanel] = useState(false);
+  const [treeContextDetails, setTreeContextDetails] = useState<Record<number, StructuredPersonDetail>>({});
+
+  const graphPeopleMap = useMemo(
+    () => buildGraphPeopleMap(people, allEdges),
+    [people, allEdges],
+  );
 
   useEffect(() => {
     if (!currentUser?.linked_person_id || people.length === 0) {
@@ -57,11 +114,11 @@ const PeoplePage: React.FC = () => {
     if (!linkedVisible) {
       return;
     }
-    const selectedVisible = selectedId != null && people.some((person) => person.id === selectedId);
+    const selectedVisible = selectedId != null && graphPeopleMap.has(selectedId);
     if (!selectedVisible) {
       setSelectedId(currentUser.linked_person_id);
     }
-  }, [people, selectedId, currentUser?.linked_person_id]);
+  }, [people, selectedId, currentUser?.linked_person_id, graphPeopleMap]);
 
   useEffect(() => {
     void (async () => {
@@ -79,12 +136,63 @@ const PeoplePage: React.FC = () => {
   useEffect(() => {
     if (!selectedId) {
       setDetail(null);
+      setTreeContextDetails({});
       return;
     }
     void (async () => {
       setDetail(await getStructuredPersonDetail(selectedId));
     })();
   }, [selectedId]);
+
+  const baseTreeEdges = useMemo(
+    () => dedupeEdges([...allEdges, ...(detail?.edges ?? [])]),
+    [allEdges, detail?.edges],
+  );
+
+  useEffect(() => {
+    if (!selectedId) {
+      return;
+    }
+    const centerIds = new Set<number>([selectedId, ...findSpouseIds(selectedId, baseTreeEdges)]);
+    const parentIds = new Set<number>();
+    for (const centerId of centerIds) {
+      for (const parentId of findParentIds(centerId, baseTreeEdges)) {
+        parentIds.add(parentId);
+      }
+    }
+    const desiredIds = [...new Set([...centerIds, ...parentIds])].filter((id) => id !== selectedId);
+    const missingIds = desiredIds.filter((id) => treeContextDetails[id] == null);
+    if (missingIds.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const loaded = await Promise.all(
+        missingIds.map(async (id) => [id, await getStructuredPersonDetail(id)] as const),
+      );
+      if (cancelled) {
+        return;
+      }
+      setTreeContextDetails((current) => {
+        const next = { ...current };
+        for (const [id, payload] of loaded) {
+          next[id] = payload;
+        }
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, baseTreeEdges, treeContextDetails]);
+
+  const treeEdges = useMemo(
+    () => dedupeEdges([
+      ...baseTreeEdges,
+      ...Object.values(treeContextDetails).flatMap((payload) => payload.edges),
+    ]),
+    [baseTreeEdges, treeContextDetails],
+  );
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -107,8 +215,17 @@ const PeoplePage: React.FC = () => {
   }, [currentUser?.linked_person_id, currentUser?.profile_media_id]);
 
   const selectedPerson = useMemo(
-    () => people.find((person) => person.id === selectedId) ?? detail?.person ?? null,
-    [people, selectedId, detail],
+    () => {
+      if (selectedId == null) {
+        return detail?.person ?? null;
+      }
+      const detailPerson = detail?.person?.id === selectedId ? detail.person : null;
+      return people.find((person) => person.id === selectedId)
+        ?? detailPerson
+        ?? graphPeopleMap.get(selectedId)
+        ?? null;
+    },
+    [people, selectedId, detail, graphPeopleMap],
   );
 
   const refreshGraph = async () => {
@@ -258,7 +375,9 @@ const PeoplePage: React.FC = () => {
                     className="w-full text-left rounded-xl bg-card/60 px-3 py-2 text-sm hover:bg-card/80 transition-colors flex items-center justify-between"
                   >
                     <span className="font-medium">{targetName}</span>
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary capitalize">{edge.edge_type}</span>
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary capitalize">
+                      {describeRelationshipForPerson(edge, selectedPerson.id)}
+                    </span>
                   </button>
                 );
               })}
@@ -486,7 +605,7 @@ const PeoplePage: React.FC = () => {
                   <FocusedTreeCanvas
                     people={people}
                     selectedPerson={selectedPerson}
-                    edges={allEdges}
+                    edges={treeEdges}
                     onSelectPerson={handleSelectPerson}
                     onClearFocus={() => {
                       setSelectedId(null);

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Crosshair, GitBranch, Minus, PanelRightOpen, Plus, RotateCcw, ScanSearch, UserRoundCheck } from "lucide-react";
 import type { PeopleEdge, Person } from "../../lib/api-types";
+import { buildGraphPeopleMap } from "./graphPeople";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -52,6 +53,12 @@ function findSpouses(id: number, edges: PeopleEdge[], peopleMap: Map<number, Per
   }
   return [...ids].map((pid) => peopleMap.get(pid)!);
 }
+
+type AncestorBranch = {
+  person: Person;
+  grandparents: Person[];
+  parents: Person[];
+};
 
 /** Filter out people with garbage GEDCOM IDs or unnamed entries. */
 function isValidPerson(p: Person): boolean {
@@ -186,6 +193,49 @@ function GenerationRow({
   );
 }
 
+function AncestorBranchColumn({
+  branch,
+  focusedId,
+  currentUserPersonId,
+  onSelect,
+  onShowAll,
+  onViewDetails,
+}: {
+  branch: AncestorBranch;
+  focusedId: number;
+  currentUserPersonId?: number | null;
+  onSelect: (id: number) => void;
+  onShowAll: () => void;
+  onViewDetails?: () => void;
+}) {
+  return (
+    <div className="flex min-w-[24rem] flex-1 flex-col items-center gap-1 px-2">
+      <GenerationRow
+        label="Grandparents"
+        people={branch.grandparents}
+        roleLabel="Grandparent"
+        focusedId={focusedId}
+        currentUserPersonId={currentUserPersonId}
+        onSelect={onSelect}
+        onShowAll={onShowAll}
+        onViewDetails={onViewDetails}
+      />
+      {branch.grandparents.length > 0 && <VerticalLine />}
+      <GenerationRow
+        label="Parents"
+        people={branch.parents}
+        roleLabel="Parent"
+        focusedId={focusedId}
+        currentUserPersonId={currentUserPersonId}
+        onSelect={onSelect}
+        onShowAll={onShowAll}
+        onViewDetails={onViewDetails}
+      />
+      {branch.parents.length > 0 && <VerticalLine />}
+    </div>
+  );
+}
+
 // ---- main canvas ---------------------------------------------------------
 
 type Props = {
@@ -212,20 +262,24 @@ export function FocusedTreeCanvas({
   onCanvasBackgroundClick,
 }: Props) {
   const [zoom, setZoom] = useState(1);
-  const peopleMap = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
+  const peopleMap = useMemo(() => buildGraphPeopleMap(people, edges), [people, edges]);
 
   // Build the pedigree: direct ancestors up, descendants down.
   const pedigree = useMemo(() => {
     if (!selectedPerson) return null;
     const id = selectedPerson.id;
     const spouses = findSpouses(id, edges, peopleMap).filter(isValidPerson);
-    const parents = findParents(id, edges, peopleMap).filter(isValidPerson).slice(0, 2);
-    const grandparents: Person[] = [];
-    for (const p of parents) {
-      for (const gp of findParents(p.id, edges, peopleMap).filter(isValidPerson).slice(0, 2)) {
-        if (!grandparents.some((x) => x.id === gp.id)) grandparents.push(gp);
+    const center = [selectedPerson, ...spouses.filter((s) => s.id !== selectedPerson.id)];
+    const branches: AncestorBranch[] = center.map((person) => {
+      const parents = findParents(person.id, edges, peopleMap).filter(isValidPerson).slice(0, 2);
+      const grandparents: Person[] = [];
+      for (const parent of parents) {
+        for (const gp of findParents(parent.id, edges, peopleMap).filter(isValidPerson).slice(0, 2)) {
+          if (!grandparents.some((x) => x.id === gp.id)) grandparents.push(gp);
+        }
       }
-    }
+      return { person, parents, grandparents };
+    });
     const childIds = new Set<number>();
     const children: Person[] = [];
     for (const c of findChildren(id, edges, peopleMap).filter(isValidPerson)) {
@@ -243,8 +297,7 @@ export function FocusedTreeCanvas({
         if (!gcIds.has(gc.id)) { gcIds.add(gc.id); grandchildren.push(gc); }
       }
     }
-    const center = [selectedPerson, ...spouses.filter((s) => s.id !== selectedPerson.id)];
-    return { grandparents, parents, center, children, grandchildren };
+    return { branches, center, children, grandchildren };
   }, [selectedPerson, edges, peopleMap]);
 
   return (
@@ -307,19 +360,27 @@ export function FocusedTreeCanvas({
             </div>
           ) : pedigree && (
             /* Pedigree: vertical stack of generations */
-            <div className="flex flex-col items-center gap-1 max-w-[56rem] mx-auto">
-              <GenerationRow label="Grandparents" people={pedigree.grandparents} roleLabel="Grandparent" focusedId={selectedPerson.id} currentUserPersonId={currentUserPersonId} onSelect={onSelectPerson} onShowAll={onClearFocus} onViewDetails={onRequestDetails} />
-              {pedigree.grandparents.length > 0 && <VerticalLine />}
-
-              <GenerationRow label="Parents" people={pedigree.parents} roleLabel="Parent" focusedId={selectedPerson.id} currentUserPersonId={currentUserPersonId} onSelect={onSelectPerson} onShowAll={onClearFocus} onViewDetails={onRequestDetails} />
-              {pedigree.parents.length > 0 && <VerticalLine />}
+            <div className="mx-auto flex min-w-max flex-col items-center gap-3 px-6">
+              <div className="flex flex-nowrap items-start justify-center gap-8">
+                {pedigree.branches.map((branch) => (
+                  <AncestorBranchColumn
+                    key={branch.person.id}
+                    branch={branch}
+                    focusedId={selectedPerson.id}
+                    currentUserPersonId={currentUserPersonId}
+                    onSelect={onSelectPerson}
+                    onShowAll={onClearFocus}
+                    onViewDetails={onRequestDetails}
+                  />
+                ))}
+              </div>
 
               {/* Center: focused person + spouse(s) */}
               <div className="flex flex-col items-center gap-2">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-semibold">
                   {pedigree.center.length > 1 ? "You & Spouse" : "Focused"}
                 </div>
-                <div className="flex flex-wrap justify-center gap-3">
+                <div className="flex flex-nowrap justify-center gap-8">
                   {pedigree.center.map((p, i) => (
                     <PersonCard
                       key={p.id}
