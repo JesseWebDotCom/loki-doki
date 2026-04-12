@@ -108,7 +108,7 @@ const ChatListItem: React.FC<ChatListItemProps> = ({
             "group flex items-center justify-between pl-2 pr-1 py-2 rounded-lg text-sm cursor-pointer transition-all border",
             isActive
               ? "bg-primary/10 text-primary border-primary/20 shadow-sm"
-              : "text-muted-foreground hover:bg-card/50 border-transparent"
+              : "text-muted-foreground hover:bg-card/50 hover:text-foreground border-transparent"
           )}
         >
           <div className="flex items-center gap-2 overflow-hidden flex-1">
