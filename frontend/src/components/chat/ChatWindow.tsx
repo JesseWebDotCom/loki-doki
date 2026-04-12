@@ -17,7 +17,6 @@ interface ChatWindowProps {
   onCharacterShock?: () => void;
   activeAssistantKey?: string | null;
   assistantName?: string;
-  userName?: string;
   onRetry?: (messageIndex: number) => void;
 }
 
@@ -31,7 +30,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   onCharacterShock,
   activeAssistantKey,
   assistantName,
-  userName,
   onRetry,
 }) => {
   // Per-message mini avatars only render in mini mode. Docked mode
@@ -112,7 +110,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   messageKey={myKey}
                   avatar={isActive ? renderAvatar(characterState ?? 'idle') : undefined}
                   assistantName={assistantName}
-                  userName={userName}
                   onRetry={onRetry ? () => onRetry(idx) : undefined}
                 />
               </React.Fragment>
@@ -129,11 +126,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             <MessageItem
               role="assistant"
               content={pipeline.streamingResponse}
-              timestamp=""
+              timestamp={new Date().toISOString()}
               sources={[]}
               avatar={renderAvatar(characterState ?? 'thinking')}
               assistantName={assistantName}
-              userName={userName}
             />
           )}
         </div>

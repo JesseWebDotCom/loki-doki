@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '../ui/tooltip';
+import { formatMessageDateTime, formatMessageTime } from '../../lib/chatTimestamp';
 import type { SourceInfo, SilentConfirmation } from '../../lib/api';
 import type { PipelineState } from '../../pages/ChatPage';
 import PipelineInfoPopover from './PipelineInfoPopover';
@@ -32,7 +33,6 @@ interface MessageProps {
   messageKey?: string;
   avatar?: React.ReactNode;
   assistantName?: string;
-  userName?: string;
   pipeline?: PipelineState;
   mentionedPeople?: MentionedPerson[];
   /** DB id of the stored message — enables feedback. */
@@ -99,7 +99,6 @@ const MessageItem: React.FC<MessageProps> = ({
   messageKey,
   avatar,
   assistantName,
-  userName,
   pipeline,
   mentionedPeople = [],
   messageId,
@@ -140,22 +139,29 @@ const MessageItem: React.FC<MessageProps> = ({
     setFeedbackState(rating);
   };
 
+  const displayTime = formatMessageTime(timestamp);
+  const hoverDateTime = formatMessageDateTime(timestamp);
+
   return (
-    <div className={`flex w-full mb-8 items-start gap-3 group/msg ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex w-full mb-10 items-start gap-3 group/msg ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && avatar}
-      <div className={`flex flex-col gap-2 max-w-[85%] sm:max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col max-w-[85%] sm:max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
         <div className={`rounded-2xl px-6 py-4 border transition-all duration-300 shadow-m3 ${
           isUser
             ? 'bg-primary/10 border-primary/20 text-foreground'
             : 'bg-card border-border/40 text-foreground'
         }`}>
-          <div className="flex items-center gap-2 mb-3 opacity-70">
-            <span className={`text-[10px] font-bold uppercase tracking-widest ${isUser ? 'text-primary' : 'text-muted-foreground'}`}>
-              {isUser ? (userName || 'user') : (assistantName || 'assistant')}
-            </span>
-            <span className="text-[10px] text-muted-foreground/40 font-mono italic">{timestamp}</span>
-            {!isUser && pipeline && <PipelineInfoPopover pipeline={pipeline} />}
-          </div>
+          {!isUser && (
+            <div className="flex items-center gap-2 mb-3 opacity-70">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                {assistantName || 'assistant'}
+              </span>
+              <span className="text-[10px] text-muted-foreground/40 font-mono italic" title={hoverDateTime}>
+                {displayTime}
+              </span>
+              {pipeline && <PipelineInfoPopover pipeline={pipeline} />}
+            </div>
+          )}
           
           <div className={`prose-onyx text-[15px] leading-relaxed font-medium tracking-tight ${isUser ? 'text-foreground' : 'text-foreground/90'}`}>
             <ReactMarkdown
@@ -262,8 +268,34 @@ const MessageItem: React.FC<MessageProps> = ({
           )}
         </div>
 
-        {!isUser && (
-          <div className="flex items-center gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity px-2">
+        <div className="relative min-h-10 w-full pt-2 z-10">
+          {isUser && (
+            <div className="flex items-center gap-2 opacity-0 group-hover/msg:opacity-100 transition-opacity px-2 justify-end">
+              <span 
+                className="text-[10px] text-muted-foreground/60 font-mono italic cursor-default hover:text-muted-foreground transition-colors"
+                title={hoverDateTime}
+              >
+                {displayTime}
+              </span>
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleCopy}
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
+                    >
+                      {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">{copied ? 'Copied!' : 'Copy'}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          )}
+
+          {!isUser && (
+            <div className="flex items-center gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity px-2">
             <TooltipProvider delayDuration={300}>
               {myKey && (
                 <>
@@ -379,20 +411,20 @@ const MessageItem: React.FC<MessageProps> = ({
             </TooltipProvider>
           </div>
         )}
-
-        {!isUser && messageId && pendingRating !== null && (
-          <FeedbackDialog
-            open={feedbackDialogOpen}
-            onOpenChange={setFeedbackDialogOpen}
-            messageId={messageId}
-            initialRating={pendingRating}
-            onSuccess={handleFeedbackSuccess}
-          />
-        )}
       </div>
+
+      {!isUser && messageId && pendingRating !== null && (
+        <FeedbackDialog
+          open={feedbackDialogOpen}
+          onOpenChange={setFeedbackDialogOpen}
+          messageId={messageId}
+          initialRating={pendingRating}
+          onSuccess={handleFeedbackSuccess}
+        />
+      )}
     </div>
-  );
+  </div>
+);
 };
 
 export default MessageItem;
-

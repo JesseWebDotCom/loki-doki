@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useTTSState } from '../utils/tts';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useConnectivityStatus } from '../lib/connectivity';
+import { createMessageTimestamp } from '../lib/chatTimestamp';
 import Sidebar from '../components/sidebar/Sidebar';
 import ChatWindow from '../components/chat/ChatWindow';
 import ChatWelcomeView from '../components/chat/ChatWelcomeView';
@@ -96,7 +97,7 @@ const ChatPage: React.FC = () => {
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const tts = useTTSState();
-  const { currentUser } = useAuth();
+  useAuth();
   const connectivity = useConnectivityStatus();
   const [activeChar, setActiveChar] = useState<CharacterRow | null>(null);
   const location = useLocation();
@@ -354,7 +355,7 @@ const ChatPage: React.FC = () => {
       return;
     }
 
-    const userMsg: Message = { role: 'user', content: input, timestamp: new Date().toLocaleTimeString() };
+    const userMsg: Message = { role: 'user', content: input, timestamp: createMessageTimestamp() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsProcessing(true);
@@ -376,7 +377,7 @@ const ChatPage: React.FC = () => {
           const next = [...msgs, {
             role: 'assistant' as const,
             content: finalText,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: createMessageTimestamp(),
             sources: prev.synthesis?.sources ?? [],
             pipeline: completedPipeline,
             confirmations: prev.confirmations,
@@ -402,7 +403,7 @@ const ChatPage: React.FC = () => {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}. Is Ollama running?`,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: createMessageTimestamp(),
       }]);
       setPipeline({ ...INITIAL_PIPELINE });
     } finally {
@@ -446,7 +447,7 @@ const ChatPage: React.FC = () => {
               const next = [...msgs, {
                 role: 'assistant' as const,
                 content: finalText,
-                timestamp: new Date().toLocaleTimeString(),
+                timestamp: createMessageTimestamp(),
                 sources: prev.synthesis?.sources ?? [],
                 pipeline: completedPipeline,
                 confirmations: prev.confirmations,
@@ -466,7 +467,7 @@ const ChatPage: React.FC = () => {
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}`,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: createMessageTimestamp(),
           }]);
           setPipeline({ ...INITIAL_PIPELINE });
         })
@@ -499,7 +500,7 @@ const ChatPage: React.FC = () => {
       const loaded: Message[] = (res.messages || []).map((m: any) => ({
         role: m.role,
         content: m.content,
-        timestamp: m.created_at?.split('T')[1]?.slice(0, 8) || '',
+        timestamp: m.created_at || '',
         messageId: m.id as number | undefined,
       }));
       setMessages(loaded);
@@ -565,7 +566,6 @@ const ChatPage: React.FC = () => {
             onCharacterShock={handleShock}
             activeAssistantKey={activeAssistantKey}
             assistantName={activeChar?.name}
-            userName={currentUser?.username}
             onRetry={handleRetry}
           />
         )}
