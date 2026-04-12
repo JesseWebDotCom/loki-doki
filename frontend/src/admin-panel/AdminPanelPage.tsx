@@ -700,19 +700,31 @@ const MemoryPane: React.FC = () => {
 // ── Danger pane ────────────────────────────────────────────────
 
 const DangerPane: React.FC = () => {
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const { refresh } = useAuth();
+  const navigate = useNavigate();
+  const [confirmMode, setConfirmMode] = useState<null | "memory" | "people" | "everything">(null);
   const [resultMsg, setResultMsg] = useState<string | null>(null);
 
-  const reset = async () => {
-    setConfirmOpen(false);
-    const r = await api('/api/v1/admin/reset-memory', { method: 'POST' });
+  const reset = async (mode: "memory" | "people" | "everything") => {
+    setConfirmMode(null);
+    const endpoint = mode === "memory"
+      ? "/api/v1/admin/reset-memory"
+      : mode === "people"
+        ? "/api/v1/admin/reset-people"
+        : "/api/v1/admin/reset-everything";
+    const r = await api(endpoint, { method: 'POST' });
     if (!r.ok) {
       setResultMsg(`Reset failed (${r.status}).`);
       return;
     }
     const data = (await r.json()) as { wiped: Record<string, number> };
     const total = Object.values(data.wiped).reduce((s, n) => s + (n || 0), 0);
-    setResultMsg(`Memory wiped: ${total} rows across ${Object.keys(data.wiped).length} tables.`);
+    const label = mode === "memory" ? "Memory" : mode === "people" ? "People" : "Everything";
+    setResultMsg(`${label} wiped: ${total} rows across ${Object.keys(data.wiped).length} tables.`);
+    if (mode === "everything") {
+      await refresh();
+      navigate('/wizard', { replace: true });
+    }
   };
 
   return (
@@ -723,6 +735,22 @@ const DangerPane: React.FC = () => {
       </div>
       <div className="rounded-xl border border-red-400/30 bg-red-400/5 p-4 flex items-center justify-between gap-4">
         <div className="text-xs">
+          <div className="font-bold text-red-300 mb-1">Reset people</div>
+          <div className="text-muted-foreground">
+            Deletes people, relationships, GEDCOM imports/exports, and person-linked facts only.
+            Chats, sessions, users, and projects stay intact. This is the clean reimport button.
+          </div>
+        </div>
+        <button
+          onClick={() => setConfirmMode("people")}
+          className="shrink-0 rounded-md border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-400/20 transition-all"
+        >
+          Reset People
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-red-400/30 bg-red-400/5 p-4 flex items-center justify-between gap-4">
+        <div className="text-xs">
           <div className="font-bold text-red-300 mb-1">Reset memory</div>
           <div className="text-muted-foreground">
             Wipes all facts, people, relationships, ambiguity groups, sessions, and messages for every user.
@@ -730,25 +758,68 @@ const DangerPane: React.FC = () => {
           </div>
         </div>
         <button
-          onClick={() => setConfirmOpen(true)}
+          onClick={() => setConfirmMode("memory")}
           className="shrink-0 rounded-md border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-400/20 transition-all"
         >
           Reset Memory
         </button>
       </div>
 
+      <div className="rounded-xl border border-red-500/40 bg-red-500/8 p-4 flex items-center justify-between gap-4">
+        <div className="text-xs">
+          <div className="font-bold text-red-200 mb-1">Reset everything</div>
+          <div className="text-muted-foreground">
+            Factory reset. Deletes users, projects, chats, people, settings/config rows, and seeded catalogs from SQLite.
+            The next load behaves like first boot again, and you will need to set the app up from scratch.
+          </div>
+        </div>
+        <button
+          onClick={() => setConfirmMode("everything")}
+          className="shrink-0 rounded-md border border-red-500/50 bg-red-500/15 px-3 py-2 text-xs font-bold text-red-200 hover:bg-red-500/25 transition-all"
+        >
+          Reset Everything
+        </button>
+      </div>
+
       <ConfirmDialog
-        open={confirmOpen}
-        title="Wipe ALL memory?"
-        description="Deletes every fact, person, relationship, ambiguity group, session, and message for every user. Users, projects, and admin login are preserved. This cannot be undone."
-        confirmLabel="Wipe Memory"
+        open={confirmMode != null}
+        title={
+          confirmMode === "people"
+            ? "Wipe all people data?"
+            : confirmMode === "everything"
+              ? "Factory reset the app?"
+              : "Wipe ALL memory?"
+        }
+        description={
+          confirmMode === "people"
+            ? "Deletes people, relationships, GEDCOM jobs, and person-linked facts for every user. Chats, projects, and users are preserved. This cannot be undone."
+            : confirmMode === "everything"
+              ? "Deletes users, projects, chats, people, skill settings, and catalog rows so the next load behaves like a fresh install. This cannot be undone."
+              : "Deletes every fact, person, relationship, ambiguity group, session, and message for every user. Users, projects, and admin login are preserved. This cannot be undone."
+        }
+        confirmLabel={
+          confirmMode === "people"
+            ? "Wipe People"
+            : confirmMode === "everything"
+              ? "Reset Everything"
+              : "Wipe Memory"
+        }
+        confirmText={
+          confirmMode === "people"
+            ? "PEOPLE"
+            : confirmMode === "everything"
+              ? "EVERYTHING"
+              : "MEMORY"
+        }
         destructive
-        onConfirm={() => void reset()}
-        onCancel={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          if (confirmMode) void reset(confirmMode);
+        }}
+        onCancel={() => setConfirmMode(null)}
       />
       <ConfirmDialog
         open={!!resultMsg}
-        title="Memory wiped"
+        title="Reset complete"
         description={resultMsg ?? ''}
         confirmLabel="OK"
         hideCancel

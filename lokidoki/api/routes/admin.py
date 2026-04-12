@@ -380,6 +380,68 @@ _MEMORY_TABLES_TO_WIPE = (
     "messages_fts",
 )
 
+_PEOPLE_TABLES_TO_WIPE = (
+    "person_relationship_edges",
+    "person_overlays",
+    "person_events",
+    "person_media",
+    "person_user_links",
+    "relationships",
+    "gedcom_import_jobs",
+    "gedcom_export_jobs",
+    "ambiguity_groups",
+    "people",
+)
+
+_APP_TABLES_TO_WIPE = (
+    "message_feedback_tags",
+    "message_feedback",
+    "user_character_overrides",
+    "character_enabled_user",
+    "character_enabled_global",
+    "character_assignments",
+    "characters",
+    "wakewords",
+    "voices",
+    "skill_enabled_user",
+    "skill_enabled_global",
+    "skill_config_user",
+    "skill_config_global",
+    "skill_result_cache",
+    "clarification_state",
+    "messages",
+    "sessions",
+    "facts",
+    "ambiguity_groups",
+    "sentiment_log",
+    "user_sentiment",
+    "person_relationship_edges",
+    "person_overlays",
+    "person_events",
+    "person_media",
+    "person_user_links",
+    "relationships",
+    "gedcom_import_jobs",
+    "gedcom_export_jobs",
+    "people",
+    "projects",
+    "users",
+    "facts_fts",
+    "messages_fts",
+)
+
+
+def _delete_tables(conn, tables: tuple[str, ...]) -> dict[str, int]:
+    """Best-effort DELETE across a fixed table list."""
+    wiped: dict[str, int] = {}
+    for table in tables:
+        try:
+            cur = conn.execute(f"DELETE FROM {table}")
+            wiped[table] = cur.rowcount
+        except Exception:
+            wiped[table] = 0
+    return wiped
+
 
 @router.post("/reset-memory")
 async def reset_memory(
@@ -392,20 +454,65 @@ async def reset_memory(
     fact extraction without losing your admin login or project setup.
     """
     def _go(conn):
-        wiped: dict[str, int] = {}
-        for table in _MEMORY_TABLES_TO_WIPE:
-            try:
-                cur = conn.execute(f"DELETE FROM {table}")
-                wiped[table] = cur.rowcount
-            except Exception:
-                # FTS tables and vec_facts may not exist on every DB; tolerate.
-                wiped[table] = 0
+        wiped = _delete_tables(conn, _MEMORY_TABLES_TO_WIPE)
         # vec_facts is optional (sqlite-vec).
         try:
             conn.execute("DELETE FROM vec_facts")
         except Exception:
             pass
         conn.commit()
+        return wiped
+    wiped = await memory.run_sync(_go)
+    return {"ok": True, "wiped": wiped}
+
+
+@router.post("/reset-people")
+async def reset_people(
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Wipe people graph data and person-linked memory, keep chats/users."""
+    def _go(conn):
+        person_fact_row = conn.execute(
+            "SELECT COUNT(*) FROM facts "
+            "WHERE subject_type = 'person' OR subject_ref_id IS NOT NULL OR kind = 'relationship'"
+        ).fetchone()
+        wiped = _delete_tables(conn, _PEOPLE_TABLES_TO_WIPE)
+        wiped["facts_person"] = int(person_fact_row[0]) if person_fact_row else 0
+        conn.execute(
+            "DELETE FROM facts "
+            "WHERE subject_type = 'person' OR subject_ref_id IS NOT NULL OR kind = 'relationship'"
+        )
+        conn.commit()
+        return wiped
+    wiped = await memory.run_sync(_go)
+    return {"ok": True, "wiped": wiped}
+
+
+@router.post("/reset-everything")
+async def reset_everything(
+    _: User = Depends(require_admin),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Factory-reset the app state stored in SQLite.
+
+    Deletes users, projects, chats, people, settings/config rows, and
+    catalog rows so the next load behaves like first boot again.
+    """
+    def _go(conn):
+        from lokidoki.core.character_seed import run_seed
+
+        wiped = _delete_tables(conn, _APP_TABLES_TO_WIPE)
+        try:
+            conn.execute("DELETE FROM vec_facts")
+        except Exception:
+            pass
+        try:
+            conn.execute("DELETE FROM vec_messages")
+        except Exception:
+            pass
+        conn.commit()
+        run_seed(conn)
         return wiped
     wiped = await memory.run_sync(_go)
     return {"ok": True, "wiped": wiped}

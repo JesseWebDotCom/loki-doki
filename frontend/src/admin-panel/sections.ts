@@ -62,7 +62,7 @@ export const SECTIONS: SectionDef[] = [
     adminOnly: true, requiresChallenge: true },
 
   // ── Danger ─────────────────────────────────────────────────────
-  { id: 'danger', group: 'Danger', label: 'Reset Memory', icon: AlertTriangle,
+  { id: 'danger', group: 'Danger', label: 'Danger Zone', icon: AlertTriangle,
     title: 'Danger Zone', description: 'Destructive operations that cannot be undone.',
     adminOnly: true, requiresChallenge: true },
 
