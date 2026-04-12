@@ -480,16 +480,14 @@ def test_m2_cross_user_isolation_in_reader(store: V2MemoryStore) -> None:
 # ----- Dev-tools status: M2 active phase ---------------------------------
 
 
-def test_m2_dev_v2_status_active_phase_is_m2() -> None:
+def test_m2_dev_v2_status_phase_is_complete() -> None:
+    """M2 must always be marked complete on the dev-tools status, even
+    after later phases (M3+) advance the active phase past M2."""
     from lokidoki.api.routes.dev import _v2_memory_status
 
     payload = _v2_memory_status()
-    assert payload["active_phase"]["id"] == "m2"
-    assert payload["active_phase"]["status"] == "complete"
     m2_phase = next(p for p in payload["phases"] if p["id"] == "m2")
     assert m2_phase["status"] == "complete"
-    deliverables = " ".join(payload["active_phase"]["deliverables"]).lower()
-    assert "fts5" in deliverables or "read" in deliverables
 
 
 # ----- Pipeline integration end-to-end -----------------------------------

@@ -248,42 +248,41 @@ def _v2_memory_status() -> dict[str, Any]:
             "title": ACTIVE_PHASE_TITLE,
             "status": ACTIVE_PHASE_STATUS,
             "summary": (
-                "M2 is shipped: Tier 4 read path is live. The v2 store now "
-                "owns a facts_fts FTS5 virtual table kept in sync via "
-                "INSERT/UPDATE/DELETE triggers (storing the humanized "
-                "predicate alongside source_text so user vocabulary bridges "
-                "stored predicate identifiers). The reader runs BM25 over "
-                "facts_fts plus a structured subject-column scan, fuses the "
-                "two ranked sources via Reciprocal Rank Fusion (k=60), and "
-                "returns top-k FactHits ordered by RRF score. The v1 "
-                "substring heuristics (_query_mentions, _is_explicitly_relevant) "
-                "are forbidden in v2 — a CI grep guard fails the build if "
-                "either symbol leaks into v2/orchestrator/memory/. The "
-                "{user_facts} prompt slot is rendered into both the combine "
-                "and direct_chat templates with a hard 250-char budget; "
-                "lazy retrieval is gated by context['need_preference'] so "
-                "'hi' turns never touch the store. The pipeline gains a "
-                "memory_read step before the LLM decision. The 18-case M2 "
-                "recall corpus measures retrieval correctness end-to-end."
+                "M3 is shipped: Tier 5 social read path is live. The v2 "
+                "memory store now exposes a deterministic four-strategy "
+                "person resolver (exact name -> handle -> substring -> "
+                "rapidfuzz fuzzy fallback) backed by the people and "
+                "relationships tables that M1 already writes to. The "
+                "{social_context} prompt slot renders the resolved persons "
+                "into both the combine and direct_chat templates with a "
+                "hard 200-char word-boundary budget. Provisional handles "
+                "(\"my boss\") merge into named rows via "
+                "merge_provisional_handle while preserving relationship "
+                "edges. Lazy retrieval is gated by context['need_social'] "
+                "so casual turns never touch the people graph. The 32-case "
+                "M3 resolution corpus drives the >=0.90 top-1 accuracy "
+                "gate. need_preference and need_social compose: a single "
+                "turn can request both Tier 4 facts and Tier 5 people."
             ),
             "deliverables": [
-                "facts_fts FTS5 virtual table with INSERT/UPDATE/DELETE triggers",
-                "Predicate humanization in the FTS index ('lives_in' -> 'lives in')",
-                "BM25 + subject-scan retrieval fused via RRF (k=60)",
-                "Lazy retrieval: need_preference gates the fetch",
-                "{user_facts} slot rendered into combine + direct_chat prompts",
-                "Hard 250-char budget enforced via truncate_to_budget",
-                "Substring-heuristic grep guard (forbids v1 _query_mentions/_is_explicitly_relevant)",
-                "18-case M2 recall corpus exercising single-value, multi-fact, cross-user, and budget paths",
-                "Pipeline integration: memory_read step (opt-in via need_preference)",
-                "M2 phase-gate tests: p95 latency < 100ms warm, slot budget, isolation",
+                "Deterministic four-strategy person resolver (exact / handle / substring / fuzzy)",
+                "PersonHit + PersonResolution dataclasses for typed read results",
+                "{social_context} slot rendered into combine + direct_chat prompts",
+                "Hard 200-char word-boundary budget on social_context",
+                "Lazy retrieval: need_social gates the fetch",
+                "Provisional-handle merge: handle:'my boss' -> name 'Steve' preserves relationships",
+                "idx_people_owner_handle index applied via core schema",
+                "32-case people resolution corpus across exact/handle/substring/fuzzy/ambiguous/merge/isolation buckets",
+                "Top-1 accuracy >= 0.90 phase gate measured against the corpus",
+                "Cross-user isolation in the social read path",
+                "Pipeline composes need_preference and need_social independently",
             ],
         },
         "phases": [
             {"id": "m0", "label": "M0", "title": "Prerequisites and corpora", "status": "complete"},
             {"id": "m1", "label": "M1", "title": "Write path: gates + classifier + Tier 4/5 writes", "status": "complete"},
             {"id": "m2", "label": "M2", "title": "Read path: Tier 4 FTS5 + RRF retrieval", "status": "complete"},
-            {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "not_started"},
+            {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "complete"},
             {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "not_started"},
             {"id": "m5", "label": "M5", "title": "Tier 7 procedural: behavior events + 7a/7b split", "status": "not_started"},
             {"id": "m6", "label": "M6", "title": "Tier 6 affective: rolling window + character overlay", "status": "not_started"},

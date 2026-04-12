@@ -76,8 +76,11 @@ Rules:
 - If user_facts is non-empty, treat it as durable, structured facts about
   the user (subject=predicate=value list). Use it silently — never quote
   the slot back at the user.
+- If social_context is non-empty, treat it as people the user knows
+  (label=relation list). Use it silently — never quote the slot.
 
 user_facts: {user_facts}
+social_context: {social_context}
 
 RequestSpec (JSON): {spec}
 """
@@ -97,8 +100,11 @@ Rules:
 - If you genuinely don't know, say so briefly and suggest one rephrase.
 - If user_facts is non-empty, use it silently to personalize the answer.
   Never quote the slot literally.
+- If social_context is non-empty, use it silently as background about
+  the people the user knows. Never quote the slot.
 
 user_facts: {user_facts}
+social_context: {social_context}
 
 User's question: {user_question}
 

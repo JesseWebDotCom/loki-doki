@@ -15,7 +15,10 @@ from v2.orchestrator.execution.executor import execute_chunk_async
 from v2.orchestrator.execution.request_spec import build_request_spec
 from v2.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
 from v2.orchestrator.memory.extractor import ExtractionContext, extract_candidates
-from v2.orchestrator.memory.slots import assemble_user_facts_slot
+from v2.orchestrator.memory.slots import (
+    assemble_social_context_slot,
+    assemble_user_facts_slot,
+)
 from v2.orchestrator.memory.store import V2MemoryStore
 from v2.orchestrator.memory.writer import WriteRunResult, process_candidates
 from v2.orchestrator.observability.tracing import build_trace_summary, start_trace
@@ -247,6 +250,7 @@ async def run_pipeline_async(
     finish(
         slots_assembled=sorted(memory_slots.keys()),
         user_facts_chars=len(memory_slots.get("user_facts", "")),
+        social_context_chars=len(memory_slots.get("social_context", "")),
     )
 
     decision = decide_llm(request_spec)
@@ -289,38 +293,43 @@ def _run_memory_read_path(
     raw_text: str,
     safe_context: dict[str, Any],
 ) -> dict[str, str]:
-    """Lazy Tier 4 read step (M2).
+    """Lazy memory read step (M2 + M3).
 
-    Like the write path, the read path is **opt-in** so the existing v2
-    regression suite isn't perturbed by storage side-effects. Callers
-    enable it by setting either ``context["need_preference"] = True``
-    *and* providing ``context["memory_store"]``, or by passing
-    ``context["memory_writes_enabled"] = True`` (which the dev-tools
-    runner sets when memory is on).
+    Each tier slot is gated by its own ``need_*`` flag so callers only
+    pay the latency cost for the slots they actually want. The flags
+    are independent: a turn can ask for ``need_preference`` (Tier 4)
+    without ``need_social`` (Tier 5), or vice versa, or both.
 
     Returns the dict of slot strings that should be merged into
-    ``request_spec.context["memory_slots"]``. Empty dict means no slots
-    were assembled — the synthesizer renders an empty `{user_facts}`.
+    ``request_spec.context["memory_slots"]``. Empty dict means no
+    slot was assembled.
     """
-    enabled = bool(safe_context.get("memory_writes_enabled")) or bool(
-        safe_context.get("need_preference")
-    )
-    if not enabled:
-        return {}
     store = safe_context.get("memory_store")
     if not isinstance(store, V2MemoryStore):
         return {}
-    if safe_context.get("need_preference") is False:
-        # Caller explicitly opted out for this turn — honor it.
-        return {}
     owner_user_id = int(safe_context.get("owner_user_id") or 0)
     query = str(safe_context.get("memory_query") or raw_text)
-    rendered, _hits = assemble_user_facts_slot(
-        store=store,
-        owner_user_id=owner_user_id,
-        query=query,
-    )
-    return {"user_facts": rendered}
+    out: dict[str, str] = {}
+
+    # Tier 4 (M2)
+    if safe_context.get("need_preference"):
+        rendered, _hits = assemble_user_facts_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+            query=query,
+        )
+        out["user_facts"] = rendered
+
+    # Tier 5 (M3)
+    if safe_context.get("need_social"):
+        rendered, _hits = assemble_social_context_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+            query=query,
+        )
+        out["social_context"] = rendered
+
+    return out
 
 
 def _run_memory_write_path(

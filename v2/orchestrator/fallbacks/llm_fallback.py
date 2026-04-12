@@ -105,21 +105,25 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     Empty when memory is off or the read returned nothing.
     """
     user_facts = ""
+    social_context = ""
     if isinstance(spec.context, dict):
         slots = spec.context.get("memory_slots") or {}
         if isinstance(slots, dict):
             user_facts = str(slots.get("user_facts") or "")
+            social_context = str(slots.get("social_context") or "")
     if _is_direct_chat_only(spec):
         return render_prompt(
             "direct_chat",
             user_question=spec.original_request,
             user_facts=user_facts,
+            social_context=social_context,
         )
     payload = build_llm_payload(spec)
     return render_prompt(
         "combine",
         spec=json.dumps(payload, ensure_ascii=False),
         user_facts=user_facts,
+        social_context=social_context,
     )
 
 

@@ -1,20 +1,359 @@
 {
-  "$schema": "v2 people resolution corpus — utterances paired with expected (person_id, ambiguous?) outcomes. Drives M3 LokiPeopleDBAdapter scoring bake-off and provisional-handle merge tests. Names use pop-culture characters per CLAUDE.md mock-data rule. Phase status: empty in M0; populate in M3 per docs/MEMORY_DESIGN.md §8 M3 corpus.",
-  "version": 1,
+  "$schema": "v2 people resolution corpus — utterances paired with expected resolution outcomes against a seed roster. Each case feeds resolve_person() and asserts the matched person, ambiguity flag, and the matched_via strategy. Drives M3 top-1 accuracy gate, provisional handle merge tests, and cross-user isolation guarantees. Names use pop-culture characters per CLAUDE.md mock-data rule. Populated 2026-04-11 (M3) — 32 cases across exact / handle / substring / fuzzy / ambiguous / merge / isolation / no-match buckets.",
+  "version": 2,
   "phase_owner": "M3",
   "case_schema": {
-    "id": "string — stable, hierarchical (e.g. 'm3.typo.brother_luk')",
-    "utterance": "string",
-    "context": "object — optional viewer_user_id, recent_people",
+    "id": "string — stable, hierarchical (e.g. 'm3.exact.luke_first_name')",
+    "bucket": "string — exact | handle | substring | fuzzy | ambiguous | merge | isolation | no_match",
+    "owner_user_id": "integer — non-zero so cross-user isolation tests can swap",
+    "seed": [
+      {
+        "subject": "string — 'person:Name' or 'handle:my X'",
+        "predicate": "string — is_relation, is_named, has_pronoun, lives_in, has_birthday",
+        "value": "string"
+      }
+    ],
+    "mention": "string — the value passed to resolve_person()",
     "expect": {
-      "resolved_person": "string|null — pop-culture name (Luke, Leia, Padme, Anakin) or null",
+      "matched": "string|null — name (or 'handle:my boss') of the expected match, null when no match",
+      "matched_via": "string|null — name | handle | name_substring | alias_fuzzy | recency",
       "ambiguous": "boolean",
-      "ambiguity_candidates": "array of strings",
-      "resolver_confidence_min": "number 0..1",
-      "is_provisional_handle": "boolean — true if the case tests an unnamed-recurring-person path",
-      "merge_target_handle": "string|null — when testing a provisional → named merge",
-      "notes": "string"
+      "min_candidates": "integer",
+      "reason_contains": "string|null — substring expected in PersonResolution.reason",
+      "post_merge_name": "string|null — for merge cases, the expected name after merge",
+      "post_merge_provisional": "boolean|null — for merge cases, expected provisional flag after merge"
     }
   },
-  "cases": []
+  "cases": [
+    {
+      "id": "m3.exact.luke_first_name",
+      "bucket": "exact",
+      "owner_user_id": 100,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"}
+      ],
+      "mention": "Luke",
+      "expect": {"matched": "Luke", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.lower_case",
+      "bucket": "exact",
+      "owner_user_id": 101,
+      "seed": [
+        {"subject": "person:Leia", "predicate": "is_relation", "value": "sister"}
+      ],
+      "mention": "leia",
+      "expect": {"matched": "Leia", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.padme",
+      "bucket": "exact",
+      "owner_user_id": 102,
+      "seed": [
+        {"subject": "person:Padme", "predicate": "is_relation", "value": "wife"}
+      ],
+      "mention": "Padme",
+      "expect": {"matched": "Padme", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.anakin",
+      "bucket": "exact",
+      "owner_user_id": 103,
+      "seed": [
+        {"subject": "person:Anakin", "predicate": "is_relation", "value": "father"}
+      ],
+      "mention": "Anakin",
+      "expect": {"matched": "Anakin", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.handle.my_boss",
+      "bucket": "handle",
+      "owner_user_id": 104,
+      "seed": [
+        {"subject": "handle:my boss", "predicate": "is_relation", "value": "boss"}
+      ],
+      "mention": "my boss",
+      "expect": {"matched": "my boss", "matched_via": "handle", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_handle", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.handle.my_therapist",
+      "bucket": "handle",
+      "owner_user_id": 105,
+      "seed": [
+        {"subject": "handle:my therapist", "predicate": "is_relation", "value": "therapist"}
+      ],
+      "mention": "my therapist",
+      "expect": {"matched": "my therapist", "matched_via": "handle", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_handle", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.handle.my_neighbor",
+      "bucket": "handle",
+      "owner_user_id": 106,
+      "seed": [
+        {"subject": "handle:my new neighbor", "predicate": "is_relation", "value": "neighbor"}
+      ],
+      "mention": "my new neighbor",
+      "expect": {"matched": "my new neighbor", "matched_via": "handle", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_handle", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.handle.case_insensitive",
+      "bucket": "handle",
+      "owner_user_id": 107,
+      "seed": [
+        {"subject": "handle:my barista", "predicate": "is_relation", "value": "barista"}
+      ],
+      "mention": "MY BARISTA",
+      "expect": {"matched": "my barista", "matched_via": "handle", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_handle", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.substring.luk_three_chars",
+      "bucket": "substring",
+      "owner_user_id": 108,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"}
+      ],
+      "mention": "luk",
+      "expect": {"matched": "Luke", "matched_via": "name_substring", "ambiguous": false, "min_candidates": 1, "reason_contains": "substring", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.substring.lei",
+      "bucket": "substring",
+      "owner_user_id": 109,
+      "seed": [
+        {"subject": "person:Leia", "predicate": "is_relation", "value": "sister"}
+      ],
+      "mention": "lei",
+      "expect": {"matched": "Leia", "matched_via": "name_substring", "ambiguous": false, "min_candidates": 1, "reason_contains": "substring", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.substring.padm",
+      "bucket": "substring",
+      "owner_user_id": 110,
+      "seed": [
+        {"subject": "person:Padme", "predicate": "is_relation", "value": "wife"}
+      ],
+      "mention": "padm",
+      "expect": {"matched": "Padme", "matched_via": "name_substring", "ambiguous": false, "min_candidates": 1, "reason_contains": "substring", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.substring.too_short_two_chars",
+      "bucket": "no_match",
+      "owner_user_id": 111,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"}
+      ],
+      "mention": "lu",
+      "expect": {"matched": null, "matched_via": null, "ambiguous": false, "min_candidates": 0, "reason_contains": "no_match", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.fuzzy.lukke_typo",
+      "bucket": "fuzzy",
+      "owner_user_id": 112,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"}
+      ],
+      "mention": "lukke",
+      "expect": {"matched": "Luke", "matched_via": "alias_fuzzy", "ambiguous": false, "min_candidates": 1, "reason_contains": "fuzzy_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.fuzzy.leiia_typo",
+      "bucket": "fuzzy",
+      "owner_user_id": 113,
+      "seed": [
+        {"subject": "person:Leia", "predicate": "is_relation", "value": "sister"}
+      ],
+      "mention": "leiia",
+      "expect": {"matched": "Leia", "matched_via": "alias_fuzzy", "ambiguous": false, "min_candidates": 1, "reason_contains": "fuzzy_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.fuzzy.padmey_typo",
+      "bucket": "fuzzy",
+      "owner_user_id": 114,
+      "seed": [
+        {"subject": "person:Padme", "predicate": "is_relation", "value": "wife"}
+      ],
+      "mention": "padmey",
+      "expect": {"matched": "Padme", "matched_via": "alias_fuzzy", "ambiguous": false, "min_candidates": 1, "reason_contains": "fuzzy_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.two_relations_one_person",
+      "bucket": "exact",
+      "owner_user_id": 115,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"},
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "coworker"}
+      ],
+      "mention": "Luke",
+      "expect": {"matched": "Luke", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.ambiguous.fuzzy_two_close_names",
+      "bucket": "ambiguous",
+      "owner_user_id": 116,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"},
+        {"subject": "person:Lukeo", "predicate": "is_relation", "value": "coworker"}
+      ],
+      "mention": "luk",
+      "expect": {"matched": null, "matched_via": null, "ambiguous": true, "min_candidates": 2, "reason_contains": "ambiguous_substring", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.merge.boss_to_steve",
+      "bucket": "merge",
+      "owner_user_id": 117,
+      "seed": [
+        {"subject": "handle:my boss", "predicate": "is_relation", "value": "boss"}
+      ],
+      "mention": "my boss",
+      "expect": {"matched": "my boss", "matched_via": "handle", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_handle", "post_merge_name": "Steve", "post_merge_provisional": false}
+    },
+    {
+      "id": "m3.merge.therapist_to_padme",
+      "bucket": "merge",
+      "owner_user_id": 118,
+      "seed": [
+        {"subject": "handle:my therapist", "predicate": "is_relation", "value": "therapist"}
+      ],
+      "mention": "my therapist",
+      "expect": {"matched": "my therapist", "matched_via": "handle", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_handle", "post_merge_name": "Padme", "post_merge_provisional": false}
+    },
+    {
+      "id": "m3.merge.preserves_relationships",
+      "bucket": "merge",
+      "owner_user_id": 119,
+      "seed": [
+        {"subject": "handle:my barista", "predicate": "is_relation", "value": "barista"}
+      ],
+      "mention": "my barista",
+      "expect": {"matched": "my barista", "matched_via": "handle", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_handle", "post_merge_name": "Anakin", "post_merge_provisional": false}
+    },
+    {
+      "id": "m3.isolation.user_a_luke",
+      "bucket": "isolation",
+      "owner_user_id": 120,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"}
+      ],
+      "mention": "Luke",
+      "expect": {"matched": "Luke", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.isolation.user_b_leia",
+      "bucket": "isolation",
+      "owner_user_id": 121,
+      "seed": [
+        {"subject": "person:Leia", "predicate": "is_relation", "value": "sister"}
+      ],
+      "mention": "Luke",
+      "expect": {"matched": null, "matched_via": null, "ambiguous": false, "min_candidates": 0, "reason_contains": "no_match", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.no_match.empty_string",
+      "bucket": "no_match",
+      "owner_user_id": 122,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"}
+      ],
+      "mention": "",
+      "expect": {"matched": null, "matched_via": null, "ambiguous": false, "min_candidates": 0, "reason_contains": "empty", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.no_match.unknown_name",
+      "bucket": "no_match",
+      "owner_user_id": 123,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"}
+      ],
+      "mention": "Yoda",
+      "expect": {"matched": null, "matched_via": null, "ambiguous": false, "min_candidates": 0, "reason_contains": "no_match", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.full_seed_pick_correct",
+      "bucket": "exact",
+      "owner_user_id": 124,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"},
+        {"subject": "person:Leia", "predicate": "is_relation", "value": "sister"},
+        {"subject": "person:Anakin", "predicate": "is_relation", "value": "father"},
+        {"subject": "person:Padme", "predicate": "is_relation", "value": "mother"}
+      ],
+      "mention": "Padme",
+      "expect": {"matched": "Padme", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.handle.coexists_with_named",
+      "bucket": "handle",
+      "owner_user_id": 125,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"},
+        {"subject": "handle:my boss", "predicate": "is_relation", "value": "boss"}
+      ],
+      "mention": "my boss",
+      "expect": {"matched": "my boss", "matched_via": "handle", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_handle", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.coexists_with_handle",
+      "bucket": "exact",
+      "owner_user_id": 126,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"},
+        {"subject": "handle:my boss", "predicate": "is_relation", "value": "boss"}
+      ],
+      "mention": "Luke",
+      "expect": {"matched": "Luke", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.substring.full_name_partial",
+      "bucket": "substring",
+      "owner_user_id": 127,
+      "seed": [
+        {"subject": "person:Padme", "predicate": "is_relation", "value": "wife"}
+      ],
+      "mention": "adm",
+      "expect": {"matched": "Padme", "matched_via": "name_substring", "ambiguous": false, "min_candidates": 1, "reason_contains": "substring", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.among_many",
+      "bucket": "exact",
+      "owner_user_id": 128,
+      "seed": [
+        {"subject": "person:Luke", "predicate": "is_relation", "value": "brother"},
+        {"subject": "person:Han", "predicate": "is_relation", "value": "friend"},
+        {"subject": "person:Chewie", "predicate": "is_relation", "value": "friend"}
+      ],
+      "mention": "Chewie",
+      "expect": {"matched": "Chewie", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.han",
+      "bucket": "exact",
+      "owner_user_id": 129,
+      "seed": [
+        {"subject": "person:Han", "predicate": "is_relation", "value": "friend"}
+      ],
+      "mention": "Han",
+      "expect": {"matched": "Han", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.fuzzy.han_solos_typo",
+      "bucket": "fuzzy",
+      "owner_user_id": 130,
+      "seed": [
+        {"subject": "person:Han", "predicate": "is_relation", "value": "friend"}
+      ],
+      "mention": "haaan",
+      "expect": {"matched": "Han", "matched_via": "alias_fuzzy", "ambiguous": false, "min_candidates": 1, "reason_contains": "fuzzy_name", "post_merge_name": null, "post_merge_provisional": null}
+    },
+    {
+      "id": "m3.exact.chewie_with_substring_collision",
+      "bucket": "exact",
+      "owner_user_id": 131,
+      "seed": [
+        {"subject": "person:Chewie", "predicate": "is_relation", "value": "friend"},
+        {"subject": "person:Chewbacca", "predicate": "is_relation", "value": "friend"}
+      ],
+      "mention": "Chewie",
+      "expect": {"matched": "Chewie", "matched_via": "name", "ambiguous": false, "min_candidates": 1, "reason_contains": "exact_name", "post_merge_name": null, "post_merge_provisional": null}
+    }
+  ]
 }

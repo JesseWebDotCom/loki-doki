@@ -19,7 +19,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final, Iterable
 
-from v2.orchestrator.memory.reader import FactHit, read_user_facts
+from v2.orchestrator.memory.reader import (
+    FactHit,
+    PersonHit,
+    read_social_context,
+    read_user_facts,
+)
 from v2.orchestrator.memory.store import V2MemoryStore
 
 
@@ -46,6 +51,7 @@ WORST_CASE_TOTAL_BUDGET: Final[int] = sum(spec.char_budget for spec in SLOT_SPEC
 assert WORST_CASE_TOTAL_BUDGET == 1470, "Slot budget total drifted from §4"
 
 USER_FACTS_BUDGET: Final[int] = 250
+SOCIAL_CONTEXT_BUDGET: Final[int] = 200
 
 
 def truncate_to_budget(slot_name: str, value: str) -> str:
@@ -96,24 +102,67 @@ def assemble_user_facts_slot(
     return render_user_facts(hits), hits
 
 
+def render_social_context(hits: Iterable[PersonHit]) -> str:
+    """Render Tier 5 person hits into the `{social_context}` slot string.
+
+    Format per person: ``{label}={relation_label}`` where label is the
+    name when known, ``"my <handle>"`` for provisional rows, or the
+    relation noun otherwise. Multiple persons are joined with ``"; "``.
+    Truncated to 200 chars at a word boundary per design §4.
+    """
+    parts: list[str] = []
+    for hit in hits:
+        if hit.name:
+            label = hit.name
+        elif hit.handle:
+            label = hit.handle
+        else:
+            label = "person"
+        if hit.relations:
+            parts.append(f"{label}={'/'.join(hit.relations)}")
+        else:
+            parts.append(label)
+    rendered = "; ".join(parts)
+    return truncate_to_budget("social_context", rendered)
+
+
+def assemble_social_context_slot(
+    *,
+    store: V2MemoryStore,
+    owner_user_id: int,
+    query: str,
+    top_k: int = 3,
+) -> tuple[str, list[PersonHit]]:
+    """End-to-end slot assembly for Tier 5. Returns (slot_string, hits)."""
+    hits = read_social_context(store, owner_user_id, query, top_k=top_k)
+    return render_social_context(hits), hits
+
+
 def assemble_slots(context: dict) -> dict[str, str]:
     """Return all six prompt slots.
 
-    Pulls the active store + query out of `context` when ``need_preference``
-    is set. Slots whose tiers haven't shipped yet (M3+) return "".
+    Pulls the active store + query out of `context` when one of the
+    relevant ``need_*`` flags is set. Slots whose tiers haven't shipped
+    yet (M4+) return "".
     """
     out = {spec.name: "" for spec in SLOT_SPECS}
-    if not context.get("need_preference"):
-        return out
     store = context.get("memory_store")
     if not isinstance(store, V2MemoryStore):
         return out
     owner_user_id = int(context.get("owner_user_id") or 0)
     query = str(context.get("memory_query") or context.get("user_input") or "")
-    rendered, _hits = assemble_user_facts_slot(
-        store=store,
-        owner_user_id=owner_user_id,
-        query=query,
-    )
-    out["user_facts"] = rendered
+    if context.get("need_preference"):
+        rendered, _hits = assemble_user_facts_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+            query=query,
+        )
+        out["user_facts"] = rendered
+    if context.get("need_social"):
+        rendered, _hits = assemble_social_context_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+            query=query,
+        )
+        out["social_context"] = rendered
     return out
