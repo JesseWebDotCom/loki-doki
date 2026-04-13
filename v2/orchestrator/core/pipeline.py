@@ -34,6 +34,7 @@ from v2.orchestrator.pipeline.fast_lane import check_fast_lane
 from v2.orchestrator.pipeline.normalizer import normalize_text
 from v2.orchestrator.pipeline.parser import parse_text
 from v2.orchestrator.pipeline.splitter import split_requests
+from v2.orchestrator.pipeline.derivations import derive_need_flags, extract_structured_params
 from v2.orchestrator.registry.runtime import get_runtime
 from v2.orchestrator.resolution.resolver import resolve_chunk_async
 from v2.orchestrator.routing.router import route_chunk_async
@@ -186,6 +187,20 @@ async def run_pipeline_async(
         ],
     )
 
+    # Derive need_* flags from parse + route results (C05). Flags are
+    # set via setdefault so explicit caller overrides (dev-tools toggles,
+    # V2RunRequest fields) take precedence over derivation.
+    finish = trace.timed("derive_flags")
+    derived = derive_need_flags(parsed, chunks, extractions, routes, safe_context)
+    for key, value in derived.items():
+        safe_context.setdefault(key, value)
+    # Extract structured params from NER entities per routed chunk.
+    derived_params = extract_structured_params(chunks, extractions, routes)
+    finish(
+        flags=sorted(derived.keys()),
+        params_chunks=sorted(derived_params.keys()),
+    )
+
     # Bridge v2 session state into context["recent_entities"] so the
     # existing pronoun resolver can consult last-seen entities (M4).
     _bridge_session_state_to_recent_entities(safe_context)
@@ -200,6 +215,13 @@ async def run_pipeline_async(
         )
     )
     resolutions = [item["resolution"] for item in resolved]
+    # Merge NER-derived params into resolution params (C05). Resolution
+    # params set by the resolver take precedence; derived params fill gaps.
+    for resolution in resolutions:
+        chunk_params = derived_params.get(resolution.chunk_index)
+        if chunk_params:
+            for key, value in chunk_params.items():
+                resolution.params.setdefault(key, value)
     finish(
         chunks=[
             {

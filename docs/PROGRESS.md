@@ -193,4 +193,47 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C05 (Prompts/Decomposer), C06 (Citations, needs C03 ✓), C07 (Skills Runtime, needs C02 ✓), C08/C09 (Memory M5/M6) — all now unblocked. C10 (Cutover) prerequisites: C01 ✓, C03 ✓, C04 ✓ — only needs itself.
 
+## C05 — Prompts / Decomposer Refinement (2026-04-12)
+
+**Status:** Complete. All C05 gates green. 31 new tests, 1388 unit tests total (zero regressions).
+
+**Approach decision (gate: 2+ approaches considered):**
+
+- **Approach A: Tiny LLM decomposer** — Run qwen3:0.6b with a <500 char prompt to emit `need_*` flags + intent. Adds ~200-800ms latency per turn. Marginal accuracy gains on binary toggles that already have cheap deterministic signals.
+- **Approach B: Deterministic derivation** — Derive all flags from the spaCy parse tree + routing results already computed. Zero additional latency. The pipeline already has entities, noun chunks, predicates, and routes.
+- **Decision: Approach B.** v2's deterministic pipeline has all the signal needed. The memory read path is already gated per-slot, so a false positive costs ~5ms of FTS5, not an LLM round trip. v1's 4,637-char decomposition prompt and Pydantic repair loop are dead — v2 never imports them.
+
+**What shipped:**
+
+1. **derivations.py** — new module at `v2/orchestrator/pipeline/derivations.py`. Two functions:
+   - `derive_need_flags(parsed, chunks, extractions, routes, context)` — deterministic derivation of `need_preference`, `need_social`, `need_session_context`, `need_episode` from parse + route results. Uses capability sets (e.g. `direct_chat` → need_preference), NER entity labels (PERSON → need_social), family relation terms, referent pronouns, and episode-related lemmas.
+   - `extract_structured_params(chunks, extractions, routes)` — extracts NER-backed params (`location` from GPE/LOC, `person` from PERSON, `ticker` from ORG) per routed chunk. Maps capability → which NER params are relevant (weather→location, person lookups→person, stock→ticker).
+
+2. **pipeline.py** — added `derive_flags` trace step after routing, before resolve. Flags are set via `safe_context.setdefault()` so explicit caller overrides (dev-tools toggles, V2RunRequest fields) take precedence. NER-derived params are merged into resolution params post-resolve, also via `setdefault()` so resolver-set params win.
+
+3. **test_v2_decomposer_budget.py** — 31 tests in 7 test classes:
+   - Prompt budget: all 4 templates individually under 2,000 chars (5 tests)
+   - No repair loop: no repair files in v2/, no v1 repair imports (2 tests)
+   - need_preference: direct_chat trigger, knowledge_query trigger, self+pref verb, negative case, caller override (5 tests)
+   - need_social: people capability, PERSON entity, family relation, negative case (4 tests)
+   - need_session_context: referent pronoun, demonstrative, negative case (3 tests)
+   - need_episode: "remember" trigger, "last time" trigger, negative case (3 tests)
+   - Structured params: GPE→location, PERSON→person, no params for unrecognized, resolver precedence, gap filling (5 tests)
+   - Latency: p95 < 300ms warm (100 iterations), sub-millisecond typical (1000 iterations) (2 tests)
+   - v2 vs v1: no decomposer import, v2 prompt budget < v1 (2 tests)
+
+**Gate checklist:**
+- [x] 2+ approaches considered (documented above)
+- [x] p95 decompose latency < 300ms warm (sub-millisecond in practice)
+- [x] Total prompt budget < 2,000 chars per template
+- [x] Repair loop: v2 has none. v1's `decomposer_repair.py` (MAX_REPAIRS=2 Pydantic loop) is never imported by v2. v2 memory writes use strict-or-drop validation (Gate 4 in `gates.py`), no retry.
+
+**Deferred items resolved from earlier chunks:**
+- C01 deferred `need_session_context` / `need_episode` as decomposer fields → now derived deterministically (no schema fields needed)
+- C02 deferred removal of fallback `chunk_text` heuristics → NER-derived structured params now fill `location`, `person`, `ticker` via pipeline. The 10 skills' fallback heuristics remain as a safety net but are now rarely hit because params arrive pre-populated. Full removal deferred to C07 (Skills Runtime Wiring) when skill handlers can assert params are always present.
+
+**Final test count:** 1388 unit tests (2 skipped). Zero regressions.
+
+**Next chunk:** C06 (Citations, needs C03 ✓), C07 (Skills Runtime, needs C02 ✓), C08/C09 (Memory M5/M6), or C10 (Cutover, needs C01 ✓ + C03 ✓ + C04 ✓). All unblocked.
+
 <!-- Append new entries below this line -->
