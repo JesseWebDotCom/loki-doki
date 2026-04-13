@@ -11,15 +11,17 @@ from __future__ import annotations
 from lokidoki.orchestrator.adapters.movie_context import MovieContextAdapter
 from lokidoki.orchestrator.core.types import ChunkExtraction, RequestChunk, ResolutionResult, RouteMatch
 
-# Only capabilities that are *intrinsically* about a previously-mentioned
-# title go through the recent-media context lookup. Capabilities like
-# ``get_movie_showtimes`` carry their title in the chunk text itself
-# ("the new mario movie"), so the handler reads the chunk directly and
-# does not need this resolver to bind a recent context entity.
-MEDIA_CAPABILITIES = {
-    "recall_recent_media",
-    "get_movie_rating",
-}
+# Capabilities that *always* require recent-media context lookup.
+# These are intrinsically about a previously-mentioned title.
+_ALWAYS_MEDIA = {"recall_recent_media", "get_movie_rating"}
+
+# Capabilities that *optionally* use recent-media context — only when
+# the chunk text contains a referent pronoun instead of an explicit title.
+_PRONOUN_MEDIA = {"lookup_movie", "search_movies"}
+
+MEDIA_CAPABILITIES = _ALWAYS_MEDIA | _PRONOUN_MEDIA
+
+_REFERENT_PRONOUNS = {"it", "its", "that", "this", "them"}
 
 
 def _no_recent_media(chunk: RequestChunk, route: RouteMatch) -> ResolutionResult:
@@ -68,9 +70,23 @@ def resolve_media(
     if route.capability not in MEDIA_CAPABILITIES:
         return None
 
+    # For lookup_movie/search_movies, only resolve from context when the
+    # chunk uses a pronoun instead of an explicit title. "have you seen
+    # the movie inception" should NOT go through media resolution — the
+    # handler reads the title from the chunk text.
+    if route.capability in _PRONOUN_MEDIA:
+        if not _has_referent_pronoun(chunk.text):
+            return None
+
     movies = adapter.recent_movies()
     if not movies:
         return _no_recent_media(chunk, route)
     if len(movies) > 1:
         return _ambiguous_media(chunk, route, movies)
     return _resolved_media(chunk, route, movies[0])
+
+
+def _has_referent_pronoun(text: str) -> bool:
+    """True when the chunk text contains a referent pronoun."""
+    tokens = set(text.lower().split())
+    return bool(tokens & _REFERENT_PRONOUNS)

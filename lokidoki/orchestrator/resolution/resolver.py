@@ -74,6 +74,12 @@ def _resolve_one(
     return _default_resolution(chunk, extraction, route)
 
 
+_ENTITY_BEARING_CAPABILITIES = frozenset({
+    "lookup_movie", "search_movies", "lookup_tv_show",
+    "get_episode_detail", "get_movie_showtimes",
+})
+
+
 def _default_resolution(
     chunk: RequestChunk,
     extraction: ChunkExtraction,
@@ -86,6 +92,10 @@ def _default_resolution(
     spell_result = _resolve_spell_word(chunk, extraction, route)
     if spell_result is not None:
         return spell_result
+
+    entity_from_text = _resolve_entity_from_text(chunk, extraction, route)
+    if entity_from_text is not None:
+        return entity_from_text
 
     return _fallback_resolution(chunk, route)
 
@@ -134,6 +144,35 @@ def _resolve_spell_word(
         source="missing_spell_target",
         confidence=route.confidence,
         unresolved=["spell:missing"],
+    )
+
+
+def _resolve_entity_from_text(
+    chunk: RequestChunk,
+    extraction: ChunkExtraction,
+    route: RouteMatch,
+) -> ResolutionResult | None:
+    """Extract an entity name from the chunk text for entity-bearing capabilities."""
+    if route.capability not in _ENTITY_BEARING_CAPABILITIES:
+        return None
+    # Use the last subject_candidate (typically the entity name, e.g. "inception")
+    candidates = extraction.subject_candidates or []
+    # Filter out pronouns and short words
+    names = [c for c in candidates if len(c) > 2 and c.lower() not in {"you", "the", "who"}]
+    if not names:
+        return None
+    target = names[-1]
+    # Strip common determiner prefixes ("the movie X" → "X")
+    for prefix in ("the movie ", "the film ", "the show ", "the tv show "):
+        if target.lower().startswith(prefix):
+            target = target[len(prefix):]
+            break
+    return ResolutionResult(
+        chunk_index=chunk.index,
+        resolved_target=target,
+        source="chunk_entity",
+        confidence=route.confidence,
+        params={"entity_type": "movie"},
     )
 
 

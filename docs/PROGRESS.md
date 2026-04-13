@@ -665,4 +665,40 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C15 (Skills admin & settings pages: v2 registry rewire). Now unblocked.
 
+## C14.5 — Fix Movie Routing + Session Context Flow (2026-04-13)
+
+**Status:** Complete. Both production bugs fixed. 10 new integration tests. 1323 tests pass.
+
+**Root causes identified and fixed:**
+
+1. **session_id not passed to pipeline** — `chat.py` created `session_id` but didn't include it in the pipeline context dict. `ensure_session()` created a new memory session on every turn, so session state (last_seen map) was never carried between turns. **Fix:** Added `"session_id": session_id` to context dict in `chat.py`.
+
+2. **Movie routing failed for conversational phrasing** — `lookup_movie` examples only had imperative forms ("tell me about", "look up"). "have you seen the movie X" scored below ROUTE_FLOOR (0.55). **Fix:** Added 7 conversational examples to `lookup_movie`, 3 to `search_movies`, 6 to `recall_recent_media` in `function_registry.json`.
+
+3. **Media resolver not wired for lookup_movie** — `MEDIA_CAPABILITIES` only had `recall_recent_media` and `get_movie_rating`. `lookup_movie` didn't use the media resolver for pronoun binding. **Fix:** Added `lookup_movie` and `search_movies` to `MEDIA_CAPABILITIES` with pronoun-gating — media resolver only fires when the chunk contains a referent pronoun, not when the user names a movie explicitly.
+
+4. **Pronoun resolver preempted movie title extraction** — "the movie inception" was treated as a "definite reference" by the pronoun resolver, which returned "unresolved_referent" instead of letting the default resolver extract the title. **Fix:** Added `lookup_movie` and `search_movies` to `DIRECT_UTILITY_CAPABILITIES` in `pronoun_resolver.py`.
+
+5. **Default resolver didn't extract entity names** — For `lookup_movie`, the fallback resolver returned the capability name ("lookup_movie") as `resolved_target` instead of the movie title. **Fix:** Added `_resolve_entity_from_text()` to `resolver.py` — extracts the entity name from `subject_candidates` for entity-bearing capabilities, strips determiner prefixes ("the movie X" → "X").
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `lokidoki/api/routes/chat.py` | Added `session_id` to pipeline context |
+| `lokidoki/orchestrator/data/function_registry.json` | 16 new movie capability examples |
+| `lokidoki/orchestrator/resolution/media_resolver.py` | Pronoun-gated `MEDIA_CAPABILITIES` expansion |
+| `lokidoki/orchestrator/resolution/pronoun_resolver.py` | Movie skills in `DIRECT_UTILITY_CAPABILITIES` |
+| `lokidoki/orchestrator/resolution/resolver.py` | `_resolve_entity_from_text()` for entity-bearing capabilities |
+| `docs/chunks/chunk-14.5.md` | Chunk briefing |
+| `tests/integration/test_session_context_flow.py` | 10 new integration tests |
+
+**Gate checklist:**
+- [x] "have you seen the movie inception" routes to lookup_movie
+- [x] Session state persists between pipeline calls with same session_id
+- [x] "who's in it?" after a movie discussion resolves the movie from context
+- [x] All existing tests pass (1323 passed, 3 pre-existing flaky, 64 xfailed)
+
+**Final test count:** 1323 passed, 2 skipped, 64 xfailed. Zero regressions.
+
 <!-- Append new entries below this line -->

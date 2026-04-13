@@ -89,6 +89,7 @@ async def chat(
     # Build pipeline context.
     memory_store = get_memory_store()
     context = {
+        "session_id": session_id,
         "memory_writes_enabled": True,
         "memory_store": memory_store,
         "memory_provider": memory,

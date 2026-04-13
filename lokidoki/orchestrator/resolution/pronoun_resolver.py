@@ -60,6 +60,10 @@ DIRECT_UTILITY_CAPABILITIES = {
     "find_recipe",
     "tell_joke",
     "lookup_tv_show",
+    # Movie skills carry the title in the chunk text ("the movie inception").
+    # Pronoun-based queries ("who's in it") route to recall_recent_media.
+    "lookup_movie",
+    "search_movies",
 }
 
 # Pronoun → preferred entity types (best-effort guess from English usage).
