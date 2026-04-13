@@ -278,17 +278,21 @@ def _build_synthesis_done(result: Any) -> dict[str, Any]:
 
 
 def _extract_sources(result: Any) -> list[dict[str, str]]:
-    """Extract source attribution from execution results."""
-    sources: list[dict[str, str]] = []
-    for execution in getattr(result, "executions", []):
-        raw = getattr(execution, "raw_result", {}) or {}
-        for src in raw.get("sources", []):
-            if isinstance(src, dict) and src.get("url"):
-                sources.append({
-                    "url": src["url"],
-                    "title": src.get("title", ""),
-                })
-    return sources
+    """Extract source attribution from the request spec.
+
+    Uses the same ``_collect_sources`` logic the LLM prompt builder uses
+    so that ``[src:N]`` citation markers in the response text map to the
+    correct index in the list the frontend receives.  The previous
+    implementation iterated ``result.executions`` independently, which
+    could diverge from the spec-based list when the knowledge-gap
+    fallback appended extra executions.
+    """
+    from lokidoki.orchestrator.fallbacks.llm_prompt_builder import _collect_sources
+
+    spec = getattr(result, "request_spec", None)
+    if spec is not None:
+        return _collect_sources(spec)
+    return []
 
 
 def _build_error_event() -> SSEEvent:

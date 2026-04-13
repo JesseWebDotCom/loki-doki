@@ -140,15 +140,17 @@ class TestRoutingData:
 
 class TestSynthesisDone:
     def test_builds_from_pipeline_result(self):
+        from lokidoki.orchestrator.core.types import RequestSpec
+
         class FakeResponse:
             output_text = "Hello there!"
 
-        class FakeSpec:
-            llm_model = "qwen2.5:3b"
+        spec = RequestSpec(trace_id="t1", original_request="hi", chunks=[])
+        spec.llm_model = "qwen2.5:3b"
 
         class FakeResult:
             response = FakeResponse()
-            request_spec = FakeSpec()
+            request_spec = spec
             trace_summary = TraceSummary(total_timing_ms=123.456)
             executions = []
 
@@ -160,16 +162,50 @@ class TestSynthesisDone:
         assert data["sources"] == []
         assert data["platform"] == "lokidoki"
 
-    def test_fallback_model_when_none(self):
-        class FakeResponse:
-            output_text = "ok"
+    def test_sources_from_spec_chunks(self):
+        """Sources come from request_spec.chunks, not from executions."""
+        from lokidoki.orchestrator.core.types import RequestChunkResult, RequestSpec
 
-        class FakeSpec:
-            llm_model = None
+        class FakeResponse:
+            output_text = "answer"
+
+        chunk = RequestChunkResult(
+            text="query",
+            role="primary_request",
+            capability="knowledge_query",
+            confidence=0.9,
+            success=True,
+            result={
+                "output_text": "wiki text",
+                "sources": [{"url": "https://en.wikipedia.org/wiki/Taxi", "title": "Wikipedia - Taxi"}],
+            },
+        )
+        spec = RequestSpec(trace_id="t1", original_request="taxi", chunks=[chunk])
+        spec.llm_model = "qwen3:4b"
 
         class FakeResult:
             response = FakeResponse()
-            request_spec = FakeSpec()
+            request_spec = spec
+            trace_summary = TraceSummary(total_timing_ms=50.0)
+            executions = []  # empty — sources must come from spec, not here
+
+        data = _build_synthesis_done(FakeResult())
+        assert len(data["sources"]) == 1
+        assert data["sources"][0]["url"] == "https://en.wikipedia.org/wiki/Taxi"
+        assert data["sources"][0]["title"] == "Wikipedia - Taxi"
+
+    def test_fallback_model_when_none(self):
+        from lokidoki.orchestrator.core.types import RequestSpec
+
+        class FakeResponse:
+            output_text = "ok"
+
+        spec = RequestSpec(trace_id="t1", original_request="hi", chunks=[])
+        spec.llm_model = None
+
+        class FakeResult:
+            response = FakeResponse()
+            request_spec = spec
             trace_summary = TraceSummary(total_timing_ms=10.0)
             executions = []
 

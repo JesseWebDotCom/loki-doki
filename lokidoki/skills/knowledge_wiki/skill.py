@@ -373,7 +373,7 @@ class WikipediaSkill(BaseSkill):
                         "list": "search",
                         "srsearch": query,
                         "format": "json",
-                        "srlimit": 1,
+                        "srlimit": 5,
                     },
                 )
 
@@ -384,7 +384,21 @@ class WikipediaSkill(BaseSkill):
             if not results:
                 return MechanismResult(success=False, error="No search results found")
 
-            title = results[0]["title"]
+            # Apply the same title-relevance gate as _mediawiki_api so we
+            # don't ground synthesis on an unrelated article.
+            title = next(
+                (
+                    r["title"] for r in results
+                    if not _is_junk_title(r.get("title", ""))
+                    and _title_matches_query(r.get("title", ""), query)
+                ),
+                None,
+            )
+            if not title:
+                return MechanismResult(
+                    success=False,
+                    error="No relevant Wikipedia article found",
+                )
             url = _page_url(title)
 
             async with httpx.AsyncClient(timeout=5.0, headers=HEADERS, follow_redirects=True) as client:
