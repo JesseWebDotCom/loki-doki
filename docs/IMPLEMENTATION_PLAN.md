@@ -58,6 +58,7 @@ Chunks are ordered by dependency. Each chunk = one Claude Code chat session.
 | **C10** | V1 Cutover: chat.py swap + v1 deletion | C01, C03, C04 | `chunks/chunk-10.md` | Medium | **complete** |
 | **C11** | Skills Phase 3: finish v1 ports | C07 | `chunks/chunk-11.md` | Large | not started |
 | **C12** | Skills Phase 4-8: providers + device + polish | C11 | `chunks/chunk-12.md` | Large | not started |
+| **C13** | V1 Deletion + V2 Promotion (erase "v2" everywhere) | C10, C11 | `chunks/chunk-13.md` | Large | not started |
 
 ### Dependency Graph
 
@@ -66,9 +67,10 @@ C01 (Memory M4) ─────────────────────�
 C02 (Skills Foundation) ─── C07 ──┐   │
 C03 (Persona+Synthesis) ─── C06   │   │
 C04 (SSE Streaming) ──────────────┼───┼── C10 (Cutover) ── C11 ── C12
-C05 (Prompts/Decomposer) ─────────┘   │
-C08 (Memory M5) ──────────────────────┘
-C09 (Memory M6) ───────── needs C03
+C05 (Prompts/Decomposer) ─────────┘   │                      │
+C08 (Memory M5) ──────────────────────┘                       │
+C09 (Memory M6) ───────── needs C03                           │
+                                                C13 (Promotion) ── needs C10 + C11
 ```
 
 **Critical path to cutover:** C01 + C03 + C04 + C10.
