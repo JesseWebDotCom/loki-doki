@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from lokidoki.core.decomposer import Ask
+from types import SimpleNamespace
 from lokidoki.core.retrieval_scoring import (
     CONTRADICTION_PENALTY,
     ENTITY_BOOST,
@@ -32,10 +32,10 @@ from lokidoki.core.graph_walk_resolution import (
 )
 
 
-def _ask(**overrides) -> Ask:
+def _ask(**overrides) -> SimpleNamespace:
     base = {"ask_id": "a1", "intent": "direct_chat", "distilled_query": "test"}
     base.update(overrides)
-    return Ask(**base)
+    return SimpleNamespace(**base)
 
 
 # ---------- scoring math ----------

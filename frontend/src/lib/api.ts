@@ -42,7 +42,7 @@ export type {
   PersonMedia,
   ReconcileCandidate,
   ReconcileGroup,
-  V2RunResponse,
+  PipelineRunResponse,
 } from "./api-types";
 
 const API_BASE = "/api/v1";
@@ -179,14 +179,14 @@ export async function getSessionMessages(sessionId: string | number) {
   );
 }
 
-export interface V2RunOptions {
+export interface PipelineRunOptions {
   memory_enabled?: boolean;
   need_preference?: boolean;
   need_social?: boolean;
 }
 
-export async function runV2Prototype(message: string, options: V2RunOptions = {}) {
-  return postJson<import("./api-types").V2RunResponse>("/dev/v2/run", {
+export async function runPipeline(message: string, options: PipelineRunOptions = {}) {
+  return postJson<import("./api-types").PipelineRunResponse>("/dev/pipeline/run", {
     message,
     memory_enabled: options.memory_enabled ?? false,
     need_preference: options.need_preference ?? true,
@@ -194,24 +194,24 @@ export async function runV2Prototype(message: string, options: V2RunOptions = {}
   });
 }
 
-export async function dumpV2Memory() {
-  return getJson<import("./api-types").V2MemoryDumpResponse>("/dev/v2/memory/dump");
+export async function dumpMemory() {
+  return getJson<import("./api-types").MemoryDumpResponse>("/dev/memory/dump");
 }
 
-export async function resetV2Memory() {
-  return postJson<import("./api-types").V2MemoryResetResponse>("/dev/v2/memory/reset", {});
+export async function resetMemory() {
+  return postJson<import("./api-types").MemoryResetResponse>("/dev/memory/reset", {});
 }
 
-export async function getV2PrototypeStatus() {
-  return getJson<import("./api-types").V2StatusResponse>("/dev/v2/status");
+export async function getPipelineStatus() {
+  return getJson<import("./api-types").PipelineStatusResponse>("/dev/pipeline/status");
 }
 
-export async function getV2Skills() {
-  return getJson<import("./api-types").V2SkillsResponse>("/dev/v2/skills");
+export async function getDevSkills() {
+  return getJson<import("./api-types").DevSkillsResponse>("/dev/skills");
 }
 
-export async function runV2Skill(capability: string, message: string, params: Record<string, unknown> = {}, resolvedTarget?: string) {
-  return postJson<import("./api-types").V2SkillRunResponse>("/dev/v2/skills/run", {
+export async function runDevSkill(capability: string, message: string, params: Record<string, unknown> = {}, resolvedTarget?: string) {
+  return postJson<import("./api-types").DevSkillRunResponse>("/dev/skills/run", {
     capability,
     message,
     params,

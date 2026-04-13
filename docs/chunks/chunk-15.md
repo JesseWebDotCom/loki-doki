@@ -7,9 +7,11 @@
 
 ## Problem
 
-Both `/settings/skills` and `/admin/admin-skills` are powered by the v1 `SkillRegistry` which reads manifests from `lokidoki/skills/`. After C13 deletes that directory, both pages break — no skills appear, config/toggle/test endpoints 404.
+Both `/settings/skills` and `/admin/admin-skills` are powered by the v1 `SkillRegistry` which reads manifests from `lokidoki/skills/`. C13 preserved `lokidoki/skills/` (the orchestrator adapters still import from it), so the pages currently show an empty list (manifests scan finds nothing new) but don't crash.
 
-The v2 system uses `function_registry.json` with a different data model: capabilities + implementations instead of skill_id + intents + config_schema. The v2 `V2SkillsExplorer` in dev tools shows capabilities but has no config, no toggles, and no test panel.
+The promoted system uses `function_registry.json` (now at `lokidoki/orchestrator/data/`) with a different data model: capabilities + implementations instead of skill_id + intents + config_schema. The `DevSkillsExplorer` in dev tools shows capabilities but has no config, no toggles, and no test panel.
+
+**C13 note:** `skill_factory.py` was deleted; the `test_skill` endpoint in `skills.py` returns 501 pending this rewire. `skill_executor.py` was kept (shared types). `skill_config.py` and `skill_cache.py` were kept as specified.
 
 ---
 

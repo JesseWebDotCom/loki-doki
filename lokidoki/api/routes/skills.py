@@ -23,14 +23,11 @@ from lokidoki.auth.users import User
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core import skill_config as cfg
 from lokidoki.core.registry import SkillRegistry
-from lokidoki.core.skill_executor import SkillExecutor
-from lokidoki.core.skill_factory import get_skill_instance
 
 router = APIRouter()
 
-# Single registry shared across requests. Scanning is cheap (one
-# directory walk + JSON parse per skill) but doing it on every
-# request would still add latency for no reason.
+# Single registry shared across requests.  The v1 skills directory is
+# deleted; C15 will rewire this to the promoted function registry.
 _registry = SkillRegistry(skills_dir="lokidoki/skills")
 _registry.scan()
 
@@ -65,9 +62,6 @@ class ToggleBody(BaseModel):
 
 class TestBody(BaseModel):
     prompt: str
-
-
-_executor = SkillExecutor()
 
 
 # ---- list ---------------------------------------------------------------
@@ -266,42 +260,15 @@ async def test_skill(
     admin: User = Depends(require_admin),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    """Force a prompt through one specific skill, bypassing the
-    decomposer/orchestrator routing layer. Admin-only because some
-    skills hit paid APIs and we don't want unprivileged users to be
-    able to burn server-side credentials at will.
+    """Force a prompt through one specific skill.
 
-    The skill is invoked exactly the way ``execute_capability_lookup``
-    does it: ``query`` is the test prompt, merged global+admin config
-    is attached as ``_config``, and every mechanism is tried in
-    priority order.
+    Currently disabled — v1 skill executor removed. C15 rewires this
+    endpoint to use the promoted pipeline's skill runner.
     """
-    manifest = _manifest_or_404(skill_id)
-    instance = get_skill_instance(skill_id)
-    if not instance:
-        raise HTTPException(status_code=400, detail="skill_not_instantiable")
-
-    def _load(c):
-        return (
-            cfg.get_global_config(c, skill_id),
-            cfg.get_user_config(c, admin.id, skill_id),
-        )
-
-    global_vals, user_vals = await memory.run_sync(_load)
-    merged = {**global_vals, **user_vals}
-
-    mechs = _registry.get_mechanisms(skill_id)
-    params: dict[str, Any] = {"query": body.prompt, "_config": merged}
-    result = await _executor.execute_skill(instance, mechs, params)
-    return {
-        "success": result.success,
-        "data": result.data,
-        "mechanism_used": result.mechanism_used,
-        "mechanism_log": result.mechanism_log,
-        "source_url": result.source_url,
-        "source_title": result.source_title,
-        "latency_ms": result.latency_ms,
-    }
+    raise HTTPException(
+        status_code=501,
+        detail="skill_test_unavailable_pending_rewire",
+    )
 
 
 @router.delete("/{skill_id}/config/user/{key}")

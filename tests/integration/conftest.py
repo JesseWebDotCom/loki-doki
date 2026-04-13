@@ -233,7 +233,7 @@ def _patch_v2_skill_singletons() -> None:
     held for the entire session — adapter functions read the attribute
     at call time so the swap is observed everywhere.
     """
-    from v2.orchestrator.skills import (
+    from lokidoki.orchestrator.skills import (
         dictionary as dictionary_skill,
         jokes as jokes_skill,
         knowledge as knowledge_skill,
@@ -286,7 +286,7 @@ def _patch_v2_skill_singletons() -> None:
 def _seed_v2_people_db_for_integration():
     """Inject the pop-culture seed roster into the in-memory PeopleDBAdapter.
 
-    The production default of ``v2.orchestrator.adapters.people_db._DEFAULT_ROSTER``
+    The production default of ``lokidoki.orchestrator.adapters.people_db._DEFAULT_ROSTER``
     is intentionally empty so the live dev tool pipeline never surfaces
     fictional people to the user. The integration regression suite still
     needs a deterministic family graph to test the people resolver +
@@ -297,9 +297,9 @@ def _seed_v2_people_db_for_integration():
     Session-scoped + autouse so the seed is in place for every test
     that runs through ``run_pipeline_async``.
     """
-    from v2.orchestrator.adapters import people_db
+    from lokidoki.orchestrator.adapters import people_db
 
-    from tests.fixtures.v2_seed_people import SEED_ROSTER
+    from tests.fixtures.seed_people import SEED_ROSTER
 
     original = people_db._DEFAULT_ROSTER
     people_db._DEFAULT_ROSTER = SEED_ROSTER

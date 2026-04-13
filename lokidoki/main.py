@@ -140,10 +140,10 @@ async def run_bootstrap():
 
 @app.on_event("startup")
 async def startup_event():
-    # Eagerly initialize the production v2 memory store so the schema
+    # Eagerly initialize the production memory store so the schema
     # is ready before the first chat request arrives.
-    from lokidoki.core.v2_memory_singleton import get_v2_memory_store
-    get_v2_memory_store()
+    from lokidoki.core.memory_store_singleton import get_memory_store
+    get_memory_store()
 
     asyncio.create_task(run_bootstrap())
 

@@ -1,10 +1,10 @@
 """
 Dev-tools test memory store.
 
-This is a process-singleton :class:`V2MemoryStore` backed by a sqlite
-file under ``data/v2_dev_memory.sqlite``. It exists so the dev-tools v2
+This is a process-singleton :class:`MemoryStore` backed by a sqlite
+file under ``data/dev_memory.sqlite``. It exists so the dev-tools
 test page can write to and read from a real memory store **without
-touching the production v2 store** (``data/v2_memory.sqlite``). The
+touching the production store** (``data/memory.sqlite``). The
 file is owned entirely by the dev tools and the user can reset it with
 one button click.
 
@@ -17,21 +17,21 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from v2.orchestrator.memory.store import V2MemoryStore
+from lokidoki.orchestrator.memory.store import MemoryStore
 
-DEV_DB_PATH = Path("data/v2_dev_memory.sqlite")
+DEV_DB_PATH = Path("data/dev_memory.sqlite")
 DEV_OWNER_USER_ID: int = 1
 
 _lock = threading.Lock()
-_store: V2MemoryStore | None = None
+_store: MemoryStore | None = None
 
 
-def get_dev_store() -> V2MemoryStore:
+def get_dev_store() -> MemoryStore:
     """Return the singleton dev-tools test store, creating it on first use."""
     global _store
     with _lock:
         if _store is None:
-            _store = V2MemoryStore(DEV_DB_PATH)
+            _store = MemoryStore(DEV_DB_PATH)
         return _store
 
 
@@ -54,7 +54,7 @@ def reset_dev_store() -> dict[str, int]:
             _store = None
         if DEV_DB_PATH.exists():
             DEV_DB_PATH.unlink()
-        _store = V2MemoryStore(DEV_DB_PATH)
+        _store = MemoryStore(DEV_DB_PATH)
         return {
             "facts_cleared": prior_facts,
             "people_cleared": prior_people,

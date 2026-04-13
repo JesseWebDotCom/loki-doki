@@ -1,10 +1,10 @@
-"""Chat HTTP route — v2 pipeline cutover.
+"""Chat HTTP route — pipeline cutover.
 
 Each turn:
   1. resolves the authenticated current user
   2. creates a new session row if the client didn't pass session_id
   3. persists the user message to the v1 MemoryProvider (chat history)
-  4. runs the v2 pipeline via stream_pipeline_sse
+  4. runs the pipeline via stream_pipeline_sse
   5. persists the assistant reply to v1 MemoryProvider
   6. streams pipeline events back as SSE
 """
@@ -25,7 +25,7 @@ from lokidoki.core.inference import InferenceClient
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.memory_singleton import get_memory_provider  # noqa: F401 (test patch)
 from lokidoki.core.model_manager import ModelPolicy
-from lokidoki.core.v2_memory_singleton import get_v2_memory_store
+from lokidoki.core.memory_store_singleton import get_memory_store
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +58,8 @@ async def chat(
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    """Process a chat message through the v2 pipeline, streaming SSE events."""
-    from v2.orchestrator.core.streaming import stream_pipeline_sse
+    """Process a chat message through the pipeline, streaming SSE events."""
+    from lokidoki.orchestrator.core.streaming import stream_pipeline_sse
 
     user_id = user.id
     session_id = request.session_id or await memory.create_session(
@@ -85,11 +85,11 @@ async def chat(
     character_name = (resolved or {}).get("name", "Loki") if resolved else "Loki"
     character_id = (resolved or {}).get("id", "default") if resolved else "default"
 
-    # Build v2 pipeline context.
-    v2_store = get_v2_memory_store()
+    # Build pipeline context.
+    memory_store = get_memory_store()
     context = {
         "memory_writes_enabled": True,
-        "memory_store": v2_store,
+        "memory_store": memory_store,
         "owner_user_id": user_id,
         "behavior_prompt": behavior_prompt,
         "character_name": character_name,

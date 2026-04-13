@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import importlib
 
-from v2.orchestrator.execution.executor import (
+from lokidoki.orchestrator.execution.executor import (
     _BUILTIN_HANDLERS,
     _get_skill_handler_map,
     list_handlers,
 )
-from v2.orchestrator.registry.loader import build_handler_map, load_function_registry
+from lokidoki.orchestrator.registry.loader import build_handler_map, load_function_registry
 
 
 def _all_registered_handler_names() -> set[str]:

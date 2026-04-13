@@ -255,14 +255,14 @@ export interface LoadedModel {
   expires_at: string;
 }
 
-export interface V2TraceStep {
+export interface TraceStep {
   name: string;
   status: string;
   timing_ms: number;
   details: Record<string, unknown>;
 }
 
-export interface V2RunResponse {
+export interface PipelineRunResponse {
   normalized: {
     raw_text: string;
     cleaned_text: string;
@@ -365,7 +365,7 @@ export interface V2RunResponse {
     output_text: string;
   };
   trace: {
-    steps: V2TraceStep[];
+    steps: TraceStep[];
   };
   trace_summary: {
     total_timing_ms: number;
@@ -375,7 +375,7 @@ export interface V2RunResponse {
   };
 }
 
-export interface V2DependencyStatus {
+export interface DependencyStatus {
   key: string;
   label: string;
   version: string;
@@ -384,7 +384,7 @@ export interface V2DependencyStatus {
   detail: string;
 }
 
-export interface V2PhaseStatus {
+export interface PhaseStatus {
   id: string;
   label: string;
   title: string;
@@ -393,7 +393,7 @@ export interface V2PhaseStatus {
   remaining: string[];
 }
 
-export interface V2MemoryTier {
+export interface MemoryTier {
   tier: number;
   name: string;
   title: string;
@@ -401,7 +401,7 @@ export interface V2MemoryTier {
   landing_phase: string;
 }
 
-export interface V2MemorySlotSpec {
+export interface MemorySlotSpec {
   name: string;
   tier: number;
   char_budget: number;
@@ -409,7 +409,7 @@ export interface V2MemorySlotSpec {
   landing_phase: string;
 }
 
-export interface V2MemoryActivePhase {
+export interface MemoryActivePhase {
   id: string;
   label: string;
   title: string;
@@ -418,19 +418,19 @@ export interface V2MemoryActivePhase {
   deliverables: string[];
 }
 
-export interface V2MemoryPhaseEntry {
+export interface MemoryPhaseEntry {
   id: string;
   label: string;
   title: string;
   status: string;
 }
 
-export interface V2MemoryStatus {
-  active_phase: V2MemoryActivePhase;
-  phases: V2MemoryPhaseEntry[];
-  tiers: V2MemoryTier[];
+export interface MemoryStatus {
+  active_phase: MemoryActivePhase;
+  phases: MemoryPhaseEntry[];
+  tiers: MemoryTier[];
   slots: {
-    specs: V2MemorySlotSpec[];
+    specs: MemorySlotSpec[];
     worst_case_total_chars: number;
   };
   scaffolding: {
@@ -441,14 +441,14 @@ export interface V2MemoryStatus {
   };
 }
 
-export interface V2StatusResponse {
+export interface PipelineStatusResponse {
   current_focus: string;
-  phases: V2PhaseStatus[];
-  dependencies: V2DependencyStatus[];
-  memory?: V2MemoryStatus;
+  phases: PhaseStatus[];
+  dependencies: DependencyStatus[];
+  memory?: MemoryStatus;
 }
 
-export interface V2MemoryFactRow {
+export interface MemoryFactRow {
   id: number;
   owner_user_id: number;
   subject: string;
@@ -462,7 +462,7 @@ export interface V2MemoryFactRow {
   updated_at: string;
 }
 
-export interface V2MemoryPersonRow {
+export interface MemoryPersonRow {
   id: number;
   owner_user_id: number;
   name: string | null;
@@ -472,7 +472,7 @@ export interface V2MemoryPersonRow {
   updated_at: string;
 }
 
-export interface V2MemoryRelationshipRow {
+export interface MemoryRelationshipRow {
   id: number;
   owner_user_id: number;
   person_id: number;
@@ -480,13 +480,13 @@ export interface V2MemoryRelationshipRow {
   created_at: string;
 }
 
-export interface V2MemoryDumpResponse {
+export interface MemoryDumpResponse {
   owner_user_id: number;
   db_path: string;
-  active_facts: V2MemoryFactRow[];
-  superseded_facts: V2MemoryFactRow[];
-  people: V2MemoryPersonRow[];
-  relationships: V2MemoryRelationshipRow[];
+  active_facts: MemoryFactRow[];
+  superseded_facts: MemoryFactRow[];
+  people: MemoryPersonRow[];
+  relationships: MemoryRelationshipRow[];
   summary: {
     active_fact_count: number;
     superseded_fact_count: number;
@@ -495,14 +495,14 @@ export interface V2MemoryDumpResponse {
   };
 }
 
-export interface V2MemoryResetResponse {
+export interface MemoryResetResponse {
   owner_user_id: number;
   db_path: string;
   facts_cleared: number;
   people_cleared: number;
 }
 
-export interface V2SkillEntry {
+export interface SkillEntry {
   capability: string;
   description: string;
   examples: string[];
@@ -516,11 +516,11 @@ export interface V2SkillEntry {
   }>;
 }
 
-export interface V2SkillsResponse {
-  skills: V2SkillEntry[];
+export interface DevSkillsResponse {
+  skills: SkillEntry[];
 }
 
-export interface V2SkillRunResponse {
+export interface DevSkillRunResponse {
   capability: string;
   handler_name: string;
   implementation_id: string;

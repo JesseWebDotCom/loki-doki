@@ -18,31 +18,31 @@ from lokidoki.api.dev_memory import (
 )
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
-from v2.orchestrator.core.types import RequestChunk, ResolutionResult, RouteMatch
-from v2.orchestrator.execution.executor import execute_chunk_async
-from v2.orchestrator.core.pipeline import run_pipeline_async
-from v2.orchestrator.memory import (
+from lokidoki.orchestrator.core.types import RequestChunk, ResolutionResult, RouteMatch
+from lokidoki.orchestrator.execution.executor import execute_chunk_async
+from lokidoki.orchestrator.core.pipeline import run_pipeline_async
+from lokidoki.orchestrator.memory import (
     ACTIVE_PHASE_ID,
     ACTIVE_PHASE_LABEL,
     ACTIVE_PHASE_STATUS,
     ACTIVE_PHASE_TITLE,
 )
-from v2.orchestrator.memory.slots import SLOT_SPECS, WORST_CASE_TOTAL_BUDGET
-from v2.orchestrator.memory.tiers import TIER_SPECS, Tier
-from v2.orchestrator.registry.runtime import get_runtime
-from v2.orchestrator.routing.embeddings import FASTEMBED_MODEL
+from lokidoki.orchestrator.memory.slots import SLOT_SPECS, WORST_CASE_TOTAL_BUDGET
+from lokidoki.orchestrator.memory.tiers import TIER_SPECS, Tier
+from lokidoki.orchestrator.registry.runtime import get_runtime
+from lokidoki.orchestrator.routing.embeddings import FASTEMBED_MODEL
 
 router = APIRouter()
 
 
-class V2RunRequest(BaseModel):
+class PipelineRunRequest(BaseModel):
     message: str
     context: dict[str, Any] = Field(default_factory=dict)
     # Memory toggles. When ``memory_enabled`` is true the dev-tools test
     # store is wired into ``context`` so the run actually exercises the
     # write + read paths. ``need_preference`` and ``need_social`` gate
     # the per-tier read slots independently. Defaults are all False so
-    # the existing v2 prototype behavior is preserved when the dev tool
+    # the existing pipeline behavior is preserved when the dev tool
     # has memory turned off.
     memory_enabled: bool = False
     need_preference: bool = True
@@ -58,7 +58,7 @@ class V2RunRequest(BaseModel):
         return value
 
 
-class V2SkillRunRequest(BaseModel):
+class SkillRunRequest(BaseModel):
     capability: str
     message: str = ""
     params: dict[str, Any] = Field(default_factory=dict)
@@ -72,15 +72,15 @@ class V2SkillRunRequest(BaseModel):
         return value.strip()
 
 
-@router.get("/v2/status")
-async def get_v2_status(_: User = Depends(require_admin)):
-    """Return implementation status and dependency/runtime info for the v2 prototype."""
+@router.get("/pipeline/status")
+async def get_pipeline_status(_: User = Depends(require_admin)):
+    """Return implementation status and dependency/runtime info for the pipeline."""
     runtime = get_runtime()
     embedding_backend = runtime.embedding_backend
     minilm_active = embedding_backend.name.startswith("fastembed:")
 
     return {
-        "current_focus": "v2 cutover complete — chat.py uses v2 pipeline; v1 orchestrator retired",
+        "current_focus": "cutover complete — chat.py uses pipeline; v1 orchestrator retired",
         "phases": [
             {
                 "id": "phase_1",
@@ -88,7 +88,7 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "title": "Minimal Working Pipeline",
                 "status": "complete",
                 "completed": [
-                    "Isolated v2 prototype exposed in Dev Tools",
+                    "Isolated pipeline exposed in Dev Tools",
                     "spaCy single-call parser feeding split/extract/resolve",
                     "Mature fast lane (greetings, ack, time, date, spell, math) with fuzzy templates",
                     "Doc-aware splitter with subordinate-clause and predicate-family detection",
@@ -171,9 +171,9 @@ async def get_v2_status(_: User = Depends(require_admin)):
                     "Failures captured on ExecutionResult instead of crashing the pipeline",
                     "Streaming trace listener seam (TraceData.subscribe)",
                     "Stdlib ANSI console renderer (observability/console.attach_console_renderer) — coloured per-step output, NO_COLOR/FORCE_COLOR aware, isolates stream failures",
-                    "Regression prompt fixture suite at tests/fixtures/v2_regression_prompts.json",
+                    "Regression prompt fixture suite at tests/fixtures/regression_prompts.json",
                     "Parametrized regression runner driving every fixture entry through the pipeline",
-                    "130+ v2 unit + integration tests across adapters (in-memory + LokiDoki SQLite/JSON), resolvers, fast lane, prompts, Ollama client, executor resilience, linguistics, trace listener, console renderer, parallel benchmark, dev API",
+                    "130+ unit + integration tests across adapters (in-memory + LokiDoki SQLite/JSON), resolvers, fast lane, prompts, Ollama client, executor resilience, linguistics, trace listener, console renderer, parallel benchmark, dev API",
                 ],
                 "remaining": [],
             },
@@ -194,9 +194,9 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "status": "running" if minilm_active else "idle",
                 "running": minilm_active,
                 "detail": (
-                    "Active embedding backend for v2 semantic routing."
+                    "Active embedding backend for semantic routing."
                     if minilm_active
-                    else "Installed, but the v2 prototype is currently using its local fallback backend."
+                    else "Installed, but the pipeline is currently using its local fallback backend."
                 ),
             },
             {
@@ -206,9 +206,9 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "status": "running" if minilm_active else "fallback",
                 "running": minilm_active,
                 "detail": (
-                    f"v2 routing is using {embedding_backend.name} ({embedding_backend.dimensions} dimensions)."
+                    f"pipeline routing is using {embedding_backend.name} ({embedding_backend.dimensions} dimensions)."
                     if minilm_active
-                    else f"MiniLM is not active; v2 routing fell back to {embedding_backend.name}."
+                    else f"MiniLM is not active; pipeline routing fell back to {embedding_backend.name}."
                 ),
             },
             {
@@ -217,7 +217,7 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "version": _package_version("spacy"),
                 "status": "running",
                 "running": True,
-                "detail": "v2 parser calls spaCy exactly once per utterance and reuses the Doc downstream.",
+                "detail": "pipeline parser calls spaCy exactly once per utterance and reuses the Doc downstream.",
             },
             {
                 "key": "en_core_web_sm",
@@ -225,15 +225,15 @@ async def get_v2_status(_: User = Depends(require_admin)):
                 "version": _package_version("en-core-web-sm"),
                 "status": "running",
                 "running": True,
-                "detail": "Loaded by v2/orchestrator/pipeline/parser.py for tokens, POS, deps, and NER.",
+                "detail": "Loaded by lokidoki/orchestrator/pipeline/parser.py for tokens, POS, deps, and NER.",
             },
         ],
-        "memory": _v2_memory_status(),
+        "memory": _memory_status(),
     }
 
 
-def _v2_memory_status() -> dict[str, Any]:
-    """Surface the v2 memory subsystem state on the dev-tools status page.
+def _memory_status() -> dict[str, Any]:
+    """Surface the memory subsystem state on the dev-tools status page.
 
     M0 publishes scaffolding only — the gates, classifier, promotion, and
     consolidation modules import cleanly but contain stub logic. The phase
@@ -267,23 +267,23 @@ def _v2_memory_status() -> dict[str, Any]:
             "title": ACTIVE_PHASE_TITLE,
             "status": ACTIVE_PHASE_STATUS,
             "summary": (
-                "All memory phases (M0-M6) complete. The v2 pipeline is "
+                "All memory phases (M0-M6) complete. The pipeline is "
                 "now the production chat path — chat.py calls "
                 "stream_pipeline_sse instead of the v1 Orchestrator. "
                 "Memory tiers: T2 session context, T3 episodic recall, "
                 "T4 user facts (FTS5+RRF+vector), T5 social graph, "
                 "T6 affective (character-scoped mood window), T7a/7b "
                 "procedural (behavior events, user style descriptors). "
-                "The v2 memory store at data/v2_memory.sqlite is "
+                "The memory store at data/memory.sqlite is "
                 "initialized at app startup; the v1 MemoryProvider "
                 "still owns chat history, auth, and settings."
             ),
             "deliverables": [
                 "Dev tools: Enable-memory toggle + need_preference + need_social",
-                "Dev tools: V2MemoryPanel showing facts/people/relationships + Reset",
+                "Dev tools: MemoryPanel showing facts/people/relationships + Reset",
                 "Dev tools: Memory activity card on every run (writes/reads/slot contents)",
-                "Dev tools: separate dev SQLite at data/v2_dev_memory.sqlite (prod untouched)",
-                "Endpoints: GET /dev/v2/memory/dump and POST /dev/v2/memory/reset",
+                "Dev tools: separate dev SQLite at data/dev_memory.sqlite (prod untouched)",
+                "Endpoints: GET /dev/memory/dump and POST /dev/memory/reset",
                 "Gate 2 carve-out: identity-establishing predicates allow new persons",
                 "Extractor patterns: my favorite X is Y, I live in X, I work at X (in addition to existing copular/possessive patterns)",
                 "M2.5: facts.embedding column populated on insert via routing embedding backend",
@@ -311,7 +311,7 @@ def _v2_memory_status() -> dict[str, Any]:
             "worst_case_total_chars": WORST_CASE_TOTAL_BUDGET,
         },
         "scaffolding": {
-            "module": "v2.orchestrator.memory",
+            "module": "lokidoki.orchestrator.memory",
             "submodules": [
                 "gates",
                 "tiers",
@@ -323,27 +323,27 @@ def _v2_memory_status() -> dict[str, Any]:
                 "schema",
             ],
             "fixtures": [
-                "tests/fixtures/v2_memory_extraction_corpus.json",
-                "tests/fixtures/v2_memory_recall_corpus.json",
-                "tests/fixtures/v2_people_resolution_corpus.json",
-                "tests/fixtures/v2_persona_corpus.json",
+                "tests/fixtures/memory_extraction_corpus.json",
+                "tests/fixtures/memory_recall_corpus.json",
+                "tests/fixtures/people_resolution_corpus.json",
+                "tests/fixtures/persona_corpus.json",
             ],
             "regression_row_id": "memory.president_bug.who_is_the_president",
         },
     }
 
 
-@router.post("/v2/run")
-async def run_v2_pipeline(
-    request: V2RunRequest,
+@router.post("/pipeline/run")
+async def run_pipeline(
+    request: PipelineRunRequest,
     _: User = Depends(require_admin),
 ):
-    """Run the isolated v2 prototype pipeline.
+    """Run the isolated pipeline pipeline.
 
     When ``memory_enabled`` is True the request context is enriched
     with the dev-tools test store and the requested per-tier need_*
-    flags. The dev test store is **separate from** the production v2
-    store at data/v2_memory.sqlite — dev tool runs never pollute
+    flags. The dev test store is **separate from** the production
+    store at data/memory.sqlite — dev tool runs never pollute
     real user memory.
     """
     context = dict(request.context)
@@ -366,18 +366,18 @@ async def run_v2_pipeline(
     return pipeline_result.to_dict()
 
 
-@router.post("/v2/chat")
-async def v2_chat_stream(
-    request: V2RunRequest,
+@router.post("/pipeline/chat")
+async def pipeline_chat_stream(
+    request: PipelineRunRequest,
     _: User = Depends(require_admin),
 ):
-    """Stream v2 pipeline results as SSE events (v1-frontend-compatible).
+    """Stream pipeline results as SSE events (v1-frontend-compatible).
 
-    Same request shape as ``/v2/run`` but returns a ``text/event-stream``
+    Same request shape as ``/pipeline/run`` but returns a ``text/event-stream``
     response with progressive phase events that the existing chat UI can
     consume without modification.
     """
-    from v2.orchestrator.core.streaming import stream_pipeline_sse
+    from lokidoki.orchestrator.core.streaming import stream_pipeline_sse
 
     context: dict[str, Any] = dict(request.context)
     if request.memory_enabled:
@@ -395,8 +395,8 @@ async def v2_chat_stream(
     )
 
 
-@router.get("/v2/memory/dump")
-async def dump_v2_memory(_: User = Depends(require_admin)):
+@router.get("/memory/dump")
+async def dump_memory(_: User = Depends(require_admin)):
     """Return everything in the dev-tools test memory store."""
     payload = dump_dev_store()
     return {
@@ -415,8 +415,8 @@ async def dump_v2_memory(_: User = Depends(require_admin)):
     }
 
 
-@router.post("/v2/memory/reset")
-async def reset_v2_memory(_: User = Depends(require_admin)):
+@router.post("/memory/reset")
+async def reset_memory(_: User = Depends(require_admin)):
     """Wipe the dev-tools test memory store."""
     summary = reset_dev_store()
     return {
@@ -426,8 +426,8 @@ async def reset_v2_memory(_: User = Depends(require_admin)):
     }
 
 
-@router.get("/v2/skills")
-async def get_v2_skills(_: User = Depends(require_admin)):
+@router.get("/skills")
+async def get_dev_skills(_: User = Depends(require_admin)):
     """Return the current capability registry plus selected handlers."""
     runtime = get_runtime()
     skills: list[dict[str, Any]] = []
@@ -450,12 +450,12 @@ async def get_v2_skills(_: User = Depends(require_admin)):
     return {"skills": skills}
 
 
-@router.post("/v2/skills/run")
-async def run_v2_skill(
-    request: V2SkillRunRequest,
+@router.post("/skills/run")
+async def run_dev_skill(
+    request: SkillRunRequest,
     _: User = Depends(require_admin),
 ):
-    """Run a selected v2 capability directly through its chosen handler."""
+    """Run a selected capability directly through its chosen handler."""
     runtime = get_runtime()
     implementation = runtime.select_handler(0, request.capability)
     chunk = RequestChunk(text=request.message, index=0)

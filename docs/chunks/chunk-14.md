@@ -3,6 +3,8 @@
 **Source:** Quality audit during C10/C13 planning.
 **Prereqs:** C13 (promotion complete — all paths are `lokidoki.orchestrator.*`).
 
+**C13 note:** `lokidoki/skills/` was preserved (orchestrator adapters import from it). `skill_executor.py` was preserved (shared `MechanismResult`/`BaseSkill` types). Consider inlining these into `lokidoki/orchestrator/skills/` as part of the refactor.
+
 ---
 
 ## Goal
