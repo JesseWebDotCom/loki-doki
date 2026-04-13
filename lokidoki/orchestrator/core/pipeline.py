@@ -47,6 +47,7 @@ async def run_pipeline_async(
         return _fast_lane_result(raw_text, normalized, signals, fast_lane, ctx, trace)
     parsed, chunks, extractions, mw = run_initial_phase(trace, ctx, raw_text, normalized)
     routable, routable_ext = _filter_routable(chunks, extractions)
+    routable = _resolve_antecedents(routable, ctx)
     routes, impls = await run_routing_phase(trace, ctx, routable, runtime)
     dp = run_derivations_phase(trace, ctx, parsed, chunks, extractions, routes)
     resolutions = await run_resolve_phase(trace, ctx, routable, routable_ext, routes, dp)
@@ -79,6 +80,12 @@ def _init_trace(context):
     safe_context.setdefault("current_iso_time", now.isoformat())
     
     return trace, get_runtime(), safe_context
+
+
+def _resolve_antecedents(routable, ctx):
+    """Replace subject pronouns with the most recent topic before routing."""
+    from lokidoki.orchestrator.pipeline.antecedent import resolve_antecedents
+    return resolve_antecedents(routable, ctx)
 
 
 def _filter_routable(chunks, extractions):

@@ -124,7 +124,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           {isThinking && (
             <ThinkingIndicator
               pipeline={pipeline}
-              avatar={renderAvatar(characterState ?? 'thinking')}
+              avatar={pipeline?.streamingResponse ? undefined : renderAvatar(characterState ?? 'thinking')}
             />
           )}
           {isThinking && pipeline?.streamingResponse && (

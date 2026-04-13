@@ -161,6 +161,93 @@ def extract_location_and_work(
             )
 
 
+# ---- Pattern 7: relational verb phrases ------------------------------------
+# Captures "I used to work with <Name>", "I went to school with <Name>",
+# "I grew up with <Name>", etc.  The verb phrase determines the relation
+# label; the named entity after "with" becomes the person subject.
+
+_RELATIONAL_VERB_PHRASES: dict[str, str] = {
+    "work": "coworker",
+    "live": "roommate",
+    "study": "classmate",
+    "grow": "childhood_friend",
+    "go": "classmate",       # "went to school with"
+    "serve": "colleague",    # "served with"
+    "play": "teammate",
+}
+
+
+def extract_relational_verb_phrases(
+    tokens: list[Any],
+    base_kwargs: dict[str, Any],
+) -> Iterator[MemoryCandidate]:
+    """Pattern 7: 'I [verb]ed with <Name>' → (person:Name, is_relation, <relation>).
+
+    Walks the dependency tree looking for:
+    1. A first-person subject ("I") on the ROOT or its ancestor
+    2. A verb whose lemma is in _RELATIONAL_VERB_PHRASES (ROOT or xcomp)
+    3. A "with" preposition child whose pobj is a PROPN (proper noun / name)
+
+    Handles both "I work with Claude" (work=ROOT) and "I used to work with
+    Claude" (used=ROOT, work=xcomp).
+    """
+    for token in tokens:
+        if token.dep_ not in {"ROOT", "xcomp", "advcl", "conj"}:
+            continue
+        lemma = token.lemma_.lower()
+        if lemma not in _RELATIONAL_VERB_PHRASES:
+            continue
+        # Must have a first-person subject — on this verb or its ROOT ancestor
+        has_fp = any(_is_first_person_subject(c) for c in token.children)
+        if not has_fp and token.dep_ != "ROOT" and token.head is not None:
+            has_fp = any(_is_first_person_subject(c) for c in token.head.children)
+        if not has_fp:
+            continue
+        # Find "with <Name>" under the verb (or under a particle/aux child)
+        name_token = _find_with_person(token)
+        if name_token is None:
+            for child in token.children:
+                if child.dep_ in {"prep", "xcomp", "advcl", "prt"}:
+                    name_token = _find_with_person(child)
+                    if name_token is not None:
+                        break
+        if name_token is None:
+            continue
+        relation = _RELATIONAL_VERB_PHRASES[lemma]
+        yield MemoryCandidate(
+            subject=f"person:{name_token.text}",
+            predicate="is_relation",
+            value=relation,
+            **base_kwargs,
+        )
+
+
+def _find_with_person(head: Any) -> Any | None:
+    """Find a PROPN under a 'with' preposition attached to ``head``."""
+    for child in head.children:
+        if child.dep_ == "prep" and child.lower_ == "with":
+            for grandchild in child.children:
+                if grandchild.dep_ == "pobj" and grandchild.pos_ == "PROPN":
+                    return grandchild
+                # Handle "a guy named Claude" — appos or relcl under pobj
+                if grandchild.dep_ == "pobj":
+                    for gc in grandchild.children:
+                        if gc.pos_ == "PROPN" and gc.dep_ in {"appos", "attr", "oprd"}:
+                            return gc
+                        # "named Claude" pattern — dep is oprd/attr under "named"
+                        if gc.dep_ in {"acl", "relcl", "amod", "partmod"}:
+                            for ggc in gc.children:
+                                if ggc.pos_ == "PROPN":
+                                    return ggc
+                        # Flat name: "a guy named Claude" where "named" is acl
+                        # and Claude is its child
+                        if gc.lemma_.lower() in {"name", "call"} and gc.dep_ in {"acl", "relcl", "partmod"}:
+                            for ggc in gc.children:
+                                if ggc.pos_ == "PROPN" and ggc.dep_ in {"oprd", "attr", "dobj"}:
+                                    return ggc
+    return None
+
+
 def extract_preferences(
     tokens: list[Any],
     base_kwargs: dict[str, Any],

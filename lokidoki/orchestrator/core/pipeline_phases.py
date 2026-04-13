@@ -251,13 +251,18 @@ async def _handle_knowledge_gap(trace, safe_context, raw_text, request_spec, exe
         logger.info("[Loop] LLM requested search via marker: '%s'", query)
     
     # Pattern 2: Natural language admission of ignorance (fallback)
-    # Detects: "I'm not familiar with 'Wiki LLM'", "I don't know about X", etc.
+    # Catches cases where the small model ignores the [[NEED_SEARCH:]] instruction
+    # and instead says "I'm not familiar with X" or hedges with uncertainty.
     if not query:
         ignorance_patterns = [
             r"not familiar with\s+[\"']?(.*?)[\"']?\s+as",
-            r"not familiar with\s+[\"']?(.*?)[\"']?[\.\!]",
-            r"don't know\s+(?:much\s+)?about\s+[\"']?(.*?)[\"']?[\.\!]",
-            r"don't have\s+(?:any\s+)?information\s+on\s+[\"']?(.*?)[\"']?[\.\!]",
+            r"not familiar with\s+[\"']?(.*?)[\"']?[\.\!\,]",
+            r"don't know\s+(?:much\s+)?about\s+[\"']?(.*?)[\"']?[\.\!\,]",
+            r"don't have\s+(?:any\s+)?information\s+(?:on|about)\s+[\"']?(.*?)[\"']?[\.\!\,]",
+            r"not sure (?:what|about)\s+[\"']?(.*?)[\"']?\s+is",
+            r"can't confirm\s+(?:what|whether)\s+[\"']?(.*?)[\"']?",
+            r"haven't heard of\s+[\"']?(.*?)[\"']?[\.\!\,]",
+            r"no information (?:on|about)\s+[\"']?(.*?)[\"']?[\.\!\,]",
         ]
         for pattern in ignorance_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
@@ -267,10 +272,21 @@ async def _handle_knowledge_gap(trace, safe_context, raw_text, request_spec, exe
                     query = candidate
                     logger.info("[Loop] Detected ignorance phrase. Falling back to search for: '%s'", query)
                     break
+
                     
     if not query:
         return initial_response
-        
+
+    # Contextualize vague queries using conversation history.
+    # "is it free" alone would search for "free" — but with context we get
+    # "is Claude Cowork free" which returns relevant results.
+    query = _contextualize_query(query, raw_text, safe_context)
+
+    # Emit an interim "looking it up" event so the UI shows a placeholder
+    # while the web search runs.  The final synthesis:done event replaces it.
+    # TTS must NOT speak this — it is marked with `interim: true`.
+    _emit_interim_lookup(safe_context, query)
+
     # 1. Log for manual review (Step 2)
     _log_knowledge_gap(raw_text, query, safe_context)
 
@@ -355,6 +371,54 @@ async def _handle_knowledge_gap(trace, safe_context, raw_text, request_spec, exe
     
     logger.info("[Loop] Re-synthesizing with search results...")
     return await llm_synthesize_async(request_spec)
+
+
+def _contextualize_query(query: str, raw_text: str, safe_context: dict) -> str:
+    """Enrich a vague search query with conversational context.
+
+    When the LLM emits ``[[NEED_SEARCH: is it free]]``, the bare query
+    "is it free" will return irrelevant results. Uses the same antecedent
+    resolver the main pipeline uses to replace pronouns with the most
+    recent topic.
+    """
+    from lokidoki.orchestrator.pipeline.antecedent import (
+        _extract_recent_topic,
+        _try_resolve,
+    )
+    topic = _extract_recent_topic(safe_context)
+    if topic:
+        resolved = _try_resolve(query, topic)
+        if resolved != query:
+            logger.info("[Loop] Contextualized query: '%s' → '%s'", query, resolved)
+            return resolved
+    # Fallback: if no topic found but raw_text differs, prepend it
+    if raw_text.strip().lower() != query.strip().lower():
+        enriched = f"{raw_text.strip()} {query}"
+        if len(enriched) > 120:
+            enriched = enriched[:120]
+        logger.info("[Loop] Contextualized query (fallback): '%s' → '%s'", query, enriched)
+        return enriched
+    return query
+
+
+def _emit_interim_lookup(safe_context: dict, query: str) -> None:
+    """Push an interim SSE event so the frontend shows a placeholder response.
+
+    The event carries ``interim: true`` so the frontend knows:
+    1. Replace the streaming bubble text with this message.
+    2. Do NOT trigger TTS for this text.
+    The subsequent ``synthesis:done`` event overwrites it with the real answer.
+    """
+    queue = safe_context.get("_sse_queue")
+    if queue is None:
+        return
+    from lokidoki.orchestrator.core.streaming import SSEEvent
+    queue.put_nowait(SSEEvent(
+        phase="synthesis",
+        status="interim",
+        data={"response": "Let me look that up\u2026", "interim": True, "query": query},
+    ))
+    logger.info("[Loop] Emitted interim lookup event for '%s'", query)
 
 
 def _log_knowledge_gap(original_input: str, resolved_query: str, context: dict):

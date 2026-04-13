@@ -143,11 +143,13 @@ def _walk_sentence(
         extract_location_and_work,
         extract_possessive_relations,
         extract_preferences,
+        extract_relational_verb_phrases,
     )
     yield from extract_possessive_relations(tokens, base_kwargs)
     yield from extract_favorites(tokens, base_kwargs)
     yield from extract_location_and_work(tokens, base_kwargs)
     yield from extract_preferences(tokens, base_kwargs)
+    yield from extract_relational_verb_phrases(tokens, base_kwargs)
 
 
 def _extract_copular_patterns(

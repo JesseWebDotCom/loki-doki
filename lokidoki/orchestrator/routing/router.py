@@ -77,6 +77,13 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
         best_capability = "direct_chat"
         best_text = ""
 
+    # WH-question promotion: factual questions ("what is X", "who is X")
+    # that fell to direct_chat should be promoted to knowledge_query so
+    # the pipeline searches for the answer instead of relying solely on
+    # the LLM's (potentially hallucinated) knowledge.
+    if best_capability == "direct_chat" and _is_factual_wh_question(query):
+        best_capability = "knowledge_query"
+
     confidence = max(best_score, 0.55 if best_capability == "direct_chat" else best_score)
     return RouteMatch(
         chunk_index=chunk.index,
@@ -109,6 +116,30 @@ def _best_index_match(
                 best_capability = item["capability"]
                 best_text = text
     return best_capability, best_score, best_text
+
+
+_FACTUAL_WH_PREFIXES = (
+    "what is ", "what's ", "what are ", "who is ", "who are ", "who was ",
+    "where is ", "where are ", "when is ", "when was ", "when did ",
+    "how do i ", "how does ", "how do you ", "is there ", "is it ",
+    "does ", "did ", "can you ",
+)
+
+
+def _is_factual_wh_question(query: str) -> bool:
+    """True if the query looks like a factual question.
+
+    Matches both standalone ("what is Claude Cowork") and pronoun
+    follow-ups ("is it free") — the caller is responsible for resolving
+    pronouns before the query reaches the search handler.
+    """
+    q = query.strip().lower()
+    if not q.startswith(_FACTUAL_WH_PREFIXES):
+        return False
+    chitchat = {"what's up", "what is up", "how are you", "how do you do",
+                "what's new", "what is new", "what's happening",
+                "what's going on", "how is it going", "how's it going"}
+    return q.rstrip("?. ") not in chitchat
 
 
 def _should_promote_retrieval_fallback(capability: str, score: float, query_text: str = "") -> bool:
