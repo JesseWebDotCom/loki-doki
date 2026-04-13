@@ -73,6 +73,8 @@ async def get_directions(payload: dict[str, Any]) -> dict[str, Any]:
         success=True,
         mechanism_used="osrm",
         data={"distance_miles": distance_miles, "duration_seconds": route["duration"]},
+        source_url="https://www.openstreetmap.org/directions",
+        source_title="OpenStreetMap / OSRM",
     ).to_payload()
 
 
@@ -111,4 +113,11 @@ out 5;
             names.append(tags["name"])
     if not names:
         return AdapterResult(output_text=f"I found nearby {category}, but none had readable names.", success=True).to_payload()
-    return AdapterResult(output_text=f"Nearby {category}: {', '.join(names)}.", success=True, mechanism_used="overpass", data={"names": names}).to_payload()
+    return AdapterResult(
+        output_text=f"Nearby {category}: {', '.join(names)}.",
+        success=True,
+        mechanism_used="overpass",
+        data={"names": names},
+        source_url="https://www.openstreetmap.org/",
+        source_title="OpenStreetMap / Overpass",
+    ).to_payload()

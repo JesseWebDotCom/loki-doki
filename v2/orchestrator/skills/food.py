@@ -9,9 +9,55 @@ from v2.orchestrator.skills._runner import AdapterResult
 from v2.orchestrator.skills._store import load_store, next_id, save_store
 
 _SUBS = {
-    "buttermilk": "milk plus a little lemon juice or vinegar",
-    "egg": "flax egg or applesauce in baking",
-    "butter": "olive oil or coconut oil",
+    # Dairy
+    "buttermilk": "milk plus a tablespoon of lemon juice or vinegar per cup",
+    "butter": "olive oil, coconut oil, or margarine (equal amount)",
+    "heavy cream": "coconut cream or full-fat coconut milk",
+    "sour cream": "plain Greek yogurt (equal amount)",
+    "cream cheese": "Neufchâtel cheese or blended silken tofu",
+    "milk": "oat milk, almond milk, or soy milk (equal amount)",
+    "yogurt": "sour cream, buttermilk, or coconut yogurt",
+    "parmesan": "nutritional yeast (vegan) or Pecorino Romano",
+    # Eggs & binders
+    "egg": "flax egg (1 tbsp ground flax + 3 tbsp water), chia egg, or ¼ cup applesauce per egg",
+    "egg whites": "aquafaba (liquid from canned chickpeas), 3 tbsp per egg white",
+    # Fats & oils
+    "vegetable oil": "melted coconut oil, applesauce (in baking), or avocado oil",
+    "shortening": "butter or coconut oil",
+    "lard": "butter, coconut oil, or vegetable shortening",
+    # Flour & starches
+    "all-purpose flour": "whole wheat flour (use ¾ the amount) or gluten-free 1:1 blend",
+    "bread flour": "all-purpose flour plus ½ tsp vital wheat gluten per cup",
+    "cake flour": "all-purpose flour minus 2 tbsp per cup, plus 2 tbsp cornstarch",
+    "cornstarch": "arrowroot powder or tapioca starch (equal amount)",
+    "breadcrumbs": "crushed crackers, panko, or rolled oats",
+    # Sweeteners
+    "white sugar": "honey (¾ cup per cup, reduce liquid by 2 tbsp), maple syrup, or coconut sugar",
+    "brown sugar": "white sugar plus 1 tbsp molasses per cup",
+    "corn syrup": "honey, maple syrup, or golden syrup",
+    "honey": "maple syrup or agave nectar (equal amount)",
+    "molasses": "dark corn syrup or honey plus cocoa powder",
+    # Acids & vinegars
+    "lemon juice": "lime juice, white wine vinegar, or citric acid solution",
+    "white wine vinegar": "apple cider vinegar or champagne vinegar",
+    "rice vinegar": "apple cider vinegar diluted with a little water",
+    # Herbs & spices
+    "fresh herbs": "dried herbs (use ⅓ the amount of fresh)",
+    "saffron": "turmeric for color (not flavor), or annatto",
+    "allspice": "½ tsp cinnamon + ¼ tsp nutmeg + ¼ tsp cloves",
+    # Sauces & condiments
+    "soy sauce": "coconut aminos or tamari (gluten-free)",
+    "tomato paste": "ketchup (use double) or sun-dried tomato purée",
+    "worcestershire sauce": "soy sauce plus a dash of lemon juice",
+    "fish sauce": "soy sauce plus a squeeze of lime",
+    # Alcohol
+    "wine": "broth or stock plus a splash of vinegar",
+    "beer": "broth or non-alcoholic beer",
+    # Misc
+    "broth": "water plus bouillon cube, or mushroom soaking liquid",
+    "coconut milk": "heavy cream (non-vegan) or cashew cream",
+    "mayo": "mashed avocado, Greek yogurt, or hummus",
+    "chocolate": "carob powder (3 tbsp per ounce of chocolate)",
 }
 _ORDER_DEFAULT = {"orders": []}
 
@@ -33,11 +79,14 @@ async def get_nutrition(payload: dict[str, Any]) -> dict[str, Any]:
     nutriments = product.get("nutriments") or {}
     calories = nutriments.get("energy-kcal_100g")
     protein = nutriments.get("proteins_100g")
+    product_name = product.get("product_name") or food
     return AdapterResult(
-        output_text=f"{product.get('product_name') or food}: {calories or '?'} kcal and {protein or '?'} g protein per 100g.",
+        output_text=f"{product_name}: {calories or '?'} kcal and {protein or '?'} g protein per 100g.",
         success=True,
         mechanism_used="open_food_facts",
         data=product,
+        source_url=f"https://world.openfoodfacts.org/product/{product.get('code', '')}",
+        source_title=f"Open Food Facts — {product_name}",
     ).to_payload()
 
 

@@ -41,5 +41,7 @@ async def get_flight_status(payload: dict[str, Any]) -> dict[str, Any]:
                 success=True,
                 mechanism_used="opensky",
                 data={"callsign": state_callsign, "altitude_m": altitude, "velocity": velocity},
+                source_url="https://opensky-network.org/",
+                source_title=f"OpenSky Network — {state_callsign}",
             ).to_payload()
     return AdapterResult(output_text=f"I couldn't find live OpenSky data for {callsign}.", success=False, error="flight not found").to_payload()

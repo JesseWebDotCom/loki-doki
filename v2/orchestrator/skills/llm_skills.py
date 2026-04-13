@@ -1,20 +1,32 @@
 """LLM-backed v2 skills (email, code, summary, plan, weigh_options, support).
 
-These capabilities have no v1 LokiDoki skill equivalent — they each
-need a generative model. The v2 prototype already speaks to Ollama via
-:mod:`v2.orchestrator.fallbacks.ollama_client`, so each handler:
+## LLM Skill Contract (Phase 7)
 
-  1. Builds a short, capability-specific prompt from the chunk text.
-  2. Calls Ollama through ``call_llm()``.
-  3. Returns the model output as ``output_text``.
-  4. Falls back to a deterministic stub answer when:
-     - ``CONFIG.llm_enabled`` is False (default in tests + dev), or
-     - the Ollama call fails / times out / returns empty.
+Every LLM-gated capability follows a uniform contract:
 
-The stub fallbacks are the same canned strings the original
-``v2/SKILL_STUBS.md`` documents — flipping ``llm_enabled`` to True
-upgrades every one of these handlers to a real model call without any
-other code change.
+1. **Prompt template**: A short, capability-specific system prompt stored
+   as a module-level ``_*_PROMPT`` constant. Templates use ``{request}``
+   as the single interpolation slot.
+
+2. **Stub fallback**: A deterministic canned response used when:
+   - ``CONFIG.llm_enabled`` is ``False`` (default in tests + dev), or
+   - the Ollama call fails / times out / returns empty.
+   Stubs carry ``mechanism_used="stub"`` so downstream code and the
+   Dev Tools panel can distinguish stub vs real output.
+
+3. **Driver**: All handlers route through ``_llm_or_stub()`` which
+   handles the LLM call, error recovery, and metadata attachment.
+   Adding a new LLM skill is: write a prompt, write a stub, register
+   a one-line handler function.
+
+4. **Source metadata**: LLM skills set ``source_title="LLM-generated"``
+   so the citation system can transparently flag model-authored content.
+   When the model produces factual claims, the synthesis layer is
+   responsible for grounding them via other capabilities' sources.
+
+5. **Eval contract**: Each capability should have an eval corpus of
+   representative inputs under ``tests/corpora/llm_skills/``. The corpus
+   is used for prompt regression testing, not model quality benchmarking.
 """
 from __future__ import annotations
 
@@ -144,6 +156,7 @@ async def _llm_or_stub(
             output_text=stub,
             success=True,
             mechanism_used="stub",
+            source_title="LLM-generated (stub)",
             data={"request": request, "provider": "stub"},
         ).to_payload()
     prompt = prompt_template.format(request=request)
@@ -155,6 +168,7 @@ async def _llm_or_stub(
             output_text=stub,
             success=True,
             mechanism_used="stub_after_llm_error",
+            source_title="LLM-generated (stub)",
             error=str(exc),
             data={"request": request, "provider": "stub_after_llm_error"},
         ).to_payload()
@@ -164,12 +178,14 @@ async def _llm_or_stub(
             output_text=stub,
             success=True,
             mechanism_used="stub_after_empty",
+            source_title="LLM-generated (stub)",
             data={"request": request, "provider": "stub_after_empty"},
         ).to_payload()
     return AdapterResult(
         output_text=text,
         success=True,
         mechanism_used="ollama_llm",
+        source_title="LLM-generated",
         data={"request": request, "provider": "ollama_llm"},
     ).to_payload()
 

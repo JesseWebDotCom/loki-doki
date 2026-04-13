@@ -30,7 +30,15 @@ async def look_up_symptom(payload: dict[str, Any]) -> dict[str, Any]:
     if not docs:
         return AdapterResult(output_text="I couldn't find symptom guidance for that query.", success=False, error="no results").to_payload()
     title = docs[0].get("title") or query
-    return AdapterResult(output_text=f"MedlinePlus topic: {title}.", success=True, mechanism_used="medlineplus", data=docs[0]).to_payload()
+    url = docs[0].get("url") or "https://medlineplus.gov/"
+    return AdapterResult(
+        output_text=f"MedlinePlus topic: {title}.",
+        success=True,
+        mechanism_used="medlineplus",
+        data=docs[0],
+        source_url=url,
+        source_title=f"MedlinePlus — {title}",
+    ).to_payload()
 
 
 async def check_medication(payload: dict[str, Any]) -> dict[str, Any]:
@@ -57,4 +65,11 @@ async def check_medication(payload: dict[str, Any]) -> dict[str, Any]:
             name = concepts[0].get("propValue") or query
     except httpx.HTTPError as exc:
         return AdapterResult(output_text="I couldn't look up that medication right now.", success=False, error=str(exc)).to_payload()
-    return AdapterResult(output_text=f"RxNorm match: {name}.", success=True, mechanism_used="rxnorm", data={"name": name, "rxcui": rxcui}).to_payload()
+    return AdapterResult(
+        output_text=f"RxNorm match: {name}.",
+        success=True,
+        mechanism_used="rxnorm",
+        data={"name": name, "rxcui": rxcui},
+        source_url=f"https://mor.nlm.nih.gov/RxNav/search?searchBy=RXCUI&searchTerm={rxcui}",
+        source_title=f"RxNorm — {name}",
+    ).to_payload()

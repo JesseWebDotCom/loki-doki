@@ -3145,7 +3145,7 @@
   },
   {
     "capability": "lookup_fact",
-    "description": "Look up a person fact via DuckDuckGo web search.",
+    "description": "Look up a person fact via Wikidata (40+ properties: nationality, birthday, occupation, education, family, awards, etc.).",
     "examples": [
       "how tall is Beyonce",
       "what is Keanu Reeves nationality"
@@ -3264,14 +3264,17 @@
         "requires_internet": true
       }
     ],
-    "maturity": "local_only",
+    "maturity": "production",
+    "offline_capable": false,
     "max_chunk_budget_ms": 6000
   },
   {
     "capability": "substitute_ingredient",
-    "description": "Suggest a substitute for a cooking ingredient.",
+    "description": "Suggest a substitute for a cooking ingredient from a curated table of 35+ common substitutions.",
     "examples": [
-      "what can i use instead of buttermilk"
+      "what can i use instead of buttermilk",
+      "substitute for eggs in baking",
+      "what replaces soy sauce"
     ],
     "enabled": true,
     "implementations": [
@@ -3302,7 +3305,8 @@
         "requires_internet": false
       }
     ],
-    "maturity": "local_only",
+    "maturity": "production",
+    "offline_capable": true,
     "max_chunk_budget_ms": 250
   },
   {
@@ -3465,7 +3469,7 @@
   },
   {
     "capability": "get_stock_price",
-    "description": "Look up a stock price from a curated local knowledge graph.",
+    "description": "Look up a live stock price via Yahoo Finance quote endpoint.",
     "examples": [
       "what is Apple stock at",
       "how is TSLA doing"
@@ -3495,7 +3499,8 @@
         "requires_internet": true
       }
     ],
-    "maturity": "local_only",
+    "maturity": "production",
+    "offline_capable": false,
     "max_chunk_budget_ms": 6000
   },
   {
@@ -3530,7 +3535,8 @@
         "requires_internet": true
       }
     ],
-    "maturity": "local_only",
+    "maturity": "production",
+    "offline_capable": false,
     "max_chunk_budget_ms": 6000
   },
   {
@@ -3643,7 +3649,7 @@
   },
   {
     "capability": "get_player_stats",
-    "description": "Look up player stats via ESPN API (stub \u2014 provider incomplete).",
+    "description": "Look up player stats via ESPN athlete search and statistics endpoints.",
     "examples": [
       "how many touchdowns does Mahomes have this year"
     ],
@@ -3674,13 +3680,20 @@
     },
     "mechanisms": [
       {
-        "method": "ddg_search",
+        "method": "espn_athletes",
         "priority": 1,
+        "timeout_ms": 6000,
+        "requires_internet": true
+      },
+      {
+        "method": "espn_search",
+        "priority": 2,
         "timeout_ms": 5000,
         "requires_internet": true
       }
     ],
-    "maturity": "stub",
+    "maturity": "limited",
+    "offline_capable": false,
     "max_chunk_budget_ms": 6000
   },
   {

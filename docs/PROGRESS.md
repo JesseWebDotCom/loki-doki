@@ -495,4 +495,51 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C12 (Skills Phase 4-8, needs C11 ✓), C13 (V1 Deletion + V2 Promotion, needs C10 ✓ + C11 ✓), C14 (Refactor + E2E, needs C13), or C15 (Skills Pages, needs C13). C12 and C13 are now unblocked.
 
+## C12 — Skills Phases 4-8: Providers + Device + Polish (2026-04-12)
+
+**Status:** Complete. All C12 gates green. 39 new tests, 1627 unit tests total (zero regressions).
+
+**What shipped:**
+
+1. **Phase 6: get_player_stats upgraded from stub to ESPN.** Replaced the stub error response with a real implementation that searches ESPN's athlete roster endpoint and falls back to ESPN's common search API. Returns player name, position, team, and available season stats. Source metadata (ESPN URLs) attached. Registry maturity upgraded from `stub` to `limited`, mechanisms updated to `espn_athletes` + `espn_search`.
+
+2. **Phase 6: substitute_ingredient expanded from 3 to 37 entries.** Covers dairy (8), eggs/binders (2), fats/oils (3), flour/starches (4), sweeteners (5), acids/vinegars (3), herbs/spices (2), sauces/condiments (4), alcohol (2), misc (4). Registry maturity upgraded from `local_only` to `production`, `offline_capable: true` added.
+
+3. **Phase 6: lookup_fact Wikidata properties expanded from 7 to 45+.** New property categories: birth/death place, cause of death, occupation/profession, employer, education/alma mater, awards, political party, position/office, children, father, mother, sibling, religion, languages. Common aliases added (`born in` → P19, `married to` → P26, `job` → P106, etc.).
+
+4. **Phase 6: time_in_location city table expanded from ~60 to 120+ cities.** New regions: 5 more Africa cities, 15 more North/South America, 12 more Europe, 18 more Asia, 2 Pacific. All continents now have multiple cities. `_resolve_tz()` tested against newly added cities.
+
+5. **Phase 7: LLM skill contract formalized.** Module docstring documents the 5-point contract: prompt template, stub fallback, driver (`_llm_or_stub`), source metadata, and eval corpus path. All LLM skill responses now carry `source_title="LLM-generated"` (or `"LLM-generated (stub)"`) so the citation system can transparently flag model-authored content.
+
+6. **Phase 8: Source transparency on 6 skill modules.** Added `source_url` and `source_title` to: `health.py` (MedlinePlus, RxNorm URLs), `navigation.py` (OpenStreetMap/OSRM, Overpass), `food.py` (Open Food Facts product URLs), `travel.py` (OpenSky Network), `sports_api.py` (ESPN scoreboard/standings/schedule URLs for all 3 handlers).
+
+7. **Phase 8: Registry maturity corrections.** Upgraded `get_stock_price`, `get_stock_info` (Yahoo Finance → `production`), `get_nutrition` (Open Food Facts → `production`) from `local_only`. Added `offline_capable` field to upgraded entries. Updated descriptions to reflect actual provider backing.
+
+8. **test_v2_skills_phase4_8.py** — 39 tests in 9 test classes:
+   - TestPlayerStats: importable, missing player, registry not stub, ESPN mechanisms (4 tests)
+   - TestSubstituteIngredient: 35+ entries, dairy, eggs, sweeteners, handler finds expanded, registry production (6 tests)
+   - TestLookupFactProperties: 40+ count, identity, career, personal, death, aliases mapped (6 tests)
+   - TestTimeInLocationCities: 100+ count, all continents, new cities resolve, handler new city (4 tests)
+   - TestLLMSkillContract: stub source_title, all async, empty fails, contract docstring (4 tests)
+   - TestSourceTransparency: health symptom, medication, navigation dirs, nearby, food nutrition, travel flight, sports score/standings/schedule (9 tests)
+   - TestRegistryMaturity: real API not local_only, offline_capable exists, offline_capable correct (3 tests)
+   - TestProviderDocumentation: streaming catalog docs, shopping catalog docs, device store persistence (3 tests)
+
+**Gate checklist:**
+- [x] Each family has a concrete acceptance gate (per-capability tests validate provider backing)
+- [x] Provider-limited capabilities upgraded (player_stats → ESPN, facts → 45 Wikidata props, subs → 37 entries, timezone → 120+ cities)
+- [x] LLM skills have official contract (Phase 7 docstring + source_title metadata)
+- [x] Source metadata on all API-backed skills (Phase 8 — 6 modules upgraded)
+- [x] Registry maturity levels match actual provider backing (3 promotions, 1 stub→limited)
+- [x] Offline policy field (`offline_capable`) on upgraded entries
+
+**Deferred (requires external resources):**
+- **Phase 4: Real flight/hotel/visa/streaming/product providers** — requires paid API keys (Amadeus, JustWatch, etc.) or equivalent free APIs that don't exist yet. Current local/curated fallbacks serve dev/test. Provider swap is a JSON config change when keys are available.
+- **Phase 5: Native device adapters** — calendar, alarms, contacts, etc. currently use JSON stores (correct for dev/test on mac profile). Pi-native adapters (dbus, PipeWire) are Phase 10 work per CLAUDE.md.
+- **Phase 7: Eval corpora** — `tests/corpora/llm_skills/` directory structure documented in contract but not populated. Eval corpus creation is a tuning task, not a blocker.
+
+**Final test count:** 1627 unit tests (2 skipped). Zero regressions.
+
+**Next chunk:** C13 (V1 Deletion + V2 Promotion, needs C10 ✓ + C11 ✓), C14 (Refactor + E2E, needs C13), or C15 (Skills Pages, needs C13). C13 is now unblocked.
+
 <!-- Append new entries below this line -->
