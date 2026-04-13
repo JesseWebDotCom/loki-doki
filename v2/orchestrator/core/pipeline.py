@@ -51,6 +51,11 @@ async def run_pipeline_async(
 ) -> PipelineResult:
     """Run the v2 prototype pipeline end-to-end."""
     trace = start_trace()
+    # Allow callers (e.g. streaming.py) to inject a trace listener via
+    # context so they can emit SSE events as each step completes.
+    _trace_listener = (context or {}).get("_trace_listener")
+    if callable(_trace_listener):
+        trace.subscribe(_trace_listener)
     runtime = get_runtime()
     safe_context = context or {}
 

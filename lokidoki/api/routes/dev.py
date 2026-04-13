@@ -6,6 +6,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from lokidoki.api.dev_memory import (
@@ -373,6 +374,35 @@ async def run_v2_pipeline(
     if "memory_store" in spec_context:
         spec_context.pop("memory_store", None)
     return pipeline_result.to_dict()
+
+
+@router.post("/v2/chat")
+async def v2_chat_stream(
+    request: V2RunRequest,
+    _: User = Depends(require_admin),
+):
+    """Stream v2 pipeline results as SSE events (v1-frontend-compatible).
+
+    Same request shape as ``/v2/run`` but returns a ``text/event-stream``
+    response with progressive phase events that the existing chat UI can
+    consume without modification.
+    """
+    from v2.orchestrator.core.streaming import stream_pipeline_sse
+
+    context: dict[str, Any] = dict(request.context)
+    if request.memory_enabled:
+        context["memory_writes_enabled"] = True
+        context["memory_store"] = get_dev_store()
+        context["owner_user_id"] = DEV_OWNER_USER_ID
+        context["need_preference"] = request.need_preference
+        context["need_social"] = request.need_social
+        context["need_session_context"] = request.need_session_context
+        context["need_episode"] = request.need_episode
+
+    return StreamingResponse(
+        stream_pipeline_sse(request.message, context=context),
+        media_type="text/event-stream",
+    )
 
 
 @router.get("/v2/memory/dump")

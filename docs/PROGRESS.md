@@ -144,4 +144,53 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C04 (SSE Streaming), C05 (Prompts/Decomposer), C06 (Citations, needs C03 ✓), C07 (Skills Runtime, needs C02 ✓), or C08/C09 (Memory M5/M6) — all now unblocked or independent.
 
+## C04 — SSE Streaming Wrapper (2026-04-12)
+
+**Status:** Complete. All C04 gates green. 20 new tests, 1357 unit tests total (zero regressions).
+
+**What shipped:**
+
+1. **streaming.py** — new module at `v2/orchestrator/core/streaming.py`. Async generator `stream_pipeline_sse()` wraps `run_pipeline_async` and yields v1-compatible SSE events (`data: {phase, status, data}\n\n`). Uses `asyncio.Queue` bridged from a synchronous trace listener subscribed via `TraceData.subscribe()`. Maps v2 trace steps to v1 phase boundaries:
+   - `normalize` → decomposition active
+   - `extract` → decomposition done (with asks, timing, reasoning_complexity)
+   - `fast_lane` matched → micro_fast_lane done (with hit, category)
+   - `route` → routing active
+   - `execute` → routing done (with skills_resolved, skills_failed, routing_log)
+   - `memory_read` → augmentation done (with slots_assembled)
+   - `combine` → synthesis active
+   - Pipeline completion → synthesis done (with response, model, latency_ms, tone, sources, platform)
+   - Pipeline crash → graceful error event matching v1's shape (phase=synthesis, error=True)
+
+2. **pipeline.py** — added 3-line `_trace_listener` wiring. If `context["_trace_listener"]` is callable, it's subscribed to the trace before any steps run. Zero impact on existing callers.
+
+3. **dev.py** — new `POST /api/v1/dev/v2/chat` endpoint. Same `V2RunRequest` shape as `/v2/run` but returns `text/event-stream` via `StreamingResponse`. Memory wiring identical to `/v2/run`.
+
+4. **test_v2_streaming.py** — 20 tests:
+   - SSEEvent serialization (2)
+   - Decomposition data builder (2)
+   - Routing data builder (3)
+   - Synthesis done builder (2)
+   - Error event v1 shape (1)
+   - Integration: normal query emits decomposition+routing+synthesis (1)
+   - Integration: greeting hits fast lane + micro_fast_lane event (1)
+   - Integration: phase ordering (decomp done before routing active) (1)
+   - Integration: synthesis is last event (1)
+   - Integration: error path emits graceful event (1)
+   - Integration: decomposition data shape (1)
+   - Integration: routing data shape (1)
+   - Integration: synthesis required fields (1)
+   - Trace listener wiring via context (1)
+   - All events are valid JSON (1)
+
+**Gate checklist:**
+- [x] Frontend receives at least normalize/route/synthesis phase events
+- [x] SSE error path returns a graceful event matching v1's shape
+- [x] Existing frontend chat client works with v2 SSE events without modification
+
+**Nothing deferred.** All gate items completed within this chunk.
+
+**Final test count:** 1357 unit tests (2 skipped). Zero regressions.
+
+**Next chunk:** C05 (Prompts/Decomposer), C06 (Citations, needs C03 ✓), C07 (Skills Runtime, needs C02 ✓), C08/C09 (Memory M5/M6) — all now unblocked. C10 (Cutover) prerequisites: C01 ✓, C03 ✓, C04 ✓ — only needs itself.
+
 <!-- Append new entries below this line -->
