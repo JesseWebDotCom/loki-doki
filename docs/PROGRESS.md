@@ -701,4 +701,41 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Final test count:** 1323 passed, 2 skipped, 64 xfailed. Zero regressions.
 
+## C14.5 Phase 2 — Conversational Coherence (2026-04-13)
+
+**Status:** Complete. All C14.5 gates green. 29 new unit tests, 1352 total (zero regressions).
+
+**What shipped:**
+
+### Phase A — Conversation history in LLM prompt (RC0 — CRITICAL)
+1. **`chat.py`**: Loads last 12 messages from `memory.get_messages()` into `context["conversation_history"]` before the pipeline runs.
+2. **`slot_renderers.py`**: New `render_conversation_history()` — formats recent Q&A pairs (oldest-first), excludes the current user turn, truncates individual messages to 250 chars, enforces a 1500-char budget filling from newest to oldest.
+3. **`prompts.py`**: Both `COMBINE_PROMPT` and `DIRECT_CHAT_PROMPT` now include a `{conversation_history}` slot with the instruction "Use it for context and continuity. Never quote it verbatim."
+4. **`llm_prompt_builder.py`**: `_extract_memory_slots()` extracts `conversation_history` from `spec.context` and renders it via `render_conversation_history`.
+
+### Phase B — Source quality + metadata hygiene (RC1, RC4)
+5. **Source boost scoring** (prior work): `_runner.py` exposes `score_subject_coverage()` and `web_search_source()`. Movies, TV, people, music all use `run_sources_parallel_scored` so domain-specific sources win ties against generic web search.
+6. **Metadata stripping**: `llm_prompt_builder.py` `_sanitize_result()` strips `source_url`, `source_title`, `source_type`, `mechanism`, and `mechanisms_tried` from chunk results before the LLM sees them. Content fields (`output_text`, `data`, `sources`) are preserved. The citation system uses `_collect_sources()` separately, so removing metadata from the payload is safe.
+7. **LLM always synthesizes**: `decide_llm()` now always returns `needed=True` — every response goes through LLM synthesis for conversational coherence.
+
+### Phase C — Context resolution for follow-ups (RC2, RC3)
+8. **Definite phrase detection**: `derivations.py` `_has_definite_phrase()` checks for determiner + 1-3 words (e.g., "the original", "the sequel", "the first one"). `_should_need_session_context()` now fires for both referent pronouns AND definite phrases.
+9. **Media resolver for direct_chat**: `media_resolver.py` now accepts `need_session_context` kwarg. When `direct_chat` has the context flag and a definite phrase, the media resolver fires to resolve "the original" → recent movie from session state. `resolver.py` passes the flag through.
+
+### Phase D — Entity storage + tests (RC5, RC6)
+10. **Execution-derived entity storage** (prior work): `pipeline_hooks.py` `run_session_state_update()` has a pass-2 that extracts entity names from execution results when spaCy couldn't parse the title. `pipeline_phases.py` now passes `executions` to the function.
+11. **29 new unit tests** in `test_conversational_coherence.py`:
+    - TestRenderConversationHistory: 8 tests (empty, single, excludes trailing user, budget, truncation, order, empty content, only-user)
+    - TestConversationHistoryInPrompt: 5 tests (slot in both prompts, instructions, extract_memory_slots)
+    - TestMetadataStripping: 5 tests (url stripped, mechanism stripped, none passthrough, content preserved, payload sanitized)
+    - TestDefinitePhraseDetection: 7 tests (the original, sequel, first one, that newer one, pronoun not definite, long phrase not definite, empty)
+    - TestMediaResolverDirectChat: 3 tests (skipped by default, fires with context+definite, phrase detection)
+    - TestLLMAlwaysSynthesizes: 1 test (decide_llm always needed)
+
+**Gate checklist:** All items green (see updated `docs/chunks/chunk-14.5.md`).
+
+**Final test count:** 1352 passed, 2 skipped, 64 xfailed, 3 pre-existing flaky. Zero regressions.
+
+**Next chunk:** C15 (Skills admin & settings pages: v2 registry rewire). Now unblocked.
+
 <!-- Append new entries below this line -->

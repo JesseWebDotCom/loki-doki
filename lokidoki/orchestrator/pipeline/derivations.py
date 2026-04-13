@@ -145,12 +145,32 @@ def _should_need_social(
     return False
 
 
+_DEFINITE_DETERMINERS: frozenset[str] = frozenset({
+    "the", "that", "this", "these", "those",
+})
+
+
+def _has_definite_phrase(references: list[str]) -> bool:
+    """True when references contain a short definite phrase (det + 1-3 words).
+
+    Catches "the original", "the sequel", "the first one", "the newer one"
+    which are contextual references but don't match any pronoun token.
+    """
+    for ref in references:
+        words = ref.lower().split()
+        if 2 <= len(words) <= 4 and words[0] in _DEFINITE_DETERMINERS:
+            return True
+    return False
+
+
 def _should_need_session_context(
     extractions: list[ChunkExtraction],
 ) -> bool:
-    """True when chunks contain referent pronouns needing session context."""
+    """True when chunks contain referent pronouns or definite phrases needing session context."""
     for ext in extractions:
         if any(ref in _REFERENT_PRONOUNS for ref in ext.references):
+            return True
+        if _has_definite_phrase(ext.references):
             return True
     return False
 

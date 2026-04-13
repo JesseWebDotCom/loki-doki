@@ -73,17 +73,44 @@ def auto_raise_need_session_context(
             return
 
 
+# Capabilities whose execution result carries an entity name worth
+# storing in session state (for follow-up pronoun resolution).
+_ENTITY_FROM_EXECUTION: dict[str, tuple[str, list[str]]] = {
+    "lookup_movie": ("movie", ["title"]),
+    "search_movies": ("movie", ["title"]),
+    "lookup_tv_show": ("tv_show", ["name", "title"]),
+    "get_episode_detail": ("tv_show", ["name", "title"]),
+    "get_movie_showtimes": ("movie", ["title"]),
+    "lookup_track": ("track", ["title"]),
+    "lookup_person_birthday": ("person", ["person"]),
+}
+
+
 def run_session_state_update(
     safe_context: dict[str, Any],
     resolutions: list,
+    executions: list | None = None,
 ) -> None:
-    """Update the session's last-seen map from resolved entities (M4)."""
+    """Update the session's last-seen map from resolved entities (M4).
+
+    First pass: store whatever the resolver extracted (ideal — spaCy
+    found the entity name). Second pass: for media/entity-bearing
+    capabilities where the resolver fell through to the fallback, look
+    at the execution result's data dict for the actual title the skill
+    returned. This covers cases where spaCy doesn't recognise the
+    entity name (e.g. "maximum overdrive") but the skill successfully
+    looked it up.
+    """
     store = safe_context.get("memory_store")
     if not isinstance(store, MemoryStore):
         return
     session_id = safe_context.get("session_id")
     if session_id is None:
         return
+
+    stored_indices: set[int] = set()
+
+    # Pass 1: resolution-derived entities (reliable when spaCy parsed it)
     for resolution in resolutions:
         resolved = getattr(resolution, "resolved_target", None)
         params = getattr(resolution, "params", None) or {}
@@ -100,10 +127,42 @@ def run_session_state_update(
                 entity_type = "device"
             else:
                 entity_type = "entity"
+        # Only track as "stored" if we actually got a real entity name
+        # (not just the capability name from the fallback resolver).
+        if entity_type != "entity":
+            stored_indices.add(getattr(resolution, "chunk_index", -1))
         store.update_last_seen(
             int(session_id),
             entity_type=entity_type,
             entity_name=str(resolved),
+        )
+
+    # Pass 2: execution-derived entities — fills the gap when spaCy
+    # couldn't extract the name but the skill successfully looked it up.
+    for execution in executions or []:
+        chunk_index = getattr(execution, "chunk_index", -1)
+        if chunk_index in stored_indices:
+            continue
+        capability = getattr(execution, "capability", "")
+        if not getattr(execution, "success", False):
+            continue
+        spec = _ENTITY_FROM_EXECUTION.get(capability)
+        if spec is None:
+            continue
+        entity_type, data_keys = spec
+        raw = getattr(execution, "raw_result", None) or {}
+        data = raw.get("data") or {}
+        entity_name = ""
+        for key in data_keys:
+            entity_name = str(data.get(key) or "").strip()
+            if entity_name:
+                break
+        if not entity_name:
+            continue
+        store.update_last_seen(
+            int(session_id),
+            entity_type=entity_type,
+            entity_name=entity_name,
         )
 
 

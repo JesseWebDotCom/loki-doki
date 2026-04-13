@@ -198,7 +198,7 @@ def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
         executions=executions, context=safe_context, trace_id=trace.trace_id,
     )
     finish(chunk_count=len(request_spec.chunks), trace_id=request_spec.trace_id)
-    run_session_state_update(safe_context, resolutions)
+    run_session_state_update(safe_context, resolutions, executions)
     auto_raise_need_session_context(safe_context, resolutions)
     record_behavior_event(safe_context, executions, routes)
     record_sentiment(safe_context, signals)

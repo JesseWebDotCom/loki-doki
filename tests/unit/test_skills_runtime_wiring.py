@@ -236,7 +236,7 @@ class TestSourcePropagation:
         """people_facts.py AdapterResult includes Wikidata source."""
         import inspect
         from lokidoki.orchestrator.skills import people_facts
-        source = inspect.getsource(people_facts.lookup_fact)
+        source = inspect.getsource(people_facts._wikidata_source)
         assert "source_url" in source
         assert "wikidata.org" in source
 

@@ -38,11 +38,16 @@ def resolve_chunks(
         (context or {}).get("device_adapter") or LokiSmartHomeAdapter()
     )
 
+    need_session_context = bool((context or {}).get("need_session_context"))
+
     extraction_by_chunk = {item.chunk_index: item for item in extractions}
     out: list[ResolutionResult] = []
     for chunk, route in zip(chunks, routes, strict=True):
         extraction = extraction_by_chunk.get(chunk.index) or ChunkExtraction(chunk_index=chunk.index)
-        out.append(_resolve_one(chunk, extraction, route, memory, movies, people, devices))
+        out.append(_resolve_one(
+            chunk, extraction, route, memory, movies, people, devices,
+            need_session_context=need_session_context,
+        ))
     return out
 
 
@@ -54,8 +59,13 @@ def _resolve_one(
     movies: MovieContextAdapter,
     people: PeopleDBAdapter,
     devices: HomeAssistantAdapter | LokiSmartHomeAdapter,
+    *,
+    need_session_context: bool = False,
 ) -> ResolutionResult:
-    media = resolve_media(chunk, extraction, route, movies)
+    media = resolve_media(
+        chunk, extraction, route, movies,
+        need_session_context=need_session_context,
+    )
     if media is not None:
         return media
 

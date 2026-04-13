@@ -77,6 +77,8 @@ Rules:
   (label=relation). Use silently — never quote.
 - If recent_context is non-empty, use for pronoun resolution.
 - If relevant_episodes is non-empty, use to inform your answer.
+- If conversation_history is non-empty, it contains recent exchanges.
+  Use it for context and continuity. Never quote it verbatim.
 - If user_style is non-empty, adapt tone/verbosity/formality.
 - If recent_mood is non-empty, adjust warmth to match. Never mention it.
 - Chunk confidence guide (use your judgment):
@@ -86,6 +88,9 @@ Rules:
 - If sources_list is non-empty, cite relevant sources inline using
   [src:N] markers (1-indexed). Only cite a source when your sentence
   uses information from it. Do not cite sources you did not use.
+
+conversation_history:
+{conversation_history}
 
 user_facts: {user_facts}
 social_context: {social_context}
@@ -119,8 +124,13 @@ Rules:
   Use silently for pronoun resolution.
 - If relevant_episodes is non-empty, it holds past conversation summaries.
   Use silently to inform your answer.
+- If conversation_history is non-empty, it contains recent exchanges.
+  Use it for context and continuity. Never quote it verbatim.
 - If user_style is non-empty, adapt your response style silently.
 - If recent_mood is non-empty, adjust warmth to match. Never mention it.
+
+conversation_history:
+{conversation_history}
 
 user_facts: {user_facts}
 social_context: {social_context}

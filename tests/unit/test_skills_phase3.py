@@ -306,7 +306,7 @@ class TestTVEpisodeDetail:
                     },
                 )
 
-        monkeypatch.setattr(mod, "_SKILL", FakeSkill())
+        monkeypatch.setattr(mod, "_TVMAZE", FakeSkill())
         result = await mod.get_episode_detail({"chunk_text": "breaking bad episodes", "params": {"query": "breaking bad"}})
         assert result["success"] is True
         assert "S5E16" in result["output_text"]
@@ -322,7 +322,7 @@ class TestTVEpisodeDetail:
             async def execute_mechanism(self, method, params):
                 return MechanismResult(success=True, data={"name": "New Show", "recent_episodes": []})
 
-        monkeypatch.setattr(mod, "_SKILL", FakeSkill())
+        monkeypatch.setattr(mod, "_TVMAZE", FakeSkill())
         result = await mod.get_episode_detail({"chunk_text": "new show episodes", "params": {"query": "new show"}})
         assert result["success"] is True
         assert "no episode" in result["output_text"].lower()
@@ -397,16 +397,14 @@ class TestRetirementDocumented:
 
 
 class TestMultiProviderSeparation:
-    """Multi-provider domains have separate standalone skills."""
+    """Multi-provider domains use parallel-scored lookup via shared web search."""
 
-    def test_movies_uses_separate_providers(self):
-        """Movies adapter wraps TMDB and Wiki as separate providers."""
+    def test_movies_uses_parallel_sources(self):
+        """Movies adapter uses movie-wiki primary + shared web search."""
         from lokidoki.orchestrator.skills import movies
-        assert hasattr(movies, "_TMDB")
         assert hasattr(movies, "_WIKI")
 
-    def test_knowledge_uses_separate_sources(self):
-        """Knowledge adapter wraps Wikipedia and DDG as separate sources."""
+    def test_knowledge_uses_parallel_sources(self):
+        """Knowledge adapter uses Wikipedia primary + shared web search."""
         from lokidoki.orchestrator.skills import knowledge
         assert hasattr(knowledge, "_WIKI")
-        assert hasattr(knowledge, "_DDG")

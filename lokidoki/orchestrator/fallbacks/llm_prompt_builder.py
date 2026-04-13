@@ -132,6 +132,23 @@ def _is_direct_chat_only(spec: RequestSpec) -> bool:
     return all(chunk.capability == "direct_chat" for chunk in primary)
 
 
+_METADATA_KEYS = frozenset({
+    "source_url", "source_title", "source_type", "mechanism", "mechanisms_tried",
+})
+
+
+def _sanitize_result(result: dict | None) -> dict | None:
+    """Strip internal metadata fields from a chunk result before LLM sees it.
+
+    Source URLs and titles leak into the prompt and the LLM parrots them.
+    The citation system uses _collect_sources separately, so removing
+    these from the payload is safe.
+    """
+    if not result or not isinstance(result, dict):
+        return result
+    return {k: v for k, v in result.items() if k not in _METADATA_KEYS}
+
+
 def build_llm_payload(spec: RequestSpec) -> dict[str, Any]:
     """Serialise a RequestSpec into the structured payload LLM sees."""
     return {
@@ -144,7 +161,7 @@ def build_llm_payload(spec: RequestSpec) -> dict[str, Any]:
                 "capability": chunk.capability,
                 "confidence": chunk.confidence,
                 "params": chunk.params,
-                "result": chunk.result,
+                "result": _sanitize_result(chunk.result),
                 "unresolved": chunk.unresolved,
                 "success": chunk.success,
                 "error": chunk.error,
@@ -194,14 +211,20 @@ def build_combine_prompt(spec: RequestSpec) -> str:
 
 
 def _extract_memory_slots(spec: RequestSpec) -> dict[str, str]:
-    """Extract the six memory slot strings from spec.context."""
+    """Extract the memory slot strings from spec.context."""
     keys = ("user_facts", "social_context", "recent_context", "relevant_episodes", "user_style", "recent_mood")
     if not isinstance(spec.context, dict):
-        return {k: "" for k in keys}
+        return {k: "" for k in keys} | {"conversation_history": ""}
     slots = spec.context.get("memory_slots") or {}
     if not isinstance(slots, dict):
-        return {k: "" for k in keys}
-    return {k: str(slots.get(k) or "") for k in keys}
+        slots = {}
+    result = {k: str(slots.get(k) or "") for k in keys}
+    # Conversation history comes from context directly (set in chat.py),
+    # not from memory_slots. Render it here.
+    from lokidoki.orchestrator.memory.slot_renderers import render_conversation_history
+    raw_history = spec.context.get("conversation_history") or []
+    result["conversation_history"] = render_conversation_history(raw_history) if raw_history else ""
+    return result
 
 
 def build_split_prompt(utterance: str) -> str:

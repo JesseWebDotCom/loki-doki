@@ -35,7 +35,18 @@ class LLMDecision:
 
 
 def decide_llm(spec: RequestSpec) -> LLMDecision:
-    """Inspect a RequestSpec and decide whether LLM should run."""
+    """Inspect a RequestSpec and decide whether LLM should run.
+
+    Always returns ``needed=True``. Every response from a
+    conversational assistant should go through LLM synthesis so the
+    reply addresses the user's actual question framing — not just raw
+    skill output. The deterministic combiner only fires as a
+    degradation fallback when the LLM call itself fails or is disabled.
+
+    The ``reason`` field is still populated so the synthesis prompt
+    builder can tailor its instructions (e.g. direct_chat gets a
+    different prompt template than a successful skill result).
+    """
     primary_chunks = [chunk for chunk in spec.chunks if chunk.role == "primary_request"]
     supporting = [chunk for chunk in spec.chunks if chunk.role == "supporting_context"]
 
@@ -50,14 +61,11 @@ def decide_llm(spec: RequestSpec) -> LLMDecision:
         for chunk in primary_chunks
     ):
         return LLMDecision(needed=True, reason="empty_output")
-    # ``<=`` so a borderline route at exactly the threshold still
-    # triggers LLM — strict ``<`` was letting confidence==0.55 pass
-    # straight through to the deterministic combiner.
     if any(chunk.confidence <= CONFIG.route_confidence_threshold for chunk in primary_chunks):
         return LLMDecision(needed=True, reason="low_confidence")
     if supporting:
         return LLMDecision(needed=True, reason="supporting_context")
-    return LLMDecision(needed=False)
+    return LLMDecision(needed=True, reason="synthesis")
 
 
 def llm_synthesize(spec: RequestSpec) -> ResponseObject:

@@ -14,7 +14,9 @@ def _spec(chunks: list[RequestChunkResult], supporting: list[str] | None = None)
     )
 
 
-def test_decide_llm_skips_clean_single_chunk():
+def test_decide_llm_always_needed_for_clean_single_chunk():
+    """Even a clean, high-confidence skill result goes through LLM
+    synthesis so the reply is conversational."""
     chunk = RequestChunkResult(
         text="hello",
         role="primary_request",
@@ -23,7 +25,8 @@ def test_decide_llm_skips_clean_single_chunk():
         result={"output_text": "Hello."},
     )
     decision = decide_llm(_spec([chunk]))
-    assert decision.needed is False
+    assert decision.needed is True
+    assert decision.reason == "synthesis"
 
 
 def test_decide_llm_triggers_on_unresolved():
@@ -103,8 +106,9 @@ def test_decide_llm_triggers_on_missing_output_text_key():
     assert decision.reason == "empty_output"
 
 
-def test_decide_llm_skips_when_output_text_is_present():
-    """Healthy skill output should NOT trigger LLM."""
+def test_decide_llm_needed_when_output_text_is_present():
+    """Even healthy skill output goes through LLM synthesis for
+    conversational framing."""
     chunk = RequestChunkResult(
         text="what time is it",
         role="primary_request",
@@ -114,7 +118,8 @@ def test_decide_llm_skips_when_output_text_is_present():
         result={"output_text": "3:42 PM"},
     )
     decision = decide_llm(_spec([chunk]))
-    assert decision.needed is False
+    assert decision.needed is True
+    assert decision.reason == "synthesis"
 
 
 def test_decide_llm_triggers_at_threshold_boundary():

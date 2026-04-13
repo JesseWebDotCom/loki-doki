@@ -61,13 +61,40 @@ def _resolved_media(chunk: RequestChunk, route: RouteMatch, movie) -> Resolution
     )
 
 
+_DEFINITE_DETERMINERS = {"the", "that", "this", "these", "those"}
+
+
+def _has_definite_phrase(text: str) -> bool:
+    """True when the text contains a short definite phrase (det + 1-3 words).
+
+    Catches "the original", "the sequel", "the first one" — contextual
+    references that aren't pronouns but still need session context.
+    """
+    words = text.lower().split()
+    for i, w in enumerate(words):
+        if w in _DEFINITE_DETERMINERS:
+            remaining = len(words) - i - 1
+            if 1 <= remaining <= 3:
+                return True
+    return False
+
+
 def resolve_media(
     chunk: RequestChunk,
     extraction: ChunkExtraction,
     route: RouteMatch,
     adapter: MovieContextAdapter,
+    *,
+    need_session_context: bool = False,
 ) -> ResolutionResult | None:
-    if route.capability not in MEDIA_CAPABILITIES:
+    # Allow media resolution on direct_chat when context flag is set and
+    # the chunk has a definite phrase (e.g., "the original", "the sequel").
+    if route.capability == "direct_chat":
+        if need_session_context and _has_definite_phrase(chunk.text):
+            pass  # fall through to the resolution logic below
+        else:
+            return None
+    elif route.capability not in MEDIA_CAPABILITIES:
         return None
 
     # For lookup_movie/search_movies, only resolve from context when the

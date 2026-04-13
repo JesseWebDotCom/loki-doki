@@ -246,6 +246,15 @@ _LEAD_PATTERNS = [
     r"^search for (?:the movie\s+)?",
     r"^find movies (?:called|about|named)\s+",
     r"^(?:the )?(?:length|runtime|duration|rating|release date|genre) of (?:the )?",
+    # Conversational phrasings the decomposer leaves intact when the
+    # route matches lookup_movie despite the user asking a question
+    # *about* a movie rather than *for* a movie.
+    r"^have you (?:seen|watched|heard of)\s+(?:the (?:movie|film)\s+)?",
+    r"^did you (?:see|watch|like)\s+(?:the (?:movie|film)\s+)?",
+    r"^do you (?:know|like|remember)\s+(?:the (?:movie|film)\s+)?",
+    r"^i (?:saw|watched|loved|liked|enjoyed|hated)\s+(?:the (?:movie|film)\s+)?",
+    r"^(?:you should|you need to) (?:see|watch)\s+(?:the (?:movie|film)\s+)?",
+    r"^(?:ever )?(?:seen|watched|heard of)\s+(?:the (?:movie|film)\s+)?",
 ]
 
 # Filler phrases anywhere in the query that don't help search.

@@ -279,6 +279,78 @@ def _parallel_winner_result(
     )
 
 
+# ---- shared subject-coverage scorer ----------------------------------------
+
+
+async def web_search_source(query: str) -> "AdapterResult":
+    """Shared web-search secondary source for parallel-scored adapters.
+
+    Every research adapter (movies, TV, people, music, knowledge) can
+    use this as its generic secondary source alongside a primary
+    specialized API. Uses the DuckDuckGo skill (``ddg_api`` →
+    ``ddg_scraper`` waterfall). If DuckDuckGo is later swapped for
+    another search engine, all adapters pick up the change here.
+    """
+    from lokidoki.skills.search_ddg.skill import DuckDuckGoSkill
+
+    # Module-level singleton would create an import-time side effect,
+    # so we cache on the function object instead.
+    skill: DuckDuckGoSkill = getattr(web_search_source, "_skill", None)  # type: ignore[assignment]
+    if skill is None:
+        skill = DuckDuckGoSkill()
+        web_search_source._skill = skill  # type: ignore[attr-defined]
+
+    def _format_ddg(result, method: str) -> str:
+        data = result.data or {}
+        abstract = str(data.get("abstract") or "").strip()
+        if abstract:
+            return abstract
+        results = data.get("results") or []
+        cleaned = [str(item).strip() for item in results[:3] if str(item).strip()]
+        if cleaned:
+            return " ".join(cleaned)
+        return ""
+
+    return await run_mechanisms(
+        skill,
+        [
+            ("ddg_api", {"query": query}),
+            ("ddg_scraper", {"query": query}),
+        ],
+        on_success=_format_ddg,
+        on_all_failed=f"Web search had nothing on '{query}'.",
+    )
+
+
+def score_subject_coverage(query: str, body: str) -> float:
+    """Fraction of significant query tokens present in ``body``.
+
+    Reusable scorer for :func:`run_sources_parallel_scored`. Tokenizes
+    the query into 4+ char non-stopword tokens, folds diacritics, and
+    checks how many appear in the body text. Returns 1.0 when the query
+    has no discriminating content words (e.g. "hi") — in that case we
+    trust whichever source returned something.
+
+    Uses the same tokenizer as the Wikipedia title gate so the notion of
+    "significant token" stays consistent across adapters.
+    """
+    from lokidoki.skills.knowledge_wiki.skill import _query_tokens, _strip_diacritics
+
+    q_tokens = _query_tokens(query)
+    if not q_tokens:
+        return 1.0
+    body_norm = _strip_diacritics((body or "").lower())
+    present = sum(1 for token in q_tokens if token in body_norm)
+    return present / len(q_tokens)
+
+
 # Re-exported for adapters that want to construct AdapterResult directly
 # (e.g. when the v1 skill returned success but the data is empty).
-__all__ = ["AdapterResult", "ErrorKind", "run_mechanisms", "run_sources_parallel_scored"]
+__all__ = [
+    "AdapterResult",
+    "ErrorKind",
+    "run_mechanisms",
+    "run_sources_parallel_scored",
+    "score_subject_coverage",
+    "web_search_source",
+]

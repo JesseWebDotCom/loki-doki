@@ -86,6 +86,17 @@ async def chat(
     character_name = (resolved or {}).get("name", "Loki") if resolved else "Loki"
     character_id = (resolved or {}).get("id", "default") if resolved else "default"
 
+    # Load recent conversation history for LLM context.
+    recent_messages = await memory.get_messages(
+        user_id=user_id, session_id=session_id, limit=12,
+    )
+    # Format as alternating user/assistant pairs (most recent last).
+    conversation_history: list[dict[str, str]] = [
+        {"role": msg["role"], "content": msg["content"]}
+        for msg in recent_messages
+        if msg.get("role") in ("user", "assistant") and msg.get("content")
+    ]
+
     # Build pipeline context.
     memory_store = get_memory_store()
     context = {
@@ -97,6 +108,7 @@ async def chat(
         "behavior_prompt": behavior_prompt,
         "character_name": character_name,
         "character_id": str(character_id),
+        "conversation_history": conversation_history,
     }
 
     async def event_stream():

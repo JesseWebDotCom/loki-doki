@@ -60,6 +60,7 @@ Chunks are ordered by dependency. Each chunk = one Claude Code chat session.
 | **C12** | Skills Phase 4-8: providers + device + polish | C11 | `chunks/chunk-12.md` | Large | **complete** |
 | **C13** | V1 Deletion + V2 Promotion (erase "v2" everywhere) | C10, C11 | `chunks/chunk-13.md` | Large | **complete** |
 | **C14** | Refactor oversized code + full-spectrum E2E test suite | C13 | `chunks/chunk-14.md` | Large | **complete** |
+| **C14.5** | Conversational coherence (history, source quality, context) | C14 | `chunks/chunk-14.5.md` | Medium | **complete** |
 | **C15** | Skills admin & settings pages: v2 registry rewire | C13 | `chunks/chunk-15.md` | Medium | not started |
 
 ### Dependency Graph

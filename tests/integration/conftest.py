@@ -60,13 +60,14 @@ class _FakeKnowledge:
 
     async def execute_mechanism(self, method: str, parameters: dict[str, Any]) -> MechanismResult:
         query = parameters.get("query") or ""
-        if method in ("mediawiki_api", "web_scraper"):
+        if method in ("mediawiki_api", "web_scraper", "wiki_api"):
             return MechanismResult(
                 success=True,
                 data={
                     "title": query.title(),
                     "lead": f"{query.title()} — a test summary about {query}.",
                     "extract": f"{query.title()} is a topic. This is a fake Wikipedia extract for the test suite.",
+                    "overview": f"{query.title()} is a topic. This is a fake Wikipedia extract for the test suite.",
                     "sections": [],
                     "url": "https://en.wikipedia.org/wiki/Fake",
                 },
@@ -78,18 +79,16 @@ class _FakeKnowledge:
                 success=True,
                 data={
                     "query": query,
-                    "snippet": f"Fake DDG snippet about {query} for the test suite.",
+                    "abstract": f"Fake web snippet about {query} for the test suite.",
                     "results": [
-                        {
-                            "title": f"{query.title()} (fake)",
-                            "url": "https://duckduckgo.com/fake",
-                            "snippet": f"Fake DDG snippet about {query}.",
-                        }
+                        f"Fake web snippet about {query}.",
                     ],
                 },
                 source_url="https://duckduckgo.com/fake",
                 source_title=f"DuckDuckGo (fake) — {query}",
             )
+        if method == "local_cache":
+            return MechanismResult(success=False, error="Cache miss")
         return MechanismResult(success=False, error=f"unknown mechanism {method}")
 
 
@@ -237,18 +236,20 @@ def _patch_v2_skill_singletons() -> None:
         dictionary as dictionary_skill,
         jokes as jokes_skill,
         knowledge as knowledge_skill,
+        movies as movies_skill,
         news as news_skill,
         recipes as recipes_skill,
         showtimes as showtimes_skill,
         tv_show as tv_show_skill,
         weather as weather_skill,
     )
+    from lokidoki.orchestrator.skills import _runner as runner_module
 
-    # The knowledge adapter is the only v2 skill that holds *two* singletons
-    # (_WIKI for Wikipedia, _DDG for web search) because it runs the two
-    # sources in parallel and scores them. Every other adapter still owns a
-    # single _SKILL singleton. Track originals as (module, attr_name) tuples
-    # so the restore step puts the right symbol back.
+    # Adapters that migrated to parallel-scored lookup hold named
+    # singletons (_TVMAZE, _WIKI, etc.) instead of a generic _SKILL.
+    # Adapters that still use a single-skill waterfall keep _SKILL.
+    # Track originals as (module, attr_name, original) tuples so the
+    # restore step puts the right symbol back.
     single_skill_modules = (
         weather_skill,
         showtimes_skill,
@@ -256,13 +257,22 @@ def _patch_v2_skill_singletons() -> None:
         news_skill,
         recipes_skill,
         jokes_skill,
-        tv_show_skill,
     )
     originals: list[tuple[Any, str, Any]] = [
         (module, "_SKILL", module._SKILL) for module in single_skill_modules
     ]
+    # tv_show now uses _TVMAZE (parallel-scored adapter)
+    originals.append((tv_show_skill, "_TVMAZE", tv_show_skill._TVMAZE))
+    # knowledge + movies use _WIKI as primary
     originals.append((knowledge_skill, "_WIKI", knowledge_skill._WIKI))
-    originals.append((knowledge_skill, "_DDG", knowledge_skill._DDG))
+    originals.append((movies_skill, "_WIKI", movies_skill._WIKI))
+    # Shared web_search_source caches a DDG singleton on the function;
+    # ensure the attr exists before patching so restore works.
+    if not hasattr(runner_module.web_search_source, "_skill"):
+        from lokidoki.skills.search_ddg.skill import DuckDuckGoSkill
+        runner_module.web_search_source._skill = DuckDuckGoSkill()  # type: ignore[attr-defined]
+    old_web_skill = runner_module.web_search_source._skill  # type: ignore[attr-defined]
+    originals.append((runner_module.web_search_source, "_skill", old_web_skill))
 
     weather_skill._SKILL = _FakeWeather()
     showtimes_skill._SKILL = _FakeShowtimes()
@@ -270,16 +280,17 @@ def _patch_v2_skill_singletons() -> None:
     news_skill._SKILL = _FakeNews()
     recipes_skill._SKILL = _FakeRecipes()
     jokes_skill._SKILL = _FakeJokes()
-    tv_show_skill._SKILL = _FakeTVShow()
-    # One fake satisfies both knowledge sources — see _FakeKnowledge.
+    tv_show_skill._TVMAZE = _FakeTVShow()
     fake_knowledge = _FakeKnowledge()
     knowledge_skill._WIKI = fake_knowledge
-    knowledge_skill._DDG = fake_knowledge
+    movies_skill._WIKI = fake_knowledge
+    # Patch the shared web search singleton so DDG calls are faked.
+    runner_module.web_search_source._skill = fake_knowledge  # type: ignore[attr-defined]
 
     yield
 
-    for module, attr_name, original in originals:
-        setattr(module, attr_name, original)
+    for target, attr_name, original in originals:
+        setattr(target, attr_name, original)
 
 
 @pytest.fixture(scope="session", autouse=True)

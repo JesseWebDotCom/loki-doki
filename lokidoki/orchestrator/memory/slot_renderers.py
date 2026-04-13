@@ -79,6 +79,45 @@ def render_user_style(style_data: dict) -> str:
     return truncate_to_budget("user_style", "; ".join(parts))
 
 
+CONVERSATION_HISTORY_BUDGET = 1500
+
+
+def render_conversation_history(messages: list[dict[str, str]]) -> str:
+    """Render recent conversation messages into the ``{conversation_history}`` slot.
+
+    Takes a list of ``{"role": ..., "content": ...}`` dicts (oldest first)
+    and renders the most recent exchanges that fit within the char budget.
+    The current user turn is excluded (it's already in the spec).
+    """
+    if not messages:
+        return ""
+    # Exclude the last message if it's the current user turn (already in spec).
+    if messages and messages[-1].get("role") == "user":
+        messages = messages[:-1]
+    if not messages:
+        return ""
+    # Build lines from newest to oldest, stop when budget is exceeded.
+    lines: list[str] = []
+    remaining = CONVERSATION_HISTORY_BUDGET
+    for msg in reversed(messages):
+        role = msg.get("role", "?")
+        content = (msg.get("content") or "").strip()
+        if not content:
+            continue
+        # Truncate individual messages to ~250 chars.
+        if len(content) > 250:
+            content = content[:247].rsplit(" ", 1)[0] + "..."
+        line = f"{role}: {content}"
+        if len(line) > remaining:
+            break
+        lines.append(line)
+        remaining -= len(line) + 1  # +1 for newline
+    if not lines:
+        return ""
+    lines.reverse()
+    return "\n".join(lines)
+
+
 def render_recent_mood(affect_rows: list[dict]) -> str:
     """Render Tier 6 affect window into the ``{recent_mood}`` slot string."""
     if not affect_rows:

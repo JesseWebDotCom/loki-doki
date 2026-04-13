@@ -11,8 +11,7 @@ import asyncio
 
 import pytest
 
-from lokidoki.orchestrator.skills._runner import AdapterResult, run_sources_parallel_scored
-from lokidoki.orchestrator.skills.knowledge import _score_subject_coverage
+from lokidoki.orchestrator.skills._runner import AdapterResult, run_sources_parallel_scored, score_subject_coverage as _score_subject_coverage
 
 
 def _ok(text: str, *, mechanism: str = "stub") -> AdapterResult:

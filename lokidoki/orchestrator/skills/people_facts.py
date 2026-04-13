@@ -1,14 +1,27 @@
-"""Structured people-fact lookups via Wikidata."""
+"""Structured people-fact lookups — parallel Wikidata + web search.
+
+Wikidata provides precise structured claims (nationality, birth date,
+occupation, etc.). Web search (DuckDuckGo via shared
+``web_search_source``) provides a generic secondary that catches people
+Wikidata doesn't index or returns richer biographical context.
+"""
 from __future__ import annotations
 
 from typing import Any
 
 import httpx
 
-from lokidoki.orchestrator.skills._runner import AdapterResult
+from lokidoki.orchestrator.skills._runner import (
+    AdapterResult,
+    run_sources_parallel_scored,
+    score_subject_coverage,
+    web_search_source,
+)
 
 _SEARCH_URL = "https://www.wikidata.org/w/api.php"
 _ENTITY_URL = "https://www.wikidata.org/wiki/Special:EntityData/{entity_id}.json"
+
+MIN_SUBJECT_COVERAGE = 0.5
 
 _FACT_TO_PROPERTY = {
     # Identity & origin
@@ -97,27 +110,33 @@ async def _entity_label(client: httpx.AsyncClient, entity_id: str) -> str | None
     return (((entity.get("labels") or {}).get("en") or {}).get("value"))
 
 
-async def lookup_fact(payload: dict[str, Any]) -> dict[str, Any]:
-    params = payload.get("params") or {}
-    text = str(payload.get("chunk_text") or "")
-    # Person name: prefer NER-derived param (C05), fall back to text parse
-    person_param = params.get("person")
-    person_from_text, fact = _extract_person_and_fact(text)
-    person = str(person_param).strip() if person_param else person_from_text
-    prop = _FACT_TO_PROPERTY.get(fact, "P27")
+async def _wikidata_source(person: str, fact: str, prop: str) -> AdapterResult:
+    """Wikidata structured-claim source."""
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
             entity_id = await _search_entity(client, person)
             if not entity_id:
-                return AdapterResult(output_text="I couldn't find that person in Wikidata.", success=False, error="missing person").to_payload()
-            response = await client.get(_ENTITY_URL.format(entity_id=entity_id), headers={"User-Agent": "LokiDoki/0.2"})
+                return AdapterResult(
+                    output_text="", success=False,
+                    error="person not found in Wikidata",
+                )
+            response = await client.get(
+                _ENTITY_URL.format(entity_id=entity_id),
+                headers={"User-Agent": "LokiDoki/0.2"},
+            )
             if response.status_code != 200:
-                return AdapterResult(output_text="I couldn't look up that fact right now.", success=False, error=f"http {response.status_code}").to_payload()
+                return AdapterResult(
+                    output_text="", success=False,
+                    error=f"http {response.status_code}",
+                )
             entity = ((response.json().get("entities") or {}).get(entity_id) or {})
             claims = entity.get("claims") or {}
             statements = claims.get(prop) or []
             if not statements:
-                return AdapterResult(output_text=f"I couldn't find a {fact} fact for {person}.", success=False, error="missing claim").to_payload()
+                return AdapterResult(
+                    output_text="", success=False,
+                    error="missing claim",
+                )
             value = statements[0].get("mainsnak", {}).get("datavalue", {}).get("value")
             if isinstance(value, dict) and value.get("id"):
                 label = await _entity_label(client, value["id"])
@@ -127,7 +146,9 @@ async def lookup_fact(payload: dict[str, Any]) -> dict[str, Any]:
             else:
                 answer = str(value)
     except httpx.HTTPError as exc:
-        return AdapterResult(output_text="I couldn't look up that fact right now.", success=False, error=str(exc)).to_payload()
+        return AdapterResult(
+            output_text="", success=False, error=str(exc),
+        )
     return AdapterResult(
         output_text=f"{person} {fact} is {answer}.",
         success=True,
@@ -135,4 +156,27 @@ async def lookup_fact(payload: dict[str, Any]) -> dict[str, Any]:
         data={"person": person, "fact": fact, "value": answer},
         source_url=f"https://www.wikidata.org/wiki/{entity_id}",
         source_title=f"Wikidata — {person}",
-    ).to_payload()
+    )
+
+
+async def lookup_fact(payload: dict[str, Any]) -> dict[str, Any]:
+    params = payload.get("params") or {}
+    text = str(payload.get("chunk_text") or "")
+    person_param = params.get("person")
+    person_from_text, fact = _extract_person_and_fact(text)
+    person = str(person_param).strip() if person_param else person_from_text
+    prop = _FACT_TO_PROPERTY.get(fact, "P27")
+
+    def score(result: AdapterResult) -> float:
+        return score_subject_coverage(person, result.output_text)
+
+    result = await run_sources_parallel_scored(
+        [
+            ("wikidata", _wikidata_source(person, fact, prop)),
+            ("web", web_search_source(f"{person} {fact}")),
+        ],
+        score=score,
+        threshold=MIN_SUBJECT_COVERAGE,
+        fallback_text=f"I couldn't find information about {person}.",
+    )
+    return result.to_payload()

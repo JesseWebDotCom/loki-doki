@@ -1,4 +1,4 @@
-"""Local playback state plus MusicBrainz-backed metadata lookup."""
+"""Local playback state plus parallel MusicBrainz + web-search metadata lookup."""
 from __future__ import annotations
 
 import re
@@ -6,11 +6,18 @@ from typing import Any
 
 import httpx
 
-from lokidoki.orchestrator.skills._runner import AdapterResult
+from lokidoki.orchestrator.skills._runner import (
+    AdapterResult,
+    run_sources_parallel_scored,
+    score_subject_coverage,
+    web_search_source,
+)
 from lokidoki.orchestrator.skills._store import load_store, save_store
 
 _DEFAULT = {"now_playing": None, "queue": [], "volume": 50}
 _API = "https://musicbrainz.org/ws/2/recording/"
+
+MIN_SUBJECT_COVERAGE = 0.5
 
 
 def _store() -> dict[str, Any]:
@@ -65,10 +72,8 @@ def set_volume(payload: dict[str, Any]) -> dict[str, Any]:
     return AdapterResult(output_text=f"Volume set to {level}%.", success=True, mechanism_used="local_player", data={"volume": level}).to_payload()
 
 
-async def lookup_track(payload: dict[str, Any]) -> dict[str, Any]:
-    query = str((payload.get("params") or {}).get("query") or payload.get("chunk_text") or "").strip()
-    if not query:
-        return AdapterResult(output_text="Tell me which song or artist to look up.", success=False, error="missing query").to_payload()
+async def _musicbrainz_source(query: str) -> AdapterResult:
+    """MusicBrainz structured-metadata source."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(
@@ -77,13 +82,13 @@ async def lookup_track(payload: dict[str, Any]) -> dict[str, Any]:
                 headers={"User-Agent": "LokiDoki/0.2 (music metadata)"},
             )
     except httpx.HTTPError as exc:
-        return AdapterResult(output_text="I couldn't look up that track right now.", success=False, error=str(exc)).to_payload()
+        return AdapterResult(output_text="", success=False, error=str(exc))
     if response.status_code != 200:
-        return AdapterResult(output_text="I couldn't look up that track right now.", success=False, error=f"http {response.status_code}").to_payload()
+        return AdapterResult(output_text="", success=False, error=f"http {response.status_code}")
     data = response.json()
     recordings = data.get("recordings") or []
     if not recordings:
-        return AdapterResult(output_text="I couldn't find that track.", success=False, error="no results").to_payload()
+        return AdapterResult(output_text="", success=False, error="no results")
     first = recordings[0]
     title = first.get("title") or query
     artists = ", ".join(credit.get("name") or "" for credit in first.get("artist-credit", [])) or "Unknown artist"
@@ -91,4 +96,24 @@ async def lookup_track(payload: dict[str, Any]) -> dict[str, Any]:
     if first.get("releases"):
         release = first["releases"][0].get("title") or ""
     text = f"{title} is by {artists}." + (f" Release: {release}." if release else "")
-    return AdapterResult(output_text=text, success=True, mechanism_used="musicbrainz", data=first).to_payload()
+    return AdapterResult(output_text=text, success=True, mechanism_used="musicbrainz", data=first)
+
+
+async def lookup_track(payload: dict[str, Any]) -> dict[str, Any]:
+    query = str((payload.get("params") or {}).get("query") or payload.get("chunk_text") or "").strip()
+    if not query:
+        return AdapterResult(output_text="Tell me which song or artist to look up.", success=False, error="missing query").to_payload()
+
+    def score(result: AdapterResult) -> float:
+        return score_subject_coverage(query, result.output_text)
+
+    result = await run_sources_parallel_scored(
+        [
+            ("musicbrainz", _musicbrainz_source(query)),
+            ("web", web_search_source(f"{query} song artist")),
+        ],
+        score=score,
+        threshold=MIN_SUBJECT_COVERAGE,
+        fallback_text=f"I couldn't find that track.",
+    )
+    return result.to_payload()

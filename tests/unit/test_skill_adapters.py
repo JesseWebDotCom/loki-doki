@@ -53,8 +53,17 @@ def _fail(error: str) -> MechanismResult:
 
 
 def _install_fake(monkeypatch: pytest.MonkeyPatch, adapter_module, fake) -> None:
-    """Swap an adapter's ``_SKILL`` singleton with auto-teardown."""
-    monkeypatch.setattr(adapter_module, "_SKILL", fake, raising=True)
+    """Swap an adapter's primary skill singleton with auto-teardown.
+
+    Adapters that migrated to parallel-scored lookup use named
+    singletons (_TVMAZE, _WIKI, etc.) instead of a generic _SKILL.
+    """
+    # Try named singletons first, fall back to generic _SKILL.
+    for attr in ("_TVMAZE", "_SKILL"):
+        if hasattr(adapter_module, attr):
+            monkeypatch.setattr(adapter_module, attr, fake, raising=True)
+            return
+    raise AttributeError(f"{adapter_module} has no _SKILL or named singleton")
 
 
 # ---- weather adapter -------------------------------------------------------
@@ -116,7 +125,13 @@ def _install_wiki_fake(monkeypatch: pytest.MonkeyPatch, adapter_module, fake) ->
 
 
 def _install_ddg_fake(monkeypatch: pytest.MonkeyPatch, adapter_module, fake) -> None:
-    monkeypatch.setattr(adapter_module, "_DDG", fake, raising=True)
+    from lokidoki.orchestrator.skills._runner import web_search_source
+    # Ensure the lazy attribute exists before monkeypatch tries to
+    # record its original value for teardown.
+    if not hasattr(web_search_source, "_skill"):
+        from lokidoki.skills.search_ddg.skill import DuckDuckGoSkill
+        web_search_source._skill = DuckDuckGoSkill()  # type: ignore[attr-defined]
+    monkeypatch.setattr(web_search_source, "_skill", fake)
 
 
 @pytest.mark.anyio

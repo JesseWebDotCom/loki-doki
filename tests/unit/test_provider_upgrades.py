@@ -97,7 +97,7 @@ async def test_tv_schedule_reports_airtime(monkeypatch):
                 )
             return MechanismResult(success=False, error="miss")
 
-    monkeypatch.setattr(tv_show, "_SKILL", _FakeTVSkill(), raising=True)
+    monkeypatch.setattr(tv_show, "_TVMAZE", _FakeTVSkill(), raising=True)
 
     result = await tv_show.get_schedule({"chunk_text": "when is Grey's Anatomy on tonight"})
 
