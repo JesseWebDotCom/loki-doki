@@ -41,26 +41,26 @@ def detect_platform() -> str:
 # Platform-specific model presets
 PLATFORM_MODELS = {
     "pi5": {
-        "fast_model": "gemma4:e4b",
-        "thinking_model": "gemma4",
+        "fast_model": "qwen3:4b-instruct-2507-q4_K_M",
+        "thinking_model": "qwen3:4b",
         "fast_keep_alive": -1,
         "thinking_keep_alive": "5m",
     },
     "pi": {
-        "fast_model": "gemma4:e2b",
-        "thinking_model": "gemma4:e2b",  # Pi 4 can't handle 9B
+        "fast_model": "qwen3:4b-instruct-2507-q4_K_M",
+        "thinking_model": "qwen3:4b-instruct-2507-q4_K_M",  # Pi 4 avoids 8B+
         "fast_keep_alive": -1,
         "thinking_keep_alive": "5m",
     },
     "mac": {
-        "fast_model": "gemma4:e4b",
-        "thinking_model": "gemma4",
+        "fast_model": "qwen3:4b-instruct-2507-q4_K_M",
+        "thinking_model": "qwen3:4b",
         "fast_keep_alive": -1,
         "thinking_keep_alive": "5m",
     },
     "linux": {
-        "fast_model": "gemma4:e4b",
-        "thinking_model": "gemma4",
+        "fast_model": "qwen3:4b-instruct-2507-q4_K_M",
+        "thinking_model": "qwen3:4b",
         "fast_keep_alive": -1,
         "thinking_keep_alive": "5m",
     },

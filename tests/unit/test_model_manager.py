@@ -11,29 +11,29 @@ class TestModelPolicy:
     def test_pi5_selects_9b_for_thinking(self):
         policy = ModelPolicy(platform="pi5")
         model, keep_alive = policy.select("thinking")
-        assert model == "gemma4"
+        assert model == "qwen3:4b"
         assert keep_alive == "5m"
 
     def test_pi5_selects_2b_for_fast(self):
         policy = ModelPolicy(platform="pi5")
         model, keep_alive = policy.select("fast")
-        assert model == "gemma4:e4b"
+        assert model == "qwen3:4b-instruct-2507-q4_K_M"
         assert keep_alive == -1
 
     def test_pi4_uses_2b_for_thinking(self):
         policy = ModelPolicy(platform="pi")
         model, _ = policy.select("thinking")
-        assert model == "gemma4:e2b"  # Pi 4 can't handle 9B
+        assert model == "qwen3:4b-instruct-2507-q4_K_M"  # Pi 4 avoids reasoning variants
 
     def test_mac_selects_9b_for_thinking(self):
         policy = ModelPolicy(platform="mac")
         model, _ = policy.select("thinking")
-        assert model == "gemma4"
+        assert model == "qwen3:4b"
 
     def test_unknown_complexity_defaults_to_fast(self):
         policy = ModelPolicy(platform="mac")
         model, keep_alive = policy.select("unknown")
-        assert model == "gemma4:e4b"
+        assert model == "qwen3:4b-instruct-2507-q4_K_M"
         assert keep_alive == -1
 
     def test_custom_models_override_preset(self):
@@ -60,7 +60,7 @@ class TestModelManager:
 
         assert result is True
         call_kwargs = mock_client.generate.call_args.kwargs
-        assert call_kwargs["model"] == "gemma4:e4b"
+        assert call_kwargs["model"] == "qwen3:4b-instruct-2507-q4_K_M"
         assert call_kwargs["keep_alive"] == -1
 
     @pytest.mark.anyio
@@ -81,8 +81,8 @@ class TestModelManager:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "models": [
-                {"name": "gemma4:e2b"},
-                {"name": "gemma4"},
+                {"name": "qwen3:4b-instruct-2507-q4_K_M"},
+                {"name": "qwen3:4b"},
             ]
         }
         mock_client._client.get = AsyncMock(return_value=mock_response)
@@ -90,8 +90,8 @@ class TestModelManager:
         manager = ModelManager(inference_client=mock_client)
         models = await manager.list_available_models()
 
-        assert "gemma4:e2b" in models
-        assert "gemma4" in models
+        assert "qwen3:4b-instruct-2507-q4_K_M" in models
+        assert "qwen3:4b" in models
 
     @pytest.mark.anyio
     async def test_get_model_for_thinking_on_pi5(self):
@@ -100,7 +100,7 @@ class TestModelManager:
         manager = ModelManager(inference_client=mock_client, policy=policy)
 
         model, keep_alive = manager.get_model("thinking")
-        assert model == "gemma4"
+        assert model == "qwen3:4b"
         assert keep_alive == "5m"
 
     @pytest.mark.anyio
@@ -109,7 +109,7 @@ class TestModelManager:
         manager = ModelManager(inference_client=mock_client)
 
         model, keep_alive = manager.get_model("fast")
-        assert model == "gemma4:e4b"
+        assert model == "qwen3:4b-instruct-2507-q4_K_M"
 
     def test_policy_property(self):
         mock_client = AsyncMock()
