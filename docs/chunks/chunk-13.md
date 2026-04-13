@@ -109,11 +109,13 @@ Update `DEFAULT_DB_PATH` in `store.py`, `DEV_DB_PATH` in `dev_memory.py`, and al
 | Old | New |
 |---|---|
 | `V2MemoryPanel.tsx` | `MemoryPanel.tsx` |
-| `V2PrototypeRunner.tsx` | `PrototypeRunner.tsx` (or merge into main chat) |
-| `V2PrototypeStatusPanel.tsx` | `PrototypeStatusPanel.tsx` (or `PipelineStatusPanel.tsx`) |
-| `V2SkillsExplorer.tsx` | `SkillsExplorer.tsx` |
+| `V2PrototypeRunner.tsx` | `PipelineRunner.tsx` |
+| `V2PrototypeStatusPanel.tsx` | `PipelineStatusPanel.tsx` |
+| `V2SkillsExplorer.tsx` | `DevSkillsExplorer.tsx` |
 
 Update all frontend imports and API endpoint paths that contain `/v2/`.
+
+**IMPORTANT: These dev-tool pages must remain fully functional after the rename.** The pipeline runner (request tester + trace viewer), skills explorer (capability inspector + direct execution), and memory panel (fact/people dump + reset) are the primary debugging surfaces. This is a rename, not a removal or merge — preserve all existing functionality and verify each page loads and works after the rename.
 
 ### API route renames
 
