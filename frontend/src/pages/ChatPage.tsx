@@ -385,6 +385,11 @@ const ChatPage: React.FC = () => {
         );
         next.routing = { ...data, latency_ms: routingMs };
       }
+      if (event.phase === 'synthesis' && event.status === 'interim') {
+        // Knowledge-gap interim: show placeholder text while web search runs.
+        // Do NOT trigger TTS — the real answer will arrive in synthesis:done.
+        next.streamingResponse = (event.data?.response as string) ?? '';
+      }
       if (event.phase === 'synthesis' && event.status === 'streaming') {
         const delta = (event.data?.delta as string | undefined) ?? '';
         next.streamingResponse = prev.streamingResponse + delta;

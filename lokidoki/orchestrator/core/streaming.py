@@ -47,6 +47,7 @@ _STEP_TO_PHASE: dict[str, str] = {
     "execute": "routing",
     "request_spec": "synthesis",
     "combine": "synthesis",
+    "loop_execute_search": "routing",
 }
 
 # Sentinel pushed to the queue when the pipeline task finishes.
@@ -77,6 +78,7 @@ async def stream_pipeline_sse(
             queue.put_nowait(event)
 
     safe_context["_trace_listener"] = _on_step
+    safe_context["_sse_queue"] = queue
 
     task = asyncio.create_task(
         _run_pipeline_task(raw_text, safe_context, queue, run_pipeline_async)
