@@ -41,6 +41,13 @@ The `v2/` top-level directory was a development scaffold — a clean room to bui
 
 **Pre-delete check:** grep the full codebase (excluding tests) for imports from each file. If any production path still references a v1 module, that import must be rewired or the module kept until it's replaced.
 
+**DO NOT DELETE these v1 modules — they are reused by C15 (skills admin pages):**
+- `lokidoki/core/skill_config.py` — generic config storage, works with v2 capability names
+- `lokidoki/core/skill_cache.py` — result cache, potentially reusable
+- SQLite tables: `skill_config_global`, `skill_config_user`, `skill_enabled_global`, `skill_enabled_user`, `skill_result_cache`
+
+C15 rewires the `/api/v1/skills` endpoints to read from the promoted v2 registry while keeping this config layer. Deleting it would break the admin/settings skills pages with no replacement.
+
 ### V2 folder to promote (104 .py files)
 
 ```
