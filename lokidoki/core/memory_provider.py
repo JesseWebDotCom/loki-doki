@@ -625,6 +625,7 @@ class MemoryProvider:
         tags: list[str] = [],
         prompt: Optional[str] = None,
         response: Optional[str] = None,
+        trace: Optional[str] = None,
     ) -> int:
         async with self._lock:
             return await asyncio.to_thread(
@@ -637,6 +638,7 @@ class MemoryProvider:
                     tags=tags,
                     prompt=prompt,
                     response=response,
+                    trace=trace,
                 )
             )
 
@@ -652,7 +654,7 @@ class MemoryProvider:
             return dict(row) if row else None
 
     async def list_message_feedback(
-        self, *, user_id: int, rating: Optional[int] = None, limit: int = 100
+        self, *, user_id: Optional[int] = None, rating: Optional[int] = None, limit: int = 100
     ) -> list[dict]:
         async with self._lock:
             rows = await asyncio.to_thread(
@@ -661,6 +663,16 @@ class MemoryProvider:
                 )
             )
             return [dict(r) for r in rows]
+
+    async def delete_message_feedback(
+        self, *, feedback_id: Optional[int] = None, user_id: Optional[int] = None
+    ) -> int:
+        async with self._lock:
+            return await asyncio.to_thread(
+                lambda: sql.delete_message_feedback(
+                    self._conn, feedback_id=feedback_id, user_id=user_id
+                )
+            )
 
 
 # Bind the per-user / sentiment / people / character helpers onto

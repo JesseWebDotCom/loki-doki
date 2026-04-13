@@ -11,7 +11,6 @@ import { Toaster } from './components/ui/sonner';
 // landing page so it stays eager).
 const MemoryPage = lazy(() => import('./pages/MemoryPage'));
 const PeoplePage = lazy(() => import('./pages/PeoplePage'));
-const FeedbackPage = lazy(() => import('./pages/FeedbackPage'));
 const WizardPage = lazy(() => import('./pages/WizardPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const SettingsPage = lazy(() =>
@@ -37,7 +36,6 @@ const App: React.FC = () => {
                 <Route path="/" element={<ChatPage />} />
                 <Route path="/memory" element={<MemoryPage />} />
                 <Route path="/people" element={<PeoplePage />} />
-                <Route path="/feedback" element={<FeedbackPage />} />
                 <Route path="/wizard" element={<WizardPage />} />
                 <Route path="/login" element={<LoginPage />} />
 

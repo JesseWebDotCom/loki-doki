@@ -13,7 +13,6 @@ import {
   Bot,
   HardDrive,
   MemoryStick,
-  MessageSquare,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -166,7 +165,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isChat = location.pathname === '/';
   const isMemory = location.pathname === '/memory';
   const isPeople = location.pathname === '/people';
-  const isFeedback = location.pathname === '/feedback';
 
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('ld-sidebar-collapsed') === 'true',
@@ -322,15 +320,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             <Brain size={16} />
           </Link>
-          <Link
-            to="/feedback"
-            title="Feedback"
-            className={`${slot} cursor-pointer ${
-              isFeedback ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
-            }`}
-          >
-            <MessageSquare size={16} />
-          </Link>
         </nav>
         <div className="mt-2 flex w-full flex-col items-center border-t border-sidebar-border/40 pt-2">
           <div className="flex h-10 w-10 items-center justify-center">
@@ -404,17 +393,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             <Brain size={18} />
           </span>
           <span className="ml-1">Memory</span>
-        </Link>
-        <Link
-          to="/feedback"
-          className={`flex items-center rounded-xl transition-colors text-sm font-medium cursor-pointer ${
-            isFeedback ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
-          }`}
-        >
-          <span className="flex h-10 w-10 items-center justify-center shrink-0">
-            <MessageSquare size={18} />
-          </span>
-          <span className="ml-1">Feedback</span>
         </Link>
       </nav>
 

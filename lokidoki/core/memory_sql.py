@@ -686,19 +686,21 @@ def upsert_message_feedback(
     tags: list[str] = [],
     prompt: Optional[str] = None,
     response: Optional[str] = None,
+    trace: Optional[str] = None,
 ) -> int:
     """Insert or update feedback for a message. Returns the feedback row id."""
     tags_json = json.dumps(tags)
     cur = conn.execute(
         "INSERT INTO message_feedback ("
         "owner_user_id, message_id, rating, comment, tags, "
-        "snapshot_prompt, snapshot_response"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "snapshot_prompt, snapshot_response, trace_json"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT (owner_user_id, message_id) DO UPDATE SET "
         "rating = excluded.rating, comment = excluded.comment, "
         "tags = excluded.tags, snapshot_prompt = excluded.snapshot_prompt, "
-        "snapshot_response = excluded.snapshot_response",
-        (user_id, message_id, rating, comment, tags_json, prompt, response),
+        "snapshot_response = excluded.snapshot_response, "
+        "trace_json = excluded.trace_json",
+        (user_id, message_id, rating, comment, tags_json, prompt, response, trace),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -711,7 +713,7 @@ def get_message_feedback(
     message_id: int,
 ) -> Optional[sqlite3.Row]:
     return conn.execute(
-        "SELECT id, rating, comment, tags, snapshot_prompt, snapshot_response, created_at "
+        "SELECT id, rating, comment, tags, snapshot_prompt, snapshot_response, trace_json, created_at "
         "FROM message_feedback "
         "WHERE owner_user_id = ? AND message_id = ?",
         (user_id, message_id),
@@ -721,28 +723,53 @@ def get_message_feedback(
 def list_message_feedback(
     conn: sqlite3.Connection,
     *,
-    user_id: int,
+    user_id: Optional[int] = None,
     rating: Optional[int] = None,
     limit: int = 100,
 ) -> list[sqlite3.Row]:
+    args = []
+    where_clauses = []
+    if user_id is not None:
+        where_clauses.append("mf.owner_user_id = ?")
+        args.append(user_id)
     if rating is not None:
-        return conn.execute(
-            "SELECT mf.id, mf.message_id, mf.rating, mf.comment, mf.tags, "
-            "mf.snapshot_prompt, mf.snapshot_response, mf.created_at, "
-            "m.content, m.session_id "
-            "FROM message_feedback mf "
-            "JOIN messages m ON m.id = mf.message_id "
-            "WHERE mf.owner_user_id = ? AND mf.rating = ? "
-            "ORDER BY mf.created_at DESC LIMIT ?",
-            (user_id, rating, limit),
-        ).fetchall()
-    return conn.execute(
-        "SELECT mf.id, mf.message_id, mf.rating, mf.comment, mf.tags, "
-        "mf.snapshot_prompt, mf.snapshot_response, mf.created_at, "
-        "m.content, m.session_id "
-        "FROM message_feedback mf "
-        "JOIN messages m ON m.id = mf.message_id "
-        "WHERE mf.owner_user_id = ? "
-        "ORDER BY mf.created_at DESC LIMIT ?",
-        (user_id, limit),
-    ).fetchall()
+        where_clauses.append("mf.rating = ?")
+        args.append(rating)
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    query = f"""
+        SELECT mf.id, mf.message_id, mf.rating, mf.comment, mf.tags, 
+               mf.snapshot_prompt, mf.snapshot_response, mf.trace_json, mf.created_at, 
+               m.content, m.session_id, u.username
+        FROM message_feedback mf 
+        JOIN messages m ON m.id = mf.message_id 
+        JOIN users u ON u.id = mf.owner_user_id
+        {where_sql}
+        ORDER BY mf.created_at DESC LIMIT ?
+    """
+    args.append(limit)
+    return conn.execute(query, args).fetchall()
+
+
+def delete_message_feedback(
+    conn: sqlite3.Connection,
+    *,
+    feedback_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+) -> int:
+    """Delete specific feedback OR all feedback for a user (or all if both None)."""
+    if feedback_id is not None:
+        cur = conn.execute(
+            "DELETE FROM message_feedback WHERE id = ?", (feedback_id,)
+        )
+    elif user_id is not None:
+        cur = conn.execute(
+            "DELETE FROM message_feedback WHERE owner_user_id = ?", (user_id,)
+        )
+    else:
+        cur = conn.execute("DELETE FROM message_feedback")
+    conn.commit()
+    return cur.rowcount

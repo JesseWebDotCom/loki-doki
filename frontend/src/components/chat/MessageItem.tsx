@@ -413,6 +413,7 @@ const MessageItem: React.FC<MessageProps> = ({
           onOpenChange={setFeedbackDialogOpen}
           messageId={messageId}
           initialRating={pendingRating}
+          traceJson={pipeline?.synthesis?.trace_snapshot ? JSON.stringify(pipeline.synthesis.trace_snapshot) : undefined}
           onSuccess={handleFeedbackSuccess}
         />
       )}

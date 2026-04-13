@@ -32,8 +32,10 @@ import CharactersAdminSection from '../components/admin/CharactersAdminSection';
 import { getSystemInfo, getSettings, saveSettings } from '../lib/api';
 import type { SettingsData } from '../lib/api';
 import type { SystemInfo } from '../lib/api-types';
+import FeedbackPane from './FeedbackPane';
 
-type AdminUser = { id: number; username: string; role: 'admin' | 'user'; status: 'active' | 'disabled' | 'deleted' };
+import { useUsers } from './useUsers';
+
 type AdminPerson = { id: number; name: string; fact_count?: number };
 type AdminFact = {
   id: number; subject: string; predicate: string; value: string;
@@ -158,6 +160,7 @@ const SectionBody: React.FC<{ section: SectionDef }> = ({ section }) => {
     case 'danger':            return <DangerPane />;
     case 'logs':              return <LogsPane />;
     case 'tools':             return <ToolsPane />;
+    case 'feedback':          return <FeedbackPane />;
   }
 };
 
@@ -387,19 +390,6 @@ const Stat: React.FC<{ label: string; value: string; accent?: string }> = ({ lab
 
 // ── Permissions panes ──────────────────────────────────────────
 
-const useUsers = () => {
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const refresh = useCallback(async () => {
-    const r = await api('/api/v1/admin/users');
-    if (!r.ok) { setError(`load failed (${r.status})`); return; }
-    const data = (await r.json()) as { users: AdminUser[] };
-    setUsers(data.users);
-    setError(null);
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
-  return { users, error, refresh };
-};
 
 const UsersPane: React.FC = () => {
   const navigate = useNavigate();

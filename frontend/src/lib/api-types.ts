@@ -90,6 +90,8 @@ export interface SynthesisData {
   spoken_text?: string;
   /** DB id of the stored assistant message — used by feedback buttons. */
   assistant_message_id?: number;
+  /** Full trace for the turn — used only by dev/feedback paths. */
+  trace_snapshot?: TraceStep[];
 }
 
 /**

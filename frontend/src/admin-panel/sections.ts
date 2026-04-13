@@ -13,7 +13,7 @@ import {
 
 export type SectionId =
   | 'general' | 'characters' | 'audio' | 'skills' | 'appearance'
-  | 'users' | 'character-catalog' | 'controls' | 'memory' | 'admin-skills' | 'danger'
+  | 'users' | 'character-catalog' | 'controls' | 'memory' | 'admin-skills' | 'feedback' | 'danger'
   | 'logs' | 'tools';
 
 export interface SectionDef {
@@ -60,6 +60,9 @@ export const SECTIONS: SectionDef[] = [
   { id: 'admin-skills',      group: 'Permissions', label: 'Skills',            icon: Puzzle,
     title: 'Skills', description: 'Configure global credentials and run test prompts against any skill.',
     adminOnly: true, requiresChallenge: true },
+  { id: 'feedback',          group: 'Permissions', label: 'Feedback Review',   icon: ScrollText,
+    title: 'Feedback Review', description: 'Audit user feedback and pipeline traces across all users.',
+    adminOnly: true, requiresChallenge: true, fullWidth: true },
 
   // ── Danger ─────────────────────────────────────────────────────
   { id: 'danger', group: 'Danger', label: 'Danger Zone', icon: AlertTriangle,

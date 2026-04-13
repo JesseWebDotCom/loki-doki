@@ -18,6 +18,7 @@ interface FeedbackDialogProps {
   onOpenChange: (open: boolean) => void;
   messageId: number;
   initialRating: 1 | -1;
+  traceJson?: string;
   onSuccess?: (rating: 1 | -1) => void;
 }
 
@@ -30,7 +31,8 @@ const POSITIVE_TAGS = [
   'good tone',
 ];
 
-const NEGATIVE_TAGS = [
+  'no memory',
+  'bad memory',
   'hallucination',
   'wrong subject',
   'response cutoff',
@@ -47,6 +49,7 @@ export const FeedbackDialog: React.FC<FeedbackDialogProps> = ({
   onOpenChange,
   messageId,
   initialRating,
+  traceJson,
   onSuccess,
 }) => {
   const [comment, setComment] = useState('');
@@ -65,7 +68,7 @@ export const FeedbackDialog: React.FC<FeedbackDialogProps> = ({
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      await submitMessageFeedback(messageId, initialRating, comment, selectedTags);
+      await submitMessageFeedback(messageId, initialRating, comment, selectedTags, traceJson);
       toast.success('Feedback submitted. Thanks for helping me improve!');
       onSuccess?.(initialRating);
       onOpenChange(false);

@@ -222,6 +222,7 @@ class FeedbackRequest(BaseModel):
     rating: int  # 1 = positive, -1 = negative
     comment: str = ""
     tags: list[str] = []
+    trace_json: Optional[str] = None
 
     @field_validator("rating")
     @classmethod
@@ -359,7 +360,17 @@ async def submit_feedback(
         messages = await memory.get_messages(user_id=user.id, session_id=session_id)
         for i, m in enumerate(messages):
             if m["id"] == message_id:
-                if i > 0:
+                memory_tags = {"no memory", "bad memory"}
+                if any(tag in (request.tags or []) for tag in memory_tags):
+                    # Gather context preceding this message (last 3 turns = up to 6 msgs)
+                    history = []
+                    # We look at messages BEFORE the current one (index i)
+                    for j in range(max(0, i - 6), i):
+                        m_hist = messages[j]
+                        role = m_hist["role"].upper()
+                        history.append(f"{role}: {m_hist['content']}")
+                    prompt_text = "\n---\n".join(history)
+                elif i > 0:
                     prompt_text = messages[i-1]["content"]
                 break
 
@@ -371,6 +382,7 @@ async def submit_feedback(
         tags=request.tags,
         prompt=prompt_text,
         response=response_text,
+        trace=request.trace_json,
     )
     return {"status": "ok", "feedback_id": feedback_id}
 
@@ -379,14 +391,39 @@ async def submit_feedback(
 async def list_feedback(
     rating: Optional[int] = None,
     limit: int = 100,
+    user_id: Optional[int] = None,
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    """List feedback entries for the current user, optionally filtered by rating."""
+    """List feedback entries. Admins can see all users or a specific user."""
+    target_user_id = user.id
+    if user.role == 'admin':
+        # Admin can choose to see a specific user or everyone (None)
+        target_user_id = user_id
+    elif user_id is not None and user_id != user.id:
+        raise HTTPException(status_code=403, detail="forbidden_access_to_other_users_feedback")
+
     entries = await memory.list_message_feedback(
-        user_id=user.id, rating=rating, limit=limit
+        user_id=target_user_id, rating=rating, limit=limit
     )
     return {"feedback": entries}
+
+
+@router.delete("/feedback")
+async def delete_feedback(
+    user_id: Optional[int] = None,
+    feedback_id: Optional[int] = None,
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Delete feedback for a user or a specific entry. Admin only."""
+    if user.role != 'admin':
+        raise HTTPException(status_code=403, detail="admin_only")
+    
+    deleted_count = await memory.delete_message_feedback(
+        user_id=user_id, feedback_id=feedback_id
+    )
+    return {"status": "ok", "deleted_count": deleted_count}
 
 
 @router.delete("/memory")

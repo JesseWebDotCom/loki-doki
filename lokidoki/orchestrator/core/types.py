@@ -149,6 +149,9 @@ class TraceStep:
     timing_ms: float = 0.0
     details: dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
 
 @dataclass(slots=True)
 class TraceSummary:

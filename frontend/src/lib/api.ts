@@ -284,22 +284,37 @@ export async function submitMessageFeedback(
   rating: 1 | -1,
   comment = "",
   tags: string[] = [],
+  traceJson?: string,
 ) {
   const r = await apiFetch(`${API_BASE}/chat/messages/${message_id}/feedback`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rating, comment, tags }),
+    body: JSON.stringify({ rating, comment, tags, trace_json: traceJson }),
   });
   if (!r.ok) throw new Error(`feedback: ${r.status}`);
   return (await r.json()) as { status: string; feedback_id: number };
 }
 
-export async function listMessageFeedback(rating?: number, limit = 100) {
+export async function listMessageFeedback(rating?: number, limit = 100, userId?: number) {
   let url = `${API_BASE}/chat/feedback?limit=${limit}`;
   if (rating !== undefined) url += `&rating=${rating}`;
+  if (userId !== undefined) url += `&user_id=${userId}`;
   const r = await apiFetch(url);
   if (!r.ok) throw new Error(`list-feedback: ${r.status}`);
   return (await r.json()) as { feedback: any[] };
+}
+
+export async function deleteMessageFeedback(feedbackId?: number, userId?: number) {
+  let url = `${API_BASE}/chat/feedback`;
+  const params = new URLSearchParams();
+  if (feedbackId !== undefined) params.set('feedback_id', feedbackId.toString());
+  if (userId !== undefined) params.set('user_id', userId.toString());
+  
+  const r = await apiFetch(`${url}?${params.toString()}`, {
+    method: 'DELETE',
+  });
+  if (!r.ok) throw new Error(`delete-feedback: ${r.status}`);
+  return (await r.json()) as { status: string; deleted_count: number };
 }
 
 export interface ProjectRecord {

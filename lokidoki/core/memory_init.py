@@ -76,6 +76,7 @@ FEEDBACK_COLUMN_MIGRATIONS = (
     ("tags", "TEXT NOT NULL DEFAULT '[]'"),
     ("snapshot_prompt", "TEXT"),
     ("snapshot_response", "TEXT"),
+    ("trace_json", "TEXT"),
 )
 
 
