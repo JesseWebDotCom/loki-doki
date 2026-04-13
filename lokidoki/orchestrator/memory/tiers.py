@@ -3,7 +3,7 @@ Seven-tier identifiers and tier metadata.
 
 The tiers are *policies and views* over a single SQLite store; this module
 gives the rest of the memory subsystem a typed handle on which tier a
-candidate, slot, or retrieval is targeting. See `docs/MEMORY_DESIGN.md` §2.
+candidate, slot, or retrieval is targeting. See `docs/DESIGN.md` §6.2.
 
 Phase status: M0 — populated, no consumers yet. Each tier's actual storage
 and retrieval mechanism lands in its own M-phase (M1: 4/5, M2: 4 read,

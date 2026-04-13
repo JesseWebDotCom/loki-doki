@@ -29,10 +29,16 @@ def _extract_persona(spec: RequestSpec) -> tuple[str, str]:
     """
     ctx = spec.context if isinstance(spec.context, dict) else {}
     name = str(ctx.get("character_name") or "").strip() or "LokiDoki"
-    prompt = str(ctx.get("behavior_prompt") or "").strip()
-    if prompt and not prompt.endswith("\n"):
-        prompt += "\n"
-    return name, prompt
+    behavior_prompt = str(ctx.get("behavior_prompt") or "").strip()
+    
+    # Allow persona prompts to use local context variables like {current_time}
+    if behavior_prompt:
+        current_time = ctx.get("current_time", "Unknown Time")
+        # Surgical replacement to avoid breaking other braces in complex prompts
+        behavior_prompt = behavior_prompt.replace("{current_time}", current_time)
+        if not behavior_prompt.endswith("\n"):
+            behavior_prompt += "\n"
+    return name, behavior_prompt
 
 
 def _build_confidence_guide(spec: RequestSpec) -> str:
@@ -189,12 +195,17 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     memory_slots = _extract_memory_slots(spec)
     character_name, behavior_prompt = _extract_persona(spec)
 
+    current_time = spec.context.get("current_time", "Unknown Time")
+    user_name = spec.context.get("user_name", "User")
+
     if _is_direct_chat_only(spec):
         return render_prompt(
             "direct_chat",
             user_question=spec.original_request,
             character_name=character_name,
             behavior_prompt=behavior_prompt,
+            current_time=current_time,
+            user_name=user_name,
             **memory_slots,
         )
     payload = build_llm_payload(spec)
@@ -206,6 +217,8 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         behavior_prompt=behavior_prompt,
         confidence_guide=_build_confidence_guide(spec),
         sources_list=_render_sources_list(sources),
+        current_time=current_time,
+        user_name=user_name,
         **memory_slots,
     )
 
@@ -227,9 +240,12 @@ def _extract_memory_slots(spec: RequestSpec) -> dict[str, str]:
     return result
 
 
-def build_split_prompt(utterance: str) -> str:
+def build_split_prompt(utterance: str, context: dict[str, Any] | None = None) -> str:
     """Render the split prompt for ambiguous compound utterances."""
-    return render_prompt("split", utterance=utterance)
+    ctx = context or {}
+    current_time = ctx.get("current_time", "Unknown Time")
+    user_name = ctx.get("user_name", "User")
+    return render_prompt("split", utterance=utterance, current_time=current_time, user_name=user_name)
 
 
 def build_resolve_prompt(
@@ -240,10 +256,14 @@ def build_resolve_prompt(
     context: dict[str, Any],
 ) -> str:
     """Render the resolve prompt for chunks the deterministic resolver could not bind."""
+    current_time = context.get("current_time", "Unknown Time")
+    user_name = context.get("user_name", "User")
     return render_prompt(
         "resolve",
         chunk_text=chunk_text,
         capability=capability,
         unresolved=json.dumps(unresolved, ensure_ascii=False),
         context=json.dumps(context, ensure_ascii=False),
+        current_time=current_time,
+        user_name=user_name,
     )

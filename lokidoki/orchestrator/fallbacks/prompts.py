@@ -28,6 +28,8 @@ from typing import Any
 
 
 SPLIT_PROMPT = """You are the splitter for the LokiDoki request orchestrator.
+Current Time: {current_time}
+User Name: {user_name}
 The deterministic splitter could not decide whether the user's utterance
 is one request or several. Return a strict JSON list of clauses, each
 with `text` and `role` (one of: primary_request, supporting_context).
@@ -44,6 +46,8 @@ Utterance: {utterance}
 
 
 RESOLVE_PROMPT = """You are the referent resolver for the LokiDoki request orchestrator.
+Current Time: {current_time}
+User Name: {user_name}
 The deterministic resolver could not bind the references in this chunk.
 You may use the recent conversation context to propose a binding, or
 return `ask_user` if the right answer is genuinely ambiguous.
@@ -61,7 +65,10 @@ Recent context (JSON): {context}
 
 
 COMBINE_PROMPT = """You are {character_name}, a conversational assistant.
-{behavior_prompt}Read the RequestSpec below and return a single natural-language response.
+{behavior_prompt}
+Current Time: {current_time}
+User Name: {user_name}
+Read the RequestSpec below and return a single natural-language response.
 
 Rules:
 - Use ONLY information present in the RequestSpec. Do not invent facts.
@@ -104,12 +111,16 @@ user_style: {user_style}
 recent_mood: {recent_mood}
 sources_list: {sources_list}
 
-RequestSpec (JSON): {spec}
+USER REQUEST (at {current_time}):
+{spec}
 """
 
 
 DIRECT_CHAT_PROMPT = """You are {character_name}, a friendly conversational assistant.
-{behavior_prompt}The user asked a question that none of your specialised skills
+{behavior_prompt}
+Current Time: {current_time}
+User Name: {user_name}
+The user asked a question that none of your specialised skills
 matched, so you are answering directly from your own knowledge.
 
 Rules:
@@ -150,19 +161,20 @@ relevant_episodes: {relevant_episodes}
 user_style: {user_style}
 recent_mood: {recent_mood}
 
-User's question: {user_question}
+USER QUESTION (at {current_time}):
+{user_question}
 
 Your answer:"""
 
 
 _REQUIRED_SLOTS = {
-    "split": frozenset({"utterance"}),
-    "resolve": frozenset({"chunk_text", "capability", "unresolved", "context"}),
+    "split": frozenset({"utterance", "current_time", "user_name"}),
+    "resolve": frozenset({"chunk_text", "capability", "unresolved", "context", "current_time", "user_name"}),
     # `user_facts` is rendered into both combine and direct_chat but is
     # *optional* — empty string is the default. The required-slots set
     # only enforces the slots that have no sensible empty default.
-    "combine": frozenset({"spec"}),
-    "direct_chat": frozenset({"user_question"}),
+    "combine": frozenset({"spec", "current_time", "user_name"}),
+    "direct_chat": frozenset({"user_question", "current_time", "user_name"}),
 }
 
 _TEMPLATES: dict[str, str] = {

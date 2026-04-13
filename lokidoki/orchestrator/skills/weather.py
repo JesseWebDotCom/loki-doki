@@ -1,12 +1,12 @@
 """weather adapter — wraps lokidoki.skills.weather_openmeteo.
 
-The v1 OpenMeteoSkill exposes two mechanisms:
+The OpenMeteoSkill exposes two mechanisms:
 
   - ``open_meteo`` — geocode + forecast over the live network
   - ``local_cache`` — instance-level cache from prior successful calls
 
 Adapter walks them in that order and produces a single short
-``output_text`` line for the combiner. The v1 skill already pre-formats
+``output_text`` line for the combiner. The skill already pre-formats
 a ``lead`` field — we use it verbatim when present.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from lokidoki.skills.weather_openmeteo.skill import OpenMeteoSkill
 from lokidoki.orchestrator.skills._runner import AdapterResult, run_mechanisms
 from lokidoki.orchestrator.skills._config import get_skill_config
 
-# Process-singleton — the v1 skill caches successful lookups in
+# Process-singleton — the skill caches successful lookups in
 # ``self._cache`` and we want that cache to survive across requests.
 _SKILL = OpenMeteoSkill()
 

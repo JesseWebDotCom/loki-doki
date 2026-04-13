@@ -1,6 +1,6 @@
 """movie showtimes adapter — wraps lokidoki.skills.movies_fandango.
 
-The v1 FandangoSkill exposes nine mechanisms; the pipeline only
+The FandangoSkill exposes nine mechanisms; the pipeline only
 needs three of them:
 
   - ``movie_showtimes`` — showtimes for a specific film by zip

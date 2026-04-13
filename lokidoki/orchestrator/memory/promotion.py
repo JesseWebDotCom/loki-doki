@@ -16,7 +16,7 @@ into Tier 4/5 via the gate chain. ``consider_promotion`` remains the
 per-write-path no-op pass-through called by Layer 2 (its real job lives
 in the out-of-band reflect job, not on the synchronous write path).
 
-See `docs/MEMORY_DESIGN.md` §3 Layer 3 and §5 reflect job.
+See `docs/DESIGN.md` §6.3 Layer 3 and §5 reflect job.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover
 # distinct sessions before the reflect job promotes it from Tier 3
 # (episodic) into Tier 4 / Tier 5 (durable). v1.2 sets this to 3 to
 # match the in-session triggered-consolidation threshold so the two
-# mechanisms compose without overlap. See `docs/MEMORY_DESIGN.md` §3
+# mechanisms compose without overlap. See `docs/DESIGN.md` §6.3
 # Layer 3 (Promotion via recurrence).
 PROMOTION_THRESHOLD: int = 3
 

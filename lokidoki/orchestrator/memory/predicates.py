@@ -7,7 +7,7 @@ Python constants — never prompt strings — so the model can never widen them
 by accident.
 
 Phase status: M0 — populated, no consumers yet. M1 wires the gate chain.
-See `docs/MEMORY_DESIGN.md` §3 (Gate 3, immediate-durable carve-out) and §5
+See `docs/DESIGN.md` §6.3 (Gate 3, immediate-durable carve-out) and §5
 (contradiction / single-value rule).
 """
 from __future__ import annotations

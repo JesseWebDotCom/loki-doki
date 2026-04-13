@@ -53,7 +53,7 @@ DIRECT_UTILITY_CAPABILITIES = {
     "weigh_options",
     "find_products",
     "emotional_support",
-    # v1-port skills with definite NPs in their canonical phrasing
+    # Skills with definite NPs in their canonical phrasing
     # ("the headlines", "the tv show X", "the recipe for Y").
     "lookup_definition",
     "get_news_headlines",

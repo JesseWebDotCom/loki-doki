@@ -1,13 +1,13 @@
 """Offline-first product recommendation backend.
 
-The v1 LokiDoki project never shipped a product-search skill, and there
+LokiDoki never shipped a product-search skill, and there
 is no permissive free product-catalog API we can build on. Until a real
 provider (Amazon PA-API, Best Buy, etc.) is wired in, this module
 delivers deterministic curated picks from a small in-process catalog
 and writes user picks to a JSON store the same way the other
 ``device.*`` skills do.
 
-Mechanism chain (mirrors v1 ``BaseSkill.execute_mechanism`` pattern):
+Mechanism chain (mirrors ``BaseSkill.execute_mechanism`` pattern):
 
   1. ``local_catalog`` — instant in-memory category lookup with optional
      budget filter.

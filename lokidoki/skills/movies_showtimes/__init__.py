@@ -1,2 +1,0 @@
-"""Current movie showtimes skill."""
-

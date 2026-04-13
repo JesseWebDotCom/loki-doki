@@ -1,0 +1,33 @@
+{
+  "skill_id": "tvshows",
+  "name": "TVMaze Detail Engine",
+  "is_searchable": true,
+  "search_config": {
+    "corpus_target": "response_body",
+    "budget_tokens": 1000
+  },
+  "intents": ["get_tv_detail", "get_episodes"],
+  "description": "TV show details and episode listings from TVMaze. Free, no API key required.",
+  "examples": [
+    "tell me about Breaking Bad",
+    "how many seasons does The Office have",
+    "when did Game of Thrones end"
+  ],
+  "parameters": {
+    "query": {"type": "string", "required": true}
+  },
+  "mechanisms": [
+    {
+      "method": "tvmaze_api",
+      "priority": 1,
+      "timeout_ms": 3000,
+      "requires_internet": true
+    },
+    {
+      "method": "local_cache",
+      "priority": 2,
+      "timeout_ms": 500,
+      "requires_internet": false
+    }
+  ]
+}

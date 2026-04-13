@@ -19,7 +19,12 @@ def test_list_templates_exposes_all_four_families():
 
 
 def test_render_prompt_split_substitutes_utterance():
-    prompt = render_prompt("split", utterance="hello and turn off the lights")
+    prompt = render_prompt(
+        "split",
+        utterance="hello and turn off the lights",
+        current_time="3:42 PM",
+        user_name="Luke",
+    )
     assert "hello and turn off the lights" in prompt
     assert "JSON list" in prompt
 
@@ -36,6 +41,8 @@ def test_render_prompt_resolve_with_full_slots():
         capability="send_text_message",
         unresolved=json.dumps(["person:mom"]),
         context=json.dumps({"recent": []}),
+        current_time="3:42 PM",
+        user_name="Luke",
     )
     assert "text mom" in prompt
     assert "send_text_message" in prompt
@@ -85,13 +92,18 @@ def test_build_combine_prompt_serialises_request_spec_payload():
                 result={"output_text": "3:42 PM"},
             ),
         ],
+        context={"current_time": "3:42 PM", "user_name": "Luke"},
     )
     prompt = build_combine_prompt(spec)
     assert "hello" in prompt
     assert "what time is it" in prompt
-    assert "RequestSpec" in prompt
     # The serialized payload must be valid JSON embedded in the prompt.
-    json_blob = prompt.split("RequestSpec (JSON):", 1)[1].strip()
+    assert "USER REQUEST" in prompt
+    # Extract JSON after the "USER REQUEST (at <time>):\n" line.
+    # Find the opening brace of the JSON payload.
+    marker_idx = prompt.index("USER REQUEST")
+    json_start = prompt.index("{", marker_idx)
+    json_blob = prompt[json_start:]
     parsed = json.loads(json_blob)
     assert parsed["original_request"] == "hello and what time is it"
     assert parsed["trace_id"] == "trace-x"

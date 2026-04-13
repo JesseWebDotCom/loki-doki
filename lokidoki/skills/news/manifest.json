@@ -1,0 +1,20 @@
+{
+  "skill_id": "news",
+  "name": "News Headlines",
+  "description": "Top news headlines via Google News RSS — covers world, US, business, tech, sports, science, health, entertainment.",
+  "is_searchable": true,
+  "intents": ["get_news", "get_headlines"],
+  "examples": [
+    "what's in the news",
+    "top tech headlines",
+    "latest sports news",
+    "any news about AI"
+  ],
+  "parameters": {
+    "topic": {"type": "string", "required": false},
+    "limit": {"type": "number", "required": false}
+  },
+  "mechanisms": [
+    {"method": "google_news_rss", "priority": 1, "timeout_ms": 5000, "requires_internet": true}
+  ]
+}

@@ -1,7 +1,7 @@
-"""Shared mechanism-runner used by every v1 skill adapter.
+"""Shared mechanism-runner used by every skill adapter.
 
-The v1 ``BaseSkill.execute_mechanism`` contract returns a typed
-``MechanismResult`` and the v1 orchestrator walks a manifest-driven
+The ``BaseSkill.execute_mechanism`` contract returns a typed
+``MechanismResult`` and the orchestrator walks a manifest-driven
 mechanism list in priority order. The pipeline does not load
 manifests, so each adapter passes its own (method, parameters) tuples to
 ``run_mechanisms`` and gets back the first successful result, or a
@@ -90,7 +90,7 @@ async def run_mechanisms(
 ) -> AdapterResult:
     """Run (method, params) tuples in order until one succeeds; first win returns.
 
-    ``on_success`` formats the v1 MechanismResult into output_text.
+    ``on_success`` formats the MechanismResult into output_text.
     ``on_all_failed`` is the graceful degradation string when every attempt fails.
     """
     last_error = ""
@@ -291,7 +291,7 @@ async def web_search_source(query: str) -> "AdapterResult":
     ``ddg_scraper`` waterfall). If DuckDuckGo is later swapped for
     another search engine, all adapters pick up the change here.
     """
-    from lokidoki.skills.search_ddg.skill import DuckDuckGoSkill
+    from lokidoki.skills.search.skill import DuckDuckGoSkill
 
     # Module-level singleton would create an import-time side effect,
     # so we cache on the function object instead.
@@ -334,7 +334,7 @@ def score_subject_coverage(query: str, body: str) -> float:
     Uses the same tokenizer as the Wikipedia title gate so the notion of
     "significant token" stays consistent across adapters.
     """
-    from lokidoki.skills.knowledge_wiki.skill import _query_tokens, _strip_diacritics
+    from lokidoki.skills.knowledge._parse import _query_tokens, _strip_diacritics
 
     q_tokens = _query_tokens(query)
     if not q_tokens:
@@ -345,7 +345,7 @@ def score_subject_coverage(query: str, body: str) -> float:
 
 
 # Re-exported for adapters that want to construct AdapterResult directly
-# (e.g. when the v1 skill returned success but the data is empty).
+# (e.g. when the skill returned success but the data is empty).
 __all__ = [
     "AdapterResult",
     "ErrorKind",

@@ -269,7 +269,7 @@ def _patch_v2_skill_singletons() -> None:
     # Shared web_search_source caches a DDG singleton on the function;
     # ensure the attr exists before patching so restore works.
     if not hasattr(runner_module.web_search_source, "_skill"):
-        from lokidoki.skills.search_ddg.skill import DuckDuckGoSkill
+        from lokidoki.skills.search.skill import DuckDuckGoSkill
         runner_module.web_search_source._skill = DuckDuckGoSkill()  # type: ignore[attr-defined]
     old_web_skill = runner_module.web_search_source._skill  # type: ignore[attr-defined]
     originals.append((runner_module.web_search_source, "_skill", old_web_skill))

@@ -1,6 +1,6 @@
 """smarthome adapters — wrap lokidoki.skills.smarthome_mock.
 
-The v1 SmartHomeMockSkill is a JSON-backed mock controller that handles
+The SmartHomeMockSkill is a JSON-backed mock controller that handles
 lights, locks, doors, and a thermostat. We expose four capabilities on
 top of it:
 
@@ -9,7 +9,7 @@ top of it:
   - ``get_indoor_temperature`` — read the thermostat's current temperature
   - ``detect_presence``    — best-effort presence guess from device state
 
-Presence is the only capability the v1 mock doesn't natively support,
+Presence is the only capability the mock doesn't natively support,
 so the adapter overlays an in-memory ``_PRESENCE`` table indexed by room.
 A future replacement (real HA presence sensor) only needs to swap that
 helper out.

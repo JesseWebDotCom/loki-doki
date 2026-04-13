@@ -1,11 +1,11 @@
-"""Chat HTTP route — pipeline cutover.
+"""Chat HTTP route.
 
 Each turn:
   1. resolves the authenticated current user
   2. creates a new session row if the client didn't pass session_id
-  3. persists the user message to the v1 MemoryProvider (chat history)
+  3. persists the user message to the MemoryProvider (chat history)
   4. runs the pipeline via stream_pipeline_sse
-  5. persists the assistant reply to v1 MemoryProvider
+  5. persists the assistant reply to the MemoryProvider
   6. streams pipeline events back as SSE
 """
 from __future__ import annotations
@@ -73,7 +73,7 @@ async def chat(
     )
     is_first_turn = len(existing_messages) == 0
 
-    # Persist user message to v1 chat history.
+    # Persist user message to chat history.
     user_message_id = await memory.add_message(
         user_id=user_id, session_id=session_id, role="user", content=request.message,
     )
@@ -98,6 +98,9 @@ async def chat(
         if m.get("role") in ("user", "assistant") and m.get("content"):
             conversation_history.append({"role": m["role"], "content": m["content"]})
 
+    # Resolve user's preferred name for personalization.
+    user_name = await memory.get_user_name(user_id)
+
     # Build pipeline context.
     memory_store = get_memory_store()
     context = {
@@ -107,6 +110,7 @@ async def chat(
         "memory_provider": memory,
         "user_message_id": user_message_id,
         "owner_user_id": user_id,
+        "user_name": user_name,
         "behavior_prompt": behavior_prompt,
         "character_name": character_name,
         "character_id": str(character_id),
@@ -265,12 +269,12 @@ async def patch_session(
 
 @router.get("/skills")
 async def get_skills():
-    from lokidoki.core.registry import SkillRegistry
-    _registry = SkillRegistry(skills_dir="lokidoki/skills")
-    _registry.scan()
+    from lokidoki.orchestrator.registry.runtime import get_runtime
+    runtime = get_runtime()
+    capabilities = list(runtime.capabilities.keys())
     return {
-        "skills": list(_registry.skills.keys()),
-        "intents": _registry.get_all_intents(),
+        "skills": capabilities,
+        "intents": capabilities,
     }
 
 

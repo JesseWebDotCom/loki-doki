@@ -71,6 +71,7 @@ def _spec_with_supporting_context() -> RequestSpec:
         supporting_context=["because im late"],
         llm_used=True,
         llm_reason="supporting_context",
+        context={"current_time": "3:42 PM", "user_name": "Luke"},
     )
 
 
@@ -109,6 +110,7 @@ def _spec_direct_chat_only(question: str) -> RequestSpec:
         ],
         llm_used=True,
         llm_reason="direct_chat",
+        context={"current_time": "3:42 PM", "user_name": "Luke"},
     )
 
 
@@ -130,13 +132,10 @@ async def test_direct_chat_prompt_asks_question_not_spec_summary(llm_enabled):
     assert len(fake.calls) == 1
     sent_prompt = fake.calls[0]["prompt"]
     # The conversational template includes the user-question slot.
-    assert "User's question: do my ring cameras spy on me" in sent_prompt
-    # The combine template's literal "RequestSpec (JSON):" header (the
-    # marker that LLM was being asked to summarize a spec) MUST NOT
-    # appear. The direct_chat template *names* "RequestSpec" in its
-    # rule list ("never mention RequestSpec…"), so a substring check
-    # for the bare word would false-positive.
-    assert "RequestSpec (JSON):" not in sent_prompt
+    assert "do my ring cameras spy on me" in sent_prompt
+    assert "USER QUESTION" in sent_prompt
+    # The combine template's "USER REQUEST" header MUST NOT appear.
+    assert "USER REQUEST" not in sent_prompt
 
 
 def test_build_combine_prompt_uses_combine_template_when_skill_output_present():
@@ -145,20 +144,21 @@ def test_build_combine_prompt_uses_combine_template_when_skill_output_present():
     from lokidoki.orchestrator.fallbacks.llm_fallback import build_combine_prompt
 
     prompt = build_combine_prompt(_spec_with_supporting_context())
-    assert "RequestSpec (JSON):" in prompt
+    assert "USER REQUEST" in prompt
     assert "what time is it" in prompt
     assert "because im late" in prompt
     # Direct-chat marker MUST NOT appear when there's a real skill chunk.
-    assert "User's question:" not in prompt
+    assert "USER QUESTION" not in prompt
 
 
 def test_build_combine_prompt_uses_direct_chat_template_for_direct_chat_only():
     from lokidoki.orchestrator.fallbacks.llm_fallback import build_combine_prompt
 
     prompt = build_combine_prompt(_spec_direct_chat_only("what does json stand for"))
-    assert "User's question: what does json stand for" in prompt
-    # The combine template's RequestSpec header must NOT be sent.
-    assert "RequestSpec (JSON):" not in prompt
+    assert "what does json stand for" in prompt
+    assert "USER QUESTION" in prompt
+    # The combine template's USER REQUEST header must NOT be sent.
+    assert "USER REQUEST" not in prompt
 
 
 @pytest.mark.anyio

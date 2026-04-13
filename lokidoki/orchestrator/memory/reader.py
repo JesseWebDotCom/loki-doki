@@ -1,7 +1,7 @@
 """
 Tier 4 read path — FTS5 + RRF retrieval for the memory store.
 
-This is the read side of M2. It is **deliberately not a port** of v1's
+This is the read side of M2. It is **deliberately not a port** of the legacy
 ``lokidoki.core.memory_search`` — that module relies on substring
 heuristics (``_query_mentions`` / ``_is_explicitly_relevant`` from
 [memory_phase2.py:49](../../../lokidoki/core/memory_phase2.py#L49)) and

@@ -1,6 +1,6 @@
 """get_time_in_location adapter — stdlib zoneinfo, no external deps.
 
-There is no v1 LokiDoki skill for this; we build it directly on top of
+There is no dedicated LokiDoki skill for this; we build it directly on top of
 ``zoneinfo`` (the IANA tzdata database that ships with Python 3.9+).
 
 The adapter resolves a city/region phrase to an IANA timezone via a

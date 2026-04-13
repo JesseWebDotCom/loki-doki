@@ -17,7 +17,7 @@ from lokidoki.orchestrator.memory.writer import WriteRunResult
 def ensure_session(safe_context: dict[str, Any]) -> None:
     """Ensure a session row exists in the MemoryStore.
 
-    The session_id may come from the v1 MemoryProvider (lokidoki.db),
+    The session_id may come from the MemoryProvider (lokidoki.db),
     a separate SQLite database. The MemoryStore (memory.sqlite) needs
     its own session row for session state (last_seen map, turn counters)
     to persist. If session_id is already set but doesn't exist in the
@@ -48,7 +48,7 @@ def _ensure_session_row(
 ) -> None:
     """Insert a session row in the MemoryStore if it doesn't exist yet.
 
-    The v1 MemoryProvider creates sessions in lokidoki.db; the pipeline's
+    The MemoryProvider creates sessions in lokidoki.db; the pipeline's
     MemoryStore uses memory.sqlite. Without a matching row here,
     update_last_seen / get_session_state silently no-op because the
     UPDATE matches zero rows.

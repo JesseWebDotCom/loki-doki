@@ -56,7 +56,7 @@ LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). I
 - Missing Hailo hardware or HEF files must fail gracefully, never crash
 - No `setup.sh` — the browser bootstrap installer replaces it entirely
 - No `systemd`/`launchd` setup during active development (Phase 10 only)
-- Never manually copy files to Pi — use `scripts/sync_to_pi.sh`
+- Never manually copy files to Pi — use a sync script
 - Do not replace bootstrap installer UI with a framework — plain HTML/CSS/JS only
 - All platform behavior is profile-driven: `mac` / `pi_cpu` / `pi_hailo`
 - Blacklist `hailo_pci` before using `hailo1x_pci`
@@ -87,9 +87,8 @@ app/
   providers/
   settings/
 scripts/
-  sync_to_pi.sh
-  run_on_pi.sh
-  pi_log.sh
+  enforce_residency.py
+  bench_llm_models.py
 .pi.env.example
 ```
 

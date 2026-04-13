@@ -12,7 +12,7 @@ Phase status:
     The other slot assemblers stay as placeholders that always return ""
     until their phase ships.
 
-Total worst-case slot budget is 1,470 chars per `docs/MEMORY_DESIGN.md` §4.
+Total worst-case slot budget is 1,470 chars per `docs/DESIGN.md` §6.4.
 """
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 """dictionary adapter — wraps lokidoki.skills.dictionary.
 
-The v1 DictionarySkill is a single-mechanism wrapper around
+The DictionarySkill is a single-mechanism wrapper around
 dictionaryapi.dev. There is no offline fallback, so the
 adapter degrades gracefully when the network is down.
 """

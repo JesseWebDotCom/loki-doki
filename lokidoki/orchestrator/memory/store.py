@@ -1,9 +1,9 @@
 """
-Memory storage layer — clean cutover from v1.
+Memory storage layer.
 
 The memory store opens its **own** SQLite file at
 ``data/memory.sqlite`` (configurable per-instance) and writes to its
-own tables. It imports zero v1 modules.
+own tables.
 
 The ``MemoryStore`` class composes domain-specific mixins from the
 ``store_*.py`` siblings. Each mixin holds one tier's methods. This file

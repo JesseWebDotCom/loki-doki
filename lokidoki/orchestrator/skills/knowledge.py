@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lokidoki.skills.knowledge_wiki.skill import WikipediaSkill
+from lokidoki.skills.knowledge.skill import WikipediaSkill
 
 from lokidoki.orchestrator.skills._runner import (
     AdapterResult,

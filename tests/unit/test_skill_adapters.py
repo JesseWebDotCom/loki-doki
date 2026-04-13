@@ -129,7 +129,7 @@ def _install_ddg_fake(monkeypatch: pytest.MonkeyPatch, adapter_module, fake) -> 
     # Ensure the lazy attribute exists before monkeypatch tries to
     # record its original value for teardown.
     if not hasattr(web_search_source, "_skill"):
-        from lokidoki.skills.search_ddg.skill import DuckDuckGoSkill
+        from lokidoki.skills.search.skill import DuckDuckGoSkill
         web_search_source._skill = DuckDuckGoSkill()  # type: ignore[attr-defined]
     monkeypatch.setattr(web_search_source, "_skill", fake)
 

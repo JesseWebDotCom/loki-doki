@@ -1,6 +1,6 @@
 """System metrics: CPU, memory, disk, processes, storage buckets.
 
-Ported from the loki-doki v1 metrics package — consolidated into one
+System metrics — consolidated into one
 module since the helpers are small and share no mutable state.
 """
 from __future__ import annotations

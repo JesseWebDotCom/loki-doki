@@ -4,9 +4,7 @@ memory schema — drafted in M0, applied incrementally per phase.
 This module is the **single source of truth** for the memory database
 shape. It deliberately lives under `lokidoki/orchestrator/memory/` and not under
 `lokidoki/core/`, so a cutover never has to disentangle two
-authoritative schema files. The v1 file (`lokidoki/core/memory_schema.py`)
-remains read-only during the cutover and is deleted in the same change that
-deletes the v1 memory modules.
+authoritative schema files.
 
 Phase status: M0 — drafted but **not yet applied to dev or prod**. M0 only
 verifies the migrations apply cleanly to a scratch SQLite file (see
@@ -14,13 +12,13 @@ verifies the migrations apply cleanly to a scratch SQLite file (see
 `tests/unit/test_memory_m0.py`). Each later phase applies the relevant
 table:
 
-    M1 → no schema change (uses v1 facts/people via shared SQLite)
+    M1 → no schema change (uses facts/people via shared SQLite)
     M3 → people.handle, people.provisional, idx_people_owner_handle
     M4 → sessions.session_state, episodes, episodes_fts, vec_episodes
     M5 → behavior_events, user_profile
     M6 → messages.sentiment, affect_window
 
-See `docs/MEMORY_DESIGN.md` §6 for the rationale.
+See `docs/DESIGN.md` §6 (Memory System) for the rationale.
 """
 from __future__ import annotations
 
@@ -28,7 +26,7 @@ import sqlite3
 from typing import Final
 
 # ---------------------------------------------------------------------------
-# Column-level migrations against existing v1 tables.
+# Column-level migrations against existing base tables.
 #
 # These ALTER statements are non-destructive — they only add columns. They
 # are guarded by a column-presence check at apply time so re-running is a
@@ -102,7 +100,7 @@ END;
 """
 
 # sqlite-vec virtual table for episode embeddings. Optional — backfilled
-# async by the same path that backfills facts/messages in v1. The CREATE
+# async by the same path that backfills facts/messages. The CREATE
 # statement is fenced so apply() can skip it if sqlite_vec isn't loaded.
 VEC_EPISODES_SCHEMA: Final[str] = """
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_episodes USING vec0(
@@ -148,12 +146,12 @@ CREATE TABLE IF NOT EXISTS user_profile (
 
 # ---------------------------------------------------------------------------
 # Stub tables — only needed when applying migrations to a scratch SQLite
-# file that does not already contain the v1 tables. In production these are
-# the v1 tables and we never touch their definitions; the column-level
-# migrations above run against the existing v1 schema.
+# file that does not already contain the base tables. In production these
+# tables already exist and we never touch their definitions; the column-level
+# migrations above run against the existing schema.
 # ---------------------------------------------------------------------------
 
-V1_STUB_TABLES_FOR_SCRATCH: Final[str] = """
+BASE_STUB_TABLES_FOR_SCRATCH: Final[str] = """
 CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL,
@@ -197,15 +195,15 @@ def apply_column_migrations(conn: sqlite3.Connection) -> list[str]:
 def apply_memory_schema(
     conn: sqlite3.Connection,
     *,
-    create_v1_stubs: bool = False,
+    create_base_stubs: bool = False,
     enable_vec: bool = False,
 ) -> dict[str, list[str]]:
     """Apply the full memory schema to `conn`.
 
     M0 calls this against a scratch SQLite file from a test, with
-    `create_v1_stubs=True` so the column migrations have something to ALTER.
-    Production phases call it with `create_v1_stubs=False` once the
-    real v1 schema is already present.
+    `create_base_stubs=True` so the column migrations have something to ALTER.
+    Production phases call it with `create_base_stubs=False` once the
+    base schema is already present.
 
     Returns a dict mapping each section to the list of statements (or
     columns) that were applied — useful for assertions in tests.
@@ -217,9 +215,9 @@ def apply_memory_schema(
         "tables": [],
     }
 
-    if create_v1_stubs:
-        conn.executescript(V1_STUB_TABLES_FOR_SCRATCH)
-        applied["stubs"].append("v1_stub_tables")
+    if create_base_stubs:
+        conn.executescript(BASE_STUB_TABLES_FOR_SCRATCH)
+        applied["stubs"].append("base_stub_tables")
 
     applied["added_columns"] = apply_column_migrations(conn)
 

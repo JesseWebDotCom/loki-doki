@@ -2,7 +2,7 @@
 
 The fast lane already handles common conversions inline. This
 adapter covers the routed path (compound utterances) and pulls
-deterministic offline conversions from the v1 lookup tables, which
+deterministic offline conversions from the lookup tables, which
 support a wider unit catalog than the fast-lane matcher.
 """
 from __future__ import annotations
