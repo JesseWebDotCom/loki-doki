@@ -23,6 +23,7 @@ dependencies = [
     "en-core-web-sm",
     "rapidfuzz>=3.14.1",
     "num2words>=0.5.14",
+    "colorlog>=6.10.1",
 ]
 
 # Pin the spaCy English model to a wheel so `uv sync` installs it

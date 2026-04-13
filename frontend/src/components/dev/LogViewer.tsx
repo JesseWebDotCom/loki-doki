@@ -9,12 +9,62 @@ type LogRecord = {
   message: string;
 };
 
-const LEVEL_COLOR: Record<string, string> = {
-  DEBUG: 'text-muted-foreground',
-  INFO: 'text-foreground',
-  WARNING: 'text-amber-400',
-  ERROR: 'text-red-400',
-  CRITICAL: 'text-red-500 font-bold',
+/**
+ * Simple ANSI color renderer.
+ * Maps standard 3/4-bit ANSI foreground colors to Tailwind classes.
+ * Handles: bold, reset, and foreground colors 31-36.
+ */
+const AnsiRenderer: React.FC<{ text: string }> = ({ text }) => {
+  // Regex to split by ANSI escape sequences: \x1b[...m
+  const parts = text.split(/(\x1b\[[0-9;]*m)/);
+  let isBold = false;
+  let colorClass = '';
+
+  const ANSI_MAP: Record<string, string> = {
+    '31': 'text-red-400',
+    '32': 'text-emerald-400',
+    '33': 'text-amber-400',
+    '34': 'text-blue-400',
+    '35': 'text-fuchsia-400',
+    '36': 'text-cyan-400',
+    '37': 'text-slate-100',
+    '0': '', // Reset
+    '1': 'font-bold',
+  };
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith('\x1b[')) {
+          const code = part.slice(2, -1);
+          if (code === '0') {
+            isBold = false;
+            colorClass = '';
+          } else if (code === '1') {
+            isBold = true;
+          } else if (ANSI_MAP[code]) {
+            colorClass = ANSI_MAP[code];
+          } else if (code.includes(';')) {
+            // Handle combined codes like "1;31"
+            code.split(';').forEach((sub) => {
+              if (sub === '1') isBold = true;
+              else if (ANSI_MAP[sub]) colorClass = ANSI_MAP[sub];
+            });
+          }
+          return null;
+        }
+        if (!part) return null;
+        return (
+          <span
+            key={i}
+            className={`${colorClass} ${isBold ? 'font-bold' : ''}`}
+          >
+            {part}
+          </span>
+        );
+      })}
+    </>
+  );
 };
 
 const LogViewer: React.FC<{ height?: string }> = ({ height = 'h-96' }) => {
@@ -75,8 +125,10 @@ const LogViewer: React.FC<{ height?: string }> = ({ height = 'h-96' }) => {
   // execCommand path for non-secure-context dev servers where
   // navigator.clipboard is undefined.
   const handleCopy = async () => {
+    // Strip ANSI for clipboard
+    const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '');
     const text = filtered
-      .map((r) => `${new Date(r.ts * 1000).toISOString()} ${r.level} ${r.logger}: ${r.message}`)
+      .map((r) => `${new Date(r.ts * 1000).toISOString()} ${r.level} ${r.logger}: ${stripAnsi(r.message)}`)
       .join('\n');
     try {
       if (navigator.clipboard?.writeText) {
@@ -155,7 +207,7 @@ const LogViewer: React.FC<{ height?: string }> = ({ height = 'h-96' }) => {
               key={r.id}
               className="px-4 py-0.5 hover:bg-card/40 border-b border-border/5 whitespace-pre-wrap break-all"
             >
-              <span className={LEVEL_COLOR[r.level] || 'text-foreground'}>{r.message}</span>
+              <AnsiRenderer text={r.message} />
             </div>
           ))
         )}

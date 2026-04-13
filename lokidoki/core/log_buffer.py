@@ -12,6 +12,8 @@ from collections import deque
 from threading import Lock
 from typing import Deque, List, Optional, Tuple
 
+import colorlog
+
 
 class LogBuffer(logging.Handler):
     """Bounded ring buffer of recent log records, thread-safe."""
@@ -24,7 +26,18 @@ class LogBuffer(logging.Handler):
         # (loop, queue) pairs — one per active SSE subscriber.
         self._subscribers: List[Tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = []
         self.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+            colorlog.ColoredFormatter(
+                "%(asctime)s %(log_color)s%(levelname)s%(reset)s %(blue)s%(name)s%(reset)s: %(message)s",
+                log_colors={
+                    'DEBUG': 'cyan',
+                    'INFO': 'green',
+                    'WARNING': 'yellow',
+                    'ERROR': 'red',
+                    'CRITICAL': 'red,bg_white',
+                },
+                secondary_log_colors={},
+                style='%'
+            )
         )
 
     def emit(self, record: logging.LogRecord) -> None:
