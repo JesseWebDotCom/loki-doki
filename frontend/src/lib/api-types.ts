@@ -27,11 +27,19 @@ export interface SentimentInfo {
   concern?: string;
 }
 
+export interface AugmentationSlotDetail {
+  name: string;
+  chars: number;
+}
+
 export interface AugmentationData {
   latency_ms: number;
   context_messages: number;
   relevant_facts: number;
   past_messages: number;
+  slots_assembled?: string[];
+  slot_details?: AugmentationSlotDetail[];
+  session_entities?: number;
 }
 
 export interface MicroFastLaneData {

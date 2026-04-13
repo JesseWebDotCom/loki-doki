@@ -39,6 +39,20 @@ function humanizeToken(value: string | null | undefined): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+const _SLOT_LABELS: Record<string, string> = {
+  user_facts: 'User Facts',
+  social_context: 'People',
+  recent_context: 'Session Context',
+  relevant_episodes: 'Past Conversations',
+  user_style: 'Style',
+  recent_mood: 'Mood',
+  conversation_history: 'Chat History',
+};
+
+function _humanizeSlot(name: string): string {
+  return _SLOT_LABELS[name] ?? name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function buildUserSteps(pipeline: PipelineState): Array<{
   key: string;
   label: string;
@@ -57,13 +71,28 @@ function buildUserSteps(pipeline: PipelineState): Array<{
   }> = [];
 
   if (pipeline.augmentation?.latency_ms != null) {
+    const aug = pipeline.augmentation;
+    const slots = aug.slot_details ?? [];
+    const slotSummary = slots.length > 0
+      ? slots.map(s => _humanizeSlot(s.name)).join(', ')
+      : null;
+    const detailParts: string[] = [];
+    if (aug.relevant_facts > 0) {
+      detailParts.push(`${aug.relevant_facts} memory hit${aug.relevant_facts === 1 ? '' : 's'}`);
+    }
+    if (aug.session_entities && aug.session_entities > 0) {
+      detailParts.push(`${aug.session_entities} session entit${aug.session_entities === 1 ? 'y' : 'ies'}`);
+    }
+    if (slotSummary) {
+      detailParts.push(slotSummary);
+    }
     steps.push({
       key: 'augmentation',
       label: 'Warming Up',
-      detail: pipeline.augmentation.relevant_facts > 0
-        ? `augmentation · ${pipeline.augmentation.relevant_facts} memory hit${pipeline.augmentation.relevant_facts === 1 ? '' : 's'}`
+      detail: detailParts.length > 0
+        ? `augmentation · ${detailParts.join(' · ')}`
         : 'augmentation · current chat',
-      time: formatDuration(pipeline.augmentation.latency_ms),
+      time: formatDuration(aug.latency_ms),
       icon: Layers,
       color: 'text-blue-400',
     });
@@ -320,6 +349,25 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline, currentPhase = 'comple
               );
             })}
           </div>
+
+          {pipeline.augmentation?.slot_details && pipeline.augmentation.slot_details.length > 0 && (
+            <div className="mt-4 border-t border-border/30 pt-3">
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                Memory
+              </div>
+              <div className="flex flex-col gap-1">
+                {pipeline.augmentation.slot_details.map((slot) => (
+                  <div key={slot.name} className="flex items-center gap-2 text-[11px]">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
+                    <span className="text-foreground/80">{_humanizeSlot(slot.name)}</span>
+                    <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">
+                      {slot.chars} chars
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mt-4 border-t border-border/30 pt-3">
             <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">

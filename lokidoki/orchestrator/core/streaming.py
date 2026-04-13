@@ -108,7 +108,7 @@ def _step_to_sse_event(
     if step.name == "execute":
         return SSEEvent("routing", "done", _build_routing_data(step_cache, phase_timing))
     if step.name == "memory_read":
-        return SSEEvent("augmentation", "done", _memory_read_data(step, phase_timing))
+        return SSEEvent("augmentation", "done", _memory_read_data(step, phase_timing, step_cache))
     return None
 
 
@@ -127,11 +127,34 @@ def _fast_lane_event(step: TraceStep) -> SSEEvent:
     )
 
 
-def _memory_read_data(step: TraceStep, phase_timing: dict[str, float]) -> dict[str, Any]:
+def _memory_read_data(
+    step: TraceStep,
+    phase_timing: dict[str, float],
+    step_cache: dict[str, TraceStep],
+) -> dict[str, Any]:
     """Build augmentation done data from the memory_read step."""
+    slots = step.details.get("slots_assembled", [])
+    # Build per-slot char counts for the UI (e.g. "user_facts: 120 chars")
+    slot_details: list[dict[str, Any]] = []
+    for slot_name in slots:
+        chars = step.details.get(f"{slot_name}_chars", 0)
+        if chars > 0:
+            slot_details.append({"name": slot_name, "chars": chars})
+    # Count entities from session bridge (from memory_write step details)
+    mw_step = step_cache.get("memory_write")
+    entity_count = 0
+    if mw_step:
+        entity_count = mw_step.details.get("entity_count", 0)
+    relevant_facts = sum(1 for s in slot_details if s["name"] in (
+        "user_facts", "social_context", "relevant_episodes",
+    ))
     return {
         "latency_ms": round(phase_timing.get("augmentation", 0), 1),
-        "slots_assembled": step.details.get("slots_assembled", []),
+        "slots_assembled": slots,
+        "slot_details": slot_details,
+        "relevant_facts": relevant_facts,
+        "context_messages": 0,  # filled by frontend from conversation_history
+        "session_entities": entity_count,
     }
 
 

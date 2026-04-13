@@ -1,9 +1,12 @@
 """Pipeline lifecycle hooks: session state, behavior events, sentiment."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from lokidoki.orchestrator.memory.store import MemoryStore
+
+log = logging.getLogger(__name__)
 from lokidoki.orchestrator.memory.summarizer import (
     SessionObservation,
     queue_session_close,
@@ -55,8 +58,14 @@ def _ensure_session_row(
             "SELECT id FROM sessions WHERE id = ?", (session_id,),
         ).fetchone()
         if row is None:
+            log.info(
+                "[session_mirror] creating MemoryStore session row id=%d"
+                " for owner=%d",
+                session_id, owner_user_id,
+            )
             store._conn.execute(
-                "INSERT INTO sessions(id, owner_user_id, session_state)"
+                "INSERT OR IGNORE INTO sessions"
+                "(id, owner_user_id, session_state)"
                 " VALUES (?, ?, ?)",
                 (session_id, owner_user_id, "{}"),
             )
@@ -90,6 +99,12 @@ def bridge_session_state_to_recent_entities(
         entities.append({"name": name, "type": entity_type})
         seen_names.add(name.lower())
     safe_context["recent_entities"] = entities
+    if entities:
+        log.info(
+            "[session_bridge] populated %d recent entities from session %s: %s",
+            len(entities), session_id,
+            ", ".join(f"{e['type']}={e['name']}" for e in entities),
+        )
 
 
 def auto_raise_need_session_context(
@@ -189,7 +204,15 @@ def run_session_state_update(
             if entity_name:
                 break
         if not entity_name:
+            log.debug(
+                "[session_state] pass2: %s has no entity name in data keys %s",
+                capability, data_keys,
+            )
             continue
+        log.info(
+            "[session_state] pass2: storing %s=%r from execution of %s",
+            entity_type, entity_name, capability,
+        )
         store.update_last_seen(
             int(session_id),
             entity_type=entity_type,
