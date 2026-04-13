@@ -124,17 +124,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           {isThinking && (
             <ThinkingIndicator
               pipeline={pipeline}
-              avatar={pipeline?.streamingResponse ? undefined : renderAvatar(characterState ?? 'thinking')}
-            />
-          )}
-          {isThinking && pipeline?.streamingResponse && (
-            <MessageItem
-              role="assistant"
-              content={pipeline.streamingResponse}
-              timestamp={new Date().toISOString()}
-              sources={[]}
               avatar={renderAvatar(characterState ?? 'thinking')}
-              assistantName={assistantName}
+              interimText={pipeline?.streamingResponse || undefined}
             />
           )}
         </div>
