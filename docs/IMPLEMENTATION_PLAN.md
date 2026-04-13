@@ -36,7 +36,7 @@ The three design docs total ~65K tokens. Reading all three per chat session is w
 | Graduation Plan | 3.2 People seed leak | complete (empty default) |
 | Graduation Plan | 3.3 Router false-positives | complete (ROUTE_FLOOR=0.55) |
 
-**Test count:** 1468 tests, 124 memory-specific (M0-M3.5).
+**Test count:** 1588 tests, 124 memory-specific (M0-M3.5).
 
 ---
 
@@ -56,7 +56,7 @@ Chunks are ordered by dependency. Each chunk = one Claude Code chat session.
 | **C08** | Memory M5: procedural (Tier 7a/7b) | M2 (done) | `chunks/chunk-08.md` | Medium | **complete** |
 | **C09** | Memory M6: affective (Tier 6, character overlay) | C03 (persona) | `chunks/chunk-09.md` | Medium | **complete** |
 | **C10** | V1 Cutover: chat.py swap + v1 deletion | C01, C03, C04 | `chunks/chunk-10.md` | Medium | **complete** |
-| **C11** | Skills Phase 3: finish v1 ports | C07 | `chunks/chunk-11.md` | Large | not started |
+| **C11** | Skills Phase 3: finish v1 ports | C07 | `chunks/chunk-11.md` | Large | **complete** |
 | **C12** | Skills Phase 4-8: providers + device + polish | C11 | `chunks/chunk-12.md` | Large | not started |
 | **C13** | V1 Deletion + V2 Promotion (erase "v2" everywhere) | C10, C11 | `chunks/chunk-13.md` | Large | not started |
 | **C14** | Refactor oversized code + full-spectrum E2E test suite | C13 | `chunks/chunk-14.md` | Large | not started |

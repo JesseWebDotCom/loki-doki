@@ -358,7 +358,7 @@
   },
   {
     "capability": "control_device",
-    "description": "Turn on or off a home device, switch a setting, or adjust device state. This is an imperative action — the user is telling the device what to do, not asking what state it is in.",
+    "description": "Turn on or off a home device, switch a setting, or adjust device state. This is an imperative action \u2014 the user is telling the device what to do, not asking what state it is in.",
     "examples": [
       "turn on the lights",
       "turn off the lights",
@@ -1649,7 +1649,7 @@
   },
   {
     "capability": "lookup_tv_show",
-    "description": "Look up details about a TV series — network, status, rating, recent episodes.",
+    "description": "Look up details about a TV series \u2014 network, status, rating, recent episodes.",
     "examples": [
       "tell me about the tv show breaking bad",
       "what tv show is friends",
@@ -3643,7 +3643,7 @@
   },
   {
     "capability": "get_player_stats",
-    "description": "Look up player stats via ESPN API (stub — provider incomplete).",
+    "description": "Look up player stats via ESPN API (stub \u2014 provider incomplete).",
     "examples": [
       "how many touchdowns does Mahomes have this year"
     ],
@@ -3681,6 +3681,268 @@
       }
     ],
     "maturity": "stub",
+    "max_chunk_budget_ms": 6000
+  },
+  {
+    "capability": "search_web",
+    "description": "Search the web for current information using DuckDuckGo.",
+    "examples": [
+      "search the web for python 3.13 release date",
+      "look up the latest news about SpaceX",
+      "search for best restaurants in Austin",
+      "find information about raspberry pi 5 specs",
+      "web search for climate change statistics"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.search.ddg",
+        "handler_name": "skills.search.web",
+        "priority": 30,
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.search_web",
+        "entry_point": "search_web"
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "ddg_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "ddg_scraper",
+        "priority": 2,
+        "timeout_ms": 8000,
+        "requires_internet": true
+      }
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 8000
+  },
+  {
+    "capability": "lookup_movie",
+    "description": "Look up details about a movie \u2014 title, release year, rating, synopsis.",
+    "examples": [
+      "tell me about the movie inception",
+      "what is the movie avatar about",
+      "look up the movie the godfather",
+      "movie details for interstellar",
+      "what's the rating for oppenheimer"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.movies.lookup",
+        "handler_name": "skills.movies.lookup",
+        "priority": 30,
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.movies",
+        "entry_point": "lookup_movie"
+      }
+    ],
+    "parameters": {
+      "movie_title": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "tmdb_api",
+        "priority": 1,
+        "timeout_ms": 3000,
+        "requires_internet": true
+      },
+      {
+        "method": "wiki_api",
+        "priority": 2,
+        "timeout_ms": 4000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 3,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000,
+    "config": {
+      "tmdb_api_key": ""
+    }
+  },
+  {
+    "capability": "search_movies",
+    "description": "Search for movies matching a query.",
+    "examples": [
+      "search for movies about time travel",
+      "find movies with tom hanks",
+      "movies like the matrix",
+      "search movies directed by nolan"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.movies.search",
+        "handler_name": "skills.movies.search",
+        "priority": 30,
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.movies",
+        "entry_point": "search_movies"
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "tmdb_api",
+        "priority": 1,
+        "timeout_ms": 3000,
+        "requires_internet": true
+      },
+      {
+        "method": "wiki_api",
+        "priority": 2,
+        "timeout_ms": 4000,
+        "requires_internet": true
+      }
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 6000,
+    "config": {
+      "tmdb_api_key": ""
+    }
+  },
+  {
+    "capability": "lookup_relationship",
+    "description": "Look up a person by their relationship to the user (e.g. brother, wife, best friend).",
+    "examples": [
+      "who is my brother",
+      "who is my wife",
+      "who's my best friend",
+      "what's my mom's name",
+      "do you know my sister"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.people.relationship",
+        "handler_name": "skills.people.relationship",
+        "priority": 30,
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.people_relationships",
+        "entry_point": "lookup_relationship"
+      }
+    ],
+    "parameters": {
+      "relation": {
+        "type": "string",
+        "required": false
+      },
+      "person": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "people_db",
+        "priority": 1,
+        "timeout_ms": 500,
+        "requires_internet": false
+      }
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 1000
+  },
+  {
+    "capability": "list_family",
+    "description": "List all known family members and relationships.",
+    "examples": [
+      "list my family",
+      "who are my family members",
+      "show me my contacts",
+      "who do you know about",
+      "list all my people"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.people.list_family",
+        "handler_name": "skills.people.list_family",
+        "priority": 30,
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.people_relationships",
+        "entry_point": "list_family"
+      }
+    ],
+    "parameters": {},
+    "mechanisms": [
+      {
+        "method": "people_db",
+        "priority": 1,
+        "timeout_ms": 500,
+        "requires_internet": false
+      }
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 1000
+  },
+  {
+    "capability": "get_episode_detail",
+    "description": "Get episode details for a TV show \u2014 season, episode, title, air date.",
+    "examples": [
+      "what are the latest episodes of breaking bad",
+      "show me episodes of the office",
+      "recent episodes of ted lasso",
+      "episode list for stranger things",
+      "what episode is game of thrones on"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.tv.episodes",
+        "handler_name": "skills.tv.episodes",
+        "priority": 30,
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.tv_show",
+        "entry_point": "get_episode_detail"
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "tvmaze_api",
+        "priority": 1,
+        "timeout_ms": 5000,
+        "requires_internet": true
+      },
+      {
+        "method": "local_cache",
+        "priority": 2,
+        "timeout_ms": 200,
+        "requires_internet": false
+      }
+    ],
+    "maturity": "production",
     "max_chunk_budget_ms": 6000
   }
 ]

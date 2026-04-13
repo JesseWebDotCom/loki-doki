@@ -18,6 +18,8 @@ PEOPLE_CAPABILITIES = {
     "call_person",
     "lookup_person",
     "lookup_person_birthday",
+    "lookup_relationship",
+    "list_family",
 }
 
 

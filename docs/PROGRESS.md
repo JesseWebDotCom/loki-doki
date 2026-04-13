@@ -451,4 +451,48 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C11 (Skills Phase 3, needs C07 ✓) or C12 (Skills Phase 4-8, needs C11). The v1 deletion follow-up PR can happen anytime.
 
+## C11 — Skills Phase 3: Finish V1 Ports (2026-04-12)
+
+**Status:** Complete. All C11 gates green. 38 new tests, 1588 unit tests total (zero regressions).
+
+**What shipped:**
+
+1. **search_web first-class capability.** Added `search_web` handler in `v2/orchestrator/skills/search_web.py` — exposes DDG as a user-facing skill (not just an internal helper). Reads `params["query"]` with chunk_text fallback. Registered in `function_registry.json` with handler `skills.search.web`.
+
+2. **Movies adapter (lookup_movie, search_movies).** New `v2/orchestrator/skills/movies.py` — wraps `TMDBSkill` as primary provider (when API key configured) and `WikiMoviesSkill` as free fallback. Two capabilities: `lookup_movie` (single movie detail) and `search_movies` (search results). TMDB returns title, year, rating, overview; Wiki returns lead, runtime, genre. Registered with separate `skills.movies.lookup` and `skills.movies.search` handlers.
+
+3. **People relationships (lookup_relationship, list_family).** New `v2/orchestrator/skills/people_relationships.py` — uses `PeopleDBAdapter` to query the user's relationship graph. `lookup_relationship` searches by relation keyword ("who is my brother") or name. `list_family` enumerates all known people with relationships. Returns formatted text (single match or bulleted list).
+
+4. **TV episode detail (get_episode_detail).** Expanded `v2/orchestrator/skills/tv_show.py` with `get_episode_detail` handler — returns recent episodes with season/episode/title/airdate. Formats as `S{N}E{M}: {Title} (aired {date})`. Uses existing TVMazeSkill mechanisms.
+
+5. **Derivations wiring.** Added `lookup_relationship`, `list_family` to `_SOCIAL_CAPABILITIES` in `derivations.py`. Added `lookup_relationship`, `list_family`, `lookup_movie`, `search_movies`, `get_episode_detail` to `_CAPABILITY_PARAMS` for NER param extraction. People resolver's `PEOPLE_CAPABILITIES` now includes `lookup_relationship` and `list_family`.
+
+6. **Registry entries.** Added 6 new capabilities to `function_registry.json`: `search_web`, `lookup_movie`, `search_movies`, `lookup_relationship`, `list_family`, `get_episode_detail`. Registry now has 93 entries (was 87).
+
+7. **Retirement decisions documented.**
+   - **weather_owm: retired permanently.** Open-Meteo is the sole weather provider. OWM requires an API key, adds no coverage Open-Meteo doesn't already provide (forecast, current conditions, location geocoding). Decision: no alternate provider needed.
+   - **trivia_opentdb: retired.** The v1 skill directory was empty (never implemented). No trivia capability added to v2 — trivia queries route to `knowledge_query` which handles them via Wikipedia/DDG.
+
+8. **test_v2_skills_phase3.py** — 38 tests in 9 test classes:
+   - TestRegistryCompleteness: 6 capability presence + 1 importability (7 tests)
+   - TestSearchWeb: handler exists, missing query, params extraction, chunk_text fallback (4 tests)
+   - TestMovieAdapters: module exists, missing title, missing query, params title, params query, uses both providers (6 tests)
+   - TestPeopleRelationships: module exists, empty DB (2x), with data (2x), no match (6 tests)
+   - TestTVEpisodeDetail: handler exists, missing show, formats correctly, no episodes (4 tests)
+   - TestPeopleResolverWiring: lookup_relationship + list_family in capabilities (2 tests)
+   - TestDerivationsWiring: social capabilities, capability params for relationships/movies/episodes (4 tests)
+   - TestRetirementDocumented: weather_owm retired, trivia retired, Open-Meteo sole provider (3 tests)
+   - TestMultiProviderSeparation: movies separate providers, knowledge separate sources (2 tests)
+
+**Gate checklist:**
+- [x] Every meaningful v1 surface ported, replaced, or explicitly retired
+- [x] No v1 skill in "mystery missing" state (weather_owm + trivia_opentdb documented as retired)
+- [x] Multi-provider domains have separate standalone skills (movies: TMDB + Wiki; knowledge: Wikipedia + DDG)
+
+**Nothing deferred.** All gate items completed within this chunk.
+
+**Final test count:** 1588 unit tests (2 skipped). Zero regressions.
+
+**Next chunk:** C12 (Skills Phase 4-8, needs C11 ✓), C13 (V1 Deletion + V2 Promotion, needs C10 ✓ + C11 ✓), C14 (Refactor + E2E, needs C13), or C15 (Skills Pages, needs C13). C12 and C13 are now unblocked.
+
 <!-- Append new entries below this line -->

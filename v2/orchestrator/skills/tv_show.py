@@ -105,3 +105,41 @@ def _format_schedule(data: dict[str, Any], fallback_show: str) -> str:
     if time:
         parts.append(f"at {time}")
     return " ".join(parts).strip() + "."
+
+
+async def get_episode_detail(payload: dict[str, Any]) -> dict[str, Any]:
+    """Get episode details for a TV show — lists recent episodes."""
+    show = _extract_show(payload)
+    if not show:
+        return AdapterResult(
+            output_text="Which TV show's episodes would you like to see?",
+            success=False,
+            error="missing show",
+        ).to_payload()
+
+    result = await run_mechanisms(
+        _SKILL,
+        [("tvmaze_api", {"query": show}), ("local_cache", {"query": show})],
+        on_success=lambda mechanism_result, method: _format_episodes(mechanism_result.data or {}, show),
+        on_all_failed=f"I couldn't reach TVMaze to look up episodes for '{show}'.",
+    )
+    return result.to_payload()
+
+
+def _format_episodes(data: dict[str, Any], fallback_show: str) -> str:
+    """Format episode list from TVMaze data."""
+    name = data.get("name") or fallback_show
+    episodes = data.get("recent_episodes") or []
+    if not episodes:
+        return f"I found {name} but no episode data is available."
+    lines = [f"Recent episodes of {name}:"]
+    for ep in episodes[-5:]:
+        season = ep.get("season", "?")
+        number = ep.get("number", "?")
+        ep_name = ep.get("name") or "Untitled"
+        airdate = ep.get("airdate") or ""
+        line = f"S{season}E{number}: {ep_name}"
+        if airdate:
+            line += f" (aired {airdate})"
+        lines.append(line)
+    return "\n".join(lines)

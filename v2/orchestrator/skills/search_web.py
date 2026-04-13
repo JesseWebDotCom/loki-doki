@@ -78,6 +78,18 @@ async def lookup_fact(payload: dict[str, Any]) -> dict[str, Any]:
     return await _search(query, fallback_message="I couldn't find that person fact right now.")
 
 
+async def search_web(payload: dict[str, Any]) -> dict[str, Any]:
+    """First-class web search capability — exposes DDG as a user-facing skill."""
+    query = str((payload.get("params") or {}).get("query") or payload.get("chunk_text") or "").strip()
+    if not query:
+        return AdapterResult(
+            output_text="What would you like me to search for?",
+            success=False,
+            error="missing query",
+        ).to_payload()
+    return await _search(query, fallback_message="I couldn't find web search results right now.")
+
+
 async def get_transit(payload: dict[str, Any]) -> dict[str, Any]:
     query = str(payload.get("chunk_text") or "").strip()
     return await _search(f"transit directions {query}", fallback_message="I couldn't find transit directions right now.")

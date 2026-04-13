@@ -39,6 +39,8 @@ _SOCIAL_CAPABILITIES: frozenset[str] = frozenset({
     "lookup_person_birthday",
     "lookup_person_address",
     "lookup_person_facts",
+    "lookup_relationship",
+    "list_family",
     "call_contact",
     "add_calendar_event",
 })
@@ -199,6 +201,11 @@ _CAPABILITY_PARAMS: dict[str, tuple[str, ...]] = {
     "get_stock_price": ("ticker",),
     "get_stock_info": ("ticker",),
     "get_market_data": ("ticker",),
+    "lookup_relationship": ("person",),
+    "list_family": ("person",),
+    "lookup_movie": ("location",),
+    "search_movies": ("location",),
+    "get_episode_detail": ("location",),
 }
 
 
