@@ -16,7 +16,9 @@ from __future__ import annotations
 import pytest
 
 from lokidoki.orchestrator.core.pipeline import run_pipeline_async
+from lokidoki.orchestrator.core.types import ExecutionResult
 from lokidoki.orchestrator.core.pipeline_hooks import (
+    _extract_knowledge_query_entities,
     bridge_session_state_to_recent_entities,
     run_session_state_update,
 )
@@ -110,6 +112,101 @@ class TestSessionStateTopicPersistence:
 
 
 # ---------------------------------------------------------------------------
+# Unit: knowledge_query entity extraction from free-text output
+# ---------------------------------------------------------------------------
+
+
+class TestKnowledgeQueryEntityExtraction:
+    """Verify _extract_knowledge_query_entities parses output text."""
+
+    def test_extracts_person_from_actor_description(self):
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        execution = ExecutionResult(
+            chunk_index=0,
+            capability="knowledge_query",
+            output_text="Corey Feldman is an American actor, activist, and musician.",
+            success=True,
+        )
+        _extract_knowledge_query_entities(store, sid, [execution], set())
+        state = store.get_session_state(sid)
+        last_seen = state.get("last_seen", {})
+        assert "last_person" in last_seen
+        assert last_seen["last_person"]["name"] == "Corey Feldman"
+
+    def test_extracts_topic_as_second_proper_noun(self):
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        execution = ExecutionResult(
+            chunk_index=0,
+            capability="knowledge_query",
+            output_text="Corey Feldman was on The Masked Singer in 2024.",
+            success=True,
+        )
+        _extract_knowledge_query_entities(store, sid, [execution], set())
+        state = store.get_session_state(sid)
+        last_seen = state.get("last_seen", {})
+        assert "last_person" in last_seen
+        assert "last_topic" in last_seen
+        assert last_seen["last_topic"]["name"] == "The Masked Singer"
+
+    def test_non_person_entity_stored_as_entity(self):
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        execution = ExecutionResult(
+            chunk_index=0,
+            capability="knowledge_query",
+            output_text="Python was first released in 1991.",
+            success=True,
+        )
+        _extract_knowledge_query_entities(store, sid, [execution], set())
+        state = store.get_session_state(sid)
+        last_seen = state.get("last_seen", {})
+        assert "last_entity" in last_seen
+        assert last_seen["last_entity"]["name"] == "Python"
+
+    def test_skips_already_stored_chunks(self):
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        execution = ExecutionResult(
+            chunk_index=0,
+            capability="knowledge_query",
+            output_text="Corey Feldman is an American actor.",
+            success=True,
+        )
+        _extract_knowledge_query_entities(store, sid, [execution], {0})
+        state = store.get_session_state(sid)
+        assert state.get("last_seen", {}) == {}
+
+    def test_skips_failed_executions(self):
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        execution = ExecutionResult(
+            chunk_index=0,
+            capability="knowledge_query",
+            output_text="Some output",
+            success=False,
+        )
+        _extract_knowledge_query_entities(store, sid, [execution], set())
+        state = store.get_session_state(sid)
+        assert state.get("last_seen", {}) == {}
+
+    def test_skips_non_knowledge_capabilities(self):
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        execution = ExecutionResult(
+            chunk_index=0,
+            capability="lookup_movie",
+            output_text="Avatar is a 2009 film.",
+            success=True,
+        )
+        _extract_knowledge_query_entities(store, sid, [execution], set())
+        state = store.get_session_state(sid)
+        # Should be skipped because lookup_movie is handled by pass 2
+        assert state.get("last_seen", {}) == {}
+
+
+# ---------------------------------------------------------------------------
 # Unit: bridge hook re-populates topic
 # ---------------------------------------------------------------------------
 
@@ -154,22 +251,21 @@ class TestMultiTurnPersonFollowUp:
     """
 
     @pytest.mark.anyio
-    async def test_person_entity_not_tracked_by_knowledge_query(self):
-        """knowledge_query doesn't track entities in session state —
-        its output is free text, not structured entity data.  The
-        antecedent resolver falls back to conversation history parsing
-        for these cases.  This test documents the known gap."""
+    async def test_knowledge_query_extracts_entity_from_output(self):
+        """knowledge_query output like 'Corey Feldman is an American actor'
+        should have the subject entity extracted and stored in session state."""
         store = MemoryStore(":memory:")
         sid = store.create_session(owner_user_id=1)
         ctx = _make_context(store, sid)
 
-        await run_pipeline_async("who is Corey Feldman", context=dict(ctx))
+        result = await run_pipeline_async("who is Corey Feldman", context=dict(ctx))
         state = store.get_session_state(sid)
         last_seen = state.get("last_seen", {})
-        # knowledge_query doesn't extract entities from output —
-        # the antecedent resolver uses conversation history fallback
-        # for the next turn instead.
-        assert "last_person" not in last_seen
+        # The knowledge_query execution output should have been parsed
+        # for proper noun phrases. If the search succeeded, the entity
+        # should be tracked.
+        if result.executions and result.executions[0].success:
+            assert len(last_seen) > 0
 
     @pytest.mark.anyio
     async def test_topic_stored_after_antecedent_extraction(self):

@@ -239,6 +239,12 @@ def run_session_state_update(
             entity_name=entity_name,
         )
 
+    # Pass 2b: knowledge_query entity extraction — the output is free text
+    # (e.g. "Corey Feldman is an American actor...") not structured data.
+    # Extract the leading proper-noun phrase as the subject entity so
+    # follow-up pronouns ("did he win") resolve correctly on the next turn.
+    _extract_knowledge_query_entities(store, int(session_id), executions, stored_indices)
+
     # Pass 3: persist the conversation topic extracted by the antecedent
     # resolver (e.g. "The Masked Singer").  On the next turn the bridge
     # hook will load it into recent_entities with type="topic" so the
@@ -254,6 +260,82 @@ def run_session_state_update(
             "[session_state] pass3: storing topic=%r from antecedent resolver",
             conv_topic.strip(),
         )
+
+
+# Capabilities whose output text is a free-text answer about a subject
+# (not structured data). We extract the leading proper-noun phrase as
+# the subject entity for session-state tracking.
+_KNOWLEDGE_CAPABILITIES = frozenset({
+    "knowledge_query",
+    "query",
+    "lookup_definition",
+    "define_word",
+})
+
+
+def _extract_knowledge_query_entities(
+    store: MemoryStore,
+    session_id: int,
+    executions: list | None,
+    already_stored: set[int],
+) -> None:
+    """Extract subject entities from knowledge_query output text.
+
+    The knowledge handler returns free text like "Corey Feldman is an
+    American actor..." — not structured entity data. We extract the
+    first proper-noun phrase from the output as the subject entity.
+    """
+    from lokidoki.orchestrator.pipeline.antecedent import _all_proper_noun_phrases
+
+    for execution in executions or []:
+        chunk_index = getattr(execution, "chunk_index", -1)
+        if chunk_index in already_stored:
+            continue
+        capability = getattr(execution, "capability", "")
+        if capability not in _KNOWLEDGE_CAPABILITIES:
+            continue
+        if not getattr(execution, "success", False):
+            continue
+        output = getattr(execution, "output_text", "") or ""
+        if not output or len(output) < 5:
+            continue
+        phrases = _all_proper_noun_phrases(output)
+        if not phrases:
+            continue
+        entity_name = phrases[0]
+        # Determine entity type heuristically from the output text.
+        # If the text says "is a/an [person descriptor]", it's a person.
+        lower = output.lower()
+        person_signals = (
+            " is a ", " is an ", " was a ", " was an ",
+            " actor", " actress", " singer", " musician", " artist",
+            " politician", " president", " author", " writer",
+            " athlete", " player", " coach", " director",
+        )
+        entity_type = "person" if any(s in lower for s in person_signals) else "entity"
+        log.info(
+            "[session_state] pass2b: storing %s=%r from %s output",
+            entity_type, entity_name, capability,
+        )
+        store.update_last_seen(
+            session_id,
+            entity_type=entity_type,
+            entity_name=entity_name,
+        )
+        already_stored.add(chunk_index)
+        # Also store subsequent proper nouns as topics (e.g. "The Masked
+        # Singer" from "Corey Feldman was on The Masked Singer in 2024")
+        if len(phrases) > 1:
+            topic_name = phrases[1]
+            log.info(
+                "[session_state] pass2b: storing topic=%r from %s output",
+                topic_name, capability,
+            )
+            store.update_last_seen(
+                session_id,
+                entity_type="topic",
+                entity_name=topic_name,
+            )
 
 
 def maybe_queue_session_close(
