@@ -42,6 +42,9 @@ def _recall_media_handler(payload: dict[str, Any]) -> dict[str, Any]:
     if "recent_media_ambiguous" in unresolved:
         candidates = ", ".join(payload.get("candidate_values") or [])
         return {"output_text": f"I found multiple recent movies: {candidates}."}
+    # Resolved — return the title. The LLM synthesis step has
+    # conversation_history containing the previous turn's full movie
+    # info (cast, plot, etc.) and will use it to answer the follow-up.
     return {"output_text": payload.get("resolved_target") or ""}
 
 

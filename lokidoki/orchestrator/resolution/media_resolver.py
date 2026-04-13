@@ -57,7 +57,7 @@ def _resolved_media(chunk: RequestChunk, route: RouteMatch, movie) -> Resolution
         source="recent_context",
         confidence=route.confidence,
         context_value=movie.title,
-        params={"movie_id": movie.movie_id, "movie_title": movie.title},
+        params={"movie_id": movie.movie_id, "movie_title": movie.title, "entity_type": "movie"},
     )
 
 

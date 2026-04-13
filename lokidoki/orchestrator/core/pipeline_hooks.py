@@ -124,6 +124,7 @@ def auto_raise_need_session_context(
 _ENTITY_FROM_EXECUTION: dict[str, tuple[str, list[str]]] = {
     "lookup_movie": ("movie", ["title"]),
     "search_movies": ("movie", ["title"]),
+    "recall_recent_media": ("movie", ["title"]),
     "lookup_tv_show": ("tv_show", ["name", "title"]),
     "get_episode_detail": ("tv_show", ["name", "title"]),
     "get_movie_showtimes": ("movie", ["title"]),
