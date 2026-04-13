@@ -359,4 +359,52 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C09 (Memory M6), C10 (Cutover, all prereqs met), or C11 (Skills Phase 3, needs C07 ✓). All unblocked.
 
+## C09 — Memory M6: Affective (Tier 6, Character Overlay) (2026-04-12)
+
+**Status:** Complete. All C09 gates green. 45 new tests, 1526 unit tests total (zero regressions).
+
+**What shipped:**
+
+1. **affect_window table in store.py** — added to `V2_MEMORY_CORE_SCHEMA`. Composite PK `(owner_user_id, character_id, day)`. Columns: `sentiment_avg` (REAL), `notable_concerns` (JSON). Index on `(owner_user_id, character_id, day DESC)` for fast rolling-window reads.
+
+2. **Store CRUD methods** — `write_affect_day` (upsert), `get_affect_window` (most recent N days, character-scoped), `delete_affect_window` (forget-my-mood, optionally per-character), `is_sentiment_opted_out`, `set_sentiment_opt_out`.
+
+3. **Episodic compression** — `get_stale_episodes` (older than cutoff, recall_count=0, not superseded) and `compress_episodes` (inserts compressed summary, marks originals as superseded with `topic_scope='compressed'`).
+
+4. **Sentiment persistence in pipeline.py** — `_record_sentiment` maps `tone_signal` to numeric [-1.0, 1.0] via `_TONE_TO_SENTIMENT` dict (12 mapped tones). Upserts into `affect_window` with EMA blending (0.7 old + 0.3 new) within a day. Gated on `is_sentiment_opted_out`.
+
+5. **recent_mood slot** — `render_recent_mood` derives `mood=<label>` (positive/slightly_positive/neutral/slightly_negative/negative) and `trend=<direction>` (improving/stable/declining) from the 14-day affect window average and recent-vs-oldest delta. 120-char budget enforced. Wired into `assemble_slots` (always_present, gated on opt-out) and `_run_memory_read_path`.
+
+6. **Prompt templates** — `COMBINE_PROMPT` and `DIRECT_CHAT_PROMPT` both gain `{recent_mood}` slot with instruction "adjust warmth to match. Never mention it." Prompt budget compressed to 1770 chars (from 1850) by tightening existing slot instructions.
+
+7. **LLM fallback threading** — `build_combine_prompt` extracts `recent_mood` from `memory_slots` and passes to both `render_prompt("combine", ...)` and `render_prompt("direct_chat", ...)`.
+
+8. **M6 phase constants** — `__init__.py` adds `M6_PHASE_*` constants, advances `ACTIVE_PHASE_*` to M6.
+
+9. **test_v2_memory_m6.py** — 45 tests in 11 test classes:
+   - TestAffectWindow: CRUD, upsert, days limit, null concerns, empty (5 tests)
+   - TestSentimentPersistence: 7-day persistence, 14-day rolling window (2 tests)
+   - TestCharacterIsolation: separate reads, delete isolation (2 tests)
+   - TestSentimentOptOut: default, opt-out, opt-back-in, prevents slot (4 tests)
+   - TestForgetMyMood: wipe all, wipe single, empty noop (3 tests)
+   - TestRecentMoodSlot: empty, positive, negative, neutral, improving, declining, budget, assemble, empty store (9 tests)
+   - TestPromptTemplates: slot exists (2), renders (2), instructions (2) — 6 tests
+   - TestEpisodicCompression: stale query, excludes recalled, compress+supersede, excludes superseded (4 tests)
+   - TestPipelineIntegration: writes affect, opt-out prevents, blending, mood in slots, no mood without data (5 tests)
+   - TestToneMapping: known tones, unknown defaults (2 tests)
+   - TestPhaseConstants: m6 id, status, active (3 tests)
+
+**Gate checklist:**
+- [x] Sentiment persists across 7 simulated days for a single character
+- [x] Character isolation: sentiment under character_id=loki never returned for character_id=doki
+- [x] Opt-out toggle disables slot and prevents writes
+- [x] "Forget my mood" wipes affected rows
+- [x] Episodic compression: 7-month-old never-recalled episode compressed; original dropped
+
+**Nothing deferred.** All gate items completed within this chunk.
+
+**Final test count:** 1526 unit tests (2 skipped). Zero regressions.
+
+**Next chunk:** C10 (Cutover, all prereqs met: C01 ✓ + C03 ✓ + C04 ✓), C11 (Skills Phase 3, needs C07 ✓), or C12 (Skills Phase 4-8, needs C11). All unblocked.
+
 <!-- Append new entries below this line -->

@@ -286,6 +286,19 @@ CREATE TABLE IF NOT EXISTS user_profile (
     telemetry TEXT,                      -- JSON, prompt-forbidden (sub-tier 7b)
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- M6: Tier 6 affective memory — rolling sentiment per user+character pair.
+CREATE TABLE IF NOT EXISTS affect_window (
+    owner_user_id INTEGER NOT NULL,
+    character_id TEXT NOT NULL,
+    day TEXT NOT NULL,                  -- YYYY-MM-DD
+    sentiment_avg REAL NOT NULL,
+    notable_concerns TEXT,              -- JSON array
+    PRIMARY KEY (owner_user_id, character_id, day)
+);
+
+CREATE INDEX IF NOT EXISTS idx_affect_recent
+    ON affect_window(owner_user_id, character_id, day DESC);
 """
 
 
@@ -1230,6 +1243,163 @@ class V2MemoryStore:
         telemetry = profile["telemetry"]
         telemetry["opted_out"] = opted_out
         self.set_user_telemetry(owner_user_id, telemetry)
+
+    # -------------------------------------------------------------------
+    # Tier 6 — affective (affect_window) (M6)
+    # -------------------------------------------------------------------
+
+    def write_affect_day(
+        self,
+        owner_user_id: int,
+        *,
+        character_id: str,
+        day: str,
+        sentiment_avg: float,
+        notable_concerns: list[str] | None = None,
+    ) -> None:
+        """Upsert a single day's sentiment average into the affect window."""
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO affect_window(owner_user_id, character_id, day, sentiment_avg, notable_concerns)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(owner_user_id, character_id, day)
+                DO UPDATE SET sentiment_avg = excluded.sentiment_avg,
+                             notable_concerns = excluded.notable_concerns
+                """,
+                (
+                    owner_user_id,
+                    character_id,
+                    day,
+                    sentiment_avg,
+                    json.dumps(notable_concerns) if notable_concerns else None,
+                ),
+            )
+
+    def get_affect_window(
+        self,
+        owner_user_id: int,
+        *,
+        character_id: str,
+        days: int = 14,
+    ) -> list[dict[str, Any]]:
+        """Return up to ``days`` most recent affect_window rows for this character."""
+        rows = self._conn.execute(
+            """
+            SELECT day, sentiment_avg, notable_concerns
+            FROM affect_window
+            WHERE owner_user_id = ? AND character_id = ?
+            ORDER BY day DESC
+            LIMIT ?
+            """,
+            (owner_user_id, character_id, days),
+        ).fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            concerns = None
+            if row["notable_concerns"]:
+                try:
+                    concerns = json.loads(row["notable_concerns"])
+                except (TypeError, ValueError):
+                    concerns = None
+            results.append({
+                "day": row["day"],
+                "sentiment_avg": row["sentiment_avg"],
+                "notable_concerns": concerns,
+            })
+        return results
+
+    def delete_affect_window(
+        self,
+        owner_user_id: int,
+        *,
+        character_id: str | None = None,
+    ) -> int:
+        """Wipe affect_window rows. If character_id given, only that character.
+
+        Returns count deleted. This is the "forget my mood" operation.
+        """
+        with self._lock:
+            if character_id:
+                cursor = self._conn.execute(
+                    "DELETE FROM affect_window WHERE owner_user_id = ? AND character_id = ?",
+                    (owner_user_id, character_id),
+                )
+            else:
+                cursor = self._conn.execute(
+                    "DELETE FROM affect_window WHERE owner_user_id = ?",
+                    (owner_user_id,),
+                )
+            return cursor.rowcount
+
+    def is_sentiment_opted_out(self, owner_user_id: int) -> bool:
+        """Check if sentiment persistence is opted out for this user."""
+        profile = self.get_user_profile(owner_user_id)
+        return bool(profile["telemetry"].get("sentiment_opted_out", False))
+
+    def set_sentiment_opt_out(self, owner_user_id: int, opted_out: bool) -> None:
+        """Toggle the sentiment persistence opt-out flag."""
+        profile = self.get_user_profile(owner_user_id)
+        telemetry = profile["telemetry"]
+        telemetry["sentiment_opted_out"] = opted_out
+        self.set_user_telemetry(owner_user_id, telemetry)
+
+    # -------------------------------------------------------------------
+    # Episodic compression (M6)
+    # -------------------------------------------------------------------
+
+    def get_stale_episodes(
+        self,
+        owner_user_id: int,
+        *,
+        older_than: str,
+        max_recall_count: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Return episodes older than ``older_than`` with recall_count <= max_recall_count."""
+        rows = self._conn.execute(
+            """
+            SELECT id, title, summary, start_at, end_at, topic_scope, recall_count
+            FROM episodes
+            WHERE owner_user_id = ? AND start_at < ? AND recall_count <= ?
+              AND superseded_by IS NULL
+            ORDER BY start_at ASC
+            """,
+            (owner_user_id, older_than, max_recall_count),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def compress_episodes(
+        self,
+        owner_user_id: int,
+        *,
+        episode_ids: list[int],
+        compressed_title: str,
+        compressed_summary: str,
+        start_at: str,
+        end_at: str,
+    ) -> int:
+        """Replace a set of stale episodes with a single compressed summary.
+
+        Inserts the new compressed episode, then marks the originals as
+        superseded. Returns the new episode id.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO episodes(
+                    owner_user_id, title, summary, start_at, end_at,
+                    topic_scope, confidence, recall_count
+                ) VALUES (?, ?, ?, ?, ?, 'compressed', 0.3, 0)
+                """,
+                (owner_user_id, compressed_title, compressed_summary, start_at, end_at),
+            )
+            new_id = int(cursor.lastrowid)
+            for eid in episode_ids:
+                self._conn.execute(
+                    "UPDATE episodes SET superseded_by = ? WHERE id = ? AND owner_user_id = ?",
+                    (new_id, eid, owner_user_id),
+                )
+            return new_id
 
 
 def _now() -> str:

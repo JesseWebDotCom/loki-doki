@@ -54,6 +54,7 @@ SLOT_SPECS: Final[tuple[SlotSpec, ...]] = (
 WORST_CASE_TOTAL_BUDGET: Final[int] = sum(spec.char_budget for spec in SLOT_SPECS)
 assert WORST_CASE_TOTAL_BUDGET == 1470, "Slot budget total drifted from §4"
 
+RECENT_MOOD_BUDGET: Final[int] = 120
 USER_STYLE_BUDGET: Final[int] = 200
 USER_FACTS_BUDGET: Final[int] = 250
 SOCIAL_CONTEXT_BUDGET: Final[int] = 200
@@ -247,6 +248,58 @@ def assemble_user_style_slot(
     return render_user_style(style), style
 
 
+def render_recent_mood(affect_rows: list[dict]) -> str:
+    """Render Tier 6 affect window into the ``{recent_mood}`` slot string.
+
+    Format: ``mood=<label>; trend=<direction>`` derived from the 14-day
+    rolling sentiment average. Truncated to 120 chars.
+    """
+    if not affect_rows:
+        return ""
+    # Average sentiment over the window
+    avg = sum(r["sentiment_avg"] for r in affect_rows) / len(affect_rows)
+    # Derive mood label from average
+    if avg >= 0.5:
+        mood = "positive"
+    elif avg >= 0.15:
+        mood = "slightly_positive"
+    elif avg > -0.15:
+        mood = "neutral"
+    elif avg > -0.5:
+        mood = "slightly_negative"
+    else:
+        mood = "negative"
+    # Derive trend from most recent vs oldest
+    if len(affect_rows) >= 2:
+        recent = affect_rows[0]["sentiment_avg"]
+        oldest = affect_rows[-1]["sentiment_avg"]
+        diff = recent - oldest
+        if diff > 0.2:
+            trend = "improving"
+        elif diff < -0.2:
+            trend = "declining"
+        else:
+            trend = "stable"
+    else:
+        trend = "stable"
+    rendered = f"mood={mood}; trend={trend}"
+    return truncate_to_budget("recent_mood", rendered)
+
+
+def assemble_recent_mood_slot(
+    *,
+    store: V2MemoryStore,
+    owner_user_id: int,
+    character_id: str,
+    days: int = 14,
+) -> tuple[str, list[dict]]:
+    """End-to-end slot assembly for Tier 6. Returns (slot_string, affect_rows)."""
+    rows = store.get_affect_window(
+        owner_user_id, character_id=character_id, days=days,
+    )
+    return render_recent_mood(rows), rows
+
+
 def assemble_slots(context: dict) -> dict[str, str]:
     """Return all six prompt slots.
 
@@ -294,6 +347,16 @@ def assemble_slots(context: dict) -> dict[str, str]:
             topic_scope=topic_scope,
         )
         out["relevant_episodes"] = rendered
+
+    # Tier 6 (M6) — always_present=True. Gated on sentiment opt-out.
+    character_id = str(context.get("character_id") or "default")
+    if not store.is_sentiment_opted_out(owner_user_id):
+        rendered, _rows = assemble_recent_mood_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+            character_id=character_id,
+        )
+        out["recent_mood"] = rendered
 
     # Tier 7 (M5) — always_present=True, but only assembled when
     # need_routine is set (derivation gates this for every direct_chat

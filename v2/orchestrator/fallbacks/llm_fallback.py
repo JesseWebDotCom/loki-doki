@@ -111,6 +111,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     recent_context = ""
     relevant_episodes = ""
     user_style = ""
+    recent_mood = ""
     if isinstance(spec.context, dict):
         slots = spec.context.get("memory_slots") or {}
         if isinstance(slots, dict):
@@ -119,6 +120,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
             recent_context = str(slots.get("recent_context") or "")
             relevant_episodes = str(slots.get("relevant_episodes") or "")
             user_style = str(slots.get("user_style") or "")
+            recent_mood = str(slots.get("recent_mood") or "")
 
     character_name, behavior_prompt = _extract_persona(spec)
 
@@ -131,6 +133,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
             recent_context=recent_context,
             relevant_episodes=relevant_episodes,
             user_style=user_style,
+            recent_mood=recent_mood,
             character_name=character_name,
             behavior_prompt=behavior_prompt,
         )
@@ -144,6 +147,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         recent_context=recent_context,
         relevant_episodes=relevant_episodes,
         user_style=user_style,
+        recent_mood=recent_mood,
         character_name=character_name,
         behavior_prompt=behavior_prompt,
         confidence_guide=_build_confidence_guide(spec),

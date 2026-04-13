@@ -17,6 +17,7 @@ from v2.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_as
 from v2.orchestrator.memory.extractor import ExtractionContext, extract_candidates
 from v2.orchestrator.memory.slots import (
     assemble_recent_context_slot,
+    assemble_recent_mood_slot,
     assemble_relevant_episodes_slot,
     assemble_social_context_slot,
     assemble_user_facts_slot,
@@ -306,6 +307,10 @@ async def run_pipeline_async(
     # style descriptors. Gated on telemetry opt-out.
     _record_behavior_event(safe_context, executions, routes)
 
+    # Sentiment persistence (M6): record tone_signal into affect_window
+    # for the active character. Gated on sentiment opt-out.
+    _record_sentiment(safe_context, signals)
+
     finish = trace.timed("memory_read")
     memory_slots = _run_memory_read_path(raw_text, safe_context)
     if memory_slots:
@@ -317,6 +322,7 @@ async def run_pipeline_async(
         recent_context_chars=len(memory_slots.get("recent_context", "")),
         relevant_episodes_chars=len(memory_slots.get("relevant_episodes", "")),
         user_style_chars=len(memory_slots.get("user_style", "")),
+        recent_mood_chars=len(memory_slots.get("recent_mood", "")),
     )
 
     decision = decide_llm(request_spec)
@@ -581,6 +587,16 @@ def _run_memory_read_path(
         )
         out["relevant_episodes"] = rendered
 
+    # Tier 6 — recent mood (M6, always_present)
+    character_id = str(safe_context.get("character_id") or "default")
+    if not store.is_sentiment_opted_out(owner_user_id):
+        rendered, _data = assemble_recent_mood_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+            character_id=character_id,
+        )
+        out["recent_mood"] = rendered
+
     # Tier 7a — user style (M5)
     if safe_context.get("need_routine"):
         rendered, _style = assemble_user_style_slot(
@@ -683,6 +699,69 @@ def _record_behavior_event(
         owner_user_id,
         event_type="turn",
         payload=payload,
+    )
+
+
+# Tone signal → numeric sentiment: maps v2 interaction signals to the
+# -1.0 (very negative) to +1.0 (very positive) scale used by
+# affect_window. Unknown signals default to 0.0 (neutral).
+_TONE_TO_SENTIMENT: dict[str, float] = {
+    "positive": 0.7,
+    "very_positive": 1.0,
+    "negative": -0.7,
+    "very_negative": -1.0,
+    "neutral": 0.0,
+    "excited": 0.8,
+    "frustrated": -0.6,
+    "curious": 0.3,
+    "sad": -0.5,
+    "angry": -0.8,
+    "grateful": 0.9,
+    "confused": -0.2,
+}
+
+
+def _record_sentiment(
+    safe_context: dict[str, Any],
+    signals: Any,
+) -> None:
+    """Persist sentiment from tone_signal into affect_window (M6).
+
+    Converts the tone signal string to a numeric value and upserts
+    into the current day's affect_window row for this user+character.
+    Uses rolling average: new_avg = (old_avg + new_value) / 2 on the
+    first turn after a day boundary, or a weighted blend on subsequent
+    turns within the same day.
+    """
+    store = safe_context.get("memory_store")
+    if not isinstance(store, V2MemoryStore):
+        return
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    if not owner_user_id:
+        return
+    if store.is_sentiment_opted_out(owner_user_id):
+        return
+    tone = getattr(signals, "tone_signal", "neutral") or "neutral"
+    sentiment_val = _TONE_TO_SENTIMENT.get(tone, 0.0)
+    character_id = str(safe_context.get("character_id") or "default")
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Read existing day row to blend with current sentiment
+    existing = store.get_affect_window(
+        owner_user_id, character_id=character_id, days=1,
+    )
+    if existing and existing[0]["day"] == today:
+        old_avg = existing[0]["sentiment_avg"]
+        # Exponential moving average: weight new value at 0.3
+        new_avg = old_avg * 0.7 + sentiment_val * 0.3
+    else:
+        new_avg = sentiment_val
+    store.write_affect_day(
+        owner_user_id,
+        character_id=character_id,
+        day=today,
+        sentiment_avg=round(new_avg, 4),
     )
 
 

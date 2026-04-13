@@ -56,12 +56,17 @@ M5_PHASE_LABEL = "M5"
 M5_PHASE_TITLE = "Memory: Procedural (Tier 7a/7b) + Behavior Events"
 M5_PHASE_STATUS = "complete"
 
+M6_PHASE_ID = "m6"
+M6_PHASE_LABEL = "M6"
+M6_PHASE_TITLE = "Memory: Affective (Tier 6, Character Overlay)"
+M6_PHASE_STATUS = "complete"
+
 # The "active" phase is the most recent shipped phase. Future phases
 # update this constant when they land.
-ACTIVE_PHASE_ID = M5_PHASE_ID
-ACTIVE_PHASE_LABEL = M5_PHASE_LABEL
-ACTIVE_PHASE_TITLE = M5_PHASE_TITLE
-ACTIVE_PHASE_STATUS = M5_PHASE_STATUS
+ACTIVE_PHASE_ID = M6_PHASE_ID
+ACTIVE_PHASE_LABEL = M6_PHASE_LABEL
+ACTIVE_PHASE_TITLE = M6_PHASE_TITLE
+ACTIVE_PHASE_STATUS = M6_PHASE_STATUS
 
 __all__ = [
     "M0_PHASE_ID",
@@ -88,6 +93,10 @@ __all__ = [
     "M5_PHASE_LABEL",
     "M5_PHASE_TITLE",
     "M5_PHASE_STATUS",
+    "M6_PHASE_ID",
+    "M6_PHASE_LABEL",
+    "M6_PHASE_TITLE",
+    "M6_PHASE_STATUS",
     "ACTIVE_PHASE_ID",
     "ACTIVE_PHASE_LABEL",
     "ACTIVE_PHASE_TITLE",
