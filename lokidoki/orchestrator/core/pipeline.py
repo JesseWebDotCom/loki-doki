@@ -184,7 +184,7 @@ async def run_pipeline_async(
         for r in routes
     ]
     executed = list(await asyncio.gather(*(
-        _timed_execute(c, r, impl, res, budget_ms=b)
+        _timed_execute(c, r, impl, res, budget_ms=b, context=safe_context)
         for c, r, impl, res, b in zip(
             routable, routes, implementations, resolutions, budgets, strict=True)
     )))
@@ -302,7 +302,7 @@ async def _timed_resolve(chunk, extraction, route, context):
     return {"resolution": resolution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
 
 
-async def _timed_execute(chunk, route, implementation, resolution, *, budget_ms=None):
+async def _timed_execute(chunk, route, implementation, resolution, *, budget_ms=None, context=None):
     started = time.perf_counter()
-    execution = await execute_chunk_async(chunk, route, implementation, resolution, budget_ms=budget_ms)
+    execution = await execute_chunk_async(chunk, route, implementation, resolution, budget_ms=budget_ms, context=context)
     return {"execution": execution, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}

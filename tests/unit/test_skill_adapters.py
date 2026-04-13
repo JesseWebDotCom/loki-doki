@@ -266,12 +266,12 @@ async def test_showtimes_adapter_pulls_title_after_for(monkeypatch):
     })
     _install_fake(monkeypatch, adapter, fake)
 
-    result = await adapter.handle({"chunk_text": "Show me movie times for Inception in 06461"})
+    result = await adapter.handle({"chunk_text": "Show me movie times for Inception in 90210"})
     assert "inception" in result["output_text"].lower()
     method, params = fake.calls[0]
     assert method == "movie_showtimes"
     assert params["query"] == "inception"
-    assert params["zip"] == "06461"
+    assert params["zip"] == "90210"
 
 
 @pytest.mark.anyio
@@ -286,7 +286,7 @@ async def test_showtimes_adapter_uses_default_zip_when_missing(monkeypatch):
     result = await adapter.handle({"chunk_text": "movie times for the dark knight"})
     method, params = fake.calls[0]
     assert params["query"] == "the dark knight"
-    assert params["zip"] == adapter._default_zip()
+    assert params["zip"] == "90210"
 
 
 # ---- smarthome adapters ----------------------------------------------------
@@ -467,7 +467,7 @@ async def test_tv_show_adapter_includes_network_and_rating(monkeypatch):
         "tvmaze_api": _ok({
             "name": "Breaking Bad",
             "status": "Ended",
-            "network": "AMC",
+            "network": "Starlight",
             "rating": 9.5,
         }),
     })
@@ -475,7 +475,7 @@ async def test_tv_show_adapter_includes_network_and_rating(monkeypatch):
 
     result = await adapter.handle({"chunk_text": "tell me about the tv show breaking bad"})
     assert "Breaking Bad" in result["output_text"]
-    assert "AMC" in result["output_text"]
+    assert "Starlight" in result["output_text"]
     assert "9.5" in result["output_text"]
 
 

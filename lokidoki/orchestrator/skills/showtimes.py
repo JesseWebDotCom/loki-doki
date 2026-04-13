@@ -8,7 +8,7 @@ needs three of them:
   - ``local_cache`` — instance-level cache from prior successful calls
 
 If the user did not provide a ZIP we fall back to a sensible default
-("06461", a stand-in for the prototype's test fixtures). A real
+("90210", a stand-in for the prototype's test fixtures). A real
 deployment would resolve the ZIP from user profile / settings.
 """
 from __future__ import annotations
@@ -24,8 +24,25 @@ from lokidoki.orchestrator.skills._config import get_skill_config
 _SKILL = FandangoShowtimesSkill()
 
 
-def _default_zip() -> str:
-    return get_skill_config("get_movie_showtimes", "default_zip", "06461")
+async def _extract_zip(payload: dict[str, Any]) -> str:
+    r"""Read zip from params or regex (``\d{5}`` is a machine pattern, not intent)."""
+    explicit = (payload.get("params") or {}).get("zip")
+    if explicit:
+        return str(explicit)
+    # ZIP codes are machine-recognizable digit patterns — regex is fine.
+    chunk_text = str(payload.get("chunk_text") or "")
+    match = _ZIP_RE.search(chunk_text)
+    if match:
+        return match.group(1)
+
+    from lokidoki.orchestrator.skills._config import get_user_setting
+    return await get_user_setting(
+        payload,
+        key=["default_zip", "default_location", "location"],
+        capability="get_movie_showtimes",
+        capability_key="default_zip",
+        default="90210",
+    )
 
 _TITLE_BLOCKLIST = {
     "what",
@@ -56,19 +73,6 @@ _TITLE_BLOCKLIST = {
 _ZIP_RE = re.compile(r"\b(\d{5})\b")
 
 
-def _extract_zip(payload: dict[str, Any]) -> str:
-    r"""Read zip from params or regex (``\d{5}`` is a machine pattern, not intent)."""
-    explicit = (payload.get("params") or {}).get("zip")
-    if explicit:
-        return str(explicit)
-    # ZIP codes are machine-recognizable digit patterns — regex is fine.
-    chunk_text = str(payload.get("chunk_text") or "")
-    match = _ZIP_RE.search(chunk_text)
-    if match:
-        return match.group(1)
-    return _default_zip()
-
-
 def _extract_title(payload: dict[str, Any]) -> str:
     explicit = (payload.get("params") or {}).get("query")
     if explicit:
@@ -76,7 +80,7 @@ def _extract_title(payload: dict[str, Any]) -> str:
     chunk_text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
     if not chunk_text:
         return ""
-    # "movie times for X (in 06461)?" — pull X
+    # "movie times for X (in 90210)?" — pull X
     if " for " in chunk_text:
         tail = chunk_text.split(" for ", 1)[1]
         for marker in (" in ", " at ", " near ", " tonight", " tomorrow", " today"):
@@ -117,7 +121,7 @@ def _format_success(result, method: str) -> str:
 
 async def handle(payload: dict[str, Any]) -> dict[str, Any]:
     title = _extract_title(payload)
-    zip_code = _extract_zip(payload)
+    zip_code = await _extract_zip(payload)
     if not title:
         return AdapterResult(
             output_text="Which movie would you like showtimes for?",

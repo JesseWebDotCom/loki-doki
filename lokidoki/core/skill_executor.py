@@ -37,6 +37,18 @@ class SkillResult:
 class BaseSkill(ABC):
     """Abstract base class for all LokiDoki skills."""
 
+    @property
+    def skill_id(self) -> str:
+        """Dynamically resolve the skill_id from the module path.
+
+        Example: 'lokidoki.skills.weather_openmeteo.skill' -> 'weather_openmeteo'
+        """
+        mod_name = self.__class__.__module__
+        parts = mod_name.split(".")
+        if len(parts) >= 3 and parts[1] == "skills":
+            return parts[2]
+        return ""
+
     @abstractmethod
     async def execute_mechanism(self, method: str, parameters: dict) -> MechanismResult:
         """Execute a specific mechanism and return its result."""

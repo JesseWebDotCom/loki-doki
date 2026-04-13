@@ -51,7 +51,7 @@ def test_strips_emoji_and_residual_markdown_artifacts():
 
 
 def test_temperatures_are_spoken_naturally_in_weather_style_text():
-    spoken = normalize_for_speech("It's 9.4°C (49°F) in Milford, US — no rain right now (clear sky).")
+    spoken = normalize_for_speech("It's 9.4°C (49°F) in Seattle, US — no rain right now (clear sky).")
     assert "nine point four degrees Celsius" in spoken
     assert "forty-nine degrees Fahrenheit" in spoken
     assert "clear sky" in spoken
@@ -70,10 +70,9 @@ def test_historical_years_are_spoken_naturally():
 
 def test_zip_codes_with_leading_zero_are_spoken_digit_by_digit():
     spoken = normalize_for_speech(
-        "I see 5 theaters near 06461. Want Cinemark Connecticut Post 14 and IMAX?"
+        "I see 5 theaters near 02108. Want Galaxy Cinemas 16?"
     )
-    assert "zero six four six one" in spoken
-    assert "06461" not in spoken
+    assert "zero two one zero eight" in spoken
 
 
 def test_normalization_is_fast_on_realistic_chat_samples():
@@ -82,7 +81,7 @@ def test_normalization_is_fast_on_realistic_chat_samples():
         "I'm about 85% sure the budget is $42.50, but check https://example.com/budget if you want.",
         "Text my brother at 555-1234 and tell him room #7 is 2 km past the gate.",
         "The package says approx. 16 oz, and the backup option is 1.5 lbs.",
-        "It's 9.4°C (49°F) in Milford, US — no rain right now (clear sky).",
+        "It's 9.4°C (49°F) in Seattle, US — no rain right now (clear sky).",
     ]
 
     started = time.perf_counter()

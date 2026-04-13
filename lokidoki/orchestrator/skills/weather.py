@@ -23,20 +23,24 @@ from lokidoki.orchestrator.skills._config import get_skill_config
 _SKILL = OpenMeteoSkill()
 
 
-def _default_location() -> str:
-    return get_skill_config("get_weather", "default_location", "your area")
-
-
-def _extract_location(payload: dict[str, Any]) -> str:
+async def _extract_location(payload: dict[str, Any]) -> str:
     """Read the location from structured params (NER-derived in C05).
 
-    Falls back to the configured default when the pipeline didn't
-    extract a GPE/LOC entity for this chunk.
+    Falls back to the configured default (DB or static) when the pipeline
+    didn't extract a GPE/LOC entity for this chunk.
     """
     explicit = (payload.get("params") or {}).get("location")
     if explicit:
         return str(explicit)
-    return _default_location()
+
+    from lokidoki.orchestrator.skills._config import get_user_setting
+    return await get_user_setting(
+        payload,
+        key="location",
+        capability="get_weather",
+        capability_key="default_location",
+        default="your area",
+    )
 
 
 def _format_success(result, method: str) -> str:
@@ -59,9 +63,7 @@ def _format_success(result, method: str) -> str:
 
 async def handle(payload: dict[str, Any]) -> dict[str, Any]:
     """handler entry point."""
-    location = _extract_location(payload)
-    if not location:
-        location = _default_location()
+    location = await _extract_location(payload)
     attempts = [
         ("open_meteo", {"location": location}),
         ("local_cache", {"location": location}),

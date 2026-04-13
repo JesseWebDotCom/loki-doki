@@ -42,11 +42,11 @@ from lokidoki.core.inference import InferenceClient
 # (input, expects_theater, expects_query, label)
 PROBES = [
     # ---- positives -------------------------------------------------------
-    ("Cinemark Connecticut Post 14 and IMAX", True, False, "bare venue, full chain prefix"),
-    ("AMC Marquis 16", True, False, "bare venue, AMC prefix"),
-    ("what's playing at AMC Marquis tonight", True, False, "at-phrase, AMC"),
-    ("showtimes at the Cinemark", True, False, "at-phrase, generic Cinemark"),
-    ("what time is Hoppers playing at AMC Marquis", True, True, "title + venue"),
+    ("Galaxy Cinemas 16", True, False, "bare venue, full chain prefix"),
+    ("Starlight Marquis 16", True, False, "bare venue, Starlight prefix"),
+    ("what's playing at Starlight Marquis tonight", True, False, "at-phrase, Starlight"),
+    ("showtimes at the Galaxy Cinemas", True, False, "at-phrase, generic Galaxy Cinemas"),
+    ("what time is Hoppers playing at Starlight Marquis", True, True, "title + venue"),
     # ---- negatives -------------------------------------------------------
     ("Hoppers", False, False, "bare movie title (should NOT be theater)"),
     ("Costco", False, False, "unrelated proper noun (should NOT be theater)"),

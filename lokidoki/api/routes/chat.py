@@ -90,6 +90,7 @@ async def chat(
     context = {
         "memory_writes_enabled": True,
         "memory_store": memory_store,
+        "memory_provider": memory,
         "owner_user_id": user_id,
         "behavior_prompt": behavior_prompt,
         "character_name": character_name,

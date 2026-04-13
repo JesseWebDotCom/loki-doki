@@ -216,7 +216,7 @@ def test_v2_router_keeps_non_retrieval_near_floor_match_as_direct_chat():
 
 def test_v2_router_matches_showtimes_prompt_with_zip_code():
     runtime = get_runtime()
-    chunk = RequestChunk(text="show me movie times for hoppers in 06461", index=0)
+    chunk = RequestChunk(text="show me movie times for hoppers in 90210", index=0)
 
     match = route_chunk(chunk, runtime)
 

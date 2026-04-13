@@ -14,7 +14,7 @@
     "coming_soon"
   ],
   "categories": ["current_media"],
-  "description": "Fandango scraper: now-playing lists by ZIP/city, per-movie metadata, theater details, coming-soon, and showtimes. Each URL pattern is its own mechanism so the orchestrator can route 'what's playing', 'tell me about Dune', 'movies near me', and 'what's at AMC Empire' independently.",
+  "description": "Fandango scraper: now-playing lists by ZIP/city, per-movie metadata, theater details, coming-soon, and showtimes. Each URL pattern is its own mechanism so the orchestrator can route 'what's playing', 'tell me about Dune', 'movies near me', and 'what's at Starlight Empire' independently.",
   "examples": [
     "what time is avatar playing tonight",
     "fandango showtimes for dune in 11201",
@@ -47,7 +47,7 @@
         "key": "preferred_theater",
         "type": "string",
         "label": "Home theater",
-        "description": "Name (or part of the name) of your usual theater. When set, showtimes from this venue are pinned to the top with a highlighted block; other nearby theaters appear below. Substring match — 'cinemark post' will match 'Cinemark Connecticut Post 14 and IMAX'.",
+        "description": "Name (or part of the name) of your usual theater. When set, showtimes from this venue are pinned to the top with a highlighted block; other nearby theaters appear below. Substring match — 'cinemark post' will match 'Galaxy Cinemas 16'.",
         "default": ""
       },
       {

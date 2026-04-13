@@ -53,6 +53,7 @@ class CapabilityRuntime:
             implementation_id=str(selected.get("id") or ""),
             priority=int(selected.get("priority", 999)),
             candidate_count=len(ordered),
+            skill_id=str(selected.get("skill_id") or ""),
         )
 
 

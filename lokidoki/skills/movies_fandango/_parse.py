@@ -383,7 +383,7 @@ def parse_napi_theaters(payload: dict, *, drop_expired: bool = True) -> dict:
             times = [d for _, d in time_pairs]
             # Skip movies that have no surviving showtimes for this
             # theater under the current filter — keeps the synthesizer
-            # from saying "Foo at AMC: " with an empty time list.
+            # from saying "Foo at Starlight: " with an empty time list.
             if not times:
                 continue
 
@@ -436,7 +436,7 @@ def _theater_matches(theater_name: str, preference: str) -> bool:
     """Case-insensitive substring match between a theater and user pref.
 
     Users type "cinemark ct post" or "post 14"; Fandango calls it
-    "Cinemark Connecticut Post 14 and IMAX". Substring match in either
+    "Galaxy Cinemas 16". Substring match in either
     direction is intentionally generous so the user doesn't have to
     type the exact name to flag their home theater.
     """
@@ -472,16 +472,16 @@ def build_napi_lead(
 
     Layout (rendered as Markdown by the chat UI):
 
-        **🎬 Cinemark Connecticut Post 14 and IMAX**
+        **🎬 Galaxy Cinemas 16**
         - Hoppers — 6:30 PM, 8:00 PM, 9:45 PM
         - Project Hail Mary — 7:00 PM, 9:30 PM
         - …
 
         **Also nearby**
-        - AMC Marquis 16
+        - Starlight Marquis 16
           - Hoppers — 7:15 PM
           - …
-        - AMC Danbury 16
+        - Starlight Danbury 16
           - …
 
     No "+N more" truncation: every movie at every theater is listed.

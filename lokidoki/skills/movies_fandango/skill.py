@@ -287,8 +287,8 @@ class FandangoShowtimesSkill(BaseSkill):
         # decomposer in the future) injected a `theater` parameter,
         # narrow the parsed view to that one theater before building
         # the lead. Substring match in either direction matches the
-        # generosity of P._theater_matches so "AMC Marquis" finds
-        # "AMC Marquis 16".
+        # generosity of P._theater_matches so "Starlight Marquis" finds
+        # "Starlight Marquis 16".
         explicit_theater = (parameters.get("theater") or "").strip()
         if explicit_theater:
             picked = [
@@ -763,7 +763,7 @@ def _speakable_clarification(location: str, theater_names: list[str]) -> str:
 def _napi_movie_snippet(movie: dict) -> str:
     """One-line per-movie snippet listing the first few theaters + times.
 
-    Format: ``"AMC Milford 14: 6:00 PM, 7:30 PM · Cinemark CT Post: 8:15 PM"``.
+    Format: ``"Starlight Seattle 14: 6:00 PM, 7:30 PM · Galaxy Cinemas CT Post: 8:15 PM"``.
     The synthesizer reads ``snippet`` per result for grounded output, so
     this is what ends up in the chat reply when a user asks "show me all
     the movies and showtimes". Capped at 3 theaters / 4 times each so

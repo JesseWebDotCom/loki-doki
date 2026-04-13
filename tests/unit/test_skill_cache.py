@@ -26,8 +26,8 @@ from lokidoki.core.skill_executor import (
 
 class TestCacheKey:
     def test_key_is_stable_across_dict_ordering(self):
-        a = build_cache_key("s", "m", {"date": "2026-04-08", "zip": "06461"})
-        b = build_cache_key("s", "m", {"zip": "06461", "date": "2026-04-08"})
+        a = build_cache_key("s", "m", {"date": "2026-04-08", "zip": "90210"})
+        b = build_cache_key("s", "m", {"zip": "90210", "date": "2026-04-08"})
         assert a == b
 
     def test_key_excludes_config_and_skip_flag(self):
@@ -35,10 +35,10 @@ class TestCacheKey:
         # influence the key — otherwise admin keys would partition
         # caches per-user and a "refresh" request would write a
         # parallel row instead of bypassing.
-        plain = build_cache_key("s", "m", {"zip": "06461"})
+        plain = build_cache_key("s", "m", {"zip": "90210"})
         with_cfg = build_cache_key("s", "m", {
-            "zip": "06461",
-            "_config": {"default_zip": "06461", "secret": "abc"},
+            "zip": "90210",
+            "_config": {"default_zip": "90210", "secret": "abc"},
             "_skip_cache": True,
         })
         assert plain == with_cfg
@@ -144,7 +144,7 @@ class TestCacheRoundTrip:
             skill_id="movies_fandango",
             mechanism="napi_theaters_with_showtimes",
             key="abc123",
-            data={"theaters": [{"name": "AMC"}], "lead": "Now playing"},
+            data={"theaters": [{"name": "Starlight"}], "lead": "Now playing"},
             source_url="https://example.com",
             source_title="Fandango",
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
@@ -206,7 +206,7 @@ class _CountingSkill(BaseSkill):
         self.calls += 1
         return MechanismResult(
             success=True,
-            data={"theaters": ["AMC"], "n": self.calls},
+            data={"theaters": ["Starlight"], "n": self.calls},
             source_url="https://example.com",
             source_title="example",
         )
@@ -226,7 +226,7 @@ class TestExecutorCacheIntegration:
     async def test_first_call_misses_second_call_hits(self, memory):
         executor = SkillExecutor(cache=SkillResultCache(memory))
         skill = _CountingSkill()
-        params = {"zip": "06461"}
+        params = {"zip": "90210"}
 
         r1 = await executor.execute_skill(skill, _CACHED_MECHANISMS, params, skill_id="movies_fandango")
         r2 = await executor.execute_skill(skill, _CACHED_MECHANISMS, params, skill_id="movies_fandango")
@@ -241,7 +241,7 @@ class TestExecutorCacheIntegration:
     async def test_skip_cache_param_forces_live_fetch(self, memory):
         executor = SkillExecutor(cache=SkillResultCache(memory))
         skill = _CountingSkill()
-        params = {"zip": "06461"}
+        params = {"zip": "90210"}
 
         await executor.execute_skill(skill, _CACHED_MECHANISMS, params, skill_id="s")
         await executor.execute_skill(
@@ -253,8 +253,8 @@ class TestExecutorCacheIntegration:
     async def test_no_cache_declaration_means_no_caching(self, memory):
         executor = SkillExecutor(cache=SkillResultCache(memory))
         skill = _CountingSkill()
-        await executor.execute_skill(skill, _UNCACHED_MECHANISMS, {"zip": "06461"}, skill_id="s")
-        await executor.execute_skill(skill, _UNCACHED_MECHANISMS, {"zip": "06461"}, skill_id="s")
+        await executor.execute_skill(skill, _UNCACHED_MECHANISMS, {"zip": "90210"}, skill_id="s")
+        await executor.execute_skill(skill, _UNCACHED_MECHANISMS, {"zip": "90210"}, skill_id="s")
         assert skill.calls == 2
 
     @pytest.mark.anyio

@@ -171,7 +171,7 @@ def _parse_gedcom(text: str) -> dict:
                     current["_name_explicit"] = True
             elif level == 1 and tag == "SEX":
                 current["sex"] = value
-            elif level == 1 and tag in {"FAMC", "FAMS"}:
+            elif level == 1 and tag in {"FStarlight", "FAMS"}:
                 current.setdefault(tag.lower(), []).append(value)
             elif level == 2 and tag in {"GIVN", "SURN"}:
                 current.setdefault("name_parts", {})[tag.lower()] = value.strip()

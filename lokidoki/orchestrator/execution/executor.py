@@ -37,9 +37,11 @@ def execute_chunk(
     implementation: ImplementationSelection,
     resolution: ResolutionResult,
 ) -> ExecutionResult:
-    """Synchronous capability execution path used by tests / fast paths."""
+    """Synchronous capability execution path used by tests / fast paths.
+    Note: This path does NOT support per-user config injection.
+    """
     handler = _resolve_handler(implementation.handler_name)
-    payload = _build_payload(chunk, route, resolution)
+    payload = _build_payload_sync(chunk, route, implementation, resolution)
     output_text, raw_result, attempts, error = _run_blocking(handler, payload)
     return ExecutionResult(
         chunk_index=chunk.index,
@@ -60,6 +62,7 @@ async def execute_chunk_async(
     resolution: ResolutionResult,
     *,
     budget_ms: int | None = None,
+    context: dict[str, Any] | None = None,
 ) -> ExecutionResult:
     """Async capability execution path used by the main pipeline.
 
@@ -67,7 +70,7 @@ async def execute_chunk_async(
     specifies a per-capability ``max_chunk_budget_ms``.
     """
     handler = _resolve_handler(implementation.handler_name)
-    payload = _build_payload(chunk, route, resolution)
+    payload = await _build_payload_async(chunk, route, implementation, resolution, context=context)
     timeout_s = budget_ms / 1000.0 if budget_ms else CONFIG.handler_timeout_s
     output_text, raw_result, attempts, error = await _run_with_retries(handler, payload, timeout_s=timeout_s)
     return ExecutionResult(
@@ -82,11 +85,30 @@ async def execute_chunk_async(
     )
 
 
-def _build_payload(
+async def _build_payload_async(
     chunk: RequestChunk,
     route: RouteMatch,
+    implementation: ImplementationSelection,
     resolution: ResolutionResult,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    user_id = (context or {}).get("owner_user_id")
+    # prioritized memory_provider (lokidoki.db) for settings config
+    memory = (context or {}).get("memory_provider") or (context or {}).get("memory_store")
+    skill_id = implementation.skill_id
+    merged_config = {}
+
+    if skill_id and user_id and memory:
+        try:
+            from lokidoki.core import skill_config as cfg
+
+            def _load(conn):
+                return cfg.get_merged_config(conn, user_id, skill_id)
+
+            merged_config = await memory.run_sync(_load)
+        except Exception:
+            log.exception("config injection failed for %s", skill_id)
+
     return {
         "chunk_text": chunk.text,
         "capability": route.capability,
@@ -95,6 +117,30 @@ def _build_payload(
         "context_value": resolution.context_value,
         "candidate_values": list(resolution.candidate_values),
         "unresolved": list(resolution.unresolved),
+        "owner_user_id": user_id,
+        "memory_provider": memory,
+        "skill_id": skill_id,
+        "_config": merged_config,
+    }
+
+
+def _build_payload_sync(
+    chunk: RequestChunk,
+    route: RouteMatch,
+    implementation: ImplementationSelection,
+    resolution: ResolutionResult,
+) -> dict[str, Any]:
+    """Sync version for internal/test use (no injection Support)."""
+    return {
+        "chunk_text": chunk.text,
+        "capability": route.capability,
+        "resolved_target": resolution.resolved_target,
+        "params": dict(resolution.params),
+        "context_value": resolution.context_value,
+        "candidate_values": list(resolution.candidate_values),
+        "unresolved": list(resolution.unresolved),
+        "skill_id": implementation.skill_id,
+        "_config": {},
     }
 
 

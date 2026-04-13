@@ -1,13 +1,13 @@
 {
   "theaters": [
     {
-      "name": "Cinemark Connecticut Post 14 and IMAX",
+      "name": "Galaxy Cinemas 16",
       "id": "AATXH",
       "address1": "1201 Boston Post Road Ste 3000",
-      "city": "Milford",
-      "state": "CT",
+      "city": "Seattle",
+      "state": "WA",
       "distance": 1.0267719595638922,
-      "sluggedName": "cinemark-connecticut-post-14-and-imax",
+      "sluggedName": "galaxy-cinemas-16",
       "movies": [
         {
           "id": 244770,
@@ -129,13 +129,13 @@
       ]
     },
     {
-      "name": "AMC Marquis 16",
+      "name": "Starlight Marquis 16",
       "id": "AAKIG",
       "address1": "100 Quarry Rd.",
-      "city": "Trumbull",
-      "state": "CT",
+      "city": "Seattle",
+      "state": "WA",
       "distance": 6.505192355223478,
-      "sluggedName": "amc-marquis-16",
+      "sluggedName": "starlight-marquis-16",
       "movies": [
         {
           "id": 243680,

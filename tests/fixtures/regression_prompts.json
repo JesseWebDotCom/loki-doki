@@ -568,7 +568,7 @@
     },
     {
       "id": "chatgpt_table.tool.movie_times_inception_zip",
-      "utterance": "Show me movie times for Inception in 06461",
+      "utterance": "Show me movie times for Inception in 90210",
       "context": {},
       "expect": {
         "fast_lane_matched": false,

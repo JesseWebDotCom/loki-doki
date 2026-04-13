@@ -74,6 +74,7 @@ class ImplementationSelection:
     implementation_id: str
     priority: int
     candidate_count: int = 0
+    skill_id: str = ""
 
 
 @dataclass(slots=True)

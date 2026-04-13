@@ -661,7 +661,7 @@ async def execute_task(task: ResolvedTask, handler: callable) -> TaskResult:
   ],
   "supporting_context": [],
   "context": {
-    "zip": "06461",
+    "zip": "90210",
     "current_movie": "Sinners"
   }
 }

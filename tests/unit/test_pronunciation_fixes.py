@@ -37,9 +37,9 @@ def test_apply_pronunciation_fixes_replaces_whole_words_case_insensitively():
 
 
 def test_apply_pronunciation_fixes_preserves_surrounding_text():
-    fixes = {"amc": "A M C"}
-    result = apply_pronunciation_fixes("Visit AMC Marquis 16 tonight.", fixes)
-    assert result == "Visit A M C Marquis 16 tonight."
+    fixes = {"starlight": "star-light"}
+    result = apply_pronunciation_fixes("Visit Starlight Marquis 16 tonight.", fixes)
+    assert result == "Visit star-light Marquis 16 tonight."
 
 
 def test_apply_pronunciation_fixes_handles_empty_inputs():
@@ -95,14 +95,14 @@ def test_list_all_fixes_shows_source_and_override_flag():
 
 
 def test_normalize_for_speech_applies_pronunciation_fixes():
-    fixes = {"imax": "eye-max", "amc": "A M C"}
+    fixes = {"imax": "eye-max", "starlight": "star-light"}
     spoken = normalize_for_speech(
-        "I see 5 theaters near 06461. Want Cinemark Connecticut Post 14 and IMAX, AMC Marquis 16?",
+        "I see 5 theaters near 02108. Want Galaxy Cinemas 16, IMAX, Starlight Marquis 16?",
         pronunciation_fixes=fixes,
     )
     assert "eye-max" in spoken
-    assert "A M C" in spoken
-    assert "zero six four six one" in spoken
+    assert "star-light" in spoken
+    assert "zero two one zero eight" in spoken
     assert "IMAX" not in spoken
 
 
