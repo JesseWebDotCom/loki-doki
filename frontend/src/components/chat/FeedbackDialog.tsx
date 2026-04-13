@@ -31,6 +31,7 @@ const POSITIVE_TAGS = [
   'good tone',
 ];
 
+const NEGATIVE_TAGS = [
   'no memory',
   'bad memory',
   'hallucination',
