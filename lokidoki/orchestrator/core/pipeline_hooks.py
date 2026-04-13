@@ -162,9 +162,17 @@ def run_session_state_update(
         params = getattr(resolution, "params", None) or {}
         if not resolved:
             continue
+        source = getattr(resolution, "source", "") or ""
+        # Skip fallback resolutions that just echo the capability name —
+        # those are not real entity names and pollute session state.
+        if source == "route":
+            continue
+        # Skip unresolved-context resolutions (e.g. "recent movie") —
+        # these are placeholder targets, not entity names.
+        if source == "unresolved_context":
+            continue
         entity_type = str(params.get("entity_type", ""))
         if not entity_type:
-            source = getattr(resolution, "source", "") or ""
             if "people" in source:
                 entity_type = "person"
             elif "movie" in source or "media" in source:
@@ -203,6 +211,17 @@ def run_session_state_update(
             entity_name = str(data.get(key) or "").strip()
             if entity_name:
                 break
+        # When the web search fallback wins, data may lack a "title"
+        # key.  Try the winner's candidate entry for the title.
+        if not entity_name and isinstance(data.get("candidates"), list):
+            for cand in data["candidates"]:
+                if isinstance(cand, dict) and cand.get("source") == data.get("winner"):
+                    # Extract first capitalized phrase from output_text
+                    cand_text = str(cand.get("output_text") or "")
+                    colon = cand_text.find(":")
+                    if colon > 0:
+                        entity_name = cand_text[:colon].strip()
+                    break
         if not entity_name:
             log.debug(
                 "[session_state] pass2: %s has no entity name in data keys %s",

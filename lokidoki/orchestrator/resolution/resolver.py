@@ -169,14 +169,22 @@ def _resolve_entity_from_text(
     candidates = extraction.subject_candidates or []
     # Filter out pronouns and short words
     names = [c for c in candidates if len(c) > 2 and c.lower() not in {"you", "the", "who"}]
-    if not names:
+    target = ""
+    if names:
+        target = names[-1]
+        # Strip common determiner prefixes ("the movie X" → "X")
+        for prefix in ("the movie ", "the film ", "the show ", "the tv show "):
+            if target.lower().startswith(prefix):
+                target = target[len(prefix):]
+                break
+    # Fallback: when spaCy doesn't find the entity as a noun chunk,
+    # strip known conversational prefixes from the chunk text to isolate
+    # the title. This is entity extraction on an already-routed chunk,
+    # not intent classification.
+    if not target or target.lower() in {"movie", "film", "show"}:
+        target = _extract_title_from_text(chunk.text)
+    if not target:
         return None
-    target = names[-1]
-    # Strip common determiner prefixes ("the movie X" → "X")
-    for prefix in ("the movie ", "the film ", "the show ", "the tv show "):
-        if target.lower().startswith(prefix):
-            target = target[len(prefix):]
-            break
     return ResolutionResult(
         chunk_index=chunk.index,
         resolved_target=target,
@@ -184,6 +192,45 @@ def _resolve_entity_from_text(
         confidence=route.confidence,
         params={"entity_type": "movie"},
     )
+
+
+import re
+
+# Conversational prefixes that precede a movie title in routed
+# lookup_movie / search_movies chunks. Stripping these isolates the
+# title for entity resolution. Order matters — longer prefixes first.
+_TITLE_LEAD_PATTERNS = [
+    r"^have you (?:seen|watched|heard of)\s+(?:the (?:movie|film)\s+)?",
+    r"^did you (?:see|watch|like)\s+(?:the (?:movie|film)\s+)?",
+    r"^do you (?:know|like|remember)\s+(?:the (?:movie|film)\s+)?",
+    r"^i (?:saw|watched|loved|liked|enjoyed|hated)\s+(?:the (?:movie|film)\s+)?",
+    r"^(?:you should|you need to) (?:see|watch)\s+(?:the (?:movie|film)\s+)?",
+    r"^(?:ever )?(?:seen|watched|heard of)\s+(?:the (?:movie|film)\s+)?",
+    r"^(?:tell me about|what (?:is|was)|who (?:is|was) in|who directed)\s+(?:the (?:movie|film)\s+)?",
+    r"^(?:search for|find|look up|get)\s+(?:the (?:movie|film)\s+)?",
+    r"^(?:the (?:movie|film)\s+)",
+]
+
+_TITLE_TRAILING = [r"\s+movie$", r"\s+film$"]
+
+
+def _extract_title_from_text(text: str) -> str:
+    """Strip conversational phrasing from chunk text to isolate a title."""
+    s = (text or "").strip().rstrip("?.!,")
+    if not s:
+        return ""
+    low = s.lower()
+    for pat in _TITLE_LEAD_PATTERNS:
+        m = re.match(pat, low)
+        if m:
+            s = s[m.end():].strip()
+            low = s.lower()
+            break
+    for pat in _TITLE_TRAILING:
+        m = re.search(pat, low)
+        if m:
+            s = s[:m.start()].strip()
+    return s
 
 
 def _fallback_resolution(
