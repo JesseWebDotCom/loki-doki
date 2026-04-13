@@ -246,6 +246,7 @@
             <div id="check-ollama" class="step"><div class="step-icon"></div> Ollama Service</div>
             <div id="pull-model" class="step"><div class="step-icon"></div> Resident Model</div>
             <div id="warm-resident" class="step"><div class="step-icon"></div> Memory Load</div>
+            <div id="enforce-residency" class="step"><div class="step-icon"></div> RAM Clean</div>
             <div id="check-piper" class="step"><div class="step-icon"></div> Piper Voice</div>
             <div id="check-residency" class="step"><div class="step-icon"></div> System Health</div>
         </div>
@@ -276,7 +277,7 @@
         const steps = [
             'check-python', 'check-uv', 'check-frontend-deps', 
             'check-frontend-build', 'check-ollama', 'pull-model',
-            'warm-resident',
+            'warm-resident', 'enforce-residency',
             'check-piper', 'check-residency'
         ];
         let currentStepIdx = 0;

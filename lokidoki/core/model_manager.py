@@ -74,3 +74,55 @@ class ModelManager:
             return []
         except Exception:
             return []
+
+    async def enforce_residency(self) -> dict[str, List[str]]:
+        """Ensure ONLY configured models are in RAM; unload all others.
+        
+        Returns a dict with 'kept' and 'unloaded' model lists.
+        """
+        from lokidoki.orchestrator.core.config import CONFIG
+        
+        # 1. Identify authorized models
+        authorized = {
+            self._policy.fast_model,
+            self._policy.thinking_model,
+            CONFIG.llm_model,
+        }
+        # Strip potential duplicates/empty strings
+        authorized = {m for m in authorized if m}
+
+        results = {"kept": [], "unloaded": []}
+        
+        try:
+            # 2. Query currently loaded models
+            response = await self._client._client.get("/api/ps")
+            if response.status_code != 200:
+                return results
+            
+            loaded = response.json().get("models", [])
+            for model_info in loaded:
+                name = model_info.get("name")
+                if not name:
+                    continue
+                
+                # Check if this model (or its base tag) is authorized
+                # (Ollama often returns full tags like 'qwen3:4b-instruct-2507-q4_K_M')
+                is_auth = any(
+                    name == auth or name.startswith(auth + ":") or auth.startswith(name + ":")
+                    for auth in authorized
+                )
+                
+                if is_auth:
+                    results["kept"].append(name)
+                else:
+                    # 3. Unload Unauthorized Model
+                    # We do this by sending a dummy generate with keep_alive: 0
+                    await self._client._client.post(
+                        "/api/generate",
+                        json={"model": name, "prompt": ".", "keep_alive": 0, "stream": False}
+                    )
+                    results["unloaded"].append(name)
+                    
+            return results
+        except Exception:
+            return results

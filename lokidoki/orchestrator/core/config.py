@@ -95,9 +95,18 @@ class PipelineConfig:
     )
     llm_model: str = field(
         default_factory=lambda: os.environ.get(
-            "LOKI_LLM_MODEL", "qwen3:4b-instruct-2507-q4_K_M"
+            "LOKI_LLM_MODEL", None
         )
     )
+
+    def __post_init__(self):
+        """Lazy-load the default model from the platform policy if not set."""
+        if self.llm_model is None:
+            # We import ModelPolicy here to avoid a circular dependency if
+            # model_manager ever imports config (though it currently doesn't).
+            from lokidoki.core.model_manager import ModelPolicy
+            # Use object.__setattr__ because the dataclass is frozen.
+            object.__setattr__(self, "llm_model", ModelPolicy().fast_model)
 
     # Hard cap on LLM synthesis output tokens. Synthesis is supposed
     # to be a single short response, so the budget stays tight.

@@ -113,6 +113,11 @@ def build_bootstrap_steps() -> list[tuple[str, str, str]]:
             "Loading Resident Model into RAM",
             f"curl -s http://localhost:11434/api/generate -d {warm_payload}",
         ),
+        (
+            "enforce-residency",
+            "Unloading background models to save RAM",
+            "uv run scripts/enforce_residency.py",
+        ),
         ("check-piper", "Initializing Piper Voice", "uv run python -c 'from lokidoki.core.audio import ensure_default_voice, warm_voice, DEFAULT_VOICE_ID; r = ensure_default_voice(); print(r); warm_voice(DEFAULT_VOICE_ID)'"),
         ("check-residency", "Verifying System Health", "echo 'Hardware nominal'"),
     ]
