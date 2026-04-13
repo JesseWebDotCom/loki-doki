@@ -115,6 +115,12 @@ async def run_mechanisms(
                 log.exception("v2 skill adapter on_success formatter raised")
                 last_error = str(exc)
                 continue
+            sources: list[dict[str, str]] = []
+            if result.source_url:
+                sources.append({
+                    "url": result.source_url,
+                    "title": result.source_title or result.source_url,
+                })
             return AdapterResult(
                 output_text=output_text,
                 success=True,
@@ -122,6 +128,7 @@ async def run_mechanisms(
                 source_url=result.source_url,
                 source_title=result.source_title,
                 data=result.data,
+                sources=sources,
             )
         last_error = result.error or last_error
     return AdapterResult(
@@ -251,6 +258,14 @@ async def run_sources_parallel_scored(
     merged_data["winner_score"] = winner["score"]
     merged_data["threshold"] = threshold
 
+    # Propagate sources from the winner; fall back to source_url/title.
+    sources = list(winning_result.sources)
+    if not sources and winning_result.source_url:
+        sources.append({
+            "url": winning_result.source_url,
+            "title": winning_result.source_title or winning_result.source_url,
+        })
+
     return AdapterResult(
         output_text=winning_result.output_text,
         success=True,
@@ -258,6 +273,7 @@ async def run_sources_parallel_scored(
         source_url=winning_result.source_url,
         source_title=winning_result.source_title,
         data=merged_data,
+        sources=sources,
     )
 
 

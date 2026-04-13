@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -131,6 +132,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
             behavior_prompt=behavior_prompt,
         )
     payload = build_llm_payload(spec)
+    sources = _collect_sources(spec)
     return render_prompt(
         "combine",
         spec=json.dumps(payload, ensure_ascii=False),
@@ -141,6 +143,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         character_name=character_name,
         behavior_prompt=behavior_prompt,
         confidence_guide=_build_confidence_guide(spec),
+        sources_list=_render_sources_list(sources),
     )
 
 
@@ -187,6 +190,70 @@ def _build_confidence_guide(spec: RequestSpec) -> str:
         else:
             lines.append(f'"{chunk.text}": low confidence — this may not be relevant; use your judgment.')
     return " ".join(lines)
+
+
+def _collect_sources(spec: RequestSpec) -> list[dict[str, str]]:
+    """Collect deduplicated sources from all successful primary chunks.
+
+    Returns a stable-ordered list of ``{"url": ..., "title": ...}``
+    dicts. The 1-based index in this list is the ``[src:N]`` citation
+    marker the LLM should emit.
+    """
+    sources: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for chunk in spec.chunks:
+        if chunk.role != "primary_request" or not chunk.success:
+            continue
+        result = chunk.result or {}
+        for src in result.get("sources") or []:
+            if not isinstance(src, dict):
+                continue
+            url = src.get("url") or ""
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            sources.append({
+                "url": url,
+                "title": src.get("title") or url,
+            })
+        # Backwards-compat: legacy source_url/source_title fields
+        legacy_url = result.get("source_url") or ""
+        if legacy_url and legacy_url not in seen_urls:
+            seen_urls.add(legacy_url)
+            sources.append({
+                "url": legacy_url,
+                "title": result.get("source_title") or legacy_url,
+            })
+    return sources
+
+
+def _render_sources_list(sources: list[dict[str, str]]) -> str:
+    """Render sources for the LLM prompt, e.g. ``[src:1] Title (url)``."""
+    if not sources:
+        return ""
+    return " ".join(
+        f"[src:{i}] {src['title']} ({src['url']})"
+        for i, src in enumerate(sources, 1)
+    )
+
+
+def _sanitize_citations(text: str, source_count: int) -> str:
+    """Clean up ``[src:N]`` markers the LLM may have mangled.
+
+    - Non-numeric markers like ``[src:wikipedia]`` → dropped.
+    - Out-of-range markers (N > source_count or N < 1) → dropped.
+    - When source_count == 0, all ``[src:*]`` markers are stripped.
+    """
+    def _fix(match: re.Match) -> str:
+        inner = match.group(1).strip()
+        if not inner.isdigit():
+            return ""
+        idx = int(inner)
+        if idx < 1 or idx > source_count:
+            return ""
+        return match.group(0)
+
+    return re.sub(r"\[src:([^\]]*)\]", _fix, text).strip()
 
 
 def _is_direct_chat_only(spec: RequestSpec) -> bool:
@@ -275,6 +342,12 @@ async def llm_synthesize_async(spec: RequestSpec) -> ResponseObject:
 
 def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
     """Deterministic stub used as the default and as a degradation fallback."""
+    sources = _collect_sources(spec)
+    # Map source URL → 1-based citation index for inline markers.
+    url_to_index: dict[str, int] = {
+        src["url"]: i for i, src in enumerate(sources, 1)
+    }
+
     parts: list[str] = []
     for chunk in spec.chunks:
         if chunk.role != "primary_request":
@@ -288,7 +361,7 @@ def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
                 parts.append("I found multiple recent movies: " + ", ".join(map(str, candidates)) + ".")
                 continue
         if chunk.unresolved and any(item.startswith("person_ambiguous") for item in chunk.unresolved):
-            parts.append(f"I found multiple matches for that person — could you clarify?")
+            parts.append("I found multiple matches for that person — could you clarify?")
             continue
         if chunk.unresolved and any(item.startswith("device_ambiguous") for item in chunk.unresolved):
             parts.append("I found more than one matching device — which one did you mean?")
@@ -297,10 +370,6 @@ def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
             parts.append(f"I couldn't complete that ({chunk.capability}).")
             continue
         if chunk.capability == "direct_chat":
-            # The direct_chat handler echoes the chunk text verbatim;
-            # without a real LLM model we have nothing useful to
-            # synthesize, so emit a graceful no-answer line instead of
-            # mirroring the user's words back at them.
             parts.append(
                 "I don't have a built-in answer for that — try enabling LLM "
                 "or rephrasing as a question I can route to a skill."
@@ -308,6 +377,16 @@ def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
             continue
         text = str(chunk.result.get("output_text") or "").strip()
         if text:
+            # Attach citation markers for chunks that have sources.
+            chunk_sources = (chunk.result or {}).get("sources") or []
+            cite_tags = []
+            for src in chunk_sources:
+                if isinstance(src, dict) and src.get("url"):
+                    idx = url_to_index.get(src["url"])
+                    if idx is not None:
+                        cite_tags.append(f"[src:{idx}]")
+            if cite_tags:
+                text = f"{text} {' '.join(cite_tags)}"
             parts.append(text)
 
     if any(chunk.role == "supporting_context" for chunk in spec.chunks):
@@ -336,4 +415,6 @@ async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
         # degrade. Returning empty would propagate to the user as a
         # blank reply.
         raise RuntimeError("LLM returned an empty response")
+    source_count = len(_collect_sources(spec))
+    text = _sanitize_citations(text, source_count)
     return ResponseObject(output_text=text)

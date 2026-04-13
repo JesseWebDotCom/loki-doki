@@ -84,11 +84,15 @@ Rules:
   {confidence_guide}
 - If every chunk is low-confidence or direct_chat with no skill data,
   you may say "I don't know" or suggest a rephrase. Do not fabricate.
+- If sources_list is non-empty, cite relevant sources inline using
+  [src:N] markers (1-indexed). Only cite a source when your sentence
+  uses information from it. Do not cite sources you did not use.
 
 user_facts: {user_facts}
 social_context: {social_context}
 recent_context: {recent_context}
 relevant_episodes: {relevant_episodes}
+sources_list: {sources_list}
 
 RequestSpec (JSON): {spec}
 """
