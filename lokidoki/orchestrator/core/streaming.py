@@ -249,10 +249,10 @@ def _build_routing_data(
         )
         routing_log.append({
             "ask_id": f"chunk_{idx}",
-            "intent": rc.get("capability", ""),
+            "intent": rc.get("capability") or "",
             "status": "success" if ec.get("success", False) else "failed",
-            "skill_id": rc.get("capability", ""),
-            "mechanism": ec.get("capability", ""),
+            "skill_id": rc.get("capability") or ec.get("capability") or "",
+            "mechanism": ec.get("handler_name") or "",
             "latency_ms": round(ec.get("timing_ms", 0), 1),
         })
 

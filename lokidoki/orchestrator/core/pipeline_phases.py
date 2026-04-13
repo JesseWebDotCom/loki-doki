@@ -297,6 +297,38 @@ async def _handle_knowledge_gap(trace, safe_context, raw_text, request_spec, exe
         logger.warning("[Loop] Fallback search failed for '%s'", query)
         return initial_response
         
+    # 3. Inject into trace so it shows up in the UI (routing_log)
+    # Since these phases already 'finished', we surgically update their details
+    route_step = next((s for s in trace.steps if s.name == "route"), None)
+    if route_step:
+        route_chunks = route_step.details.setdefault("chunks", [])
+        if not any(c.get("chunk_index") == 999 for c in route_chunks):
+            route_chunks.append({
+                "chunk_index": 999,
+                "text": query,
+                "capability": "search_web",
+                "confidence": 1.0,
+                "matched_text": query,
+                "timing_ms": 0.0
+            })
+            
+    execute_step = next((s for s in trace.steps if s.name == "execute"), None)
+    if execute_step:
+        exec_chunks = execute_step.details.setdefault("chunks", [])
+        if not any(c.get("chunk_index") == 999 for c in exec_chunks):
+            # We use the raw_result metadata or similar for timing if available
+            timing = execution.raw_result.get("latency_ms", 0) if isinstance(execution.raw_result, dict) else 0
+            exec_chunks.append({
+                "chunk_index": 999,
+                "text": query,
+                "capability": "search_web",
+                "output_text": execution.output_text,
+                "success": execution.success,
+                "error": None,
+                "attempts": 1,
+                "timing_ms": timing
+            })
+
     # 4. Integrate result into spec and re-synthesize
     # We create a new RequestChunkResult so the synthesis prompt builder 
     # gets the fields it expects (role, unresolved, etc.)

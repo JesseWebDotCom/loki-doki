@@ -26,7 +26,7 @@ const phaseRows = [
 ] as const;
 
 function humanizeToken(value: string | null | undefined): string {
-  if (!value) return 'a tool';
+  if (!value) return 'unknown skill';
   return value
     .replace(/^knowledge_/, '')
     .replace(/^micro_/, '')
@@ -126,12 +126,12 @@ function buildUserSteps(pipeline: PipelineState): Array<{
       .map((entry) => humanizeToken(entry.skill_id ?? entry.intent));
     steps.push({
       key: 'routing',
-      label: successfulSkills.length > 0
-        ? 'Checking Sources'
-        : 'Checking Sources',
+      label: 'Checking Sources',
       detail: successfulSkills.length > 0
         ? `routing · ${successfulSkills.join(' + ')}`
-        : 'routing · no match',
+        : pipeline.routing.skills_failed > 0
+          ? 'routing · skill failed'
+          : 'routing · direct chat',
       time: formatDuration(pipeline.routing.latency_ms),
       icon: Route,
       color: 'text-amber-400',
@@ -390,7 +390,7 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline, currentPhase = 'comple
                       : disabled
                         ? 'bg-amber-500'
                         : 'bg-red-500';
-                  const skillName = entry.skill_id || (noSkill ? 'no match' : '—');
+                  const skillName = entry.skill_id || entry.intent || (noSkill ? 'no match' : '—');
                   const statusLabel = ok
                     ? 'used'
                     : noSkill
