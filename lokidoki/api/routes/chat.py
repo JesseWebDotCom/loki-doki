@@ -91,11 +91,12 @@ async def chat(
         user_id=user_id, session_id=session_id, limit=12,
     )
     # Format as alternating user/assistant pairs (most recent last).
-    conversation_history: list[dict[str, str]] = [
-        {"role": msg["role"], "content": msg["content"]}
-        for msg in recent_messages
-        if msg.get("role") in ("user", "assistant") and msg.get("content")
-    ]
+    # get_messages returns sqlite3.Row objects — convert to dict for .get().
+    conversation_history: list[dict[str, str]] = []
+    for msg in recent_messages:
+        m = dict(msg)
+        if m.get("role") in ("user", "assistant") and m.get("content"):
+            conversation_history.append({"role": m["role"], "content": m["content"]})
 
     # Build pipeline context.
     memory_store = get_memory_store()
