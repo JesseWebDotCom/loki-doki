@@ -18,6 +18,7 @@ DEFAULT_SETTINGS = {
     "speech_rate": 1.0,
     "sentence_pause": 0.4,
     "normalize_text": True,
+    "log_level": "INFO",
     "relationship_aliases": DEFAULT_RELATIONSHIP_ALIASES,
 }
 

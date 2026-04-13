@@ -584,5 +584,6 @@ export interface SettingsData {
   speech_rate: number;
   sentence_pause: number;
   normalize_text: boolean;
+  log_level: string;
   relationship_aliases: Record<string, string[]>;
 }

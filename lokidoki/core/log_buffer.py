@@ -93,3 +93,18 @@ def install(level: int = logging.INFO, capacity: int = 2000) -> LogBuffer:
 
 def get_buffer() -> Optional[LogBuffer]:
     return _buffer
+
+
+def set_log_level(level_name: str) -> None:
+    """Update the root logger and buffer level dynamically."""
+    global _buffer
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    root = logging.getLogger()
+    root.setLevel(level)
+    if _buffer:
+        _buffer.setLevel(level)
+    # Ensure standard library loggers don't spam if level is DEBUG
+    if level <= logging.DEBUG:
+        # Keep some third party loggers at WARNING unless they are specifically interesting
+        for noisy in ["httpx", "httpcore", "uvicorn.access"]:
+            logging.getLogger(noisy).setLevel(logging.WARNING)

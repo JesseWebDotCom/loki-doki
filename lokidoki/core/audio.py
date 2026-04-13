@@ -10,12 +10,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import logging
 import os
 import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
+
+logger = logging.getLogger("lokidoki.core.audio")
 
 from lokidoki.core.prosody_planner import build_silence_pcm, plan_prosody
 from lokidoki.core.text_normalizer import normalize_for_speech
@@ -146,6 +149,7 @@ def synthesize_stream(
     )
     if not prepared:
         return
+    logger.debug(f"[Audio] Synthesizing stream for: {prepared[:40]}...")
     voice = _cached_voice(voice_id)
     segments = plan_prosody(
         prepared,
@@ -166,6 +170,7 @@ def synthesize_stream(
                 "samples_per_phoneme": samples_per_phoneme,
                 "text": segment.text,
             }
+            logger.debug(f"[Audio] Yielded segment: {segment.text[:30]}... ({sample_count} samples)")
         if idx < len(segments) - 1 and segment.post_silence_s > 0:
             yield {
                 "audio_pcm": build_silence_pcm(sample_rate=last_sample_rate, duration_s=segment.post_silence_s),

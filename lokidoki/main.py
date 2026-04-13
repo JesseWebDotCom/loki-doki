@@ -4,9 +4,14 @@ from fastapi.staticfiles import StaticFiles
 from lokidoki.api.routes import chat, memory, audio, settings, auth, admin, projects, logs, skills, characters, people, dev
 from lokidoki.api.middleware.bootstrap_gate import BootstrapGateMiddleware
 from lokidoki.core.model_manager import ModelPolicy
-from lokidoki.core.log_buffer import install as install_log_buffer
+from lokidoki.core.log_buffer import install as install_log_buffer, set_log_level
+from lokidoki.core.settings_store import load_settings
 
+# Initialize logging with saved preference
+_initial_settings = load_settings()
 install_log_buffer()
+set_log_level(_initial_settings.get("log_level", "INFO"))
+
 import asyncio
 import json
 import os

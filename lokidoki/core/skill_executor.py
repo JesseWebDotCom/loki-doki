@@ -89,6 +89,7 @@ class SkillExecutor:
         for mech in sorted_mechs:
             method = mech["method"]
             timeout_s = mech.get("timeout_ms", 5000) / 1000.0
+            logger.debug(f"[Executor] Trying mechanism {method} for {skill_id} (timeout={timeout_s}s)")
             entry = {"method": method, "status": "pending", "error": ""}
 
             cache_spec = resolve_cache_spec(mech, merged_config)
@@ -162,12 +163,14 @@ class SkillExecutor:
                 else:
                     entry["status"] = "failed"
                     entry["error"] = result.error
+                    logger.debug(f"[Executor] Mechanism {method} failed: {result.error}")
             except asyncio.TimeoutError:
                 entry["status"] = "timed_out"
                 entry["error"] = f"Timed out after {mech.get('timeout_ms', 5000)}ms"
             except Exception as e:
                 entry["status"] = "error"
                 entry["error"] = str(e)
+                logger.debug(f"[Executor] Mechanism {method} crashed: {e}")
 
             log.append(entry)
 

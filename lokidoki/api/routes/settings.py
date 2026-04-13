@@ -8,6 +8,7 @@ from lokidoki.core.settings_store import (
     load_settings,
     save_settings,
 )
+from lokidoki.core.log_buffer import set_log_level
 
 router = APIRouter()
 
@@ -21,6 +22,7 @@ class SettingsUpdate(BaseModel):
     speech_rate: float = 1.0
     sentence_pause: float = 0.4
     normalize_text: bool = True
+    log_level: str = "INFO"
     relationship_aliases: dict[str, list[str]] = Field(
         default_factory=lambda: dict(DEFAULT_RELATIONSHIP_ALIASES)
     )
@@ -45,4 +47,5 @@ async def update_settings(settings: SettingsUpdate):
     """Update settings and persist to disk."""
     data = settings.model_dump()
     _save_settings(data)
+    set_log_level(data["log_level"])
     return {"status": "saved", **data}

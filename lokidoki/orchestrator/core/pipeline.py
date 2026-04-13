@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from lokidoki.orchestrator.core.pipeline_hooks import (
     auto_raise_need_session_context,
@@ -57,6 +60,7 @@ async def run_pipeline_async(
         trace.subscribe(_trace_listener)
     runtime = get_runtime()
     safe_context = context or {}
+    logger.debug(f"[Pipeline] Starting request: {raw_text[:50]}... (trace={trace.trace_id})")
 
     ensure_session(safe_context)
 
@@ -82,6 +86,7 @@ async def run_pipeline_async(
 
     finish = trace.timed("parse")
     parsed = parse_text(normalized.cleaned_text)
+    logger.debug(f"[Pipeline] Parsed tokens: {parsed.token_count}")
     finish(token_count=parsed.token_count, sentences=parsed.sentences,
            parser=parsed.parser, entity_count=len(parsed.entities),
            noun_chunk_count=len(parsed.noun_chunks))
@@ -111,6 +116,8 @@ async def run_pipeline_async(
     finish = trace.timed("route")
     routed = list(await asyncio.gather(*(_timed_route(c, runtime) for c in routable)))
     routes = [item["route"] for item in routed]
+    for r in routes:
+        logger.debug(f"[Pipeline] Routed chunk {r.chunk_index} to {r.capability} (conf={r.confidence})")
     finish(chunks=[
         {"chunk_index": item["route"].chunk_index, "text": c.text,
          "capability": item["route"].capability,
@@ -182,6 +189,8 @@ async def run_pipeline_async(
             routable, routes, implementations, resolutions, budgets, strict=True)
     )))
     executions = [item["execution"] for item in executed]
+    for ex in executions:
+        logger.debug(f"[Pipeline] Executed {ex.capability} (success={ex.success})")
     finish(chunks=[
         {"chunk_index": item["execution"].chunk_index, "text": c.text,
          "capability": item["execution"].capability,
@@ -232,6 +241,7 @@ async def run_pipeline_async(
         response = combine_request_spec(request_spec)
         finish(mode="deterministic", output_text=response.output_text)
 
+    logger.debug(f"[Pipeline] Completed: {response.output_text[:50]}...")
     maybe_queue_session_close(safe_context, memory_write_result)
 
     return PipelineResult(

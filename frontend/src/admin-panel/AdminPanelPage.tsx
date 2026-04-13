@@ -21,6 +21,7 @@ import { useAuth } from '../auth/useAuth';
 import { AdminPasswordPrompt } from '../components/AdminPasswordPrompt';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import LogViewer from '../components/dev/LogViewer';
+import LogLevelSelector from '../components/dev/LogLevelSelector';
 import PipelineRunner from '../components/dev/PipelineRunner';
 import AudioSection from '../components/settings/AudioSection';
 import AppearanceSection from '../components/settings/AppearanceSection';
@@ -840,6 +841,9 @@ const LogsPane: React.FC = () => (
       <span className="text-[10px] font-bold text-muted-foreground bg-card/60 px-2 py-0.5 rounded-md border border-border/30 ml-2">
         LIVE · polls every 1.5s
       </span>
+      <div className="ml-auto flex items-center gap-4">
+        <LogLevelSelector />
+      </div>
     </div>
     <p className="text-xs text-muted-foreground">In-memory ring buffer of the last 2000 backend log records (admin-only).</p>
     <LogViewer height="h-[60vh]" />
