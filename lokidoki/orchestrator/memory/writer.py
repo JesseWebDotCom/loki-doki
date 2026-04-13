@@ -53,6 +53,90 @@ class WriteRunResult:
         return len(self.accepted) + len(self.rejected)
 
 
+def _rejection_from_chain(raw: Any, chain: GateChainResult) -> WriterDecision:
+    """Build a rejection ``WriterDecision`` from a failed gate chain."""
+    rejection_reason = ""
+    if chain.failed_at is not None:
+        failing = next(
+            (r for r in chain.results if r.gate.value == chain.failed_at.value),
+            None,
+        )
+        rejection_reason = failing.reason if failing else "gate_failed"
+    validated = raw if isinstance(raw, MemoryCandidate) else _try_validate(raw)
+    rejection = CandidateRejection(
+        candidate=validated,
+        raw=raw if isinstance(raw, dict) else {},
+        failed_gate=chain.failed_at.value if chain.failed_at else "unknown",
+        reason=rejection_reason,
+        source_text=getattr(validated, "source_text", "") or "",
+    )
+    return WriterDecision(
+        accepted=False,
+        candidate=validated,
+        gate_result=chain,
+        classification="",
+        target_tier=None,
+        write_outcome=None,
+        rejection=rejection,
+        reason=f"denied_at_{chain.failed_at.value if chain.failed_at else 'unknown'}",
+    )
+
+
+def _rejection_inactive_tier(
+    candidate: MemoryCandidate,
+    chain,
+    classification,
+) -> "WriterDecision":
+    """Return a rejection decision for tiers not yet active in M1."""
+    return WriterDecision(
+        accepted=False,
+        candidate=candidate,
+        gate_result=chain,
+        classification=classification.reason,
+        target_tier=classification.target_tier,
+        write_outcome=None,
+        rejection=CandidateRejection(
+            candidate=candidate,
+            raw={},
+            failed_gate="store_dispatch",
+            reason="tier_not_active_in_m1",
+            source_text=candidate.source_text,
+        ),
+        reason="tier_not_active_in_m1",
+    )
+
+
+def _dispatch_to_store(
+    candidate: MemoryCandidate,
+    chain,
+    classification,
+    store: MemoryStore | None,
+) -> WriterDecision:
+    """Write the candidate to the appropriate tier store.
+
+    Returns a rejection decision for inactive tiers, or the final accepted/
+    rejected outcome from the store call.
+    """
+    backing_store = store or get_default_store()
+    if classification.target_tier == Tier.SEMANTIC_SELF:
+        outcome = backing_store.write_semantic_fact(candidate)
+    elif classification.target_tier == Tier.SOCIAL:
+        outcome = backing_store.write_social_fact(candidate)
+    else:
+        return _rejection_inactive_tier(candidate, chain, classification)
+    immediate = is_immediate_durable(int(classification.target_tier), candidate.predicate)
+    return WriterDecision(
+        accepted=outcome.accepted,
+        candidate=candidate,
+        gate_result=chain,
+        classification=classification.reason,
+        target_tier=classification.target_tier,
+        write_outcome=outcome,
+        rejection=None,
+        reason="immediate_durable" if immediate else "stored",
+    )
+
+
 def process_candidate(
     raw: Any,
     *,
@@ -71,98 +155,44 @@ def process_candidate(
         decomposed_intent=decomposed_intent,
     )
     if not chain.accepted:
-        rejection_reason = ""
-        if chain.failed_at is not None:
-            failing = next(
-                (r for r in chain.results if r.gate.value == chain.failed_at.value),
-                None,
-            )
-            rejection_reason = failing.reason if failing else "gate_failed"
-        # Try to surface the validated candidate if Gate 4 ran successfully.
-        validated = (
-            raw if isinstance(raw, MemoryCandidate)
-            else _try_validate(raw)
-        )
-        rejection = CandidateRejection(
-            candidate=validated,
-            raw=raw if isinstance(raw, dict) else {},
-            failed_gate=chain.failed_at.value if chain.failed_at else "unknown",
-            reason=rejection_reason,
-            source_text=getattr(validated, "source_text", "") or "",
-        )
-        return WriterDecision(
-            accepted=False,
-            candidate=validated,
-            gate_result=chain,
-            classification="",
-            target_tier=None,
-            write_outcome=None,
-            rejection=rejection,
-            reason=f"denied_at_{chain.failed_at.value if chain.failed_at else 'unknown'}",
-        )
+        return _rejection_from_chain(raw, chain)
 
     candidate: MemoryCandidate = (
         raw if isinstance(raw, MemoryCandidate) else MemoryCandidate.model_validate(raw)
     )
-
     classification = classify_candidate(candidate)
     if classification.target_tier is None:
-        return WriterDecision(
-            accepted=False,
-            candidate=candidate,
-            gate_result=chain,
-            classification=classification.reason,
-            target_tier=None,
-            write_outcome=None,
-            rejection=CandidateRejection(
-                candidate=candidate,
-                raw={},
-                failed_gate="classifier",
-                reason="no_target_tier",
-                source_text=candidate.source_text,
-            ),
-            reason="no_target_tier",
-        )
+        return _rejection_no_tier(candidate, chain, classification)
 
     # Layer 3 promotion stub. Currently always a no-op pass-through —
     # M4 wires the real recurrence promotion. The immediate-durable
     # carve-out is implemented inline below since it doesn't need a
     # promotion engine to function.
     consider_promotion(candidate)
+    return _dispatch_to_store(candidate, chain, classification, store)
 
-    backing_store = store or get_default_store()
-    if classification.target_tier == Tier.SEMANTIC_SELF:
-        outcome = backing_store.write_semantic_fact(candidate)
-    elif classification.target_tier == Tier.SOCIAL:
-        outcome = backing_store.write_social_fact(candidate)
-    else:
-        return WriterDecision(
-            accepted=False,
-            candidate=candidate,
-            gate_result=chain,
-            classification=classification.reason,
-            target_tier=classification.target_tier,
-            write_outcome=None,
-            rejection=CandidateRejection(
-                candidate=candidate,
-                raw={},
-                failed_gate="store_dispatch",
-                reason="tier_not_active_in_m1",
-                source_text=candidate.source_text,
-            ),
-            reason="tier_not_active_in_m1",
-        )
 
-    immediate = is_immediate_durable(int(classification.target_tier), candidate.predicate)
+def _rejection_no_tier(
+    candidate: MemoryCandidate,
+    chain,
+    classification,
+) -> "WriterDecision":
+    """Return a rejection decision when the classifier found no target tier."""
     return WriterDecision(
-        accepted=outcome.accepted,
+        accepted=False,
         candidate=candidate,
         gate_result=chain,
         classification=classification.reason,
-        target_tier=classification.target_tier,
-        write_outcome=outcome,
-        rejection=None,
-        reason="immediate_durable" if immediate else "stored",
+        target_tier=None,
+        write_outcome=None,
+        rejection=CandidateRejection(
+            candidate=candidate,
+            raw={},
+            failed_gate="classifier",
+            reason="no_target_tier",
+            source_text=candidate.source_text,
+        ),
+        reason="no_target_tier",
     )
 
 

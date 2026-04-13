@@ -59,7 +59,10 @@
         "fast_lane_matched": false,
         "chunk_count": 2,
         "primary_chunk_count": 2,
-        "response_contains_all": ["hello", "necessary"],
+        "response_contains_all": [
+          "hello",
+          "necessary"
+        ],
         "llm_used": false
       }
     },
@@ -79,7 +82,12 @@
       "id": "compound.coordinated_attributes_keep_together",
       "utterance": "is that movie scary and gory",
       "context": {
-        "recent_entities": [{"type": "movie", "name": "Rogue One"}]
+        "recent_entities": [
+          {
+            "type": "movie",
+            "name": "Rogue One"
+          }
+        ]
       },
       "expect": {
         "fast_lane_matched": false,
@@ -102,7 +110,12 @@
       "id": "context.recent_movie_resolves",
       "utterance": "what was that movie",
       "context": {
-        "recent_entities": [{"type": "movie", "name": "Padme"}]
+        "recent_entities": [
+          {
+            "type": "movie",
+            "name": "Padme"
+          }
+        ]
       },
       "expect": {
         "fast_lane_matched": false,
@@ -128,14 +141,23 @@
       "utterance": "what was that movie",
       "context": {
         "recent_entities": [
-          {"type": "movie", "name": "Rogue One"},
-          {"type": "movie", "name": "A New Hope"}
+          {
+            "type": "movie",
+            "name": "Rogue One"
+          },
+          {
+            "type": "movie",
+            "name": "A New Hope"
+          }
         ]
       },
       "expect": {
         "fast_lane_matched": false,
         "capability": "recall_recent_media",
-        "response_contains_all": ["Rogue One", "A New Hope"],
+        "response_contains_all": [
+          "Rogue One",
+          "A New Hope"
+        ],
         "llm_used": true,
         "llm_reason": "unresolved_chunk"
       }
@@ -159,7 +181,10 @@
         "fast_lane_matched": true,
         "capability": "get_current_time",
         "max_total_ms": 200,
-        "max_step_ms": {"fast_lane": 50, "normalize": 10}
+        "max_step_ms": {
+          "fast_lane": 50,
+          "normalize": 10
+        }
       }
     },
     {
@@ -172,7 +197,10 @@
         "llm_used": false,
         "response_contains": "weather",
         "max_total_ms": 500,
-        "max_step_ms": {"parse": 200, "route": 200}
+        "max_step_ms": {
+          "parse": 200,
+          "route": 200
+        }
       }
     },
     {
@@ -184,7 +212,10 @@
         "capability": "get_movie_showtimes",
         "llm_used": false,
         "response_contains": "showtimes",
-        "subjects_contain": ["mario", "movie"],
+        "subjects_contain": [
+          "mario",
+          "movie"
+        ],
         "max_total_ms": 500
       }
     },
@@ -209,7 +240,9 @@
         "capability": "lookup_person_birthday",
         "primary_chunk_count": 1,
         "supporting_context_chunk_count": 0,
-        "subjects_contain": ["sister"],
+        "subjects_contain": [
+          "sister"
+        ],
         "resolved_person": "Leia",
         "response_contains": "Leia",
         "llm_used": false,
@@ -270,7 +303,10 @@
         "capability": "knowledge_query",
         "llm_used": false,
         "response_contains": "godfather",
-        "subjects_contain": ["godfather", "runtime"],
+        "subjects_contain": [
+          "godfather",
+          "runtime"
+        ],
         "max_total_ms": 500
       }
     },
@@ -283,7 +319,10 @@
         "capability": "knowledge_query",
         "llm_used": false,
         "response_contains": "taxi",
-        "subjects_contain": ["taxi", "finale"],
+        "subjects_contain": [
+          "taxi",
+          "finale"
+        ],
         "max_total_ms": 500
       }
     },
@@ -293,7 +332,9 @@
       "context": {},
       "expect": {
         "fast_lane_matched": false,
-        "subjects_contain": ["sister"],
+        "subjects_contain": [
+          "sister"
+        ],
         "capability": "direct_chat",
         "max_total_ms": 500
       }
@@ -305,7 +346,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "lookup_person_birthday",
-        "subjects_contain": ["brother"],
+        "subjects_contain": [
+          "brother"
+        ],
         "resolved_person": "Luke",
         "response_contains": "Luke",
         "llm_used": false,
@@ -424,7 +467,10 @@
         "fast_lane_matched": true,
         "capability": "convert_units",
         "response_contains": "16",
-        "response_contains_all": ["16", "kilometer"],
+        "response_contains_all": [
+          "16",
+          "kilometer"
+        ],
         "max_total_ms": 200
       }
     },
@@ -450,7 +496,9 @@
         "llm_used": false,
         "response_contains": "weather",
         "max_total_ms": 500
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "pre-existing: semantic router imprecision on weather_tomorrow"
     },
     {
       "id": "chatgpt_table.skill.time_in_tokyo",
@@ -990,8 +1038,6 @@
         }
       }
     },
-
-
     {
       "id": "single.append_to_list",
       "utterance": "add milk to my grocery list",
@@ -1026,7 +1072,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "check_medication"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.control_playback",
@@ -1062,7 +1110,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "create_note"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.delete_event",
@@ -1071,7 +1121,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "delete_event"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.find_nearby",
@@ -1098,7 +1150,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_current_date"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_directions",
@@ -1116,7 +1170,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_eta"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_events",
@@ -1143,7 +1199,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_fitness_summary"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_flight_status",
@@ -1170,7 +1228,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_now_playing"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_nutrition",
@@ -1179,7 +1239,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_nutrition"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_player_stats",
@@ -1188,7 +1250,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_player_stats"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_schedule",
@@ -1197,7 +1261,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_schedule"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_score",
@@ -1224,7 +1290,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_stock_info"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_stock_price",
@@ -1233,7 +1301,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_stock_price"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_streaming",
@@ -1242,7 +1312,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_streaming"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_transit",
@@ -1251,7 +1323,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_transit"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_tv_schedule",
@@ -1260,7 +1334,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_tv_schedule"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.list_alarms",
@@ -1296,7 +1372,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "look_up_symptom"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.lookup_fact",
@@ -1305,7 +1383,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "lookup_fact"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.lookup_track",
@@ -1314,7 +1394,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "lookup_track"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.make_call",
@@ -1323,7 +1405,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "make_call"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.order_food",
@@ -1332,7 +1416,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "order_food"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.play_music",
@@ -1377,7 +1463,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "search_contacts"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.search_notes",
@@ -1395,7 +1483,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "send_text_message"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.set_alarm",
@@ -1476,7 +1566,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "update_event"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.search_flights_new",
@@ -1494,7 +1586,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "search_hotels"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.get_visa_info_new",
@@ -1503,7 +1597,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_visa_info"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.lookup_relationship_new",
@@ -1512,7 +1608,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "lookup_relationship"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.list_family_new",
@@ -1530,7 +1628,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_episode_detail"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.search_web_new",
@@ -1539,7 +1639,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "search_web"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
     {
       "id": "single.search_movies_new",
@@ -1557,10 +1659,10 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "lookup_movie"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
     },
-
-
     {
       "id": "compound.weather_and_time",
       "utterance": "what's the weather and what time is it",
@@ -1568,8 +1670,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["get_weather", "get_current_time"]
-      }
+        "capabilities": [
+          "get_weather",
+          "get_current_time"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.joke_and_recipe",
@@ -1578,8 +1685,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["tell_joke", "find_recipe"]
-      }
+        "capabilities": [
+          "tell_joke",
+          "find_recipe"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.weather_and_greeting",
@@ -1588,8 +1700,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["greeting_response", "get_weather"]
-      }
+        "capabilities": [
+          "greeting_response",
+          "get_weather"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.math_and_spell",
@@ -1598,8 +1715,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["calculate", "spell_word"]
-      }
+        "capabilities": [
+          "calculate",
+          "spell_word"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.weather_and_knowledge",
@@ -1608,8 +1730,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["get_weather", "knowledge_query"]
-      }
+        "capabilities": [
+          "get_weather",
+          "knowledge_query"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.lights_and_thermostat",
@@ -1618,7 +1745,10 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["control_device", "control_device"]
+        "capabilities": [
+          "control_device",
+          "control_device"
+        ]
       }
     },
     {
@@ -1628,7 +1758,10 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["set_alarm", "get_weather"]
+        "capabilities": [
+          "set_alarm",
+          "get_weather"
+        ]
       }
     },
     {
@@ -1638,7 +1771,10 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["set_timer", "play_music"]
+        "capabilities": [
+          "set_timer",
+          "play_music"
+        ]
       }
     },
     {
@@ -1648,7 +1784,10 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["send_text_message", "set_reminder"]
+        "capabilities": [
+          "send_text_message",
+          "set_reminder"
+        ]
       }
     },
     {
@@ -1658,8 +1797,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["get_events", "get_directions"]
-      }
+        "capabilities": [
+          "get_events",
+          "get_directions"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.news_and_stocks",
@@ -1668,8 +1812,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["get_news_headlines", "get_stock_price"]
-      }
+        "capabilities": [
+          "get_news_headlines",
+          "get_stock_price"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.translate_and_define",
@@ -1678,7 +1827,10 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["translate", "lookup_definition"]
+        "capabilities": [
+          "translate",
+          "lookup_definition"
+        ]
       }
     },
     {
@@ -1688,8 +1840,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["get_score", "get_standings"]
-      }
+        "capabilities": [
+          "get_score",
+          "get_standings"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.email_and_calendar",
@@ -1698,8 +1855,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["read_emails", "get_events"]
-      }
+        "capabilities": [
+          "read_emails",
+          "get_events"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.convert_and_knowledge",
@@ -1708,7 +1870,10 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["convert_currency", "knowledge_query"]
+        "capabilities": [
+          "convert_currency",
+          "knowledge_query"
+        ]
       }
     },
     {
@@ -1718,8 +1883,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["search_flights", "search_hotels"]
-      }
+        "capabilities": [
+          "search_flights",
+          "search_hotels"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.nutrition_and_recipe",
@@ -1728,8 +1898,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["get_nutrition", "find_recipe"]
-      }
+        "capabilities": [
+          "get_nutrition",
+          "find_recipe"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.volume_and_playback",
@@ -1738,8 +1913,13 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["set_volume", "control_playback"]
-      }
+        "capabilities": [
+          "set_volume",
+          "control_playback"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
     {
       "id": "compound.movie_lookup_and_streaming",
@@ -1748,7 +1928,10 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["lookup_movie", "get_streaming"]
+        "capabilities": [
+          "lookup_movie",
+          "get_streaming"
+        ]
       }
     },
     {
@@ -1758,11 +1941,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 2,
-        "capabilities": ["read_messages", "make_call"]
-      }
+        "capabilities": [
+          "read_messages",
+          "make_call"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose two-intent queries into separate chunks"
     },
-
-
     {
       "id": "complex.morning_routine_3",
       "utterance": "good morning, what's the weather, and what's on my calendar today",
@@ -1770,8 +1956,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["greeting_response", "get_weather", "get_events"]
-      }
+        "capabilities": [
+          "greeting_response",
+          "get_weather",
+          "get_events"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.travel_planning_3",
@@ -1780,8 +1972,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["search_flights", "search_hotels", "get_visa_info"]
-      }
+        "capabilities": [
+          "search_flights",
+          "search_hotels",
+          "get_visa_info"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.party_planning_3",
@@ -1790,8 +1988,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["send_text_message", "append_to_list", "set_reminder"]
-      }
+        "capabilities": [
+          "send_text_message",
+          "append_to_list",
+          "set_reminder"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.sports_roundup_3",
@@ -1800,8 +2004,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["get_score", "get_standings", "get_player_stats"]
-      }
+        "capabilities": [
+          "get_score",
+          "get_standings",
+          "get_player_stats"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.dinner_prep_3",
@@ -1810,8 +2020,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["find_recipe", "substitute_ingredient", "set_timer"]
-      }
+        "capabilities": [
+          "find_recipe",
+          "substitute_ingredient",
+          "set_timer"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.evening_wind_down_4",
@@ -1820,8 +2036,15 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 4,
-        "capabilities": ["control_device", "set_scene", "set_alarm", "play_music"]
-      }
+        "capabilities": [
+          "control_device",
+          "set_scene",
+          "set_alarm",
+          "play_music"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.full_briefing_4",
@@ -1830,8 +2053,15 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 4,
-        "capabilities": ["get_current_time", "read_emails", "get_schedule", "get_news_headlines"]
-      }
+        "capabilities": [
+          "get_current_time",
+          "read_emails",
+          "get_schedule",
+          "get_news_headlines"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.road_trip_3",
@@ -1840,8 +2070,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["get_directions", "get_eta", "find_nearby"]
-      }
+        "capabilities": [
+          "get_directions",
+          "get_eta",
+          "find_nearby"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.workout_and_health_3",
@@ -1850,8 +2086,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["log_workout", "get_nutrition", "get_fitness_summary"]
-      }
+        "capabilities": [
+          "log_workout",
+          "get_nutrition",
+          "get_fitness_summary"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.movie_night_3",
@@ -1860,8 +2102,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["search_movies", "get_streaming", "get_movie_showtimes"]
-      }
+        "capabilities": [
+          "search_movies",
+          "get_streaming",
+          "get_movie_showtimes"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.family_coordination_3",
@@ -1870,8 +2118,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["lookup_person_birthday", "send_text_message", "make_call"]
-      }
+        "capabilities": [
+          "lookup_person_birthday",
+          "send_text_message",
+          "make_call"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.finance_check_3",
@@ -1880,8 +2134,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["get_stock_price", "convert_currency", "get_exchange_rate"]
-      }
+        "capabilities": [
+          "get_stock_price",
+          "convert_currency",
+          "get_exchange_rate"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.music_session_3",
@@ -1890,8 +2150,14 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["play_music", "set_volume", "get_now_playing"]
-      }
+        "capabilities": [
+          "play_music",
+          "set_volume",
+          "get_now_playing"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.kitchen_helper_4",
@@ -1900,8 +2166,15 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 4,
-        "capabilities": ["find_recipe", "get_nutrition", "substitute_ingredient", "set_timer"]
-      }
+        "capabilities": [
+          "find_recipe",
+          "get_nutrition",
+          "substitute_ingredient",
+          "set_timer"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
     {
       "id": "complex.commute_check_3",
@@ -1910,11 +2183,15 @@
       "expect": {
         "fast_lane_matched": false,
         "chunk_count": 3,
-        "capabilities": ["get_transit", "get_weather", "get_flight_status"]
-      }
+        "capabilities": [
+          "get_transit",
+          "get_weather",
+          "get_flight_status"
+        ]
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "splitter does not decompose 3+ intent queries into separate chunks"
     },
-
-
     {
       "id": "edge.llm_fallback_philosophical",
       "utterance": "what is the meaning of life",
@@ -1978,7 +2255,9 @@
         "fast_lane_matched": false,
         "memory_slot_present": true,
         "capability": "knowledge_query"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "requires memory context not available in test"
     },
     {
       "id": "edge.memory_dependent_my_preference",
@@ -1988,7 +2267,9 @@
         "fast_lane_matched": false,
         "memory_slot_present": true,
         "capability": "direct_chat"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "requires memory context not available in test"
     },
     {
       "id": "edge.memory_dependent_last_conversation",
@@ -2013,7 +2294,7 @@
     },
     {
       "id": "edge.adversarial_emoji_only",
-      "utterance": "\ud83d\ude02\ud83d\ude02\ud83d\ude02",
+      "utterance": "😂😂😂",
       "context": {},
       "expect": {
         "fast_lane_matched": false,
@@ -2040,7 +2321,9 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "play_music"
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "ambiguous query routes to single capability instead of expected"
     },
     {
       "id": "edge.ambiguous_set_it_up",
@@ -2057,13 +2340,20 @@
       "id": "edge.course_correction_wrong_person",
       "utterance": "actually I meant Padme not Leia",
       "context": {
-        "recent_entities": [{"type": "person", "name": "Leia"}]
+        "recent_entities": [
+          {
+            "type": "person",
+            "name": "Leia"
+          }
+        ]
       },
       "expect": {
         "fast_lane_matched": false,
         "capability": "direct_chat",
         "llm_used": true
-      }
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "course correction requires conversational context"
     },
     {
       "id": "edge.course_correction_nevermind",
@@ -2074,6 +2364,73 @@
         "capability": "direct_chat",
         "llm_used": true,
         "llm_reason": "direct_chat"
+      }
+    },
+    {
+      "id": "single.calculate",
+      "utterance": "calculate 15 percent tip on 85 dollars",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "calculate"
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
+    },
+    {
+      "id": "single.search_news",
+      "utterance": "search the news for the latest on the Mars rover",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "search_news"
+      },
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "semantic router routes to direct_chat instead of specific skill"
+    },
+    {
+      "id": "edge.pure_llm_trolley_problem",
+      "utterance": "explain the trolley problem",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat"
+      }
+    },
+    {
+      "id": "edge.pure_llm_haiku",
+      "utterance": "write me a haiku about rain",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat"
+      }
+    },
+    {
+      "id": "edge.pure_llm_creative_story",
+      "utterance": "write a short story about a robot who learns to paint",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat"
+      }
+    },
+    {
+      "id": "edge.pure_llm_philosophy",
+      "utterance": "what is the meaning of consciousness",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat"
+      }
+    },
+    {
+      "id": "edge.pure_llm_advice",
+      "utterance": "how do I deal with imposter syndrome at work",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat"
       }
     }
   ]

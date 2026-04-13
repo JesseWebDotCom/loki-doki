@@ -169,53 +169,39 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     * ``combine`` — when one or more skills produced output and we
       just need to weave them into a single natural-language reply.
     """
-    user_facts = ""
-    social_context = ""
-    recent_context = ""
-    relevant_episodes = ""
-    user_style = ""
-    recent_mood = ""
-    if isinstance(spec.context, dict):
-        slots = spec.context.get("memory_slots") or {}
-        if isinstance(slots, dict):
-            user_facts = str(slots.get("user_facts") or "")
-            social_context = str(slots.get("social_context") or "")
-            recent_context = str(slots.get("recent_context") or "")
-            relevant_episodes = str(slots.get("relevant_episodes") or "")
-            user_style = str(slots.get("user_style") or "")
-            recent_mood = str(slots.get("recent_mood") or "")
-
+    memory_slots = _extract_memory_slots(spec)
     character_name, behavior_prompt = _extract_persona(spec)
 
     if _is_direct_chat_only(spec):
         return render_prompt(
             "direct_chat",
             user_question=spec.original_request,
-            user_facts=user_facts,
-            social_context=social_context,
-            recent_context=recent_context,
-            relevant_episodes=relevant_episodes,
-            user_style=user_style,
-            recent_mood=recent_mood,
             character_name=character_name,
             behavior_prompt=behavior_prompt,
+            **memory_slots,
         )
     payload = build_llm_payload(spec)
     sources = _collect_sources(spec)
     return render_prompt(
         "combine",
         spec=json.dumps(payload, ensure_ascii=False),
-        user_facts=user_facts,
-        social_context=social_context,
-        recent_context=recent_context,
-        relevant_episodes=relevant_episodes,
-        user_style=user_style,
-        recent_mood=recent_mood,
         character_name=character_name,
         behavior_prompt=behavior_prompt,
         confidence_guide=_build_confidence_guide(spec),
         sources_list=_render_sources_list(sources),
+        **memory_slots,
     )
+
+
+def _extract_memory_slots(spec: RequestSpec) -> dict[str, str]:
+    """Extract the six memory slot strings from spec.context."""
+    keys = ("user_facts", "social_context", "recent_context", "relevant_episodes", "user_style", "recent_mood")
+    if not isinstance(spec.context, dict):
+        return {k: "" for k in keys}
+    slots = spec.context.get("memory_slots") or {}
+    if not isinstance(slots, dict):
+        return {k: "" for k in keys}
+    return {k: str(slots.get(k) or "") for k in keys}
 
 
 def build_split_prompt(utterance: str) -> str:

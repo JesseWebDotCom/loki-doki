@@ -71,14 +71,11 @@ async def lookup_movie(payload: dict[str, Any]) -> dict[str, Any]:
     if tmdb_key:
         _TMDB._api_key = tmdb_key
 
-    # Try TMDB first (needs API key), then Wikipedia (free).
-    attempts: list[tuple[str, dict[str, Any]]] = []
-    if tmdb_key:
-        attempts.append(("tmdb_api", {"query": title, "_config": {"tmdb_api_key": tmdb_key}}))
-    attempts.append(("wiki_api", {"query": title}))
-    attempts.append(("local_cache", {"query": title}))
+    return (await _run_lookup_mechanisms(title, tmdb_key)).to_payload()
 
-    # Run TMDB mechanisms first if key is available.
+
+async def _run_lookup_mechanisms(title: str, tmdb_key: str) -> "AdapterResult":
+    """Try TMDB (if key provided) then Wikipedia for a movie lookup."""
     if tmdb_key:
         result = await run_mechanisms(
             _TMDB,
@@ -88,16 +85,13 @@ async def lookup_movie(payload: dict[str, Any]) -> dict[str, Any]:
             on_all_failed="",
         )
         if result.success:
-            return result.to_payload()
-
-    # Fallback to Wikipedia.
-    result = await run_mechanisms(
+            return result
+    return await run_mechanisms(
         _WIKI,
         [("wiki_api", {"query": title}), ("local_cache", {"query": title})],
         on_success=_format_wiki,
         on_all_failed=f"I couldn't find movie details for '{title}'.",
     )
-    return result.to_payload()
 
 
 async def search_movies(payload: dict[str, Any]) -> dict[str, Any]:

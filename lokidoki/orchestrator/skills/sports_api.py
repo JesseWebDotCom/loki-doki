@@ -132,72 +132,82 @@ async def get_player_stats(payload: dict[str, Any]) -> dict[str, Any]:
             error="missing player",
         ).to_payload()
     sport, league = _sport_league(player)
-    # ESPN athlete search endpoint
-    search_url = f"{_BASE}/{sport}/{league}/athletes"
-    athletes = await _get(search_url)
-    # Try the site search API as fallback
+    athletes = await _get(f"{_BASE}/{sport}/{league}/athletes")
     if not athletes or not athletes.get("athletes"):
-        search_url2 = (
-            f"https://site.api.espn.com/apis/common/v3/search"
-            f"?query={player}&limit=3&type=player"
-        )
-        search_data = await _get(search_url2)
-        if search_data and search_data.get("items"):
-            item = search_data["items"][0]
-            name = item.get("displayName") or player
-            description = item.get("description") or ""
-            return AdapterResult(
-                output_text=f"{name}: {description}" if description else f"Found {name} but no detailed stats available.",
-                success=bool(description),
-                mechanism_used="espn_search",
-                data=item,
-                source_url=f"https://www.espn.com/search/_/q/{player.replace(' ', '%20')}",
-                source_title=f"ESPN — {name}",
-            ).to_payload()
+        return await _espn_search_fallback(player)
+    return _match_athlete_in_roster(athletes, player, sport, league)
+
+
+async def _espn_search_fallback(player: str) -> dict[str, Any]:
+    """Try the ESPN site search API when the athletes roster is unavailable."""
+    search_url = (
+        f"https://site.api.espn.com/apis/common/v3/search"
+        f"?query={player}&limit=3&type=player"
+    )
+    search_data = await _get(search_url)
+    if search_data and search_data.get("items"):
+        item = search_data["items"][0]
+        name = item.get("displayName") or player
+        description = item.get("description") or ""
         return AdapterResult(
-            output_text=f"I couldn't find stats for '{player}' on ESPN.",
-            success=False,
-            error="player not found",
+            output_text=f"{name}: {description}" if description else f"Found {name} but no detailed stats available.",
+            success=bool(description),
+            mechanism_used="espn_search",
+            data=item,
+            source_url=f"https://www.espn.com/search/_/q/{player.replace(' ', '%20')}",
+            source_title=f"ESPN — {name}",
         ).to_payload()
-    # Search through athlete roster
-    query_lower = player.lower()
-    for athlete in athletes.get("athletes") or []:
-        name = (athlete.get("fullName") or athlete.get("displayName") or "").lower()
-        if query_lower in name or any(t in name for t in query_lower.split()):
-            display = athlete.get("displayName") or athlete.get("fullName") or player
-            position = athlete.get("position", {}).get("abbreviation") or ""
-            team = ((athlete.get("team") or {}).get("displayName")) or ""
-            stats_summary = []
-            for stat_cat in athlete.get("statistics") or []:
-                for split in stat_cat.get("splits") or []:
-                    for stat in split.get("stats") or []:
-                        if stat.get("value"):
-                            stats_summary.append(f"{stat.get('name', '?')}: {stat['value']}")
-            parts = [display]
-            if position:
-                parts.append(f"({position})")
-            if team:
-                parts.append(f"— {team}")
-            header = " ".join(parts)
-            if stats_summary:
-                return AdapterResult(
-                    output_text=f"{header}. Stats: {', '.join(stats_summary[:6])}.",
-                    success=True,
-                    mechanism_used="espn_athletes",
-                    data=athlete,
-                    source_url=f"https://www.espn.com/{sport}/{league}/player/_/id/{athlete.get('id', '')}",
-                    source_title=f"ESPN — {display}",
-                ).to_payload()
-            return AdapterResult(
-                output_text=f"{header}. Season stats not yet available.",
-                success=True,
-                mechanism_used="espn_athletes",
-                data=athlete,
-                source_url=f"https://www.espn.com/{sport}/{league}/player/_/id/{athlete.get('id', '')}",
-                source_title=f"ESPN — {display}",
-            ).to_payload()
     return AdapterResult(
         output_text=f"I couldn't find stats for '{player}' on ESPN.",
         success=False,
         error="player not found",
     ).to_payload()
+
+
+def _match_athlete_in_roster(
+    athletes: dict[str, Any],
+    player: str,
+    sport: str,
+    league: str,
+) -> dict[str, Any]:
+    """Search the ESPN athlete roster for a matching player and return their stats."""
+    query_lower = player.lower()
+    for athlete in athletes.get("athletes") or []:
+        name = (athlete.get("fullName") or athlete.get("displayName") or "").lower()
+        if not (query_lower in name or any(t in name for t in query_lower.split())):
+            continue
+        display = athlete.get("displayName") or athlete.get("fullName") or player
+        position = athlete.get("position", {}).get("abbreviation") or ""
+        team = ((athlete.get("team") or {}).get("displayName")) or ""
+        stats_summary = _collect_athlete_stats(athlete)
+        parts = [display]
+        if position:
+            parts.append(f"({position})")
+        if team:
+            parts.append(f"— {team}")
+        header = " ".join(parts)
+        output = f"{header}. Stats: {', '.join(stats_summary[:6])}." if stats_summary else f"{header}. Season stats not yet available."
+        return AdapterResult(
+            output_text=output,
+            success=True,
+            mechanism_used="espn_athletes",
+            data=athlete,
+            source_url=f"https://www.espn.com/{sport}/{league}/player/_/id/{athlete.get('id', '')}",
+            source_title=f"ESPN — {display}",
+        ).to_payload()
+    return AdapterResult(
+        output_text=f"I couldn't find stats for '{player}' on ESPN.",
+        success=False,
+        error="player not found",
+    ).to_payload()
+
+
+def _collect_athlete_stats(athlete: dict[str, Any]) -> list[str]:
+    """Flatten the nested statistics/splits/stats structure into name:value strings."""
+    stats_summary = []
+    for stat_cat in athlete.get("statistics") or []:
+        for split in stat_cat.get("splits") or []:
+            for stat in split.get("stats") or []:
+                if stat.get("value"):
+                    stats_summary.append(f"{stat.get('name', '?')}: {stat['value']}")
+    return stats_summary

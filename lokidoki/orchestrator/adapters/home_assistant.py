@@ -73,6 +73,76 @@ _DEFAULT_DEVICES: tuple[DeviceRecord, ...] = (
 )
 
 
+def _ha_exact_match(needle: str, devices: tuple[DeviceRecord, ...]) -> list[DeviceRecord]:
+    return [
+        device
+        for device in devices
+        if needle == device.friendly_name.lower()
+        or needle in (alias.lower() for alias in device.aliases)
+    ]
+
+
+def _ha_substring_match(needle: str, devices: tuple[DeviceRecord, ...]) -> list[DeviceRecord]:
+    return [
+        device
+        for device in devices
+        if needle in device.friendly_name.lower()
+        or any(needle in alias.lower() for alias in device.aliases)
+    ]
+
+
+def _ha_fuzzy_match(
+    needle: str,
+    devices: tuple[DeviceRecord, ...],
+) -> DeviceMatch | None:
+    if fuzz is None:
+        return None
+    scored: list[tuple[int, DeviceRecord]] = []
+    for device in devices:
+        pool = [device.friendly_name.lower(), *(alias.lower() for alias in device.aliases)]
+        best = max(fuzz.partial_ratio(needle, candidate) for candidate in pool)
+        if best >= 80:
+            scored.append((best, device))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: -item[0])
+    top_score = scored[0][0]
+    top_devices = [device for score, device in scored if score == top_score]
+    return DeviceMatch(
+        record=top_devices[0],
+        score=top_score,
+        matched_phrase=needle,
+        ambiguous=len(top_devices) > 1,
+        candidates=top_devices,
+    )
+
+
+def _ha_match_device(
+    needle: str,
+    devices: tuple[DeviceRecord, ...],
+) -> DeviceMatch | None:
+    """Exact → substring → fuzzy match across a HA device registry."""
+    exact = _ha_exact_match(needle, devices)
+    if exact:
+        return DeviceMatch(
+            record=exact[0],
+            score=100,
+            matched_phrase=needle,
+            ambiguous=len(exact) > 1,
+            candidates=exact,
+        )
+    substring = _ha_substring_match(needle, devices)
+    if substring:
+        return DeviceMatch(
+            record=substring[0],
+            score=85,
+            matched_phrase=needle,
+            ambiguous=len(substring) > 1,
+            candidates=substring,
+        )
+    return _ha_fuzzy_match(needle, devices)
+
+
 class HomeAssistantAdapter:
     """Alias + fuzzy lookup over a curated device registry."""
 
@@ -86,55 +156,4 @@ class HomeAssistantAdapter:
         if not mention or not mention.strip():
             return None
         needle = mention.strip().lower()
-
-        exact_matches = [
-            device
-            for device in self._devices
-            if needle == device.friendly_name.lower()
-            or needle in (alias.lower() for alias in device.aliases)
-        ]
-        if exact_matches:
-            return DeviceMatch(
-                record=exact_matches[0],
-                score=100,
-                matched_phrase=needle,
-                ambiguous=len(exact_matches) > 1,
-                candidates=exact_matches,
-            )
-
-        substring_matches = [
-            device
-            for device in self._devices
-            if needle in device.friendly_name.lower()
-            or any(needle in alias.lower() for alias in device.aliases)
-        ]
-        if substring_matches:
-            return DeviceMatch(
-                record=substring_matches[0],
-                score=85,
-                matched_phrase=needle,
-                ambiguous=len(substring_matches) > 1,
-                candidates=substring_matches,
-            )
-
-        if fuzz is None:
-            return None
-
-        scored: list[tuple[int, DeviceRecord]] = []
-        for device in self._devices:
-            pool = [device.friendly_name.lower(), *(alias.lower() for alias in device.aliases)]
-            best = max(fuzz.partial_ratio(needle, candidate) for candidate in pool)
-            if best >= 80:
-                scored.append((best, device))
-        if not scored:
-            return None
-        scored.sort(key=lambda item: -item[0])
-        top_score = scored[0][0]
-        top_devices = [device for score, device in scored if score == top_score]
-        return DeviceMatch(
-            record=top_devices[0],
-            score=top_score,
-            matched_phrase=needle,
-            ambiguous=len(top_devices) > 1,
-            candidates=top_devices,
-        )
+        return _ha_match_device(needle, self._devices)

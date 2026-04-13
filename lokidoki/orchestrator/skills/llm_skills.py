@@ -136,6 +136,48 @@ _EMOTIONAL_SUPPORT_STUB = (
 # ---- shared driver ---------------------------------------------------------
 
 
+def _stub_result(stub: str, request: str, mechanism: str = "stub") -> dict[str, Any]:
+    """Return a stub AdapterResult payload."""
+    return AdapterResult(
+        output_text=stub,
+        success=True,
+        mechanism_used=mechanism,
+        source_title="LLM-generated (stub)",
+        data={"request": request, "provider": mechanism},
+    ).to_payload()
+
+
+async def _call_llm_with_fallback(
+    prompt: str,
+    stub: str,
+    request: str,
+    skill_name: str,
+) -> dict[str, Any]:
+    """Call the LLM; fall back to stub on error or empty response."""
+    try:
+        text = await call_llm(prompt)
+    except Exception as exc:  # noqa: BLE001 - never let the LLM crash the pipeline
+        log.warning("skills.%s: llm call failed (%s) — falling back to stub", skill_name, exc)
+        return AdapterResult(
+            output_text=stub,
+            success=True,
+            mechanism_used="stub_after_llm_error",
+            source_title="LLM-generated (stub)",
+            error=str(exc),
+            data={"request": request, "provider": "stub_after_llm_error"},
+        ).to_payload()
+    text = (text or "").strip()
+    if not text:
+        return _stub_result(stub, request, mechanism="stub_after_empty")
+    return AdapterResult(
+        output_text=text,
+        success=True,
+        mechanism_used="ollama_llm",
+        source_title="LLM-generated",
+        data={"request": request, "provider": "ollama_llm"},
+    ).to_payload()
+
+
 async def _llm_or_stub(
     *,
     payload: dict[str, Any],
@@ -152,42 +194,9 @@ async def _llm_or_stub(
         ).to_payload()
     if not CONFIG.llm_enabled:
         log.debug("skills.%s: llm disabled, returning stub", skill_name)
-        return AdapterResult(
-            output_text=stub,
-            success=True,
-            mechanism_used="stub",
-            source_title="LLM-generated (stub)",
-            data={"request": request, "provider": "stub"},
-        ).to_payload()
+        return _stub_result(stub, request)
     prompt = prompt_template.format(request=request)
-    try:
-        text = await call_llm(prompt)
-    except Exception as exc:  # noqa: BLE001 - never let the LLM crash the pipeline
-        log.warning("skills.%s: llm call failed (%s) — falling back to stub", skill_name, exc)
-        return AdapterResult(
-            output_text=stub,
-            success=True,
-            mechanism_used="stub_after_llm_error",
-            source_title="LLM-generated (stub)",
-            error=str(exc),
-            data={"request": request, "provider": "stub_after_llm_error"},
-        ).to_payload()
-    text = (text or "").strip()
-    if not text:
-        return AdapterResult(
-            output_text=stub,
-            success=True,
-            mechanism_used="stub_after_empty",
-            source_title="LLM-generated (stub)",
-            data={"request": request, "provider": "stub_after_empty"},
-        ).to_payload()
-    return AdapterResult(
-        output_text=text,
-        success=True,
-        mechanism_used="ollama_llm",
-        source_title="LLM-generated",
-        data={"request": request, "provider": "ollama_llm"},
-    ).to_payload()
+    return await _call_llm_with_fallback(prompt, stub, request, skill_name)
 
 
 # ---- handler entry points --------------------------------------------------

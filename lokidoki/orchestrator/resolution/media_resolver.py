@@ -22,6 +22,43 @@ MEDIA_CAPABILITIES = {
 }
 
 
+def _no_recent_media(chunk: RequestChunk, route: RouteMatch) -> ResolutionResult:
+    return ResolutionResult(
+        chunk_index=chunk.index,
+        resolved_target="recent movie",
+        source="unresolved_context",
+        confidence=route.confidence,
+        unresolved=["recent_media"],
+        notes=["no recent movie in conversation context"],
+    )
+
+
+def _ambiguous_media(chunk: RequestChunk, route: RouteMatch, movies: list) -> ResolutionResult:
+    names = [movie.title for movie in movies]
+    primary = movies[0]
+    return ResolutionResult(
+        chunk_index=chunk.index,
+        resolved_target=primary.title,
+        source="ambiguous_context",
+        confidence=route.confidence,
+        candidate_values=names,
+        unresolved=["recent_media_ambiguous"],
+        params={"movie_id": primary.movie_id, "movie_title": primary.title},
+        notes=[f"{len(movies)} recent movies match"],
+    )
+
+
+def _resolved_media(chunk: RequestChunk, route: RouteMatch, movie) -> ResolutionResult:
+    return ResolutionResult(
+        chunk_index=chunk.index,
+        resolved_target=movie.title,
+        source="recent_context",
+        confidence=route.confidence,
+        context_value=movie.title,
+        params={"movie_id": movie.movie_id, "movie_title": movie.title},
+    )
+
+
 def resolve_media(
     chunk: RequestChunk,
     extraction: ChunkExtraction,
@@ -32,43 +69,8 @@ def resolve_media(
         return None
 
     movies = adapter.recent_movies()
-
     if not movies:
-        return ResolutionResult(
-            chunk_index=chunk.index,
-            resolved_target="recent movie",
-            source="unresolved_context",
-            confidence=route.confidence,
-            unresolved=["recent_media"],
-            notes=["no recent movie in conversation context"],
-        )
-
+        return _no_recent_media(chunk, route)
     if len(movies) > 1:
-        names = [movie.title for movie in movies]
-        primary = movies[0]
-        return ResolutionResult(
-            chunk_index=chunk.index,
-            resolved_target=primary.title,
-            source="ambiguous_context",
-            confidence=route.confidence,
-            candidate_values=names,
-            unresolved=["recent_media_ambiguous"],
-            params={
-                "movie_id": primary.movie_id,
-                "movie_title": primary.title,
-            },
-            notes=[f"{len(movies)} recent movies match"],
-        )
-
-    movie = movies[0]
-    return ResolutionResult(
-        chunk_index=chunk.index,
-        resolved_target=movie.title,
-        source="recent_context",
-        confidence=route.confidence,
-        context_value=movie.title,
-        params={
-            "movie_id": movie.movie_id,
-            "movie_title": movie.title,
-        },
-    )
+        return _ambiguous_media(chunk, route, movies)
+    return _resolved_media(chunk, route, movies[0])

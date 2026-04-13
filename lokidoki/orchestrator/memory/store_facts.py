@@ -37,41 +37,55 @@ class FactsMixin:
                  candidate.predicate, candidate.value),
             ).fetchone()
 
-            now = _now()
             if existing is None:
-                embedding_json = compute_fact_embedding(candidate)
-                cursor = self._conn.execute(
-                    "INSERT INTO facts("
-                    "    owner_user_id, subject, predicate, value,"
-                    "    confidence, status, observation_count, source_text,"
-                    "    embedding, created_at, updated_at"
-                    ") VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?)",
-                    (candidate.owner_user_id, candidate.subject,
-                     candidate.predicate, candidate.value,
-                     candidate.confidence, candidate.source_text,
-                     embedding_json, now, now),
-                )
-                return WriteOutcome(
-                    accepted=True, tier=Tier.SEMANTIC_SELF,
-                    fact_id=int(cursor.lastrowid), person_id=None,
-                    superseded_id=superseded_id,
-                    immediate_durable=is_immediate_durable(4, candidate.predicate),
-                    note="inserted",
-                )
+                return self._insert_fact(candidate, superseded_id)
+            return self._update_fact(existing, candidate, superseded_id)
 
-            new_count = int(existing["observation_count"]) + 1
-            new_conf = min(1.0, float(existing["confidence"]) + 0.05)
-            self._conn.execute(
-                "UPDATE facts SET observation_count = ?, confidence = ?, updated_at = ? WHERE id = ?",
-                (new_count, new_conf, now, int(existing["id"])),
-            )
-            return WriteOutcome(
-                accepted=True, tier=Tier.SEMANTIC_SELF,
-                fact_id=int(existing["id"]), person_id=None,
-                superseded_id=superseded_id,
-                immediate_durable=is_immediate_durable(4, candidate.predicate),
-                note="updated",
-            )
+    def _insert_fact(self, candidate: MemoryCandidate, superseded_id: int | None):
+        """Insert a brand-new active facts row and return a WriteOutcome."""
+        from lokidoki.orchestrator.memory.store import WriteOutcome
+
+        now = _now()
+        embedding_json = compute_fact_embedding(candidate)
+        cursor = self._conn.execute(
+            "INSERT INTO facts("
+            "    owner_user_id, subject, predicate, value,"
+            "    confidence, status, observation_count, source_text,"
+            "    embedding, created_at, updated_at"
+            ") VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?)",
+            (
+                candidate.owner_user_id, candidate.subject,
+                candidate.predicate, candidate.value,
+                candidate.confidence, candidate.source_text,
+                embedding_json, now, now,
+            ),
+        )
+        return WriteOutcome(
+            accepted=True, tier=Tier.SEMANTIC_SELF,
+            fact_id=int(cursor.lastrowid), person_id=None,
+            superseded_id=superseded_id,
+            immediate_durable=is_immediate_durable(4, candidate.predicate),
+            note="inserted",
+        )
+
+    def _update_fact(self, existing, candidate: MemoryCandidate, superseded_id: int | None):
+        """Bump observation_count / confidence on an existing row; return WriteOutcome."""
+        from lokidoki.orchestrator.memory.store import WriteOutcome
+
+        now = _now()
+        new_count = int(existing["observation_count"]) + 1
+        new_conf = min(1.0, float(existing["confidence"]) + 0.05)
+        self._conn.execute(
+            "UPDATE facts SET observation_count = ?, confidence = ?, updated_at = ? WHERE id = ?",
+            (new_count, new_conf, now, int(existing["id"])),
+        )
+        return WriteOutcome(
+            accepted=True, tier=Tier.SEMANTIC_SELF,
+            fact_id=int(existing["id"]), person_id=None,
+            superseded_id=superseded_id,
+            immediate_durable=is_immediate_durable(4, candidate.predicate),
+            note="updated",
+        )
 
     def _supersede_single_value(self, candidate: MemoryCandidate) -> int | None:
         """Flip prior values for a single-value predicate to ``superseded``."""
@@ -114,11 +128,15 @@ class FactsMixin:
         rows = self._conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
-    def get_superseded_facts(self, owner_user_id: int) -> list[dict[str, Any]]:
-        rows = self._conn.execute(
-            "SELECT * FROM facts WHERE owner_user_id = ? AND status = 'superseded' ORDER BY id",
-            (owner_user_id,),
-        ).fetchall()
+    def get_superseded_facts(
+        self, owner_user_id: int, *, limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM facts WHERE owner_user_id = ? AND status = 'superseded' ORDER BY id"
+        params: list[Any] = [owner_user_id]
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self._conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
 

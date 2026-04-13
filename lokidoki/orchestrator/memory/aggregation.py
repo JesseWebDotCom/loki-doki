@@ -49,45 +49,14 @@ def run_aggregation(
     profile = store.get_user_profile(owner_user_id)
     last_run = profile["telemetry"].get("last_aggregation")
 
-    events = store.get_behavior_events(
-        owner_user_id,
-        since=last_run,
-        limit=2000,
-    )
+    events = store.get_behavior_events(owner_user_id, since=last_run, limit=2000)
     if not events:
         return {"events_processed": 0, "style_updated": False}
 
-    # Parse payloads
-    parsed_events = []
-    for ev in events:
-        payload_raw = ev.get("payload")
-        payload = {}
-        if payload_raw:
-            try:
-                payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
-            except (TypeError, ValueError):
-                pass
-        parsed_events.append({
-            "event_type": ev.get("event_type", ""),
-            "at": ev.get("at", ""),
-            "payload": payload if isinstance(payload, dict) else {},
-        })
+    parsed_events = _parse_event_payloads(events)
+    style, telemetry = _update_profile_from_events(parsed_events, profile)
+    _write_profile(store, owner_user_id, style, telemetry)
 
-    # Derive style (7a)
-    style = profile["style"].copy()
-    if len(parsed_events) >= MIN_EVENTS_FOR_DERIVATION:
-        style = _derive_style(parsed_events, style)
-
-    # Update telemetry (7b)
-    telemetry = profile["telemetry"].copy()
-    telemetry = _update_telemetry(parsed_events, telemetry)
-    telemetry["last_aggregation"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-
-    # Write profile
-    store.set_user_style(owner_user_id, style)
-    store.set_user_telemetry(owner_user_id, telemetry)
-
-    # Drop old events
     cutoff = (datetime.utcnow() - timedelta(days=EVENT_RETENTION_DAYS)).isoformat(timespec="seconds") + "Z"
     deleted = store.delete_behavior_events_before(owner_user_id, before=cutoff)
 
@@ -97,6 +66,50 @@ def run_aggregation(
         "events_deleted": deleted,
         "style": style,
     }
+
+
+def _parse_event_payloads(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deserialize raw behavior_events rows into dicts with parsed payloads."""
+    parsed: list[dict[str, Any]] = []
+    for ev in events:
+        payload_raw = ev.get("payload")
+        payload: dict[str, Any] = {}
+        if payload_raw:
+            try:
+                payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
+            except (TypeError, ValueError):
+                pass
+        parsed.append({
+            "event_type": ev.get("event_type", ""),
+            "at": ev.get("at", ""),
+            "payload": payload if isinstance(payload, dict) else {},
+        })
+    return parsed
+
+
+def _update_profile_from_events(
+    parsed_events: list[dict[str, Any]],
+    profile: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Derive updated style and telemetry dicts from the event batch."""
+    style = profile["style"].copy()
+    if len(parsed_events) >= MIN_EVENTS_FOR_DERIVATION:
+        style = _derive_style(parsed_events, style)
+    telemetry = profile["telemetry"].copy()
+    telemetry = _update_telemetry(parsed_events, telemetry)
+    telemetry["last_aggregation"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    return style, telemetry
+
+
+def _write_profile(
+    store: MemoryStore,
+    owner_user_id: int,
+    style: dict[str, Any],
+    telemetry: dict[str, Any],
+) -> None:
+    """Persist updated style and telemetry to the store."""
+    store.set_user_style(owner_user_id, style)
+    store.set_user_telemetry(owner_user_id, telemetry)
 
 
 def _derive_style(
@@ -110,8 +123,14 @@ def _derive_style(
     be interpretable by the synthesizer without explanation.
     """
     style = current_style.copy()
+    style = _derive_verbosity(events, style)
+    style = _derive_preferred_modality(events, style)
+    style = _derive_routine_time_bucket(events, style)
+    return style
 
-    # Verbosity: average response length
+
+def _derive_verbosity(events: list[dict[str, Any]], style: dict[str, Any]) -> dict[str, Any]:
+    """Set style[verbosity] from average response_length across events."""
     lengths = [
         ev["payload"].get("response_length", 0)
         for ev in events
@@ -125,8 +144,11 @@ def _derive_style(
             style["verbosity"] = "detailed"
         else:
             style["verbosity"] = "moderate"
+    return style
 
-    # Preferred modality: majority vote
+
+def _derive_preferred_modality(events: list[dict[str, Any]], style: dict[str, Any]) -> dict[str, Any]:
+    """Set style[preferred_modality] via majority vote over event modalities."""
     modalities = [
         ev["payload"].get("modality", "text")
         for ev in events
@@ -137,30 +159,29 @@ def _derive_style(
         for m in modalities:
             counts[m] = counts.get(m, 0) + 1
         style["preferred_modality"] = max(counts, key=counts.get)  # type: ignore[arg-type]
+    return style
 
-    # Routine time buckets: which hours the user is active
+
+def _derive_routine_time_bucket(events: list[dict[str, Any]], style: dict[str, Any]) -> dict[str, Any]:
+    """Set style[routine_time_bucket] from the dominant active hour range."""
     hours: list[int] = []
     for ev in events:
         at = ev.get("at", "")
         if len(at) >= 13:
             try:
-                h = int(at[11:13])
-                hours.append(h)
+                hours.append(int(at[11:13]))
             except (ValueError, IndexError):
                 pass
     if hours:
-        morning = sum(1 for h in hours if 5 <= h < 12)
-        afternoon = sum(1 for h in hours if 12 <= h < 17)
-        evening = sum(1 for h in hours if 17 <= h < 22)
-        night = sum(1 for h in hours if h >= 22 or h < 5)
         buckets = {
-            "morning": morning, "afternoon": afternoon,
-            "evening": evening, "night": night,
+            "morning": sum(1 for h in hours if 5 <= h < 12),
+            "afternoon": sum(1 for h in hours if 12 <= h < 17),
+            "evening": sum(1 for h in hours if 17 <= h < 22),
+            "night": sum(1 for h in hours if h >= 22 or h < 5),
         }
         dominant = max(buckets, key=buckets.get)  # type: ignore[arg-type]
         if buckets[dominant] > len(hours) * 0.4:
             style["routine_time_bucket"] = dominant
-
     return style
 
 

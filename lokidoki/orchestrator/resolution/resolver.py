@@ -79,59 +79,73 @@ def _default_resolution(
     extraction: ChunkExtraction,
     route: RouteMatch,
 ) -> ResolutionResult:
-    capability = route.capability
-    resolved_target = capability
-    source = "route"
+    entity_result = _resolve_direct_entity(chunk, route)
+    if entity_result is not None:
+        return entity_result
 
-    if capability == "get_current_time":
-        return ResolutionResult(
-            chunk_index=chunk.index,
-            resolved_target="current_time",
-            source="direct_utility",
-            confidence=route.confidence,
-        )
-    if capability == "get_current_date":
-        return ResolutionResult(
-            chunk_index=chunk.index,
-            resolved_target="current_date",
-            source="direct_utility",
-            confidence=route.confidence,
-        )
-    if capability == "spell_word":
-        word = _extract_spell_target(chunk.text, extraction)
-        if word:
-            return ResolutionResult(
-                chunk_index=chunk.index,
-                resolved_target=word,
-                source="chunk_reference",
-                confidence=route.confidence,
-            )
-        return ResolutionResult(
-            chunk_index=chunk.index,
-            resolved_target="",
-            source="missing_spell_target",
-            confidence=route.confidence,
-            unresolved=["spell:missing"],
-        )
-    if capability == "greeting_response":
-        return ResolutionResult(
-            chunk_index=chunk.index,
-            resolved_target="greeting",
-            source="direct_utility",
-            confidence=route.confidence,
-        )
-    if capability == "acknowledgment_response":
-        return ResolutionResult(
-            chunk_index=chunk.index,
-            resolved_target="acknowledgment",
-            source="direct_utility",
-            confidence=route.confidence,
-        )
+    spell_result = _resolve_spell_word(chunk, extraction, route)
+    if spell_result is not None:
+        return spell_result
 
+    return _fallback_resolution(chunk, route)
+
+
+def _resolve_direct_entity(
+    chunk: RequestChunk,
+    route: RouteMatch,
+) -> ResolutionResult | None:
+    """Return a direct-utility result for well-known zero-arg capabilities."""
+    _DIRECT: dict[str, str] = {
+        "get_current_time": "current_time",
+        "get_current_date": "current_date",
+        "greeting_response": "greeting",
+        "acknowledgment_response": "acknowledgment",
+    }
+    target = _DIRECT.get(route.capability)
+    if target is None:
+        return None
     return ResolutionResult(
         chunk_index=chunk.index,
-        resolved_target=resolved_target,
-        source=source,
+        resolved_target=target,
+        source="direct_utility",
+        confidence=route.confidence,
+    )
+
+
+def _resolve_spell_word(
+    chunk: RequestChunk,
+    extraction: ChunkExtraction,
+    route: RouteMatch,
+) -> ResolutionResult | None:
+    """Return a spell-word result, or None if capability is not spell_word."""
+    if route.capability != "spell_word":
+        return None
+    word = _extract_spell_target(chunk.text, extraction)
+    if word:
+        return ResolutionResult(
+            chunk_index=chunk.index,
+            resolved_target=word,
+            source="chunk_reference",
+            confidence=route.confidence,
+        )
+    return ResolutionResult(
+        chunk_index=chunk.index,
+        resolved_target="",
+        source="missing_spell_target",
+        confidence=route.confidence,
+        unresolved=["spell:missing"],
+    )
+
+
+def _fallback_resolution(
+    chunk: RequestChunk,
+    route: RouteMatch,
+) -> ResolutionResult:
+    """Last-resort: echo the capability name as the resolved target."""
+    return ResolutionResult(
+        chunk_index=chunk.index,
+        resolved_target=route.capability,
+        source="route",
         confidence=route.confidence,
     )
 

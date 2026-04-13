@@ -31,6 +31,30 @@ def build_request_spec(
     execution_by_chunk = {item.chunk_index: item for item in executions}
     safe_context = context or {}
 
+    spec_chunks, supporting_context = _assemble_chunks(
+        chunks, route_by_chunk, implementation_by_chunk,
+        resolution_by_chunk, execution_by_chunk,
+    )
+    supporting_context.extend(_supporting_from_resolutions(resolutions))
+
+    return RequestSpec(
+        trace_id=trace_id or f"lk-{abs(hash(raw_text)) % 1_000_000:06d}",
+        original_request=raw_text,
+        chunks=spec_chunks,
+        supporting_context=supporting_context,
+        context=safe_context,
+        runtime_version=2,
+    )
+
+
+def _assemble_chunks(
+    chunks: list[RequestChunk],
+    route_by_chunk: dict[int, RouteMatch],
+    implementation_by_chunk: dict[int, ImplementationSelection],
+    resolution_by_chunk: dict[int, ResolutionResult],
+    execution_by_chunk: dict[int, ExecutionResult],
+) -> tuple[list[RequestChunkResult], list[str]]:
+    """Build spec_chunks and supporting_context from the pipeline outputs."""
     spec_chunks: list[RequestChunkResult] = []
     supporting_context: list[str] = []
 
@@ -42,60 +66,44 @@ def build_request_spec(
 
         if chunk.role == "supporting_context":
             supporting_context.append(chunk.text)
-            # Subordinate-clause chunks are not routed/executed, but they
-            # still belong in spec.chunks so the LLM decider and any
-            # downstream consumer can see them as first-class entries.
-            spec_chunks.append(
-                RequestChunkResult(
-                    text=chunk.text,
-                    role=chunk.role,
-                    capability="",
-                    confidence=0.0,
-                )
-            )
+            spec_chunks.append(RequestChunkResult(text=chunk.text, role=chunk.role, capability="", confidence=0.0))
             continue
 
         if route is None or implementation is None or resolution is None or execution is None:
             continue
 
-        unresolved = list(resolution.unresolved)
-        success = execution.success and not unresolved
-        error = execution.error or _resolution_error(resolution)
+        spec_chunks.append(_build_primary_chunk_result(chunk, route, implementation, resolution, execution))
 
-        spec_chunks.append(
-            RequestChunkResult(
-                text=chunk.text,
-                role=chunk.role,
-                capability=route.capability,
-                confidence=route.confidence,
-                handler_name=implementation.handler_name,
-                implementation_id=implementation.implementation_id,
-                candidate_count=implementation.candidate_count,
-                params={
-                    "resolved_target": resolution.resolved_target,
-                    "source": resolution.source,
-                    "candidates": resolution.candidate_values,
-                    **resolution.params,
-                },
-                result={
-                    "output_text": execution.output_text,
-                    **execution.raw_result,
-                },
-                success=success,
-                error=error,
-                unresolved=unresolved,
-            )
-        )
+    return spec_chunks, supporting_context
 
-    supporting_context.extend(_supporting_from_resolutions(resolutions))
 
-    return RequestSpec(
-        trace_id=trace_id or f"lk-{abs(hash(raw_text)) % 1_000_000:06d}",
-        original_request=raw_text,
-        chunks=spec_chunks,
-        supporting_context=supporting_context,
-        context=safe_context,
-        runtime_version=2,
+def _build_primary_chunk_result(
+    chunk: RequestChunk,
+    route: RouteMatch,
+    implementation: ImplementationSelection,
+    resolution: ResolutionResult,
+    execution: ExecutionResult,
+) -> RequestChunkResult:
+    """Build a RequestChunkResult for a fully-resolved primary_request chunk."""
+    unresolved = list(resolution.unresolved)
+    return RequestChunkResult(
+        text=chunk.text,
+        role=chunk.role,
+        capability=route.capability,
+        confidence=route.confidence,
+        handler_name=implementation.handler_name,
+        implementation_id=implementation.implementation_id,
+        candidate_count=implementation.candidate_count,
+        params={
+            "resolved_target": resolution.resolved_target,
+            "source": resolution.source,
+            "candidates": resolution.candidate_values,
+            **resolution.params,
+        },
+        result={"output_text": execution.output_text, **execution.raw_result},
+        success=execution.success and not unresolved,
+        error=execution.error or _resolution_error(resolution),
+        unresolved=unresolved,
     )
 
 

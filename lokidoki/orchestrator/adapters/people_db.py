@@ -94,18 +94,23 @@ class PeopleDBAdapter:
 
         # 3. Fuzzy fallback.
         if fuzz is not None:
-            scored: list[tuple[int, PersonRecord]] = []
-            for record in self._records:
-                pool = [record.name.lower(), *(alias.lower() for alias in record.aliases)]
-                best = max(fuzz.ratio(needle, candidate) for candidate in pool)
-                if best >= 80:
-                    scored.append((best, record))
-            if scored:
-                scored.sort(key=lambda item: (-item[0], item[1].priority))
-                top = scored[0]
-                return self._rank(needle, [top[1]], score=top[0])
+            return self._fuzzy_match(needle, list(self._records))
 
         return None
+
+    def _fuzzy_match(self, needle: str, records: list[PersonRecord]) -> PersonMatch | None:
+        """Return the best fuzzy match for ``needle`` among ``records``, or None."""
+        scored: list[tuple[int, PersonRecord]] = []
+        for record in records:
+            pool = [record.name.lower(), *(alias.lower() for alias in record.aliases)]
+            best = max(fuzz.ratio(needle, candidate) for candidate in pool)
+            if best >= 80:
+                scored.append((best, record))
+        if not scored:
+            return None
+        scored.sort(key=lambda item: (-item[0], item[1].priority))
+        top = scored[0]
+        return self._rank(needle, [top[1]], score=top[0])
 
     def _rank(self, needle: str, candidates: list[PersonRecord], *, score: int) -> PersonMatch:
         ordered = sorted(candidates, key=lambda record: (record.priority, record.name.lower()))

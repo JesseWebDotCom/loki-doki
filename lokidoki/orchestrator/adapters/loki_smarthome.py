@@ -54,58 +54,7 @@ class LokiSmartHomeAdapter:
         devices = list(self._iter_devices())
         if not devices:
             return None
-
-        exact = [
-            device
-            for device in devices
-            if needle == device.friendly_name.lower()
-            or needle in (alias.lower() for alias in device.aliases)
-        ]
-        if exact:
-            return DeviceMatch(
-                record=exact[0],
-                score=100,
-                matched_phrase=needle,
-                ambiguous=len(exact) > 1,
-                candidates=exact,
-            )
-
-        substring = [
-            device
-            for device in devices
-            if needle in device.friendly_name.lower()
-            or any(needle in alias.lower() for alias in device.aliases)
-        ]
-        if substring:
-            return DeviceMatch(
-                record=substring[0],
-                score=85,
-                matched_phrase=needle,
-                ambiguous=len(substring) > 1,
-                candidates=substring,
-            )
-
-        if fuzz is None:
-            return None
-
-        scored: list[tuple[int, DeviceRecord]] = []
-        for device in devices:
-            pool = [device.friendly_name.lower(), *(alias.lower() for alias in device.aliases)]
-            best = max(fuzz.partial_ratio(needle, candidate) for candidate in pool)
-            if best >= 80:
-                scored.append((best, device))
-        if not scored:
-            return None
-        scored.sort(key=lambda item: -item[0])
-        top_score = scored[0][0]
-        top_devices = [device for score, device in scored if score == top_score]
-        return DeviceMatch(
-            record=top_devices[0],
-            score=top_score,
-            matched_phrase=needle,
-            ambiguous=len(top_devices) > 1,
-            candidates=top_devices,
-        )
+        return _match_device(needle, devices)
 
     # ---- internals ----------------------------------------------------------
 
@@ -133,6 +82,73 @@ class LokiSmartHomeAdapter:
                 area=_area_from_entity(entity_id),
                 aliases=aliases,
             )
+
+
+# ---- device matching helpers ------------------------------------------------
+
+
+def _exact_match(needle: str, devices: list[DeviceRecord]) -> list[DeviceRecord]:
+    return [
+        device
+        for device in devices
+        if needle == device.friendly_name.lower()
+        or needle in (alias.lower() for alias in device.aliases)
+    ]
+
+
+def _substring_match(needle: str, devices: list[DeviceRecord]) -> list[DeviceRecord]:
+    return [
+        device
+        for device in devices
+        if needle in device.friendly_name.lower()
+        or any(needle in alias.lower() for alias in device.aliases)
+    ]
+
+
+def _fuzzy_match(needle: str, devices: list[DeviceRecord]) -> DeviceMatch | None:
+    if fuzz is None:
+        return None
+    scored: list[tuple[int, DeviceRecord]] = []
+    for device in devices:
+        pool = [device.friendly_name.lower(), *(alias.lower() for alias in device.aliases)]
+        best = max(fuzz.partial_ratio(needle, candidate) for candidate in pool)
+        if best >= 80:
+            scored.append((best, device))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: -item[0])
+    top_score = scored[0][0]
+    top_devices = [device for score, device in scored if score == top_score]
+    return DeviceMatch(
+        record=top_devices[0],
+        score=top_score,
+        matched_phrase=needle,
+        ambiguous=len(top_devices) > 1,
+        candidates=top_devices,
+    )
+
+
+def _match_device(needle: str, devices: list[DeviceRecord]) -> DeviceMatch | None:
+    """Try exact → substring → fuzzy matching, returning the first hit."""
+    exact = _exact_match(needle, devices)
+    if exact:
+        return DeviceMatch(
+            record=exact[0],
+            score=100,
+            matched_phrase=needle,
+            ambiguous=len(exact) > 1,
+            candidates=exact,
+        )
+    substring = _substring_match(needle, devices)
+    if substring:
+        return DeviceMatch(
+            record=substring[0],
+            score=85,
+            matched_phrase=needle,
+            ambiguous=len(substring) > 1,
+            candidates=substring,
+        )
+    return _fuzzy_match(needle, devices)
 
 
 def _aliases_for(entity_id: str, friendly_name: str) -> list[str]:

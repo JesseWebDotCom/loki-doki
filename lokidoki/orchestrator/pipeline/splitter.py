@@ -47,6 +47,16 @@ def _doc_split(doc: Any) -> list[RequestChunk]:
     # 2. Within the primary text, decide whether to split on coordinator.
     primary_chunks = _coordinator_split(primary_text)
 
+    chunks = _build_chunks(text, primary_chunks, supporting_text)
+    return chunks or [RequestChunk(text=text, index=0)]
+
+
+def _build_chunks(
+    text: str,
+    primary_chunks: list[str],
+    supporting_text: str,
+) -> list[RequestChunk]:
+    """Assemble RequestChunk objects from split text segments."""
     chunks: list[RequestChunk] = []
     cursor = 0
     for index, chunk_text in enumerate(primary_chunks):
@@ -64,7 +74,6 @@ def _doc_split(doc: Any) -> list[RequestChunk]:
                 span_end=end,
             )
         )
-
     if supporting_text:
         start = text.find(supporting_text)
         chunks.append(
@@ -76,8 +85,7 @@ def _doc_split(doc: Any) -> list[RequestChunk]:
                 span_end=max(start, 0) + len(supporting_text),
             )
         )
-
-    return chunks or [RequestChunk(text=text, index=0)]
+    return chunks
 
 
 def _split_subordinate(doc: Any) -> tuple[str, str]:

@@ -38,6 +38,31 @@ def _extract_name(payload: dict[str, Any]) -> str:
     return str(payload.get("resolved_target") or "").strip()
 
 
+def _search_records(
+    records: list,
+    relation: str,
+    name: str,
+) -> list[dict[str, Any]]:
+    """Filter people records by relationship or name."""
+    matches: list[dict[str, Any]] = []
+    for record in records:
+        rel_lower = record.relationship.lower()
+        if relation and relation in rel_lower:
+            matches.append({"name": record.name, "relationship": record.relationship, "id": record.id})
+        elif name and name.lower() in record.name.lower():
+            matches.append({"name": record.name, "relationship": record.relationship, "id": record.id})
+    return matches
+
+
+def _format_relationship_matches(matches: list[dict[str, Any]]) -> str:
+    """Format one or more matches into a human-readable string."""
+    if len(matches) == 1:
+        m = matches[0]
+        return f"Your {m['relationship']}: {m['name']}"
+    lines = [f"- {m['name']} ({m['relationship']})" for m in matches[:8]]
+    return "\n".join(lines)
+
+
 async def lookup_relationship(payload: dict[str, Any]) -> dict[str, Any]:
     """Look up a person by their relationship to the user."""
     relation = _extract_relation(payload)
@@ -52,14 +77,7 @@ async def lookup_relationship(payload: dict[str, Any]) -> dict[str, Any]:
             error="empty people db",
         ).to_payload()
 
-    # Search by relation first, then by name.
-    matches: list[dict[str, Any]] = []
-    for record in records:
-        rel_lower = record.relationship.lower()
-        if relation and relation in rel_lower:
-            matches.append({"name": record.name, "relationship": record.relationship, "id": record.id})
-        elif name and name.lower() in record.name.lower():
-            matches.append({"name": record.name, "relationship": record.relationship, "id": record.id})
+    matches = _search_records(records, relation, name)
 
     if not matches and not relation and not name:
         return AdapterResult(
@@ -76,13 +94,7 @@ async def lookup_relationship(payload: dict[str, Any]) -> dict[str, Any]:
             error="no match",
         ).to_payload()
 
-    if len(matches) == 1:
-        m = matches[0]
-        text = f"Your {m['relationship']}: {m['name']}"
-    else:
-        lines = [f"- {m['name']} ({m['relationship']})" for m in matches[:8]]
-        text = "\n".join(lines)
-
+    text = _format_relationship_matches(matches)
     return AdapterResult(
         output_text=text,
         success=True,

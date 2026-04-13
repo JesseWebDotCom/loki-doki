@@ -20,71 +20,79 @@ class SocialMixin:
         from lokidoki.orchestrator.memory.store import WriteOutcome
 
         with self._lock:
-            subject = candidate.subject
-            person_id: int | None = None
-            note = ""
-            if subject.startswith("person:"):
-                name = subject.split(":", 1)[1].strip()
-                relation_hint = (
-                    candidate.value if candidate.predicate == "is_relation" else None
-                )
-                person_id = self._upsert_named_person(
-                    candidate.owner_user_id, name,
-                    relation_for_auto_merge=relation_hint,
-                )
-                note = "person_upsert"
-            elif subject.startswith("handle:"):
-                handle = subject.split(":", 1)[1].strip()
-                person_id = self._upsert_provisional_handle(
-                    candidate.owner_user_id, handle,
-                )
-                note = "handle_upsert"
-            else:
+            result = self._upsert_person(candidate)
+            if result is None:
                 return WriteOutcome(
                     accepted=False, tier=Tier.SOCIAL,
                     fact_id=None, person_id=None, superseded_id=None,
                     immediate_durable=False,
-                    note=f"unsupported_subject:{subject}",
+                    note=f"unsupported_subject:{candidate.subject}",
                 )
-
-            if candidate.predicate == "is_relation":
-                self._conn.execute(
-                    "INSERT OR IGNORE INTO relationships("
-                    "    owner_user_id, person_id, relation_label"
-                    ") VALUES (?, ?, ?)",
-                    (candidate.owner_user_id, person_id, candidate.value),
-                )
-            else:
-                fact_candidate = candidate.model_copy(
-                    update={"subject": f"person:{person_id}"},
-                )
-                superseded_id: int | None = None
-                if is_single_value(candidate.predicate):
-                    superseded_id = self._supersede_single_value(fact_candidate)
-                now = _now()
-                self._conn.execute(
-                    "INSERT INTO facts("
-                    "    owner_user_id, subject, predicate, value,"
-                    "    confidence, status, observation_count, source_text,"
-                    "    created_at, updated_at"
-                    ") VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, ?)"
-                    " ON CONFLICT(owner_user_id, subject, predicate, value)"
-                    " WHERE status = 'active'"
-                    " DO UPDATE SET"
-                    "    observation_count = facts.observation_count + 1,"
-                    "    confidence = MIN(1.0, facts.confidence + 0.05),"
-                    "    updated_at = excluded.updated_at",
-                    (candidate.owner_user_id, fact_candidate.subject,
-                     candidate.predicate, candidate.value,
-                     candidate.confidence, candidate.source_text,
-                     now, now),
-                )
-
+            person_id, note = result
+            self._link_relationship(candidate, person_id)
             return WriteOutcome(
                 accepted=True, tier=Tier.SOCIAL,
                 fact_id=None, person_id=person_id, superseded_id=None,
                 immediate_durable=is_immediate_durable(5, candidate.predicate),
                 note=note,
+            )
+
+    def _upsert_person(self, candidate: MemoryCandidate) -> tuple[int, str] | None:
+        """Resolve or create the person row for the candidate subject.
+
+        Returns ``(person_id, note)`` on success, or ``None`` for unsupported subjects.
+        """
+        subject = candidate.subject
+        if subject.startswith("person:"):
+            name = subject.split(":", 1)[1].strip()
+            relation_hint = (
+                candidate.value if candidate.predicate == "is_relation" else None
+            )
+            person_id = self._upsert_named_person(
+                candidate.owner_user_id, name,
+                relation_for_auto_merge=relation_hint,
+            )
+            return person_id, "person_upsert"
+        if subject.startswith("handle:"):
+            handle = subject.split(":", 1)[1].strip()
+            person_id = self._upsert_provisional_handle(
+                candidate.owner_user_id, handle,
+            )
+            return person_id, "handle_upsert"
+        return None
+
+    def _link_relationship(self, candidate: MemoryCandidate, person_id: int) -> None:
+        """Insert a relationship row or upsert a fact row for this candidate."""
+        if candidate.predicate == "is_relation":
+            self._conn.execute(
+                "INSERT OR IGNORE INTO relationships("
+                "    owner_user_id, person_id, relation_label"
+                ") VALUES (?, ?, ?)",
+                (candidate.owner_user_id, person_id, candidate.value),
+            )
+        else:
+            fact_candidate = candidate.model_copy(
+                update={"subject": f"person:{person_id}"},
+            )
+            if is_single_value(candidate.predicate):
+                self._supersede_single_value(fact_candidate)
+            now = _now()
+            self._conn.execute(
+                "INSERT INTO facts("
+                "    owner_user_id, subject, predicate, value,"
+                "    confidence, status, observation_count, source_text,"
+                "    created_at, updated_at"
+                ") VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, ?)"
+                " ON CONFLICT(owner_user_id, subject, predicate, value)"
+                " WHERE status = 'active'"
+                " DO UPDATE SET"
+                "    observation_count = facts.observation_count + 1,"
+                "    confidence = MIN(1.0, facts.confidence + 0.05),"
+                "    updated_at = excluded.updated_at",
+                (candidate.owner_user_id, fact_candidate.subject,
+                 candidate.predicate, candidate.value,
+                 candidate.confidence, candidate.source_text,
+                 now, now),
             )
 
     def _upsert_named_person(

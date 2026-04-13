@@ -43,12 +43,30 @@ def resolve_people(
             unresolved=["person:missing"],
         )
 
+    matches = _score_candidates(mentions, adapter)
+    return _build_person_result(chunk, route, mentions, matches)
+
+
+def _score_candidates(
+    mentions: list[str],
+    adapter: PeopleDBAdapter,
+) -> list[PersonMatch]:
+    """Resolve each mention against the adapter; return all hits."""
     matches: list[PersonMatch] = []
     for mention in mentions:
         result = adapter.resolve(mention)
         if result is not None:
             matches.append(result)
+    return matches
 
+
+def _build_person_result(
+    chunk: RequestChunk,
+    route: RouteMatch,
+    mentions: list[str],
+    matches: list[PersonMatch],
+) -> ResolutionResult:
+    """Build the ResolutionResult from scored candidate matches."""
     if not matches:
         return ResolutionResult(
             chunk_index=chunk.index,

@@ -43,39 +43,23 @@ def resolve_device(
             notes=["no device noun phrase in chunk"],
         )
 
+    return _match_device_mentions(chunk, route, candidates, adapter)
+
+
+def _match_device_mentions(
+    chunk: RequestChunk,
+    route: RouteMatch,
+    candidates: list[str],
+    adapter: DeviceAdapter,
+) -> ResolutionResult:
+    """Try each candidate mention against the adapter; return the first match or unresolved."""
     for mention in candidates:
         match = adapter.resolve(mention)
         if match is None:
             continue
         if match.ambiguous and len({device.entity_id for device in match.candidates}) > 1:
-            return ResolutionResult(
-                chunk_index=chunk.index,
-                resolved_target=match.record.friendly_name,
-                source="ambiguous_device",
-                confidence=round(match.score / 100, 3),
-                candidate_values=[device.friendly_name for device in match.candidates],
-                unresolved=[f"device_ambiguous:{mention}"],
-                params={
-                    "entity_id": match.record.entity_id,
-                    "domain": match.record.domain,
-                    "matched_phrase": match.matched_phrase,
-                },
-                notes=[f"multiple devices match {mention}"],
-            )
-        return ResolutionResult(
-            chunk_index=chunk.index,
-            resolved_target=match.record.friendly_name,
-            source="home_assistant",
-            confidence=round(match.score / 100, 3),
-            context_value=match.record.entity_id,
-            params={
-                "entity_id": match.record.entity_id,
-                "domain": match.record.domain,
-                "area": match.record.area,
-                "matched_phrase": match.matched_phrase,
-            },
-        )
-
+            return _ambiguous_device_result(chunk, mention, match)
+        return _resolved_device_result(chunk, match)
     return ResolutionResult(
         chunk_index=chunk.index,
         resolved_target=candidates[0],
@@ -83,6 +67,32 @@ def resolve_device(
         confidence=route.confidence,
         unresolved=[f"device:{candidate}" for candidate in candidates],
         notes=[f"could not resolve {candidates[0]}"],
+    )
+
+
+def _ambiguous_device_result(chunk: RequestChunk, mention: str, match: object) -> ResolutionResult:
+    """Build a ResolutionResult for an ambiguous device match."""
+    return ResolutionResult(
+        chunk_index=chunk.index,
+        resolved_target=match.record.friendly_name,
+        source="ambiguous_device",
+        confidence=round(match.score / 100, 3),
+        candidate_values=[device.friendly_name for device in match.candidates],
+        unresolved=[f"device_ambiguous:{mention}"],
+        params={"entity_id": match.record.entity_id, "domain": match.record.domain, "matched_phrase": match.matched_phrase},
+        notes=[f"multiple devices match {mention}"],
+    )
+
+
+def _resolved_device_result(chunk: RequestChunk, match: object) -> ResolutionResult:
+    """Build a ResolutionResult for a successfully resolved device match."""
+    return ResolutionResult(
+        chunk_index=chunk.index,
+        resolved_target=match.record.friendly_name,
+        source="home_assistant",
+        confidence=round(match.score / 100, 3),
+        context_value=match.record.entity_id,
+        params={"entity_id": match.record.entity_id, "domain": match.record.domain, "area": match.record.area, "matched_phrase": match.matched_phrase},
     )
 
 

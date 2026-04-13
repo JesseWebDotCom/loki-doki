@@ -61,27 +61,46 @@ def maybe_trigger_consolidation(
     is older than ``ROLLING_WINDOW_HOURS`` hours ago.
     """
     key = f"{owner_user_id}:{subject}:{predicate}"
+    count = _bump_counter(store, session_id, key)
+
+    if count < TRIGGERED_CONSOLIDATION_THRESHOLD:
+        return ConsolidationResult(
+            triggered=False,
+            observation_count=count,
+            reason=f"below_threshold ({count}/{TRIGGERED_CONSOLIDATION_THRESHOLD})",
+        )
+
+    return _run_consolidation_merge(
+        store=store,
+        owner_user_id=owner_user_id,
+        subject=subject,
+        predicate=predicate,
+        value=value,
+        count=count,
+    )
+
+
+def _bump_counter(
+    store: "MemoryStore",
+    session_id: int,
+    key: str,
+) -> int:
+    """Increment the rolling-window counter for ``key``; return the new count."""
     state = store.get_session_state(session_id)
     counters = state.get("consolidation") or {}
     if not isinstance(counters, dict):
         counters = {}
 
     now_str = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    entry = counters.get(key) or {
-        "count": 0,
-        "first_at": now_str,
-        "last_at": now_str,
-    }
+    entry = counters.get(key) or {"count": 0, "first_at": now_str, "last_at": now_str}
     if not isinstance(entry, dict):
         entry = {"count": 0, "first_at": now_str, "last_at": now_str}
 
-    # 24h rolling window: reset if the first observation for this key
-    # is older than ROLLING_WINDOW_HOURS.
+    # 24h rolling window: reset if the first observation is too old.
     first_at_str = str(entry.get("first_at", now_str))
     try:
         first_at = datetime.fromisoformat(first_at_str.rstrip("Z"))
-        now_dt = datetime.utcnow()
-        if (now_dt - first_at) > timedelta(hours=ROLLING_WINDOW_HOURS):
+        if (datetime.utcnow() - first_at) > timedelta(hours=ROLLING_WINDOW_HOURS):
             entry = {"count": 0, "first_at": now_str, "last_at": now_str}
     except (ValueError, TypeError):
         entry = {"count": 0, "first_at": now_str, "last_at": now_str}
@@ -91,18 +110,19 @@ def maybe_trigger_consolidation(
     counters[key] = entry
     state["consolidation"] = counters
     store.set_session_state(session_id, state)
+    return int(entry["count"])
 
-    count = int(entry["count"])
-    if count < TRIGGERED_CONSOLIDATION_THRESHOLD:
-        return ConsolidationResult(
-            triggered=False,
-            observation_count=count,
-            reason=f"below_threshold ({count}/{TRIGGERED_CONSOLIDATION_THRESHOLD})",
-        )
 
-    # Threshold reached — run the candidate through the writer to
-    # create/upgrade a durable Tier 4 row. The writer's gate chain
-    # still applies so all structural guarantees hold.
+def _run_consolidation_merge(
+    *,
+    store: "MemoryStore",
+    owner_user_id: int,
+    subject: str,
+    predicate: str,
+    value: str,
+    count: int,
+) -> ConsolidationResult:
+    """Run the candidate through the writer gate chain and return a promotion result."""
     from lokidoki.orchestrator.memory.candidate import MemoryCandidate
     from lokidoki.orchestrator.memory.writer import process_candidate
 
@@ -117,16 +137,9 @@ def maybe_trigger_consolidation(
     if decision.accepted:
         log.info(
             "triggered consolidation: %s/%s=%s promoted after %d observations",
-            subject,
-            predicate,
-            value,
-            count,
+            subject, predicate, value, count,
         )
-        return ConsolidationResult(
-            triggered=True,
-            observation_count=count,
-            reason=f"promoted_at_{count}",
-        )
+        return ConsolidationResult(triggered=True, observation_count=count, reason=f"promoted_at_{count}")
 
     return ConsolidationResult(
         triggered=False,

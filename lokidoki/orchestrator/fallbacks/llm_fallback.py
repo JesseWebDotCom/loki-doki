@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass
 
 from lokidoki.orchestrator.core.config import CONFIG
-from lokidoki.orchestrator.core.types import RequestSpec, ResponseObject
+from lokidoki.orchestrator.core.types import RequestChunkResult, RequestSpec, ResponseObject
 from lokidoki.orchestrator.fallbacks.llm_prompt_builder import (  # noqa: F401
     _build_confidence_guide,
     _collect_sources,
@@ -104,56 +104,83 @@ async def llm_synthesize_async(spec: RequestSpec) -> ResponseObject:
 def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
     """Deterministic stub used as the default and as a degradation fallback."""
     sources = _collect_sources(spec)
-    # Map source URL → 1-based citation index for inline markers.
-    url_to_index: dict[str, int] = {
-        src["url"]: i for i, src in enumerate(sources, 1)
-    }
+    url_to_index: dict[str, int] = {src["url"]: i for i, src in enumerate(sources, 1)}
 
     parts: list[str] = []
     for chunk in spec.chunks:
         if chunk.role != "primary_request":
             continue
-        if chunk.unresolved and "recent_media" in chunk.unresolved:
-            parts.append("I don't have a recent movie in context yet.")
-            continue
-        if chunk.unresolved and any(item.startswith("recent_media_ambiguous") for item in chunk.unresolved):
-            candidates = chunk.params.get("candidates") or chunk.result.get("candidates") or []
-            if isinstance(candidates, list) and candidates:
-                parts.append("I found multiple recent movies: " + ", ".join(map(str, candidates)) + ".")
-                continue
-        if chunk.unresolved and any(item.startswith("person_ambiguous") for item in chunk.unresolved):
-            parts.append("I found multiple matches for that person — could you clarify?")
-            continue
-        if chunk.unresolved and any(item.startswith("device_ambiguous") for item in chunk.unresolved):
-            parts.append("I found more than one matching device — which one did you mean?")
-            continue
-        if not chunk.success:
-            parts.append(f"I couldn't complete that ({chunk.capability}).")
-            continue
-        if chunk.capability == "direct_chat":
-            parts.append(
-                "I don't have a built-in answer for that — try enabling LLM "
-                "or rephrasing as a question I can route to a skill."
-            )
-            continue
-        text = str(chunk.result.get("output_text") or "").strip()
-        if text:
-            chunk_sources = (chunk.result or {}).get("sources") or []
-            cite_tags = []
-            for src in chunk_sources:
-                if isinstance(src, dict) and src.get("url"):
-                    idx = url_to_index.get(src["url"])
-                    if idx is not None:
-                        cite_tags.append(f"[src:{idx}]")
-            if cite_tags:
-                text = f"{text} {' '.join(cite_tags)}"
-            parts.append(text)
+        part = _stub_chunk_text(chunk, url_to_index)
+        if part is not None:
+            parts.append(part)
 
     if any(chunk.role == "supporting_context" for chunk in spec.chunks):
         parts.append("(Noted the context you mentioned.)")
 
     text = " ".join(part for part in parts if part).strip()
     return ResponseObject(output_text=text)
+
+
+def _stub_chunk_text(
+    chunk: RequestChunkResult,
+    url_to_index: dict[str, int],
+) -> str | None:
+    """Return the stub text for a single primary-request chunk, or None to skip."""
+    if chunk.unresolved and "recent_media" in chunk.unresolved:
+        return "I don't have a recent movie in context yet."
+
+    if chunk.unresolved and any(
+        item.startswith("recent_media_ambiguous") for item in chunk.unresolved
+    ):
+        return _stub_ambiguous_media(chunk)
+
+    if chunk.unresolved and any(
+        item.startswith("person_ambiguous") for item in chunk.unresolved
+    ):
+        return "I found multiple matches for that person — could you clarify?"
+
+    if chunk.unresolved and any(
+        item.startswith("device_ambiguous") for item in chunk.unresolved
+    ):
+        return "I found more than one matching device — which one did you mean?"
+
+    if not chunk.success:
+        return f"I couldn't complete that ({chunk.capability})."
+
+    if chunk.capability == "direct_chat":
+        return (
+            "I don't have a built-in answer for that — try enabling LLM "
+            "or rephrasing as a question I can route to a skill."
+        )
+
+    return _stub_output_text(chunk, url_to_index)
+
+
+def _stub_ambiguous_media(chunk: RequestChunkResult) -> str | None:
+    """Format the ambiguous recent-media message, or return None to skip."""
+    candidates = chunk.params.get("candidates") or chunk.result.get("candidates") or []
+    if isinstance(candidates, list) and candidates:
+        return "I found multiple recent movies: " + ", ".join(map(str, candidates)) + "."
+    return None
+
+
+def _stub_output_text(
+    chunk: RequestChunkResult,
+    url_to_index: dict[str, int],
+) -> str | None:
+    """Extract output_text from a successful chunk result and attach citations."""
+    text = str(chunk.result.get("output_text") or "").strip()
+    if not text:
+        return None
+    chunk_sources = (chunk.result or {}).get("sources") or []
+    cite_tags = [
+        f"[src:{url_to_index[src['url']]}]"
+        for src in chunk_sources
+        if isinstance(src, dict) and src.get("url") and src["url"] in url_to_index
+    ]
+    if cite_tags:
+        text = f"{text} {' '.join(cite_tags)}"
+    return text
 
 
 async def _call_real_llm(spec: RequestSpec) -> ResponseObject:

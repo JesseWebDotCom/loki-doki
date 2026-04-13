@@ -27,6 +27,45 @@ def get_skill_config(capability: str, key: str, default: Any = None) -> Any:
     return config_map.get(capability, {}).get(key, default)
 
 
+def _check_injected(injected: dict[str, Any], keys: list[str]) -> Any:
+    """Return the first matching key from the injected config blob, or _MISSING."""
+    for k in keys:
+        if k in injected:
+            return injected[k]
+    return _MISSING
+
+
+async def _query_db(
+    payload: dict[str, Any],
+    skill_id: str | list[str],
+    keys: list[str],
+) -> Any:
+    """Try a manual DB lookup; return value or None if unavailable/missing."""
+    user_id = payload.get("owner_user_id")
+    memory = payload.get("memory_provider")
+    if not (user_id and memory):
+        return None
+    try:
+        from lokidoki.core import skill_config as cfg
+
+        ids = [skill_id] if isinstance(skill_id, str) else skill_id
+
+        def _load(conn):
+            for sid in ids:
+                config = cfg.get_merged_config(conn, user_id, sid)
+                for k in keys:
+                    if k in config:
+                        return config[k]
+            return None
+
+        return await memory.run_sync(_load)
+    except Exception:
+        return None
+
+
+_MISSING = object()  # sentinel
+
+
 async def get_user_setting(
     payload: dict[str, Any],
     skill_id: str | list[str] | None = None,
@@ -43,34 +82,19 @@ async def get_user_setting(
     injected by the executor (automated per-user config), then falls
     back to manual DB lookups.
     """
-    # 1. Try injected config from automate executor injection
-    injected = payload.get("_config") or {}
     keys = [key] if isinstance(key, str) else (key or [])
-    for k in keys:
-        if k in injected:
-            return injected[k]
 
-    # 2. Manual DB lookup fallback (for tests or manual calls)
-    user_id = payload.get("owner_user_id")
-    memory = payload.get("memory_provider")
-    if user_id and memory and skill_id and key:
-        try:
-            from lokidoki.core import skill_config as cfg
-            ids = [skill_id] if isinstance(skill_id, str) else skill_id
+    # 1. Injected config from executor
+    injected = payload.get("_config") or {}
+    val = _check_injected(injected, keys)
+    if val is not _MISSING:
+        return val
 
-            def _load(conn):
-                for sid in ids:
-                    config = cfg.get_merged_config(conn, user_id, sid)
-                    for k in keys:
-                        if k in config:
-                            return config[k]
-                return None
-
-            db_val = await memory.run_sync(_load)
-            if db_val is not None:
-                return db_val
-        except Exception:
-            pass
+    # 2. Manual DB lookup
+    if skill_id and key:
+        db_val = await _query_db(payload, skill_id, keys)
+        if db_val is not None:
+            return db_val
 
     # 3. Registry fallback
     if capability:

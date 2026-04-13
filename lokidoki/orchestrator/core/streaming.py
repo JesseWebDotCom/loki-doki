@@ -57,20 +57,13 @@ async def stream_pipeline_sse(
     raw_text: str,
     context: dict[str, Any] | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Run the pipeline and yield v1-compatible SSE events.
-
-    The generator yields ``data: {...}\\n\\n`` strings that the existing
-    frontend ``parseSseEvent()`` can consume directly.  Callers should
-    wrap the return value in a ``StreamingResponse(media_type="text/event-stream")``.
-    """
+    """Run the pipeline and yield v1-compatible ``data: {...}\\n\\n`` SSE strings."""
     from lokidoki.orchestrator.core.pipeline import run_pipeline_async
 
     queue: asyncio.Queue[SSEEvent | object] = asyncio.Queue()
     safe_context = dict(context or {})
 
-    # Accumulate timing per v1 phase for "done" events.
     phase_timing: dict[str, float] = {}
-    # Cache each step so "done" builders can read sibling details.
     step_cache: dict[str, TraceStep] = {}
 
     def _on_step(step: TraceStep) -> None:
@@ -79,70 +72,15 @@ async def stream_pipeline_sse(
         if v1_phase:
             phase_timing[v1_phase] = phase_timing.get(v1_phase, 0) + step.timing_ms
         step_cache[step.name] = step
-
-        # ---- phase transitions at specific step boundaries ----
-
-        if step.name == "normalize":
-            queue.put_nowait(SSEEvent(phase="decomposition", status="active"))
-
-        elif step.name == "extract":
-            queue.put_nowait(SSEEvent(
-                phase="decomposition",
-                status="done",
-                data=_build_decomposition_data(step_cache, phase_timing),
-            ))
-
-        elif step.name == "fast_lane" and step.details.get("matched"):
-            queue.put_nowait(SSEEvent(
-                phase="micro_fast_lane",
-                status="done",
-                data={
-                    "hit": True,
-                    "category": step.details.get("capability", ""),
-                    "latency_ms": round(step.timing_ms, 1),
-                },
-            ))
-
-        elif step.name == "route":
-            queue.put_nowait(SSEEvent(phase="routing", status="active"))
-
-        elif step.name == "execute":
-            queue.put_nowait(SSEEvent(
-                phase="routing",
-                status="done",
-                data=_build_routing_data(step_cache, phase_timing),
-            ))
-
-        elif step.name == "memory_read":
-            queue.put_nowait(SSEEvent(
-                phase="augmentation",
-                status="done",
-                data={
-                    "latency_ms": round(phase_timing.get("augmentation", 0), 1),
-                    "slots_assembled": step.details.get("slots_assembled", []),
-                },
-            ))
-
-        elif step.name == "combine":
-            queue.put_nowait(SSEEvent(phase="synthesis", status="active"))
+        event = _step_to_sse_event(step, step_cache, phase_timing)
+        if event is not None:
+            queue.put_nowait(event)
 
     safe_context["_trace_listener"] = _on_step
 
-    async def _run() -> None:
-        try:
-            result = await run_pipeline_async(raw_text, context=safe_context)
-            queue.put_nowait(SSEEvent(
-                phase="synthesis",
-                status="done",
-                data=_build_synthesis_done(result),
-            ))
-        except Exception:
-            logger.exception("pipeline crashed during SSE stream")
-            queue.put_nowait(_build_error_event())
-        finally:
-            queue.put_nowait(_DONE)
-
-    task = asyncio.create_task(_run())
+    task = asyncio.create_task(
+        _run_pipeline_task(raw_text, safe_context, queue, run_pipeline_async)
+    )
     try:
         while True:
             item = await queue.get()
@@ -153,6 +91,69 @@ async def stream_pipeline_sse(
     finally:
         if not task.done():
             task.cancel()
+
+
+def _step_to_sse_event(
+    step: TraceStep,
+    step_cache: dict[str, TraceStep],
+    phase_timing: dict[str, float],
+) -> SSEEvent | None:
+    """Map a single trace step to an SSE phase event, or None if no transition."""
+    if step.name in ("normalize", "route", "combine"):
+        return _simple_active_event(step.name)
+    if step.name == "fast_lane" and step.details.get("matched"):
+        return _fast_lane_event(step)
+    if step.name == "extract":
+        return SSEEvent("decomposition", "done", _build_decomposition_data(step_cache, phase_timing))
+    if step.name == "execute":
+        return SSEEvent("routing", "done", _build_routing_data(step_cache, phase_timing))
+    if step.name == "memory_read":
+        return SSEEvent("augmentation", "done", _memory_read_data(step, phase_timing))
+    return None
+
+
+def _simple_active_event(step_name: str) -> SSEEvent:
+    """Return the ``active`` SSE event for normalize/route/combine steps."""
+    phase_map = {"normalize": "decomposition", "route": "routing", "combine": "synthesis"}
+    return SSEEvent(phase=phase_map[step_name], status="active")
+
+
+def _fast_lane_event(step: TraceStep) -> SSEEvent:
+    """Return the micro_fast_lane done event."""
+    return SSEEvent(
+        phase="micro_fast_lane",
+        status="done",
+        data={"hit": True, "category": step.details.get("capability", ""), "latency_ms": round(step.timing_ms, 1)},
+    )
+
+
+def _memory_read_data(step: TraceStep, phase_timing: dict[str, float]) -> dict[str, Any]:
+    """Build augmentation done data from the memory_read step."""
+    return {
+        "latency_ms": round(phase_timing.get("augmentation", 0), 1),
+        "slots_assembled": step.details.get("slots_assembled", []),
+    }
+
+
+async def _run_pipeline_task(
+    raw_text: str,
+    safe_context: dict[str, Any],
+    queue: "asyncio.Queue[SSEEvent | object]",
+    run_pipeline_async: Any,
+) -> None:
+    """Run the pipeline and push the final synthesis event (or error) onto the queue."""
+    try:
+        result = await run_pipeline_async(raw_text, context=safe_context)
+        queue.put_nowait(SSEEvent(
+            phase="synthesis",
+            status="done",
+            data=_build_synthesis_done(result),
+        ))
+    except Exception:
+        logger.exception("pipeline crashed during SSE stream")
+        queue.put_nowait(_build_error_event())
+    finally:
+        queue.put_nowait(_DONE)
 
 
 # ---- phase data builders ------------------------------------------------
@@ -226,6 +227,7 @@ def _build_synthesis_done(result: Any) -> dict[str, Any]:
         "tone": "neutral",
         "sources": _extract_sources(result),
         "platform": "lokidoki",
+        "trace_snapshot": [step.to_dict() for step in getattr(getattr(result, "trace", None), "steps", [])],
     }
 
 

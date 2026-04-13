@@ -227,19 +227,25 @@ def apply_memory_schema(
         conn.execute(stmt)
         applied["indexes"].append(stmt.split("\n", 1)[0])
 
-    for label, schema in (
+    applied["tables"] = _apply_table_schemas(conn, enable_vec=enable_vec)
+    conn.commit()
+    return applied
+
+
+def _apply_table_schemas(conn: sqlite3.Connection, *, enable_vec: bool) -> list[str]:
+    """Execute CREATE TABLE scripts and return list of applied table labels."""
+    table_schemas = [
         ("episodes", EPISODES_SCHEMA),
         ("episodes_fts", EPISODES_FTS_SCHEMA),
         ("affect_window", AFFECT_WINDOW_SCHEMA),
         ("behavior_events", BEHAVIOR_EVENTS_SCHEMA),
         ("user_profile", USER_PROFILE_SCHEMA),
-    ):
+    ]
+    applied: list[str] = []
+    for label, schema in table_schemas:
         conn.executescript(schema)
-        applied["tables"].append(label)
-
+        applied.append(label)
     if enable_vec:
         conn.executescript(VEC_EPISODES_SCHEMA)
-        applied["tables"].append("vec_episodes")
-
-    conn.commit()
+        applied.append("vec_episodes")
     return applied

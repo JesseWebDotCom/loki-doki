@@ -75,6 +75,22 @@ def _info_request_imperative(tokens: list[Any]) -> bool:
     return not has_real_subject
 
 
+def _check_sentence_shape(
+    tokens: list[Any],
+    sent_text: str,
+) -> GateResult | None:
+    """Return a failing GateResult if the sentence looks interrogative, else None."""
+    if _has_question_mark(sent_text) and _wh_fronted(tokens):
+        return GateResult(GateName.CLAUSE_SHAPE, passed=False, reason="wh_fronted_question")
+    if _wh_fronted(tokens):
+        return GateResult(GateName.CLAUSE_SHAPE, passed=False, reason="wh_fronted")
+    if _subject_aux_inversion(tokens) and _has_question_mark(sent_text):
+        return GateResult(GateName.CLAUSE_SHAPE, passed=False, reason="subject_aux_inversion")
+    if _info_request_imperative(tokens):
+        return GateResult(GateName.CLAUSE_SHAPE, passed=False, reason="info_request_imperative")
+    return None
+
+
 def gate_clause_shape(
     candidate: MemoryCandidate,
     parse_doc: Any,
@@ -96,30 +112,9 @@ def gate_clause_shape(
     for sent in sentences:
         tokens = list(sent)
         sent_text = getattr(sent, "text", "") or candidate.source_text
-        if _has_question_mark(sent_text) and _wh_fronted(tokens):
-            return GateResult(
-                GateName.CLAUSE_SHAPE,
-                passed=False,
-                reason="wh_fronted_question",
-            )
-        if _wh_fronted(tokens):
-            return GateResult(
-                GateName.CLAUSE_SHAPE,
-                passed=False,
-                reason="wh_fronted",
-            )
-        if _subject_aux_inversion(tokens) and _has_question_mark(sent_text):
-            return GateResult(
-                GateName.CLAUSE_SHAPE,
-                passed=False,
-                reason="subject_aux_inversion",
-            )
-        if _info_request_imperative(tokens):
-            return GateResult(
-                GateName.CLAUSE_SHAPE,
-                passed=False,
-                reason="info_request_imperative",
-            )
+        failed = _check_sentence_shape(tokens, sent_text)
+        if failed is not None:
+            return failed
 
     if _has_question_mark(candidate.source_text):
         return GateResult(
@@ -159,6 +154,43 @@ def _looks_like_public_figure_or_stranger(name: str) -> str | None:
     return None
 
 
+def _gate_person_subject(
+    candidate: MemoryCandidate,
+    resolved_people: Iterable[str] | None,
+) -> GateResult:
+    """Validate a ``person:`` prefixed subject."""
+    name = candidate.subject.split(":", 1)[1].strip()
+    if not name:
+        return GateResult(GateName.SUBJECT, passed=False, reason="empty_person_name")
+    public_or_stranger = _looks_like_public_figure_or_stranger(name)
+    if public_or_stranger:
+        return GateResult(
+            GateName.SUBJECT,
+            passed=False,
+            reason=f"public_or_stranger:{public_or_stranger}",
+        )
+    resolved = {n.lower() for n in (resolved_people or [])}
+    if name.lower() in resolved:
+        return GateResult(GateName.SUBJECT, passed=True, reason="resolved_person")
+    if candidate.predicate in _IDENTITY_ESTABLISHING_PREDICATES:
+        return GateResult(
+            GateName.SUBJECT, passed=True, reason="new_person_via_identity_predicate"
+        )
+    return GateResult(GateName.SUBJECT, passed=False, reason="unresolved_person")
+
+
+def _gate_entity_subject(
+    subject: str,
+    known_entities: Iterable[str] | None,
+) -> GateResult:
+    """Validate an ``entity:`` prefixed subject."""
+    name = subject.split(":", 1)[1].strip().lower()
+    known = {n.lower() for n in (known_entities or [])}
+    if name in known:
+        return GateResult(GateName.SUBJECT, passed=True, reason="known_entity")
+    return GateResult(GateName.SUBJECT, passed=False, reason="unknown_entity")
+
+
 def gate_subject(
     candidate: MemoryCandidate,
     resolved_people: Iterable[str] | None = None,
@@ -170,47 +202,12 @@ def gate_subject(
     subject = candidate.subject
     if subject == "self":
         return GateResult(GateName.SUBJECT, passed=True, reason="self")
-
     if subject.startswith("handle:"):
         return GateResult(GateName.SUBJECT, passed=True, reason="provisional_handle")
-
     if subject.startswith("person:"):
-        name = subject.split(":", 1)[1].strip()
-        if not name:
-            return GateResult(GateName.SUBJECT, passed=False, reason="empty_person_name")
-        public_or_stranger = _looks_like_public_figure_or_stranger(name)
-        if public_or_stranger:
-            return GateResult(
-                GateName.SUBJECT,
-                passed=False,
-                reason=f"public_or_stranger:{public_or_stranger}",
-            )
-        resolved = {n.lower() for n in (resolved_people or [])}
-        if name.lower() in resolved:
-            return GateResult(GateName.SUBJECT, passed=True, reason="resolved_person")
-        if candidate.predicate in _IDENTITY_ESTABLISHING_PREDICATES:
-            return GateResult(
-                GateName.SUBJECT,
-                passed=True,
-                reason="new_person_via_identity_predicate",
-            )
-        return GateResult(
-            GateName.SUBJECT,
-            passed=False,
-            reason="unresolved_person",
-        )
-
+        return _gate_person_subject(candidate, resolved_people)
     if subject.startswith("entity:"):
-        name = subject.split(":", 1)[1].strip().lower()
-        known = {n.lower() for n in (known_entities or [])}
-        if name in known:
-            return GateResult(GateName.SUBJECT, passed=True, reason="known_entity")
-        return GateResult(
-            GateName.SUBJECT,
-            passed=False,
-            reason="unknown_entity",
-        )
-
+        return _gate_entity_subject(subject, known_entities)
     return GateResult(GateName.SUBJECT, passed=False, reason="unknown_subject_shape")
 
 

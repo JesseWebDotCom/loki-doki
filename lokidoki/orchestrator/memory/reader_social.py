@@ -45,111 +45,145 @@ def _row_to_person_hit(
     )
 
 
+def _score_fuzzy_candidates(
+    store: MemoryStore,
+    owner_user_id: int,
+    needle: str,
+    fuzz,
+) -> PersonResolution | None:
+    """Run rapidfuzz scoring against all named people rows.
+
+    Returns a ``PersonResolution`` when at least one candidate scores ≥80,
+    or ``None`` when no candidates clear the threshold.
+    """
+    all_rows = store._conn.execute(
+        "SELECT id, owner_user_id, name, handle, provisional "
+        "FROM people WHERE owner_user_id = ? AND name IS NOT NULL",
+        (owner_user_id,),
+    ).fetchall()
+    scored: list[tuple[int, object]] = []
+    for row in all_rows:
+        score = int(fuzz.ratio(needle, str(row["name"]).lower()))
+        if score >= 80:
+            scored.append((score, row))
+    if not scored:
+        return None
+    scored.sort(key=lambda pair: -pair[0])
+    top_score = scored[0][0]
+    top = [row for s, row in scored if s == top_score]
+    hits = tuple(
+        _row_to_person_hit(store, row, score=top_score / 100.0, matched_via="alias_fuzzy")
+        for row in top
+    )
+    if len(hits) > 1:
+        return PersonResolution(None, True, hits, "ambiguous_fuzzy")
+    return PersonResolution(hits[0], False, hits, "fuzzy_name")
+
+
 def resolve_person(
     store: MemoryStore,
     owner_user_id: int,
     mention: str,
 ) -> PersonResolution:
-    """Resolve a mention to a Tier 5 person row.
+    """Resolve a mention to a Tier 5 person row via a four-strategy ladder.
 
-    The resolver applies a deterministic four-strategy ladder per
-    design §10 question 1's "deterministic ruleset is the safer
-    default" decision:
-
-        1. Exact name match (case-insensitive). If exactly one row
-           wins, return it.
-        2. Handle match (for provisional handles). If the mention
-           starts with "my " or matches an existing handle exactly.
-        3. Substring on name (≥3 chars). The substring is matched
-           against the **canonical name column**, not against user
-           input — the user's mention is the structured argument to
-           this function, not free-form text being classified.
-        4. Optional rapidfuzz fallback (≥80) when rapidfuzz is
-           installed. Falls through silently when not.
-
-    Ties at any strategy mark the resolution as ambiguous and Gate 2
-    of the writer rejects ambiguous candidates per design §3 Gate 2.
+    Strategies: exact name → exact handle → substring name (≥3 chars) → rapidfuzz (≥80).
+    Ties at any strategy are ambiguous; Gate 2 rejects ambiguous candidates.
     """
     if not mention or not mention.strip():
         return PersonResolution(None, False, (), "empty_mention")
     needle = mention.strip().lower()
 
-    # Strategy 1: exact name match
-    name_rows = store._conn.execute(
+    result = _strategy_exact_name(store, owner_user_id, needle)
+    if result is not None:
+        return result
+
+    result = _strategy_exact_handle(store, owner_user_id, needle)
+    if result is not None:
+        return result
+
+    result = _strategy_substring_name(store, owner_user_id, needle)
+    if result is not None:
+        return result
+
+    result = _strategy_fuzzy(store, owner_user_id, needle)
+    if result is not None:
+        return result
+
+    return PersonResolution(None, False, (), "no_match")
+
+
+def _strategy_exact_name(
+    store: MemoryStore,
+    owner_user_id: int,
+    needle: str,
+) -> PersonResolution | None:
+    """Strategy 1: exact case-insensitive name match."""
+    rows = store._conn.execute(
         "SELECT id, owner_user_id, name, handle, provisional "
         "FROM people WHERE owner_user_id = ? AND LOWER(name) = ?",
         (owner_user_id, needle),
     ).fetchall()
-    if name_rows:
-        hits = tuple(
-            _row_to_person_hit(store, row, score=1.0, matched_via="name")
-            for row in name_rows
-        )
-        if len(hits) > 1:
-            return PersonResolution(None, True, hits, "ambiguous_name")
-        return PersonResolution(hits[0], False, hits, "exact_name")
+    if not rows:
+        return None
+    hits = tuple(_row_to_person_hit(store, row, score=1.0, matched_via="name") for row in rows)
+    if len(hits) > 1:
+        return PersonResolution(None, True, hits, "ambiguous_name")
+    return PersonResolution(hits[0], False, hits, "exact_name")
 
-    # Strategy 2: handle match (provisional handles)
-    handle_rows = store._conn.execute(
+
+def _strategy_exact_handle(
+    store: MemoryStore,
+    owner_user_id: int,
+    needle: str,
+) -> PersonResolution | None:
+    """Strategy 2: exact handle match (provisional handles)."""
+    rows = store._conn.execute(
         "SELECT id, owner_user_id, name, handle, provisional "
         "FROM people WHERE owner_user_id = ? AND LOWER(handle) = ?",
         (owner_user_id, needle),
     ).fetchall()
-    if handle_rows:
-        hits = tuple(
-            _row_to_person_hit(store, row, score=0.95, matched_via="handle")
-            for row in handle_rows
-        )
-        if len(hits) > 1:
-            return PersonResolution(None, True, hits, "ambiguous_handle")
-        return PersonResolution(hits[0], False, hits, "exact_handle")
+    if not rows:
+        return None
+    hits = tuple(_row_to_person_hit(store, row, score=0.95, matched_via="handle") for row in rows)
+    if len(hits) > 1:
+        return PersonResolution(None, True, hits, "ambiguous_handle")
+    return PersonResolution(hits[0], False, hits, "exact_handle")
 
-    # Strategy 3: substring against canonical name (≥3 chars).
-    if len(needle) >= 3:
-        substring_rows = store._conn.execute(
-            "SELECT id, owner_user_id, name, handle, provisional "
-            "FROM people WHERE owner_user_id = ? "
-            "AND name IS NOT NULL AND LOWER(name) LIKE ?",
-            (owner_user_id, f"%{needle}%"),
-        ).fetchall()
-        if substring_rows:
-            hits = tuple(
-                _row_to_person_hit(store, row, score=0.7, matched_via="name_substring")
-                for row in substring_rows
-            )
-            if len(hits) > 1:
-                return PersonResolution(None, True, hits, "ambiguous_substring")
-            return PersonResolution(hits[0], False, hits, "substring_name")
 
-    # Strategy 4: optional rapidfuzz fallback
+def _strategy_substring_name(
+    store: MemoryStore,
+    owner_user_id: int,
+    needle: str,
+) -> PersonResolution | None:
+    """Strategy 3: substring against canonical name (≥3 chars)."""
+    if len(needle) < 3:
+        return None
+    rows = store._conn.execute(
+        "SELECT id, owner_user_id, name, handle, provisional "
+        "FROM people WHERE owner_user_id = ? "
+        "AND name IS NOT NULL AND LOWER(name) LIKE ?",
+        (owner_user_id, f"%{needle}%"),
+    ).fetchall()
+    if not rows:
+        return None
+    hits = tuple(_row_to_person_hit(store, row, score=0.7, matched_via="name_substring") for row in rows)
+    if len(hits) > 1:
+        return PersonResolution(None, True, hits, "ambiguous_substring")
+    return PersonResolution(hits[0], False, hits, "substring_name")
+
+
+def _strategy_fuzzy(
+    store: MemoryStore,
+    owner_user_id: int,
+    needle: str,
+) -> PersonResolution | None:
+    """Strategy 4: optional rapidfuzz fallback (≥80 score)."""
     try:
         from rapidfuzz import fuzz
     except ImportError:
-        fuzz = None
-    if fuzz is not None:
-        all_rows = store._conn.execute(
-            "SELECT id, owner_user_id, name, handle, provisional "
-            "FROM people WHERE owner_user_id = ? AND name IS NOT NULL",
-            (owner_user_id,),
-        ).fetchall()
-        scored: list[tuple[int, object]] = []
-        for row in all_rows:
-            score = int(fuzz.ratio(needle, str(row["name"]).lower()))
-            if score >= 80:
-                scored.append((score, row))
-        if scored:
-            scored.sort(key=lambda pair: -pair[0])
-            top_score = scored[0][0]
-            top = [row for s, row in scored if s == top_score]
-            hits = tuple(
-                _row_to_person_hit(store, row, score=top_score / 100.0, matched_via="alias_fuzzy")
-                for row in top
-            )
-            if len(hits) > 1:
-                return PersonResolution(None, True, hits, "ambiguous_fuzzy")
-            return PersonResolution(hits[0], False, hits, "fuzzy_name")
-
-    return PersonResolution(None, False, (), "no_match")
+        return None
+    return _score_fuzzy_candidates(store, owner_user_id, needle, fuzz)
 
 
 def read_social_context(
@@ -161,14 +195,24 @@ def read_social_context(
 ) -> list[PersonHit]:
     """Tier 5 read path — return the most relevant people for a query.
 
-    M3 strategy: try to resolve the cleaned query terms one at a time
-    against the people table; collect any hits; deduplicate by person_id;
-    fall back to the most-recently-updated people for the owner if
-    nothing matched. The result is a small set of PersonHits suitable
-    for rendering into the {social_context} prompt slot.
+    Resolves cleaned query terms then tops up with recent people when needed.
+    Result is sorted by score descending and capped at top_k.
     """
     seen: dict[int, PersonHit] = {}
+    _collect_hits_from_terms(store, owner_user_id, query, seen)
+    if len(seen) < top_k:
+        _fill_from_recent(store, owner_user_id, seen, top_k)
+    hits = sorted(seen.values(), key=lambda h: (-h.score, h.person_id))
+    return hits[:top_k]
 
+
+def _collect_hits_from_terms(
+    store: MemoryStore,
+    owner_user_id: int,
+    query: str,
+    seen: dict[int, PersonHit],
+) -> None:
+    """Resolve each query term and populate ``seen`` with matched PersonHits."""
     terms = _clean_query_terms(query) if query else []
     for term in terms:
         result = resolve_person(store, owner_user_id, term)
@@ -178,24 +222,24 @@ def read_social_context(
             for cand in result.candidates:
                 seen.setdefault(cand.person_id, cand)
 
-    # If we don't have enough hits, top up with recent people.
-    if len(seen) < top_k:
-        rows = store._conn.execute(
-            "SELECT id, owner_user_id, name, handle, provisional "
-            "FROM people WHERE owner_user_id = ? "
-            "ORDER BY updated_at DESC, id DESC LIMIT ?",
-            (owner_user_id, top_k),
-        ).fetchall()
-        for row in rows:
-            person_id = int(row["id"])
-            if person_id in seen:
-                continue
-            seen[person_id] = _row_to_person_hit(store, row, score=0.5, matched_via="recency")
-            if len(seen) >= top_k:
-                break
 
-    hits = sorted(
-        seen.values(),
-        key=lambda h: (-h.score, h.person_id),
-    )
-    return hits[:top_k]
+def _fill_from_recent(
+    store: MemoryStore,
+    owner_user_id: int,
+    seen: dict[int, PersonHit],
+    top_k: int,
+) -> None:
+    """Top up ``seen`` with the most recently updated people rows."""
+    rows = store._conn.execute(
+        "SELECT id, owner_user_id, name, handle, provisional "
+        "FROM people WHERE owner_user_id = ? "
+        "ORDER BY updated_at DESC, id DESC LIMIT ?",
+        (owner_user_id, top_k),
+    ).fetchall()
+    for row in rows:
+        person_id = int(row["id"])
+        if person_id in seen:
+            continue
+        seen[person_id] = _row_to_person_hit(store, row, score=0.5, matched_via="recency")
+        if len(seen) >= top_k:
+            break

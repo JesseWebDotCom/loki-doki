@@ -111,6 +111,90 @@ class SessionContext:
 # ---------------------------------------------------------------------------
 
 
+def _recency_facts(
+    store: MemoryStore,
+    owner_user_id: int,
+    top_k: int,
+) -> list[FactHit]:
+    """Return the most recently updated active facts for this user."""
+    rows = store._conn.execute(
+        """
+        SELECT id, owner_user_id, subject, predicate, value, confidence
+        FROM facts
+        WHERE owner_user_id = ? AND status = 'active'
+        ORDER BY updated_at DESC
+        LIMIT ?
+        """,
+        (owner_user_id, top_k),
+    ).fetchall()
+    return [
+        FactHit(
+            fact_id=int(row["id"]),
+            owner_user_id=int(row["owner_user_id"]),
+            subject=str(row["subject"]),
+            predicate=str(row["predicate"]),
+            value=str(row["value"]),
+            confidence=float(row["confidence"]),
+            score=1.0,
+            sources=("recency",),
+        )
+        for row in rows
+    ]
+
+
+def _hydrate_and_score_facts(
+    store: MemoryStore,
+    owner_user_id: int,
+    fused: dict,
+    predicate_filter: Iterable[str] | None,
+    top_k: int,
+) -> list[FactHit]:
+    """Load full fact rows for fused ids, apply predicate filter, and sort."""
+    fact_ids = list(fused.keys())
+    placeholders = ",".join("?" * len(fact_ids))
+    sql = f"""
+        SELECT id, owner_user_id, subject, predicate, value, confidence
+        FROM facts
+        WHERE id IN ({placeholders})
+          AND owner_user_id = ?
+          AND status = 'active'
+    """
+    params: list[object] = list(fact_ids) + [owner_user_id]
+    rows = store._conn.execute(sql, params).fetchall()
+    predicate_set: set[str] | None = (
+        set(predicate_filter) if predicate_filter is not None else None
+    )
+    hits = _rows_to_fact_hits(rows, fused, predicate_set)
+    hits.sort(key=lambda h: (-h.score, -h.confidence, h.fact_id))
+    return hits[:top_k]
+
+
+def _rows_to_fact_hits(
+    rows: list,
+    fused: dict,
+    predicate_set: set[str] | None,
+) -> list[FactHit]:
+    """Convert raw DB rows to FactHit objects, applying optional predicate filter."""
+    hits: list[FactHit] = []
+    for row in rows:
+        if predicate_set is not None and row["predicate"] not in predicate_set:
+            continue
+        score, sources = fused[int(row["id"])]
+        hits.append(
+            FactHit(
+                fact_id=int(row["id"]),
+                owner_user_id=int(row["owner_user_id"]),
+                subject=str(row["subject"]),
+                predicate=str(row["predicate"]),
+                value=str(row["value"]),
+                confidence=float(row["confidence"]),
+                score=score,
+                sources=tuple(sources),
+            )
+        )
+    return hits
+
+
 def read_user_facts(
     store: MemoryStore,
     owner_user_id: int,
@@ -132,29 +216,7 @@ def read_user_facts(
         # Empty query -> fall back to "all active facts for this user
         # by recency". This handles bare-context calls like "what do
         # you know about me" cleanly without inventing keywords.
-        rows = store._conn.execute(
-            """
-            SELECT id, owner_user_id, subject, predicate, value, confidence
-            FROM facts
-            WHERE owner_user_id = ? AND status = 'active'
-            ORDER BY updated_at DESC
-            LIMIT ?
-            """,
-            (owner_user_id, top_k),
-        ).fetchall()
-        return [
-            FactHit(
-                fact_id=int(row["id"]),
-                owner_user_id=int(row["owner_user_id"]),
-                subject=str(row["subject"]),
-                predicate=str(row["predicate"]),
-                value=str(row["value"]),
-                confidence=float(row["confidence"]),
-                score=1.0,
-                sources=("recency",),
-            )
-            for row in rows
-        ]
+        return _recency_facts(store, owner_user_id, top_k)
 
     bm25_hits = _bm25_search(store, owner_user_id, terms, limit=20)
     subject_hits = _subject_scan(store, owner_user_id, terms, limit=20)
@@ -168,43 +230,7 @@ def read_user_facts(
     )
     if not fused:
         return []
-
-    # Hydrate the fused fact ids with row data and apply optional
-    # predicate filter.
-    fact_ids = list(fused.keys())
-    placeholders = ",".join("?" * len(fact_ids))
-    sql = f"""
-        SELECT id, owner_user_id, subject, predicate, value, confidence
-        FROM facts
-        WHERE id IN ({placeholders})
-          AND owner_user_id = ?
-          AND status = 'active'
-    """
-    params: list[object] = list(fact_ids) + [owner_user_id]
-    rows = store._conn.execute(sql, params).fetchall()
-
-    predicate_set: set[str] | None = (
-        set(predicate_filter) if predicate_filter is not None else None
-    )
-    hits: list[FactHit] = []
-    for row in rows:
-        if predicate_set is not None and row["predicate"] not in predicate_set:
-            continue
-        score, sources = fused[int(row["id"])]
-        hits.append(
-            FactHit(
-                fact_id=int(row["id"]),
-                owner_user_id=int(row["owner_user_id"]),
-                subject=str(row["subject"]),
-                predicate=str(row["predicate"]),
-                value=str(row["value"]),
-                confidence=float(row["confidence"]),
-                score=score,
-                sources=tuple(sources),
-            )
-        )
-    hits.sort(key=lambda h: (-h.score, -h.confidence, h.fact_id))
-    return hits[:top_k]
+    return _hydrate_and_score_facts(store, owner_user_id, fused, predicate_filter, top_k)
 
 
 # ---------------------------------------------------------------------------

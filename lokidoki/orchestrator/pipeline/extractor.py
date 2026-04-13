@@ -39,6 +39,25 @@ def _extract_from_doc(chunk: RequestChunk, doc: Any) -> ChunkExtraction:
     if span is None:
         return ChunkExtraction(chunk_index=chunk.index)
 
+    _fill_span_features(span, doc, references, predicates, subject_candidates, entities)
+    return ChunkExtraction(
+        chunk_index=chunk.index,
+        references=_dedup(references),
+        predicates=_dedup(predicates),
+        subject_candidates=_dedup(subject_candidates),
+        entities=entities,
+    )
+
+
+def _fill_span_features(
+    span: Any,
+    doc: Any,
+    references: list[str],
+    predicates: list[str],
+    subject_candidates: list[str],
+    entities: list[tuple[str, str]],
+) -> None:
+    """Populate feature lists from a spaCy span in-place."""
     # Pronoun references come from spaCy POS tagging (PRON), filtered against
     # the closed pronoun set in linguistics.english.
     for token in span:
@@ -66,14 +85,6 @@ def _extract_from_doc(chunk: RequestChunk, doc: Any) -> ChunkExtraction:
     for ent in doc.ents:
         if ent.start >= span.start and ent.end <= span.end:
             entities.append((ent.text, ent.label_))
-
-    return ChunkExtraction(
-        chunk_index=chunk.index,
-        references=_dedup(references),
-        predicates=_dedup(predicates),
-        subject_candidates=_dedup(subject_candidates),
-        entities=entities,
-    )
 
 
 def _slice_span(chunk: RequestChunk, doc: Any) -> Any | None:

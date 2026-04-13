@@ -133,18 +133,34 @@ def _walk_sentence(
         "chunk_index": context.chunk_index,
         "owner_user_id": context.owner_user_id,
     }
-
     tokens = list(sent)
+    yield from _extract_copular_patterns(tokens, base_kwargs)
+    yield from _extract_call_me(tokens, base_kwargs)
 
-    # Pattern 1+2: copular self-assertions ("I am X", "I'm allergic to Y")
+    # Patterns 4-6 extracted to extractor_patterns.py for file size.
+    from lokidoki.orchestrator.memory.extractor_patterns import (
+        extract_favorites,
+        extract_location_and_work,
+        extract_possessive_relations,
+        extract_preferences,
+    )
+    yield from extract_possessive_relations(tokens, base_kwargs)
+    yield from extract_favorites(tokens, base_kwargs)
+    yield from extract_location_and_work(tokens, base_kwargs)
+    yield from extract_preferences(tokens, base_kwargs)
+
+
+def _extract_copular_patterns(
+    tokens: list[Any],
+    base_kwargs: dict[str, Any],
+) -> Iterator[MemoryCandidate]:
+    """Pattern 1+2: copular self-assertions ("I am X", "I'm allergic to Y")."""
     for token in tokens:
         if not _is_first_person_subject(token):
             continue
         head = token.head
         if head is None:
             continue
-        # The head should be a verb or copula. We then look at its
-        # complements (attribute, acomp, oprd) and direct objects.
         complements = [
             child
             for child in head.children
@@ -172,192 +188,37 @@ def _walk_sentence(
                     **base_kwargs,
                 )
 
-    # Pattern 3: imperative "call me X" / "don't call me X"
-    for token in tokens:
-        if token.lemma_.lower() == "call" and token.dep_ == "ROOT":
-            objects = [child for child in token.children if child.dep_ in {"dobj", "oprd"}]
-            me_present = any(
-                child.lower_ in {"me", "myself"} and child.dep_ == "dobj"
-                for child in token.children
-            )
-            if not me_present:
-                continue
-            for obj in objects:
-                if obj.lower_ in {"me", "myself"}:
-                    continue
-                # The name is typically an oprd or attr after 'me'.
-                name = obj.text
-                negated = any(
-                    child.dep_ == "neg" or child.lower_ in {"don't", "do"}
-                    for child in token.children
-                )
-                if negated:
-                    yield MemoryCandidate(
-                        subject="self",
-                        predicate="hard_dislike",
-                        value=name,
-                        **base_kwargs,
-                    )
-                else:
-                    yield MemoryCandidate(
-                        subject="self",
-                        predicate="is_named",
-                        value=name,
-                        **base_kwargs,
-                    )
 
-    # Pattern 4+5: possessive relation ("my brother Luke", "my boss")
+def _extract_call_me(
+    tokens: list[Any],
+    base_kwargs: dict[str, Any],
+) -> Iterator[MemoryCandidate]:
+    """Pattern 3: imperative "call me X" / "don't call me X"."""
     for token in tokens:
-        if token.lower_ != "my":
+        if not (token.lemma_.lower() == "call" and token.dep_ == "ROOT"):
             continue
-        head = token.head
-        if head is None or head.pos_ not in {"NOUN", "PROPN"}:
-            continue
-        if head.lemma_.lower() not in _RELATION_NOUNS:
-            continue
-        relation = head.lemma_.lower()
-        # Look for an apposition (named referent) — "my brother Luke"
-        named_child = next(
-            (child for child in head.children if child.dep_ == "appos" and child.pos_ == "PROPN"),
-            None,
-        )
-        # Or a sibling proper noun — "my brother, Luke"
-        if named_child is None:
-            for sibling in head.head.children if head.head else []:
-                if sibling is head:
-                    continue
-                if sibling.dep_ == "appos" and sibling.pos_ == "PROPN":
-                    named_child = sibling
-                    break
-        if named_child is not None:
-            yield MemoryCandidate(
-                subject=f"person:{named_child.text}",
-                predicate="is_relation",
-                value=_relation_label(relation),
-                **base_kwargs,
-            )
-        else:
-            handle = f"my {relation}"
-            yield MemoryCandidate(
-                subject=f"handle:{handle}",
-                predicate="is_relation",
-                value=_relation_label(relation),
-                **base_kwargs,
-            )
-
-    # Pattern 6a: "my favorite X is Y" → (self, favorite_X, Y)
-    # Closed enum of supported "favorite_X" predicates so we don't
-    # silently widen Tier 4 with arbitrary axes.
-    favorite_axes = {
-        "color": "favorite_color",
-        "colour": "favorite_color",
-        "food": "favorite_food",
-        "movie": "favorite_movie",
-        "film": "favorite_movie",
-    }
-    for token in tokens:
-        # Find a copular root with an attr/acomp complement.
-        if token.dep_ != "ROOT" or token.lemma_.lower() not in {"be"}:
-            continue
-        nsubj = next((c for c in token.children if c.dep_ == "nsubj"), None)
-        if nsubj is None or nsubj.pos_ not in {"NOUN", "PROPN"}:
-            continue
-        # The subject noun must have a "my" possessive child and an
-        # "favorite" amod child for this pattern.
-        has_my = any(c.dep_ == "poss" and c.lower_ == "my" for c in nsubj.children)
-        amod_favorite = any(
-            c.dep_ == "amod" and c.lower_ in {"favorite", "favourite"}
-            for c in nsubj.children
-        )
-        if not (has_my and amod_favorite):
-            continue
-        axis_key = nsubj.lemma_.lower()
-        if axis_key not in favorite_axes:
-            continue
-        complement = next(
-            (c for c in token.children if c.dep_ in {"attr", "acomp"}),
-            None,
-        )
-        if complement is None:
-            continue
-        value = _span_text(complement)
-        if value:
-            yield MemoryCandidate(
-                subject="self",
-                predicate=favorite_axes[axis_key],
-                value=value,
-                **base_kwargs,
-            )
-
-    # Pattern 6b: "I live in <Loc>" / "I live at <Loc>" → (self, lives_in, Loc)
-    # Pattern 6c: "I work at <Org>" / "I work for <Org>" → (self, current_employer, Org)
-    location_verbs = {"live"}
-    work_verbs = {"work"}
-    for token in tokens:
-        if token.dep_ != "ROOT":
-            continue
-        lemma = token.lemma_.lower()
-        if lemma not in (location_verbs | work_verbs):
-            continue
-        if not any(_is_first_person_subject(c) for c in token.children):
-            continue
-        prep = next(
-            (
-                c
-                for c in token.children
-                if c.dep_ == "prep" and c.lower_ in {"in", "at", "for"}
-            ),
-            None,
-        )
-        if prep is None:
-            continue
-        pobj = next((c for c in prep.children if c.dep_ == "pobj"), None)
-        if pobj is None:
-            continue
-        place = _span_text(pobj)
-        if not place:
-            continue
-        if lemma in location_verbs and prep.lower_ in {"in", "at"}:
-            yield MemoryCandidate(
-                subject="self",
-                predicate="lives_in",
-                value=place,
-                **base_kwargs,
-            )
-        elif lemma in work_verbs and prep.lower_ in {"at", "for"}:
-            yield MemoryCandidate(
-                subject="self",
-                predicate="current_employer",
-                value=place,
-                **base_kwargs,
-            )
-
-    # Pattern 6: "I love/hate X"
-    for token in tokens:
-        if token.lemma_.lower() not in _PREFERENCE_LEMMAS:
-            continue
-        if token.dep_ != "ROOT" and token.head.dep_ != "ROOT":
-            # Allow main-clause verbs only — avoids matching "I think I love X"
-            # at the inner clause's verb. The outer verb still fires.
-            pass
-        subjects = [child for child in token.children if child.dep_ == "nsubj"]
-        if not any(_is_first_person_subject(s) for s in subjects):
-            continue
-        objects = [
-            child
+        objects = [child for child in token.children if child.dep_ in {"dobj", "oprd"}]
+        me_present = any(
+            child.lower_ in {"me", "myself"} and child.dep_ == "dobj"
             for child in token.children
-            if child.dep_ in {"dobj", "obj", "attr", "acomp"}
-        ]
+        )
+        if not me_present:
+            continue
+        negated = any(
+            child.dep_ == "neg" or child.lower_ in {"don't", "do"}
+            for child in token.children
+        )
         for obj in objects:
-            value = _span_text(obj)
-            if value:
-                predicate = _PREFERENCE_LEMMAS[token.lemma_.lower()]
-                yield MemoryCandidate(
-                    subject="self",
-                    predicate=predicate,
-                    value=value,
-                    **base_kwargs,
-                )
+            if obj.lower_ in {"me", "myself"}:
+                continue
+            name = obj.text
+            predicate = "hard_dislike" if negated else "is_named"
+            yield MemoryCandidate(
+                subject="self",
+                predicate=predicate,
+                value=name,
+                **base_kwargs,
+            )
 
 
 def _is_first_person_subject(token: Any) -> bool:
@@ -399,10 +260,3 @@ def _span_text(token: Any) -> str:
     return doc[start:end].text
 
 
-def _relation_label(relation: str) -> str:
-    """Canonicalize a relation noun ('mom' → 'mother', 'dad' → 'father')."""
-    aliases = {
-        "mom": "mother",
-        "dad": "father",
-    }
-    return aliases.get(relation, relation)

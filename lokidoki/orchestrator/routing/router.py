@@ -58,20 +58,9 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
     best_score = 0.0
     best_text = ""
 
-    for item in active_runtime.router_index:
-        if item["capability"] == "direct_chat":
-            # direct_chat is the floor-based fallback, never the
-            # best-cosine winner — its examples are intentionally vague
-            # and would otherwise dominate the index.
-            continue
-        texts = item.get("texts") or []
-        vectors = item.get("vectors") or []
-        for text, vector in zip(texts, vectors, strict=True):
-            score = _cosine_similarity(query_vector, vector)
-            if score > best_score:
-                best_score = score
-                best_capability = item["capability"]
-                best_text = text
+    best_capability, best_score, best_text = _best_index_match(
+        query_vector, active_runtime.router_index, best_capability, best_score, best_text
+    )
 
     if best_score < ROUTE_FLOOR:
         if _should_promote_retrieval_fallback(best_capability, best_score):
@@ -94,6 +83,31 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
         confidence=round(confidence, 3),
         matched_text=best_text,
     )
+
+
+def _best_index_match(
+    query_vector: list[float],
+    router_index: list[dict],
+    best_capability: str,
+    best_score: float,
+    best_text: str,
+) -> tuple[str, float, str]:
+    """Scan the router index and return (capability, score, text) for the best match."""
+    for item in router_index:
+        if item["capability"] == "direct_chat":
+            # direct_chat is the floor-based fallback, never the
+            # best-cosine winner — its examples are intentionally vague
+            # and would otherwise dominate the index.
+            continue
+        texts = item.get("texts") or []
+        vectors = item.get("vectors") or []
+        for text, vector in zip(texts, vectors, strict=True):
+            score = _cosine_similarity(query_vector, vector)
+            if score > best_score:
+                best_score = score
+                best_capability = item["capability"]
+                best_text = text
+    return best_capability, best_score, best_text
 
 
 def _should_promote_retrieval_fallback(capability: str, score: float) -> bool:

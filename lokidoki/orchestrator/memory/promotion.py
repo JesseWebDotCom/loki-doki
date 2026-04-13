@@ -82,6 +82,18 @@ def run_cross_session_promotion(
     from lokidoki.orchestrator.memory.writer import process_candidate
 
     promoted: list[dict[str, Any]] = []
+    for obs, session_count in _select_promotion_candidates(store, owner_user_id, observations):
+        promoted.extend(_try_promote(obs, owner_user_id, session_count, store, process_candidate, MemoryCandidate))
+    return promoted
+
+
+def _select_promotion_candidates(
+    store: "MemoryStore",
+    owner_user_id: int,
+    observations: list["SessionObservation"],
+) -> list[tuple["SessionObservation", int]]:
+    """Return deduplicated observations whose session_count meets the threshold."""
+    candidates: list[tuple[Any, int]] = []
     seen_keys: set[tuple[str, str, str]] = set()
     for obs in observations:
         key = (obs.subject, obs.predicate, obs.value)
@@ -94,27 +106,34 @@ def run_cross_session_promotion(
             predicate=obs.predicate,
             value=obs.value,
         )
-        if session_count < PROMOTION_THRESHOLD:
-            continue
-        # Build a synthetic candidate and run it through the writer.
-        # The writer's gate chain will reject any candidate that
-        # shouldn't actually land in a durable tier.
-        candidate = MemoryCandidate(
-            subject=obs.subject,
-            predicate=obs.predicate,
-            value=obs.value,
-            owner_user_id=owner_user_id,
-            source_text=obs.source_text or f"promotion via {session_count} sessions",
-        )
-        decision = process_candidate(candidate, store=store)
-        if decision.accepted:
-            promoted.append(
-                {
-                    "subject": obs.subject,
-                    "predicate": obs.predicate,
-                    "value": obs.value,
-                    "session_count": session_count,
-                    "tier": int(decision.target_tier) if decision.target_tier else None,
-                }
-            )
-    return promoted
+        if session_count >= PROMOTION_THRESHOLD:
+            candidates.append((obs, session_count))
+    return candidates
+
+
+def _try_promote(
+    obs: "SessionObservation",
+    owner_user_id: int,
+    session_count: int,
+    store: "MemoryStore",
+    process_candidate: Any,
+    MemoryCandidate: Any,
+) -> list[dict[str, Any]]:
+    """Run one observation through the writer gate chain; return a list with the result if accepted."""
+    candidate = MemoryCandidate(
+        subject=obs.subject,
+        predicate=obs.predicate,
+        value=obs.value,
+        owner_user_id=owner_user_id,
+        source_text=obs.source_text or f"promotion via {session_count} sessions",
+    )
+    decision = process_candidate(candidate, store=store)
+    if decision.accepted:
+        return [{
+            "subject": obs.subject,
+            "predicate": obs.predicate,
+            "value": obs.value,
+            "session_count": session_count,
+            "tier": int(decision.target_tier) if decision.target_tier else None,
+        }]
+    return []

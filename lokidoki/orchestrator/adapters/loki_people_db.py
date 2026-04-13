@@ -90,18 +90,7 @@ class LokiPeopleDBAdapter:
         # 3. Fuzzy fallback.
         if fuzz is None:
             return None
-
-        scored: list[tuple[int, PersonRecord]] = []
-        for record in records:
-            pool = [record.name.lower(), *(alias.lower() for alias in record.aliases)]
-            best = max(fuzz.ratio(needle, candidate) for candidate in pool)
-            if best >= 80:
-                scored.append((best, record))
-        if not scored:
-            return None
-        scored.sort(key=lambda item: (-item[0], item[1].priority))
-        top_score, top_record = scored[0]
-        return self._rank(needle, [top_record], score=top_score)
+        return self._fuzzy_match(needle, records)
 
     # ---- internals ----------------------------------------------------------
 
@@ -132,6 +121,20 @@ class LokiPeopleDBAdapter:
                 aliases=aliases,
                 priority=_BUCKET_PRIORITY.get(str(bucket or "other"), 60),
             )
+
+    def _fuzzy_match(self, needle: str, records: list[PersonRecord]) -> PersonMatch | None:
+        """Return the best fuzzy match for ``needle`` among ``records``, or None."""
+        scored: list[tuple[int, PersonRecord]] = []
+        for record in records:
+            pool = [record.name.lower(), *(alias.lower() for alias in record.aliases)]
+            best = max(fuzz.ratio(needle, candidate) for candidate in pool)
+            if best >= 80:
+                scored.append((best, record))
+        if not scored:
+            return None
+        scored.sort(key=lambda item: (-item[0], item[1].priority))
+        top_score, top_record = scored[0]
+        return self._rank(needle, [top_record], score=top_score)
 
     def _rank(
         self,

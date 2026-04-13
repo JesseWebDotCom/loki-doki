@@ -97,20 +97,28 @@ def resolve_pronouns(
     if not pronouns and not definites:
         return None
 
-    target_types: tuple[str, ...]
-    if pronouns:
-        target_types = PRONOUN_PREFERRED_TYPES.get(pronouns[0], ())
-    else:
-        target_types = ("movie", "film", "media")
-
+    trigger = (pronouns or definites)[0]
+    target_types: tuple[str, ...] = (
+        PRONOUN_PREFERRED_TYPES.get(pronouns[0], ()) if pronouns else ("movie", "film", "media")
+    )
     candidates = _candidates_for(memory, target_types)
+    return _build_pronoun_resolution(chunk, route, candidates, trigger)
+
+
+def _build_pronoun_resolution(
+    chunk: RequestChunk,
+    route: RouteMatch,
+    candidates: list[RecentEntity],
+    trigger: str,
+) -> ResolutionResult:
+    """Build the appropriate ResolutionResult based on candidate count."""
     if not candidates:
         return ResolutionResult(
             chunk_index=chunk.index,
             resolved_target="",
             source="unresolved_referent",
             confidence=route.confidence,
-            unresolved=[f"referent:{(pronouns or definites)[0]}"],
+            unresolved=[f"referent:{trigger}"],
             notes=["no recent entity to bind referent"],
         )
 
@@ -122,12 +130,9 @@ def resolve_pronouns(
             source="ambiguous_referent",
             confidence=route.confidence,
             candidate_values=names,
-            unresolved=[f"referent_ambiguous:{(pronouns or definites)[0]}"],
-            params={
-                "referent": (pronouns or definites)[0],
-                "candidates": names,
-            },
-            notes=[f"{len(candidates)} candidates for {(pronouns or definites)[0]}"],
+            unresolved=[f"referent_ambiguous:{trigger}"],
+            params={"referent": trigger, "candidates": names},
+            notes=[f"{len(candidates)} candidates for {trigger}"],
         )
 
     primary = candidates[0]
@@ -137,11 +142,7 @@ def resolve_pronouns(
         source="referent",
         confidence=route.confidence,
         context_value=primary.name,
-        params={
-            "referent": (pronouns or definites)[0],
-            "entity_type": primary.entity_type,
-            "entity_name": primary.name,
-        },
+        params={"referent": trigger, "entity_type": primary.entity_type, "entity_name": primary.name},
     )
 
 

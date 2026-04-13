@@ -51,6 +51,29 @@ def run_memory_write_path(
     resolved_people = safe_context.get("resolved_people") or []
     known_entities = safe_context.get("known_entities") or []
     aggregate = WriteRunResult()
+    _process_primary_chunks(
+        aggregate, chunks, parse_doc,
+        owner_user_id=owner_user_id,
+        decomposed_intent=decomposed_intent,
+        resolved_people=resolved_people,
+        known_entities=known_entities,
+        custom_store=custom_store,
+    )
+    return aggregate
+
+
+def _process_primary_chunks(
+    aggregate: WriteRunResult,
+    chunks: list,
+    parse_doc: Any,
+    *,
+    owner_user_id: int,
+    decomposed_intent: str | None,
+    resolved_people: list,
+    known_entities: list,
+    custom_store: Any,
+) -> None:
+    """Extract candidates from each primary chunk and write them to the store."""
     for chunk in chunks:
         if chunk.role != "primary_request":
             continue
@@ -72,4 +95,3 @@ def run_memory_write_path(
         )
         aggregate.accepted.extend(run.accepted)
         aggregate.rejected.extend(run.rejected)
-    return aggregate

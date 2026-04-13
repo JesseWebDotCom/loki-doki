@@ -212,6 +212,25 @@ def add_pick(category: str, name: str, price: int, blurb: str = "") -> None:
     save_store("shopping", store)
 
 
+def _filter_and_slice_picks(
+    picks: list,
+    raw_query: str,
+    raw_budget: Any,
+) -> tuple[list, Any]:
+    """Apply budget filter, slice to top 3, and return (picks, normalized_budget)."""
+    budget = _resolve_budget(raw_query) or raw_budget
+    if isinstance(budget, str):
+        try:
+            budget = int(re.sub(r"[^0-9]", "", budget) or "0") or None
+        except ValueError:
+            budget = None
+    if isinstance(budget, (int, float)) and budget > 0:
+        filtered = [pick for pick in picks if pick[1] <= int(budget)]
+        if filtered:
+            picks = filtered
+    return picks[:3], budget
+
+
 def find_products(payload: dict[str, Any]) -> dict[str, Any]:
     """Synchronous, offline-first product recommendation handler."""
     params = payload.get("params") or {}
@@ -231,19 +250,8 @@ def find_products(payload: dict[str, Any]) -> dict[str, Any]:
 
     # User-curated picks rank ahead of the built-in catalog so a "best
     # laptop" lookup surfaces locally added recommendations first.
-    picks = _store_extras(category) + list(_CATALOG[category])
-    budget = _resolve_budget(raw_query) or params.get("budget")
-    if isinstance(budget, str):
-        try:
-            budget = int(re.sub(r"[^0-9]", "", budget) or "0") or None
-        except ValueError:
-            budget = None
-    if isinstance(budget, (int, float)) and budget > 0:
-        filtered = [pick for pick in picks if pick[1] <= int(budget)]
-        if filtered:
-            picks = filtered
-
-    picks = picks[:3]
+    all_picks = _store_extras(category) + list(_CATALOG[category])
+    picks, budget = _filter_and_slice_picks(all_picks, raw_query, params.get("budget"))
     return AdapterResult(
         output_text=_format(category, picks),
         success=True,

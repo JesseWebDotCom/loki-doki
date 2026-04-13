@@ -1,31 +1,11 @@
-"""
-Session-close episodic summarizer (M4).
+"""Session-close episodic summarizer (M4).
 
-When a session closes the pipeline queues an out-of-band summarization
-job that walks the session metadata, the accepted memory writes from the
-session, and any explicitly recorded "topic" tags, then writes one
-``episodes`` row per close.
+Queues an out-of-band summarization job on session close, producing one
+``episodes`` row per close. Deterministic + template-driven (M4 gate);
+small-model variant is a follow-up bake-off.
 
-This is intentionally **deterministic and template-driven** in M4 — the
-M4 design (`docs/MEMORY_DESIGN.md` §3 Layer 3 / §8 M4) calls for the
-out-of-band summarizer to be small-model-driven *eventually*, but the
-phase gate explicitly says "session-close summarization runs out-of-band
-(verified by latency profile of the closing turn — must not be on the
-synchronous path)". A deterministic summarizer satisfies the latency
-gate today; a small-model variant lands as a follow-up bake-off.
-
-The summarizer is also the place where ``topic_scope`` derivation lives.
-M4's bake-off question (§10 Q9) is "LLM tag at episode summarization
-time, deterministic clustering on shared entities, or both?" — this
-module ships the deterministic-clustering variant (longest entity that
-appears across multiple turns wins) plus an explicit ``topic_scope``
-override the caller can pass.
-
-Phase status: M4 — initial implementation. Promotion of cross-session
-recurring claims (§5 reflect job step 1) lives in
-:mod:`lokidoki.orchestrator.memory.promotion` and is invoked from this module
-right after the episode is written so the close hook is the single
-"things-happen-after-the-session" entry point.
+Topic scope uses deterministic entity clustering (§10 Q9). Cross-session
+promotion lives in :mod:`lokidoki.orchestrator.memory.promotion`.
 """
 from __future__ import annotations
 
@@ -164,6 +144,40 @@ def summarize_session(
     topic_scope = derive_topic_scope(obs, explicit=explicit_topic_scope)
     title = _build_title(obs, topic_scope)
     summary = _build_summary(obs, started_at=_now())
+
+    episode_id = _write_episode_row(
+        store=store,
+        owner_user_id=owner_user_id,
+        session_id=session_id,
+        obs=obs,
+        title=title,
+        summary=summary,
+        topic_scope=topic_scope,
+    )
+    store.close_session(session_id)
+
+    promoted = _run_promotion(store=store, owner_user_id=owner_user_id, obs=obs)
+
+    return SummarizationResult(
+        episode_id=episode_id,
+        title=title,
+        summary=summary,
+        topic_scope=topic_scope,
+        promoted_claims=promoted,
+    )
+
+
+def _write_episode_row(
+    *,
+    store: MemoryStore,
+    owner_user_id: int,
+    session_id: int,
+    obs: list[SessionObservation],
+    title: str,
+    summary: str,
+    topic_scope: str | None,
+) -> int:
+    """Serialize observations and write one episodes row; return its id."""
     entity_payload = [
         {
             "subject": o.subject,
@@ -174,7 +188,7 @@ def summarize_session(
         for o in obs
     ]
     sentiment = next((o.sentiment for o in obs if o.sentiment), None)
-    episode_id = store.write_episode(
+    return store.write_episode(
         owner_user_id=owner_user_id,
         title=title,
         summary=summary,
@@ -183,26 +197,21 @@ def summarize_session(
         topic_scope=topic_scope,
         session_id=session_id,
     )
-    store.close_session(session_id)
 
-    # Cross-session promotion: walk the just-written episode + all
-    # prior episodes for the owner and promote any claim that now
-    # appears in 3+ separate sessions. The actual promotion runs the
-    # gate chain through the writer so all guarantees still hold.
+
+def _run_promotion(
+    *,
+    store: MemoryStore,
+    owner_user_id: int,
+    obs: list[SessionObservation],
+) -> list[dict[str, Any]]:
+    """Run cross-session promotion after a session closes."""
     from lokidoki.orchestrator.memory.promotion import run_cross_session_promotion
 
-    promoted = run_cross_session_promotion(
+    return run_cross_session_promotion(
         store=store,
         owner_user_id=owner_user_id,
         observations=obs,
-    )
-
-    return SummarizationResult(
-        episode_id=episode_id,
-        title=title,
-        summary=summary,
-        topic_scope=topic_scope,
-        promoted_claims=promoted,
     )
 
 

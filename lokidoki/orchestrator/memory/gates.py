@@ -68,35 +68,18 @@ from lokidoki.orchestrator.memory.gate_rules import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def run_gate_chain(
-    raw_candidate: Any,
+def _run_validated_gates(
+    candidate: Any,
+    schema_result: GateResult,
     *,
-    parse_doc: Any = None,
-    resolved_people: Iterable[str] | None = None,
-    known_entities: Iterable[str] | None = None,
-    decomposed_intent: str | None = None,
+    parse_doc: Any,
+    resolved_people: Iterable[str] | None,
+    known_entities: Iterable[str] | None,
+    decomposed_intent: str | None,
 ) -> GateChainResult:
-    """Run all five gates in order, short-circuiting on the first failure.
-
-    The order is intentional: cheap structural checks first (Gate 1
-    works on the parse tree we already have), strict validation in the
-    middle (Gate 4 might allocate a Pydantic model), intent last (it's
-    the cheapest but also the least authoritative).
-    """
+    """Run gates 1, 2, 3, (4 trace), 5 against a pre-validated candidate."""
     results: list[GateResult] = []
 
-    # Gate 4 first if we got a raw dict — we need a validated candidate
-    # to feed the other gates. But we run Gate 4 INSIDE the chain so its
-    # result still appears in the trace.
-    schema_result, candidate = gate_schema(raw_candidate)
-    if not schema_result.passed:
-        return GateChainResult(
-            accepted=False,
-            failed_at=GateName.SCHEMA,
-            results=(schema_result,),
-        )
-
-    # We have a validated candidate. Now run gates 1 → 5 (excluding 4).
     g1 = gate_clause_shape(candidate, parse_doc)
     results.append(g1)
     if not g1.passed:
@@ -112,8 +95,7 @@ def run_gate_chain(
     if not g3.passed:
         return GateChainResult(False, GateName.PREDICATE, tuple(results))
 
-    # Gate 4 already passed — record it for the trace.
-    results.append(schema_result)
+    results.append(schema_result)  # Gate 4 already passed — record for trace.
 
     g5 = gate_intent(candidate, decomposed_intent)
     results.append(g5)
@@ -121,6 +103,39 @@ def run_gate_chain(
         return GateChainResult(False, GateName.INTENT, tuple(results))
 
     return GateChainResult(accepted=True, failed_at=None, results=tuple(results))
+
+
+def run_gate_chain(
+    raw_candidate: Any,
+    *,
+    parse_doc: Any = None,
+    resolved_people: Iterable[str] | None = None,
+    known_entities: Iterable[str] | None = None,
+    decomposed_intent: str | None = None,
+) -> GateChainResult:
+    """Run all five gates in order, short-circuiting on the first failure.
+
+    The order is intentional: cheap structural checks first (Gate 1
+    works on the parse tree we already have), strict validation in the
+    middle (Gate 4 might allocate a Pydantic model), intent last (it's
+    the cheapest but also the least authoritative).
+    """
+    # Gate 4 runs first — we need a validated candidate for the other gates.
+    schema_result, candidate = gate_schema(raw_candidate)
+    if not schema_result.passed:
+        return GateChainResult(
+            accepted=False,
+            failed_at=GateName.SCHEMA,
+            results=(schema_result,),
+        )
+    return _run_validated_gates(
+        candidate,
+        schema_result,
+        parse_doc=parse_doc,
+        resolved_people=resolved_people,
+        known_entities=known_entities,
+        decomposed_intent=decomposed_intent,
+    )
 
 
 __all__ = [
