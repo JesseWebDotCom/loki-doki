@@ -14,7 +14,7 @@ from lokidoki.orchestrator.memory.reader import (
     PersonHit,
     SessionContext,
 )
-from lokidoki.orchestrator.memory.slots import (
+from lokidoki.orchestrator.memory.slots_base import (
     STYLE_DESCRIPTORS,
     truncate_to_budget,
 )

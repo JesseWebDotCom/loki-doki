@@ -74,7 +74,7 @@ async def chat(
     is_first_turn = len(existing_messages) == 0
 
     # Persist user message to v1 chat history.
-    await memory.add_message(
+    user_message_id = await memory.add_message(
         user_id=user_id, session_id=session_id, role="user", content=request.message,
     )
 
@@ -105,6 +105,7 @@ async def chat(
         "memory_writes_enabled": True,
         "memory_store": memory_store,
         "memory_provider": memory,
+        "user_message_id": user_message_id,
         "owner_user_id": user_id,
         "behavior_prompt": behavior_prompt,
         "character_name": character_name,

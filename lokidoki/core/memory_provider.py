@@ -353,23 +353,53 @@ class MemoryProvider:
 
     async def get_messages(
         self, user_id: int, session_id: int, limit: int = 0
-    ) -> list[sqlite3.Row]:
+    ) -> list[dict]:
         async with self._lock:
-            return await asyncio.to_thread(
+            rows = await asyncio.to_thread(
                 lambda: sql.get_messages(
                     self._conn, user_id=user_id, session_id=session_id, limit=limit
                 )
             )
 
+        # Parse JSON fields from the chat_traces join
+        results = []
+        for row in rows:
+            d = dict(row)
+            for k in [
+                "decomposition_json", "referent_resolution_json",
+                "skill_results_json", "phase_latencies_json",
+                "prompt_sizes_json", "response_spec_shadow_json"
+            ]:
+                if d.get(k):
+                    try:
+                        d[k.replace("_json", "")] = json.loads(d[k])
+                    except (TypeError, json.JSONDecodeError):
+                        d[k.replace("_json", "")] = None
+            results.append(d)
+        return results
+
     async def get_message(
         self, user_id: int, message_id: int
-    ) -> Optional[sqlite3.Row]:
+    ) -> Optional[dict]:
         async with self._lock:
-            return await asyncio.to_thread(
+            row = await asyncio.to_thread(
                 lambda: sql.get_message(
                     self._conn, user_id=user_id, message_id=message_id
                 )
             )
+        if not row:
+            return None
+        d = dict(row)
+        for k in [
+            "decomposition_json", "referent_resolution_json",
+            "skill_results_json", "phase_latencies_json"
+        ]:
+            if d.get(k):
+                try:
+                    d[k.replace("_json", "")] = json.loads(d[k])
+                except (TypeError, json.JSONDecodeError):
+                    d[k.replace("_json", "")] = None
+        return d
 
     async def search_messages(
         self, *, user_id: int, query: str, top_k: int = 10
@@ -400,18 +430,20 @@ class MemoryProvider:
         user_id: int,
         session_id: int,
         user_message_id: Optional[int],
-        response_lane_actual: str,
-        response_lane_planned: str,
-        shadow_disagrees: bool,
-        decomposition: dict,
-        referent_resolution: dict,
-        retrieved_memory_candidates: dict,
-        selected_injected_memories: dict,
-        skill_results: dict,
-        prompt_sizes: dict,
-        response_spec_shadow: dict,
-        phase_latencies: dict,
+        trace_result: Any, # PipelineResult
     ) -> int:
+        """Extract telemetry from a PipelineResult and persist to chat_traces row."""
+        from dataclasses import asdict
+        r = trace_result
+
+        # Phase latencies
+        phase_latencies = {}
+        for step in r.trace.steps:
+            from lokidoki.orchestrator.core.streaming import _STEP_TO_PHASE
+            phase = _STEP_TO_PHASE.get(step.name)
+            if phase:
+                phase_latencies[phase] = phase_latencies.get(phase, 0) + step.timing_ms
+
         async with self._lock:
             return await asyncio.to_thread(
                 lambda: sql.add_chat_trace(
@@ -419,16 +451,27 @@ class MemoryProvider:
                     user_id=user_id,
                     session_id=session_id,
                     user_message_id=user_message_id,
-                    response_lane_actual=response_lane_actual,
-                    response_lane_planned=response_lane_planned,
-                    shadow_disagrees=shadow_disagrees,
-                    decomposition=decomposition,
-                    referent_resolution=referent_resolution,
-                    retrieved_memory_candidates=retrieved_memory_candidates,
-                    selected_injected_memories=selected_injected_memories,
-                    skill_results=skill_results,
-                    prompt_sizes=prompt_sizes,
-                    response_spec_shadow=response_spec_shadow,
+                    response_lane_actual="pipeline", # default for now
+                    response_lane_planned="pipeline",
+                    shadow_disagrees=False,
+                    decomposition={
+                        "urgency": r.signals.urgency,
+                        "chunks": [c.text for c in r.chunks],
+                    },
+                    referent_resolution={
+                        "resolutions": [asdict(res) for res in r.resolutions],
+                    },
+                    retrieved_memory_candidates={},
+                    selected_injected_memories={},
+                    skill_results={
+                        "resolutions": [asdict(res) for res in r.resolutions],
+                        "executions": [asdict(exe) for exe in r.executions],
+                    },
+                    prompt_sizes=r.request_spec.context.get("_prompt_sizes", {}),
+                    response_spec_shadow={
+                        "llm_model": r.request_spec.llm_model,
+                        "llm_used": r.request_spec.llm_used,
+                    },
                     phase_latencies=phase_latencies,
                 )
             )

@@ -14,7 +14,7 @@ import {
 export type SectionId =
   | 'general' | 'characters' | 'audio' | 'skills' | 'appearance'
   | 'users' | 'character-catalog' | 'controls' | 'memory' | 'admin-skills' | 'feedback' | 'danger'
-  | 'logs' | 'tools';
+  | 'logs' | 'tools' | 'knowledge-gaps';
 
 export interface SectionDef {
   id: SectionId;
@@ -63,6 +63,9 @@ export const SECTIONS: SectionDef[] = [
   { id: 'feedback',          group: 'Permissions', label: 'Feedback Review',   icon: ScrollText,
     title: 'Feedback Review', description: 'Audit user feedback and pipeline traces across all users.',
     adminOnly: true, requiresChallenge: true, fullWidth: true },
+  { id: 'knowledge-gaps',    group: 'Permissions', label: 'Knowledge Gaps',    icon: AlertTriangle,
+    title: 'Knowledge Gaps', description: 'Manual review of queries where the system admitted ignorance.',
+    adminOnly: true, requiresChallenge: true },
 
   // ── Danger ─────────────────────────────────────────────────────
   { id: 'danger', group: 'Danger', label: 'Danger Zone', icon: AlertTriangle,

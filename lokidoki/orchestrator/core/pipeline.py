@@ -53,7 +53,7 @@ async def run_pipeline_async(
     executions = await run_execute_phase(trace, ctx, runtime, routable, routes, impls, resolutions)
     spec = build_and_annotate_spec(
         trace, ctx, raw_text, chunks, routes, impls, resolutions, executions, signals)
-    response = await run_synthesis_phase(trace, ctx, raw_text, spec, mw)
+    response = await run_synthesis_phase(trace, ctx, raw_text, spec, executions, mw, runtime)
     maybe_queue_session_close(ctx, mw)
     return PipelineResult(
         normalized=normalized, signals=signals, fast_lane=fast_lane,

@@ -161,6 +161,7 @@ const SectionBody: React.FC<{ section: SectionDef }> = ({ section }) => {
     case 'logs':              return <LogsPane />;
     case 'tools':             return <ToolsPane />;
     case 'feedback':          return <FeedbackPane />;
+    case 'knowledge-gaps':    return <KnowledgeGapsPane />;
   }
 };
 
@@ -817,6 +818,68 @@ const DangerPane: React.FC = () => {
         onConfirm={() => setResultMsg(null)}
         onCancel={() => setResultMsg(null)}
       />
+    </div>
+  );
+};
+
+const KnowledgeGapsPane: React.FC = () => {
+  const [gaps, setGaps] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void api('/api/v1/admin/knowledge-gaps')
+      .then((r) => r.json())
+      .then((data) => {
+        setGaps(data.gaps || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 border-b border-border/10 pb-4">
+        <AlertTriangle className="text-primary w-5 h-5" />
+        <h2 className="text-xl font-bold tracking-tight">Knowledge Gaps</h2>
+        <span className="text-[10px] font-bold text-muted-foreground bg-card/60 px-2 py-0.5 rounded-md border border-border/30 ml-2">
+          {gaps.length} TOTAL
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        These queries triggered a web search because the system admitted it didn't know the answer.
+        Use this to identify missing skills or data.
+      </p>
+
+      {loading ? (
+        <div className="text-xs text-muted-foreground italic p-8 text-center" data-testid="knowledge-gaps-loading">Loading gaps…</div>
+      ) : gaps.length === 0 ? (
+        <div className="text-xs text-muted-foreground italic p-8 text-center" data-testid="knowledge-gaps-empty">No knowledge gaps logged yet.</div>
+      ) : (
+        <div className="grid gap-3" data-testid="knowledge-gaps-list">
+          {[...gaps].reverse().map((gap, i) => (
+            <div key={i} className="rounded-xl border border-border/30 bg-card/50 p-4 space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                  {new Date(gap.timestamp * 1000).toLocaleString()}
+                </span>
+                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20">
+                  FALLBACK SEARCH
+                </span>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">User Input</div>
+                <div className="text-sm font-bold">"{gap.input}"</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Extracted Search Query</div>
+                <div className="text-xs font-mono bg-background/40 p-2 rounded border border-border/20">
+                  {gap.query}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

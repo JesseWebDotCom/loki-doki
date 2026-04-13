@@ -90,6 +90,62 @@ const INITIAL_PIPELINE: PipelineState = {
   clarification: null,
 };
 
+function buildPipelineStateFromDb(m: any): PipelineState | undefined {
+  if (!m.phase_latencies) return undefined;
+
+  const latencies = m.phase_latencies || {};
+  const decomp = m.decomposition || {};
+  const skillResults = m.skill_results || {};
+  const shadowSynth = m.response_spec_shadow || {};
+
+  return {
+    phase: 'completed',
+    augmentation: {
+      latency_ms: latencies.augmentation || 0,
+      context_messages: 0,
+      relevant_facts: 0,
+      past_messages: 0,
+      slots_assembled: m.prompt_sizes ? Object.keys(m.prompt_sizes) : [],
+    },
+    decomposition: {
+      model: 'pipeline',
+      latency_ms: latencies.decomposition || 0,
+      is_course_correction: false,
+      reasoning_complexity: decomp.urgency || 'low',
+      asks: (decomp.chunks || []).map((text: string, i: number) => ({
+        ask_id: `chunk_${i}`,
+        distilled_query: text,
+      })),
+    },
+    routing: {
+      skills_resolved: (skillResults.executions || []).filter((e: any) => e.success).length,
+      skills_failed: (skillResults.executions || []).filter((e: any) => e.success === false).length,
+      routing_log: (skillResults.resolutions || []).map((r: any) => {
+        const exec = (skillResults.executions || []).find((e: any) => e.chunk_index === r.chunk_index);
+        return {
+          ask_id: `chunk_${r.chunk_index}`,
+          intent: r.capability,
+          status: exec ? (exec.success ? 'success' : 'failed') : 'no_skill',
+          latency_ms: exec?.timing_ms || 0,
+        };
+      }),
+      latency_ms: latencies.routing || 0,
+    },
+    synthesis: {
+      response: m.content,
+      model: shadowSynth.llm_model || 'pipeline',
+      latency_ms: latencies.synthesis || 0,
+      tone: 'neutral',
+      platform: 'lokidoki',
+    },
+    microFastLane: null,
+    streamingResponse: m.content,
+    totalLatencyMs: Object.values(latencies).reduce((a: any, b: any) => a + (typeof b === 'number' ? b : 0), 0) as number,
+    confirmations: [],
+    clarification: null,
+  };
+}
+
 const ChatPage: React.FC = () => {
   const [chatTitle, setChatTitle] = useState('Chat');
   useDocumentTitle(chatTitle);
@@ -508,6 +564,7 @@ const ChatPage: React.FC = () => {
         content: m.content,
         timestamp: m.created_at || '',
         messageId: m.id as number | undefined,
+        pipeline: buildPipelineStateFromDb(m),
       }));
       setMessages(loaded);
     } catch (err) {

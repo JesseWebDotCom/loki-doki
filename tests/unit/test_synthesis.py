@@ -140,15 +140,15 @@ class TestCombinePromptNoParrot:
 
 
 class TestIDontKnowPath:
-    """All-low-confidence or all-direct_chat specs allow 'I don't know'."""
+    """All-low-confidence or all-direct_chat specs allow 'NEED_SEARCH' fallback."""
 
-    def test_combine_prompt_has_dont_know_instruction(self):
-        assert "I don't know" in COMBINE_PROMPT
-        assert "do not fabricate" in COMBINE_PROMPT.lower()
+    def test_combine_prompt_has_search_fallback_instruction(self):
+        assert "NEED_SEARCH" in COMBINE_PROMPT
+        assert "do not guess" in COMBINE_PROMPT.lower()
 
     def test_all_direct_chat_renders_direct_template(self):
         """When all chunks are direct_chat, we get the direct_chat template
-        which already says 'if you don't know, say so'."""
+        which already says 'if you don't know, use NEED_SEARCH'."""
         spec = _make_spec([
             RequestChunkResult(
                 text="what is love",
@@ -159,10 +159,10 @@ class TestIDontKnowPath:
             ),
         ])
         prompt = build_combine_prompt(spec)
-        # direct_chat template includes the "don't know" instruction
-        assert "don't know" in prompt.lower()
+        # direct_chat template includes the NEED_SEARCH instruction
+        assert "need_search" in prompt.lower()
 
-    def test_all_low_confidence_combine_includes_dont_know(self):
+    def test_all_low_confidence_combine_includes_search_instruction(self):
         spec = _make_spec([
             RequestChunkResult(
                 text="obscure query",
@@ -173,7 +173,7 @@ class TestIDontKnowPath:
             ),
         ])
         prompt = build_combine_prompt(spec)
-        assert "I don't know" in prompt
+        assert "NEED_SEARCH" in prompt
         assert "low confidence" in prompt
 
 

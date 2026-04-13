@@ -167,6 +167,29 @@ async def _run_pipeline_task(
     """Run the pipeline and push the final synthesis event (or error) onto the queue."""
     try:
         result = await run_pipeline_async(raw_text, context=safe_context)
+        
+        # Persist the trace to the database if a provider and message ID are available.
+        # This is what makes the 'steps' sticky in the UI across reloads.
+        memory = safe_context.get("memory_provider")
+        user_id = safe_context.get("owner_user_id")
+        session_id = safe_context.get("session_id")
+        user_message_id = safe_context.get("user_message_id")
+        
+        if memory and user_id and session_id:
+            try:
+                # TraceData contains the structured steps recorded during execution.
+                from lokidoki.orchestrator.core.types import TraceData
+                if hasattr(result, "trace") and isinstance(result.trace, TraceData):
+                    await memory.add_chat_trace(
+                        user_id=int(user_id),
+                        session_id=int(session_id),
+                        user_message_id=int(user_message_id) if user_message_id else None,
+                        trace_result=result,
+                    )
+                    logger.info("[Stream] Persisted chat trace for session %s msg %s", session_id, user_message_id)
+            except Exception:
+                logger.exception("Failed to persist chat trace to DB")
+
         queue.put_nowait(SSEEvent(
             phase="synthesis",
             status="done",

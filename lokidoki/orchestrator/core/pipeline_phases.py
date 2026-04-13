@@ -6,6 +6,7 @@ resolution, execution, synthesis) and produces trace entries.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from typing import Any
@@ -205,7 +206,7 @@ def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
     return request_spec
 
 
-async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, memory_write_result):
+async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime):
     """Read memory slots, decide LLM usage, produce final response."""
     finish = trace.timed("memory_read")
     memory_slots = run_memory_read_path(raw_text, safe_context)
@@ -221,11 +222,130 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, memor
     finish = trace.timed("combine")
     if decision.needed:
         response = await llm_synthesize_async(request_spec)
+        
+        # Phase 1 Loop: Check for knowledge gap marker
+        if "[[NEED_SEARCH:" in response.output_text:
+            response = await _handle_knowledge_gap(
+                trace, safe_context, raw_text, request_spec, executions, response, runtime
+            )
+            
         finish(mode="llm", reason=decision.reason, output_text=response.output_text)
     else:
         response = combine_request_spec(request_spec)
         finish(mode="deterministic", output_text=response.output_text)
     return response
+
+
+async def _handle_knowledge_gap(trace, safe_context, raw_text, request_spec, executions, initial_response, runtime):
+    """Fallback search loop triggered by LLM honesty marker or phrase detection."""
+    import re
+    from lokidoki.orchestrator.core.types import RequestChunk, RouteMatch, ResolutionResult
+    
+    text = initial_response.output_text
+    query = None
+    
+    # Pattern 1: Explicit marker (high confidence)
+    match = re.search(r"\[\[NEED_SEARCH:\s*(.*?)\s*\]\]", text)
+    if match:
+        query = match.group(1)
+        logger.info("[Loop] LLM requested search via marker: '%s'", query)
+    
+    # Pattern 2: Natural language admission of ignorance (fallback)
+    # Detects: "I'm not familiar with 'Wiki LLM'", "I don't know about X", etc.
+    if not query:
+        ignorance_patterns = [
+            r"not familiar with\s+[\"']?(.*?)[\"']?\s+as",
+            r"not familiar with\s+[\"']?(.*?)[\"']?[\.\!]",
+            r"don't know\s+(?:much\s+)?about\s+[\"']?(.*?)[\"']?[\.\!]",
+            r"don't have\s+(?:any\s+)?information\s+on\s+[\"']?(.*?)[\"']?[\.\!]",
+        ]
+        for pattern in ignorance_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                candidate = match.group(1).strip().strip("\"'").strip()
+                if candidate and len(candidate) < 100:
+                    query = candidate
+                    logger.info("[Loop] Detected ignorance phrase. Falling back to search for: '%s'", query)
+                    break
+                    
+    if not query:
+        return initial_response
+        
+    # 1. Log for manual review (Step 2)
+    _log_knowledge_gap(raw_text, query, safe_context)
+
+    # 2. Build a synthetic search execution
+    chunk = RequestChunk(text=query, index=999, role="primary_request")
+    route = RouteMatch(chunk_index=999, capability="search_web", confidence=1.0, matched_text=query)
+    implementation = runtime.select_handler(999, "search_web")
+    resolution = ResolutionResult(
+        chunk_index=999, 
+        resolved_target=query, 
+        source="loop", 
+        confidence=1.0, 
+        params={"query": query}
+    )
+    
+    # 3. Execute the search
+    finish = trace.timed("loop_execute_search")
+    execution = await execute_chunk_async(
+        chunk, route, implementation, resolution, budget_ms=8000, context=safe_context
+    )
+    finish(success=execution.success, query=query)
+    
+    if not execution.success:
+        logger.warning("[Loop] Fallback search failed for '%s'", query)
+        return initial_response
+        
+    # 4. Integrate result into spec and re-synthesize
+    # We create a new RequestChunkResult so the synthesis prompt builder 
+    # gets the fields it expects (role, unresolved, etc.)
+    from lokidoki.orchestrator.core.types import RequestChunkResult
+    res_chunk = RequestChunkResult(
+        text=query,
+        role="primary_request",
+        capability="search_web",
+        confidence=1.0,
+        handler_name=execution.handler_name,
+        implementation_id=implementation.implementation_id,
+        params={"query": query},
+        result=execution.raw_result,
+        success=execution.success,
+        error=execution.error
+    )
+    executions.append(execution)
+    request_spec.chunks.append(res_chunk)
+    
+    # Force the LLM to ignore the previous marker by appending a system hint if needed,
+    # but build_combine_prompt usually handles the whole Spec.
+    # We clear the previous "direct_chat" reason to ensure a full combine.
+    request_spec.llm_reason = "knowledge_gap_recovery"
+    
+    logger.info("[Loop] Re-synthesizing with search results...")
+    return await llm_synthesize_async(request_spec)
+
+
+def _log_knowledge_gap(original_input: str, resolved_query: str, context: dict):
+    """Log failures for Phase 2 manual review."""
+    user_id = context.get("owner_user_id", "unknown")
+    entry = {
+        "user_id": user_id,
+        "input": original_input,
+        "query": resolved_query,
+        "timestamp": time.time(),
+        "type": "knowledge_gap"
+    }
+    # For now, we just dump to logs. Later this could go to a 'data/knowledge_gaps.json' 
+    # for the Admin panel to read.
+    logger.warning("[Step 2] KNOWLEDGE_GAP_LOG: %s", json.dumps(entry))
+    
+    # Also append to a persistent file for administrative review
+    try:
+        log_path = "data/knowledge_gaps.jsonl"
+        with open(log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        logger.exception("Failed to write knowledge gap to persistent file")
 
 
 # ---- timed wrappers ---------------------------------------------------------

@@ -34,6 +34,7 @@ RETRIEVAL_FALLBACK_CAPABILITIES = frozenset(
         "query",
         "lookup_definition",
         "define_word",
+        "search_web",
     }
 )
 
@@ -63,7 +64,7 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
     )
 
     if best_score < ROUTE_FLOOR:
-        if _should_promote_retrieval_fallback(best_capability, best_score):
+        if _should_promote_retrieval_fallback(best_capability, best_score, query):
             return RouteMatch(
                 chunk_index=chunk.index,
                 capability=best_capability,
@@ -110,7 +111,7 @@ def _best_index_match(
     return best_capability, best_score, best_text
 
 
-def _should_promote_retrieval_fallback(capability: str, score: float) -> bool:
+def _should_promote_retrieval_fallback(capability: str, score: float, query_text: str = "") -> bool:
     """Promote near-floor factual lookups into retrieval instead of LLM chat.
 
     Retrieval-backed capabilities can safely validate the guess by
@@ -120,7 +121,19 @@ def _should_promote_retrieval_fallback(capability: str, score: float) -> bool:
     """
     if capability not in RETRIEVAL_FALLBACK_CAPABILITIES:
         return False
-    return score >= (ROUTE_FLOOR - RETRIEVAL_FALLBACK_MARGIN)
+
+    # Base margin: 0.12 (score >= 0.43)
+    margin = 0.12
+    
+    # Nudge for definitional questions (who/what/where/when/how/is/does)
+    # If it's a question, we are even more willing to try a search.
+    wh_nudge = (
+        "who ", "what ", "where ", "when ", "how ", "is ", "was ", "does ", "did ", "can "
+    )
+    if query_text.lower().startswith(wh_nudge):
+        margin = 0.15 # score >= 0.40
+
+    return score >= (ROUTE_FLOOR - margin)
 
 
 async def route_chunk_async(

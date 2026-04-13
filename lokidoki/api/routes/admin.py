@@ -518,6 +518,31 @@ async def reset_everything(
     return {"ok": True, "wiped": wiped}
 
 
+@router.get("/knowledge-gaps")
+async def list_knowledge_gaps(
+    _: User = Depends(require_admin),
+):
+    """List recent knowledge gaps from the persistent log file."""
+    import os
+    import json
+    log_path = "data/knowledge_gaps.jsonl"
+    if not os.path.exists(log_path):
+        return {"gaps": []}
+        
+    gaps = []
+    try:
+        with open(log_path, "r") as f:
+            for line in f:
+                if line.strip():
+                    gaps.append(json.loads(line))
+    except Exception:
+        # If the file is huge or corrupted, we just return what we have
+        pass
+        
+    # Return last 100 gaps
+    return {"gaps": gaps[-100:]}
+
+
 @router.post("/users/{user_id}/reset-pin")
 async def reset_pin(
     user_id: int,

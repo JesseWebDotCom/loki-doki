@@ -185,19 +185,31 @@ def get_messages(
     session_id: int,
     limit: int ,
 ) -> list[sqlite3.Row]:
+    # We join with chat_traces so the frontend can recover the 'steps' UI (planning, 
+    # routing, etc) for historical turns. For a user message, the trace is 
+    # directly linked. For an assistant message, we look for the trace attached 
+    # to the preceding user message in the same session.
+    query = """
+        SELECT m.id, m.role, m.content, m.created_at,
+               t.decomposition_json, t.referent_resolution_json, 
+               t.skill_results_json, t.phase_latencies_json,
+               t.response_lane_actual, t.prompt_sizes_json,
+               t.response_spec_shadow_json
+        FROM messages m
+        LEFT JOIN chat_traces t ON (
+            (m.role = 'user' AND t.user_message_id = m.id) OR
+            (m.role = 'assistant' AND t.user_message_id = (
+                SELECT id FROM messages 
+                WHERE session_id = m.session_id AND id < m.id AND role = 'user' 
+                ORDER BY id DESC LIMIT 1
+            ))
+        )
+        WHERE m.owner_user_id = ? AND m.session_id = ?
+    """
     if limit:
-        rows = conn.execute(
-            "SELECT id, role, content, created_at FROM messages "
-            "WHERE owner_user_id = ? AND session_id = ? "
-            "ORDER BY id DESC LIMIT ?",
-            (user_id, session_id, limit),
-        ).fetchall()
+        rows = conn.execute(query + " ORDER BY m.id DESC LIMIT ?", (user_id, session_id, limit)).fetchall()
         return rows[::-1]
-    return conn.execute(
-        "SELECT id, role, content, created_at FROM messages "
-        "WHERE owner_user_id = ? AND session_id = ? ORDER BY id ASC",
-        (user_id, session_id),
-    ).fetchall()
+    return conn.execute(query + " ORDER BY m.id ASC", (user_id, session_id)).fetchall()
 
 
 def get_message(
@@ -207,8 +219,12 @@ def get_message(
     message_id: int,
 ) -> Optional[sqlite3.Row]:
     return conn.execute(
-        "SELECT id, session_id, role, content, created_at FROM messages "
-        "WHERE owner_user_id = ? AND id = ?",
+        "SELECT m.id, m.session_id, m.role, m.content, m.created_at, "
+        "       t.decomposition_json, t.referent_resolution_json, "
+        "       t.skill_results_json, t.phase_latencies_json "
+        "FROM messages m "
+        "LEFT JOIN chat_traces t ON (t.user_message_id = m.id) "
+        "WHERE m.owner_user_id = ? AND m.id = ?",
         (user_id, message_id),
     ).fetchone()
 
