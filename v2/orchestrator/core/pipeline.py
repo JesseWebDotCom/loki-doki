@@ -20,6 +20,7 @@ from v2.orchestrator.memory.slots import (
     assemble_relevant_episodes_slot,
     assemble_social_context_slot,
     assemble_user_facts_slot,
+    assemble_user_style_slot,
 )
 from v2.orchestrator.memory.summarizer import (
     SessionObservation,
@@ -300,6 +301,11 @@ async def run_pipeline_async(
     # recent_context slot even if the decomposer didn't set the flag.
     _auto_raise_need_session_context(safe_context, resolutions)
 
+    # Behavior event recording (M5): append a turn event to the
+    # behavior_events log so the nightly aggregation job can derive
+    # style descriptors. Gated on telemetry opt-out.
+    _record_behavior_event(safe_context, executions, routes)
+
     finish = trace.timed("memory_read")
     memory_slots = _run_memory_read_path(raw_text, safe_context)
     if memory_slots:
@@ -310,6 +316,7 @@ async def run_pipeline_async(
         social_context_chars=len(memory_slots.get("social_context", "")),
         recent_context_chars=len(memory_slots.get("recent_context", "")),
         relevant_episodes_chars=len(memory_slots.get("relevant_episodes", "")),
+        user_style_chars=len(memory_slots.get("user_style", "")),
     )
 
     decision = decide_llm(request_spec)
@@ -574,6 +581,14 @@ def _run_memory_read_path(
         )
         out["relevant_episodes"] = rendered
 
+    # Tier 7a — user style (M5)
+    if safe_context.get("need_routine"):
+        rendered, _style = assemble_user_style_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+        )
+        out["user_style"] = rendered
+
     return out
 
 
@@ -628,6 +643,47 @@ def _run_memory_write_path(
         aggregate.accepted.extend(run.accepted)
         aggregate.rejected.extend(run.rejected)
     return aggregate
+
+
+def _record_behavior_event(
+    safe_context: dict[str, Any],
+    executions: list,
+    routes: list,
+) -> None:
+    """Record a behavior event at the end of each turn (M5).
+
+    Captures input modality, response length, and which capabilities
+    were invoked. Only writes when memory is enabled and telemetry is
+    not opted out.
+    """
+    store = safe_context.get("memory_store")
+    if not isinstance(store, V2MemoryStore):
+        return
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    if not owner_user_id:
+        return
+    if store.is_telemetry_opted_out(owner_user_id):
+        return
+
+    capabilities = []
+    total_output_len = 0
+    for execution in executions:
+        cap = getattr(execution, "capability", None) or ""
+        capabilities.append(cap)
+        output_text = getattr(execution, "output_text", None) or ""
+        total_output_len += len(output_text)
+
+    payload = {
+        "modality": safe_context.get("input_modality", "text"),
+        "capabilities": capabilities,
+        "response_length": total_output_len,
+        "success": all(getattr(e, "success", False) for e in executions) if executions else True,
+    }
+    store.write_behavior_event(
+        owner_user_id,
+        event_type="turn",
+        payload=payload,
+    )
 
 
 def _fast_lane_result(

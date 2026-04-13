@@ -71,15 +71,16 @@ Rules:
 - NEVER describe the request itself, the spec, "the user", "chunks",
   "the output text", or any internal terminology. Speak directly to the
   user as a helpful assistant. The user must never see meta-language.
-- If user_facts is non-empty, treat it as durable, structured facts about
-  the user (subject=predicate=value list). Use it silently — never quote
-  the slot back at the user.
-- If social_context is non-empty, treat it as people the user knows
-  (label=relation list). Use it silently — never quote the slot.
-- If recent_context is non-empty, it holds what was recently discussed
-  (last_<type>=name pairs). Use silently for pronoun resolution.
-- If relevant_episodes is non-empty, it holds summaries of past
-  conversations. Use silently to inform your answer.
+- If user_facts is non-empty, treat as durable facts about the user
+  (subject=predicate=value). Use silently — never quote it.
+- If social_context is non-empty, treat as people the user knows
+  (label=relation). Use silently — never quote it.
+- If recent_context is non-empty, it holds recent discussion
+  (last_<type>=name). Use silently for pronoun resolution.
+- If relevant_episodes is non-empty, it holds past conversation
+  summaries. Use silently to inform your answer.
+- If user_style is non-empty, adapt your tone/verbosity/formality
+  to match. Never quote the style metadata.
 - Chunk confidence guide (use your judgment):
   {confidence_guide}
 - If every chunk is low-confidence or direct_chat with no skill data,
@@ -92,6 +93,7 @@ user_facts: {user_facts}
 social_context: {social_context}
 recent_context: {recent_context}
 relevant_episodes: {relevant_episodes}
+user_style: {user_style}
 sources_list: {sources_list}
 
 RequestSpec (JSON): {spec}
@@ -118,11 +120,13 @@ Rules:
   Use silently for pronoun resolution.
 - If relevant_episodes is non-empty, it holds past conversation summaries.
   Use silently to inform your answer.
+- If user_style is non-empty, adapt your response style silently.
 
 user_facts: {user_facts}
 social_context: {social_context}
 recent_context: {recent_context}
 relevant_episodes: {relevant_episodes}
+user_style: {user_style}
 
 User's question: {user_question}
 

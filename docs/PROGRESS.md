@@ -312,4 +312,51 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C08 (Memory M5), C09 (Memory M6), or C10 (Cutover, all prereqs met: C01 ✓ + C03 ✓ + C04 ✓). C11 (Skills Phase 3) now unblocked by C07.
 
+## C08 — Memory M5: Procedural (Tier 7a/7b) + Behavior Events (2026-04-12)
+
+**Status:** Complete. All C08 gates green. 42 new tests, 1483 unit tests total (zero regressions).
+
+**What shipped:**
+
+1. **behavior_events + user_profile tables in store.py** — added both tables to the core schema (`V2_MEMORY_CORE_SCHEMA`). Tables already existed in `schema.py` for M0 migration testing; now they're also bootstrapped by `V2MemoryStore.__init__`. New store methods: `write_behavior_event`, `get_behavior_events`, `delete_behavior_events_before`, `get_behavior_event_count`, `get_user_profile`, `set_user_style`, `set_user_telemetry`, `is_telemetry_opted_out`, `set_telemetry_opt_out`.
+
+2. **aggregation.py** — new module at `v2/orchestrator/memory/aggregation.py`. Deterministic nightly aggregation job (no LLM): walks `behavior_events` since last run, derives Tier 7a style descriptors (`verbosity`, `preferred_modality`, `routine_time_bucket`) from event patterns, updates Tier 7b telemetry counters (`total_turns`, `total_successes`, `total_failures`, `capability_histogram`), drops events older than 30 days. Minimum 5 events before derivation kicks in.
+
+3. **need_routine derivation** — `derivations.py` gains `_should_need_routine()` + `_ROUTINE_LEMMAS`. Triggers on `direct_chat` capability (highest personalization impact) or routine-related lemmas (`usually`, `always`, `prefer`, etc.). Wired into `derive_need_flags()`.
+
+4. **user_style slot** — `slots.py` gains `render_user_style()` and `assemble_user_style_slot()`. Reads `user_profile.style` (Tier 7a only), renders as semicolon-separated `key=value` pairs for the closed descriptor enum (`tone`, `verbosity`, `formality`, `name_form`, `preferred_modality`, `units`). 200-char budget enforced. Wired into `assemble_slots()` gated on `need_routine`.
+
+5. **Prompt templates** — `COMBINE_PROMPT` and `DIRECT_CHAT_PROMPT` both gain `{user_style}` slot with instruction "adapt your tone/verbosity/formality to match." Prompt budget stayed under 2000 chars (1850 after slot addition + instruction compression).
+
+6. **LLM fallback threading** — `build_combine_prompt()` extracts `user_style` from `memory_slots` and passes it to both `render_prompt("combine", ...)` and `render_prompt("direct_chat", ...)`.
+
+7. **Pipeline behavior event hook** — `_record_behavior_event()` appends a `turn` event at end of each pipeline run with `modality`, `capabilities`, `response_length`, `success`. Gated on `is_telemetry_opted_out()`. Pipeline memory read path extended with Tier 7a slot assembly.
+
+8. **M5 phase constants** — `__init__.py` adds `M5_PHASE_*` constants, advances `ACTIVE_PHASE_*` to M5.
+
+9. **test_v2_memory_m5.py** — 42 tests in 10 test classes:
+   - TestBehaviorEvents: CRUD, filters, null payload (6 tests)
+   - TestUserProfile: CRUD, overwrite, cross-column preservation (5 tests)
+   - TestOptOut: default, opt-out, opt-back-in (3 tests)
+   - TestAggregation: noop, below-min, verbosity concise/detailed, modality, telemetry counters, latency <5s for 1000 events, stable descriptors (8 tests)
+   - TestUserStyleSlot: render empty/single/multi/budget, assemble from store/empty (6 tests)
+   - TestSynthesisPromptToneChange: 3 distinct profiles produce 3 distinct prompts, combine includes style (2 tests)
+   - TestTier7bLeak: telemetry keys not in templates, not in rendered slot, not in render_user_style (3 tests)
+   - TestNeedRoutineDerivation: direct_chat trigger, lemma trigger, negative case (3 tests)
+   - TestPipelineIntegration: event recorded, opt-out prevents event, style in memory_slots, no style without flag (4 tests)
+   - TestPhaseConstants: M5 id/status, active is M5 (2 tests)
+
+**Gate checklist:**
+- [x] Profile descriptors stable across synthetic simulation (same distribution → same verbosity/modality)
+- [x] Synthesis prompt observably changes tone for 3+ distinct profiles (3 distinct user_style slots rendered)
+- [x] Aggregation < 5s for 1000 events (test_aggregation_latency)
+- [x] 7b leak test: telemetry never appears in any prompt (3 tests)
+- [x] Opt-out test: toggling off prevents behavior_events writes (test_opt_out_prevents_event)
+
+**Nothing deferred.** All gate items completed within this chunk.
+
+**Final test count:** 1483 unit tests (2 skipped). Zero regressions.
+
+**Next chunk:** C09 (Memory M6), C10 (Cutover, all prereqs met), or C11 (Skills Phase 3, needs C07 ✓). All unblocked.
+
 <!-- Append new entries below this line -->

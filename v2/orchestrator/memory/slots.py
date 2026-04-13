@@ -54,10 +54,23 @@ SLOT_SPECS: Final[tuple[SlotSpec, ...]] = (
 WORST_CASE_TOTAL_BUDGET: Final[int] = sum(spec.char_budget for spec in SLOT_SPECS)
 assert WORST_CASE_TOTAL_BUDGET == 1470, "Slot budget total drifted from §4"
 
+USER_STYLE_BUDGET: Final[int] = 200
 USER_FACTS_BUDGET: Final[int] = 250
 SOCIAL_CONTEXT_BUDGET: Final[int] = 200
 RECENT_CONTEXT_BUDGET: Final[int] = 300
 RELEVANT_EPISODES_BUDGET: Final[int] = 400
+
+# Closed enum of Tier 7a style descriptors. Each key maps to a short
+# label the synthesizer can interpret without explanation. Only these
+# keys are allowed in `user_profile.style`; everything else is telemetry.
+STYLE_DESCRIPTORS: Final[tuple[str, ...]] = (
+    "tone",               # e.g. "casual", "formal", "playful"
+    "verbosity",          # e.g. "concise", "detailed"
+    "formality",          # e.g. "informal", "professional"
+    "name_form",          # e.g. "first_name", "full_name", "nickname"
+    "preferred_modality", # e.g. "text", "voice"
+    "units",              # e.g. "metric", "imperial"
+)
 
 
 def truncate_to_budget(slot_name: str, value: str) -> str:
@@ -204,6 +217,36 @@ def assemble_relevant_episodes_slot(
     return render_relevant_episodes(hits), hits
 
 
+def render_user_style(style_data: dict) -> str:
+    """Render Tier 7a user style into the ``{user_style}`` slot string.
+
+    Format: semicolon-separated ``key=value`` pairs for each non-empty
+    style descriptor. Truncated to 200 chars.
+    """
+    if not style_data:
+        return ""
+    parts: list[str] = []
+    for key in STYLE_DESCRIPTORS:
+        val = style_data.get(key)
+        if val:
+            parts.append(f"{key}={val}")
+    rendered = "; ".join(parts)
+    return truncate_to_budget("user_style", rendered)
+
+
+def assemble_user_style_slot(
+    *,
+    store: V2MemoryStore,
+    owner_user_id: int,
+) -> tuple[str, dict]:
+    """End-to-end slot assembly for Tier 7a. Returns (slot_string, style_dict)."""
+    profile = store.get_user_profile(owner_user_id)
+    style = profile.get("style") or {}
+    if not isinstance(style, dict):
+        style = {}
+    return render_user_style(style), style
+
+
 def assemble_slots(context: dict) -> dict[str, str]:
     """Return all six prompt slots.
 
@@ -251,5 +294,15 @@ def assemble_slots(context: dict) -> dict[str, str]:
             topic_scope=topic_scope,
         )
         out["relevant_episodes"] = rendered
+
+    # Tier 7 (M5) — always_present=True, but only assembled when
+    # need_routine is set (derivation gates this for every direct_chat
+    # or routine-lemma turn).
+    if context.get("need_routine"):
+        rendered, _style = assemble_user_style_slot(
+            store=store,
+            owner_user_id=owner_user_id,
+        )
+        out["user_style"] = rendered
 
     return out

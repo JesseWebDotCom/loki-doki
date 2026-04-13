@@ -43,6 +43,13 @@ _SOCIAL_CAPABILITIES: frozenset[str] = frozenset({
     "add_calendar_event",
 })
 
+# Lemmas that signal routine / procedural behavior relevance (Tier 7).
+_ROUTINE_LEMMAS: frozenset[str] = frozenset({
+    "usually", "always", "often", "typically", "normally",
+    "routine", "habit", "schedule", "pattern",
+    "prefer", "preference",
+})
+
 # Lemmas that signal the user is referencing a past conversation.
 _EPISODE_LEMMAS: frozenset[str] = frozenset({
     "remember", "recall", "forgot", "forget",
@@ -94,6 +101,8 @@ def derive_need_flags(
         flags["need_session_context"] = True
     if _should_need_episode(parsed):
         flags["need_episode"] = True
+    if _should_need_routine(parsed, routes):
+        flags["need_routine"] = True
 
     return flags
 
@@ -148,6 +157,21 @@ def _should_need_episode(parsed: ParsedInput) -> bool:
     """True when the user references past conversations."""
     lower_text = " ".join(parsed.tokens).lower() if parsed.tokens else ""
     return any(lemma in lower_text for lemma in _EPISODE_LEMMAS)
+
+
+def _should_need_routine(
+    parsed: ParsedInput,
+    routes: list[RouteMatch],
+) -> bool:
+    """True when routine/procedural context (Tier 7) is likely relevant.
+
+    Triggers on routine-related lemmas or direct_chat (where style
+    personalization has the highest impact).
+    """
+    if any(r.capability == "direct_chat" for r in routes):
+        return True
+    lower_text = " ".join(parsed.tokens).lower() if parsed.tokens else ""
+    return any(lemma in lower_text for lemma in _ROUTINE_LEMMAS)
 
 
 # ---- structured param extraction --------------------------------------------

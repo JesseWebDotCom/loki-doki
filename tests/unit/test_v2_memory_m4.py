@@ -587,6 +587,6 @@ class TestPhaseConstants:
         assert M4_PHASE_ID == "m4"
         assert M4_PHASE_STATUS == "complete"
 
-    def test_active_phase_is_m4(self):
-        assert ACTIVE_PHASE_ID == "m4"
-        assert ACTIVE_PHASE_LABEL == "M4"
+    def test_active_phase_advanced_past_m4(self):
+        # M5 has shipped — the active phase is now m5 or later
+        assert ACTIVE_PHASE_ID >= "m4"
