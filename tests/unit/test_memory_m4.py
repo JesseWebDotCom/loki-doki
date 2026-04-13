@@ -523,20 +523,20 @@ class TestStaleContextDecay:
 
 class TestSessionStateBridge:
     def test_bridge_populates_recent_entities(self, store: MemoryStore):
-        from lokidoki.orchestrator.core.pipeline import _bridge_session_state_to_recent_entities
+        from lokidoki.orchestrator.core.pipeline_hooks import bridge_session_state_to_recent_entities
 
         sid = store.create_session(OWNER)
         store.update_last_seen(sid, entity_type="movie", entity_name="Inception")
         store.update_last_seen(sid, entity_type="person", entity_name="Luke")
         ctx: dict = {"memory_store": store, "session_id": sid}
-        _bridge_session_state_to_recent_entities(ctx)
+        bridge_session_state_to_recent_entities(ctx)
         entities = ctx.get("recent_entities", [])
         names = {e["name"] for e in entities}
         assert "Inception" in names
         assert "Luke" in names
 
     def test_bridge_does_not_duplicate(self, store: MemoryStore):
-        from lokidoki.orchestrator.core.pipeline import _bridge_session_state_to_recent_entities
+        from lokidoki.orchestrator.core.pipeline_hooks import bridge_session_state_to_recent_entities
 
         sid = store.create_session(OWNER)
         store.update_last_seen(sid, entity_type="movie", entity_name="Inception")
@@ -545,7 +545,7 @@ class TestSessionStateBridge:
             "session_id": sid,
             "recent_entities": [{"name": "Inception", "type": "movie"}],
         }
-        _bridge_session_state_to_recent_entities(ctx)
+        bridge_session_state_to_recent_entities(ctx)
         entities = ctx.get("recent_entities", [])
         inception_count = sum(1 for e in entities if e["name"] == "Inception")
         assert inception_count == 1
@@ -553,7 +553,7 @@ class TestSessionStateBridge:
 
 class TestAutoRaiseNeedSessionContext:
     def test_auto_raise_on_unresolved_referent(self):
-        from lokidoki.orchestrator.core.pipeline import _auto_raise_need_session_context
+        from lokidoki.orchestrator.core.pipeline_hooks import auto_raise_need_session_context
         from lokidoki.orchestrator.core.types import ResolutionResult
 
         resolution = ResolutionResult(
@@ -564,11 +564,11 @@ class TestAutoRaiseNeedSessionContext:
             unresolved=["referent:it"],
         )
         ctx: dict = {}
-        _auto_raise_need_session_context(ctx, [resolution])
+        auto_raise_need_session_context(ctx, [resolution])
         assert ctx.get("need_session_context") is True
 
     def test_no_raise_when_resolved(self):
-        from lokidoki.orchestrator.core.pipeline import _auto_raise_need_session_context
+        from lokidoki.orchestrator.core.pipeline_hooks import auto_raise_need_session_context
         from lokidoki.orchestrator.core.types import ResolutionResult
 
         resolution = ResolutionResult(
@@ -578,7 +578,7 @@ class TestAutoRaiseNeedSessionContext:
             confidence=0.9,
         )
         ctx: dict = {}
-        _auto_raise_need_session_context(ctx, [resolution])
+        auto_raise_need_session_context(ctx, [resolution])
         assert "need_session_context" not in ctx
 
 

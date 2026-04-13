@@ -448,7 +448,7 @@ class TestNeedRoutineDerivation:
 class TestPipelineIntegration:
     def test_behavior_event_recorded(self, store: MemoryStore):
         """Pipeline records a behavior event at end of turn."""
-        from lokidoki.orchestrator.core.pipeline import _record_behavior_event
+        from lokidoki.orchestrator.core.pipeline_hooks import record_behavior_event
 
         class FakeExecution:
             capability = "get_weather"
@@ -459,7 +459,7 @@ class TestPipelineIntegration:
             "memory_store": store,
             "owner_user_id": OWNER,
         }
-        _record_behavior_event(context, [FakeExecution()], [])
+        record_behavior_event(context, [FakeExecution()], [])
         events = store.get_behavior_events(OWNER)
         assert len(events) == 1
         payload = json.loads(events[0]["payload"])
@@ -468,7 +468,7 @@ class TestPipelineIntegration:
 
     def test_opt_out_prevents_event(self, store: MemoryStore):
         """Opt-out test: toggling off prevents behavior_events writes (gate)."""
-        from lokidoki.orchestrator.core.pipeline import _record_behavior_event
+        from lokidoki.orchestrator.core.pipeline_hooks import record_behavior_event
 
         store.set_telemetry_opt_out(OWNER, True)
         context = {
@@ -481,12 +481,12 @@ class TestPipelineIntegration:
             output_text = "Hi"
             success = True
 
-        _record_behavior_event(context, [FakeExecution()], [])
+        record_behavior_event(context, [FakeExecution()], [])
         assert store.get_behavior_events(OWNER) == []
 
     def test_user_style_in_memory_slots(self, store: MemoryStore):
         """When need_routine is set and style exists, it reaches memory_slots."""
-        from lokidoki.orchestrator.core.pipeline import _run_memory_read_path
+        from lokidoki.orchestrator.core.pipeline_memory import run_memory_read_path
 
         store.set_user_style(OWNER, {"tone": "casual", "verbosity": "concise"})
         context = {
@@ -494,20 +494,20 @@ class TestPipelineIntegration:
             "owner_user_id": OWNER,
             "need_routine": True,
         }
-        slots = _run_memory_read_path("hello", context)
+        slots = run_memory_read_path("hello", context)
         assert "user_style" in slots
         assert "tone=casual" in slots["user_style"]
 
     def test_no_style_slot_without_flag(self, store: MemoryStore):
         """Without need_routine, user_style is not assembled."""
-        from lokidoki.orchestrator.core.pipeline import _run_memory_read_path
+        from lokidoki.orchestrator.core.pipeline_memory import run_memory_read_path
 
         store.set_user_style(OWNER, {"tone": "casual"})
         context = {
             "memory_store": store,
             "owner_user_id": OWNER,
         }
-        slots = _run_memory_read_path("hello", context)
+        slots = run_memory_read_path("hello", context)
         assert slots.get("user_style", "") == ""
 
 

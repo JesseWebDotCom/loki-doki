@@ -425,7 +425,7 @@ class TestEpisodicCompression:
 class TestPipelineIntegration:
     def test_record_sentiment_writes_affect(self, store: MemoryStore):
         """Sentiment recording produces affect_window rows."""
-        from lokidoki.orchestrator.core.pipeline import _record_sentiment
+        from lokidoki.orchestrator.core.pipeline_hooks import record_sentiment
 
         @dataclass
         class FakeSignals:
@@ -436,13 +436,13 @@ class TestPipelineIntegration:
             "owner_user_id": OWNER,
             "character_id": "loki",
         }
-        _record_sentiment(context, FakeSignals())
+        record_sentiment(context, FakeSignals())
         rows = store.get_affect_window(OWNER, character_id="loki")
         assert len(rows) == 1
         assert rows[0]["sentiment_avg"] > 0
 
     def test_opt_out_prevents_sentiment_write(self, store: MemoryStore):
-        from lokidoki.orchestrator.core.pipeline import _record_sentiment
+        from lokidoki.orchestrator.core.pipeline_hooks import record_sentiment
 
         @dataclass
         class FakeSignals:
@@ -454,13 +454,13 @@ class TestPipelineIntegration:
             "owner_user_id": OWNER,
             "character_id": "loki",
         }
-        _record_sentiment(context, FakeSignals())
+        record_sentiment(context, FakeSignals())
         rows = store.get_affect_window(OWNER, character_id="loki")
         assert len(rows) == 0
 
     def test_sentiment_blending_within_day(self, store: MemoryStore):
         """Multiple sentiments on the same day blend via EMA."""
-        from lokidoki.orchestrator.core.pipeline import _record_sentiment
+        from lokidoki.orchestrator.core.pipeline_hooks import record_sentiment
 
         @dataclass
         class FakeSignals:
@@ -472,11 +472,11 @@ class TestPipelineIntegration:
             "character_id": "loki",
         }
         # First turn: positive
-        _record_sentiment(context, type("S", (), {"tone_signal": "positive"})())
+        record_sentiment(context, type("S", (), {"tone_signal": "positive"})())
         rows = store.get_affect_window(OWNER, character_id="loki")
         first_val = rows[0]["sentiment_avg"]
         # Second turn: negative — should blend, not replace
-        _record_sentiment(context, type("S", (), {"tone_signal": "negative"})())
+        record_sentiment(context, type("S", (), {"tone_signal": "negative"})())
         rows = store.get_affect_window(OWNER, character_id="loki")
         assert len(rows) == 1
         # Blended value should be between positive and negative
@@ -515,14 +515,14 @@ class TestPipelineIntegration:
 
 class TestToneMapping:
     def test_all_known_tones_have_values(self):
-        from lokidoki.orchestrator.core.pipeline import _TONE_TO_SENTIMENT
+        from lokidoki.orchestrator.core.pipeline_hooks import _TONE_TO_SENTIMENT
         assert "positive" in _TONE_TO_SENTIMENT
         assert "negative" in _TONE_TO_SENTIMENT
         assert "neutral" in _TONE_TO_SENTIMENT
         assert _TONE_TO_SENTIMENT["neutral"] == 0.0
 
     def test_unknown_tone_defaults_neutral(self):
-        from lokidoki.orchestrator.core.pipeline import _TONE_TO_SENTIMENT
+        from lokidoki.orchestrator.core.pipeline_hooks import _TONE_TO_SENTIMENT
         assert _TONE_TO_SENTIMENT.get("unknown_tone", 0.0) == 0.0
 
 

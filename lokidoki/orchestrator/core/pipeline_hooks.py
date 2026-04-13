@@ -1,0 +1,226 @@
+"""Pipeline lifecycle hooks: session state, behavior events, sentiment."""
+from __future__ import annotations
+
+from typing import Any
+
+from lokidoki.orchestrator.memory.store import MemoryStore
+from lokidoki.orchestrator.memory.summarizer import (
+    SessionObservation,
+    queue_session_close,
+)
+from lokidoki.orchestrator.memory.writer import WriteRunResult
+
+
+def ensure_session(safe_context: dict[str, Any]) -> None:
+    """Create a session row when memory is enabled but no session exists."""
+    if safe_context.get("session_id") is not None:
+        return
+    store = safe_context.get("memory_store")
+    if not isinstance(store, MemoryStore):
+        return
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    if not owner_user_id:
+        return
+    enabled = (
+        bool(safe_context.get("memory_writes_enabled"))
+        or safe_context.get("memory_store") is not None
+    )
+    if not enabled:
+        return
+    session_id = store.create_session(owner_user_id)
+    safe_context["session_id"] = session_id
+
+
+def bridge_session_state_to_recent_entities(
+    safe_context: dict[str, Any],
+) -> None:
+    """Populate context["recent_entities"] from the session's last-seen map."""
+    store = safe_context.get("memory_store")
+    if not isinstance(store, MemoryStore):
+        return
+    session_id = safe_context.get("session_id")
+    if session_id is None:
+        return
+    state = store.get_session_state(int(session_id))
+    last_seen = state.get("last_seen")
+    if not isinstance(last_seen, dict) or not last_seen:
+        return
+    entities: list[dict[str, str]] = safe_context.get("recent_entities") or []
+    seen_names: set[str] = {
+        e.get("name", "").lower() for e in entities if isinstance(e, dict)
+    }
+    for key, entry in last_seen.items():
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name", "")).strip()
+        if not name or name.lower() in seen_names:
+            continue
+        entity_type = key.removeprefix("last_").strip("_")
+        entities.append({"name": name, "type": entity_type})
+        seen_names.add(name.lower())
+    safe_context["recent_entities"] = entities
+
+
+def auto_raise_need_session_context(
+    safe_context: dict[str, Any],
+    resolutions: list,
+) -> None:
+    """Set need_session_context=True if any resolution has unresolved referents."""
+    for resolution in resolutions:
+        unresolved = getattr(resolution, "unresolved", None) or []
+        if any(str(u).startswith("referent:") for u in unresolved):
+            safe_context["need_session_context"] = True
+            return
+
+
+def run_session_state_update(
+    safe_context: dict[str, Any],
+    resolutions: list,
+) -> None:
+    """Update the session's last-seen map from resolved entities (M4)."""
+    store = safe_context.get("memory_store")
+    if not isinstance(store, MemoryStore):
+        return
+    session_id = safe_context.get("session_id")
+    if session_id is None:
+        return
+    for resolution in resolutions:
+        resolved = getattr(resolution, "resolved_target", None)
+        params = getattr(resolution, "params", None) or {}
+        if not resolved:
+            continue
+        entity_type = str(params.get("entity_type", ""))
+        if not entity_type:
+            source = getattr(resolution, "source", "") or ""
+            if "people" in source:
+                entity_type = "person"
+            elif "movie" in source or "media" in source:
+                entity_type = "movie"
+            elif "device" in source:
+                entity_type = "device"
+            else:
+                entity_type = "entity"
+        store.update_last_seen(
+            int(session_id),
+            entity_type=entity_type,
+            entity_name=str(resolved),
+        )
+
+
+def maybe_queue_session_close(
+    safe_context: dict[str, Any],
+    memory_write_result: WriteRunResult,
+) -> None:
+    """Queue session-close summarization when the caller flags session_closing."""
+    if not safe_context.get("session_closing"):
+        return
+    store = safe_context.get("memory_store")
+    if not isinstance(store, MemoryStore):
+        return
+    session_id = safe_context.get("session_id")
+    if session_id is None:
+        return
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    if not owner_user_id:
+        return
+    observations: list[SessionObservation] = list(
+        safe_context.get("session_observations") or []
+    )
+    for decision in memory_write_result.accepted:
+        if decision.candidate:
+            observations.append(
+                SessionObservation(
+                    subject=decision.candidate.subject,
+                    predicate=decision.candidate.predicate,
+                    value=decision.candidate.value,
+                    source_text=decision.candidate.source_text or "",
+                )
+            )
+    queue_session_close(
+        store=store,
+        session_id=int(session_id),
+        owner_user_id=owner_user_id,
+        observations=observations,
+        explicit_topic_scope=safe_context.get("topic_scope"),
+    )
+
+
+# Tone signal → numeric sentiment mapping
+_TONE_TO_SENTIMENT: dict[str, float] = {
+    "positive": 0.7, "very_positive": 1.0,
+    "negative": -0.7, "very_negative": -1.0,
+    "neutral": 0.0, "excited": 0.8,
+    "frustrated": -0.6, "curious": 0.3,
+    "sad": -0.5, "angry": -0.8,
+    "grateful": 0.9, "confused": -0.2,
+}
+
+
+def record_behavior_event(
+    safe_context: dict[str, Any],
+    executions: list,
+    routes: list,
+) -> None:
+    """Record a behavior event at the end of each turn (M5)."""
+    store = safe_context.get("memory_store")
+    if not isinstance(store, MemoryStore):
+        return
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    if not owner_user_id:
+        return
+    if store.is_telemetry_opted_out(owner_user_id):
+        return
+    capabilities = []
+    total_output_len = 0
+    for execution in executions:
+        cap = getattr(execution, "capability", None) or ""
+        capabilities.append(cap)
+        output_text = getattr(execution, "output_text", None) or ""
+        total_output_len += len(output_text)
+    payload = {
+        "modality": safe_context.get("input_modality", "text"),
+        "capabilities": capabilities,
+        "response_length": total_output_len,
+        "success": (
+            all(getattr(e, "success", False) for e in executions)
+            if executions else True
+        ),
+    }
+    store.write_behavior_event(
+        owner_user_id, event_type="turn", payload=payload,
+    )
+
+
+def record_sentiment(
+    safe_context: dict[str, Any],
+    signals: Any,
+) -> None:
+    """Persist sentiment from tone_signal into affect_window (M6)."""
+    store = safe_context.get("memory_store")
+    if not isinstance(store, MemoryStore):
+        return
+    owner_user_id = int(safe_context.get("owner_user_id") or 0)
+    if not owner_user_id:
+        return
+    if store.is_sentiment_opted_out(owner_user_id):
+        return
+    tone = getattr(signals, "tone_signal", "neutral") or "neutral"
+    sentiment_val = _TONE_TO_SENTIMENT.get(tone, 0.0)
+    character_id = str(safe_context.get("character_id") or "default")
+    from datetime import datetime, timezone
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    existing = store.get_affect_window(
+        owner_user_id, character_id=character_id, days=1,
+    )
+    if existing and existing[0]["day"] == today:
+        old_avg = existing[0]["sentiment_avg"]
+        new_avg = old_avg * 0.7 + sentiment_val * 0.3
+    else:
+        new_avg = sentiment_val
+    store.write_affect_day(
+        owner_user_id,
+        character_id=character_id,
+        day=today,
+        sentiment_avg=round(new_avg, 4),
+    )
