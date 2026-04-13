@@ -54,13 +54,23 @@ class AdapterResult:
     error: str = ""
 
     def to_payload(self) -> dict[str, Any]:
+        # Auto-populate sources from source_url/source_title when the
+        # skill set those fields but didn't build the sources list
+        # itself. This covers direct-API skills (markets, people_facts)
+        # that set source_url but don't use run_mechanisms.
+        sources = list(self.sources)
+        if not sources and self.source_url:
+            sources.append({
+                "url": self.source_url,
+                "title": self.source_title or self.source_url,
+            })
         payload: dict[str, Any] = {
             "output_text": self.output_text,
             "success": self.success,
             "error_kind": self.error_kind.value,
             "mechanism_used": self.mechanism_used,
             "data": self.data,
-            "sources": self.sources,
+            "sources": sources,
         }
         if self.source_url:
             payload["source_url"] = self.source_url

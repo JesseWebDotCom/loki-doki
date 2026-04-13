@@ -57,8 +57,12 @@ async def _entity_label(client: httpx.AsyncClient, entity_id: str) -> str | None
 
 
 async def lookup_fact(payload: dict[str, Any]) -> dict[str, Any]:
+    params = payload.get("params") or {}
     text = str(payload.get("chunk_text") or "")
-    person, fact = _extract_person_and_fact(text)
+    # Person name: prefer NER-derived param (C05), fall back to text parse
+    person_param = params.get("person")
+    person_from_text, fact = _extract_person_and_fact(text)
+    person = str(person_param).strip() if person_param else person_from_text
     prop = _FACT_TO_PROPERTY.get(fact, "P27")
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
@@ -88,4 +92,6 @@ async def lookup_fact(payload: dict[str, Any]) -> dict[str, Any]:
         success=True,
         mechanism_used="wikidata",
         data={"person": person, "fact": fact, "value": answer},
+        source_url=f"https://www.wikidata.org/wiki/{entity_id}",
+        source_title=f"Wikidata — {person}",
     ).to_payload()

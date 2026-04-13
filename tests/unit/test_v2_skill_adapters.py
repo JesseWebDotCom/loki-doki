@@ -69,7 +69,7 @@ async def test_weather_adapter_uses_lead_field(monkeypatch):
     })
     _install_fake(monkeypatch, adapter, fake)
 
-    result = await adapter.handle({"chunk_text": "what's the weather in tokyo"})
+    result = await adapter.handle({"chunk_text": "what's the weather in tokyo", "params": {"location": "tokyo"}})
     assert result["output_text"] == "It's 22°C in Tokyo."
     assert fake.calls[0][0] == "open_meteo"
     assert fake.calls[0][1]["location"] == "tokyo"
@@ -85,7 +85,7 @@ async def test_weather_adapter_falls_through_to_cache(monkeypatch):
     })
     _install_fake(monkeypatch, adapter, fake)
 
-    result = await adapter.handle({"chunk_text": "weather in seattle"})
+    result = await adapter.handle({"chunk_text": "weather in seattle", "params": {"location": "seattle"}})
     assert "Seattle" in result["output_text"]
     assert [c[0] for c in fake.calls] == ["open_meteo", "local_cache"]
 
@@ -97,7 +97,7 @@ async def test_weather_adapter_graceful_failure_when_all_mechs_fail(monkeypatch)
     fake = _RecordingFake({"open_meteo": _fail("dns"), "local_cache": _fail("miss")})
     _install_fake(monkeypatch, adapter, fake)
 
-    result = await adapter.handle({"chunk_text": "weather in narnia"})
+    result = await adapter.handle({"chunk_text": "weather in narnia", "params": {"location": "narnia"}})
     assert result["success"] is False
     assert "couldn't reach" in result["output_text"].lower()
 

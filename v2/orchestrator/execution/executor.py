@@ -211,8 +211,8 @@ def _resolve_handler(handler_name: str) -> HandlerFn:
     # Built-in deterministic handlers are pre-populated
     if handler_name in _BUILTIN_HANDLERS:
         return _BUILTIN_HANDLERS[handler_name]
-    # Lazy-load from _SKILL_HANDLER_MAP
-    spec = _SKILL_HANDLER_MAP.get(handler_name)
+    # Lazy-load from registry-driven handler map
+    spec = _get_skill_handler_map().get(handler_name)
     if spec is None:
         return _echo_handler
     module_path, attr_name = spec
@@ -290,104 +290,24 @@ _BUILTIN_HANDLERS: dict[str, HandlerFn] = {
     "fallback.direct_chat": _echo_handler,
 }
 
-# ---- lazy-loaded skill handler map ------------------------------------------
+# ---- registry-driven skill handler map --------------------------------------
 #
-# Maps handler_name -> (module_path, attribute_name). Modules are imported
-# on first call via importlib, not at executor load time.
+# Handler resolution data now lives in function_registry.json alongside
+# the capability definitions.  ``_get_skill_handler_map()`` reads the
+# ``module_path`` and ``entry_point`` fields from each implementation and
+# caches the result so the import-map is built once per process.  Adding
+# a new skill only requires a registry entry — no executor.py edit.
 
-_SKILL_HANDLER_MAP: dict[str, tuple[str, str]] = {
-    # ---- device / local adapters --------------------------------------------
-    "device.calendar.create": ("v2.orchestrator.skills.calendar_local", "create_event"),
-    "device.calendar.get": ("v2.orchestrator.skills.calendar_local", "get_events"),
-    "device.calendar.update": ("v2.orchestrator.skills.calendar_local", "update_event"),
-    "device.calendar.delete": ("v2.orchestrator.skills.calendar_local", "delete_event"),
-    "device.alarm.set": ("v2.orchestrator.skills.alarms_local", "set_alarm"),
-    "device.timer.set": ("v2.orchestrator.skills.alarms_local", "set_timer"),
-    "device.reminder.set": ("v2.orchestrator.skills.alarms_local", "set_reminder"),
-    "device.alarm.cancel": ("v2.orchestrator.skills.alarms_local", "cancel_alarm"),
-    "device.alarm.list": ("v2.orchestrator.skills.alarms_local", "list_alarms"),
-    "device.contacts.search": ("v2.orchestrator.skills.contacts_local", "search_contacts"),
-    "device.messages.read": ("v2.orchestrator.skills.contacts_local", "read_messages"),
-    "device.emails.read": ("v2.orchestrator.skills.contacts_local", "read_emails"),
-    "device.phone.call": ("v2.orchestrator.skills.contacts_local", "make_call"),
-    "device.notes.create": ("v2.orchestrator.skills.notes_local", "create_note"),
-    "device.notes.append_list": ("v2.orchestrator.skills.notes_local", "append_to_list"),
-    "device.notes.read_list": ("v2.orchestrator.skills.notes_local", "read_list"),
-    "device.notes.search": ("v2.orchestrator.skills.notes_local", "search_notes"),
-    "device.music.play": ("v2.orchestrator.skills.music", "play_music"),
-    "device.music.control": ("v2.orchestrator.skills.music", "control_playback"),
-    "device.music.now_playing": ("v2.orchestrator.skills.music", "get_now_playing"),
-    "device.music.volume": ("v2.orchestrator.skills.music", "set_volume"),
-    "skills.music.lookup_track": ("v2.orchestrator.skills.music", "lookup_track"),
-    "device.fitness.log": ("v2.orchestrator.skills.fitness", "log_workout"),
-    "device.fitness.summary": ("v2.orchestrator.skills.fitness", "get_fitness_summary"),
-    # ---- navigation / travel ------------------------------------------------
-    "skills.navigation.directions": ("v2.orchestrator.skills.navigation", "get_directions"),
-    "skills.navigation.eta": ("v2.orchestrator.skills.navigation", "get_eta"),
-    "skills.navigation.nearby": ("v2.orchestrator.skills.navigation", "find_nearby"),
-    "skills.navigation.transit": ("v2.orchestrator.skills.travel_local", "get_transit"),
-    "skills.media.streaming": ("v2.orchestrator.skills.streaming_local", "get_streaming"),
-    "skills.travel.flights.search": ("v2.orchestrator.skills.travel_local", "search_flights"),
-    "skills.travel.flight_status": ("v2.orchestrator.skills.travel", "get_flight_status"),
-    "skills.travel.hotels.search": ("v2.orchestrator.skills.travel_local", "search_hotels"),
-    "skills.travel.visa": ("v2.orchestrator.skills.travel_local", "get_visa_info"),
-    # ---- health / people / shopping -----------------------------------------
-    "skills.health.symptom": ("v2.orchestrator.skills.health", "look_up_symptom"),
-    "skills.health.medication": ("v2.orchestrator.skills.health", "check_medication"),
-    "skills.people.fact": ("v2.orchestrator.skills.people_facts", "lookup_fact"),
-    "skills.shopping.find_products": ("v2.orchestrator.skills.shopping_local", "find_products"),
-    # ---- finance / sports ---------------------------------------------------
-    "skills.finance.stock_price": ("v2.orchestrator.skills.markets", "get_stock_price"),
-    "skills.finance.stock_info": ("v2.orchestrator.skills.markets", "get_stock_info"),
-    "skills.sports.score": ("v2.orchestrator.skills.sports_api", "get_score"),
-    "skills.sports.standings": ("v2.orchestrator.skills.sports_api", "get_standings"),
-    "skills.sports.schedule": ("v2.orchestrator.skills.sports_api", "get_schedule"),
-    "skills.sports.player_stats": ("v2.orchestrator.skills.sports_api", "get_player_stats"),
-    # ---- food / units / calc ------------------------------------------------
-    "skills.food.nutrition": ("v2.orchestrator.skills.food", "get_nutrition"),
-    "skills.food.substitute": ("v2.orchestrator.skills.food", "substitute_ingredient"),
-    "skills.food.order": ("v2.orchestrator.skills.food", "order_food"),
-    "core.units.convert": ("v2.orchestrator.skills.units", "handle"),
-    "core.calculator.evaluate": ("v2.orchestrator.skills.calculator", "handle"),
-    "core.calculator.tip": ("v2.orchestrator.skills.calculator", "calculate_tip"),
-    # ---- weather / knowledge / showtimes ------------------------------------
-    "skills.weather.forecast": ("v2.orchestrator.skills.weather", "handle"),
-    "core.knowledge.lookup": ("v2.orchestrator.skills.knowledge", "handle"),
-    "skills.movies.showtimes": ("v2.orchestrator.skills.showtimes", "handle"),
-    # ---- home automation ----------------------------------------------------
-    "skills.home_assistant.toggle": ("v2.orchestrator.skills.smarthome", "control_device"),
-    "skills.home_assistant.state": ("v2.orchestrator.skills.smarthome", "get_device_state"),
-    "skills.sensors.indoor_temperature": ("v2.orchestrator.skills.smarthome", "get_indoor_temperature"),
-    "skills.presence.detect": ("v2.orchestrator.skills.smarthome", "detect_presence"),
-    "skills.home_assistant.scene": ("v2.orchestrator.skills.smarthome", "set_scene"),
-    # ---- info / media -------------------------------------------------------
-    "skills.dictionary.lookup": ("v2.orchestrator.skills.dictionary", "handle"),
-    "skills.news.google_rss": ("v2.orchestrator.skills.news", "handle"),
-    "skills.news.briefing": ("v2.orchestrator.skills.news", "get_briefing"),
-    "skills.news.search": ("v2.orchestrator.skills.news", "search_news"),
-    "skills.recipes.themealdb": ("v2.orchestrator.skills.recipes", "handle"),
-    "skills.jokes.icanhazdadjoke": ("v2.orchestrator.skills.jokes", "handle"),
-    "skills.tv.tvmaze": ("v2.orchestrator.skills.tv_show", "handle"),
-    "skills.tv.schedule": ("v2.orchestrator.skills.tv_show", "get_schedule"),
-    # ---- time / holidays ----------------------------------------------------
-    "core.time.location": ("v2.orchestrator.skills.time_in_location", "handle"),
-    "core.time.until": ("v2.orchestrator.skills.time_until", "handle"),
-    "skills.holidays.lookup": ("v2.orchestrator.skills.holidays", "get_holiday"),
-    "skills.holidays.list": ("v2.orchestrator.skills.holidays", "list_holidays"),
-    # ---- finance (currency) -------------------------------------------------
-    "skills.finance.convert_currency": ("v2.orchestrator.skills.finance", "convert_currency"),
-    "skills.finance.exchange_rate": ("v2.orchestrator.skills.finance", "get_exchange_rate"),
-    "skills.writing.translate": ("v2.orchestrator.skills.translate", "handle"),
-    # ---- LLM-backed (Ollama with stub fallback) -----------------------------
-    "skills.writing.email": ("v2.orchestrator.skills.llm_skills", "generate_email"),
-    "skills.code.assistant": ("v2.orchestrator.skills.llm_skills", "code_assistance"),
-    "skills.writing.summarize": ("v2.orchestrator.skills.llm_skills", "summarize_text"),
-    "skills.planning.create_plan": ("v2.orchestrator.skills.llm_skills", "create_plan"),
-    "skills.decision.weigh_options": ("v2.orchestrator.skills.llm_skills", "weigh_options"),
-    "skills.support.empathy": ("v2.orchestrator.skills.llm_skills", "emotional_support"),
-    # ---- remaining stubs ----------------------------------------------------
-    "skills.messaging.send_text": ("v2.orchestrator.skills.contacts_local", "send_text_message"),
-}
+_skill_handler_map_cache: dict[str, tuple[str, str]] | None = None
+
+
+def _get_skill_handler_map() -> dict[str, tuple[str, str]]:
+    """Return the lazily-built skill handler map from the registry."""
+    global _skill_handler_map_cache  # noqa: PLW0603
+    if _skill_handler_map_cache is None:
+        from v2.orchestrator.registry.loader import build_handler_map
+        _skill_handler_map_cache = build_handler_map()
+    return _skill_handler_map_cache
 
 
 def register_handler(name: str, handler: HandlerFn) -> None:
@@ -396,7 +316,7 @@ def register_handler(name: str, handler: HandlerFn) -> None:
 
 
 def list_handlers() -> tuple[str, ...]:
-    all_names = set(_BUILTIN_HANDLERS) | set(_SKILL_HANDLER_MAP) | set(_resolved_cache)
+    all_names = set(_BUILTIN_HANDLERS) | set(_get_skill_handler_map()) | set(_resolved_cache)
     return tuple(sorted(all_names))
 
 
@@ -406,4 +326,5 @@ __all__ = [
     "execute_chunk_async",
     "list_handlers",
     "register_handler",
+    "_get_skill_handler_map",
 ]

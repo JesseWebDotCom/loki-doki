@@ -28,27 +28,14 @@ def _default_location() -> str:
 
 
 def _extract_location(payload: dict[str, Any]) -> str:
-    """Pull a location string out of the v2 payload.
+    """Read the location from structured params (NER-derived in C05).
 
-    The v2 routing layer doesn't yet do typed parameter extraction, so
-    the location lives inside ``chunk_text``. We try a couple of common
-    surface forms — only when one of them matches do we return a
-    location. Otherwise we fall back to ``_default_location()`` rather
-    than handing the whole chunk to the v1 geocoder, which would mangle
-    "is it going to rain" into a literal place lookup.
+    Falls back to the configured default when the pipeline didn't
+    extract a GPE/LOC entity for this chunk.
     """
     explicit = (payload.get("params") or {}).get("location")
     if explicit:
         return str(explicit)
-    chunk_text = str(payload.get("chunk_text") or "").strip(" ?.!")
-    if not chunk_text:
-        return _default_location()
-    lower = chunk_text.lower()
-    for marker in (" in ", " for ", " at "):
-        if marker in lower:
-            tail = chunk_text[lower.index(marker) + len(marker):].strip()
-            if tail:
-                return tail
     return _default_location()
 
 

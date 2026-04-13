@@ -160,7 +160,9 @@
         "id": "skills.holidays.lookup",
         "handler_name": "skills.holidays.lookup",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.holidays",
+        "entry_point": "get_holiday"
       }
     ],
     "parameters": {
@@ -209,7 +211,9 @@
         "id": "skills.holidays.list",
         "handler_name": "skills.holidays.list",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.holidays",
+        "entry_point": "list_holidays"
       }
     ],
     "parameters": {
@@ -254,7 +258,9 @@
         "id": "core.time.until",
         "handler_name": "core.time.until",
         "priority": 15,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.time_until",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -352,7 +358,7 @@
   },
   {
     "capability": "control_device",
-    "description": "Turn on or off a home device, switch a setting, or adjust device state. This is an imperative action \u2014 the user is telling the device what to do, not asking what state it is in.",
+    "description": "Turn on or off a home device, switch a setting, or adjust device state. This is an imperative action — the user is telling the device what to do, not asking what state it is in.",
     "examples": [
       "turn on the lights",
       "turn off the lights",
@@ -372,7 +378,9 @@
         "id": "skills.home_assistant.toggle",
         "handler_name": "skills.home_assistant.toggle",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.smarthome",
+        "entry_point": "control_device"
       }
     ],
     "parameters": {
@@ -411,7 +419,9 @@
         "id": "skills.messaging.send_text",
         "handler_name": "skills.messaging.send_text",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.contacts_local",
+        "entry_point": "send_text_message"
       }
     ],
     "parameters": {
@@ -461,7 +471,9 @@
         "id": "core.units.convert",
         "handler_name": "core.units.convert",
         "priority": 5,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.units",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -514,7 +526,9 @@
         "id": "core.calculator.tip",
         "handler_name": "core.calculator.tip",
         "priority": 10,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.calculator",
+        "entry_point": "calculate_tip"
       }
     ],
     "parameters": {
@@ -557,7 +571,9 @@
         "id": "skills.finance.convert_currency",
         "handler_name": "skills.finance.convert_currency",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.finance",
+        "entry_point": "convert_currency"
       }
     ],
     "parameters": {
@@ -606,7 +622,9 @@
         "id": "skills.finance.exchange_rate",
         "handler_name": "skills.finance.exchange_rate",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.finance",
+        "entry_point": "get_exchange_rate"
       }
     ],
     "parameters": {
@@ -653,7 +671,9 @@
         "id": "skills.weather.forecast",
         "handler_name": "skills.weather.forecast",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.weather",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -721,7 +741,9 @@
         "id": "skills.movies.showtimes",
         "handler_name": "skills.movies.showtimes",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.showtimes",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -849,7 +871,9 @@
         "id": "core.knowledge.lookup",
         "handler_name": "core.knowledge.lookup",
         "priority": 50,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.knowledge",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -914,7 +938,9 @@
         "id": "skills.sensors.indoor_temperature",
         "handler_name": "skills.sensors.indoor_temperature",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.smarthome",
+        "entry_point": "get_indoor_temperature"
       }
     ],
     "parameters": {
@@ -951,7 +977,9 @@
         "id": "skills.presence.detect",
         "handler_name": "skills.presence.detect",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.smarthome",
+        "entry_point": "detect_presence"
       }
     ],
     "parameters": {
@@ -994,7 +1022,9 @@
         "id": "skills.home_assistant.state",
         "handler_name": "skills.home_assistant.state",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.smarthome",
+        "entry_point": "get_device_state"
       }
     ],
     "parameters": {
@@ -1031,7 +1061,9 @@
         "id": "core.time.location",
         "handler_name": "core.time.location",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.time_in_location",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -1067,7 +1099,9 @@
         "id": "skills.writing.email",
         "handler_name": "skills.writing.email",
         "priority": 50,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.llm_skills",
+        "entry_point": "generate_email"
       }
     ],
     "parameters": {
@@ -1122,7 +1156,9 @@
         "id": "skills.code.assistant",
         "handler_name": "skills.code.assistant",
         "priority": 50,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.llm_skills",
+        "entry_point": "code_assistance"
       }
     ],
     "parameters": {
@@ -1183,7 +1219,9 @@
         "id": "skills.writing.summarize",
         "handler_name": "skills.writing.summarize",
         "priority": 50,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.llm_skills",
+        "entry_point": "summarize_text"
       }
     ],
     "parameters": {
@@ -1234,7 +1272,9 @@
         "id": "skills.planning.create_plan",
         "handler_name": "skills.planning.create_plan",
         "priority": 50,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.llm_skills",
+        "entry_point": "create_plan"
       }
     ],
     "parameters": {
@@ -1284,7 +1324,9 @@
         "id": "skills.decision.weigh_options",
         "handler_name": "skills.decision.weigh_options",
         "priority": 50,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.llm_skills",
+        "entry_point": "weigh_options"
       }
     ],
     "parameters": {
@@ -1330,7 +1372,9 @@
         "id": "skills.shopping.find_products",
         "handler_name": "skills.shopping.find_products",
         "priority": 50,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.shopping_local",
+        "entry_point": "find_products"
       }
     ],
     "parameters": {
@@ -1375,7 +1419,9 @@
         "id": "skills.dictionary.lookup",
         "handler_name": "skills.dictionary.lookup",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.dictionary",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -1426,7 +1472,9 @@
         "id": "skills.news.google_rss",
         "handler_name": "skills.news.google_rss",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.news",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -1465,7 +1513,9 @@
         "id": "skills.news.briefing",
         "handler_name": "skills.news.briefing",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.news",
+        "entry_point": "get_briefing"
       }
     ],
     "parameters": {},
@@ -1495,7 +1545,9 @@
         "id": "skills.news.search",
         "handler_name": "skills.news.search",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.news",
+        "entry_point": "search_news"
       }
     ],
     "parameters": {
@@ -1536,7 +1588,9 @@
         "id": "skills.recipes.themealdb",
         "handler_name": "skills.recipes.themealdb",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.recipes",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -1576,7 +1630,9 @@
         "id": "skills.jokes.icanhazdadjoke",
         "handler_name": "skills.jokes.icanhazdadjoke",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.jokes",
+        "entry_point": "handle"
       }
     ],
     "parameters": {},
@@ -1593,7 +1649,7 @@
   },
   {
     "capability": "lookup_tv_show",
-    "description": "Look up details about a TV series \u2014 network, status, rating, recent episodes.",
+    "description": "Look up details about a TV series — network, status, rating, recent episodes.",
     "examples": [
       "tell me about the tv show breaking bad",
       "what tv show is friends",
@@ -1607,7 +1663,9 @@
         "id": "skills.tv.tvmaze",
         "handler_name": "skills.tv.tvmaze",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.tv_show",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -1652,7 +1710,9 @@
         "id": "skills.support.empathy",
         "handler_name": "skills.support.empathy",
         "priority": 40,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.llm_skills",
+        "entry_point": "emotional_support"
       }
     ],
     "parameters": {
@@ -1745,7 +1805,9 @@
         "id": "device.calendar.create",
         "handler_name": "device.calendar.create",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.calendar_local",
+        "entry_point": "create_event"
       }
     ],
     "parameters": {
@@ -1790,7 +1852,9 @@
         "id": "device.calendar.get",
         "handler_name": "device.calendar.get",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.calendar_local",
+        "entry_point": "get_events"
       }
     ],
     "parameters": {
@@ -1828,7 +1892,9 @@
         "id": "device.calendar.update",
         "handler_name": "device.calendar.update",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.calendar_local",
+        "entry_point": "update_event"
       }
     ],
     "parameters": {
@@ -1873,7 +1939,9 @@
         "id": "device.calendar.delete",
         "handler_name": "device.calendar.delete",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.calendar_local",
+        "entry_point": "delete_event"
       }
     ],
     "parameters": {
@@ -1905,7 +1973,9 @@
         "id": "device.alarm.set",
         "handler_name": "device.alarm.set",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.alarms_local",
+        "entry_point": "set_alarm"
       }
     ],
     "parameters": {
@@ -1945,7 +2015,9 @@
         "id": "device.timer.set",
         "handler_name": "device.timer.set",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.alarms_local",
+        "entry_point": "set_timer"
       }
     ],
     "parameters": {
@@ -1981,7 +2053,9 @@
         "id": "device.reminder.set",
         "handler_name": "device.reminder.set",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.alarms_local",
+        "entry_point": "set_reminder"
       }
     ],
     "parameters": {
@@ -2017,7 +2091,9 @@
         "id": "device.alarm.cancel",
         "handler_name": "device.alarm.cancel",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.alarms_local",
+        "entry_point": "cancel_alarm"
       }
     ],
     "parameters": {
@@ -2053,7 +2129,9 @@
         "id": "device.alarm.list",
         "handler_name": "device.alarm.list",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.alarms_local",
+        "entry_point": "list_alarms"
       }
     ],
     "parameters": {},
@@ -2081,7 +2159,9 @@
         "id": "device.contacts.search",
         "handler_name": "device.contacts.search",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.contacts_local",
+        "entry_point": "search_contacts"
       }
     ],
     "parameters": {
@@ -2114,7 +2194,9 @@
         "id": "device.messages.read",
         "handler_name": "device.messages.read",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.contacts_local",
+        "entry_point": "read_messages"
       }
     ],
     "parameters": {
@@ -2151,7 +2233,9 @@
         "id": "device.emails.read",
         "handler_name": "device.emails.read",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.contacts_local",
+        "entry_point": "read_emails"
       }
     ],
     "parameters": {
@@ -2188,7 +2272,9 @@
         "id": "device.phone.call",
         "handler_name": "device.phone.call",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.contacts_local",
+        "entry_point": "make_call"
       }
     ],
     "parameters": {
@@ -2220,7 +2306,9 @@
         "id": "device.notes.create",
         "handler_name": "device.notes.create",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.notes_local",
+        "entry_point": "create_note"
       }
     ],
     "parameters": {
@@ -2256,7 +2344,9 @@
         "id": "device.notes.append_list",
         "handler_name": "device.notes.append_list",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.notes_local",
+        "entry_point": "append_to_list"
       }
     ],
     "parameters": {
@@ -2292,7 +2382,9 @@
         "id": "device.notes.read_list",
         "handler_name": "device.notes.read_list",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.notes_local",
+        "entry_point": "read_list"
       }
     ],
     "parameters": {
@@ -2324,7 +2416,9 @@
         "id": "device.notes.search",
         "handler_name": "device.notes.search",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.notes_local",
+        "entry_point": "search_notes"
       }
     ],
     "parameters": {
@@ -2357,7 +2451,9 @@
         "id": "device.music.play",
         "handler_name": "device.music.play",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.music",
+        "entry_point": "play_music"
       }
     ],
     "parameters": {
@@ -2394,7 +2490,9 @@
         "id": "device.music.control",
         "handler_name": "device.music.control",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.music",
+        "entry_point": "control_playback"
       }
     ],
     "parameters": {
@@ -2427,7 +2525,9 @@
         "id": "device.music.now_playing",
         "handler_name": "device.music.now_playing",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.music",
+        "entry_point": "get_now_playing"
       }
     ],
     "parameters": {},
@@ -2454,7 +2554,9 @@
         "id": "device.music.volume",
         "handler_name": "device.music.volume",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.music",
+        "entry_point": "set_volume"
       }
     ],
     "parameters": {
@@ -2486,7 +2588,9 @@
         "id": "skills.music.lookup_track",
         "handler_name": "skills.music.lookup_track",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.music",
+        "entry_point": "lookup_track"
       }
     ],
     "parameters": {
@@ -2519,7 +2623,9 @@
         "id": "skills.navigation.directions",
         "handler_name": "skills.navigation.directions",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.navigation",
+        "entry_point": "get_directions"
       }
     ],
     "parameters": {
@@ -2565,7 +2671,9 @@
         "id": "skills.navigation.eta",
         "handler_name": "skills.navigation.eta",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.navigation",
+        "entry_point": "get_eta"
       }
     ],
     "parameters": {
@@ -2607,7 +2715,9 @@
         "id": "skills.navigation.nearby",
         "handler_name": "skills.navigation.nearby",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.navigation",
+        "entry_point": "find_nearby"
       }
     ],
     "parameters": {
@@ -2649,7 +2759,9 @@
         "id": "skills.navigation.transit",
         "handler_name": "skills.navigation.transit",
         "priority": 40,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.travel_local",
+        "entry_point": "get_transit"
       }
     ],
     "parameters": {
@@ -2681,7 +2793,9 @@
         "id": "skills.media.streaming",
         "handler_name": "skills.media.streaming",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.streaming_local",
+        "entry_point": "get_streaming"
       }
     ],
     "parameters": {
@@ -2725,7 +2839,9 @@
         "id": "skills.travel.flights.search",
         "handler_name": "skills.travel.flights.search",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.travel_local",
+        "entry_point": "search_flights"
       }
     ],
     "parameters": {
@@ -2770,7 +2886,9 @@
         "id": "skills.travel.flight_status",
         "handler_name": "skills.travel.flight_status",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.travel",
+        "entry_point": "get_flight_status"
       }
     ],
     "parameters": {
@@ -2802,7 +2920,9 @@
         "id": "skills.travel.hotels.search",
         "handler_name": "skills.travel.hotels.search",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.travel_local",
+        "entry_point": "search_hotels"
       }
     ],
     "parameters": {
@@ -2842,7 +2962,9 @@
         "id": "skills.travel.visa",
         "handler_name": "skills.travel.visa",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.travel_local",
+        "entry_point": "get_visa_info"
       }
     ],
     "parameters": {
@@ -2878,7 +3000,9 @@
         "id": "skills.health.symptom",
         "handler_name": "skills.health.symptom",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.health",
+        "entry_point": "look_up_symptom"
       }
     ],
     "parameters": {
@@ -2911,7 +3035,9 @@
         "id": "skills.health.medication",
         "handler_name": "skills.health.medication",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.health",
+        "entry_point": "check_medication"
       }
     ],
     "parameters": {
@@ -2953,7 +3079,9 @@
         "id": "device.fitness.log",
         "handler_name": "device.fitness.log",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.fitness",
+        "entry_point": "log_workout"
       }
     ],
     "parameters": {
@@ -2993,7 +3121,9 @@
         "id": "device.fitness.summary",
         "handler_name": "device.fitness.summary",
         "priority": 20,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.fitness",
+        "entry_point": "get_fitness_summary"
       }
     ],
     "parameters": {
@@ -3026,7 +3156,9 @@
         "id": "skills.people.fact",
         "handler_name": "skills.people.fact",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.people_facts",
+        "entry_point": "lookup_fact"
       }
     ],
     "parameters": {
@@ -3075,7 +3207,9 @@
         "id": "skills.home_assistant.scene",
         "handler_name": "skills.home_assistant.scene",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.smarthome",
+        "entry_point": "set_scene"
       }
     ],
     "parameters": {
@@ -3107,7 +3241,9 @@
         "id": "skills.food.nutrition",
         "handler_name": "skills.food.nutrition",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.food",
+        "entry_point": "get_nutrition"
       }
     ],
     "parameters": {
@@ -3143,7 +3279,9 @@
         "id": "skills.food.substitute",
         "handler_name": "skills.food.substitute",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.food",
+        "entry_point": "substitute_ingredient"
       }
     ],
     "parameters": {
@@ -3179,7 +3317,9 @@
         "id": "skills.food.order",
         "handler_name": "skills.food.order",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.food",
+        "entry_point": "order_food"
       }
     ],
     "parameters": {
@@ -3217,7 +3357,9 @@
         "id": "core.calculator.alias",
         "handler_name": "core.calculator.evaluate",
         "priority": 10,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.calculator",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -3251,7 +3393,9 @@
         "id": "skills.writing.translate",
         "handler_name": "skills.writing.translate",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.translate",
+        "entry_point": "handle"
       }
     ],
     "parameters": {
@@ -3287,7 +3431,9 @@
         "id": "skills.tv.schedule",
         "handler_name": "skills.tv.schedule",
         "priority": 30,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.tv_show",
+        "entry_point": "get_schedule"
       }
     ],
     "parameters": {
@@ -3330,7 +3476,9 @@
         "id": "skills.finance.stock_price",
         "handler_name": "skills.finance.stock_price",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.markets",
+        "entry_point": "get_stock_price"
       }
     ],
     "parameters": {
@@ -3363,7 +3511,9 @@
         "id": "skills.finance.stock_info",
         "handler_name": "skills.finance.stock_info",
         "priority": 25,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.markets",
+        "entry_point": "get_stock_info"
       }
     ],
     "parameters": {
@@ -3395,7 +3545,9 @@
         "id": "skills.sports.score",
         "handler_name": "skills.sports.score",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.sports_api",
+        "entry_point": "get_score"
       }
     ],
     "parameters": {
@@ -3428,7 +3580,9 @@
         "id": "skills.sports.standings",
         "handler_name": "skills.sports.standings",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.sports_api",
+        "entry_point": "get_standings"
       }
     ],
     "parameters": {
@@ -3465,7 +3619,9 @@
         "id": "skills.sports.schedule",
         "handler_name": "skills.sports.schedule",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.sports_api",
+        "entry_point": "get_schedule"
       }
     ],
     "parameters": {
@@ -3487,7 +3643,7 @@
   },
   {
     "capability": "get_player_stats",
-    "description": "Look up player stats via ESPN API (stub \u2014 provider incomplete).",
+    "description": "Look up player stats via ESPN API (stub — provider incomplete).",
     "examples": [
       "how many touchdowns does Mahomes have this year"
     ],
@@ -3497,7 +3653,9 @@
         "id": "skills.sports.player_stats",
         "handler_name": "skills.sports.player_stats",
         "priority": 35,
-        "enabled": true
+        "enabled": true,
+        "module_path": "v2.orchestrator.skills.sports_api",
+        "entry_point": "get_player_stats"
       }
     ],
     "parameters": {

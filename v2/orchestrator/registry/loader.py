@@ -29,3 +29,27 @@ def load_function_registry() -> list[dict]:
             }
             expanded.append(alias_entry)
     return expanded
+
+
+def build_handler_map() -> dict[str, tuple[str, str]]:
+    """Build the lazy-load handler map from registry implementations.
+
+    Reads ``module_path`` and ``entry_point`` from each implementation
+    in function_registry.json and returns a dict mapping handler_name
+    to ``(module_path, entry_point)`` for ``importlib.import_module``
+    resolution at call time.
+
+    Implementations without ``module_path`` (built-in handlers like
+    greetings, time, date) are skipped — those are resolved by the
+    executor's ``_BUILTIN_HANDLERS`` dict.
+    """
+    items = load_function_registry()
+    handler_map: dict[str, tuple[str, str]] = {}
+    for item in items:
+        for impl in item.get("implementations") or []:
+            handler_name = impl.get("handler_name", "")
+            module_path = impl.get("module_path", "")
+            entry_point = impl.get("entry_point", "")
+            if handler_name and module_path and entry_point:
+                handler_map.setdefault(handler_name, (module_path, entry_point))
+    return handler_map

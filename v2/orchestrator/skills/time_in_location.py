@@ -107,22 +107,30 @@ _CITY_TO_TZ: dict[str, str] = {
 
 
 def _extract_city(payload: dict[str, Any]) -> str:
+    """Read city from structured params (NER-derived GPE/LOC in C05).
+
+    The ``location`` param from the derivation pipeline maps to city.
+    Falls back to scanning for known city names in the text — this is
+    a lookup-table match (not user-intent classification) so it's fine
+    per CLAUDE.md.
+    """
     explicit = (payload.get("params") or {}).get("city")
     if explicit:
         return str(explicit).lower().strip()
+    # NER derivation maps GPE/LOC → "location" param
+    location = (payload.get("params") or {}).get("location")
+    if location:
+        return str(location).lower().strip()
+    # Fallback: scan for known city names in chunk text (table lookup,
+    # not user-intent regex). Uses word-boundary check to avoid matching
+    # "la" inside "atlantis".
     text = str(payload.get("chunk_text") or "").lower().strip(" ?.!")
     if not text:
         return ""
-    if " in " in text:
-        tail = text.split(" in ", 1)[1].strip()
-        # Strip trailing time-of-day phrases like "right now"
-        for trailer in (" right now", " currently", " now"):
-            if tail.endswith(trailer):
-                tail = tail[: -len(trailer)].strip()
-        return tail
-    # If the chunk doesn't have "in", look for any known city token
+    words = set(text.split())
     for city in sorted(_CITY_TO_TZ.keys(), key=len, reverse=True):
-        if city in text:
+        city_words = set(city.split())
+        if city_words.issubset(words):
             return city
     return ""
 

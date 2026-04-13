@@ -9,14 +9,14 @@ import importlib
 
 from v2.orchestrator.execution.executor import (
     _BUILTIN_HANDLERS,
-    _SKILL_HANDLER_MAP,
+    _get_skill_handler_map,
     list_handlers,
 )
-from v2.orchestrator.registry.loader import load_function_registry
+from v2.orchestrator.registry.loader import build_handler_map, load_function_registry
 
 
 def _all_registered_handler_names() -> set[str]:
-    return set(_BUILTIN_HANDLERS) | set(_SKILL_HANDLER_MAP)
+    return set(_BUILTIN_HANDLERS) | set(_get_skill_handler_map())
 
 
 def test_every_registry_handler_is_resolvable():
@@ -34,10 +34,10 @@ def test_every_registry_handler_is_resolvable():
 
 
 def test_every_executor_handler_is_importable():
-    """Every lazy-loaded handler in the executor's _SKILL_HANDLER_MAP must
+    """Every lazy-loaded handler in the registry-driven handler map must
     actually import successfully — catches stale module paths / attrs."""
     failures: list[str] = []
-    for handler_name, (module_path, attr_name) in _SKILL_HANDLER_MAP.items():
+    for handler_name, (module_path, attr_name) in _get_skill_handler_map().items():
         try:
             module = importlib.import_module(module_path)
             if not hasattr(module, attr_name):

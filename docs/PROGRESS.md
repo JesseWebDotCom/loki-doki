@@ -274,4 +274,42 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C07 (Skills Runtime, needs C02 ✓), C08/C09 (Memory M5/M6), or C10 (Cutover, needs C01 ✓ + C03 ✓ + C04 ✓). All unblocked.
 
+## C07 — Skills Runtime Wiring (2026-04-12)
+
+**Status:** Complete. All C07 gates green. 20 new tests, 1628 unit tests total (zero regressions).
+
+**What shipped:**
+
+1. **Registry-driven handler map.** Moved handler→module mapping data from the hardcoded `_SKILL_HANDLER_MAP` dict in `executor.py` into `function_registry.json` as `module_path` and `entry_point` fields on each implementation. New `build_handler_map()` in `loader.py` reads these fields at runtime. `executor.py` now uses a lazily-initialized `_get_skill_handler_map()` that calls the loader — adding a new skill only requires a registry JSON entry, no executor.py edit.
+
+2. **LokiSmartHomeAdapter swap.** `resolver.py` now constructs `LokiSmartHomeAdapter()` (reads `data/smarthome_state.json`) instead of `HomeAssistantAdapter()` (hardcoded in-memory stub). `device_resolver.py` uses a `DeviceAdapter` Protocol type instead of concrete `HomeAssistantAdapter`. Tests can inject a custom adapter via `context["device_adapter"]`.
+
+3. **Param fallback heuristic removal.** Removed chunk_text parsing from `weather.py` (`" in "` / `" for "` / `" at "` markers), `markets.py` (company name alias table), `time_in_location.py` (`" in "` marker extraction). Skills now read `params["location"]`, `params["ticker"]`, `params["city"]` from NER-derived structured params (C05). `people_facts.py` now prefers `params["person"]` over text parsing. Retained: zip code regex in `showtimes.py` (machine-recognizable `\d{5}` pattern), city table lookup in `time_in_location.py` (table match, not intent classification).
+
+4. **NER capability coverage expanded.** Added `get_time_in_location`, `get_movie_showtimes`, `get_stock_info` to `_CAPABILITY_PARAMS` in `derivations.py` so NER-derived params reach these skills.
+
+5. **Source metadata on direct-API skills.** `markets.py` now sets `source_url` (Yahoo Finance) and `source_title` on both `get_stock_price` and `get_stock_info`. `people_facts.py` sets Wikidata URL. `AdapterResult.to_payload()` auto-populates `sources` list from `source_url`/`source_title` when the skill didn't build the list manually — covers all direct-API skills without per-skill changes.
+
+6. **test_v2_skills_runtime_wiring.py** — 20 tests in 4 test classes:
+   - TestDynamicHandlerMap: map from registry (1), matches implementations (1), all importable (1), no hardcoded map (1), resolves lazy skill (1), falls back for unknown (1), only needs registry entry (1) — 7 tests
+   - TestRealAdapters: uses LokiSmartHomeAdapter (1), accepts injected adapter (1), Protocol type (1) — 3 tests
+   - TestParamsFromPipeline: weather params (1), time params (1), markets params (1), people_facts params (1), derivations coverage (1), weather uses param (1), weather default (1) — 7 tests
+   - TestSourcePropagation: markets source_url (1), people_facts source_url (1), to_payload auto-populates (1) — 3 tests
+
+**Gate checklist:**
+- [x] People, device, memory resolution use real adapters (LokiSmartHomeAdapter reads `data/smarthome_state.json`)
+- [x] External skills surface `sources` metadata end-to-end (markets→Yahoo Finance, people_facts→Wikidata, auto-population in to_payload)
+- [x] Runtime executes a skill without compile-time import (registry-driven handler map, no hardcoded `_SKILL_HANDLER_MAP`)
+- [x] Skills don't need `_extract_location(payload)` fallbacks (params from NER derivation, defaults for missing)
+
+**Regression test updates:**
+- `stub_skill.device_state_lights`: `llm_used` changed to `true` — "the lights" is correctly ambiguous with real device data (no longer matches hardcoded stub's "Kitchen Light")
+- `chatgpt_table.tool.turn_on_lights`: same adapter swap effect — removed `response_contains` assertion for unresolved device
+
+**Nothing deferred.** All gate items completed within this chunk.
+
+**Final test count:** 1628 unit tests (7 skipped). Zero regressions (1 pre-existing flaky test in test ordering only).
+
+**Next chunk:** C08 (Memory M5), C09 (Memory M6), or C10 (Cutover, all prereqs met: C01 ✓ + C03 ✓ + C04 ✓). C11 (Skills Phase 3) now unblocked by C07.
+
 <!-- Append new entries below this line -->

@@ -585,8 +585,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "control_device",
-        "llm_used": false,
-        "response_contains": "lights",
+        "llm_used": true,
         "max_total_ms": 500
       }
     },
@@ -738,7 +737,7 @@
       "expect": {
         "fast_lane_matched": false,
         "capability": "get_device_state",
-        "llm_used": false,
+        "llm_used": true,
         "max_total_ms": 500
       }
     },

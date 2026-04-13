@@ -14,6 +14,7 @@ from typing import Any
 from v2.orchestrator.adapters import (
     ConversationMemoryAdapter,
     HomeAssistantAdapter,
+    LokiSmartHomeAdapter,
     MovieContextAdapter,
     PeopleDBAdapter,
 )
@@ -33,7 +34,9 @@ def resolve_chunks(
     memory = ConversationMemoryAdapter(context)
     movies = MovieContextAdapter(memory)
     people = PeopleDBAdapter()
-    devices = HomeAssistantAdapter()
+    devices: HomeAssistantAdapter | LokiSmartHomeAdapter = (
+        (context or {}).get("device_adapter") or LokiSmartHomeAdapter()
+    )
 
     extraction_by_chunk = {item.chunk_index: item for item in extractions}
     out: list[ResolutionResult] = []
@@ -50,7 +53,7 @@ def _resolve_one(
     memory: ConversationMemoryAdapter,
     movies: MovieContextAdapter,
     people: PeopleDBAdapter,
-    devices: HomeAssistantAdapter,
+    devices: HomeAssistantAdapter | LokiSmartHomeAdapter,
 ) -> ResolutionResult:
     media = resolve_media(chunk, extraction, route, movies)
     if media is not None:

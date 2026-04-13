@@ -52,7 +52,7 @@ Chunks are ordered by dependency. Each chunk = one Claude Code chat session.
 | **C04** | SSE Streaming wrapper (graduation 4.J) | none | `chunks/chunk-04.md` | Medium | **complete** |
 | **C05** | Prompts / Decomposer refinement (graduation 4.C) | none | `chunks/chunk-05.md` | Medium | **complete** |
 | **C06** | Citations end-to-end (graduation 4.G) | C03 (persona/synthesis) | `chunks/chunk-06.md` | Small | **complete** |
-| **C07** | Skills Runtime Wiring (skills phase 2) | C02 (foundation) | `chunks/chunk-07.md` | Large | not started |
+| **C07** | Skills Runtime Wiring (skills phase 2) | C02 (foundation) | `chunks/chunk-07.md` | Large | **complete** |
 | **C08** | Memory M5: procedural (Tier 7a/7b) | M2 (done) | `chunks/chunk-08.md` | Medium | not started |
 | **C09** | Memory M6: affective (Tier 6, character overlay) | C03 (persona) | `chunks/chunk-09.md` | Medium | not started |
 | **C10** | V1 Cutover: chat.py swap + v1 deletion | C01, C03, C04 | `chunks/chunk-10.md` | Medium | not started |

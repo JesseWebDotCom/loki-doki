@@ -165,12 +165,15 @@ _CAPABILITY_PARAMS: dict[str, tuple[str, ...]] = {
     "get_weather": ("location",),
     "get_forecast": ("location",),
     "time_in_location": ("location",),
+    "get_time_in_location": ("location",),
     "get_holidays": ("location",),
+    "get_movie_showtimes": ("location",),
     "news_search": ("location", "person"),
     "lookup_person_facts": ("person",),
     "lookup_person_birthday": ("person",),
     "lookup_person_address": ("person",),
     "get_stock_price": ("ticker",),
+    "get_stock_info": ("ticker",),
     "get_market_data": ("ticker",),
 }
 

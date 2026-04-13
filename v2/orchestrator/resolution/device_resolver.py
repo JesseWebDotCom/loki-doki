@@ -6,8 +6,15 @@ mentions surface as ``unresolved`` instead of being silently guessed.
 """
 from __future__ import annotations
 
-from v2.orchestrator.adapters.home_assistant import HomeAssistantAdapter
+from typing import Protocol
+
 from v2.orchestrator.core.types import ChunkExtraction, RequestChunk, ResolutionResult, RouteMatch
+
+
+class DeviceAdapter(Protocol):
+    """Structural typing for device adapters (HomeAssistantAdapter / LokiSmartHomeAdapter)."""
+
+    def resolve(self, mention: str) -> object | None: ...
 
 DEVICE_CAPABILITIES = {
     "control_device",
@@ -20,7 +27,7 @@ def resolve_device(
     chunk: RequestChunk,
     extraction: ChunkExtraction,
     route: RouteMatch,
-    adapter: HomeAssistantAdapter,
+    adapter: DeviceAdapter,
 ) -> ResolutionResult | None:
     if route.capability not in DEVICE_CAPABILITIES:
         return None

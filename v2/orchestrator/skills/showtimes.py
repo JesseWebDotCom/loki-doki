@@ -57,9 +57,11 @@ _ZIP_RE = re.compile(r"\b(\d{5})\b")
 
 
 def _extract_zip(payload: dict[str, Any]) -> str:
+    r"""Read zip from params or regex (``\d{5}`` is a machine pattern, not intent)."""
     explicit = (payload.get("params") or {}).get("zip")
     if explicit:
         return str(explicit)
+    # ZIP codes are machine-recognizable digit patterns — regex is fine.
     chunk_text = str(payload.get("chunk_text") or "")
     match = _ZIP_RE.search(chunk_text)
     if match:

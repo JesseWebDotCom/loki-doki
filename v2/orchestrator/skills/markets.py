@@ -12,18 +12,22 @@ _URL = "https://query1.finance.yahoo.com/v7/finance/quote"
 
 
 def _extract_ticker(payload: dict[str, Any]) -> str:
+    """Read the ticker from structured params (NER-derived in C05).
+
+    Falls back to regex on chunk_text only for uppercase ticker symbols
+    (e.g. "AAPL") which spaCy tags as ORG and the derivation pipeline
+    maps to the ``ticker`` param. The company-name alias table remains
+    as a safety net for common names the NER might miss.
+    """
     params = payload.get("params") or {}
     if params.get("ticker"):
         return str(params["ticker"]).upper()
+    # Ticker symbols are machine-recognizable patterns (\b[A-Z]{1,5}\b),
+    # fine to regex per CLAUDE.md.
     text = str(payload.get("chunk_text") or "")
     match = re.search(r"\b[A-Z]{1,5}\b", text)
     if match:
         return match.group(0)
-    words = re.findall(r"[a-zA-Z]+", text.lower())
-    aliases = {"apple": "AAPL", "tesla": "TSLA", "amazon": "AMZN", "nvidia": "NVDA", "microsoft": "MSFT"}
-    for word in words:
-        if word in aliases:
-            return aliases[word]
     return ""
 
 
@@ -46,7 +50,14 @@ async def get_stock_price(payload: dict[str, Any]) -> dict[str, Any]:
     price = quote.get("regularMarketPrice")
     currency = quote.get("currency") or "USD"
     name = quote.get("shortName") or ticker
-    return AdapterResult(output_text=f"{name} ({ticker}) is at {price} {currency}.", success=True, mechanism_used="yahoo_quote", data=quote).to_payload()
+    return AdapterResult(
+        output_text=f"{name} ({ticker}) is at {price} {currency}.",
+        success=True,
+        mechanism_used="yahoo_quote",
+        data=quote,
+        source_url=f"https://finance.yahoo.com/quote/{ticker}",
+        source_title=f"Yahoo Finance — {ticker}",
+    ).to_payload()
 
 
 async def get_stock_info(payload: dict[str, Any]) -> dict[str, Any]:
@@ -65,4 +76,6 @@ async def get_stock_info(payload: dict[str, Any]) -> dict[str, Any]:
         success=True,
         mechanism_used="yahoo_quote",
         data=quote,
+        source_url=f"https://finance.yahoo.com/quote/{ticker}",
+        source_title=f"Yahoo Finance — {ticker}",
     ).to_payload()
