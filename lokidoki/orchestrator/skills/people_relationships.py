@@ -1,6 +1,6 @@
 """people relationship adapter — lookup_relationship + list_family.
 
-Wraps the v1 PeopleLookupSkill's ``graph_query`` mechanism. Parameters
+Wraps the PeopleLookupSkill's ``graph_query`` mechanism. Parameters
 are populated by the people resolver (person name, relationship) and by
 the PeopleDBAdapter (people rows, relationships, graph relations).
 

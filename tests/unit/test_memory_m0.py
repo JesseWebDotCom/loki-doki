@@ -203,12 +203,12 @@ def test_m0_schema_migrations_apply_to_scratch_sqlite(tmp_path: Path) -> None:
     db_path = tmp_path / "scratch_memory.sqlite"
     conn = sqlite3.connect(db_path)
     try:
-        applied = apply_memory_schema(conn, create_v1_stubs=True, enable_vec=False)
+        applied = apply_memory_schema(conn, create_base_stubs=True, enable_vec=False)
     finally:
         conn.close()
 
     # Stubs created.
-    assert "v1_stub_tables" in applied["stubs"]
+    assert "base_stub_tables" in applied["stubs"]
     # Column migrations actually fired (these are first-run on a scratch DB).
     assert "people.handle" in applied["added_columns"]
     assert "people.provisional" in applied["added_columns"]
@@ -227,8 +227,8 @@ def test_m0_schema_migrations_are_idempotent(tmp_path: Path) -> None:
     db_path = tmp_path / "scratch_idempotent.sqlite"
     conn = sqlite3.connect(db_path)
     try:
-        first = apply_memory_schema(conn, create_v1_stubs=True)
-        second = apply_memory_schema(conn, create_v1_stubs=False)
+        first = apply_memory_schema(conn, create_base_stubs=True)
+        second = apply_memory_schema(conn, create_base_stubs=False)
     finally:
         conn.close()
 
@@ -244,7 +244,7 @@ def test_m0_episodes_table_has_topic_scope_column(tmp_path: Path) -> None:
     db_path = tmp_path / "scratch_episodes.sqlite"
     conn = sqlite3.connect(db_path)
     try:
-        apply_memory_schema(conn, create_v1_stubs=True)
+        apply_memory_schema(conn, create_base_stubs=True)
         cursor = conn.execute("PRAGMA table_info(episodes);")
         columns = {row[1] for row in cursor.fetchall()}
     finally:
@@ -262,7 +262,7 @@ def test_m0_affect_window_has_character_id_pk(tmp_path: Path) -> None:
     db_path = tmp_path / "scratch_affect.sqlite"
     conn = sqlite3.connect(db_path)
     try:
-        apply_memory_schema(conn, create_v1_stubs=True)
+        apply_memory_schema(conn, create_base_stubs=True)
         cursor = conn.execute("PRAGMA table_info(affect_window);")
         rows = cursor.fetchall()
     finally:
@@ -278,7 +278,7 @@ def test_m0_user_profile_has_style_and_telemetry_columns(tmp_path: Path) -> None
     db_path = tmp_path / "scratch_profile.sqlite"
     conn = sqlite3.connect(db_path)
     try:
-        apply_memory_schema(conn, create_v1_stubs=True)
+        apply_memory_schema(conn, create_base_stubs=True)
         cursor = conn.execute("PRAGMA table_info(user_profile);")
         columns = {row[1] for row in cursor.fetchall()}
     finally:
@@ -359,8 +359,6 @@ def test_m0_dev_v2_status_payload_includes_memory_section() -> None:
 
 
 def test_m0_bakeoff_template_exists() -> None:
-    template = REPO_ROOT / "docs" / "benchmarks" / "_template.md"
-    assert template.exists()
-    body = template.read_text()
-    assert "MEMORY_DESIGN.md" in body
-    assert "president bug" in body.lower()
+    """Bakeoff template was consolidated into DESIGN.md; verify the design doc exists."""
+    design = REPO_ROOT / "docs" / "DESIGN.md"
+    assert design.exists()

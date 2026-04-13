@@ -13,7 +13,7 @@ Phase status: M4 — real in-session frequency counter backed by
 ``sessions.session_state``. The counter persists to the session_state JSON
 so the rolling window survives session boundaries within the same day.
 
-See `docs/MEMORY_DESIGN.md` §3 Layer 3 (Triggered consolidation).
+See `docs/DESIGN.md` §6.3 Layer 3 (Triggered consolidation).
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ log = logging.getLogger("lokidoki.orchestrator.memory.consolidation")
 
 # Threshold for triggered consolidation. Tunable; v1.2 set this to 3 to
 # match the cross-session promotion threshold. Tune in M4 against the recall
-# corpus per `docs/MEMORY_DESIGN.md` §10 question 11.
+# corpus per `docs/DESIGN.md` §6.10 question 11.
 TRIGGERED_CONSOLIDATION_THRESHOLD: int = 3
 
 # Rolling window for cross-session consolidation within the same day.

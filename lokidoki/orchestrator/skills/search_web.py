@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lokidoki.skills.search_ddg.skill import DuckDuckGoSkill
+from lokidoki.skills.search.skill import DuckDuckGoSkill
 
 from lokidoki.orchestrator.skills._runner import AdapterResult, run_mechanisms
 

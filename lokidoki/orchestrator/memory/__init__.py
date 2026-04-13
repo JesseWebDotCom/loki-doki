@@ -1,15 +1,9 @@
 """
 memory subsystem — clean-room implementation of the seven-tier model.
 
-This package is intentionally **not** wired into v1's `lokidoki.core.memory_*`
-modules. The v1 and memory systems share storage (one SQLite file) only via
-the lifecycle described in `docs/MEMORY_DESIGN.md` §7; they share no Python
-imports. A clean cutover from v1 means deleting the v1 modules without
-touching this package.
-
-Phase status: M0 — scaffolding only. No runtime logic yet. See
-`docs/MEMORY_DESIGN.md` §8 for the phase plan and `M0_STATUS` below for the
-current state.
+This package owns the memory subsystem. The memory system and the core
+chat-history module share storage (one SQLite file) only via the lifecycle
+described in `docs/DESIGN.md` §6 (Memory System); they share no Python imports.
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Skill configuration routes — v2 registry backed.
+"""Skill configuration routes — registry backed.
 
 Two tiers of config per capability, mirroring the storage layer:
 
@@ -118,7 +118,7 @@ def _build_capability_view(
 ) -> dict:
     """Assemble the per-capability payload the frontend expects.
 
-    Maps v2 registry entries to the existing ``SkillSummary`` shape so
+    Maps registry entries to the existing ``SkillSummary`` shape so
     the frontend components need zero changes.
     """
     schema = _get_schema(capability)
@@ -304,7 +304,7 @@ async def test_skill(
     admin: User = Depends(require_admin),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    """Force a prompt through one specific capability via v2 execution."""
+    """Force a prompt through one specific capability via the pipeline."""
     _capability_or_404(skill_id)
     runtime = get_runtime()
     implementation = runtime.select_handler(0, skill_id)

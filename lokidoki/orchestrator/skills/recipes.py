@@ -1,6 +1,6 @@
-"""recipes adapter — wraps lokidoki.skills.recipe_mealdb.
+"""recipes adapter — wraps lokidoki.skills.recipes.
 
-The v1 RecipeMealDBSkill exposes a single ``themealdb`` mechanism that
+The RecipeMealDBSkill exposes a single ``themealdb`` mechanism that
 takes a query (recipe name or ingredient) and returns up to three
 matching recipes with shaped ingredients/instructions.
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from lokidoki.skills.recipe_mealdb.skill import RecipeMealDBSkill
+from lokidoki.skills.recipes.skill import RecipeMealDBSkill
 
 from lokidoki.orchestrator.skills._runner import AdapterResult, run_mechanisms
 

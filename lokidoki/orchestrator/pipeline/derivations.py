@@ -1,6 +1,6 @@
 """Deterministic derivation of pipeline flags from parse + route results.
 
-Replaces the v1 LLM decomposer for structured fields the pipeline
+Derives structured fields the pipeline
 consumes. Every flag is derived from data the pipeline already computed
 (spaCy parse, extraction, routing) — zero additional model calls.
 

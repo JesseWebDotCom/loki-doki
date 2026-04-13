@@ -1,5 +1,5 @@
 {
-  "skill_id": "tvshows_tvmaze",
+  "skill_id": "tvshows",
   "name": "TVMaze Detail Engine",
   "is_searchable": true,
   "search_config": {

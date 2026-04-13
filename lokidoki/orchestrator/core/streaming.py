@@ -1,7 +1,7 @@
 """SSE streaming wrapper for the pipeline.
 
 Wraps ``run_pipeline_async`` in an async generator that yields progressive
-SSE events matching the v1 frontend's expected ``PipelineEvent`` shape
+SSE events matching the frontend's expected ``PipelineEvent`` shape
 (``{phase, status, data}``), so the chat UI shows phase indicators during
 pipeline execution without any frontend changes.
 """
@@ -32,7 +32,7 @@ class SSEEvent:
         return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
-# Which v1 phase each trace step contributes timing to.
+# Which frontend phase each trace step contributes timing to.
 _STEP_TO_PHASE: dict[str, str] = {
     "normalize": "decomposition",
     "signals": "decomposition",
@@ -57,7 +57,7 @@ async def stream_pipeline_sse(
     raw_text: str,
     context: dict[str, Any] | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Run the pipeline and yield v1-compatible ``data: {...}\\n\\n`` SSE strings."""
+    """Run the pipeline and yield ``data: {...}\\n\\n`` SSE strings."""
     from lokidoki.orchestrator.core.pipeline import run_pipeline_async
 
     queue: asyncio.Queue[SSEEvent | object] = asyncio.Queue()
@@ -209,7 +209,7 @@ def _build_decomposition_data(
     step_cache: dict[str, TraceStep],
     phase_timing: dict[str, float],
 ) -> dict[str, Any]:
-    """Build v1-compatible decomposition ``done`` data."""
+    """Build decomposition ``done`` data."""
     split_step = step_cache.get("split")
     signals_step = step_cache.get("signals")
     data: dict[str, Any] = {
@@ -231,7 +231,7 @@ def _build_routing_data(
     step_cache: dict[str, TraceStep],
     phase_timing: dict[str, float],
 ) -> dict[str, Any]:
-    """Build v1-compatible routing ``done`` data."""
+    """Build routing ``done`` data."""
     execute_step = step_cache.get("execute")
     route_step = step_cache.get("route")
     exec_chunks = execute_step.details.get("chunks", []) if execute_step else []
@@ -265,7 +265,7 @@ def _build_routing_data(
 
 
 def _build_synthesis_done(result: Any) -> dict[str, Any]:
-    """Build v1-compatible synthesis ``done`` data from a PipelineResult."""
+    """Build synthesis ``done`` data from a PipelineResult."""
     return {
         "response": result.response.output_text,
         "model": getattr(result.request_spec, "llm_model", None) or "pipeline",
@@ -296,7 +296,7 @@ def _extract_sources(result: Any) -> list[dict[str, str]]:
 
 
 def _build_error_event() -> SSEEvent:
-    """Graceful SSE error event matching v1's shape."""
+    """Graceful SSE error event matching the frontend's expected shape."""
     return SSEEvent(
         phase="synthesis",
         status="done",

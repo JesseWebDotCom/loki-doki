@@ -80,7 +80,7 @@ async def get_pipeline_status(_: User = Depends(require_admin)):
     minilm_active = embedding_backend.name.startswith("fastembed:")
 
     return {
-        "current_focus": "cutover complete — chat.py uses pipeline; v1 orchestrator retired",
+        "current_focus": "cutover complete — chat.py uses pipeline",
         "phases": [
             {
                 "id": "phase_1",
@@ -237,8 +237,8 @@ def _memory_status() -> dict[str, Any]:
 
     M0 publishes scaffolding only — the gates, classifier, promotion, and
     consolidation modules import cleanly but contain stub logic. The phase
-    list mirrors `docs/MEMORY_DESIGN.md` §8 so the dev-tools UI tracks the
-    same milestones the design doc does.
+    list mirrors `docs/DESIGN.md` §6 (Memory System) so the dev-tools UI
+    tracks the same milestones the design doc does.
     """
     tiers_payload = [
         {
@@ -269,13 +269,13 @@ def _memory_status() -> dict[str, Any]:
             "summary": (
                 "All memory phases (M0-M6) complete. The pipeline is "
                 "now the production chat path — chat.py calls "
-                "stream_pipeline_sse instead of the v1 Orchestrator. "
+                "stream_pipeline_sse. "
                 "Memory tiers: T2 session context, T3 episodic recall, "
                 "T4 user facts (FTS5+RRF+vector), T5 social graph, "
                 "T6 affective (character-scoped mood window), T7a/7b "
                 "procedural (behavior events, user style descriptors). "
                 "The memory store at data/memory.sqlite is "
-                "initialized at app startup; the v1 MemoryProvider "
+                "initialized at app startup; the MemoryProvider "
                 "still owns chat history, auth, and settings."
             ),
             "deliverables": [
@@ -371,7 +371,7 @@ async def pipeline_chat_stream(
     request: PipelineRunRequest,
     _: User = Depends(require_admin),
 ):
-    """Stream pipeline results as SSE events (v1-frontend-compatible).
+    """Stream pipeline results as SSE events.
 
     Same request shape as ``/pipeline/run`` but returns a ``text/event-stream``
     response with progressive phase events that the existing chat UI can

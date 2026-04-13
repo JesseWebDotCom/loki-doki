@@ -3,7 +3,7 @@
 The fast lane already handles trivial math utterances. This adapter
 covers the routed path: a math chunk that arrives inside a compound
 utterance and bypasses the fast lane. We hand the entire chunk text to
-the v1 skill's ``safe_eval`` mechanism, which already does friendly
+the skill's ``safe_eval`` mechanism, which already does friendly
 normalization (word operators → symbols, "X% of Y" → "(X/100)*Y").
 """
 from __future__ import annotations

@@ -14,7 +14,7 @@ class SlotSpec:
     landing_phase: str
 
 
-# Slot table mirrors `docs/MEMORY_DESIGN.md` §4 (Synthesis prompt slots).
+# Slot table mirrors `docs/DESIGN.md` §6.4 (Synthesis prompt slots).
 SLOT_SPECS: Final[tuple[SlotSpec, ...]] = (
     SlotSpec("user_style", tier=7, char_budget=200, always_present=True, landing_phase="M5"),
     SlotSpec("recent_mood", tier=6, char_budget=120, always_present=True, landing_phase="M6"),

@@ -1,5 +1,5 @@
 {
-  "skill_id": "recipe_mealdb",
+  "skill_id": "recipes",
   "name": "Recipes (TheMealDB)",
   "description": "Recipe lookup, search by name or main ingredient. Free, no key.",
   "is_searchable": true,

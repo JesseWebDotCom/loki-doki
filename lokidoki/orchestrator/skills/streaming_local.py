@@ -3,7 +3,7 @@
 Built on top of two real data sources:
 
   1. ``tvmaze_api`` (live) — for TV shows we can get the broadcast
-     network and webChannel name directly. The v1 ``TVMazeSkill`` already
+     network and webChannel name directly. The ``TVMazeSkill`` already
      hands these back through ``execute_mechanism``; we reuse it.
   2. A curated streaming catalog for popular movies and franchise
      anchors that the test suite cares about.
@@ -12,8 +12,8 @@ Mechanism chain:
 
   1. ``local_catalog`` — instant lookup against the curated movie /
      franchise table.
-  2. ``tvmaze_api`` — live TV-show provider lookup via the v1 skill.
-  3. ``local_cache`` — v1 TVMaze in-memory cache.
+  2. ``tvmaze_api`` — live TV-show provider lookup via the TVMaze skill.
+  3. ``local_cache`` — TVMaze in-memory cache.
   4. graceful failure — return a polite "couldn't find streaming"
      sentence with ``success=False``.
 
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lokidoki.skills.tvshows_tvmaze.skill import TVMazeSkill
+from lokidoki.skills.tvshows.skill import TVMazeSkill
 
 from lokidoki.orchestrator.skills._runner import AdapterResult, run_mechanisms
 

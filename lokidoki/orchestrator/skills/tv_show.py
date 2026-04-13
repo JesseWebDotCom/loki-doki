@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lokidoki.skills.tvshows_tvmaze.skill import TVMazeSkill
+from lokidoki.skills.tvshows.skill import TVMazeSkill
 
 from lokidoki.orchestrator.skills._runner import (
     AdapterResult,

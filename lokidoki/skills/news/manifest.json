@@ -1,5 +1,5 @@
 {
-  "skill_id": "news_rss",
+  "skill_id": "news",
   "name": "News Headlines",
   "description": "Top news headlines via Google News RSS — covers world, US, business, tech, sports, science, health, entertainment.",
   "is_searchable": true,

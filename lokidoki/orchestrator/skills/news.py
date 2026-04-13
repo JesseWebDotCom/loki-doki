@@ -1,6 +1,6 @@
-"""news headlines adapter — wraps lokidoki.skills.news_rss.
+"""news headlines adapter — wraps lokidoki.skills.news.
 
-The v1 NewsRSSSkill exposes a single ``google_news_rss`` mechanism
+The NewsRSSSkill exposes a single ``google_news_rss`` mechanism
 that supports a fixed list of canned topic feeds (world, us, business,
 tech, sports, science, health, entertainment) and falls back to a
 search query for anything else.
@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from lokidoki.skills.news_rss.skill import NewsRSSSkill, TOPIC_FEEDS
+from lokidoki.skills.news.skill import NewsRSSSkill, TOPIC_FEEDS
 
 from lokidoki.orchestrator.skills._runner import AdapterResult, run_mechanisms
 
