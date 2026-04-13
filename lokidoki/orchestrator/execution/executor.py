@@ -118,6 +118,7 @@ async def _build_payload_async(
         "user_name": (context or {}).get("user_name", "User"),
         "current_time": (context or {}).get("current_time"),
         "current_iso_time": (context or {}).get("current_iso_time"),
+        "conversation_topic": (context or {}).get("conversation_topic", ""),
         "mechanism": "asynchronous_skill",
     }
 

@@ -119,9 +119,13 @@ def _best_index_match(
 
 
 _FACTUAL_WH_PREFIXES = (
-    "what is ", "what's ", "what are ", "who is ", "who are ", "who was ",
-    "where is ", "where are ", "when is ", "when was ", "when did ",
-    "how do i ", "how does ", "how do you ", "is there ", "is it ",
+    "what is ", "what's ", "what are ", "what was ", "what were ",
+    "what year ", "what time ", "what day ", "what date ",
+    "who is ", "who are ", "who was ",
+    "where is ", "where are ", "where was ", "where did ",
+    "when is ", "when was ", "when did ",
+    "how do i ", "how does ", "how do you ", "how many ", "how much ",
+    "is there ", "is it ",
     "does ", "did ", "can you ",
 )
 

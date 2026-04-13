@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from lokidoki.orchestrator.core.pipeline_hooks import (
+    bridge_session_state_to_recent_entities,
     ensure_session,
     maybe_queue_session_close,
 )
@@ -42,6 +43,7 @@ async def run_pipeline_async(
     """Run the pipeline end-to-end."""
     trace, runtime, ctx = _init_trace(context)
     ensure_session(ctx)
+    bridge_session_state_to_recent_entities(ctx)
     normalized, signals, fast_lane = run_pre_parse_phase(trace, ctx, raw_text)
     if fast_lane.matched:
         return _fast_lane_result(raw_text, normalized, signals, fast_lane, ctx, trace)

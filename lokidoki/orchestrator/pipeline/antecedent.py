@@ -1,18 +1,27 @@
 """Pre-routing antecedent resolution for pronoun-heavy queries.
 
-Replaces subject pronouns ("it", "that", "this") with the most recent
-conversational topic so downstream search handlers get a grounded query
-instead of a bare pronoun.
+This is the design-spec "resolve" step that runs BEFORE routing.  It
+replaces subject pronouns ("he", "she", "it", "that") with the most
+recently tracked entity from session state so downstream routing and
+search handlers get a grounded query instead of a bare pronoun.
+
+Entity source priority:
+  1. Session state ``last_seen`` map (via ``context["recent_entities"]``,
+     populated by ``bridge_session_state_to_recent_entities``).
+  2. Conversation history text (fallback when session state has no entity,
+     e.g. first turn of a session or entity not formally tracked).
+
+Additionally extracts a **conversational topic** (e.g. "The Masked
+Singer" when the entity is "Corey Feldman") and stores it in
+``context["conversation_topic"]`` so the knowledge-query handler can
+build richer search queries.
 
 Example:
-    conversation_history = [
-        {"role": "user",      "content": "what is Claude Cowork"},
-        {"role": "assistant", "content": "Claude Cowork is a desktop AI ..."},
-    ]
-    "is it free" → "is Claude Cowork free"
-
-This runs BEFORE routing so that ``_is_factual_wh_question`` promotion
-sends "is Claude Cowork free" to ``knowledge_query``, not "is it free".
+    session state: last_person = "Corey Feldman"
+    recent topic:  "The Masked Singer"
+    "did he win" → chunk text "did Corey Feldman win"
+                 → context["conversation_topic"] = "The Masked Singer"
+                 → search query "did Corey Feldman win The Masked Singer"
 """
 from __future__ import annotations
 
@@ -24,33 +33,69 @@ from lokidoki.orchestrator.core.types import RequestChunk
 
 logger = logging.getLogger("lokidoki.orchestrator.pipeline.antecedent")
 
-_SUBJECT_PRONOUNS = frozenset({"it", "this", "that", "they", "them"})
+# Pronouns the resolver will attempt to replace with the recent entity.
+# Split into categories so substitution can handle possessives correctly
+# ("his" → "Corey Feldman's", not "Corey Feldman").
+_SUBJECT_OBJECT_PRONOUNS = frozenset({
+    "it", "this", "that", "they", "them",
+    "he", "she", "him", "her",
+})
+_POSSESSIVE_PRONOUNS = frozenset({"his", "hers"})
+_ALL_PRONOUNS = _SUBJECT_OBJECT_PRONOUNS | _POSSESSIVE_PRONOUNS
 
-# Regex matching a leading pronoun that acts as the subject/object
-# of a factual question.  Captures: "is it", "does it", "is that",
-# "can it", "what is it", "how much does it", etc.
+# Regex matching any resolvable pronoun in the text.
 _PRONOUN_RE = re.compile(
-    r"\b(it|this|that|they|them)\b",
+    r"\b(it|this|that|they|them|he|she|him|her|his|hers)\b",
     re.IGNORECASE,
 )
+
+# Demonstrative pronouns that can also act as determiners before a noun.
+# "that movie" = determiner (leave for post-routing resolver).
+# "tell me about that" = pronoun (substitute here).
+_DEMONSTRATIVES = frozenset({"this", "that", "these", "those"})
+
+# Entity-type nouns that signal a demonstrative is a determiner.
+_ENTITY_TYPE_NOUNS = frozenset({
+    "movie", "film", "show", "series", "song", "track", "album",
+    "book", "game", "app", "device", "phone", "recipe", "person",
+    "place", "episode", "video", "podcast", "article", "word",
+    "thing", "one", "guy", "girl", "man", "woman", "kid", "team",
+})
 
 
 def resolve_antecedents(
     chunks: list[RequestChunk],
     context: dict[str, Any],
 ) -> list[RequestChunk]:
-    """Replace subject pronouns in chunk text with the most recent topic.
+    """Replace subject pronouns in chunk text with the most recent entity.
 
-    Only acts on chunks whose text is a short factual question containing
-    a pronoun.  Returns a new list — never mutates the originals.
+    Uses session-state entities (``context["recent_entities"]``) when
+    available; falls back to conversation-history parsing otherwise.
+
+    Only substitutes **person pronouns** (he/she/him/her/his/hers)
+    unconditionally. Generic pronouns (it/this/that) are left for the
+    post-routing media/pronoun resolver when session state contains a
+    movie entity — the media resolver has capability-specific logic for
+    those.
+
+    Side-effect: stores ``context["conversation_topic"]`` when a topic
+    beyond the main entity is detected.  Downstream handlers
+    (knowledge_query) use this to build richer search queries.
     """
-    topic = _extract_recent_topic(context)
-    if not topic:
+    entity, conv_topic = _resolve_entity_and_topic(context)
+    if not entity:
         return chunks
+
+    if conv_topic:
+        context["conversation_topic"] = conv_topic
+
+    # If session state has a movie entity, generic pronouns (it/this/that)
+    # should be deferred to the post-routing media resolver.
+    has_movie = _has_entity_type(context, "movie")
 
     out: list[RequestChunk] = []
     for chunk in chunks:
-        resolved_text = _try_resolve(chunk.text, topic)
+        resolved_text = _try_resolve(chunk.text, entity, defer_generic=has_movie)
         if resolved_text != chunk.text:
             logger.info(
                 "[Antecedent] Resolved chunk %d: '%s' → '%s'",
@@ -68,35 +113,155 @@ def resolve_antecedents(
     return out
 
 
-def _try_resolve(text: str, topic: str) -> str:
-    """Replace the first subject pronoun in ``text`` with ``topic``.
+def _has_entity_type(context: dict[str, Any], entity_type: str) -> bool:
+    """Check if recent_entities contains an entity of the given type."""
+    for item in context.get("recent_entities") or []:
+        if isinstance(item, dict) and str(item.get("type", "")).lower() == entity_type:
+            return True
+    return False
+
+
+# Pronouns that always refer to persons — safe to substitute pre-routing.
+_PERSON_PRONOUNS = frozenset({
+    "he", "she", "him", "her", "his", "hers",
+})
+
+# Generic pronouns that may refer to movies/media — deferred when a
+# movie entity is in session state so the media resolver can handle them.
+_GENERIC_PRONOUNS = frozenset({
+    "it", "this", "that", "they", "them",
+})
+
+
+def _try_resolve(text: str, entity: str, *, defer_generic: bool = False) -> str:
+    """Replace the first subject pronoun in ``text`` with ``entity``.
 
     Only fires when:
     1. The text is short (< 12 words) — long sentences rarely need this.
     2. The text contains at least one subject pronoun from the closed set.
+    3. The pronoun is a standalone referent, NOT a determiner before a noun
+       (e.g. "that movie" is left for the post-routing media resolver).
+    4. If ``defer_generic`` is True, generic pronouns (it/this/that/they/
+       them) are skipped — the post-routing media resolver handles those.
     """
     words = text.split()
     if len(words) > 12:
         return text
     lower = text.lower()
-    if not any(p in lower.split() for p in _SUBJECT_PRONOUNS):
+    words_lower = lower.split()
+    if not any(p in words_lower for p in _ALL_PRONOUNS):
         return text
-    # Replace the FIRST occurrence of the pronoun with the topic.
-    return _PRONOUN_RE.sub(topic, text, count=1)
+    match = _PRONOUN_RE.search(text)
+    if not match:
+        return text
+    pronoun = match.group(1).lower()
+    # Demonstrative + entity-type noun = determiner ("that movie").
+    if pronoun in _DEMONSTRATIVES and _is_determiner(text, match):
+        return text
+    # Defer generic pronouns when a movie entity exists in session state.
+    if defer_generic and pronoun in _GENERIC_PRONOUNS:
+        return text
+    replacement = f"{entity}'s" if pronoun in _POSSESSIVE_PRONOUNS else entity
+    return _PRONOUN_RE.sub(replacement, text, count=1)
 
 
-def _extract_recent_topic(context: dict[str, Any]) -> str:
-    """Pull the dominant topic from the most recent assistant turn.
+def _is_determiner(text: str, match: re.Match) -> bool:
+    """Check if a demonstrative pronoun is actually a determiner before a noun."""
+    after = text[match.end():].lstrip()
+    if not after:
+        return False
+    next_word = after.split()[0].strip(".,!?;:'\"").lower()
+    return next_word in _ENTITY_TYPE_NOUNS
 
-    Strategy: find the first noun phrase or capitalized multi-word span
-    in the assistant's last response. Falls back to the user's last
-    question's object.
+
+# ---------------------------------------------------------------------------
+# Entity + topic resolution
+# ---------------------------------------------------------------------------
+
+def _resolve_entity_and_topic(context: dict[str, Any]) -> tuple[str, str]:
+    """Resolve the entity (for pronoun substitution) and conversational topic.
+
+    Returns ``(entity, topic)`` where:
+    - ``entity`` is the subject name ("Corey Feldman") for pronoun replacement.
+    - ``topic`` is the broader conversational context ("The Masked Singer")
+      for downstream search enrichment.
+
+    Resolution sources (in priority order):
+    1. Session state ``recent_entities`` (populated by the bridge hook).
+    2. Conversation history text (fallback).
+    """
+    entity = ""
+    topic = ""
+
+    # --- Source 1: session state entities ---
+    recent = context.get("recent_entities") or []
+    if recent:
+        entity, topic = _entity_from_session_state(recent)
+
+    # --- Source 2: conversation history (fallback for entity) ---
+    if not entity:
+        entity, hist_topic = _entity_from_conversation_history(context)
+        if not topic and hist_topic:
+            topic = hist_topic
+
+    # --- Source 3: conversation history (fallback for topic only) ---
+    if entity and not topic:
+        _, hist_topic = _entity_from_conversation_history(context)
+        if hist_topic:
+            topic = hist_topic
+
+    return entity, topic
+
+
+def _entity_from_session_state(
+    recent: list[dict[str, Any]],
+) -> tuple[str, str]:
+    """Extract entity and topic from ``context["recent_entities"]``.
+
+    The list is populated by ``bridge_session_state_to_recent_entities``
+    from the session's ``last_seen`` map.  Each entry is a dict with
+    ``name`` and ``type`` keys.
+
+    Returns ``(entity, topic)`` — entity is the first person (or first
+    entity if no person), topic is the first entry with type ``topic``.
+    """
+    entity = ""
+    topic = ""
+    first_name = ""
+
+    for item in recent:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        etype = str(item.get("type") or "").lower()
+        if not name:
+            continue
+        if not first_name:
+            first_name = name
+        if etype == "person" and not entity:
+            entity = name
+        if etype == "topic" and not topic:
+            topic = name
+
+    # If no person entity, use whatever entity we found first.
+    if not entity:
+        entity = first_name
+
+    return entity, topic
+
+
+def _entity_from_conversation_history(
+    context: dict[str, Any],
+) -> tuple[str, str]:
+    """Fallback: extract entity + topic from conversation history text.
+
+    Used when session state has no recent entities (e.g. first turn, or
+    entities not formally tracked by the session-state update hook).
     """
     history = context.get("conversation_history") or []
     if not history:
-        return ""
+        return "", ""
 
-    # Walk backwards to find the last assistant message
     last_assistant = ""
     last_user = ""
     for msg in reversed(history):
@@ -109,52 +274,97 @@ def _extract_recent_topic(context: dict[str, Any]) -> str:
         if last_assistant and last_user:
             break
 
-    # Strategy 1: Extract the subject of the assistant's first sentence.
-    # "Claude Cowork is a desktop AI agent..." → "Claude Cowork"
+    entity = ""
+    topic = ""
+
     if last_assistant:
-        topic = _first_noun_phrase(last_assistant)
-        if topic:
-            return topic
+        proper_nouns = _all_proper_noun_phrases(last_assistant)
+        if proper_nouns:
+            entity = proper_nouns[0]
+            if len(proper_nouns) > 1:
+                topic = proper_nouns[1]
 
-    # Strategy 2: Extract from the user's last question.
-    # "what is Claude Cowork" → "Claude Cowork"
-    if last_user:
-        topic = _question_object(last_user)
-        if topic:
-            return topic
+    if not entity and last_user:
+        entity = _question_object(last_user)
 
-    return ""
+    if not topic and last_user:
+        user_topic = _extract_user_topic(last_user, entity)
+        if user_topic:
+            topic = user_topic
+
+    return entity, topic
+
+
+# ---------------------------------------------------------------------------
+# Text extraction helpers
+# ---------------------------------------------------------------------------
+
+def _all_proper_noun_phrases(text: str) -> list[str]:
+    """Extract all proper-noun phrases from the first sentence of ``text``.
+
+    A proper-noun phrase is a contiguous run of capitalized words.
+
+    >>> _all_proper_noun_phrases(
+    ...     "Corey Feldman was on The Masked Singer in 2024."
+    ... )
+    ['Corey Feldman', 'The Masked Singer']
+    """
+    first_sentence = re.split(r"[.!?]", text, maxsplit=1)[0].strip()
+    if not first_sentence:
+        return []
+    words = first_sentence.split()
+    results: list[str] = []
+    current: list[str] = []
+    for word in words:
+        clean = word.strip(",'\"()[]")
+        if clean and clean[0].isupper() and clean.isalpha():
+            current.append(clean)
+        else:
+            if current:
+                phrase = " ".join(current)
+                if len(phrase) > 2:
+                    results.append(phrase)
+                current = []
+    if current:
+        phrase = " ".join(current)
+        if len(phrase) > 2:
+            results.append(phrase)
+    return results
 
 
 def _first_noun_phrase(text: str) -> str:
-    """Extract the leading noun phrase from text using a simple heuristic.
+    """Extract the leading proper-noun phrase from text."""
+    phrases = _all_proper_noun_phrases(text)
+    return phrases[0] if phrases else ""
 
-    Looks for a sequence of capitalized words at the start of a sentence.
-    "Claude Cowork is a desktop AI..." → "Claude Cowork"
+
+def _extract_user_topic(user_text: str, entity: str) -> str:
+    """Extract a topical phrase from the user's last question.
+
+    Strips question words and pronouns, then looks for a trailing
+    noun-phrase that isn't the entity.
+
+    "what year was he on the masked singer" → "the masked singer"
     """
-    # Take first sentence
-    first_sentence = re.split(r"[.!?]", text, maxsplit=1)[0].strip()
-    if not first_sentence:
+    q = user_text.strip().rstrip("?. ")
+    q = re.sub(
+        r"^(?:what|who|where|when|how|did|does|is|was|were|are|can|will)\s+",
+        "", q, flags=re.IGNORECASE,
+    )
+    q = re.sub(
+        r"\b(?:he|she|him|her|his|hers|it|they|them|their|this|that)\b",
+        "", q, flags=re.IGNORECASE,
+    )
+    q = re.sub(
+        r"\b(?:is|was|were|are|did|does|do|has|have|had|win|get|go)\b",
+        "", q, flags=re.IGNORECASE,
+    )
+    q = " ".join(q.split()).strip()
+    if not q or len(q) <= 2:
         return ""
-    # Find leading capitalized words (the subject)
-    words = first_sentence.split()
-    noun_phrase: list[str] = []
-    for word in words:
-        # Stop at verbs / function words that signal end of subject NP
-        clean = word.strip(",'\"()[]")
-        if clean and clean[0].isupper():
-            noun_phrase.append(clean)
-        elif noun_phrase:
-            break
-        else:
-            # Skip leading lowercase words like "the" before the proper noun
-            continue
-    if noun_phrase:
-        result = " ".join(noun_phrase)
-        # Don't return single-char or very short results
-        if len(result) > 2:
-            return result
-    return ""
+    if entity and q.lower() == entity.lower():
+        return ""
+    return q
 
 
 def _question_object(text: str) -> str:

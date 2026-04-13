@@ -242,3 +242,40 @@ def test_v2_router_matches_frustrated_code_turn_to_emotional_support():
 
     assert match.capability == "emotional_support"
     assert match.confidence > 0.55
+
+
+class TestWHQuestionPromotion:
+    """WH-question promotion sends factual questions to knowledge_query."""
+
+    def test_what_year_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("what year was corey feldman on the masked singer")
+
+    def test_what_time_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("what time does the store close")
+
+    def test_what_day_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("what day is thanksgiving")
+
+    def test_what_was_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("what was the first star wars movie")
+
+    def test_how_many_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("how many seasons of the office are there")
+
+    def test_where_was_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("where was marie curie born")
+
+    def test_where_did_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("where did the titanic sink")
+
+    def test_chitchat_excluded(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert not _is_factual_wh_question("what's up")
+        assert not _is_factual_wh_question("how are you")

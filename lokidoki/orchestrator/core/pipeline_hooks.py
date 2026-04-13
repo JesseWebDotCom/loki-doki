@@ -239,6 +239,22 @@ def run_session_state_update(
             entity_name=entity_name,
         )
 
+    # Pass 3: persist the conversation topic extracted by the antecedent
+    # resolver (e.g. "The Masked Singer").  On the next turn the bridge
+    # hook will load it into recent_entities with type="topic" so the
+    # antecedent resolver can use it for search enrichment.
+    conv_topic = safe_context.get("conversation_topic")
+    if conv_topic and isinstance(conv_topic, str) and conv_topic.strip():
+        store.update_last_seen(
+            int(session_id),
+            entity_type="topic",
+            entity_name=conv_topic.strip(),
+        )
+        log.info(
+            "[session_state] pass3: storing topic=%r from antecedent resolver",
+            conv_topic.strip(),
+        )
+
 
 def maybe_queue_session_close(
     safe_context: dict[str, Any],

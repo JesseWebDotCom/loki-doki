@@ -13,7 +13,6 @@ from typing import Any
 
 from lokidoki.orchestrator.core.pipeline_hooks import (
     auto_raise_need_session_context,
-    bridge_session_state_to_recent_entities,
     record_behavior_event,
     record_sentiment,
     run_session_state_update,
@@ -123,14 +122,18 @@ async def run_routing_phase(trace, safe_context, routable, runtime):
 
 
 def run_derivations_phase(trace, safe_context, parsed, chunks, extractions, routes):
-    """Derive need flags and bridge session state."""
+    """Derive need flags from parse + route results.
+
+    Note: ``bridge_session_state_to_recent_entities`` now runs at pipeline
+    start (before antecedent resolution) so that the pre-routing resolver
+    can read session-state entities.  It is NOT called here anymore.
+    """
     finish = trace.timed("derive_flags")
     derived = derive_need_flags(parsed, chunks, extractions, routes, safe_context)
     for key, value in derived.items():
         safe_context.setdefault(key, value)
     derived_params = extract_structured_params(chunks, extractions, routes)
     finish(flags=sorted(derived.keys()), params_chunks=sorted(derived_params.keys()))
-    bridge_session_state_to_recent_entities(safe_context)
     return derived_params
 
 

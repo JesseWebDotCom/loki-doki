@@ -50,7 +50,16 @@ def _extract_query(payload: dict[str, Any]) -> str:
     explicit = (payload.get("params") or {}).get("query")
     if explicit:
         return str(explicit)
-    return str(payload.get("chunk_text") or "").strip(" ?.!")
+    base = str(payload.get("chunk_text") or "").strip(" ?.!")
+    # Enrich short queries with the conversational topic when available.
+    # "did Corey Feldman win" + topic "The Masked Singer"
+    # → "did Corey Feldman win The Masked Singer"
+    topic = str(payload.get("conversation_topic") or "").strip()
+    if topic and base and topic.lower() not in base.lower():
+        words = base.split()
+        if len(words) <= 7:
+            base = f"{base} {topic}"
+    return base
 
 
 def _format_wiki(result, method: str) -> str:
