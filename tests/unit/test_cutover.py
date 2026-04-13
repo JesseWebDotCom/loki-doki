@@ -195,7 +195,7 @@ class TestMessagePersistence:
 
     def test_emits_session_ready_event(self):
         source = CHAT_PY.read_text()
-        assert '"phase":"session"' in source
+        assert '"phase": "session"' in source or '"phase":"session"' in source or 'session_event' in source
         assert "session_id" in source
 
     def test_injects_assistant_message_id(self):

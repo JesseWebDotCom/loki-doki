@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -100,12 +101,13 @@ async def chat(
     async def event_stream():
         try:
             # Emit session-ready event (frontend expects this first).
-            yield f'data: {{"phase":"session","status":"ready","data":{{"session_id":{session_id}}}}}\n\n'
+            session_event = {"phase": "session", "status": "ready", "data": {"session_id": session_id}}
+            yield f"data: {json.dumps(session_event, separators=(',', ':'))}\n\n"
 
             response_text = ""
             async for sse_chunk in stream_pipeline_sse(request.message, context=context):
-                # Intercept synthesis done to capture the response.
-                if '"phase":"synthesis"' in sse_chunk and '"status":"done"' in sse_chunk:
+                # Intercept synthesis-done to capture the final response and trigger naming.
+                if '"phase"' in sse_chunk and '"synthesis"' in sse_chunk and '"status"' in sse_chunk and '"done"' in sse_chunk:
                     try:
                         payload = json.loads(sse_chunk.removeprefix("data: ").rstrip("\n"))
                         response_text = payload.get("data", {}).get("response", "")
@@ -175,16 +177,21 @@ async def _auto_name_session(
         raw = await client.generate(
             model=_model_policy.fast_model,
             prompt=prompt,
-            num_predict=20,
+            num_predict=40,
             temperature=0.3,
-            think=False,
         )
         await client.close()
-        title = raw.strip().strip('"').strip("'")[:80]
+
+        # Remove thinking tags if the model leaked them.
+        clean = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        title = clean.strip().strip('"').strip("'")[:80]
+
         if title:
             await memory.update_session_title(user_id, session_id, title)
+        else:
+            logger.warning("auto-name generated empty title for session %s", session_id)
     except Exception:
-        logger.debug("auto-name failed for session %s, ignoring", session_id)
+        logger.exception("auto-name failed for session %s", session_id)
 
 
 @router.get("/memory")

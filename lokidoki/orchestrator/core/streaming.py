@@ -29,7 +29,7 @@ class SSEEvent:
     def to_sse(self) -> str:
         """Serialize to the ``data: <json>\n\n`` SSE wire format."""
         payload = {"phase": self.phase, "status": self.status, "data": self.data}
-        return f"data: {json.dumps(payload)}\n\n"
+        return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
 # Which v1 phase each trace step contributes timing to.

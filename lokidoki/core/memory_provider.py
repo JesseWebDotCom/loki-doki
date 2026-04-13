@@ -6,7 +6,7 @@ schema) deleted in this PR. Everything goes through one provider that:
 
 - creates the schema on startup if missing (does NOT delete data/lokidoki.db)
 - enforces user-scoping on every read and write
-- keeps facts and messages searchable via FTS5 external-contentfrom typing import Optional, Union
+- keeps facts and messages searchable via FTS5 external-content
 - optionally writes 384-dim fact embeddings into a sqlite-vec ``vec0``
   table; if sqlite-vec fails to load at startup, we WARN and continue
   with FTS5/BM25-only search.
@@ -24,7 +24,7 @@ hashing, and JWT cookie machinery live in ``lokidoki/auth/*``.
 The actual SQL lives in ``memory_sql.py``; this file is just async
 dispatch + lifecycle so it stays under the 250-line CLAUDE.md ceiling.
 """
-from typing import Optional, Union
+from typing import Any, List, Optional, Union
 
 import asyncio
 import json
@@ -642,7 +642,7 @@ class MemoryProvider:
 
     async def get_message_feedback(
         self, *, user_id: int, message_id: int
-    ) -> dict | None:
+    ) -> Optional[dict]:
         async with self._lock:
             row = await asyncio.to_thread(
                 lambda: sql.get_message_feedback(
@@ -652,7 +652,7 @@ class MemoryProvider:
             return dict(row) if row else None
 
     async def list_message_feedback(
-        self, *, user_id: int, rating: int | None = None, limit: int = 100
+        self, *, user_id: int, rating: Optional[int] = None, limit: int = 100
     ) -> list[dict]:
         async with self._lock:
             rows = await asyncio.to_thread(
