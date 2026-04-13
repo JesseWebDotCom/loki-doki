@@ -12,6 +12,11 @@ import json
 import os
 import shlex
 import subprocess
+import mimetypes
+
+# Fix for "disallowed MIME type" errors on some systems
+mimetypes.add_type('application/javascript', '.js')
+mimetypes.add_type('text/css', '.css')
 
 app = FastAPI(title="LokiDoki Core")
 app.add_middleware(BootstrapGateMiddleware)
@@ -190,15 +195,21 @@ app.include_router(dev.router, prefix="/api/v1/dev", tags=["Dev"])
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    if os.path.exists("frontend/dist/index.html"):
-        with open("frontend/dist/index.html", "r") as f:
+    index_path = "frontend/dist/index.html"
+    if os.path.exists(index_path):
+        with open(index_path, "r") as f:
             return f.read()
     return HTMLResponse("<h1>LokiDoki Core</h1><p>Frontend not built. Run <code>npm run build</code> in the frontend directory.</p>")
 
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
     """Catch-all for SPA routing."""
-    if os.path.exists("frontend/dist/index.html"):
-        with open("frontend/dist/index.html", "r") as f:
-            return HTMLResponse(content=open("frontend/dist/index.html", "r").read(), status_code=200)
+    # Never return index.html for missing static assets
+    if full_path.startswith(("assets/", "static/", "media/")):
+        return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
+
+    index_path = "frontend/dist/index.html"
+    if os.path.exists(index_path):
+        with open(index_path, "r") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
     return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
