@@ -80,7 +80,7 @@ async def get_v2_status(_: User = Depends(require_admin)):
     minilm_active = embedding_backend.name.startswith("fastembed:")
 
     return {
-        "current_focus": "All six v2 phases shipped; ongoing work is real-corpus tuning + production validation",
+        "current_focus": "v2 cutover complete — chat.py uses v2 pipeline; v1 orchestrator retired",
         "phases": [
             {
                 "id": "phase_1",
@@ -267,26 +267,16 @@ def _v2_memory_status() -> dict[str, Any]:
             "title": ACTIVE_PHASE_TITLE,
             "status": ACTIVE_PHASE_STATUS,
             "summary": (
-                "M3.5 (auto-merge) and M2.5 (vector RRF source) shipped on "
-                "top of M0-M3. The dev tools v2 test page now has a Memory "
-                "section with toggles (Enable memory / need_preference / "
-                "need_social) and a Memory state panel that shows the "
-                "current dev test store contents (active facts, superseded "
-                "facts, people, relationships) with a Reset button. Memory "
-                "writes/reads happen against a separate dev SQLite file at "
-                "data/v2_dev_memory.sqlite — production memory is never "
-                "touched by the dev tools. Try: \"I'm allergic to peanuts\" "
-                "then \"what am I allergic to\" — the second turn pulls the "
-                "fact into {user_facts}. Or \"my brother Luke loves movies\" "
-                "then \"when is Luke visiting\" — the second turn pulls "
-                "Luke into {social_context}. M2.5 wires a third RRF source "
-                "(cosine similarity over embeddings stored on the facts "
-                "row) so vocabulary mismatches like \"what foods should I "
-                "avoid\" -> \"has_allergy=peanuts\" are bridged. M3.5 "
-                "auto-merges a provisional handle row when a later turn "
-                "names the person under the same relation: \"my boss is "
-                "being weird\" then \"my boss Steve approved it\" ends "
-                "with one row, named Steve, with the handle preserved."
+                "All memory phases (M0-M6) complete. The v2 pipeline is "
+                "now the production chat path — chat.py calls "
+                "stream_pipeline_sse instead of the v1 Orchestrator. "
+                "Memory tiers: T2 session context, T3 episodic recall, "
+                "T4 user facts (FTS5+RRF+vector), T5 social graph, "
+                "T6 affective (character-scoped mood window), T7a/7b "
+                "procedural (behavior events, user style descriptors). "
+                "The v2 memory store at data/v2_memory.sqlite is "
+                "initialized at app startup; the v1 MemoryProvider "
+                "still owns chat history, auth, and settings."
             ),
             "deliverables": [
                 "Dev tools: Enable-memory toggle + need_preference + need_social",
@@ -312,8 +302,8 @@ def _v2_memory_status() -> dict[str, Any]:
             {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "complete"},
             {"id": "m3_5", "label": "M3.5", "title": "Auto-merge by relation", "status": "complete"},
             {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "complete"},
-            {"id": "m5", "label": "M5", "title": "Tier 7 procedural: behavior events + 7a/7b split", "status": "not_started"},
-            {"id": "m6", "label": "M6", "title": "Tier 6 affective: rolling window + character overlay", "status": "not_started"},
+            {"id": "m5", "label": "M5", "title": "Tier 7 procedural: behavior events + 7a/7b split", "status": "complete"},
+            {"id": "m6", "label": "M6", "title": "Tier 6 affective: rolling window + character overlay", "status": "complete"},
         ],
         "tiers": tiers_payload,
         "slots": {

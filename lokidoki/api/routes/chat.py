@@ -1,37 +1,36 @@
-"""Chat HTTP route — PR2: real per-user auth.
+"""Chat HTTP route — v2 pipeline cutover.
 
 Each turn:
   1. resolves the authenticated current user
   2. creates a new session row if the client didn't pass session_id
-  3. streams pipeline events back as SSE
-  4. the orchestrator persists user message, extracted facts, and
-     assistant reply via the shared MemoryProvider singleton
+  3. persists the user message to the v1 MemoryProvider (chat history)
+  4. runs the v2 pipeline via stream_pipeline_sse
+  5. persists the assistant reply to v1 MemoryProvider
+  6. streams pipeline events back as SSE
 """
 from __future__ import annotations
 
-from pathlib import Path
+import json
+import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
-from typing import Optional, Union
 
 from lokidoki.auth.dependencies import current_user, get_memory
 from lokidoki.auth.users import User
 from lokidoki.core import character_ops
-from lokidoki.core.decomposer import Decomposer
 from lokidoki.core.inference import InferenceClient
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.memory_singleton import get_memory_provider  # noqa: F401 (test patch)
-from lokidoki.core.model_manager import ModelManager, ModelPolicy
-from lokidoki.core.orchestrator import Orchestrator
-from lokidoki.core.registry import SkillRegistry
-from lokidoki.core.skill_executor import SkillExecutor
+from lokidoki.core.model_manager import ModelPolicy
+from lokidoki.core.v2_memory_singleton import get_v2_memory_store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_registry = SkillRegistry(skills_dir="lokidoki/skills")
-_registry.scan()
 _model_policy = ModelPolicy()
 
 
@@ -59,60 +58,87 @@ async def chat(
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    """Process a chat message through the agentic pipeline, streaming SSE events."""
+    """Process a chat message through the v2 pipeline, streaming SSE events."""
+    from v2.orchestrator.core.streaming import stream_pipeline_sse
+
     user_id = user.id
     session_id = request.session_id or await memory.create_session(
         user_id, project_id=request.project_id
     )
 
-    # Resolve the active character for this user (catalog ← per-user
-    # overrides) and inject its behavior_prompt into the synthesis
-    # tier only. Decomposer is constructed independently and never
-    # sees this string — that's the contract from CHARACTER_SYSTEM.md
-    # §2.3 ("must NOT reach the decomposer").
+    # Check if this is the first message in the session (for auto-naming).
+    existing_messages = await memory.get_messages(
+        user_id=user_id, session_id=session_id, limit=1
+    )
+    is_first_turn = len(existing_messages) == 0
+
+    # Persist user message to v1 chat history.
+    await memory.add_message(
+        user_id=user_id, session_id=session_id, role="user", content=request.message,
+    )
+
+    # Resolve the active character for this user.
     resolved = await memory.run_sync(
         lambda conn: character_ops.get_active_character_for_user(conn, user_id)
     )
     behavior_prompt = (resolved or {}).get("behavior_prompt", "") if resolved else ""
     character_name = (resolved or {}).get("name", "Loki") if resolved else "Loki"
+    character_id = (resolved or {}).get("id", "default") if resolved else "default"
 
-    client = get_inference_client()
-    model_manager = ModelManager(inference_client=client, policy=_model_policy)
-    decomposer = Decomposer(inference_client=client, model=_model_policy.fast_model)
-    orchestrator = Orchestrator(
-        decomposer=decomposer,
-        inference_client=client,
-        memory=memory,
-        model_manager=model_manager,
-        registry=_registry,
-        skill_executor=SkillExecutor(),
-        user_prompt=behavior_prompt,
-        character_name=character_name,
-    )
+    # Build v2 pipeline context.
+    v2_store = get_v2_memory_store()
+    context = {
+        "memory_writes_enabled": True,
+        "memory_store": v2_store,
+        "owner_user_id": user_id,
+        "behavior_prompt": behavior_prompt,
+        "character_name": character_name,
+        "character_id": str(character_id),
+    }
 
     async def event_stream():
         try:
+            # Emit session-ready event (frontend expects this first).
             yield f'data: {{"phase":"session","status":"ready","data":{{"session_id":{session_id}}}}}\n\n'
-            async for event in orchestrator.process(
-                request.message,
-                user_id=user_id,
-                session_id=session_id,
-                project_id=request.project_id,
-                available_intents=_registry.get_all_intents(),
-                user_display_name=user.username,
-            ):
-                yield event.to_sse()
+
+            response_text = ""
+            async for sse_chunk in stream_pipeline_sse(request.message, context=context):
+                # Intercept synthesis done to capture the response.
+                if '"phase":"synthesis"' in sse_chunk and '"status":"done"' in sse_chunk:
+                    try:
+                        payload = json.loads(sse_chunk.removeprefix("data: ").rstrip("\n"))
+                        response_text = payload.get("data", {}).get("response", "")
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+
+                    # Persist assistant message and inject assistant_message_id.
+                    asst_msg_id = None
+                    if response_text:
+                        asst_msg_id = await memory.add_message(
+                            user_id=user_id,
+                            session_id=session_id,
+                            role="assistant",
+                            content=response_text,
+                        )
+                        # Auto-name session on first turn.
+                        if is_first_turn:
+                            await _auto_name_session(memory, user_id, session_id, request.message)
+
+                    # Re-emit the event with assistant_message_id injected.
+                    try:
+                        payload = json.loads(sse_chunk.removeprefix("data: ").rstrip("\n"))
+                        payload.setdefault("data", {})["assistant_message_id"] = asst_msg_id
+                        yield f"data: {json.dumps(payload)}\n\n"
+                    except (json.JSONDecodeError, AttributeError):
+                        yield sse_chunk
+                else:
+                    yield sse_chunk
+
         except Exception:
-            # If anything in the pipeline crashes, emit an error event
-            # so the frontend can display a real message instead of the
-            # generic "No response received" fallback.
-            import logging
-            import traceback
-            logging.getLogger(__name__).exception(
+            logger.exception(
                 "[chat] pipeline crashed for user %s session %s",
                 user_id, session_id,
             )
-            import json
             err_event = json.dumps({
                 "phase": "synthesis",
                 "status": "done",
@@ -126,10 +152,38 @@ async def chat(
                 },
             })
             yield f"data: {err_event}\n\n"
-        finally:
-            await client.close()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+async def _auto_name_session(
+    memory: MemoryProvider,
+    user_id: int,
+    session_id: int,
+    first_input: str,
+) -> None:
+    """Generate a 3-5 word title for the session based on the first prompt."""
+    prompt = (
+        f"Summarize the following short user prompt into a 3-5 word title. "
+        f"Output ONLY the title, no quotes or preamble.\n\n"
+        f"PROMPT: {first_input}\n"
+        f"TITLE:"
+    )
+    try:
+        client = get_inference_client()
+        raw = await client.generate(
+            model=_model_policy.fast_model,
+            prompt=prompt,
+            num_predict=20,
+            temperature=0.3,
+            think=False,
+        )
+        await client.close()
+        title = raw.strip().strip('"').strip("'")[:80]
+        if title:
+            await memory.update_session_title(user_id, session_id, title)
+    except Exception:
+        logger.debug("auto-name failed for session %s, ignoring", session_id)
 
 
 @router.get("/memory")
@@ -143,11 +197,10 @@ async def get_memory_state(
     sessions = await memory.list_sessions(user_id, project_id=project_id)
     messages: list[dict] = []
     if sessions:
-        # If project_id provided, messages come from the most recent session in that project
         messages = await memory.get_messages(
             user_id=user_id, session_id=sessions[0]["id"], limit=50
         )
-    facts = await memory.list_facts(user_id, limit=50) # TODO: filter facts by project_id?
+    facts = await memory.list_facts(user_id, limit=50)
     sentiment = await memory.get_sentiment(user_id)
     return {"messages": messages, "sentiment": sentiment, "facts": facts, "sessions": sessions}
 
@@ -181,10 +234,6 @@ async def patch_session(
     if request.title is not None:
         await memory.update_session_title(user.id, session_id, request.title)
     if request.project_id is not None:
-        # project_id=-1 or similar could mean 'move out of project' (NULL)
-        # but for now let's assume valid int or None.
-        # Actually in JSON None usually means "don't change" if optional.
-        # Let's use a convention: project_id: 0 means "remove from project".
         pid = None if request.project_id == 0 else request.project_id
         await memory.move_session_to_project(user.id, session_id, pid)
     return {"status": "ok"}
@@ -192,6 +241,9 @@ async def patch_session(
 
 @router.get("/skills")
 async def get_skills():
+    from lokidoki.core.registry import SkillRegistry
+    _registry = SkillRegistry(skills_dir="lokidoki/skills")
+    _registry.scan()
     return {
         "skills": list(_registry.skills.keys()),
         "intents": _registry.get_all_intents(),
@@ -211,6 +263,7 @@ async def get_platform():
 async def get_system_info():
     """Return runtime diagnostics: platform, models, Ollama, hardware."""
     import asyncio
+    from pathlib import Path
     from lokidoki.core.metrics import collect as collect_metrics
 
     client = get_inference_client()
@@ -253,16 +306,13 @@ async def get_system_info():
         pass
     await client._client.aclose()
 
-    # Collect hardware metrics off the event loop (subprocess calls).
     hw = await asyncio.to_thread(collect_metrics, Path("data"))
 
-    # Internet connectivity check — quick HEAD to a reliable endpoint.
     internet_ok = False
     try:
         check = await client._client.head("https://1.1.1.1", timeout=3.0)
         internet_ok = check.status_code < 500
     except Exception:
-        # Client was closed above; use a fresh one for the check.
         import httpx
         try:
             async with httpx.AsyncClient(timeout=3.0) as tmp:
@@ -292,16 +342,13 @@ async def submit_feedback(
     memory: MemoryProvider = Depends(get_memory),
 ):
     """Submit or update thumbs-up / thumbs-down feedback for a message."""
-    # Fetch response text
     response_msg = await memory.get_message(user_id=user.id, message_id=message_id)
     response_text = response_msg["content"] if response_msg else None
-    
-    # Fetch prompt text (the message immediately before the response in the same session)
+
     prompt_text = None
     if response_msg:
         session_id = response_msg["session_id"]
         messages = await memory.get_messages(user_id=user.id, session_id=session_id)
-        # Find the response_msg in the list and get the one before it
         for i, m in enumerate(messages):
             if m["id"] == message_id:
                 if i > 0:
