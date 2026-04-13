@@ -115,6 +115,10 @@ async def _build_payload_async(
         "memory_provider": memory,
         "skill_id": skill_id,
         "_config": merged_config,
+        "user_name": (context or {}).get("user_name", "User"),
+        "current_time": (context or {}).get("current_time"),
+        "current_iso_time": (context or {}).get("current_iso_time"),
+        "mechanism": "asynchronous_skill",
     }
 
 

@@ -318,6 +318,8 @@ class TestPromptTemplates:
             recent_mood="mood=positive; trend=stable",
             confidence_guide="",
             sources_list="",
+            current_time="3:42 PM",
+            user_name="Luke",
         )
         assert "mood=positive" in rendered
 
@@ -326,6 +328,8 @@ class TestPromptTemplates:
             "direct_chat",
             user_question="How are you?",
             recent_mood="mood=negative; trend=declining",
+            current_time="3:42 PM",
+            user_name="Luke",
         )
         assert "mood=negative" in rendered
 

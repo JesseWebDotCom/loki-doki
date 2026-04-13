@@ -1,18 +1,23 @@
-"""Skill configuration routes.
+"""Skill configuration routes — v2 registry backed.
 
-Two tiers of config per skill, mirroring the storage layer:
+Two tiers of config per capability, mirroring the storage layer:
 
   * **Global** (admin only): values that apply to every user, e.g.
-    a server-paid OpenWeatherMap API key.
+    a server-paid TMDB API key.
   * **User** (any authenticated user): personal overrides or
     additions, e.g. a default zip code, a user's own API key.
 
-Both are validated against the skill manifest's ``config_schema``
-block at write time so callers can't store fields the skill doesn't
-declare. Secret-typed fields are masked on read.
+Both are validated against the capability config manifest at write
+time so callers can't store fields the capability doesn't declare.
+Secret-typed fields are masked on read.
 """
 from __future__ import annotations
 
+import json
+import logging
+import re
+import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,36 +25,75 @@ from pydantic import BaseModel
 
 from lokidoki.auth.dependencies import current_user, get_memory, require_admin
 from lokidoki.auth.users import User
-from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core import skill_config as cfg
-from lokidoki.core.registry import SkillRegistry
+from lokidoki.core.memory_provider import MemoryProvider
+from lokidoki.orchestrator.core.types import (
+    RequestChunk,
+    ResolutionResult,
+    RouteMatch,
+)
+from lokidoki.orchestrator.execution.executor import execute_chunk_async
+from lokidoki.orchestrator.registry.runtime import get_runtime
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Single registry shared across requests.  The v1 skills directory is
-# deleted; C15 will rewire this to the promoted function registry.
-_registry = SkillRegistry(skills_dir="lokidoki/skills")
-_registry.scan()
+
+# ---------------------------------------------------------------------------
+# Config manifest (separate from the function registry)
+# ---------------------------------------------------------------------------
+
+def _load_config_schemas() -> dict[str, dict]:
+    """Load capability config schemas from capability_config.json."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "orchestrator"
+        / "data"
+        / "capability_config.json"
+    )
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text())
 
 
-def _manifest_or_404(skill_id: str) -> dict:
-    m = _registry.skills.get(skill_id)
-    if not m:
-        raise HTTPException(status_code=404, detail="skill_not_found")
-    return m
+_CONFIG_SCHEMAS: dict[str, dict] = _load_config_schemas()
 
 
-def _public_manifest(manifest: dict) -> dict:
-    """Strip the manifest down to the fields the frontend needs."""
-    return {
-        "skill_id": manifest.get("skill_id"),
-        "name": manifest.get("name"),
-        "description": manifest.get("description", ""),
-        "intents": manifest.get("intents", []),
-        "examples": manifest.get("examples", []),
-        "config_schema": manifest.get("config_schema") or {"global": [], "user": []},
-    }
+def _get_schema(capability: str) -> dict:
+    return _CONFIG_SCHEMAS.get(capability, {"global": [], "user": []})
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_HUMANIZE_RE = re.compile(r"^(get|set|list|lookup|search|create|delete|read|check|find|cancel|log|control|play|send|make|order|append|update|detect|recall|weigh)_?")
+
+
+def _humanize(capability: str) -> str:
+    """Convert a capability name to a human-friendly display name.
+
+    ``get_weather`` → ``Weather``, ``lookup_movie`` → ``Movie``,
+    ``substitute_ingredient`` → ``Substitute Ingredient``.
+    """
+    name = _HUMANIZE_RE.sub("", capability)
+    if not name:
+        name = capability
+    return name.replace("_", " ").strip().title()
+
+
+def _capability_or_404(capability: str) -> dict:
+    runtime = get_runtime()
+    entry = runtime.capabilities.get(capability)
+    if not entry:
+        raise HTTPException(status_code=404, detail="capability_not_found")
+    return entry
+
+
+# ---------------------------------------------------------------------------
+# Per-capability view builder
+# ---------------------------------------------------------------------------
 
 class SetValueBody(BaseModel):
     key: str
@@ -64,24 +108,20 @@ class TestBody(BaseModel):
     prompt: str
 
 
-# ---- list ---------------------------------------------------------------
-
-
-def _build_skill_view(
-    manifest: dict,
+def _build_capability_view(
+    capability: str,
+    entry: dict,
     global_vals: dict,
     user_vals: dict,
     global_toggle: bool,
     user_toggle: bool,
 ) -> dict:
-    """Assemble the per-skill payload returned by both list and detail.
+    """Assemble the per-capability payload the frontend expects.
 
-    Computes ``enabled`` and ``disabled_reason`` from the same combined
-    state the orchestrator uses, so the UI is the source of truth and
-    cannot drift. The ``toggle`` block carries the raw admin/user
-    switches for the UI to render distinct on/off controls.
+    Maps v2 registry entries to the existing ``SkillSummary`` shape so
+    the frontend components need zero changes.
     """
-    schema = manifest.get("config_schema") or {"global": [], "user": []}
+    schema = _get_schema(capability)
     merged = {**global_vals, **user_vals}
     state = cfg.compute_skill_state(
         merged_config=merged,
@@ -90,7 +130,12 @@ def _build_skill_view(
         user_toggle=user_toggle,
     )
     return {
-        **_public_manifest(manifest),
+        "skill_id": capability,
+        "name": _humanize(capability),
+        "description": entry.get("description", ""),
+        "intents": [capability],
+        "examples": entry.get("examples", []),
+        "config_schema": schema,
         "global": cfg.mask_secrets(global_vals, schema, "global"),
         "user": cfg.mask_secrets(user_vals, schema, "user"),
         "enabled": state["enabled"],
@@ -104,34 +149,32 @@ def _build_skill_view(
     }
 
 
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
 @router.get("")
 async def list_skills(
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    """List all skills with their config schema, effective values, and
-    enabled state.
-
-    A skill is ``enabled`` only when every ``required: true`` field
-    in its ``config_schema`` has a non-empty value in the merged
-    global+user config. Disabled skills will be skipped by the
-    routing layer at chat time, so this state is the source of truth
-    the UI surfaces to the operator.
-    """
+    """List all capabilities with config, effective values, and state."""
+    runtime = get_runtime()
     out: list[dict] = []
-    for skill_id, manifest in _registry.skills.items():
-
-        def _load(c, sid=skill_id):
+    for capability, entry in runtime.capabilities.items():
+        def _load(c, cap=capability):
             return (
-                cfg.get_global_config(c, sid),
-                cfg.get_user_config(c, user.id, sid),
-                cfg.get_global_toggle(c, sid),
-                cfg.get_user_toggle(c, user.id, sid),
+                cfg.get_global_config(c, cap),
+                cfg.get_user_config(c, user.id, cap),
+                cfg.get_global_toggle(c, cap),
+                cfg.get_user_toggle(c, user.id, cap),
             )
 
         global_vals, user_vals, g_tog, u_tog = await memory.run_sync(_load)
         out.append(
-            _build_skill_view(manifest, global_vals, user_vals, g_tog, u_tog)
+            _build_capability_view(
+                capability, entry, global_vals, user_vals, g_tog, u_tog,
+            )
         )
     return {"skills": out}
 
@@ -142,7 +185,7 @@ async def get_one(
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    manifest = _manifest_or_404(skill_id)
+    entry = _capability_or_404(skill_id)
 
     def _load(c):
         return (
@@ -153,11 +196,12 @@ async def get_one(
         )
 
     global_vals, user_vals, g_tog, u_tog = await memory.run_sync(_load)
-    return _build_skill_view(manifest, global_vals, user_vals, g_tog, u_tog)
+    return _build_capability_view(
+        skill_id, entry, global_vals, user_vals, g_tog, u_tog,
+    )
 
 
 # ---- global tier (admin) ------------------------------------------------
-
 
 @router.put("/{skill_id}/config/global")
 async def set_global(
@@ -166,8 +210,8 @@ async def set_global(
     _: User = Depends(require_admin),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    manifest = _manifest_or_404(skill_id)
-    schema = manifest.get("config_schema") or {}
+    _capability_or_404(skill_id)
+    schema = _get_schema(skill_id)
     field = cfg.find_field(schema, "global", body.key)
     if not field:
         raise HTTPException(status_code=400, detail="unknown_field")
@@ -188,7 +232,7 @@ async def delete_global(
     _: User = Depends(require_admin),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    _manifest_or_404(skill_id)
+    _capability_or_404(skill_id)
     deleted = await memory.run_sync(
         lambda c: cfg.delete_global_value(c, skill_id, key)
     )
@@ -197,7 +241,6 @@ async def delete_global(
 
 # ---- user tier ----------------------------------------------------------
 
-
 @router.put("/{skill_id}/config/user")
 async def set_user(
     skill_id: str,
@@ -205,8 +248,8 @@ async def set_user(
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    manifest = _manifest_or_404(skill_id)
-    schema = manifest.get("config_schema") or {}
+    _capability_or_404(skill_id)
+    schema = _get_schema(skill_id)
     field = cfg.find_field(schema, "user", body.key)
     if not field:
         raise HTTPException(status_code=400, detail="unknown_field")
@@ -222,7 +265,6 @@ async def set_user(
 
 # ---- enable/disable toggles --------------------------------------------
 
-
 @router.put("/{skill_id}/toggle/global")
 async def toggle_global(
     skill_id: str,
@@ -231,7 +273,7 @@ async def toggle_global(
     memory: MemoryProvider = Depends(get_memory),
 ):
     """Admin manual switch. Off here = off for every user."""
-    _manifest_or_404(skill_id)
+    _capability_or_404(skill_id)
     await memory.run_sync(
         lambda c: cfg.set_global_toggle(c, skill_id, body.enabled)
     )
@@ -246,12 +288,14 @@ async def toggle_user(
     memory: MemoryProvider = Depends(get_memory),
 ):
     """Per-user manual switch. Independent of the admin toggle."""
-    _manifest_or_404(skill_id)
+    _capability_or_404(skill_id)
     await memory.run_sync(
         lambda c: cfg.set_user_toggle(c, user.id, skill_id, body.enabled)
     )
     return {"ok": True, "enabled": body.enabled}
 
+
+# ---- test panel (admin) ------------------------------------------------
 
 @router.post("/{skill_id}/test")
 async def test_skill(
@@ -260,15 +304,37 @@ async def test_skill(
     admin: User = Depends(require_admin),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    """Force a prompt through one specific skill.
-
-    Currently disabled — v1 skill executor removed. C15 rewires this
-    endpoint to use the promoted pipeline's skill runner.
-    """
-    raise HTTPException(
-        status_code=501,
-        detail="skill_test_unavailable_pending_rewire",
+    """Force a prompt through one specific capability via v2 execution."""
+    _capability_or_404(skill_id)
+    runtime = get_runtime()
+    implementation = runtime.select_handler(0, skill_id)
+    chunk = RequestChunk(text=body.prompt, index=0)
+    route = RouteMatch(
+        chunk_index=0,
+        capability=skill_id,
+        confidence=1.0,
+        matched_text=skill_id,
     )
+    resolution = ResolutionResult(
+        chunk_index=0,
+        resolved_target=body.prompt,
+        source="admin_test",
+        confidence=1.0,
+        params={},
+    )
+    started = time.perf_counter()
+    execution = await execute_chunk_async(
+        chunk, route, implementation, resolution,
+    )
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    return {
+        "capability": skill_id,
+        "handler_name": implementation.handler_name,
+        "success": execution.success,
+        "output_text": execution.output_text,
+        "error": execution.error,
+        "timing_ms": round(elapsed_ms, 3),
+    }
 
 
 @router.delete("/{skill_id}/config/user/{key}")
@@ -278,7 +344,7 @@ async def delete_user(
     user: User = Depends(current_user),
     memory: MemoryProvider = Depends(get_memory),
 ):
-    _manifest_or_404(skill_id)
+    _capability_or_404(skill_id)
     deleted = await memory.run_sync(
         lambda c: cfg.delete_user_value(c, user.id, skill_id, key)
     )

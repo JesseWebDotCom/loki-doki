@@ -65,11 +65,20 @@ async def run_pipeline_async(
 
 def _init_trace(context):
     """Set up trace, runtime, and safe context."""
+    from datetime import datetime
+    
     trace = start_trace()
     listener = (context or {}).get("_trace_listener")
     if callable(listener):
         trace.subscribe(listener)
-    return trace, get_runtime(), context or {}
+        
+    now = datetime.now()
+    safe_context = context or {}
+    # Inject compact format for prompt budget and ISO for machine parsing
+    safe_context.setdefault("current_time", now.strftime("%Y-%m-%d %H:%M"))
+    safe_context.setdefault("current_iso_time", now.isoformat())
+    
+    return trace, get_runtime(), safe_context
 
 
 def _filter_routable(chunks, extractions):

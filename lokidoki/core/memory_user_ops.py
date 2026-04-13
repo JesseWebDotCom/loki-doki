@@ -85,6 +85,18 @@ async def append_sentiment_log(
     await self.run_sync(_do)
 
 
+async def get_user_name(self: MemoryProvider, user_id: int) -> str:
+    """Return the name of the 'self' person record for this user."""
+    from lokidoki.core.people_graph_sql import ensure_user_self_person
+
+    def _q(c):
+        pid = ensure_user_self_person(c, user_id=user_id)
+        row = c.execute("SELECT name FROM people WHERE id = ?", (pid,)).fetchone()
+        return row["name"] if row else "User"
+
+    return await self.run_sync(_q)
+
+
 async def get_recent_sentiment(
     self: MemoryProvider, user_id: int, *, limit: int = 5
 ) -> list[dict]:
@@ -111,3 +123,4 @@ MemoryProvider.delete_session = delete_session         # type: ignore[attr-defin
 MemoryProvider.clear_user_chat = clear_user_chat       # type: ignore[attr-defined]
 MemoryProvider.append_sentiment_log = append_sentiment_log     # type: ignore[attr-defined]
 MemoryProvider.get_recent_sentiment = get_recent_sentiment     # type: ignore[attr-defined]
+MemoryProvider.get_user_name = get_user_name                   # type: ignore[attr-defined]

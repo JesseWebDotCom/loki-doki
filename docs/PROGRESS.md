@@ -738,4 +738,51 @@ Append-only. Each chunk appends what shipped, what regressed (if anything), and 
 
 **Next chunk:** C15 (Skills admin & settings pages: v2 registry rewire). Now unblocked.
 
+## C15 — Skills Admin & Settings Pages: V2 Registry Rewire (2026-04-13)
+
+**Status:** Complete. All C15 gates green. 40 new tests, 1197 unit tests total (zero regressions).
+
+**What shipped:**
+
+1. **`capability_config.json` created.** Separate config manifest at `lokidoki/orchestrator/data/capability_config.json` with config schemas for 4 capabilities: `get_weather` (user: location), `get_movie_showtimes` (user: default_zip, preferred_theater, cache_ttl_override), `lookup_movie` (global: tmdb_api_key; user: tmdb_api_key override), `search_movies` (global: tmdb_api_key; user: tmdb_api_key override). Capabilities with no entry get empty schemas — they appear in the UI with no config fields.
+
+2. **`skills.py` fully rewritten.** Replaced v1 `SkillRegistry` + manifest scanning with v2 `get_runtime()` from `lokidoki.orchestrator.registry.runtime`. All endpoints now read capabilities from the promoted function registry. `_build_capability_view()` maps v2 registry entries to the existing `SkillSummary` shape the frontend expects (same field names: `skill_id`, `name`, `description`, `intents`, `examples`, `config_schema`, `enabled`, `config_ok`, `missing_required`, `disabled_reason`, `toggle`). `_humanize()` converts capability names to display names (`get_weather` → `Weather`).
+
+3. **Test endpoint rewired.** `POST /api/v1/skills/{id}/test` now uses `execute_chunk_async` from the promoted v2 executor (was returning 501). Constructs `RequestChunk`, `RouteMatch`, `ResolutionResult`, and `ImplementationSelection` exactly like the dev tools endpoint. Returns capability, handler_name, success, output_text, error, and timing_ms.
+
+4. **`chat.py` `/skills` endpoint rewired.** Replaced `SkillRegistry` scan with `get_runtime().capabilities`. No more v1 imports in `chat.py`.
+
+5. **Frontend categories updated for v2 capability names.** `categories.ts` rewritten with explicit `ID_TO_CATEGORY` mapping for all 93 capabilities. Old v1 skill IDs (`weather_openmeteo`, `movies_fandango`, etc.) removed. New category groups added: Music, Communication, Travel & Navigation, Finance, Health & Fitness, Productivity, Shopping & Streaming, Chat & AI, People & Relationships, Sports.
+
+6. **Migration script.** `scripts/migrate_skill_config_v1_to_v2.py` copies config values and toggles from v1 `skill_id` keys (`weather_openmeteo`, `movies_tmdb`, `movies_fandango`) to v2 capability equivalents. Idempotent, optional, supports `--dry-run`.
+
+7. **Prompt test fixes.** Updated 8 tests across `test_prompts.py`, `test_ollama_llm.py`, `test_memory_m5.py`, and `test_memory_m6.py` to supply the new `current_time`/`user_name` required slots added by the uncommitted C14.5 prompt changes.
+
+8. **`test_skills_admin_rewire.py` — 40 tests in 7 test classes:**
+   - TestCapabilityConfigManifest: file exists, valid JSON, weather location, TMDB keys, showtimes zip, secret types, both tiers (8 tests)
+   - TestSkillsRouteImports: no v1 registry, no skill_factory, no SkillExecutor, imports v2 runtime, imports v2 executor, imports v2 types, no 501 stub, loads config schemas (8 tests)
+   - TestChatSkillsEndpoint: no v1 registry in chat, uses get_runtime (2 tests)
+   - TestHumanize: get_weather, lookup_movie, substitute_ingredient, direct_chat, greeting_response, calculate_tip, knowledge_query, emotional_support (8 tests)
+   - TestBuildCapabilityView: skill_id, name, description, examples, config_schema, enabled state, toggle, intents (8 tests)
+   - TestFrontendCategories: no v1 IDs, all capabilities mapped, categories have labels (3 tests)
+   - TestMigrationScript: exists, importable, v1 mappings cover known skills (3 tests)
+
+**Gate checklist:**
+- [x] `/settings/skills` loads and displays all 93 capabilities as tiles (via `get_runtime().capabilities`)
+- [x] Tile search, category grouping, and status dots work (frontend components unchanged; categories.ts updated)
+- [x] Detail dialog shows description, examples, config fields (via `_build_capability_view` → `SkillSummary` shape)
+- [x] Admin can set global config values (secret masking works) — `skill_config.py` tables preserved
+- [x] User can set personal config values — same
+- [x] Admin toggle and user toggle work independently — same
+- [x] Admin test panel sends prompt through v2 `execute_chunk_async` and shows result
+- [x] `skill_config.py` tables are preserved (no schema changes, no deletions)
+- [x] Existing config data migrated (migration script provided: `scripts/migrate_skill_config_v1_to_v2.py`)
+- [x] Zero frontend component changes (SkillsSection, SkillTile, SkillDetailDialog, SkillFieldRow unchanged)
+
+**Nothing deferred.** All gate items completed within this chunk.
+
+**Final test count:** 1197 unit tests. Zero regressions.
+
+**All chunks complete.** The v2 implementation plan is fully executed.
+
 <!-- Append new entries below this line -->

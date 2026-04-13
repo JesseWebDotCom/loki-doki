@@ -332,6 +332,8 @@ class TestSynthesisPromptToneChange:
                 "direct_chat",
                 user_question="What is the weather?",
                 user_style=slot_text,
+                current_time="3:42 PM",
+                user_name="Luke",
             )
             rendered_prompts.append(prompt)
 
@@ -354,6 +356,8 @@ class TestSynthesisPromptToneChange:
             user_style=slot_text,
             confidence_guide="test",
             sources_list="",
+            current_time="3:42 PM",
+            user_name="Luke",
         )
         assert "tone=casual" in prompt
         assert "verbosity=concise" in prompt

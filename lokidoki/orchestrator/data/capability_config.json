@@ -1,0 +1,32 @@
+{
+  "get_weather": {
+    "global": [],
+    "user": [
+      {"key": "location", "type": "string", "label": "Default Location", "description": "City or US zip code used when you ask about weather without naming a place"}
+    ]
+  },
+  "get_movie_showtimes": {
+    "global": [],
+    "user": [
+      {"key": "default_zip", "type": "string", "label": "Default ZIP Code", "description": "5-digit US ZIP for local theater lookups", "required": true},
+      {"key": "preferred_theater", "type": "string", "label": "Preferred Theater", "description": "Name of your usual theater (pinned to top of results)"},
+      {"key": "cache_ttl_override", "type": "string", "label": "Cache TTL Override", "description": "Cache duration: seconds, 'until_local_midnight', or 'off'"}
+    ]
+  },
+  "lookup_movie": {
+    "global": [
+      {"key": "tmdb_api_key", "type": "secret", "label": "TMDB API Key", "description": "Server-wide The Movie Database API key (themoviedb.org)", "required": true}
+    ],
+    "user": [
+      {"key": "tmdb_api_key", "type": "secret", "label": "Personal TMDB API Key", "description": "Override the server-wide TMDB key with your own"}
+    ]
+  },
+  "search_movies": {
+    "global": [
+      {"key": "tmdb_api_key", "type": "secret", "label": "TMDB API Key", "description": "Server-wide The Movie Database API key (themoviedb.org)", "required": true}
+    ],
+    "user": [
+      {"key": "tmdb_api_key", "type": "secret", "label": "Personal TMDB API Key", "description": "Override the server-wide TMDB key with your own"}
+    ]
+  }
+}

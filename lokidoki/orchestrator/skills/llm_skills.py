@@ -43,7 +43,7 @@ log = logging.getLogger("lokidoki.orchestrator.skills.llm")
 # ---- prompt templates ------------------------------------------------------
 
 _EMAIL_PROMPT = """\
-You are drafting a short professional email for the user.
+You are drafting a short professional email for {user_name}.
 Request: {request}
 
 Write the email now. Include a one-line subject prefixed with "Subject: ",
@@ -51,7 +51,7 @@ then a blank line, then the body. Keep it under 150 words.
 """
 
 _CODE_PROMPT = """\
-You are a senior software engineer. The user asked: {request}
+You are a senior software engineer helping {user_name}. The user asked: {request}
 
 Respond with a short answer (under 200 words) followed by a single fenced
 code block in the most appropriate language. If the request is to debug
@@ -66,7 +66,7 @@ Source: {request}
 """
 
 _PLAN_PROMPT = """\
-The user asked: {request}
+The user, {user_name}, asked: {request}
 
 Produce a short plan (3-5 bullet points or a short day-by-day list).
 Be concrete. Don't ask follow-up questions.
@@ -87,7 +87,7 @@ Recommendation: <one short sentence>
 """
 
 _EMOTIONAL_SUPPORT_PROMPT = """\
-You are an empathetic, non-clinical companion. The user said: {request}
+You are an empathetic, non-clinical companion. {user_name} said: {request}
 
 Respond with 2-3 warm sentences. Acknowledge the feeling, validate it,
 and gently offer one small next step. Do NOT give medical, legal, or
@@ -195,7 +195,8 @@ async def _llm_or_stub(
     if not CONFIG.llm_enabled:
         log.debug("skills.%s: llm disabled, returning stub", skill_name)
         return _stub_result(stub, request)
-    prompt = prompt_template.format(request=request)
+    user_name = payload.get("user_name", "User")
+    prompt = prompt_template.format(request=request, user_name=user_name)
     return await _call_llm_with_fallback(prompt, stub, request, skill_name)
 
 
