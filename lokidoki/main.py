@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from lokidoki.api.routes import chat, memory, audio, settings, auth, admin, projects, logs, skills, characters, people, dev
 from lokidoki.api.middleware.bootstrap_gate import BootstrapGateMiddleware
@@ -222,6 +222,15 @@ async def catch_all(full_path: str):
     # Never return index.html for missing static assets
     if full_path.startswith(("assets/", "static/", "media/")):
         return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
+
+    # Serve root-level files from frontend/dist (favicon.svg, favicon.ico,
+    # apple-touch-icon.png, lokidoki-logo.svg, site.webmanifest, etc.)
+    # before falling through to the SPA. Without this, the browser asks
+    # for /favicon.svg and gets index.html back, which silently fails.
+    if "/" not in full_path and "." in full_path:
+        candidate = os.path.join("frontend/dist", full_path)
+        if os.path.isfile(candidate):
+            return FileResponse(candidate)
 
     index_path = "frontend/dist/index.html"
     if os.path.exists(index_path):

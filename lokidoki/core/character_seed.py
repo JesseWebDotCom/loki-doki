@@ -47,10 +47,10 @@ BUILTIN_SPECS: tuple[dict, ...] = (
         ),
         "avatar_style": "bottts",
         "avatar_seed": "Ryker",
-        # Computer/terminal green for the bot body. ``baseColor`` is
-        # the bottts schema's body-tint option; passing a 1-element
-        # array forces the seed PRNG to always pick this hue.
-        "avatar_config": {"baseColor": ["00cc66"]},
+        # ``baseColor`` is the bottts schema's body-tint option;
+        # passing a 1-element array forces the seed PRNG to always
+        # pick this hue.
+        "avatar_config": {"baseColor": ["b6e832"]},
     },
     {
         "name": "Kingston",

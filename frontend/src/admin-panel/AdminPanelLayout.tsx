@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Search, LogOut, Ghost } from 'lucide-react';
+import { Search, LogOut } from 'lucide-react';
 import ProfileMenu from '../components/sidebar/ProfileMenu';
 import { SECTIONS, type SectionDef } from './sections';
 
@@ -82,7 +82,7 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
       >
         <div className="flex items-center gap-2.5 px-5 pt-5 pb-2">
           <div className="p-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary shadow-m1">
-            <Ghost className="w-5 h-5" />
+            <img src="/lokidoki-logo.svg" alt="LokiDoki" className="w-5 h-5" />
           </div>
           <span className="text-lg font-bold tracking-tight text-sidebar-foreground">lokidoki</span>
         </div>

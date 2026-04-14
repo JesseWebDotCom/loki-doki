@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Ghost,
   Brain,
   Network,
   Plus,
@@ -289,7 +288,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           aria-label="Expand sidebar"
           className={`group relative mb-4 text-primary hover:bg-card/50 cursor-pointer ${slot}`}
         >
-          <Ghost size={16} className="transition-opacity duration-150 group-hover:opacity-0" />
+          <img src="/lokidoki-logo.svg" alt="LokiDoki" className="h-4 w-4 transition-opacity duration-150 group-hover:opacity-0" />
           <PanelLeftOpen size={16} className="absolute opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
         </button>
         <nav className="flex flex-1 flex-col items-center gap-2">
@@ -339,11 +338,11 @@ const Sidebar: React.FC<SidebarProps> = ({
       className="border-r border-sidebar-border bg-sidebar flex flex-col px-2 py-3 h-screen select-none shadow-m4 z-20 overflow-hidden transition-[width] duration-300 ease-in-out"
       style={{ width: '17rem' }}
     >
-      {/* Branding + collapse toggle. Ghost icon sits in the same w-8 h-8 slot
+      {/* Branding + collapse toggle. Logo sits in the same w-8 h-8 slot
           as every nav row so collapsing the rail leaves it visually pinned. */}
       <div className="mb-5 flex items-center group">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center text-primary">
-          <Ghost size={18} />
+          <img src="/lokidoki-logo.svg" alt="LokiDoki" className="h-[18px] w-[18px]" />
         </div>
         <h2 className="ml-1 flex-1 text-base font-bold tracking-tight text-sidebar-foreground">
           lokidoki
