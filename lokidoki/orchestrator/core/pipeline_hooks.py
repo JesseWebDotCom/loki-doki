@@ -14,17 +14,31 @@ from lokidoki.orchestrator.memory.summarizer import (
 from lokidoki.orchestrator.memory.writer import WriteRunResult
 
 
+def _store_from_context(safe_context: dict[str, Any]) -> MemoryStore | None:
+    """Extract the raw sync ``MemoryStore`` from the pipeline context.
+
+    The pipeline threads a single ``memory_provider`` handle; hooks that
+    need the sync store reach for ``provider.store``. Returns ``None``
+    when the provider is absent or hasn't been initialized yet so
+    callers can short-circuit.
+    """
+    provider = safe_context.get("memory_provider")
+    if provider is None:
+        return None
+    store = getattr(provider, "store", None)
+    return store if isinstance(store, MemoryStore) else None
+
+
 def ensure_session(safe_context: dict[str, Any]) -> None:
     """Ensure a session row exists in the MemoryStore.
 
-    The session_id may come from the MemoryProvider (lokidoki.db),
-    a separate SQLite database. The MemoryStore (memory.sqlite) needs
-    its own session row for session state (last_seen map, turn counters)
-    to persist. If session_id is already set but doesn't exist in the
-    MemoryStore, mirror it with a matching row.
+    The session_id may come from the MemoryProvider (lokidoki.db).
+    The raw sync store needs its own session row for session state
+    (last_seen map, turn counters) to persist. If session_id is already
+    set but doesn't exist in the store, mirror it with a matching row.
     """
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     owner_user_id = int(safe_context.get("owner_user_id") or 0)
     if not owner_user_id:
@@ -35,7 +49,7 @@ def ensure_session(safe_context: dict[str, Any]) -> None:
         return
     enabled = (
         bool(safe_context.get("memory_writes_enabled"))
-        or safe_context.get("memory_store") is not None
+        or safe_context.get("memory_provider") is not None
     )
     if not enabled:
         return
@@ -75,8 +89,8 @@ def bridge_session_state_to_recent_entities(
     safe_context: dict[str, Any],
 ) -> None:
     """Populate context["recent_entities"] from the session's last-seen map."""
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     session_id = safe_context.get("session_id")
     if session_id is None:
@@ -148,8 +162,8 @@ def run_session_state_update(
     entity name (e.g. "maximum overdrive") but the skill successfully
     looked it up.
     """
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     session_id = safe_context.get("session_id")
     if session_id is None:
@@ -345,8 +359,8 @@ def maybe_queue_session_close(
     """Queue session-close summarization when the caller flags session_closing."""
     if not safe_context.get("session_closing"):
         return
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     session_id = safe_context.get("session_id")
     if session_id is None:
@@ -393,8 +407,8 @@ def record_behavior_event(
     routes: list,
 ) -> None:
     """Record a behavior event at the end of each turn (M5)."""
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     owner_user_id = int(safe_context.get("owner_user_id") or 0)
     if not owner_user_id:
@@ -427,8 +441,8 @@ def record_sentiment(
     signals: Any,
 ) -> None:
     """Persist sentiment from tone_signal into affect_window (M6)."""
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     owner_user_id = int(safe_context.get("owner_user_id") or 0)
     if not owner_user_id:

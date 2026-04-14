@@ -36,6 +36,7 @@ from lokidoki.orchestrator.memory.slots import (
     truncate_to_budget,
 )
 from lokidoki.orchestrator.memory.store import MemoryStore
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PEOPLE_CORPUS = REPO_ROOT / "tests" / "fixtures" / "people_resolution_corpus.json"
@@ -238,7 +239,7 @@ def test_m3_pipeline_does_not_read_when_need_social_false(tmp_path: Path) -> Non
     try:
         result = run_pipeline(
             "when is Luke visiting",
-            context={"memory_store": test_store, "owner_user_id": 7, "need_social": False},
+            context={"memory_provider": SimpleNamespace(store=test_store), "owner_user_id": 7, "need_social": False},
         )
         steps = [s for s in result.trace.steps if s.name == "memory_read"]
         assert len(steps) == 1
@@ -265,7 +266,7 @@ def test_m3_pipeline_reads_when_need_social_true(tmp_path: Path) -> None:
     try:
         result = run_pipeline(
             "when is Luke visiting",
-            context={"memory_store": test_store, "owner_user_id": 7, "need_social": True},
+            context={"memory_provider": SimpleNamespace(store=test_store), "owner_user_id": 7, "need_social": True},
         )
         steps = [s for s in result.trace.steps if s.name == "memory_read"]
         assert len(steps) == 1
@@ -302,7 +303,7 @@ def test_m3_pipeline_can_combine_need_preference_and_need_social(tmp_path: Path)
         result = run_pipeline(
             "what color does Leia like",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 8,
                 "need_preference": True,
                 "need_social": True,
@@ -552,7 +553,7 @@ def test_m3_pipeline_end_to_end_social_recall(tmp_path: Path) -> None:
         result = run_pipeline(
             "when is Luke visiting",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 5,
                 "need_social": True,
             },

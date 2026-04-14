@@ -158,8 +158,8 @@ async def test_run_pipeline_with_memory_enabled_reads_back(
     spec = result.get("request_spec", {}) or {}
     slots = (spec.get("context") or {}).get("memory_slots") or {}
     assert "favorite_color=blue" in (slots.get("user_facts") or "")
-    # Memory store does NOT serialize into the JSON payload.
-    assert "memory_store" not in (spec.get("context") or {})
+    # Memory provider does NOT serialize into the JSON payload.
+    assert "memory_provider" not in (spec.get("context") or {})
 
 
 @pytest.mark.anyio

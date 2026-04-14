@@ -201,6 +201,17 @@ class MemoryProvider:
     def vec_enabled(self) -> bool:
         return self._vec_loaded
 
+    @property
+    def store(self) -> Optional[MemoryStore]:
+        """Return the bound ``MemoryStore`` for sync-store callers.
+
+        Pipeline hooks that need the raw sync store read it via this
+        property instead of a separate ``memory_store`` context key.
+        Returns ``None`` before ``initialize()`` so callers can
+        short-circuit the same way the old missing-context-key check did.
+        """
+        return self._store
+
     # ---- users -----------------------------------------------------------
 
     async def get_or_create_user(self, username: str) -> int:

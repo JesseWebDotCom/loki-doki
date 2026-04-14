@@ -37,7 +37,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 2 | [Union schemas](chunk-2-schema-union.md)                               | done    | f991fe3 |
 | 3 | [Unified writer](chunk-3-unified-writer.md)                            | done    | 540d6d8 |
 | 4 | [Unified reader](chunk-4-unified-reader.md)                            | done    | c2ff0a7 |
-| 5 | [Collapse provider/store in pipeline context](chunk-5-collapse-context.md) | pending |         |
+| 5 | [Collapse provider/store in pipeline context](chunk-5-collapse-context.md) | done    |         |
 | 6 | [De-`v2` identifiers](chunk-6-rename-v2.md)                            | pending |         |
 | 7 | [Delete dead code + doc sweep](chunk-7-dead-code-and-docs.md)          | pending |         |
 

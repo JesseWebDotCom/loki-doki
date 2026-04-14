@@ -35,6 +35,7 @@ from lokidoki.orchestrator.memory.store import (
     MemoryStore,
     compute_fact_embedding,
 )
+from types import SimpleNamespace
 
 
 @pytest.fixture()
@@ -310,7 +311,7 @@ def test_m25_pipeline_end_to_end_vocab_bridge(tmp_path: Path) -> None:
             "I'm allergic to peanuts",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 5,
             },
         )
@@ -318,7 +319,7 @@ def test_m25_pipeline_end_to_end_vocab_bridge(tmp_path: Path) -> None:
         result = run_pipeline(
             "what foods should I avoid",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 5,
                 "need_preference": True,
             },

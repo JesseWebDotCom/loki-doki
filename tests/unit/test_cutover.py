@@ -87,14 +87,14 @@ class TestV2ImportsPresent:
         source = CHAT_PY.read_text()
         assert "stream_pipeline_sse" in source
 
-    def test_imports_memory_store_singleton(self):
+    def test_imports_memory_provider(self):
         source = CHAT_PY.read_text()
-        assert "get_memory_store" in source
+        assert "MemoryProvider" in source
 
     def test_chat_endpoint_uses_v2_context(self):
         source = CHAT_PY.read_text()
         assert "memory_writes_enabled" in source
-        assert "memory_store" in source
+        assert "memory_provider" in source
         assert "owner_user_id" in source
 
 

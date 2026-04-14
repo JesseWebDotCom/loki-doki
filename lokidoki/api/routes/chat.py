@@ -26,7 +26,6 @@ from lokidoki.core.inference import InferenceClient
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.memory_singleton import get_memory_provider  # noqa: F401 (test patch)
 from lokidoki.core.model_manager import ModelPolicy
-from lokidoki.core.memory_store_singleton import get_memory_store
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +101,9 @@ async def chat(
     user_name = await memory.get_user_name(user_id)
 
     # Build pipeline context.
-    memory_store = get_memory_store()
     context = {
         "session_id": session_id,
         "memory_writes_enabled": True,
-        "memory_store": memory_store,
         "memory_provider": memory,
         "user_message_id": user_message_id,
         "owner_user_id": user_id,

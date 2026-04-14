@@ -189,7 +189,8 @@ def assemble_slots(context: dict) -> dict[str, str]:
     yet (M4+) return "".
     """
     out = {spec.name: "" for spec in SLOT_SPECS}
-    store = context.get("memory_store")
+    provider = context.get("memory_provider")
+    store = getattr(provider, "store", None) if provider is not None else None
     if not isinstance(store, MemoryStore):
         return out
     owner_user_id = int(context.get("owner_user_id") or 0)

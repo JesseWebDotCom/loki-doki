@@ -38,6 +38,7 @@ from lokidoki.orchestrator.memory.slots import (
     truncate_to_budget,
 )
 from lokidoki.orchestrator.memory.store import MemoryStore
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RECALL_CORPUS = REPO_ROOT / "tests" / "fixtures" / "memory_recall_corpus.json"
@@ -224,7 +225,7 @@ def test_m2_pipeline_does_not_read_when_need_preference_false(tmp_path: Path) ->
         result = run_pipeline(
             "what is my favorite color",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 7,
                 "need_preference": False,
             },
@@ -255,7 +256,7 @@ def test_m2_pipeline_reads_when_need_preference_true(tmp_path: Path) -> None:
         result = run_pipeline(
             "what is my favorite color",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 7,
                 "need_preference": True,
             },
@@ -505,7 +506,7 @@ def test_m2_pipeline_end_to_end_recall_after_write(tmp_path: Path) -> None:
             "I'm allergic to peanuts",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 5,
                 "decomposed_intent": "self_disclosure",
             },
@@ -515,7 +516,7 @@ def test_m2_pipeline_end_to_end_recall_after_write(tmp_path: Path) -> None:
         result = run_pipeline(
             "what am I allergic to",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 5,
                 "need_preference": True,
             },

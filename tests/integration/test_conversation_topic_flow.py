@@ -24,12 +24,13 @@ from lokidoki.orchestrator.core.pipeline_hooks import (
 )
 from lokidoki.orchestrator.memory.store import MemoryStore
 from lokidoki.orchestrator.skills.knowledge import _extract_query
+from types import SimpleNamespace
 
 
 def _make_context(store: MemoryStore, session_id: int) -> dict:
     return {
         "session_id": session_id,
-        "memory_store": store,
+        "memory_provider": SimpleNamespace(store=store),
         "memory_writes_enabled": True,
         "owner_user_id": 1,
     }
@@ -92,7 +93,7 @@ class TestSessionStateTopicPersistence:
         sid = store.create_session(owner_user_id=1)
         ctx = {
             "session_id": sid,
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "conversation_topic": "The Masked Singer",
         }
         run_session_state_update(ctx, resolutions=[], executions=[])
@@ -104,7 +105,7 @@ class TestSessionStateTopicPersistence:
     def test_no_topic_no_write(self):
         store = MemoryStore(":memory:")
         sid = store.create_session(owner_user_id=1)
-        ctx = {"session_id": sid, "memory_store": store}
+        ctx = {"session_id": sid, "memory_provider": SimpleNamespace(store=store)}
         run_session_state_update(ctx, resolutions=[], executions=[])
         state = store.get_session_state(sid)
         last_seen = state.get("last_seen", {})
@@ -218,7 +219,7 @@ class TestBridgeTopicReload:
         store = MemoryStore(":memory:")
         sid = store.create_session(owner_user_id=1)
         store.update_last_seen(sid, entity_type="topic", entity_name="The Masked Singer")
-        ctx = {"session_id": sid, "memory_store": store}
+        ctx = {"session_id": sid, "memory_provider": SimpleNamespace(store=store)}
         bridge_session_state_to_recent_entities(ctx)
         entities = ctx.get("recent_entities", [])
         topics = [e for e in entities if e.get("type") == "topic"]
@@ -230,7 +231,7 @@ class TestBridgeTopicReload:
         sid = store.create_session(owner_user_id=1)
         store.update_last_seen(sid, entity_type="person", entity_name="Corey Feldman")
         store.update_last_seen(sid, entity_type="topic", entity_name="The Masked Singer")
-        ctx = {"session_id": sid, "memory_store": store}
+        ctx = {"session_id": sid, "memory_provider": SimpleNamespace(store=store)}
         bridge_session_state_to_recent_entities(ctx)
         entities = ctx.get("recent_entities", [])
         types = {e["type"] for e in entities}

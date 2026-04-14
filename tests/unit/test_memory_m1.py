@@ -45,6 +45,7 @@ from lokidoki.orchestrator.memory.store import MemoryStore
 from lokidoki.orchestrator.memory.tiers import Tier
 from lokidoki.orchestrator.memory.writer import process_candidate, process_candidates
 from lokidoki.orchestrator.pipeline.parser import parse_text
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXTRACTION_CORPUS = REPO_ROOT / "tests" / "fixtures" / "memory_extraction_corpus.json"
@@ -477,7 +478,7 @@ def test_m1_pipeline_memory_write_runs_when_enabled(tmp_path: Path) -> None:
             "I'm allergic to peanuts",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 7,
                 "decomposed_intent": "self_disclosure",
             },
@@ -512,7 +513,7 @@ def test_m1_pipeline_president_bug_does_not_write(tmp_path: Path) -> None:
             "who is the current president",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 1,
                 "decomposed_intent": "info_request",
             },

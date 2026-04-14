@@ -31,6 +31,7 @@ from lokidoki.orchestrator.fallbacks.prompts import (
     DIRECT_CHAT_PROMPT,
     render_prompt,
 )
+from types import SimpleNamespace
 
 
 @pytest.fixture
@@ -189,7 +190,7 @@ class TestSentimentOptOut:
         )
         from lokidoki.orchestrator.memory.slots import assemble_slots
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "default",
         }
@@ -436,7 +437,7 @@ class TestPipelineIntegration:
             tone_signal: str = "positive"
 
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "loki",
         }
@@ -454,7 +455,7 @@ class TestPipelineIntegration:
 
         store.set_sentiment_opt_out(OWNER, True)
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "loki",
         }
@@ -471,7 +472,7 @@ class TestPipelineIntegration:
             tone_signal: str = "neutral"
 
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "loki",
         }
@@ -494,7 +495,7 @@ class TestPipelineIntegration:
         )
         from lokidoki.orchestrator.memory.slots import assemble_slots
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "default",
         }
@@ -504,7 +505,7 @@ class TestPipelineIntegration:
     def test_no_mood_without_data(self, store: MemoryStore):
         from lokidoki.orchestrator.memory.slots import assemble_slots
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "default",
         }

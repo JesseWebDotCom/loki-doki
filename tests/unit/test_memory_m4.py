@@ -47,6 +47,7 @@ from lokidoki.orchestrator.memory import (
     M4_PHASE_ID,
     M4_PHASE_STATUS,
 )
+from types import SimpleNamespace
 
 
 @pytest.fixture()
@@ -404,7 +405,7 @@ class TestPipelineIntegration:
         from lokidoki.orchestrator.core.pipeline import run_pipeline
 
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "memory_writes_enabled": True,
             "owner_user_id": OWNER,
         }
@@ -424,7 +425,7 @@ class TestPipelineIntegration:
 
         reset_queue()
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "memory_writes_enabled": True,
             "owner_user_id": OWNER,
             "session_closing": True,
@@ -440,7 +441,7 @@ class TestPipelineIntegration:
         sid = store.create_session(OWNER)
         store.update_last_seen(sid, entity_type="movie", entity_name="Inception")
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "session_id": sid,
             "need_session_context": True,
@@ -459,7 +460,7 @@ class TestPipelineIntegration:
             summary="Discussed flights to Tokyo and hotels in Kyoto",
         )
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "need_episode": True,
         }
@@ -477,7 +478,7 @@ class TestPipelineIntegration:
             owner_user_id=OWNER, title="Test", summary="Test episode",
         )
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "session_id": sid,
             # No need_session_context or need_episode flags
@@ -528,7 +529,7 @@ class TestSessionStateBridge:
         sid = store.create_session(OWNER)
         store.update_last_seen(sid, entity_type="movie", entity_name="Inception")
         store.update_last_seen(sid, entity_type="person", entity_name="Luke")
-        ctx: dict = {"memory_store": store, "session_id": sid}
+        ctx: dict = {"memory_provider": SimpleNamespace(store=store), "session_id": sid}
         bridge_session_state_to_recent_entities(ctx)
         entities = ctx.get("recent_entities", [])
         names = {e["name"] for e in entities}
@@ -541,7 +542,7 @@ class TestSessionStateBridge:
         sid = store.create_session(OWNER)
         store.update_last_seen(sid, entity_type="movie", entity_name="Inception")
         ctx: dict = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "session_id": sid,
             "recent_entities": [{"name": "Inception", "type": "movie"}],
         }

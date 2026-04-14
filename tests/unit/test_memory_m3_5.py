@@ -35,6 +35,7 @@ import pytest
 from lokidoki.orchestrator.memory.candidate import MemoryCandidate
 from lokidoki.orchestrator.memory.reader import resolve_person
 from lokidoki.orchestrator.memory.store import MemoryStore
+from types import SimpleNamespace
 
 
 @pytest.fixture()
@@ -236,7 +237,7 @@ def test_m35_end_to_end_provisional_then_named(tmp_path: Path) -> None:
             "my boss is being weird",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 1,
             },
         )
@@ -250,7 +251,7 @@ def test_m35_end_to_end_provisional_then_named(tmp_path: Path) -> None:
             "my boss Steve approved it",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 1,
             },
         )

@@ -31,6 +31,7 @@ from lokidoki.orchestrator.memory import (
     M5_PHASE_ID,
     M5_PHASE_STATUS,
 )
+from types import SimpleNamespace
 
 
 @pytest.fixture
@@ -460,7 +461,7 @@ class TestPipelineIntegration:
             success = True
 
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
         }
         record_behavior_event(context, [FakeExecution()], [])
@@ -476,7 +477,7 @@ class TestPipelineIntegration:
 
         store.set_telemetry_opt_out(OWNER, True)
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
         }
 
@@ -494,7 +495,7 @@ class TestPipelineIntegration:
 
         store.set_user_style(OWNER, {"tone": "casual", "verbosity": "concise"})
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "need_routine": True,
         }
@@ -508,7 +509,7 @@ class TestPipelineIntegration:
 
         store.set_user_style(OWNER, {"tone": "casual"})
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
         }
         slots = run_memory_read_path("hello", context)

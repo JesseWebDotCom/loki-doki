@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from importlib.metadata import PackageNotFoundError, version
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -349,7 +350,7 @@ async def run_pipeline(
     context = dict(request.context)
     if request.memory_enabled:
         context["memory_writes_enabled"] = True
-        context["memory_store"] = get_dev_store()
+        context["memory_provider"] = SimpleNamespace(store=get_dev_store())
         context["owner_user_id"] = DEV_OWNER_USER_ID
         context["need_preference"] = request.need_preference
         context["need_social"] = request.need_social
@@ -361,8 +362,8 @@ async def run_pipeline(
     # the assembled memory_slots so the dev tools UI can show what was
     # injected into the prompt.
     spec_context = pipeline_result.request_spec.context or {}
-    if "memory_store" in spec_context:
-        spec_context.pop("memory_store", None)
+    if "memory_provider" in spec_context:
+        spec_context.pop("memory_provider", None)
     return pipeline_result.to_dict()
 
 
@@ -382,7 +383,7 @@ async def pipeline_chat_stream(
     context: dict[str, Any] = dict(request.context)
     if request.memory_enabled:
         context["memory_writes_enabled"] = True
-        context["memory_store"] = get_dev_store()
+        context["memory_provider"] = SimpleNamespace(store=get_dev_store())
         context["owner_user_id"] = DEV_OWNER_USER_ID
         context["need_preference"] = request.need_preference
         context["need_social"] = request.need_social
