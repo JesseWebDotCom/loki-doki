@@ -39,7 +39,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 4 | [Unified reader](chunk-4-unified-reader.md)                            | done    | c2ff0a7 |
 | 5 | [Collapse provider/store in pipeline context](chunk-5-collapse-context.md) | done    | a49d215 |
 | 6 | [De-`v2` identifiers](chunk-6-rename-v2.md)                            | done    | 6c7b590 |
-| 7 | [Delete dead code + doc sweep](chunk-7-dead-code-and-docs.md)          | pending |         |
+| 7 | [Delete dead code + doc sweep](chunk-7-dead-code-and-docs.md)          | done    | be32c79 |
 
 ---
 
