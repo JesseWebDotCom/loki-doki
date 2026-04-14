@@ -1,4 +1,4 @@
-"""Bake-off harness for the v2 LLM fallback path.
+"""Bake-off harness for the LLM fallback path.
 
 Runs the same set of representative prompts across multiple Ollama
 models so we can pick the best default for each prompt family
@@ -494,7 +494,7 @@ def _print_summary_table(summaries: list[ModelSummary]) -> None:
 
 
 def _load_corpus_prompts(path: Path) -> list[BenchPrompt]:
-    """Load utterances from a v2 regression-fixture JSON file and turn
+    """Load utterances from a regression-fixture JSON file and turn
     each one into a ``direct_chat`` BenchPrompt.
 
     The fixtures aren't all llm-relevant in the real pipeline (most
@@ -556,7 +556,7 @@ def main() -> int:
         type=Path,
         default=None,
         help=(
-            "Optional path to a v2 regression-fixture JSON file. When "
+            "Optional path to a regression-fixture JSON file. When "
             "set, every utterance in the file is loaded as a "
             "direct_chat prompt and the curated 9-prompt set is "
             "ignored. Use this for large-scale quality stress tests."

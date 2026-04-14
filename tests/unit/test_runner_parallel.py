@@ -1,9 +1,9 @@
 """Unit tests for ``run_sources_parallel_scored`` and the knowledge
 adapter's subject-coverage scoring helper.
 
-These live in their own file (separate from ``test_v2_skill_adapters``)
+These live in their own file (separate from ``test_skill_adapters``)
 because they exercise the runner helper and the scorer in isolation —
-no adapter, no v1 skill, no monkeypatching of module-level singletons.
+no adapter, no backing skill, no monkeypatching of module-level singletons.
 """
 from __future__ import annotations
 

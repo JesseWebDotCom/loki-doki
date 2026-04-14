@@ -1,4 +1,4 @@
-"""Unit tests for the v2 spaCy-backed splitter and extractor."""
+"""Unit tests for the spaCy-backed splitter and extractor."""
 from __future__ import annotations
 
 from lokidoki.orchestrator.pipeline.extractor import extract_chunk_data

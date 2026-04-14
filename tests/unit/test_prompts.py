@@ -1,4 +1,4 @@
-"""Unit coverage for v2 LLM prompt templates."""
+"""Unit coverage for LLM prompt templates."""
 from __future__ import annotations
 
 import json

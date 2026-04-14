@@ -1,8 +1,8 @@
 """
 Tests for the dev-tools memory endpoints and the PipelineRunRequest memory toggles.
 
-These tests answer the question "is the v2 memory subsystem actually
-testable from the dev tools v2 test page?" — the gate is that a single
+These tests answer the question "is the memory subsystem actually
+testable from the dev tools test page?" — the gate is that a single
 POST /dev/pipeline/run with memory_enabled=true must:
 
     1. Write any extracted candidates into the dev-tools test store
@@ -26,7 +26,7 @@ from lokidoki.api import dev_memory
 @pytest.fixture()
 def isolated_dev_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Point the dev-tools store at a tmp file for the duration of the test."""
-    test_db = tmp_path / "v2_dev_memory_test.sqlite"
+    test_db = tmp_path / "dev_memory_test.sqlite"
     monkeypatch.setattr(dev_memory, "DEV_DB_PATH", test_db)
     monkeypatch.setattr(dev_memory, "_store", None)
     # Make sure the dev.py route module also sees the patched value when
@@ -77,7 +77,7 @@ def test_dev_store_dump_shape(isolated_dev_store: Path) -> None:
     assert payload["people"] == []
 
 
-def test_v2_run_request_default_memory_off() -> None:
+def test_run_request_default_memory_off() -> None:
     from lokidoki.api.routes.dev import PipelineRunRequest
 
     req = PipelineRunRequest(message="hi")
@@ -86,7 +86,7 @@ def test_v2_run_request_default_memory_off() -> None:
     assert req.need_social is True
 
 
-def test_v2_run_request_with_memory_toggles() -> None:
+def test_run_request_with_memory_toggles() -> None:
     from lokidoki.api.routes.dev import PipelineRunRequest
 
     req = PipelineRunRequest(

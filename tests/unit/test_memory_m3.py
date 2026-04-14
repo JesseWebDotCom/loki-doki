@@ -1,10 +1,10 @@
 """
-M3 phase-gate tests for the v2 memory subsystem.
+M3 phase-gate tests for the memory subsystem.
 
 Each test corresponds to a deliverable or gate from `docs/MEMORY_DESIGN.md`
 §8 M3:
 
-    1. v2 social reader (people + relationships from MemoryStore)
+    1. Social reader (people + relationships from MemoryStore)
     2. Deterministic resolver: exact / handle / substring / fuzzy
     3. {social_context} slot rendered into combine + direct_chat templates
     4. need_social gates the fetch

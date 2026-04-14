@@ -1,4 +1,4 @@
-"""Tests for persona injection into v2 synthesis prompts.
+"""Tests for persona injection into synthesis prompts.
 
 Verifies:
 - Persona slots render in combine and direct_chat templates.
@@ -138,10 +138,11 @@ class TestPersonaNeverReachesDecomposer:
         assert "behavior_prompt" not in DECOMPOSITION_PROMPT
 
     def test_decomposer_init_takes_no_persona_args(self):
-        """V1 Decomposer is deleted — persona args were never accepted.
+        """The legacy Decomposer is deleted — persona args were never accepted.
 
-        This test originally verified the v1 Decomposer.__init__ signature.
-        With v1 removed, the invariant is trivially satisfied: the v2
-        pipeline's decomposer prompt is persona-free by construction
-        (tested above in test_decomposition_prompt_has_no_persona_slot).
+        This test originally verified the legacy Decomposer.__init__
+        signature. With it removed, the invariant is trivially
+        satisfied: the pipeline's decomposer prompt is persona-free by
+        construction (tested above in
+        test_decomposition_prompt_has_no_persona_slot).
         """

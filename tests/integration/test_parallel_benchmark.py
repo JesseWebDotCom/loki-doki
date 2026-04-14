@@ -1,6 +1,6 @@
 """Phase 4 latency benchmark.
 
-Demonstrates that the v2 orchestrator's per-chunk parallelism (route /
+Demonstrates that the orchestrator's per-chunk parallelism (route /
 select / resolve / execute via ``asyncio.gather``) actually delivers a
 measurable speedup when handlers are I/O-bound. We use sleep-based
 handlers so the test is hermetic and deterministic.

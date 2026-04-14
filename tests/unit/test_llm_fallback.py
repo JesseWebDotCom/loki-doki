@@ -1,4 +1,4 @@
-"""Unit tests for the v2 LLM fallback decision + stub synthesizer."""
+"""Unit tests for the LLM fallback decision + stub synthesizer."""
 from __future__ import annotations
 
 from lokidoki.orchestrator.core.types import RequestChunkResult, RequestSpec

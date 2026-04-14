@@ -70,7 +70,7 @@ def _route(chunk_index: int, capability: str, confidence: float = 0.8) -> RouteM
 # ---- prompt budget ----------------------------------------------------------
 
 class TestPromptBudget:
-    """Total v2 prompt budget must stay under 2,500 chars."""
+    """Total prompt budget must stay under 2,500 chars."""
 
     def test_split_prompt_under_budget(self):
         assert len(SPLIT_PROMPT) < 2500
@@ -84,12 +84,12 @@ class TestPromptBudget:
     def test_direct_chat_prompt_under_budget(self):
         assert len(DIRECT_CHAT_PROMPT) < 2500
 
-    def test_total_v2_prompt_budget_under_2500(self):
+    def test_total_prompt_budget_under_2500(self):
         """Each template individually under 2,500 chars.
 
-        Unlike v1's monolithic 4,637-char decomposition prompt, v2 uses
-        4 small templates. Each one must independently stay under budget
-        because only one is sent per LLM call.
+        Unlike the legacy monolithic 4,637-char decomposition prompt,
+        the pipeline uses 4 small templates. Each one must independently
+        stay under budget because only one is sent per LLM call.
         """
         for name, template in [
             ("split", SPLIT_PROMPT),
@@ -102,24 +102,24 @@ class TestPromptBudget:
             )
 
 
-# ---- no repair loop in v2 ---------------------------------------------------
+# ---- no repair loop --------------------------------------------------------
 
 class TestNoRepairLoop:
-    """v2 has no repair loop — validation is strict-or-drop."""
+    """The pipeline has no repair loop — validation is strict-or-drop."""
 
-    def test_v2_has_no_repair_module(self):
-        """No repair module exists under v2/."""
-        v2_root = Path(__file__).resolve().parent.parent.parent / "lokidoki" / "orchestrator"
+    def test_has_no_repair_module(self):
+        """No repair module exists under orchestrator/."""
+        orch_root = Path(__file__).resolve().parent.parent.parent / "lokidoki" / "orchestrator"
         # We check for repair-related strings in file names
-        repair_files = list(v2_root.rglob("*repair*"))
+        repair_files = list(orch_root.rglob("*repair*"))
         assert repair_files == [], (
             f"Unexpected repair files in orchestrator/: {repair_files}"
         )
 
-    def test_v2_does_not_import_v1_repair(self):
-        """No core module imports the v1 decomposer_repair."""
-        v2_root = Path(__file__).resolve().parent.parent.parent / "lokidoki" / "orchestrator"
-        for py_file in v2_root.rglob("*.py"):
+    def test_does_not_import_legacy_repair(self):
+        """No core module imports the legacy decomposer_repair."""
+        orch_root = Path(__file__).resolve().parent.parent.parent / "lokidoki" / "orchestrator"
+        for py_file in orch_root.rglob("*.py"):
             content = py_file.read_text()
             assert "decomposer_repair" not in content, (
                 f"{py_file} imports decomposer_repair"
@@ -371,10 +371,10 @@ class TestDerivationLatency:
         assert per_call < 1.0, f"Average derivation {per_call:.3f}ms exceeds 1ms"
 
 
-# ---- v2 vs v1 decomposer comparison ----------------------------------------
+# ---- pipeline vs legacy decomposer comparison ------------------------------
 
-class TestV2VsV1:
-    """Structural assertions that v2 does NOT use an LLM decomposer."""
+class TestPipelineVsLegacy:
+    """Structural assertions that the pipeline does NOT use an LLM decomposer."""
 
     def test_pipeline_has_no_decomposer_import(self):
         """pipeline.py must not import a decomposer module or class.
@@ -394,11 +394,11 @@ class TestV2VsV1:
                 f"pipeline.py imports a decomposer: {line}"
             )
 
-    def test_v2_prompt_budget_vs_v1(self):
-        """v2's largest single template must be smaller than v1's decomposition prompt."""
+    def test_prompt_budget_vs_legacy(self):
+        """The largest single template must be smaller than the legacy decomposition prompt."""
         from lokidoki.core.prompts import DECOMPOSITION_PROMPT
-        v2_max = max(len(SPLIT_PROMPT), len(RESOLVE_PROMPT), len(COMBINE_PROMPT), len(DIRECT_CHAT_PROMPT))
-        v1_size = len(DECOMPOSITION_PROMPT)
-        assert v2_max < v1_size, (
-            f"v2 largest template ({v2_max}) should be smaller than v1 decomposition prompt ({v1_size})"
+        pipeline_max = max(len(SPLIT_PROMPT), len(RESOLVE_PROMPT), len(COMBINE_PROMPT), len(DIRECT_CHAT_PROMPT))
+        legacy_size = len(DECOMPOSITION_PROMPT)
+        assert pipeline_max < legacy_size, (
+            f"largest template ({pipeline_max}) should be smaller than legacy decomposition prompt ({legacy_size})"
         )

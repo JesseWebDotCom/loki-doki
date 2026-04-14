@@ -178,14 +178,14 @@ class TestTopicScope:
     def test_single_winner(self):
         obs = [
             SessionObservation(subject="self", predicate="p", value="v", entities=("japan",)),
-            SessionObservation(subject="self", predicate="p", value="v2", entities=("japan", "food")),
+            SessionObservation(subject="self", predicate="p", value="vb", entities=("japan", "food")),
         ]
         assert derive_topic_scope(obs) == "japan"
 
     def test_tie_returns_none(self):
         obs = [
             SessionObservation(subject="self", predicate="p", value="v", entities=("japan",)),
-            SessionObservation(subject="self", predicate="p", value="v2", entities=("italy",)),
+            SessionObservation(subject="self", predicate="p", value="vb", entities=("italy",)),
             SessionObservation(subject="self", predicate="p", value="v3", entities=("japan",)),
             SessionObservation(subject="self", predicate="p", value="v4", entities=("italy",)),
         ]

@@ -1,5 +1,5 @@
 """
-M3.5 phase-gate tests for the v2 memory subsystem.
+M3.5 phase-gate tests for the memory subsystem.
 
 M3.5 adds **auto-merge by relation** to the social write path. When a
 named ``person:X`` arrives via ``is_relation`` and a single provisional
@@ -24,7 +24,7 @@ Each test corresponds to a deliverable from M3.5:
     6. Auto-merge skips when the relation doesn't match
     7. Auto-merge skips when a named row with the same name already exists
     8. Cross-user isolation: auto-merge never crosses owner_user_id
-    9. End-to-end through the v2 pipeline
+    9. End-to-end through the pipeline
 """
 from __future__ import annotations
 

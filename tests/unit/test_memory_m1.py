@@ -1,5 +1,5 @@
 """
-M1 phase-gate tests for the v2 memory subsystem.
+M1 phase-gate tests for the memory subsystem.
 
 Each test corresponds to a deliverable or gate from `docs/MEMORY_DESIGN.md`
 §8 M1:

@@ -1,5 +1,5 @@
 """
-M2.5 phase-gate tests for the v2 memory subsystem.
+M2.5 phase-gate tests for the memory subsystem.
 
 M2.5 adds embeddings as a third Reciprocal Rank Fusion source for the
 Tier 4 read path so vocabulary mismatches that BM25 + the structured
@@ -9,7 +9,7 @@ vegetarian") still recall the right fact.
 Each test corresponds to a deliverable from M2.5:
 
     1. facts.embedding column populated on write_semantic_fact insert
-    2. Embedding helper uses the existing v2 routing embedding backend
+    2. Embedding helper uses the existing routing embedding backend
     3. _vector_search returns cosine-similarity hits over active facts
     4. read_user_facts fuses BM25 + subject + vector via RRF
     5. Vector source can recall facts BM25 alone misses

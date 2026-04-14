@@ -1,4 +1,4 @@
-"""Tests for the v2 Ollama LLM client wiring (Phase 5).
+"""Tests for the Ollama LLM client wiring (Phase 5).
 
 Uses a fake :class:`InferenceClient` factory so the tests never make a
 real HTTP call. The factory is installed via

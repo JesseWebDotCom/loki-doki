@@ -6,12 +6,12 @@ The schema is applied once during ``MemoryStore._bootstrap()``.
 from __future__ import annotations
 
 MEMORY_CORE_SCHEMA: str = """
--- Union of the legacy MemoryProvider schema and the v2 MemoryStore schema.
+-- Union of the legacy MemoryProvider schema and the MemoryStore schema.
 -- Both init paths run on the same data/lokidoki.db, so every shared table
 -- is declared once here as the column-union of both shapes. Legacy-only
 -- columns (category, subject_ref_id, project_id, kind, valid_from/to, ...)
--- are defaulted so v2 INSERTs can omit them; v2-only columns
--- (source_text, superseded_by, embedding) are nullable so legacy INSERTs
+-- are defaulted so MemoryStore INSERTs can omit them; MemoryStore-only
+-- columns (source_text, superseded_by, embedding) are nullable so legacy INSERTs
 -- can omit them. FK REFERENCES are intentionally omitted so MemoryStore
 -- can still run on an isolated SQLite file (tmp tests, :memory:) where
 -- users/people/projects/messages don't exist.
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS relationships (
     person_id INTEGER NOT NULL,
     relation_label TEXT NOT NULL,
     -- Legacy column kept so the one-shot relationships → graph-edges
-    -- migration in core.memory_init can still read prior rows. New v2
+    -- migration in core.memory_init can still read prior rows. New
     -- writes leave this NULL and use relation_label only.
     relation TEXT,
     confidence REAL NOT NULL DEFAULT 0.6,

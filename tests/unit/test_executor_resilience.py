@@ -1,4 +1,4 @@
-"""Phase 6 retry / timeout coverage for the v2 executor."""
+"""Phase 6 retry / timeout coverage for the executor."""
 from __future__ import annotations
 
 import asyncio

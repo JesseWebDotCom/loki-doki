@@ -159,7 +159,7 @@ CREATE INDEX IF NOT EXISTS idx_sentiment_log_owner ON sentiment_log(owner_user_i
 
 -- people and relationships moved to
 -- lokidoki/orchestrator/memory/store_schema.py as the column-union of
--- both the legacy and v2 shapes. MemoryStore._bootstrap creates them;
+-- both the legacy and MemoryStore shapes. MemoryStore._bootstrap creates them;
 -- this file no longer declares them.
 
 CREATE TABLE IF NOT EXISTS person_overlays (
@@ -265,7 +265,7 @@ CREATE TABLE IF NOT EXISTS clarification_state (
 
 -- facts and sessions moved to
 -- lokidoki/orchestrator/memory/store_schema.py as the column-union of
--- both the legacy and v2 shapes. MemoryStore._bootstrap creates them;
+-- both the legacy and MemoryStore shapes. MemoryStore._bootstrap creates them;
 -- this file no longer declares them. Legacy-required columns
 -- (category, kind, subject_ref_id, project_id, valid_from/to, title, ...)
 -- are part of the union with defaults so both writers work unchanged.
@@ -495,7 +495,7 @@ CREATE INDEX IF NOT EXISTS idx_message_feedback_owner
 
 FTS_SCHEMA = """
 -- facts_fts (and its ai/ad/au triggers) live in store_schema.py with
--- the v2 wider column set (source_text, predicate, status). Declaring
+-- the wider MemoryStore column set (source_text, predicate, status). Declaring
 -- the FTS table here too with a narrower shape would silently no-op and
 -- leave stale triggers that double-write on INSERT. This schema block
 -- now only owns the messages FTS index.

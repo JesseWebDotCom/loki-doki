@@ -750,7 +750,7 @@ class MemoryProvider:
     async def search_facts(
         self, *, user_id: int, query: str, top_k: int = 10, project_id: Optional[int] = None
     ) -> list[dict]:
-        """Hybrid BM25 + subject-scan + (optional) cosine via the v2 reader.
+        """Hybrid BM25 + subject-scan + (optional) cosine via the unified reader.
 
         Delegates to ``orchestrator.memory.reader.read_user_facts``, which
         runs the M2 + M2.5 RRF blend against the shared DB. The FactHit

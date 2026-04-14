@@ -1,5 +1,5 @@
 """
-M0 phase gate tests for the v2 memory subsystem.
+M0 phase gate tests for the memory subsystem.
 
 Each test corresponds to a deliverable from `docs/MEMORY_DESIGN.md` §8 M0:
 
@@ -12,10 +12,10 @@ Each test corresponds to a deliverable from `docs/MEMORY_DESIGN.md` §8 M0:
     6. Schema migrations apply cleanly to a scratch SQLite file.
     7. President-bug regression row exists and currently FAILS via the
        gate-chain stub (because M0 ships scaffolding only — M1 fixes it).
-    8. The dev-tools v2 status endpoint surfaces the memory subsystem.
+    8. The dev-tools status endpoint surfaces the memory subsystem.
 
 These are the canonical M0 phase-gate tests. M1 should add a parallel
-`test_v2_memory_m1.py` and leave this file intact.
+`test_memory_m1.py` and leave this file intact.
 """
 from __future__ import annotations
 
@@ -318,12 +318,12 @@ def test_m0_president_bug_regression_row_uses_clause_shape() -> None:
     assert memory["should_write"] is False
 
 
-# ----- Deliverable 8: dev-tools v2 status endpoint surfaces memory ---------
+# ----- Deliverable 8: dev-tools status endpoint surfaces memory ------------
 
 
-def test_m0_dev_v2_status_payload_includes_memory_section() -> None:
+def test_m0_dev_status_payload_includes_memory_section() -> None:
     """The /dev/pipeline/status endpoint must surface the memory subsystem so the
-    React V2PrototypeStatusPanel can render it. We call the helper directly
+    React status panel can render it. We call the helper directly
     rather than spinning up FastAPI to keep this test hermetic.
 
     The active phase advances as later milestones land — this test only

@@ -1,6 +1,6 @@
-"""Integration-suite conftest — make v2 skill adapters hermetic.
+"""Integration-suite conftest — make skill adapters hermetic.
 
-The v2 skill adapters under ``v2/orchestrator/skills/`` wrap real v1
+The skill adapters under ``lokidoki/orchestrator/skills/`` wrap real
 LokiDoki skills (Open-Meteo, Wikipedia, Fandango, dictionaryapi.dev,
 Google News RSS, TheMealDB, icanhazdadjoke, TVMaze). Those provider
 calls are great for development but make the regression suite slow,
@@ -52,7 +52,7 @@ class _FakeWeather:
 class _FakeKnowledge:
     """Stand-in for both Wikipedia and DuckDuckGo skills used by knowledge.py.
 
-    The v2 knowledge_query adapter runs Wikipedia and web search in
+    The knowledge_query adapter runs Wikipedia and web search in
     parallel as two distinct sources (``_WIKI`` and ``_DDG``). The fake
     satisfies both shapes by handling the union of their mechanism names
     so the same instance can be patched in for either singleton.
@@ -223,8 +223,8 @@ class _FakeTVShow:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _patch_v2_skill_singletons() -> None:
-    """Replace network-backed v2 adapter singletons with deterministic fakes.
+def _patch_skill_singletons() -> None:
+    """Replace network-backed adapter singletons with deterministic fakes.
 
     Session-scoped + autouse so every integration test in this directory
     sees the fakes; no individual test needs to opt in. The patches are
@@ -294,7 +294,7 @@ def _patch_v2_skill_singletons() -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _seed_v2_people_db_for_integration():
+def _seed_people_db_for_integration():
     """Inject the pop-culture seed roster into the in-memory PeopleDBAdapter.
 
     The production default of ``lokidoki.orchestrator.adapters.people_db._DEFAULT_ROSTER``

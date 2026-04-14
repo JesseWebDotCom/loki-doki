@@ -1,4 +1,4 @@
-"""Tests for the LokiDoki-backed v2 adapters (Phase 3 real wiring).
+"""Tests for the LokiDoki-backed adapters (Phase 3 real wiring).
 
 * :class:`LokiPeopleDBAdapter` reads the legacy ``people`` /
   ``relationships`` SQLite tables. We seed a temp DB with pop-culture

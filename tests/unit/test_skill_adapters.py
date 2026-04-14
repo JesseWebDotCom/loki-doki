@@ -1,13 +1,13 @@
-"""Unit tests for the v2/orchestrator/skills adapters.
+"""Unit tests for the lokidoki/orchestrator/skills adapters.
 
-Each adapter is a thin wrapper around a v1 LokiDoki skill. These tests
-swap the v1 singleton for a deterministic in-memory fake and assert that
-the adapter:
+Each adapter is a thin wrapper around a LokiDoki skill. These tests
+swap the skill singleton for a deterministic in-memory fake and assert
+that the adapter:
 
-  1. Pulls the right parameters out of a v2 payload.
-  2. Walks the v1 fallback chain in the documented priority order.
-  3. Translates the ``MechanismResult`` blob into the v2 ``output_text``
-     contract.
+  1. Pulls the right parameters out of the adapter payload.
+  2. Walks the skill fallback chain in the documented priority order.
+  3. Translates the ``MechanismResult`` blob into the adapter
+     ``output_text`` contract.
   4. Degrades to a graceful error sentence when every mechanism fails.
 
 Adapter swaps go through ``monkeypatch.setattr`` so the singleton is
