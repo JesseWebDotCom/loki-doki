@@ -34,8 +34,34 @@ async def find_people_by_name(
 
 
 async def create_person(self: MemoryProvider, user_id: int, name: str) -> int:
-    async with self._lock:
-        return await self._run_thread_unlocked(psql.create_person, user_id, name)
+    """Route person creation through the gate-chain writer.
+
+    Builds an ``is_named`` candidate so the social-tier writer upserts
+    the row via ``_upsert_named_person``. Empty names raise just like
+    the legacy SQL helper did.
+    """
+    import asyncio
+
+    from lokidoki.orchestrator.memory.candidate import MemoryCandidate
+    from lokidoki.orchestrator.memory.writer import process_candidate
+
+    norm = (name or "").strip()
+    if not norm:
+        raise ValueError("person name cannot be empty")
+    candidate = MemoryCandidate(
+        subject=f"person:{norm}",
+        predicate="is_named",
+        value=norm,
+        owner_user_id=int(user_id),
+    )
+    decision = await asyncio.to_thread(
+        process_candidate, candidate, store=self._store,
+    )
+    if decision.accepted and decision.write_outcome and decision.write_outcome.person_id:
+        return int(decision.write_outcome.person_id)
+    raise RuntimeError(
+        f"create_person rejected: {decision.reason}"
+    )
 
 
 async def update_person_name(
@@ -202,10 +228,46 @@ async def add_relationship(
     person_id: int,
     relation: str,
 ) -> int:
+    """Route relationship adds through the gate-chain writer.
+
+    Looks up the person's name to build a ``person:<name>`` candidate
+    with predicate ``is_relation``; the social-tier writer upserts the
+    relationships row. Returns the person_id (the gate-chain writer
+    owns relationship-row identity internally).
+    """
+    import asyncio
+
+    from lokidoki.orchestrator.memory.candidate import MemoryCandidate
+    from lokidoki.orchestrator.memory.writer import process_candidate
+
     async with self._lock:
-        return await self._run_thread_unlocked(
-            psql.upsert_relationship, user_id, person_id, relation
+        row = await asyncio.to_thread(
+            lambda: self._conn.execute(
+                "SELECT name FROM people WHERE owner_user_id = ? AND id = ?",
+                (user_id, person_id),
+            ).fetchone()
         )
+    if not row or not row["name"]:
+        raise ValueError(f"no such person for owner {user_id}: {person_id}")
+    name = str(row["name"]).strip()
+
+    candidate = MemoryCandidate(
+        subject=f"person:{name}",
+        predicate="is_relation",
+        value=relation,
+        owner_user_id=int(user_id),
+    )
+    decision = await asyncio.to_thread(
+        process_candidate,
+        candidate,
+        store=self._store,
+        resolved_people=[name],
+    )
+    if decision.accepted and decision.write_outcome and decision.write_outcome.person_id:
+        return int(decision.write_outcome.person_id)
+    raise RuntimeError(
+        f"add_relationship rejected: {decision.reason}"
+    )
 
 
 async def set_primary_relationship(

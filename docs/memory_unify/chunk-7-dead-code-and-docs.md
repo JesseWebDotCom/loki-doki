@@ -65,3 +65,13 @@ Refs docs/memory_unify/PLAN.md chunk 7.
 ## Deferrals section
 
 *(final chunk — any remaining deferrals go in a new follow-up doc rather than here)*
+
+## Deferred from Chunk 3
+
+- Several adjacent unit tests use legacy non-enum predicates (`likes`, `loves`, `enjoys`, `job`, `location`, `favorite_movie` used as multi-value, etc.) that the gate chain now rejects via `MemoryProvider.upsert_fact`. They were out of Chunk 3's Files scope so the failures land here. Known-affected files:
+  - `tests/unit/test_memory_projects.py::test_list_facts_filtered_by_project`
+  - `tests/unit/test_memory_search_hybrid.py` (all three failing cases)
+  - `tests/integration/test_memory_people_api.py` (four `mp.upsert_fact` call sites)
+  - `tests/integration/test_auth_api.py` (three `mp.upsert_fact` call sites)
+  Update these to use Tier 4/5 enum predicates (e.g. `prefers`, `lives_in`, `works_as`) or relax assertions that depend on non-enum writes succeeding.
+- `MemoryProvider.add_relationship` now writes to the social-tier `relationships` table via the gate-chain writer, but `memory.list_relationships` still reads from `person_relationship_edges`. Either migrate `list_relationships` to read from `relationships`, or dual-write the edge in the provider adapter, so the Memory UI's relationship list reflects new add_relationship calls.

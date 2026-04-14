@@ -33,7 +33,9 @@ import sqlite3
 import logging
 
 from lokidoki.core import memory_sql as sql
+from lokidoki.core.confidence import DEFAULT_CONFIDENCE
 from lokidoki.core.memory_init import open_and_migrate
+from lokidoki.orchestrator.memory.store import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ class MemoryProvider:
     def __init__(self, db_path: str = "data/lokidoki.db"):
         self._db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
+        self._store: Optional[MemoryStore] = None
         self._lock = asyncio.Lock()
         self._vec_loaded = False
         self._background_backfill_task: Optional[asyncio.Task] = None
@@ -56,6 +59,9 @@ class MemoryProvider:
         self._conn, self._vec_loaded = await asyncio.to_thread(
             open_and_migrate, self._db_path
         )
+        # Bind a MemoryStore to the same DB so provider writes can route
+        # through the gate-chain writer without opening a second file.
+        self._store = await asyncio.to_thread(MemoryStore, self._db_path)
         # Idempotent character seeding + first-boot personality migration.
         # Lives outside open_and_migrate so the seed module can read
         # data/settings.json (a side effect that doesn't belong in the
@@ -184,6 +190,9 @@ class MemoryProvider:
             except asyncio.CancelledError:
                 pass
             self._background_backfill_task = None
+        if self._store is not None:
+            await asyncio.to_thread(self._store.close)
+            self._store = None
         if self._conn is not None:
             await asyncio.to_thread(self._conn.close)
             self._conn = None
@@ -570,53 +579,134 @@ class MemoryProvider:
         ambiguity_group_id: Optional[int] = None,
         negates_previous: bool = False,
         kind: str = "fact",
+        source_text: str = "",
+        confidence: Optional[float] = None,
     ) -> tuple[int, float, dict]:
-        """Insert a fact OR confirm an existing matching row.
+        """Route the write through the gate-chain writer.
 
-        Dedup-and-confirm: a fact is "the same" if (owner, subject,
-        predicate, value) all match. On a match we bump confidence via
-        ``update_confidence(..., confirmed=True)``. Different ``value``s
-        for the same (owner, subject, predicate) coexist as separate
-        rows so PR3's conflict UI has something to resolve.
+        Adapts legacy args into a ``MemoryCandidate`` and calls
+        ``writer.process_candidate``. Rejected candidates return a soft
+        failure ``(0, 0.0, {"accepted": False, "reason": ...})`` so
+        callers see a graceful miss rather than an exception.
         """
-        # Compute the embedding outside the DB lock so we don't block
-        # other writers during the ~50ms inference. ``embed_passages``
-        # is sync; route through ``to_thread`` to keep the event loop
-        # responsive. We embed a "subject predicate value" sentence so
-        # the vector captures the full semantic context, not just the
-        # value. Skipped when sqlite-vec failed to load — the SQL writer
-        # treats embedding=None as "BM25-only for this row".
-        embedding: Optional[list] = None
-        if self._vec_loaded:
-            try:
-                from lokidoki.core.embedder import get_embedder
-                sentence = f"{subject} {predicate} {value}".strip()
-                embedding = await asyncio.to_thread(
-                    lambda: get_embedder().embed_passages([sentence])[0]
-                )
-            except Exception:  # noqa: BLE001 — degrade, never crash a write
-                embedding = None
+        from pydantic import ValidationError
 
-        async with self._lock:
-            return await asyncio.to_thread(
-                lambda: sql.upsert_fact(
-                    self._conn,
-                    user_id=user_id,
-                    subject=subject,
-                    predicate=predicate,
-                    value=value,
-                    category=category,
-                    source_message_id=source_message_id,
-                    subject_type=subject_type,
-                    subject_ref_id=subject_ref_id,
-                    project_id=project_id,
-                    status=status,
-                    ambiguity_group_id=ambiguity_group_id,
-                    negates_previous=negates_previous,
-                    kind=kind,
-                    embedding=embedding,
-                )
+        from lokidoki.orchestrator.memory.candidate import MemoryCandidate
+        from lokidoki.orchestrator.memory.writer import process_candidate
+
+        # For person-typed writes keyed by an existing people row, pull
+        # the canonical display name so the store's case-sensitive
+        # person upsert doesn't fork a duplicate row.
+        resolved_name: Optional[str] = None
+        if subject_type == "person" and subject_ref_id is not None:
+            def _name_for(conn):
+                row = conn.execute(
+                    "SELECT name FROM people "
+                    "WHERE owner_user_id = ? AND id = ?",
+                    (user_id, subject_ref_id),
+                ).fetchone()
+                return row["name"] if row else None
+            resolved_name = await self.run_sync(_name_for)
+        cand_subject = _normalize_candidate_subject(
+            resolved_name or subject, subject_type,
+        )
+        resolved_people: Optional[list[str]] = None
+        known_entities: Optional[list[str]] = None
+        if cand_subject.startswith("person:"):
+            resolved_people = [cand_subject.split(":", 1)[1]]
+        elif cand_subject.startswith("entity:"):
+            known_entities = [cand_subject.split(":", 1)[1]]
+
+        effective_confidence = (
+            float(confidence) if confidence is not None else DEFAULT_CONFIDENCE
+        )
+        try:
+            candidate = MemoryCandidate(
+                subject=cand_subject,
+                predicate=predicate,
+                value=value,
+                owner_user_id=int(user_id),
+                source_text=source_text,
+                confidence=effective_confidence,
             )
+        except ValidationError as exc:
+            return 0, 0.0, {"accepted": False, "reason": f"schema_invalid:{exc.error_count()}_errors"}
+
+        decision = await asyncio.to_thread(
+            process_candidate,
+            candidate,
+            store=self._store,
+            resolved_people=resolved_people,
+            known_entities=known_entities,
+        )
+        if not decision.accepted:
+            return 0, 0.0, {"accepted": False, "reason": decision.reason}
+
+        outcome = decision.write_outcome
+        fact_id = int(outcome.fact_id) if outcome.fact_id else 0
+        # Social-tier writes don't surface the fact_id on the outcome;
+        # the social writer rewrites the candidate's subject to
+        # ``person:<person_id>`` before insert, so look the row up by
+        # that shape to land the post-update on the just-written fact.
+        if not fact_id and outcome.person_id:
+            stored_subject = f"person:{int(outcome.person_id)}"
+            def _find_row(conn):
+                row = conn.execute(
+                    "SELECT id FROM facts "
+                    "WHERE owner_user_id = ? AND subject = ? "
+                    "AND predicate = ? AND value = ? AND status = 'active' "
+                    "ORDER BY id DESC LIMIT 1",
+                    (user_id, stored_subject, candidate.predicate, value),
+                ).fetchone()
+                return int(row["id"]) if row else 0
+            fact_id = await self.run_sync(_find_row)
+        conf = DEFAULT_CONFIDENCE
+        if fact_id:
+            def _apply_and_read(conn):
+                extras = {
+                    "subject_type": subject_type,
+                    "subject_ref_id": subject_ref_id,
+                    "project_id": project_id,
+                    "ambiguity_group_id": ambiguity_group_id,
+                    "source_message_id": source_message_id,
+                    "kind": kind,
+                    "category": category,
+                }
+                # Callers that pass a bare subject (e.g. entity name,
+                # plain person name) expect the row's subject column to
+                # mirror that legacy form rather than the gate-chain
+                # prefixed form. Preserve that contract.
+                if subject_type in ("entity", "person") and subject and not subject.startswith(
+                    ("self", "person:", "handle:", "entity:")
+                ):
+                    extras["subject"] = subject
+                sets = [f"{col} = ?" for col, v in extras.items() if v is not None]
+                args = [v for v in extras.values() if v is not None]
+                if sets:
+                    conn.execute(
+                        f"UPDATE facts SET {', '.join(sets)} WHERE id = ?",
+                        (*args, fact_id),
+                    )
+                if negates_previous:
+                    # Stamp valid_to on any prior same-(subject, predicate)
+                    # rows that the gate-chain writer may have already
+                    # marked superseded via the single-value rule.
+                    conn.execute(
+                        "UPDATE facts SET status = 'superseded', "
+                        "valid_to = COALESCE(valid_to, datetime('now')), "
+                        "updated_at = datetime('now') "
+                        "WHERE owner_user_id = ? AND subject = ? "
+                        "AND predicate = ? AND id <> ? "
+                        "AND status IN ('active', 'superseded')",
+                        (user_id, candidate.subject, candidate.predicate, fact_id),
+                    )
+                conn.commit()
+                row = conn.execute(
+                    "SELECT confidence FROM facts WHERE id = ?", (fact_id,)
+                ).fetchone()
+                return float(row["confidence"]) if row else DEFAULT_CONFIDENCE
+            conf = await self.run_sync(_apply_and_read)
+        return fact_id, conf, {"accepted": True, "action": outcome.note or "stored"}
 
     async def list_facts(
         self,
@@ -716,6 +806,32 @@ class MemoryProvider:
                     self._conn, feedback_id=feedback_id, user_id=user_id
                 )
             )
+
+
+def _normalize_candidate_subject(subject: str, subject_type: str) -> str:
+    """Map legacy (subject, subject_type) pairs to a MemoryCandidate subject.
+
+    Provider callers pass free-form subject strings plus a type. The
+    gate chain expects ``self`` / ``person:<name>`` / ``handle:<text>`` /
+    ``entity:<name>``. This helper produces the correct prefixed form.
+    """
+    raw = (subject or "").strip()
+    if subject_type == "person":
+        if raw.startswith("person:") or raw.startswith("handle:"):
+            return raw
+        return f"person:{raw}"
+    if subject_type == "entity":
+        if raw.startswith("entity:"):
+            return raw
+        return f"entity:{raw}"
+    if raw == "self" or not raw:
+        return "self"
+    if raw.startswith(("self", "person:", "handle:", "entity:")):
+        return raw if raw != "self" else "self"
+    # Legacy default: subject_type='self' with a non-self subject string
+    # (e.g. a name or entity). Treat as an entity reference so the gate
+    # chain can classify it into Tier 4.
+    return f"entity:{raw}"
 
 
 # Bind the per-user / sentiment / people / character helpers onto
