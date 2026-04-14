@@ -185,9 +185,9 @@ async def list_facts_by_status(
 
 
 async def list_people(self: MemoryProvider, user_id: int) -> list[dict]:
-    async with self._lock:
-        rows = await self._run_thread_unlocked(psql.list_people, user_id)
-    return [dict(r) for r in rows]
+    import asyncio
+
+    return await asyncio.to_thread(self._store.list_people, user_id)
 
 
 async def get_person(
@@ -294,22 +294,17 @@ async def delete_relationship(
 async def list_relationships(
     self: MemoryProvider, user_id: int
 ) -> list[dict]:
-    async with self._lock:
-        rows = await self._run_thread_unlocked(
-            psql.list_relationships, user_id
-        )
-    # list_relationships now returns plain dicts from graph edges.
-    return [dict(r) if not isinstance(r, dict) else r for r in rows]
+    import asyncio
+
+    return await asyncio.to_thread(self._store.list_relationships, user_id)
 
 
 async def list_fact_conflicts(
     self: MemoryProvider, user_id: int
 ) -> list[dict]:
-    async with self._lock:
-        rows = await self._run_thread_unlocked(
-            psql.list_fact_conflicts, user_id
-        )
-    return [dict(r) for r in rows]
+    import asyncio
+
+    return await asyncio.to_thread(self._store.list_fact_conflicts, user_id)
 
 
 async def _run_thread_unlocked(self: MemoryProvider, fn, *args):

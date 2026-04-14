@@ -714,36 +714,57 @@ class MemoryProvider:
         limit: int = 100,
         project_id: Optional[int] = None,
     ) -> list[dict]:
-        async with self._lock:
-            rows = await asyncio.to_thread(
-                sql.list_facts, self._conn, user_id, limit, project_id
-            )
-        return [dict(r) for r in rows]
+        """Return active facts via the unified MemoryStore.
+
+        The UI wants newest-first, but ``get_active_facts`` sorts by id
+        ascending. We sort on the way out. ``project_id`` is a Python
+        post-filter because the store reader has no native filter — if
+        the caller asks for a project view, we pull a larger batch and
+        trim here.
+        """
+        pull_limit = limit if project_id is None else max(limit * 10, 500)
+        rows = await asyncio.to_thread(
+            self._store.get_active_facts,
+            owner_user_id=user_id,
+            limit=pull_limit,
+        )
+        rows.sort(
+            key=lambda r: (r.get("updated_at") or "", r.get("id") or 0),
+            reverse=True,
+        )
+        if project_id is not None:
+            rows = [r for r in rows if r.get("project_id") == project_id]
+        return rows[:limit]
 
     async def search_facts(
         self, *, user_id: int, query: str, top_k: int = 10, project_id: Optional[int] = None
     ) -> list[dict]:
-        """Hybrid BM25 + (optional) cosine search over facts, scoped to user.
+        """Hybrid BM25 + subject-scan + (optional) cosine via the v2 reader.
 
-        See ``memory_search.hybrid_search_facts`` for the blend rule.
-        Falls back to BM25 only when no fact embeddings exist for this
-        user, which is the PR3 default.
+        Delegates to ``orchestrator.memory.reader.read_user_facts``, which
+        runs the M2 + M2.5 RRF blend against the shared DB. The FactHit
+        objects are flattened to dicts so route and test callers keep
+        working unchanged. ``project_id`` filtering is intentionally not
+        supported here yet (see chunk-7 deferral).
         """
-        from lokidoki.core.memory_search import hybrid_search_facts
+        from lokidoki.orchestrator.memory.reader import read_user_facts
 
         if not query.strip():
             return []
-        async with self._lock:
-            return await asyncio.to_thread(
-                lambda: hybrid_search_facts(
-                    self._conn,
-                    user_id=user_id,
-                    query=query,
-                    top_k=top_k,
-                    vec_enabled=self._vec_loaded,
-                    project_id=project_id,
-                )
-            )
+        hits = await asyncio.to_thread(
+            read_user_facts, self._store, user_id, query, top_k=top_k,
+        )
+        return [
+            {
+                "id": h.fact_id,
+                "subject": h.subject,
+                "predicate": h.predicate,
+                "value": h.value,
+                "confidence": h.confidence,
+                "score": h.score,
+            }
+            for h in hits
+        ]
 
 
     # ---- message feedback ------------------------------------------------

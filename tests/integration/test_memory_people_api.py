@@ -56,7 +56,7 @@ async def test_list_people_after_seed(_isolated_memory):
     pid = await mp.find_or_create_person(uid, "Mark")
     await mp.upsert_fact(
         user_id=uid, subject="mark", subject_type="person", subject_ref_id=pid,
-        predicate="location", value="Denver",
+        predicate="lives_in", value="Denver",
     )
     async with await _client() as ac:
         r = await ac.get("/api/v1/memory/people")
@@ -84,7 +84,7 @@ async def test_merge_people_endpoint(_isolated_memory):
     dst = await mp.find_or_create_person(uid, "Mark")
     await mp.upsert_fact(
         user_id=uid, subject="markie", subject_type="person", subject_ref_id=src,
-        predicate="location", value="Denver",
+        predicate="lives_in", value="Denver",
     )
     async with await _client() as ac:
         r = await ac.post(

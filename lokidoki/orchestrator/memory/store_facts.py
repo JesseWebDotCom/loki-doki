@@ -128,6 +128,31 @@ class FactsMixin:
         rows = self._conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
+    def list_fact_conflicts(self, owner_user_id: int) -> list[dict[str, Any]]:
+        """Facts where one (subject, predicate) pair carries multiple values.
+
+        Returns one row per conflicting fact (not per group) so the UI
+        can render each candidate with its own confidence and id. Rows
+        in any status are included — the supersession marker itself is
+        a conflict signal worth surfacing.
+        """
+        rows = self._conn.execute(
+            "SELECT f.id, f.subject, f.subject_type, f.subject_ref_id, "
+            "       f.predicate, f.value, f.confidence, f.updated_at "
+            "FROM facts f "
+            "JOIN ( "
+            "    SELECT subject, predicate "
+            "    FROM facts "
+            "    WHERE owner_user_id = ? "
+            "    GROUP BY subject, predicate "
+            "    HAVING COUNT(DISTINCT value) > 1 "
+            ") c ON c.subject = f.subject AND c.predicate = f.predicate "
+            "WHERE f.owner_user_id = ? "
+            "ORDER BY f.subject, f.predicate, f.confidence DESC",
+            (owner_user_id, owner_user_id),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def get_superseded_facts(
         self, owner_user_id: int, *, limit: int = 200,
     ) -> list[dict[str, Any]]:
