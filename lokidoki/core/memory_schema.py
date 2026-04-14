@@ -157,34 +157,10 @@ CREATE TABLE IF NOT EXISTS sentiment_log (
 );
 CREATE INDEX IF NOT EXISTS idx_sentiment_log_owner ON sentiment_log(owner_user_id, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS people (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    aliases TEXT NOT NULL DEFAULT '[]',
-    bucket TEXT NOT NULL DEFAULT 'family',
-    living_status TEXT NOT NULL DEFAULT 'unknown',
-    birth_date TEXT,
-    death_date TEXT,
-    preferred_photo_id INTEGER,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    -- NOTE: deliberately NO UNIQUE on (owner_user_id, name). Multiple
-    -- people can share a first name (brother Luke, dog Luke, celebrity
-    -- Luke Lange). Disambiguation lives in the orchestrator.
-);
-CREATE INDEX IF NOT EXISTS idx_people_owner ON people(owner_user_id);
-CREATE INDEX IF NOT EXISTS idx_people_owner_name ON people(owner_user_id, name);
-
-CREATE TABLE IF NOT EXISTS relationships (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
-    relation TEXT NOT NULL,                 -- e.g. 'brother', 'coworker'
-    confidence REAL NOT NULL DEFAULT 0.6,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(owner_user_id, person_id, relation)
-);
-CREATE INDEX IF NOT EXISTS idx_relationships_owner ON relationships(owner_user_id);
+-- people and relationships moved to
+-- lokidoki/orchestrator/memory/store_schema.py as the column-union of
+-- both the legacy and v2 shapes. MemoryStore._bootstrap creates them;
+-- this file no longer declares them.
 
 CREATE TABLE IF NOT EXISTS person_overlays (
     viewer_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -287,48 +263,12 @@ CREATE TABLE IF NOT EXISTS clarification_state (
     turns_since_ask INTEGER NOT NULL DEFAULT 99
 );
 
-CREATE TABLE IF NOT EXISTS facts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    subject TEXT NOT NULL,                  -- 'self' or lowercased person/entity name (also indexed by FTS)
-    subject_type TEXT NOT NULL DEFAULT 'self',  -- 'self' | 'person' | 'entity'
-    subject_ref_id INTEGER REFERENCES people(id) ON DELETE CASCADE, -- people.id when subject_type='person'; NULL for self/entity
-    predicate TEXT NOT NULL,                -- e.g. 'likes', 'is_named'
-    value TEXT NOT NULL,                    -- e.g. 'Incredibles', 'Jesse'
-    kind TEXT NOT NULL DEFAULT 'fact',      -- 'fact'|'preference'|'event'|'advice'|'relationship' (memory taxonomy)
-    category TEXT NOT NULL DEFAULT 'general',
-    confidence REAL NOT NULL DEFAULT 0.6,
-    observation_count INTEGER NOT NULL DEFAULT 1,
-    last_observed_at TEXT NOT NULL DEFAULT (datetime('now')),
-    status TEXT NOT NULL DEFAULT 'active',
-        -- 'pending' | 'active' | 'ambiguous' | 'rejected' | 'superseded'
-    ambiguity_group_id INTEGER REFERENCES ambiguity_groups(id) ON DELETE SET NULL,
-    source_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
-    valid_from TEXT NOT NULL DEFAULT (datetime('now')),  -- when this claim became true
-    valid_to TEXT,                                       -- when superseded; NULL = currently true
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL
-    -- NOTE: deliberately NOT UNIQUE on (owner, subject, predicate, value).
-    -- Conflicting rows with same (owner, subject, predicate) and DIFFERENT
-    -- value must coexist so PR3's conflict UI has something to resolve.
-    -- Dedup-and-confirm is enforced in MemoryProvider.upsert_fact, not in
-    -- a UNIQUE constraint.
-);
-CREATE INDEX IF NOT EXISTS idx_facts_owner ON facts(owner_user_id);
-CREATE INDEX IF NOT EXISTS idx_facts_owner_spv ON facts(owner_user_id, subject, predicate, value);
-CREATE INDEX IF NOT EXISTS idx_facts_person ON facts(owner_user_id, subject_ref_id);
-
-CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title TEXT NOT NULL DEFAULT '',
-    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_user_id);
--- idx_sessions_project is created in memory_init AFTER project_id column
--- migration so pre-projects DBs can upgrade cleanly.
+-- facts and sessions moved to
+-- lokidoki/orchestrator/memory/store_schema.py as the column-union of
+-- both the legacy and v2 shapes. MemoryStore._bootstrap creates them;
+-- this file no longer declares them. Legacy-required columns
+-- (category, kind, subject_ref_id, project_id, valid_from/to, title, ...)
+-- are part of the union with defaults so both writers work unchanged.
 
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -554,30 +494,11 @@ CREATE INDEX IF NOT EXISTS idx_message_feedback_owner
 """
 
 FTS_SCHEMA = """
--- External-content FTS5 over facts.value (search the actual claim text).
-CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
-    value,
-    subject UNINDEXED,
-    owner_user_id UNINDEXED,
-    content='facts',
-    content_rowid='id',
-    tokenize='porter unicode61'
-);
-
-CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
-    INSERT INTO facts_fts(rowid, value, subject, owner_user_id)
-    VALUES (new.id, new.value, new.subject, new.owner_user_id);
-END;
-CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
-    INSERT INTO facts_fts(facts_fts, rowid, value, subject, owner_user_id)
-    VALUES('delete', old.id, old.value, old.subject, old.owner_user_id);
-END;
-CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
-    INSERT INTO facts_fts(facts_fts, rowid, value, subject, owner_user_id)
-    VALUES('delete', old.id, old.value, old.subject, old.owner_user_id);
-    INSERT INTO facts_fts(rowid, value, subject, owner_user_id)
-    VALUES (new.id, new.value, new.subject, new.owner_user_id);
-END;
+-- facts_fts (and its ai/ad/au triggers) live in store_schema.py with
+-- the v2 wider column set (source_text, predicate, status). Declaring
+-- the FTS table here too with a narrower shape would silently no-op and
+-- leave stale triggers that double-write on INSERT. This schema block
+-- now only owns the messages FTS index.
 
 -- External-content FTS5 over messages.content for transcript search.
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(

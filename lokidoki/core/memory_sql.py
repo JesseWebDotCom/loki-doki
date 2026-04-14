@@ -540,7 +540,20 @@ def update_project(
 
 
 def delete_project(conn: sqlite3.Connection, user_id: int, project_id: int) -> bool:
-    # NOTE: ON DELETE SET NULL on sessions and facts handles the cleanup
+    # The unified facts/sessions schema in store_schema.py has no FK
+    # REFERENCES to projects (so MemoryStore can run against DBs without
+    # the legacy parent tables), so we have to null project_id ourselves
+    # to preserve the prior ON DELETE SET NULL semantics.
+    conn.execute(
+        "UPDATE sessions SET project_id = NULL "
+        "WHERE project_id = ? AND owner_user_id = ?",
+        (project_id, user_id),
+    )
+    conn.execute(
+        "UPDATE facts SET project_id = NULL "
+        "WHERE project_id = ? AND owner_user_id = ?",
+        (project_id, user_id),
+    )
     cur = conn.execute(
         "DELETE FROM projects WHERE id = ? AND owner_user_id = ?",
         (project_id, user_id),
