@@ -33,7 +33,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 
 | # | Chunk                                             | Status  | Commit  |
 |---|---------------------------------------------------|---------|---------|
-| 1 | [Nuke DBs + repoint default path](chunk-1-nuke-and-repoint.md)         | done    | _pending commit_ |
+| 1 | [Nuke DBs + repoint default path](chunk-1-nuke-and-repoint.md)         | done    | fa5583b |
 | 2 | [Union schemas](chunk-2-schema-union.md)                               | pending |         |
 | 3 | [Unified writer](chunk-3-unified-writer.md)                            | pending |         |
 | 4 | [Unified reader](chunk-4-unified-reader.md)                            | pending |         |
