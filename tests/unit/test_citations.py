@@ -21,6 +21,7 @@ from lokidoki.orchestrator.fallbacks.llm_fallback import (
     _stub_synthesize,
     build_combine_prompt,
 )
+from lokidoki.orchestrator.fallbacks.llm_prompt_builder import _render_media_hint
 from lokidoki.orchestrator.fallbacks.prompts import COMBINE_PROMPT
 from lokidoki.orchestrator.skills._runner import AdapterResult, run_mechanisms
 
@@ -260,6 +261,60 @@ class TestRenderSourcesList:
         ])
         assert "[src:1]" in rendered
         assert "[src:2]" in rendered
+
+
+# ---------------------------------------------------------------------------
+# _render_media_hint — prevents LLM from denying a card the UI will show
+# ---------------------------------------------------------------------------
+
+
+class TestRenderMediaHint:
+    """When a media card is attached to the spec, the combine prompt
+    must tell the LLM about it so it doesn't write "I couldn't find
+    X" while X is literally rendered above its reply.
+    """
+
+    def test_empty_media_returns_empty_string(self):
+        """Non-media turns pay zero prompt-budget cost."""
+        spec = _make_spec([])
+        assert _render_media_hint(spec) == ""
+
+    def test_youtube_video_card_is_described(self):
+        spec = _make_spec([])
+        spec.media = [{
+            "kind": "youtube_video",
+            "url": "https://www.youtube.com/watch?v=abc12345678",
+            "video_id": "abc12345678",
+            "title": "A Minecraft Movie | Official Trailer",
+            "channel": "Warner Bros.",
+        }]
+        hint = _render_media_hint(spec)
+        assert "A Minecraft Movie | Official Trailer" in hint
+        assert "Warner Bros." in hint
+        # The rule text is what stops the LLM from denying the card.
+        assert "couldn't find it" in hint.lower() or "do not" in hint.lower()
+
+    def test_youtube_channel_card_is_described(self):
+        spec = _make_spec([])
+        spec.media = [{
+            "kind": "youtube_channel",
+            "url": "https://www.youtube.com/@redlettermedia",
+            "channel_name": "Red Letter Media",
+            "handle": "@redlettermedia",
+        }]
+        hint = _render_media_hint(spec)
+        assert "Red Letter Media" in hint
+        assert "@redlettermedia" in hint
+
+    def test_multiple_cards_all_included(self):
+        spec = _make_spec([])
+        spec.media = [
+            {"kind": "youtube_video", "url": "u1", "title": "Trailer A"},
+            {"kind": "youtube_video", "url": "u2", "title": "Trailer B"},
+        ]
+        hint = _render_media_hint(spec)
+        assert "Trailer A" in hint
+        assert "Trailer B" in hint
 
 
 # ---------------------------------------------------------------------------

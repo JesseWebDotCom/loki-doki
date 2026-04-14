@@ -112,7 +112,7 @@ relevant_episodes: {relevant_episodes}
 user_style: {user_style}
 recent_mood: {recent_mood}
 sources_list: {sources_list}
-
+{media_hint}
 USER REQUEST (at {current_time}):
 {spec}
 """

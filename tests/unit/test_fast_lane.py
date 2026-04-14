@@ -1,4 +1,4 @@
-"""Unit tests for the v2 fast-lane (Phase 1 mature pattern matcher)."""
+"""Unit tests for the fast-lane (Phase 1 mature pattern matcher)."""
 from __future__ import annotations
 
 from lokidoki.orchestrator.pipeline.fast_lane import check_fast_lane

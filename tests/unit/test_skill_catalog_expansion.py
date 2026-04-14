@@ -193,7 +193,7 @@ async def test_time_until_handles_holiday_lookup(monkeypatch):
     assert "day" in result["output_text"]
 
 
-def test_function_registry_contains_new_v2_skills():
+def test_function_registry_contains_expansion_skills():
     runtime = get_runtime()
 
     for capability in (

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from importlib.metadata import PackageNotFoundError, version
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -22,10 +23,10 @@ from lokidoki.orchestrator.core.types import RequestChunk, ResolutionResult, Rou
 from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.core.pipeline import run_pipeline_async
 from lokidoki.orchestrator.memory import (
-    ACTIVE_PHASE_ID,
-    ACTIVE_PHASE_LABEL,
-    ACTIVE_PHASE_STATUS,
-    ACTIVE_PHASE_TITLE,
+    MEMORY_SUBSYSTEM_ID,
+    MEMORY_SUBSYSTEM_LABEL,
+    MEMORY_SUBSYSTEM_STATUS,
+    MEMORY_SUBSYSTEM_TITLE,
 )
 from lokidoki.orchestrator.memory.slots import SLOT_SPECS, WORST_CASE_TOTAL_BUDGET
 from lokidoki.orchestrator.memory.tiers import TIER_SPECS, Tier
@@ -235,10 +236,10 @@ async def get_pipeline_status(_: User = Depends(require_admin)):
 def _memory_status() -> dict[str, Any]:
     """Surface the memory subsystem state on the dev-tools status page.
 
-    M0 publishes scaffolding only — the gates, classifier, promotion, and
-    consolidation modules import cleanly but contain stub logic. The phase
-    list mirrors `docs/DESIGN.md` §6 (Memory System) so the dev-tools UI
-    tracks the same milestones the design doc does.
+    The memory migration is complete: one SQLite file
+    (``data/lokidoki.db``), one gate-chain writer, one lazy per-tier
+    reader. The dev-tools UI renders a single status block rather than
+    the old per-phase breakdown.
     """
     tiers_payload = [
         {
@@ -261,50 +262,20 @@ def _memory_status() -> dict[str, Any]:
         for spec in SLOT_SPECS
     ]
     return {
-        "active_phase": {
-            "id": ACTIVE_PHASE_ID,
-            "label": ACTIVE_PHASE_LABEL,
-            "title": ACTIVE_PHASE_TITLE,
-            "status": ACTIVE_PHASE_STATUS,
+        "subsystem": {
+            "id": MEMORY_SUBSYSTEM_ID,
+            "label": MEMORY_SUBSYSTEM_LABEL,
+            "title": MEMORY_SUBSYSTEM_TITLE,
+            "status": MEMORY_SUBSYSTEM_STATUS,
             "summary": (
-                "All memory phases (M0-M6) complete. The pipeline is "
-                "now the production chat path — chat.py calls "
-                "stream_pipeline_sse. "
+                "One SQLite file (data/lokidoki.db), one gate-chain "
+                "writer (MemoryStore), one lazy per-tier reader. "
                 "Memory tiers: T2 session context, T3 episodic recall, "
                 "T4 user facts (FTS5+RRF+vector), T5 social graph, "
                 "T6 affective (character-scoped mood window), T7a/7b "
-                "procedural (behavior events, user style descriptors). "
-                "The memory store at data/memory.sqlite is "
-                "initialized at app startup; the MemoryProvider "
-                "still owns chat history, auth, and settings."
+                "procedural (behavior events, user style descriptors)."
             ),
-            "deliverables": [
-                "Dev tools: Enable-memory toggle + need_preference + need_social",
-                "Dev tools: MemoryPanel showing facts/people/relationships + Reset",
-                "Dev tools: Memory activity card on every run (writes/reads/slot contents)",
-                "Dev tools: separate dev SQLite at data/dev_memory.sqlite (prod untouched)",
-                "Endpoints: GET /dev/memory/dump and POST /dev/memory/reset",
-                "Gate 2 carve-out: identity-establishing predicates allow new persons",
-                "Extractor patterns: my favorite X is Y, I live in X, I work at X (in addition to existing copular/possessive patterns)",
-                "M2.5: facts.embedding column populated on insert via routing embedding backend",
-                "M2.5: _vector_search adds cosine similarity as third RRF source",
-                "M2.5: vocabulary-bridge cases (foods <-> dietary restriction) recall correctly",
-                "M3.5: _maybe_promote_provisional_by_relation auto-merges across turns",
-                "M3.5: 9 phase tests + end-to-end pipeline merge case",
-                "Public-figure stranger guard: 'the president' / 'some random guy' denied",
-            ],
         },
-        "phases": [
-            {"id": "m0", "label": "M0", "title": "Prerequisites and corpora", "status": "complete"},
-            {"id": "m1", "label": "M1", "title": "Write path: gates + classifier + Tier 4/5 writes", "status": "complete"},
-            {"id": "m2", "label": "M2", "title": "Read path: Tier 4 FTS5 + RRF retrieval", "status": "complete"},
-            {"id": "m2_5", "label": "M2.5", "title": "Vector embeddings as third RRF source", "status": "complete"},
-            {"id": "m3", "label": "M3", "title": "Tier 5 social: people graph + provisional handles", "status": "complete"},
-            {"id": "m3_5", "label": "M3.5", "title": "Auto-merge by relation", "status": "complete"},
-            {"id": "m4", "label": "M4", "title": "Tier 2 + Tier 3: session state + episodic + promotion", "status": "complete"},
-            {"id": "m5", "label": "M5", "title": "Tier 7 procedural: behavior events + 7a/7b split", "status": "complete"},
-            {"id": "m6", "label": "M6", "title": "Tier 6 affective: rolling window + character overlay", "status": "complete"},
-        ],
         "tiers": tiers_payload,
         "slots": {
             "specs": slots_payload,
@@ -349,7 +320,7 @@ async def run_pipeline(
     context = dict(request.context)
     if request.memory_enabled:
         context["memory_writes_enabled"] = True
-        context["memory_store"] = get_dev_store()
+        context["memory_provider"] = SimpleNamespace(store=get_dev_store())
         context["owner_user_id"] = DEV_OWNER_USER_ID
         context["need_preference"] = request.need_preference
         context["need_social"] = request.need_social
@@ -361,8 +332,8 @@ async def run_pipeline(
     # the assembled memory_slots so the dev tools UI can show what was
     # injected into the prompt.
     spec_context = pipeline_result.request_spec.context or {}
-    if "memory_store" in spec_context:
-        spec_context.pop("memory_store", None)
+    if "memory_provider" in spec_context:
+        spec_context.pop("memory_provider", None)
     return pipeline_result.to_dict()
 
 
@@ -382,7 +353,7 @@ async def pipeline_chat_stream(
     context: dict[str, Any] = dict(request.context)
     if request.memory_enabled:
         context["memory_writes_enabled"] = True
-        context["memory_store"] = get_dev_store()
+        context["memory_provider"] = SimpleNamespace(store=get_dev_store())
         context["owner_user_id"] = DEV_OWNER_USER_ID
         context["need_preference"] = request.need_preference
         context["need_social"] = request.need_social

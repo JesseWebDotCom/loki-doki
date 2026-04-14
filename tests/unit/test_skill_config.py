@@ -48,9 +48,9 @@ class TestRoundTrip:
         assert cfg.get_merged_config(conn, None, "weather_owm") == {"owm_api_key": "GLOBAL"}
 
     def test_upsert_overwrites(self, conn):
-        cfg.set_global_value(conn, "weather_owm", "owm_api_key", "v1")
-        cfg.set_global_value(conn, "weather_owm", "owm_api_key", "v2")
-        assert cfg.get_global_config(conn, "weather_owm") == {"owm_api_key": "v2"}
+        cfg.set_global_value(conn, "weather_owm", "owm_api_key", "first")
+        cfg.set_global_value(conn, "weather_owm", "owm_api_key", "second")
+        assert cfg.get_global_config(conn, "weather_owm") == {"owm_api_key": "second"}
 
     def test_delete(self, conn):
         uid = _user_id(conn)

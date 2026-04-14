@@ -1,11 +1,11 @@
 """
-M2 phase-gate tests for the v2 memory subsystem.
+M2 phase-gate tests for the memory subsystem.
 
 Each test corresponds to a deliverable or gate from `docs/MEMORY_DESIGN.md`
 §8 M2:
 
-    1. FTS5 + RRF retrieval ported into the v2 read path
-    2. Substring heuristics MUST NOT exist in v2 memory (grep guard)
+    1. FTS5 + RRF retrieval ported into the read path
+    2. Substring heuristics MUST NOT exist in the memory package (grep guard)
     3. `need_preference` boolean gates the fetch (no fetch when false)
     4. `{user_facts}` slot rendered into combine + direct_chat templates
     5. Slot assembly module with 250-char budget enforced
@@ -38,6 +38,7 @@ from lokidoki.orchestrator.memory.slots import (
     truncate_to_budget,
 )
 from lokidoki.orchestrator.memory.store import MemoryStore
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RECALL_CORPUS = REPO_ROOT / "tests" / "fixtures" / "memory_recall_corpus.json"
@@ -166,23 +167,23 @@ def test_m2_rrf_k_constant_matches_paper() -> None:
     assert RRF_K == 60
 
 
-# ----- Deliverable 2: substring heuristics MUST NOT exist in v2/ ---------
+# ----- Deliverable 2: substring heuristics MUST NOT exist in memory/ ---
 
 
-def test_m2_no_substring_heuristics_in_v2_memory() -> None:
-    """The v2 memory subsystem must not contain v1's substring functions.
+def test_m2_no_substring_heuristics_in_memory() -> None:
+    """The memory subsystem must not contain the legacy substring functions.
 
     This is the M2 grep guard from §8: `_query_mentions` and
-    `_is_explicitly_relevant` belong to v1's `memory_phase2.py` and must
-    never be ported into v2. The v2 reader implements its retrieval from
-    scratch with FTS5 + RRF.
+    `_is_explicitly_relevant` belong to the legacy `memory_phase2.py`
+    and must never be ported into the new reader. The reader
+    implements its retrieval from scratch with FTS5 + RRF.
 
     The guard ignores docstring/comment lines so the design rationale
-    can still cite the v1 symbols by name without tripping the check.
-    Only actual code references (def/import/call sites) count.
+    can still cite the legacy symbols by name without tripping the
+    check. Only actual code references (def/import/call sites) count.
     """
     forbidden = ("_query_mentions", "_is_explicitly_relevant")
-    memory_dir = REPO_ROOT / "v2" / "orchestrator" / "memory"
+    memory_dir = REPO_ROOT / "lokidoki" / "orchestrator" / "memory"
     for py_file in memory_dir.rglob("*.py"):
         in_block_comment = False
         for line in py_file.read_text().splitlines():
@@ -198,7 +199,7 @@ def test_m2_no_substring_heuristics_in_v2_memory() -> None:
                 continue
             for pattern in forbidden:
                 assert pattern not in line, (
-                    f"v2 memory file {py_file.name} contains forbidden v1 substring "
+                    f"memory file {py_file.name} contains forbidden legacy substring "
                     f"helper {pattern!r} as live code — the M2 read path must not port this. "
                     f"Line: {line!r}"
                 )
@@ -224,7 +225,7 @@ def test_m2_pipeline_does_not_read_when_need_preference_false(tmp_path: Path) ->
         result = run_pipeline(
             "what is my favorite color",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 7,
                 "need_preference": False,
             },
@@ -255,7 +256,7 @@ def test_m2_pipeline_reads_when_need_preference_true(tmp_path: Path) -> None:
         result = run_pipeline(
             "what is my favorite color",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 7,
                 "need_preference": True,
             },
@@ -480,14 +481,12 @@ def test_m2_cross_user_isolation_in_reader(store: MemoryStore) -> None:
 # ----- Dev-tools status: M2 active phase ---------------------------------
 
 
-def test_m2_dev_v2_status_phase_is_complete() -> None:
-    """M2 must always be marked complete on the dev-tools status, even
-    after later phases (M3+) advance the active phase past M2."""
+def test_m2_dev_status_phase_is_complete() -> None:
+    """Memory subsystem status must be ``shipped`` on the dev-tools surface."""
     from lokidoki.api.routes.dev import _memory_status
 
     payload = _memory_status()
-    m2_phase = next(p for p in payload["phases"] if p["id"] == "m2")
-    assert m2_phase["status"] == "complete"
+    assert payload["subsystem"]["status"] == "shipped"
 
 
 # ----- Pipeline integration end-to-end -----------------------------------
@@ -505,7 +504,7 @@ def test_m2_pipeline_end_to_end_recall_after_write(tmp_path: Path) -> None:
             "I'm allergic to peanuts",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 5,
                 "decomposed_intent": "self_disclosure",
             },
@@ -515,7 +514,7 @@ def test_m2_pipeline_end_to_end_recall_after_write(tmp_path: Path) -> None:
         result = run_pipeline(
             "what am I allergic to",
             context={
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 5,
                 "need_preference": True,
             },

@@ -24,10 +24,10 @@ async def memory(tmp_path):
 async def test_hybrid_falls_back_to_bm25_with_no_vectors(memory):
     uid = await memory.get_or_create_user("alice")
     await memory.upsert_fact(
-        user_id=uid, subject="self", predicate="likes", value="raspberry pi single board"
+        user_id=uid, subject="self", predicate="prefers", value="raspberry pi single board"
     )
     await memory.upsert_fact(
-        user_id=uid, subject="self", predicate="likes", value="apple pie"
+        user_id=uid, subject="self", predicate="prefers", value="apple pie"
     )
     results = await memory.search_facts(user_id=uid, query="raspberry pi")
     assert results, "expected BM25 fallback to return rows"
@@ -39,10 +39,10 @@ async def test_hybrid_search_is_user_scoped(memory):
     u1 = await memory.get_or_create_user("alice")
     u2 = await memory.get_or_create_user("bob")
     await memory.upsert_fact(
-        user_id=u1, subject="self", predicate="likes", value="raspberry pi"
+        user_id=u1, subject="self", predicate="prefers", value="raspberry pi"
     )
     await memory.upsert_fact(
-        user_id=u2, subject="self", predicate="likes", value="raspberry pi"
+        user_id=u2, subject="self", predicate="prefers", value="raspberry pi"
     )
     r1 = await memory.search_facts(user_id=u1, query="raspberry")
     r2 = await memory.search_facts(user_id=u2, query="raspberry")
@@ -54,7 +54,7 @@ async def test_hybrid_search_is_user_scoped(memory):
 async def test_hybrid_search_returns_score_field(memory):
     uid = await memory.get_or_create_user("alice")
     await memory.upsert_fact(
-        user_id=uid, subject="self", predicate="likes", value="hiking trails"
+        user_id=uid, subject="self", predicate="prefers", value="hiking trails"
     )
     results = await memory.search_facts(user_id=uid, query="hiking")
     assert results[0]["score"] is not None

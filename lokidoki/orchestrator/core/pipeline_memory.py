@@ -10,6 +10,14 @@ from lokidoki.orchestrator.memory.store import MemoryStore
 from lokidoki.orchestrator.memory.writer import WriteRunResult, process_candidates
 
 
+def _store_from_context(safe_context: dict[str, Any]) -> MemoryStore | None:
+    provider = safe_context.get("memory_provider")
+    if provider is None:
+        return None
+    store = getattr(provider, "store", None)
+    return store if isinstance(store, MemoryStore) else None
+
+
 def run_memory_read_path(
     raw_text: str,
     safe_context: dict[str, Any],
@@ -19,8 +27,8 @@ def run_memory_read_path(
     Delegates to ``assemble_slots`` which gates each tier slot on its
     own ``need_*`` flag. Returns only non-empty slots.
     """
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return {}
     # assemble_slots reads need_* flags and query from context
     safe_context.setdefault("user_input", raw_text)
@@ -37,10 +45,10 @@ def run_memory_write_path(
     """Run the M1 write path on the current turn.
 
     Memory writes are opt-in via ``context["memory_writes_enabled"]``
-    or ``context["memory_store"]``.
+    or ``context["memory_provider"]``.
     """
     enabled = bool(safe_context.get("memory_writes_enabled"))
-    custom_store = safe_context.get("memory_store")
+    custom_store = _store_from_context(safe_context)
     if not enabled and custom_store is None:
         return WriteRunResult()
     parse_doc = getattr(parsed, "doc", None)

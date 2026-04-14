@@ -14,12 +14,13 @@ import pytest
 
 from lokidoki.orchestrator.core.pipeline import run_pipeline_async
 from lokidoki.orchestrator.memory.store import MemoryStore
+from types import SimpleNamespace
 
 
 def _make_context(store: MemoryStore, session_id: int) -> dict:
     return {
         "session_id": session_id,
-        "memory_store": store,
+        "memory_provider": SimpleNamespace(store=store),
         "memory_writes_enabled": True,
         "owner_user_id": 1,
     }

@@ -53,6 +53,10 @@ const ID_TO_CATEGORY: Record<string, string> = {
   control_playback: "music",
   get_now_playing: "music",
   set_volume: "music",
+  get_music_video: "music",
+  // Entertainment — YouTube
+  get_video: "entertainment",
+  get_youtube_channel: "entertainment",
   // News
   get_news_headlines: "news",
   search_news: "news",

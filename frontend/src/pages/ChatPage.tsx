@@ -33,6 +33,7 @@ import type {
   MicroFastLaneData,
   SynthesisData,
   SourceInfo,
+  MediaCard,
   RoutingData,
   ProjectRecord,
   ProjectInput,
@@ -51,6 +52,7 @@ export interface Message {
   content: string;
   timestamp: string;
   sources?: SourceInfo[];
+  media?: MediaCard[];
   pipeline?: PipelineState;
   confirmations?: SilentConfirmation[];
   clarification?: string;
@@ -444,6 +446,7 @@ const ChatPage: React.FC = () => {
             content: finalText,
             timestamp: createMessageTimestamp(),
             sources: prev.synthesis?.sources ?? [],
+            media: prev.synthesis?.media ?? [],
             pipeline: completedPipeline,
             confirmations: prev.confirmations,
             clarification: prev.clarification ?? undefined,
@@ -514,6 +517,7 @@ const ChatPage: React.FC = () => {
                 content: finalText,
                 timestamp: createMessageTimestamp(),
                 sources: prev.synthesis?.sources ?? [],
+                media: prev.synthesis?.media ?? [],
                 pipeline: completedPipeline,
                 confirmations: prev.confirmations,
                 clarification: prev.clarification ?? undefined,

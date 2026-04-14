@@ -1,4 +1,4 @@
-"""Test-only seed roster for the v2 in-memory PeopleDBAdapter.
+"""Test-only seed roster for the in-memory PeopleDBAdapter.
 
 CLAUDE.md forbids real personal names in tests, so the seed is built
 from pop-culture characters. This module lives under ``tests/`` so it

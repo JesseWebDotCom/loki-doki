@@ -1,4 +1,4 @@
-"""Tests for confidence-aware synthesis in v2 combine prompt.
+"""Tests for confidence-aware synthesis in the combine prompt.
 
 Verifies:
 - High-confidence + structural source renders trust annotation.

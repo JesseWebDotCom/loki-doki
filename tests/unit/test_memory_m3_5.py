@@ -1,5 +1,5 @@
 """
-M3.5 phase-gate tests for the v2 memory subsystem.
+M3.5 phase-gate tests for the memory subsystem.
 
 M3.5 adds **auto-merge by relation** to the social write path. When a
 named ``person:X`` arrives via ``is_relation`` and a single provisional
@@ -24,7 +24,7 @@ Each test corresponds to a deliverable from M3.5:
     6. Auto-merge skips when the relation doesn't match
     7. Auto-merge skips when a named row with the same name already exists
     8. Cross-user isolation: auto-merge never crosses owner_user_id
-    9. End-to-end through the v2 pipeline
+    9. End-to-end through the pipeline
 """
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ import pytest
 from lokidoki.orchestrator.memory.candidate import MemoryCandidate
 from lokidoki.orchestrator.memory.reader import resolve_person
 from lokidoki.orchestrator.memory.store import MemoryStore
+from types import SimpleNamespace
 
 
 @pytest.fixture()
@@ -236,7 +237,7 @@ def test_m35_end_to_end_provisional_then_named(tmp_path: Path) -> None:
             "my boss is being weird",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 1,
             },
         )
@@ -250,7 +251,7 @@ def test_m35_end_to_end_provisional_then_named(tmp_path: Path) -> None:
             "my boss Steve approved it",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 1,
             },
         )

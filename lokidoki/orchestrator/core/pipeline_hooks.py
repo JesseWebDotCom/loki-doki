@@ -14,17 +14,31 @@ from lokidoki.orchestrator.memory.summarizer import (
 from lokidoki.orchestrator.memory.writer import WriteRunResult
 
 
+def _store_from_context(safe_context: dict[str, Any]) -> MemoryStore | None:
+    """Extract the raw sync ``MemoryStore`` from the pipeline context.
+
+    The pipeline threads a single ``memory_provider`` handle; hooks that
+    need the sync store reach for ``provider.store``. Returns ``None``
+    when the provider is absent or hasn't been initialized yet so
+    callers can short-circuit.
+    """
+    provider = safe_context.get("memory_provider")
+    if provider is None:
+        return None
+    store = getattr(provider, "store", None)
+    return store if isinstance(store, MemoryStore) else None
+
+
 def ensure_session(safe_context: dict[str, Any]) -> None:
     """Ensure a session row exists in the MemoryStore.
 
-    The session_id may come from the MemoryProvider (lokidoki.db),
-    a separate SQLite database. The MemoryStore (memory.sqlite) needs
-    its own session row for session state (last_seen map, turn counters)
-    to persist. If session_id is already set but doesn't exist in the
-    MemoryStore, mirror it with a matching row.
+    The session_id may come from the MemoryProvider (lokidoki.db).
+    The raw sync store needs its own session row for session state
+    (last_seen map, turn counters) to persist. If session_id is already
+    set but doesn't exist in the store, mirror it with a matching row.
     """
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     owner_user_id = int(safe_context.get("owner_user_id") or 0)
     if not owner_user_id:
@@ -35,7 +49,7 @@ def ensure_session(safe_context: dict[str, Any]) -> None:
         return
     enabled = (
         bool(safe_context.get("memory_writes_enabled"))
-        or safe_context.get("memory_store") is not None
+        or safe_context.get("memory_provider") is not None
     )
     if not enabled:
         return
@@ -75,8 +89,8 @@ def bridge_session_state_to_recent_entities(
     safe_context: dict[str, Any],
 ) -> None:
     """Populate context["recent_entities"] from the session's last-seen map."""
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     session_id = safe_context.get("session_id")
     if session_id is None:
@@ -148,8 +162,8 @@ def run_session_state_update(
     entity name (e.g. "maximum overdrive") but the skill successfully
     looked it up.
     """
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     session_id = safe_context.get("session_id")
     if session_id is None:
@@ -239,6 +253,104 @@ def run_session_state_update(
             entity_name=entity_name,
         )
 
+    # Pass 2b: knowledge_query entity extraction — the output is free text
+    # (e.g. "Corey Feldman is an American actor...") not structured data.
+    # Extract the leading proper-noun phrase as the subject entity so
+    # follow-up pronouns ("did he win") resolve correctly on the next turn.
+    _extract_knowledge_query_entities(store, int(session_id), executions, stored_indices)
+
+    # Pass 3: persist the conversation topic extracted by the antecedent
+    # resolver (e.g. "The Masked Singer").  On the next turn the bridge
+    # hook will load it into recent_entities with type="topic" so the
+    # antecedent resolver can use it for search enrichment.
+    conv_topic = safe_context.get("conversation_topic")
+    if conv_topic and isinstance(conv_topic, str) and conv_topic.strip():
+        store.update_last_seen(
+            int(session_id),
+            entity_type="topic",
+            entity_name=conv_topic.strip(),
+        )
+        log.info(
+            "[session_state] pass3: storing topic=%r from antecedent resolver",
+            conv_topic.strip(),
+        )
+
+
+# Capabilities whose output text is a free-text answer about a subject
+# (not structured data). We extract the leading proper-noun phrase as
+# the subject entity for session-state tracking.
+_KNOWLEDGE_CAPABILITIES = frozenset({
+    "knowledge_query",
+    "query",
+    "lookup_definition",
+    "define_word",
+})
+
+
+def _extract_knowledge_query_entities(
+    store: MemoryStore,
+    session_id: int,
+    executions: list | None,
+    already_stored: set[int],
+) -> None:
+    """Extract subject entities from knowledge_query output text.
+
+    The knowledge handler returns free text like "Corey Feldman is an
+    American actor..." — not structured entity data. We extract the
+    first proper-noun phrase from the output as the subject entity.
+    """
+    from lokidoki.orchestrator.pipeline.antecedent import _all_proper_noun_phrases
+
+    for execution in executions or []:
+        chunk_index = getattr(execution, "chunk_index", -1)
+        if chunk_index in already_stored:
+            continue
+        capability = getattr(execution, "capability", "")
+        if capability not in _KNOWLEDGE_CAPABILITIES:
+            continue
+        if not getattr(execution, "success", False):
+            continue
+        output = getattr(execution, "output_text", "") or ""
+        if not output or len(output) < 5:
+            continue
+        phrases = _all_proper_noun_phrases(output)
+        if not phrases:
+            continue
+        entity_name = phrases[0]
+        # Determine entity type heuristically from the output text.
+        # If the text says "is a/an [person descriptor]", it's a person.
+        lower = output.lower()
+        person_signals = (
+            " is a ", " is an ", " was a ", " was an ",
+            " actor", " actress", " singer", " musician", " artist",
+            " politician", " president", " author", " writer",
+            " athlete", " player", " coach", " director",
+        )
+        entity_type = "person" if any(s in lower for s in person_signals) else "entity"
+        log.info(
+            "[session_state] pass2b: storing %s=%r from %s output",
+            entity_type, entity_name, capability,
+        )
+        store.update_last_seen(
+            session_id,
+            entity_type=entity_type,
+            entity_name=entity_name,
+        )
+        already_stored.add(chunk_index)
+        # Also store subsequent proper nouns as topics (e.g. "The Masked
+        # Singer" from "Corey Feldman was on The Masked Singer in 2024")
+        if len(phrases) > 1:
+            topic_name = phrases[1]
+            log.info(
+                "[session_state] pass2b: storing topic=%r from %s output",
+                topic_name, capability,
+            )
+            store.update_last_seen(
+                session_id,
+                entity_type="topic",
+                entity_name=topic_name,
+            )
+
 
 def maybe_queue_session_close(
     safe_context: dict[str, Any],
@@ -247,8 +359,8 @@ def maybe_queue_session_close(
     """Queue session-close summarization when the caller flags session_closing."""
     if not safe_context.get("session_closing"):
         return
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     session_id = safe_context.get("session_id")
     if session_id is None:
@@ -295,8 +407,8 @@ def record_behavior_event(
     routes: list,
 ) -> None:
     """Record a behavior event at the end of each turn (M5)."""
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     owner_user_id = int(safe_context.get("owner_user_id") or 0)
     if not owner_user_id:
@@ -329,8 +441,8 @@ def record_sentiment(
     signals: Any,
 ) -> None:
     """Persist sentiment from tone_signal into affect_window (M6)."""
-    store = safe_context.get("memory_store")
-    if not isinstance(store, MemoryStore):
+    store = _store_from_context(safe_context)
+    if store is None:
         return
     owner_user_id = int(safe_context.get("owner_user_id") or 0)
     if not owner_user_id:

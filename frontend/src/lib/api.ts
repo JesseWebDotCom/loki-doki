@@ -27,6 +27,7 @@ export type {
   RoutingLogEntry,
   SynthesisData,
   SourceInfo,
+  MediaCard,
   Fact,
   PlatformInfo,
   SettingsData,

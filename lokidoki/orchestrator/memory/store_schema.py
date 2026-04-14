@@ -6,19 +6,44 @@ The schema is applied once during ``MemoryStore._bootstrap()``.
 from __future__ import annotations
 
 MEMORY_CORE_SCHEMA: str = """
+-- Union of the legacy MemoryProvider schema and the MemoryStore schema.
+-- Both init paths run on the same data/lokidoki.db, so every shared table
+-- is declared once here as the column-union of both shapes. Legacy-only
+-- columns (category, subject_ref_id, project_id, kind, valid_from/to, ...)
+-- are defaulted so MemoryStore INSERTs can omit them; MemoryStore-only
+-- columns (source_text, superseded_by, embedding) are nullable so legacy INSERTs
+-- can omit them. FK REFERENCES are intentionally omitted so MemoryStore
+-- can still run on an isolated SQLite file (tmp tests, :memory:) where
+-- users/people/projects/messages don't exist.
 CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL,
     subject TEXT NOT NULL,
+    subject_type TEXT NOT NULL DEFAULT 'self',
+    -- FK REFERENCES intentionally omitted so MemoryStore can be opened
+    -- against a SQLite file with none of the legacy parent tables
+    -- (tmp_path test DBs, :memory:). SQLite validates parent-table
+    -- existence at DML prepare time, even for NULL-only writes. Cascade
+    -- semantics for project deletes are handled explicitly in
+    -- memory_sql.delete_project.
+    subject_ref_id INTEGER,
     predicate TEXT NOT NULL,
     value TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'fact',
+    category TEXT NOT NULL DEFAULT 'general',
     confidence REAL NOT NULL DEFAULT 0.7,
-    status TEXT NOT NULL DEFAULT 'active',
     observation_count INTEGER NOT NULL DEFAULT 1,
+    last_observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    status TEXT NOT NULL DEFAULT 'active',
+    ambiguity_group_id INTEGER,
+    source_message_id INTEGER,
     source_text TEXT,
     superseded_by INTEGER,
     -- M2.5: pre-computed embedding stored as a JSON array of floats.
     embedding TEXT,
+    valid_from TEXT NOT NULL DEFAULT (datetime('now')),
+    valid_to TEXT,
+    project_id INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -29,6 +54,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_uniq
 
 CREATE INDEX IF NOT EXISTS idx_facts_owner_subject
     ON facts(owner_user_id, subject);
+
+CREATE INDEX IF NOT EXISTS idx_facts_owner
+    ON facts(owner_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_facts_owner_spv
+    ON facts(owner_user_id, subject, predicate, value);
+
+CREATE INDEX IF NOT EXISTS idx_facts_person
+    ON facts(owner_user_id, subject_ref_id);
+
+CREATE INDEX IF NOT EXISTS idx_facts_project
+    ON facts(project_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
     value,
@@ -99,9 +136,18 @@ CREATE TABLE IF NOT EXISTS people (
     name TEXT,
     handle TEXT,
     provisional INTEGER NOT NULL DEFAULT 0,
+    aliases TEXT NOT NULL DEFAULT '[]',
+    bucket TEXT NOT NULL DEFAULT 'family',
+    living_status TEXT NOT NULL DEFAULT 'unknown',
+    birth_date TEXT,
+    death_date TEXT,
+    preferred_photo_id INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_people_owner
+    ON people(owner_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_people_owner_name
     ON people(owner_user_id, name) WHERE name IS NOT NULL;
@@ -114,21 +160,38 @@ CREATE TABLE IF NOT EXISTS relationships (
     owner_user_id INTEGER NOT NULL,
     person_id INTEGER NOT NULL,
     relation_label TEXT NOT NULL,
+    -- Legacy column kept so the one-shot relationships → graph-edges
+    -- migration in core.memory_init can still read prior rows. New
+    -- writes leave this NULL and use relation_label only.
+    relation TEXT,
+    confidence REAL NOT NULL DEFAULT 0.6,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
     UNIQUE (owner_user_id, person_id, relation_label)
 );
 
+CREATE INDEX IF NOT EXISTS idx_relationships_owner
+    ON relationships(owner_user_id);
+
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    project_id INTEGER,
     started_at TEXT NOT NULL DEFAULT (datetime('now')),
     ended_at TEXT,
-    session_state TEXT
+    session_state TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_sessions_owner
+    ON sessions(owner_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_sessions_owner_started
     ON sessions(owner_user_id, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_project
+    ON sessions(project_id);
 
 CREATE TABLE IF NOT EXISTS episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

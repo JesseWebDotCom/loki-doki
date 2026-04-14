@@ -1,14 +1,30 @@
 """
-Memory writer — orchestrates the write path.
+Memory writer — orchestrates the candidate-shaped write path.
 
-The writer is the only public entry point for landing a candidate in the
-durable store. It runs Layer 1 (gate chain), Layer 2 (tier classifier),
-the immediate-durable carve-out, and the store call. Layer 3 (promotion)
-is wired but a no-op in M1; M4 plugs in the real promotion logic.
+The writer is the public entry point for landing a ``MemoryCandidate``
+``(subject, predicate, value)`` triple in the durable store. It runs
+Layer 1 (gate chain), Layer 2 (tier classifier), the immediate-durable
+carve-out, and the store call.
 
-Phase status: M1 — fully wired for Tier 4 and Tier 5. Tiers 2/3/6/7
-return ``WriterDecision(accepted=False, reason="tier_not_active_in_m1")``
-since their write surfaces don't exist yet.
+Scope: this writer only handles Tier 4 (semantic-self) and Tier 5
+(social) — the tiers whose content is triple-shaped. Other tiers have
+their own dedicated write surfaces that bypass this path because their
+content isn't candidate-shaped:
+
+- Tier 2 (session): ``MemoryStore.update_last_seen`` + session_state JSON,
+  driven by ``pipeline_hooks.run_session_state_update``.
+- Tier 3 (episodic): ``summarizer.queue_session_close`` at session close,
+  driven by ``pipeline_hooks.maybe_queue_session_close``.
+- Tier 6 (affective): ``MemoryStore.write_affect_day``,
+  driven by ``pipeline_hooks.record_sentiment`` per turn.
+- Tier 7 (procedural): ``MemoryStore.write_behavior_event`` per turn +
+  nightly aggregation into ``user_profile``, driven by
+  ``pipeline_hooks.record_behavior_event``.
+
+If a candidate is classified into tiers 2/3/6/7, it's a candidate that
+ended up in the wrong lane — the writer rejects with
+``reason="tier_requires_dedicated_hook"`` so the dev-tools surface can
+surface the routing mistake.
 """
 from __future__ import annotations
 
@@ -87,7 +103,12 @@ def _rejection_inactive_tier(
     chain,
     classification,
 ) -> "WriterDecision":
-    """Return a rejection decision for tiers not yet active in M1."""
+    """Return a rejection for tiers that use dedicated hooks, not this writer.
+
+    Tiers 2/3/6/7 persist via ``pipeline_hooks`` (session state, summarizer,
+    affect_window, behavior events) — not via candidate triples. A candidate
+    landing here means the classifier routed it wrong.
+    """
     return WriterDecision(
         accepted=False,
         candidate=candidate,
@@ -99,10 +120,10 @@ def _rejection_inactive_tier(
             candidate=candidate,
             raw={},
             failed_gate="store_dispatch",
-            reason="tier_not_active_in_m1",
+            reason="tier_requires_dedicated_hook",
             source_text=candidate.source_text,
         ),
-        reason="tier_not_active_in_m1",
+        reason="tier_requires_dedicated_hook",
     )
 
 

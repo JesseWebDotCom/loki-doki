@@ -75,4 +75,9 @@ async def test_pipeline_emits_steps_to_trace_listener_in_order():
     assert "parse" in received
     assert "route" in received
     assert "execute" in received
-    assert received[-1] == "combine"
+    # combine and media_augment run concurrently at the tail of the
+    # pipeline — both must fire, and the terminal step is whichever
+    # finishes last. Assert membership, not strict trailing order.
+    assert "combine" in received
+    assert "media_augment" in received
+    assert received[-1] in {"combine", "media_augment"}

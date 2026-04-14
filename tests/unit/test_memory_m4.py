@@ -42,11 +42,11 @@ from lokidoki.orchestrator.memory.summarizer import (
     summarize_session,
 )
 from lokidoki.orchestrator.memory import (
-    ACTIVE_PHASE_ID,
-    ACTIVE_PHASE_LABEL,
-    M4_PHASE_ID,
-    M4_PHASE_STATUS,
+    MEMORY_SUBSYSTEM_ID,
+    MEMORY_SUBSYSTEM_LABEL,
+    MEMORY_SUBSYSTEM_STATUS,
 )
+from types import SimpleNamespace
 
 
 @pytest.fixture()
@@ -177,14 +177,14 @@ class TestTopicScope:
     def test_single_winner(self):
         obs = [
             SessionObservation(subject="self", predicate="p", value="v", entities=("japan",)),
-            SessionObservation(subject="self", predicate="p", value="v2", entities=("japan", "food")),
+            SessionObservation(subject="self", predicate="p", value="vb", entities=("japan", "food")),
         ]
         assert derive_topic_scope(obs) == "japan"
 
     def test_tie_returns_none(self):
         obs = [
             SessionObservation(subject="self", predicate="p", value="v", entities=("japan",)),
-            SessionObservation(subject="self", predicate="p", value="v2", entities=("italy",)),
+            SessionObservation(subject="self", predicate="p", value="vb", entities=("italy",)),
             SessionObservation(subject="self", predicate="p", value="v3", entities=("japan",)),
             SessionObservation(subject="self", predicate="p", value="v4", entities=("italy",)),
         ]
@@ -404,7 +404,7 @@ class TestPipelineIntegration:
         from lokidoki.orchestrator.core.pipeline import run_pipeline
 
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "memory_writes_enabled": True,
             "owner_user_id": OWNER,
         }
@@ -424,7 +424,7 @@ class TestPipelineIntegration:
 
         reset_queue()
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "memory_writes_enabled": True,
             "owner_user_id": OWNER,
             "session_closing": True,
@@ -440,7 +440,7 @@ class TestPipelineIntegration:
         sid = store.create_session(OWNER)
         store.update_last_seen(sid, entity_type="movie", entity_name="Inception")
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "session_id": sid,
             "need_session_context": True,
@@ -459,7 +459,7 @@ class TestPipelineIntegration:
             summary="Discussed flights to Tokyo and hotels in Kyoto",
         )
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "need_episode": True,
         }
@@ -477,7 +477,7 @@ class TestPipelineIntegration:
             owner_user_id=OWNER, title="Test", summary="Test episode",
         )
         ctx = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "session_id": sid,
             # No need_session_context or need_episode flags
@@ -528,7 +528,7 @@ class TestSessionStateBridge:
         sid = store.create_session(OWNER)
         store.update_last_seen(sid, entity_type="movie", entity_name="Inception")
         store.update_last_seen(sid, entity_type="person", entity_name="Luke")
-        ctx: dict = {"memory_store": store, "session_id": sid}
+        ctx: dict = {"memory_provider": SimpleNamespace(store=store), "session_id": sid}
         bridge_session_state_to_recent_entities(ctx)
         entities = ctx.get("recent_entities", [])
         names = {e["name"] for e in entities}
@@ -541,7 +541,7 @@ class TestSessionStateBridge:
         sid = store.create_session(OWNER)
         store.update_last_seen(sid, entity_type="movie", entity_name="Inception")
         ctx: dict = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "session_id": sid,
             "recent_entities": [{"name": "Inception", "type": "movie"}],
         }
@@ -583,10 +583,7 @@ class TestAutoRaiseNeedSessionContext:
 
 
 class TestPhaseConstants:
-    def test_m4_phase_constants(self):
-        assert M4_PHASE_ID == "m4"
-        assert M4_PHASE_STATUS == "complete"
-
-    def test_active_phase_advanced_past_m4(self):
-        # M5 has shipped — the active phase is now m5 or later
-        assert ACTIVE_PHASE_ID >= "m4"
+    def test_memory_subsystem_constants(self):
+        assert MEMORY_SUBSYSTEM_ID == "memory"
+        assert MEMORY_SUBSYSTEM_LABEL == "Memory"
+        assert MEMORY_SUBSYSTEM_STATUS == "shipped"

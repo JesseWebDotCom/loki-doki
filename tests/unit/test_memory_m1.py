@@ -1,5 +1,5 @@
 """
-M1 phase-gate tests for the v2 memory subsystem.
+M1 phase-gate tests for the memory subsystem.
 
 Each test corresponds to a deliverable or gate from `docs/MEMORY_DESIGN.md`
 §8 M1:
@@ -45,6 +45,7 @@ from lokidoki.orchestrator.memory.store import MemoryStore
 from lokidoki.orchestrator.memory.tiers import Tier
 from lokidoki.orchestrator.memory.writer import process_candidate, process_candidates
 from lokidoki.orchestrator.pipeline.parser import parse_text
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXTRACTION_CORPUS = REPO_ROOT / "tests" / "fixtures" / "memory_extraction_corpus.json"
@@ -477,7 +478,7 @@ def test_m1_pipeline_memory_write_runs_when_enabled(tmp_path: Path) -> None:
             "I'm allergic to peanuts",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 7,
                 "decomposed_intent": "self_disclosure",
             },
@@ -493,13 +494,11 @@ def test_m1_pipeline_memory_write_runs_when_enabled(tmp_path: Path) -> None:
 
 
 def test_m1_dev_status_phase_is_complete() -> None:
-    """M1 must always be marked complete on the dev-tools status, even
-    after later phases (M2+) advance the active phase past M1."""
+    """Memory subsystem status must be ``shipped`` on the dev-tools surface."""
     from lokidoki.api.routes.dev import _memory_status
 
     payload = _memory_status()
-    m1_phase = next(p for p in payload["phases"] if p["id"] == "m1")
-    assert m1_phase["status"] == "complete"
+    assert payload["subsystem"]["status"] == "shipped"
 
 
 def test_m1_pipeline_president_bug_does_not_write(tmp_path: Path) -> None:
@@ -512,7 +511,7 @@ def test_m1_pipeline_president_bug_does_not_write(tmp_path: Path) -> None:
             "who is the current president",
             context={
                 "memory_writes_enabled": True,
-                "memory_store": test_store,
+                "memory_provider": SimpleNamespace(store=test_store),
                 "owner_user_id": 1,
                 "decomposed_intent": "info_request",
             },

@@ -30,33 +30,30 @@ class TestEmbeddings:
     async def test_upsert_writes_vec_facts_row(self, memory):
         u = await memory.get_or_create_user("default")
         await memory.upsert_fact(
-            user_id=u, subject="self", predicate="loves", value="raspberry pi"
+            user_id=u, subject="self", predicate="prefers", value="raspberry pi"
         )
 
+        # The gate-chain writer stores embeddings on the facts row
+        # (facts.embedding) rather than in the sqlite-vec vec_facts
+        # virtual table. The presence of a fact row is sufficient; the
+        # embedding-column check lives in the store's own tests.
         def _check(conn):
             row = conn.execute(
-                "SELECT vf.fact_id FROM vec_facts vf "
-                "JOIN facts f ON f.id = vf.fact_id "
-                "WHERE f.owner_user_id = ?",
-                (u,),
+                "SELECT id FROM facts WHERE owner_user_id = ?", (u,),
             ).fetchone()
             return row
 
         row = await memory.run_sync(_check)
-        # vec_facts may not exist if sqlite-vec failed to load — in
-        # that case the test still passes (the provider degrades to
-        # BM25-only and the row is simply absent).
-        if memory.vec_enabled:
-            assert row is not None
+        assert row is not None
 
     @pytest.mark.anyio
     async def test_hybrid_search_returns_results_with_vectors(self, memory):
         u = await memory.get_or_create_user("default")
         await memory.upsert_fact(
-            user_id=u, subject="self", predicate="loves", value="raspberry pi"
+            user_id=u, subject="self", predicate="prefers", value="raspberry pi"
         )
         await memory.upsert_fact(
-            user_id=u, subject="self", predicate="loves", value="kayaking"
+            user_id=u, subject="self", predicate="prefers", value="kayaking"
         )
         results = await memory.search_facts(user_id=u, query="raspberry pi")
         assert len(results) >= 1
@@ -222,7 +219,7 @@ class TestNewSchemaFields:
     async def test_kind_defaults_to_fact(self, memory):
         u = await memory.get_or_create_user("default")
         await memory.upsert_fact(
-            user_id=u, subject="self", predicate="likes", value="coffee"
+            user_id=u, subject="self", predicate="prefers", value="coffee"
         )
         rows = await memory.list_facts(u)
         assert rows[0]["kind"] == "fact"
@@ -231,7 +228,7 @@ class TestNewSchemaFields:
     async def test_kind_persisted_when_provided(self, memory):
         u = await memory.get_or_create_user("default")
         await memory.upsert_fact(
-            user_id=u, subject="self", predicate="loves", value="halo",
+            user_id=u, subject="self", predicate="prefers", value="halo",
             kind="preference",
         )
         rows = await memory.list_facts(u)
@@ -241,7 +238,7 @@ class TestNewSchemaFields:
     async def test_valid_from_set_on_insert(self, memory):
         u = await memory.get_or_create_user("default")
         await memory.upsert_fact(
-            user_id=u, subject="self", predicate="lives", value="austin"
+            user_id=u, subject="self", predicate="lives_in", value="austin"
         )
         rows = await memory.list_facts(u)
         assert rows[0]["valid_from"]  # non-empty timestamp string
@@ -254,10 +251,10 @@ class TestNewSchemaFields:
         before this correction?'."""
         u = await memory.get_or_create_user("default")
         await memory.upsert_fact(
-            user_id=u, subject="self", predicate="name", value="Jess"
+            user_id=u, subject="self", predicate="is_named", value="Jess"
         )
         await memory.upsert_fact(
-            user_id=u, subject="self", predicate="name", value="Jesse",
+            user_id=u, subject="self", predicate="is_named", value="Jesse",
             negates_previous=True,
         )
         # Pull all rows directly so we see superseded ones too.
@@ -285,7 +282,7 @@ class TestNewSchemaFields:
             user_id=u,
             subject="biodome",
             subject_type="entity",
-            predicate="was",
+            predicate="prefers",
             value="pretty good",
             kind="preference",
         )
@@ -309,10 +306,10 @@ class TestUserScoping:
         assert u1 != u2
 
         await memory.upsert_fact(
-            user_id=u1, subject="self", predicate="likes", value="hiking"
+            user_id=u1, subject="self", predicate="prefers", value="hiking"
         )
         await memory.upsert_fact(
-            user_id=u2, subject="self", predicate="likes", value="kayaking"
+            user_id=u2, subject="self", predicate="prefers", value="kayaking"
         )
 
         u1_facts = await memory.list_facts(u1)
@@ -340,10 +337,10 @@ class TestUserScoping:
         u1 = await memory.get_or_create_user("default")
         u2 = await memory.get_or_create_user("alice")
         await memory.upsert_fact(
-            user_id=u1, subject="self", predicate="likes", value="raspberry pi"
+            user_id=u1, subject="self", predicate="prefers", value="raspberry pi"
         )
         await memory.upsert_fact(
-            user_id=u2, subject="self", predicate="likes", value="raspberry pi"
+            user_id=u2, subject="self", predicate="prefers", value="raspberry pi"
         )
 
         u1_results = await memory.search_facts(user_id=u1, query="raspberry")
@@ -358,10 +355,10 @@ class TestFactDedupAndConfirm:
     async def test_repeat_confirms_existing_row(self, memory):
         uid = await memory.get_or_create_user("default")
         id1, c1, _ = await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes", value="hiking"
+            user_id=uid, subject="self", predicate="prefers", value="hiking"
         )
         id2, c2, _ = await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes", value="hiking"
+            user_id=uid, subject="self", predicate="prefers", value="hiking"
         )
         assert id1 == id2, "dedup should re-use the existing fact row"
         assert c1 == DEFAULT_CONFIDENCE
@@ -372,10 +369,12 @@ class TestFactDedupAndConfirm:
         """PR3's conflict UI needs the storage layer to keep both rows."""
         uid = await memory.get_or_create_user("default")
         id1, _, _ = await memory.upsert_fact(
-            user_id=uid, subject="Billy", predicate="favorite_movie", value="Incredibles"
+            user_id=uid, subject="Billy", subject_type="entity",
+            predicate="prefers", value="Incredibles",
         )
         id2, _, _ = await memory.upsert_fact(
-            user_id=uid, subject="Billy", predicate="favorite_movie", value="Cars"
+            user_id=uid, subject="Billy", subject_type="entity",
+            predicate="prefers", value="Cars",
         )
         assert id1 != id2
         facts = await memory.list_facts(uid)
@@ -387,14 +386,14 @@ class TestFTS5Search:
     async def test_more_relevant_fact_ranks_higher(self, memory):
         uid = await memory.get_or_create_user("default")
         await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes",
+            user_id=uid, subject="self", predicate="prefers",
             value="raspberry pi single board computers",
         )
         await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes", value="apple pie",
+            user_id=uid, subject="self", predicate="prefers", value="apple pie",
         )
         await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes", value="hiking trails",
+            user_id=uid, subject="self", predicate="prefers", value="hiking trails",
         )
 
         results = await memory.search_facts(user_id=uid, query="raspberry pi")
@@ -406,7 +405,7 @@ class TestFTS5Search:
         """A bare ``AND`` from a user must not crash the FTS5 parser."""
         uid = await memory.get_or_create_user("default")
         await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes", value="hiking AND camping",
+            user_id=uid, subject="self", predicate="prefers", value="hiking AND camping",
         )
         results = await memory.search_facts(user_id=uid, query="AND camping")
         assert isinstance(results, list)  # didn't raise

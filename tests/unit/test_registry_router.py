@@ -7,7 +7,7 @@ from lokidoki.orchestrator.routing.router import route_chunk
 from lokidoki.orchestrator.core.types import RequestChunk
 
 
-def test_v2_runtime_loads_capability_registry():
+def test_runtime_loads_capability_registry():
     runtime = get_runtime()
 
     assert runtime.capabilities
@@ -15,9 +15,9 @@ def test_v2_runtime_loads_capability_registry():
     assert "spell_word" in runtime.capabilities
 
 
-def test_v2_function_registry_has_parameters_and_mechanisms():
-    """Every capability must declare a v1-style parameters dict and a
-    mechanism chain so the executor / dev tools can introspect them."""
+def test_function_registry_has_parameters_and_mechanisms():
+    """Every capability must declare a parameters dict and a mechanism
+    chain so the executor / dev tools can introspect them."""
     entries = load_function_registry()
     assert entries, "function_registry.json is empty"
 
@@ -29,7 +29,7 @@ def test_v2_function_registry_has_parameters_and_mechanisms():
             missing_params.append(cap)
         if "mechanisms" not in entry or not entry["mechanisms"]:
             missing_mechanisms.append(cap)
-        # Mechanism descriptors must follow the v1 BaseSkill shape.
+        # Mechanism descriptors must follow the BaseSkill shape.
         for mechanism in entry.get("mechanisms", []):
             assert "method" in mechanism, f"{cap}: mechanism missing method"
             assert "priority" in mechanism, f"{cap}: mechanism missing priority"
@@ -45,7 +45,7 @@ def test_v2_function_registry_has_parameters_and_mechanisms():
     assert not missing_mechanisms, f"capabilities missing mechanisms: {missing_mechanisms}"
 
 
-def test_v2_builder_precomputes_vectors_at_startup():
+def test_builder_precomputes_vectors_at_startup():
     items = [
         {
             "capability": "get_current_time",
@@ -69,7 +69,7 @@ def test_v2_builder_precomputes_vectors_at_startup():
     assert index[0]["vector_dim"] == 2
 
 
-def test_v2_router_uses_registry_backed_similarity():
+def test_router_uses_registry_backed_similarity():
     runtime = get_runtime()
     chunk = RequestChunk(text="what's the time", index=0)
 
@@ -80,7 +80,7 @@ def test_v2_router_uses_registry_backed_similarity():
     assert match.matched_text == "what's the time"
 
 
-def test_v2_router_handles_spelling_phrase_variant():
+def test_router_handles_spelling_phrase_variant():
     runtime = get_runtime()
     chunk = RequestChunk(text="spell restaurant", index=0)
 
@@ -90,7 +90,7 @@ def test_v2_router_handles_spelling_phrase_variant():
     assert "spell" in match.matched_text
 
 
-def test_v2_router_routes_branded_named_thing_lookup_to_knowledge_query():
+def test_router_routes_branded_named_thing_lookup_to_knowledge_query():
     # Use a phrasing that is NOT a literal example in the registry so
     # this exercises embedding generalization, not exact-match lookup.
     # "project glasswing" is present as "what is project glasswing";
@@ -106,12 +106,13 @@ def test_v2_router_routes_branded_named_thing_lookup_to_knowledge_query():
     assert match.confidence > 0.55
 
 
-def test_v2_registry_gives_generic_alias_caps_multiple_examples():
+def test_registry_gives_generic_alias_caps_multiple_examples():
     # NOTE: ``direct_chat`` is intentionally excluded. It is a pure
     # floor fallback — the router skips it in the cosine loop
-    # (see v2/orchestrator/routing/router.py), so its examples are
-    # not used for routing. Requiring a coverage floor on them would
-    # embed dead weight and make the data disagree with the router.
+    # (see lokidoki/orchestrator/routing/router.py), so its examples
+    # are not used for routing. Requiring a coverage floor on them
+    # would embed dead weight and make the data disagree with the
+    # router.
     entries = {entry["capability"]: entry for entry in load_function_registry()}
 
     for capability in (
@@ -131,7 +132,7 @@ def test_v2_registry_gives_generic_alias_caps_multiple_examples():
         assert len(examples) >= 3, f"{capability} should have at least 3 routing examples"
 
 
-def test_v2_router_prefers_prebuilt_vector_similarity_over_lexical_match():
+def test_router_prefers_prebuilt_vector_similarity_over_lexical_match():
     class StubRuntime:
         router_index = [
             {
@@ -161,7 +162,7 @@ def test_v2_router_prefers_prebuilt_vector_similarity_over_lexical_match():
     assert match.matched_text == "what time is it"
 
 
-def test_v2_router_promotes_near_floor_knowledge_match_to_retrieval():
+def test_router_promotes_near_floor_knowledge_match_to_retrieval():
     class StubRuntime:
         router_index = [
             {
@@ -191,7 +192,7 @@ def test_v2_router_promotes_near_floor_knowledge_match_to_retrieval():
     assert match.matched_text == "what is project glasswing"
 
 
-def test_v2_router_keeps_non_retrieval_near_floor_match_as_direct_chat():
+def test_router_keeps_non_retrieval_near_floor_match_as_direct_chat():
     class StubRuntime:
         router_index = [
             {
@@ -214,7 +215,7 @@ def test_v2_router_keeps_non_retrieval_near_floor_match_as_direct_chat():
     assert match.confidence == 0.55
 
 
-def test_v2_router_matches_showtimes_prompt_with_zip_code():
+def test_router_matches_showtimes_prompt_with_zip_code():
     runtime = get_runtime()
     chunk = RequestChunk(text="show me movie times for hoppers in 90210", index=0)
 
@@ -224,7 +225,7 @@ def test_v2_router_matches_showtimes_prompt_with_zip_code():
     assert match.confidence > 0.55
 
 
-def test_v2_router_matches_fix_my_code_to_code_assistance():
+def test_router_matches_fix_my_code_to_code_assistance():
     runtime = get_runtime()
     chunk = RequestChunk(text="fix my code", index=0)
 
@@ -234,7 +235,7 @@ def test_v2_router_matches_fix_my_code_to_code_assistance():
     assert match.confidence > 0.55
 
 
-def test_v2_router_matches_frustrated_code_turn_to_emotional_support():
+def test_router_matches_frustrated_code_turn_to_emotional_support():
     runtime = get_runtime()
     chunk = RequestChunk(text="i'm frustrated my code isn't working", index=0)
 
@@ -242,3 +243,108 @@ def test_v2_router_matches_frustrated_code_turn_to_emotional_support():
 
     assert match.capability == "emotional_support"
     assert match.confidence > 0.55
+
+
+class TestWHQuestionPromotion:
+    """WH-question promotion sends factual questions to knowledge_query."""
+
+    def test_what_year_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("what year was corey feldman on the masked singer")
+
+    def test_what_time_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("what time does the store close")
+
+    def test_what_day_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("what day is thanksgiving")
+
+    def test_what_was_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("what was the first star wars movie")
+
+    def test_how_many_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("how many seasons of the office are there")
+
+    def test_where_was_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("where was marie curie born")
+
+    def test_where_did_promotes(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert _is_factual_wh_question("where did the titanic sink")
+
+    def test_chitchat_excluded(self):
+        from lokidoki.orchestrator.routing.router import _is_factual_wh_question
+        assert not _is_factual_wh_question("what's up")
+        assert not _is_factual_wh_question("how are you")
+
+
+class TestTrailerPhrasesRouteToLookupMovie:
+    """Explicit trailer / clip / video-of intent must route to
+    ``lookup_movie`` so the media augmentor can surface a trailer card.
+
+    Previously these fell through to ``direct_chat`` because the
+    registry had no trailer-shaped examples, and the user would get a
+    text-only answer for an obvious media-intent request.
+    """
+
+    def _route(self, text: str):
+        runtime = get_runtime()
+        return route_chunk(RequestChunk(text=text, index=0), runtime)
+
+    def test_show_me_the_trailer(self):
+        match = self._route("show me the trailer for the minecraft movie")
+        assert match.capability == "lookup_movie", match
+
+    def test_bare_trailer_for(self):
+        match = self._route("trailer for dune")
+        assert match.capability == "lookup_movie", match
+
+    def test_clip_of_phrasing(self):
+        match = self._route("show me a clip from inception")
+        assert match.capability == "lookup_movie", match
+
+    def test_video_of_phrasing(self):
+        match = self._route("show me the video for avatar")
+        assert match.capability == "lookup_movie", match
+
+    def test_show_me_the_X_trailer_no_for(self):
+        # Reported failure: "show me the maximum overdrive trailer"
+        # fell through to direct_chat because the registry only had
+        # "show me the trailer for X" examples.
+        match = self._route("show me the maximum overdrive trailer")
+        assert match.capability == "lookup_movie", match
+
+    def test_show_me_the_X_movie_trailer(self):
+        match = self._route("show me the maximum overdrive movie trailer")
+        assert match.capability == "lookup_movie", match
+
+
+class TestMusicVideoPhrasesRouteToGetMusicVideo:
+    """'show me the X music video' / 'have you seen the X (music) video'
+    must route to ``get_music_video`` so the YouTube-native card path
+    fires directly — no text-only denial of a music video that exists.
+    """
+
+    def _route(self, text: str):
+        runtime = get_runtime()
+        return route_chunk(RequestChunk(text=text, index=0), runtime)
+
+    def test_show_me_the_thriller_music_video(self):
+        match = self._route("show me the thriller music video")
+        assert match.capability == "get_music_video", match
+
+    def test_have_you_seen_thriller_music_video(self):
+        match = self._route("have you ever seen the thriller music video")
+        assert match.capability == "get_music_video", match
+
+    def test_have_you_seen_michael_jacksons_thriller(self):
+        match = self._route("have you ever seen michael jackson's thriller music video")
+        assert match.capability == "get_music_video", match
+
+    def test_watch_the_X_music_video(self):
+        match = self._route("watch the smooth criminal music video")
+        assert match.capability == "get_music_video", match

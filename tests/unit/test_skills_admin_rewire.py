@@ -1,9 +1,9 @@
-"""C15 — Skills admin & settings pages: v2 registry rewire.
+"""C15 — Skills admin & settings pages: registry rewire.
 
-Tests that the skills API routes read from the promoted v2 registry
-instead of v1 manifests, the config manifest is loaded correctly,
-the test endpoint uses v2 execution, and the frontend category
-mapping covers all 93 capabilities.
+Tests that the skills API routes read from the promoted capability
+registry instead of legacy manifests, the config manifest is loaded
+correctly, the test endpoint uses the pipeline executor, and the
+frontend category mapping covers all 93 capabilities.
 """
 from __future__ import annotations
 
@@ -89,12 +89,12 @@ class TestCapabilityConfigManifest:
 
 
 # ---------------------------------------------------------------------------
-# skills.py v2 registry wiring
+# skills.py registry wiring
 # ---------------------------------------------------------------------------
 
 
 class TestSkillsRouteImports:
-    """The rewritten skills.py uses v2 registry, not v1."""
+    """The rewritten skills.py uses the capability registry, not legacy manifests."""
 
     def _read_source(self) -> str:
         path = (
@@ -106,7 +106,7 @@ class TestSkillsRouteImports:
         )
         return path.read_text()
 
-    def test_no_v1_registry_import(self):
+    def test_no_legacy_registry_import(self):
         src = self._read_source()
         assert "from lokidoki.core.registry import" not in src
 
@@ -118,15 +118,15 @@ class TestSkillsRouteImports:
         src = self._read_source()
         assert "SkillExecutor" not in src
 
-    def test_imports_v2_runtime(self):
+    def test_imports_runtime(self):
         src = self._read_source()
         assert "from lokidoki.orchestrator.registry.runtime import get_runtime" in src
 
-    def test_imports_v2_executor(self):
+    def test_imports_executor(self):
         src = self._read_source()
         assert "from lokidoki.orchestrator.execution.executor import execute_chunk_async" in src
 
-    def test_imports_v2_types(self):
+    def test_imports_pipeline_types(self):
         src = self._read_source()
         assert "RequestChunk" in src
         assert "RouteMatch" in src
@@ -143,12 +143,12 @@ class TestSkillsRouteImports:
 
 
 # ---------------------------------------------------------------------------
-# chat.py /skills endpoint uses v2
+# chat.py /skills endpoint uses the capability registry
 # ---------------------------------------------------------------------------
 
 
 class TestChatSkillsEndpoint:
-    """The /chat/skills endpoint uses v2 registry."""
+    """The /chat/skills endpoint uses the capability registry."""
 
     def _read_source(self) -> str:
         path = (
@@ -160,7 +160,7 @@ class TestChatSkillsEndpoint:
         )
         return path.read_text()
 
-    def test_no_v1_registry_in_chat(self):
+    def test_no_legacy_registry_in_chat(self):
         src = self._read_source()
         # The /skills endpoint should not import SkillRegistry
         assert "SkillRegistry" not in src
@@ -301,14 +301,14 @@ class TestFrontendCategories:
         data = json.loads(path.read_text())
         return [item["capability"] for item in data]
 
-    def test_no_v1_skill_ids(self):
-        """Old v1 IDs like weather_openmeteo should not appear."""
+    def test_no_legacy_skill_ids(self):
+        """Old legacy IDs like weather_openmeteo should not appear."""
         src = self._load_categories_source()
-        v1_ids = ["weather_openmeteo", "movies_fandango", "movies_tmdb",
+        legacy_ids = ["weather_openmeteo", "movies_fandango", "movies_tmdb",
                    "news_rss", "search_ddg", "knowledge_wiki",
                    "smarthome_mock", "recipe_mealdb"]
-        for v1_id in v1_ids:
-            assert v1_id not in src, f"v1 ID {v1_id} still in categories.ts"
+        for legacy_id in legacy_ids:
+            assert legacy_id not in src, f"legacy ID {legacy_id} still in categories.ts"
 
     def test_all_capabilities_mapped(self):
         """Every capability in the registry has a category mapping."""

@@ -119,13 +119,13 @@ class TestSessionProjectScoping:
         p1 = await memory.create_project(uid, "Alpha", "", "")
         p2 = await memory.create_project(uid, "Beta", "", "")
         await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes", value="alpha-thing", project_id=p1
+            user_id=uid, subject="self", predicate="prefers", value="alpha-thing", project_id=p1
         )
         await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes", value="beta-thing", project_id=p2
+            user_id=uid, subject="self", predicate="prefers", value="beta-thing", project_id=p2
         )
         await memory.upsert_fact(
-            user_id=uid, subject="self", predicate="likes", value="global-thing"
+            user_id=uid, subject="self", predicate="prefers", value="global-thing"
         )
 
         all_facts = await memory.list_facts(uid)

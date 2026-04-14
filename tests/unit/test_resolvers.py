@@ -1,4 +1,4 @@
-"""Unit tests for v2 resolvers and adapters (Phase 3)."""
+"""Unit tests for resolvers and adapters (Phase 3)."""
 from __future__ import annotations
 
 from tests.fixtures.seed_people import SEED_ROSTER

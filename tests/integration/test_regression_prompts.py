@@ -1,5 +1,5 @@
 """Phase 6 regression suite — runs every prompt in the fixture through
-the full v2 orchestrator pipeline and asserts on the outcome shape.
+the full orchestrator pipeline and asserts on the outcome shape.
 
 A new edge case = one new entry in
 ``tests/fixtures/regression_prompts.json``. No code change needed.

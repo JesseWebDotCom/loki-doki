@@ -16,6 +16,7 @@ from lokidoki.core.memory_schema import (
     FTS_SCHEMA,
     vec_schema,
 )
+from lokidoki.orchestrator.memory.store_schema import MEMORY_CORE_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,13 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
     # shape and let CORE_SCHEMA recreate them clean.
     _drop_legacy_character_tables(conn)
 
+    # The shared-shape tables (facts, people, relationships, sessions +
+    # episodes/behavior_events/affect_window/user_profile and FTS/vec
+    # sidecars) are owned by MemoryStore's schema. Apply it first so the
+    # legacy CORE_SCHEMA's CREATE INDEX statements for migrated columns
+    # have their target tables in place even when MemoryProvider opens
+    # a DB that MemoryStore has not touched (e.g. tmp_path test DBs).
+    conn.executescript(MEMORY_CORE_SCHEMA)
     conn.executescript(CORE_SCHEMA)
     _add_columns(conn, "users", USER_COLUMN_MIGRATIONS)
     _add_columns(conn, "people", PEOPLE_COLUMN_MIGRATIONS)

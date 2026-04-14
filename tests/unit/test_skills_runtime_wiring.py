@@ -198,8 +198,11 @@ class TestParamsFromPipeline:
         assert fake.calls[0][1]["location"] == "Paris"
 
     @pytest.mark.anyio
-    async def test_weather_defaults_when_no_params(self, monkeypatch):
-        """Without params, weather falls back to configured default."""
+    async def test_weather_without_location_short_circuits(self, monkeypatch):
+        """Without params or a user default, the adapter must NOT ship
+        the sentinel ``"your area"`` to the geocoder — it returns a
+        clear "tell me your city" failure instead.
+        """
         from lokidoki.core.skill_executor import MechanismResult
         from lokidoki.orchestrator.skills import weather as adapter
 
@@ -214,8 +217,10 @@ class TestParamsFromPipeline:
         fake = FakeSkill()
         monkeypatch.setattr(adapter, "_SKILL", fake, raising=True)
 
-        await adapter.handle({"chunk_text": "is it going to rain"})
-        assert fake.calls[0][1]["location"] == "your area"
+        result = await adapter.handle({"chunk_text": "is it going to rain"})
+        assert fake.calls == [], "skill must not be called with sentinel location"
+        assert result["success"] is False
+        assert "where you are" in result["output_text"].lower()
 
 
 # ---- Gate 2: External skills surface sources metadata end-to-end -----------

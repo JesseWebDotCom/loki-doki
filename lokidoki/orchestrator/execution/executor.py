@@ -92,7 +92,7 @@ async def _build_payload_async(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     user_id = (context or {}).get("owner_user_id")
-    memory = (context or {}).get("memory_provider") or (context or {}).get("memory_store")
+    memory = (context or {}).get("memory_provider")
     skill_id = implementation.skill_id
     merged_config = {}
     if skill_id and user_id and memory:
@@ -118,6 +118,7 @@ async def _build_payload_async(
         "user_name": (context or {}).get("user_name", "User"),
         "current_time": (context or {}).get("current_time"),
         "current_iso_time": (context or {}).get("current_iso_time"),
+        "conversation_topic": (context or {}).get("conversation_topic", ""),
         "mechanism": "asynchronous_skill",
     }
 

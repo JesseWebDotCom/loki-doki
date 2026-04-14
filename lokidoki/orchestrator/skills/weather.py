@@ -22,6 +22,12 @@ from lokidoki.orchestrator.skills._config import get_skill_config
 # ``self._cache`` and we want that cache to survive across requests.
 _SKILL = OpenMeteoSkill()
 
+# Sentinel returned by ``_extract_location`` when no location could be
+# determined from NER, user settings, or capability defaults. Must
+# never be passed to the geocoder — we bail with a useful message so
+# the user knows to set their location.
+_UNKNOWN_LOCATION = "your area"
+
 
 async def _extract_location(payload: dict[str, Any]) -> str:
     """Read the location from structured params (NER-derived in C05).
@@ -39,7 +45,7 @@ async def _extract_location(payload: dict[str, Any]) -> str:
         key="location",
         capability="get_weather",
         capability_key="default_location",
-        default="your area",
+        default=_UNKNOWN_LOCATION,
     )
 
 
@@ -64,6 +70,18 @@ def _format_success(result, method: str) -> str:
 async def handle(payload: dict[str, Any]) -> dict[str, Any]:
     """handler entry point."""
     location = await _extract_location(payload)
+    if location == _UNKNOWN_LOCATION:
+        # Nothing to geocode — fail fast with a message the combiner
+        # can surface instead of hammering Open-Meteo with a string
+        # that will never match.
+        return AdapterResult(
+            output_text=(
+                "I don't know where you are — tell me the city "
+                "(or set a default location in settings) and I'll check."
+            ),
+            success=False,
+            mechanism_used="no_location",
+        ).to_payload()
     attempts = [
         ("open_meteo", {"location": location}),
         ("local_cache", {"location": location}),

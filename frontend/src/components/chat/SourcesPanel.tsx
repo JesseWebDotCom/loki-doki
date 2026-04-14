@@ -73,7 +73,7 @@ const SourcesPanel: React.FC<SourcesPanelProps> = ({ open, title, sources, onClo
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
                         <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
-                          {presentation.label}
+                          {presentation.sourceName}
                         </p>
                         <ExternalLink size={14} className="mt-1 shrink-0 text-muted-foreground" />
                       </div>

@@ -21,17 +21,36 @@ function titleCaseSegment(value: string): string {
 }
 
 function hostnameLabel(hostname: string): string {
-  const clean = hostname.replace(/^www\./i, '');
-  const [first] = clean.split('.');
-  return titleCaseSegment(first || clean || 'Source');
+  const parts = hostname.replace(/^www\./i, '').split('.');
+  if (parts.length >= 2) {
+    // If it's something like en.wikipedia.org, parts[0] is 'en', parts[1] is 'wikipedia'
+    // We want 'wikipedia'. Common subdomains to skip:
+    const commonSubdomains = ['en', 'm', 'mobile', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko'];
+    if (parts.length > 2 && commonSubdomains.includes(parts[0].toLowerCase())) {
+      return titleCaseSegment(parts[1]);
+    }
+    return titleCaseSegment(parts[0]);
+  }
+  return titleCaseSegment(hostname || 'Source');
 }
 
 function inferSourceName(rawTitle: string, hostname: string): string {
+  const hostLabel = hostnameLabel(hostname);
+  const normalizedHost = normalizeText(hostLabel);
+
   const dashParts = rawTitle.split(/\s[—-]\s/).map((part) => part.trim()).filter(Boolean);
   if (dashParts.length > 1) {
-    return dashParts[dashParts.length - 1];
+    // Look for a part that matches the hostname-based name
+    for (const part of dashParts) {
+      const normalizedPart = normalizeText(part);
+      if (normalizedPart.includes(normalizedHost) || normalizedHost.includes(normalizedPart)) {
+        return part;
+      }
+    }
   }
-  return hostnameLabel(hostname);
+
+  // Fallback to the hostname-based label if no clear match in the title
+  return hostLabel;
 }
 
 function stripTrailingSourceName(rawTitle: string, sourceName: string): string {

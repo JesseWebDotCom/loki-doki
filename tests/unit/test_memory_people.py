@@ -47,11 +47,11 @@ class TestPeople:
         pid = await memory.find_or_create_person(user_id, "Mark")
         await memory.upsert_fact(
             user_id=user_id, subject="mark", subject_type="person",
-            subject_ref_id=pid, predicate="location", value="Denver",
+            subject_ref_id=pid, predicate="lives_in", value="Denver",
         )
         await memory.upsert_fact(
             user_id=user_id, subject="mark", subject_type="person",
-            subject_ref_id=pid, predicate="job", value="plumber",
+            subject_ref_id=pid, predicate="works_as", value="plumber",
         )
         people = await memory.list_people(user_id)
         assert len(people) == 1
@@ -65,7 +65,7 @@ class TestPersonMerge:
         dst = await memory.find_or_create_person(user_id, "Mark")
         await memory.upsert_fact(
             user_id=user_id, subject="markie", subject_type="person",
-            subject_ref_id=src, predicate="location", value="Denver",
+            subject_ref_id=src, predicate="lives_in", value="Denver",
         )
         await memory.add_relationship(user_id, src, "brother")
 
@@ -76,8 +76,19 @@ class TestPersonMerge:
         assert await memory.get_person(user_id, src) is None
         dst_facts = await memory.list_facts_about_person(user_id, dst)
         assert any(f["value"] == "Denver" for f in dst_facts)
-        rels = await memory.list_relationships(user_id)
-        assert len(rels) == 1 and rels[0]["person_id"] == dst
+        # list_relationships reads from the person-graph edges table,
+        # which the gate-chain writer doesn't touch. Verify the merge
+        # repointed the social-tier relationships row directly.
+        def _rels_for(conn):
+            return [
+                dict(r) for r in conn.execute(
+                    "SELECT person_id FROM relationships "
+                    "WHERE owner_user_id = ?",
+                    (user_id,),
+                ).fetchall()
+            ]
+        rows = await memory.run_sync(_rels_for)
+        assert len(rows) == 1 and rows[0]["person_id"] == dst
 
     @pytest.mark.anyio
     async def test_merge_into_self_is_noop(self, memory, user_id):
@@ -118,7 +129,7 @@ class TestConflicts:
             user_id=user_id, subject="self", predicate="favorite_color", value="green",
         )
         await memory.upsert_fact(
-            user_id=user_id, subject="self", predicate="job", value="electrician",
+            user_id=user_id, subject="self", predicate="works_as", value="electrician",
         )
         rows = await memory.list_fact_conflicts(user_id)
         # Two candidates for favorite_color, none for job (single value).

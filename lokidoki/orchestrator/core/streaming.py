@@ -274,6 +274,7 @@ def _build_synthesis_done(result: Any) -> dict[str, Any]:
         "latency_ms": round(result.trace_summary.total_timing_ms, 1),
         "tone": "neutral",
         "sources": _extract_sources(result),
+        "media": list(getattr(result.request_spec, "media", []) or []),
         "platform": "lokidoki",
         "trace_snapshot": [step.to_dict() for step in getattr(getattr(result, "trace", None), "steps", [])],
     }

@@ -209,3 +209,33 @@ class SocialMixin:
         params.append(limit)
         rows = self._conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    def list_people(self, owner_user_id: int) -> list[dict[str, Any]]:
+        """UI-shaped people listing: adds fact_count and linked-user columns."""
+        rows = self._conn.execute(
+            "SELECT p.id, p.name, p.aliases, p.created_at, "
+            "       u.id AS linked_user_id, u.username AS linked_username, "
+            "       (SELECT COUNT(*) FROM facts f "
+            "        WHERE f.owner_user_id = p.owner_user_id "
+            "          AND f.subject_ref_id = p.id) AS fact_count "
+            "FROM people p "
+            "LEFT JOIN person_user_links pul ON pul.person_id = p.id "
+            "LEFT JOIN users u ON u.id = pul.user_id "
+            "WHERE p.owner_user_id = ? "
+            "ORDER BY LOWER(p.name)",
+            (owner_user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_relationships(self, owner_user_id: int) -> list[dict[str, Any]]:
+        """Relationship rows written by the gate-chain social-tier writer."""
+        rows = self._conn.execute(
+            "SELECT r.id, r.relation_label AS relation, r.confidence, "
+            "       r.created_at, r.person_id, p.name AS person_name "
+            "FROM relationships r "
+            "JOIN people p ON p.id = r.person_id "
+            "WHERE r.owner_user_id = ? "
+            "ORDER BY r.id",
+            (owner_user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]

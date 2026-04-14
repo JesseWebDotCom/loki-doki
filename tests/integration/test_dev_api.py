@@ -12,7 +12,7 @@ from lokidoki.main import app
 
 @pytest.fixture(autouse=True)
 async def _fresh_memory(tmp_path):
-    mp = MemoryProvider(db_path=str(tmp_path / "v2_dev_api.db"))
+    mp = MemoryProvider(db_path=str(tmp_path / "dev_api.db"))
     await mp.initialize()
     memory_singleton.set_memory_provider(mp)
     yield mp
@@ -26,7 +26,7 @@ def _client():
 
 
 @pytest.mark.anyio
-async def test_v2_dev_endpoint_requires_admin_auth():
+async def test_dev_endpoint_requires_admin_auth():
     async with _client() as ac:
         r = await ac.post("/api/v1/dev/pipeline/run", json={"message": "hello"})
 
@@ -34,7 +34,7 @@ async def test_v2_dev_endpoint_requires_admin_auth():
 
 
 @pytest.mark.anyio
-async def test_v2_status_endpoint_requires_admin_auth():
+async def test_status_endpoint_requires_admin_auth():
     async with _client() as ac:
         r = await ac.get("/api/v1/dev/pipeline/status")
 
@@ -42,7 +42,7 @@ async def test_v2_status_endpoint_requires_admin_auth():
 
 
 @pytest.mark.anyio
-async def test_v2_skills_endpoint_requires_admin_auth():
+async def test_skills_endpoint_requires_admin_auth():
     async with _client() as ac:
         r = await ac.get("/api/v1/dev/skills")
 
@@ -60,7 +60,7 @@ async def _admin_override() -> User:
 
 
 @pytest.mark.anyio
-async def test_v2_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
+async def test_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
     app.dependency_overrides[require_admin] = _admin_override
     await _fresh_memory.get_or_create_user("anakin")
     async with _client() as ac:
@@ -94,7 +94,7 @@ async def test_v2_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
 
 
 @pytest.mark.anyio
-async def test_v2_dev_endpoint_accepts_recent_context_for_media_resolution(_fresh_memory):
+async def test_dev_endpoint_accepts_recent_context_for_media_resolution(_fresh_memory):
     app.dependency_overrides[require_admin] = _admin_override
     await _fresh_memory.get_or_create_user("anakin")
     async with _client() as ac:
@@ -119,7 +119,7 @@ async def test_v2_dev_endpoint_accepts_recent_context_for_media_resolution(_fres
 
 
 @pytest.mark.anyio
-async def test_v2_dev_endpoint_marks_missing_media_context_unresolved(_fresh_memory):
+async def test_dev_endpoint_marks_missing_media_context_unresolved(_fresh_memory):
     app.dependency_overrides[require_admin] = _admin_override
     await _fresh_memory.get_or_create_user("anakin")
     async with _client() as ac:
@@ -140,7 +140,7 @@ async def test_v2_dev_endpoint_marks_missing_media_context_unresolved(_fresh_mem
 
 
 @pytest.mark.anyio
-async def test_v2_dev_endpoint_marks_ambiguous_media_context_unresolved(_fresh_memory):
+async def test_dev_endpoint_marks_ambiguous_media_context_unresolved(_fresh_memory):
     app.dependency_overrides[require_admin] = _admin_override
     await _fresh_memory.get_or_create_user("anakin")
     async with _client() as ac:
@@ -169,7 +169,7 @@ async def test_v2_dev_endpoint_marks_ambiguous_media_context_unresolved(_fresh_m
 
 
 @pytest.mark.anyio
-async def test_v2_status_endpoint_returns_phase_and_dependency_summary(_fresh_memory):
+async def test_status_endpoint_returns_phase_and_dependency_summary(_fresh_memory):
     app.dependency_overrides[require_admin] = _admin_override
     await _fresh_memory.get_or_create_user("anakin")
     async with _client() as ac:
@@ -190,7 +190,7 @@ async def test_v2_status_endpoint_returns_phase_and_dependency_summary(_fresh_me
 
 
 @pytest.mark.anyio
-async def test_v2_skills_endpoint_returns_registry_entries(_fresh_memory):
+async def test_skills_endpoint_returns_registry_entries(_fresh_memory):
     app.dependency_overrides[require_admin] = _admin_override
     await _fresh_memory.get_or_create_user("anakin")
     async with _client() as ac:
@@ -205,7 +205,7 @@ async def test_v2_skills_endpoint_returns_registry_entries(_fresh_memory):
 
 
 @pytest.mark.anyio
-async def test_v2_skill_run_endpoint_executes_selected_capability(_fresh_memory):
+async def test_skill_run_endpoint_executes_selected_capability(_fresh_memory):
     app.dependency_overrides[require_admin] = _admin_override
     await _fresh_memory.get_or_create_user("anakin")
     async with _client() as ac:

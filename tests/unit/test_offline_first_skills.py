@@ -1,5 +1,5 @@
 """Coverage for the offline-first replacements introduced when the
-search-backed stubs in ``v2/orchestrator/skills/search_web.py`` were
+search-backed stubs in ``lokidoki/orchestrator/skills/search_web.py`` were
 swapped out for curated KBs.
 
 These adapters used to dispatch into a generic DuckDuckGo search and

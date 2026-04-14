@@ -1,11 +1,11 @@
-"""C10 — V1 Cutover tests.
+"""C10 — Cutover tests.
 
 Verifies that:
-1. chat.py no longer imports v1 Orchestrator / Decomposer / SkillExecutor
-2. chat.py imports v2 streaming and v2 memory singleton
-3. v2 memory store singleton works correctly
+1. chat.py no longer imports legacy Orchestrator / Decomposer / SkillExecutor
+2. chat.py imports pipeline streaming and the memory store singleton
+3. The memory store singleton works correctly
 4. dev status page reports M5/M6 as complete
-5. startup event initializes v2 memory store
+5. startup event initializes the memory store
 6. SSE event stream emits session-ready and synthesis-done with assistant_message_id
 """
 from __future__ import annotations
@@ -25,10 +25,10 @@ DEV_PY = Path("lokidoki/api/routes/dev.py")
 MAIN_PY = Path("lokidoki/main.py")
 
 
-# ---- 1. v1 imports removed from chat.py ------------------------------------
+# ---- 1. legacy imports removed from chat.py --------------------------------
 
-class TestV1ImportsRemoved:
-    """chat.py must not import v1 orchestration modules at module level."""
+class TestLegacyImportsRemoved:
+    """chat.py must not import legacy orchestration modules at module level."""
 
     def _get_imports(self) -> set[str]:
         """Return all imported module names from chat.py's AST."""
@@ -78,30 +78,30 @@ class TestV1ImportsRemoved:
                 )
 
 
-# ---- 2. v2 imports present ------------------------------------------------
+# ---- 2. pipeline imports present ------------------------------------------
 
-class TestV2ImportsPresent:
-    """chat.py must reference v2 pipeline and memory store."""
+class TestPipelineImportsPresent:
+    """chat.py must reference the pipeline and memory store."""
 
-    def test_imports_v2_streaming(self):
+    def test_imports_streaming(self):
         source = CHAT_PY.read_text()
         assert "stream_pipeline_sse" in source
 
-    def test_imports_memory_store_singleton(self):
+    def test_imports_memory_provider(self):
         source = CHAT_PY.read_text()
-        assert "get_memory_store" in source
+        assert "MemoryProvider" in source
 
-    def test_chat_endpoint_uses_v2_context(self):
+    def test_chat_endpoint_uses_pipeline_context(self):
         source = CHAT_PY.read_text()
         assert "memory_writes_enabled" in source
-        assert "memory_store" in source
+        assert "memory_provider" in source
         assert "owner_user_id" in source
 
 
-# ---- 3. v2 memory store singleton -----------------------------------------
+# ---- 3. memory store singleton --------------------------------------------
 
-class TestV2MemorySingleton:
-    """Production v2 memory store singleton behaves correctly."""
+class TestMemoryStoreSingleton:
+    """Production memory store singleton behaves correctly."""
 
     def test_returns_store_instance(self):
         from lokidoki.core.memory_store_singleton import get_memory_store
@@ -131,58 +131,49 @@ class TestV2MemorySingleton:
             set_memory_store(original)
 
 
-# ---- 4. dev status reflects M5/M6 complete --------------------------------
+# ---- 4. dev status reflects memory subsystem ------------------------------
 
-class TestDevStatusReflectsV2:
-    """Dev status endpoint reports M5 and M6 as complete."""
+class TestDevStatusReflectsMemoryPhases:
+    """Dev status endpoint reports the memory subsystem as shipped."""
 
-    def test_m5_complete(self):
-        source = DEV_PY.read_text()
-        # Find the M5 phase entry
-        assert '"m5"' in source
-        # Check it says "complete" not "not_started"
-        m5_match = re.search(r'"id":\s*"m5".*?"status":\s*"(\w+)"', source, re.DOTALL)
-        assert m5_match, "M5 phase not found"
-        assert m5_match.group(1) == "complete"
+    def test_memory_subsystem_shipped(self):
+        from lokidoki.api.routes.dev import _memory_status
 
-    def test_m6_complete(self):
-        source = DEV_PY.read_text()
-        m6_match = re.search(r'"id":\s*"m6".*?"status":\s*"(\w+)"', source, re.DOTALL)
-        assert m6_match, "M6 phase not found"
-        assert m6_match.group(1) == "complete"
+        payload = _memory_status()
+        assert payload["subsystem"]["status"] == "shipped"
 
     def test_current_focus_mentions_cutover(self):
         source = DEV_PY.read_text()
         assert "cutover" in source.lower()
 
 
-# ---- 5. startup initializes v2 store --------------------------------------
+# ---- 5. startup initializes memory store ----------------------------------
 
 class TestStartupInitialization:
-    """main.py startup event eagerly creates the v2 memory store."""
+    """main.py startup event eagerly creates the memory store."""
 
     def test_startup_references_memory_store(self):
         source = MAIN_PY.read_text()
         assert "get_memory_store" in source
 
     def test_startup_calls_before_bootstrap(self):
-        """v2 store init should happen before run_bootstrap() inside startup_event."""
+        """Store init should happen before run_bootstrap() inside startup_event."""
         source = MAIN_PY.read_text()
         # Find the startup_event function body
         startup_start = source.find("async def startup_event")
         assert startup_start > 0, "startup_event not found"
         startup_body = source[startup_start:]
-        v2_pos = startup_body.find("get_memory_store")
+        store_pos = startup_body.find("get_memory_store")
         bootstrap_pos = startup_body.find("run_bootstrap()")
-        assert v2_pos > 0, "get_memory_store not in startup_event"
+        assert store_pos > 0, "get_memory_store not in startup_event"
         assert bootstrap_pos > 0, "run_bootstrap not in startup_event"
-        assert v2_pos < bootstrap_pos, "v2 store should initialize before bootstrap"
+        assert store_pos < bootstrap_pos, "memory store should initialize before bootstrap"
 
 
 # ---- 6. chat.py preserves message persistence ------------------------------
 
 class TestMessagePersistence:
-    """chat.py still persists user and assistant messages via v1 MemoryProvider."""
+    """chat.py still persists user and assistant messages via MemoryProvider."""
 
     def test_persists_user_message(self):
         source = CHAT_PY.read_text()
@@ -208,10 +199,10 @@ class TestMessagePersistence:
         assert "is_first_turn" in source
 
 
-# ---- 7. chat.py wires persona into v2 context -----------------------------
+# ---- 7. chat.py wires persona into pipeline context -----------------------
 
 class TestPersonaWiring:
-    """v2 pipeline receives behavior_prompt and character_name via context."""
+    """The pipeline receives behavior_prompt and character_name via context."""
 
     def test_behavior_prompt_in_context(self):
         source = CHAT_PY.read_text()

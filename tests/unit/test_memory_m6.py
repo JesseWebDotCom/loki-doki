@@ -21,16 +21,16 @@ from lokidoki.orchestrator.memory.slots import (
     truncate_to_budget,
 )
 from lokidoki.orchestrator.memory import (
-    ACTIVE_PHASE_ID,
-    ACTIVE_PHASE_LABEL,
-    M6_PHASE_ID,
-    M6_PHASE_STATUS,
+    MEMORY_SUBSYSTEM_ID,
+    MEMORY_SUBSYSTEM_LABEL,
+    MEMORY_SUBSYSTEM_STATUS,
 )
 from lokidoki.orchestrator.fallbacks.prompts import (
     COMBINE_PROMPT,
     DIRECT_CHAT_PROMPT,
     render_prompt,
 )
+from types import SimpleNamespace
 
 
 @pytest.fixture
@@ -189,7 +189,7 @@ class TestSentimentOptOut:
         )
         from lokidoki.orchestrator.memory.slots import assemble_slots
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "default",
         }
@@ -436,7 +436,7 @@ class TestPipelineIntegration:
             tone_signal: str = "positive"
 
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "loki",
         }
@@ -454,7 +454,7 @@ class TestPipelineIntegration:
 
         store.set_sentiment_opt_out(OWNER, True)
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "loki",
         }
@@ -471,7 +471,7 @@ class TestPipelineIntegration:
             tone_signal: str = "neutral"
 
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "loki",
         }
@@ -494,7 +494,7 @@ class TestPipelineIntegration:
         )
         from lokidoki.orchestrator.memory.slots import assemble_slots
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "default",
         }
@@ -504,7 +504,7 @@ class TestPipelineIntegration:
     def test_no_mood_without_data(self, store: MemoryStore):
         from lokidoki.orchestrator.memory.slots import assemble_slots
         context = {
-            "memory_store": store,
+            "memory_provider": SimpleNamespace(store=store),
             "owner_user_id": OWNER,
             "character_id": "default",
         }
@@ -536,12 +536,11 @@ class TestToneMapping:
 
 
 class TestPhaseConstants:
-    def test_m6_id(self):
-        assert M6_PHASE_ID == "m6"
+    def test_memory_subsystem_id(self):
+        assert MEMORY_SUBSYSTEM_ID == "memory"
 
-    def test_m6_status(self):
-        assert M6_PHASE_STATUS == "complete"
+    def test_memory_subsystem_status(self):
+        assert MEMORY_SUBSYSTEM_STATUS == "shipped"
 
-    def test_active_is_m6(self):
-        assert ACTIVE_PHASE_ID == "m6"
-        assert ACTIVE_PHASE_LABEL == "M6"
+    def test_memory_subsystem_label(self):
+        assert MEMORY_SUBSYSTEM_LABEL == "Memory"
