@@ -17,6 +17,15 @@ LokiDoki brings AI into the home without sending your life to the cloud. It runs
 
 <sub><i>LokiDoki is already usable, but not every feature is fully built or polished yet.</i></sub>
 
+<p>
+  <a href="#features"><b>Features</b></a> &nbsp;·&nbsp;
+  <a href="#quick-start">Quick Start</a> &nbsp;·&nbsp;
+  <a href="#how-it-works">How it works</a> &nbsp;·&nbsp;
+  <a href="#tech-stack">Tech Stack</a> &nbsp;·&nbsp;
+  <a href="#roadmap">Roadmap</a> &nbsp;·&nbsp;
+  <a href="#license">License</a>
+</p>
+
 </div>
 
 ## 💡 What is LokiDoki?
@@ -25,16 +34,7 @@ Think of LokiDoki as a **local alternative** to cloud assistants — like ChatGP
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
 
-## 🏡 Why LokiDoki?
-
-- **Your data never leaves your house.** Conversations, memory, photos, and documents are all processed locally. No cloud account to breach, no vendor log to leak, no training set to be scraped into.
-- **You don't rent your AI.** No monthly subscription. No per-seat pricing. No paid-for feature disappearing next quarter because pricing changed.
-- **Works when the internet doesn't.** LokiDoki can run offline. Chat, voice, companions, and your own data work without a connection out of the box — and with optional cached content like Wikipedia, WebMD, and other references, you can keep looking things up during a blackout, on a plane, in a country that blocks cloud AI, or when a disaster knocks out the network. How much works offline depends on what you cache; local answers come back faster than any cloud round-trip either way.
-- **Big AI is a single point of failure.** Today's cloud assistants could restrict access to government-only use, be shut down or acquired, get compromised, change their policies, or start selling your data. LokiDoki keeps working regardless — because it's yours.
-- **You stay in control.** Set rules per person. Block swearing. Limit what kids can access. Turn off specific tools. The household decides what LokiDoki does — not a terms-of-service page written by someone else.
-- **Built for everyone under your roof.** Each person gets their own companion with their own voice, face, personality, and memory — from a toddler learning letters to a grandparent who wants big text and patient explanations.
-
-<div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
+<a id="features"></a>
 
 ## ✨ Features
 
@@ -42,46 +42,48 @@ Think of LokiDoki as a **local alternative** to cloud assistants — like ChatGP
   <tr>
     <td width="50%" valign="top">
       <img src="./assets/readme/readme-icon-private.svg" alt="" width="42" align="absmiddle"> <strong>Private</strong><br><br>
-      Runs on your hardware so conversations, settings, and memory stay at home.
+      Conversations, memory, photos, and documents are all processed locally. No cloud account to breach, no vendor log to leak, no training set to be scraped into.
     </td>
     <td width="50%" valign="top">
       <img src="./assets/readme/readme-icon-no-subscriptions.svg" alt="" width="42" align="absmiddle"> <strong>No subscriptions</strong><br><br>
-      No monthly AI bill and no cloud account required to make LokiDoki part of your home.
+      Buy your hardware once and the household assistant is yours. No monthly AI bill, no per-seat pricing, no paid-for feature disappearing next quarter.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="./assets/readme/readme-icon-smart-ai.svg" alt="" width="42" align="absmiddle"> <strong>Smart AI</strong><br><br>
-      Natural chat, document and image understanding, live vision, wake word, push-to-talk, and voice interaction.
+      <img src="./assets/readme/readme-icon-powerful.svg" alt="" width="42" align="absmiddle"> <strong>Works offline</strong><br><br>
+      Keep chatting, controlling your home, and looking things up on a plane, during a blackout, or in a country that blocks cloud AI. Optional cached content — Wikipedia, WebMD, and more — for fully offline answers.
+    </td>
+    <td width="50%" valign="top">
+      <img src="./assets/readme/readme-icon-personal.svg" alt="" width="42" align="absmiddle"> <strong>Always yours</strong><br><br>
+      Cloud assistants can be shut down, acquired, compromised, or change their rules overnight. LokiDoki keeps working regardless, because it lives on your hardware.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./assets/readme/readme-icon-smart-ai.svg" alt="" width="42" align="absmiddle"> <strong>Smart</strong><br><br>
+      Natural chat, document and image understanding, live vision, wake word, push-to-talk, and full voice interaction.
     </td>
     <td width="50%" valign="top">
       <img src="./assets/readme/readme-icon-family.svg" alt="" width="42" align="absmiddle"> <strong>For the family</strong><br><br>
-      Recognizes who is there and adapts companions, settings, and care profiles for different people in one home.
+      Recognizes who is there and adapts memory, companions, and permissions per person — from a toddler learning letters to a grandparent who wants big text.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="./assets/readme/readme-icon-personal.svg" alt="" width="42" align="absmiddle"> <strong>Personal</strong><br><br>
-      Shape each experience with voices, behavior, companion style, and support for calmer or simpler replies.
+      <img src="./assets/readme/readme-icon-control.svg" alt="" width="42" align="absmiddle"> <strong>In your control</strong><br><br>
+      Rules per person, blocked words, age-appropriate limits, and per-tool on/off. The household decides what LokiDoki does — not a terms-of-service page.
     </td>
-    <td width="50%" valign="top">
-      <img src="./assets/readme/readme-icon-control.svg" alt="" width="42" align="absmiddle"> <strong>Safe and in your control</strong><br><br>
-      Set rules like no swearing, limit what each person can access, and manage household-wide and device-level permissions and guardrails.
-    </td>
-  </tr>
-  <tr>
     <td width="50%" valign="top">
       <img src="./assets/readme/readme-icon-companions.svg" alt="" width="42" align="absmiddle"> <strong>Companions</strong><br><br>
-      Give each person an animated AI character with its own face, voice, personality, and presence.
-    </td>
-    <td width="50%" valign="top">
-      <img src="./assets/readme/readme-icon-powerful.svg" alt="" width="42" align="absmiddle"> <strong>Extensible</strong><br><br>
-      Add skills that help control your home, answer questions, and do useful work — or write your own.
+      Every person gets their own animated AI character with its own face, voice, personality, memory, and tunable behavior.
     </td>
   </tr>
 </table>
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
+
+<a id="quick-start"></a>
 
 ## ⚡️ Quick start
 
@@ -101,6 +103,8 @@ chmod +x run.sh
 `run.sh` is the launcher. It handles setup and starts LokiDoki.
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
+
+<a id="how-it-works"></a>
 
 ## 🧠 How it works
 
@@ -126,6 +130,8 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
 
+<a id="tech-stack"></a>
+
 ## 🛠️ Tech stack
 
 | **Component**      | **Technology**                                                                                     | **Description**                                                                                  |
@@ -138,6 +144,8 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 | **Hardware**       | <img src="https://skillicons.dev/icons?i=apple,raspberrypi" valign="middle" />                     | M-series Mac for development; Raspberry Pi 5 (with optional Hailo) for home deployment.         |
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
+
+<a id="roadmap"></a>
 
 ## 🗺️ Roadmap
 
@@ -162,6 +170,8 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 - [ ] Systemd / launchd auto-start
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
+
+<a id="license"></a>
 
 ## ⚠️ License
 
