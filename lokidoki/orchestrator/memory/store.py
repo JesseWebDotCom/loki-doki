@@ -27,7 +27,7 @@ from lokidoki.orchestrator.memory.store_sessions import SessionsMixin
 from lokidoki.orchestrator.memory.store_social import SocialMixin
 from lokidoki.orchestrator.memory.tiers import Tier
 
-DEFAULT_DB_PATH = Path("data/memory.sqlite")
+DEFAULT_DB_PATH = Path("data/lokidoki.db")
 
 
 @dataclass(frozen=True)
