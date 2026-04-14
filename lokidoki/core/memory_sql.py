@@ -16,8 +16,7 @@ import json
 import sqlite3
 from typing import Optional, Union
 
-from lokidoki.core.confidence import DEFAULT_CONFIDENCE, update_confidence
-from lokidoki.core.memory_contradiction import detect_and_resolve_contradiction
+from lokidoki.core.confidence import update_confidence
 
 
 def get_or_create_user(conn: sqlite3.Connection, username: str) -> int:
@@ -227,94 +226,6 @@ def get_message(
         "WHERE m.owner_user_id = ? AND m.id = ?",
         (user_id, message_id),
     ).fetchone()
-
-
-def upsert_fact(
-    conn: sqlite3.Connection,
-    *,
-    user_id: int,
-    subject: str,
-    predicate: str,
-    value: str,
-    category: str,
-    source_message_id: Optional[int],
-    subject_type: str = "self",
-    subject_ref_id: Optional[int] = None,
-    project_id: Optional[int] = None,
-    status: str = "active",
-    ambiguity_group_id: Optional[int] = None,
-    negates_previous: bool = False,
-    kind: str = "fact",
-    embedding: Optional[list] = None,
-) -> tuple[int, float, dict]:
-    """Insert OR confirm OR revise. Returns (fact_id, confidence, report).
-
-    The report describes any contradiction handling that happened, so the
-    orchestrator can surface it via silent confirmation / clarification.
-    """
-    existing = conn.execute(
-        "SELECT id, confidence, observation_count FROM facts "
-        "WHERE owner_user_id = ? AND subject = ? AND predicate = ? AND value = ? "
-        "AND status != 'rejected'",
-        (user_id, subject, predicate, value),
-    ).fetchone()
-    if existing:
-        new_conf = update_confidence(float(existing["confidence"]), confirmed=True)
-        conn.execute(
-            "UPDATE facts SET confidence = ?, observation_count = observation_count + 1, "
-            "last_observed_at = datetime('now'), updated_at = datetime('now'), "
-            "status = CASE WHEN status='rejected' THEN 'active' ELSE status END "
-            "WHERE id = ?",
-            (new_conf, existing["id"]),
-        )
-        conn.commit()
-        return int(existing["id"]), float(new_conf), {
-            "action": "confirmed", "loser_id": None, "loser_value": None, "margin": 0.0,
-        }
-
-    # No exact match — check for a contradicting same-(subject, predicate)
-    # row before inserting. The contradiction handler updates the loser
-    # in-place and returns a report we propagate to the caller.
-    report = detect_and_resolve_contradiction(
-        conn,
-        user_id=user_id,
-        subject=subject,
-        subject_ref_id=subject_ref_id,
-        predicate=predicate,
-        new_value=value,
-        negates_previous=negates_previous,
-    )
-
-    cur = conn.execute(
-        "INSERT INTO facts "
-        "(owner_user_id, subject, subject_type, subject_ref_id, "
-        "predicate, value, kind, category, confidence, source_message_id, project_id, "
-        "status, ambiguity_group_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            user_id, subject, subject_type, subject_ref_id,
-            predicate, value, kind, category,
-            DEFAULT_CONFIDENCE, source_message_id, project_id,
-            status, ambiguity_group_id,
-        ),
-    )
-    fact_id = int(cur.lastrowid)
-    # Embedding is optional so the provider can decide whether to embed
-    # (e.g. skipped in tests, or when sqlite-vec failed to load). When
-    # supplied we write into vec_facts in the same transaction so the
-    # vector is durable with the fact. Failure here is non-fatal —
-    # search degrades to BM25-only for this row.
-    if embedding is not None:
-        try:
-            import json as _json
-            conn.execute(
-                "INSERT INTO vec_facts (fact_id, embedding) VALUES (?, ?)",
-                (fact_id, _json.dumps(embedding)),
-            )
-        except sqlite3.Error:
-            pass  # vec_facts unavailable or write failed; not a hard error
-    conn.commit()
-    return fact_id, DEFAULT_CONFIDENCE, report
 
 
 _FACT_COLS = (

@@ -42,10 +42,9 @@ from lokidoki.orchestrator.memory.summarizer import (
     summarize_session,
 )
 from lokidoki.orchestrator.memory import (
-    ACTIVE_PHASE_ID,
-    ACTIVE_PHASE_LABEL,
-    M4_PHASE_ID,
-    M4_PHASE_STATUS,
+    MEMORY_SUBSYSTEM_ID,
+    MEMORY_SUBSYSTEM_LABEL,
+    MEMORY_SUBSYSTEM_STATUS,
 )
 from types import SimpleNamespace
 
@@ -584,10 +583,7 @@ class TestAutoRaiseNeedSessionContext:
 
 
 class TestPhaseConstants:
-    def test_m4_phase_constants(self):
-        assert M4_PHASE_ID == "m4"
-        assert M4_PHASE_STATUS == "complete"
-
-    def test_active_phase_advanced_past_m4(self):
-        # M5 has shipped — the active phase is now m5 or later
-        assert ACTIVE_PHASE_ID >= "m4"
+    def test_memory_subsystem_constants(self):
+        assert MEMORY_SUBSYSTEM_ID == "memory"
+        assert MEMORY_SUBSYSTEM_LABEL == "Memory"
+        assert MEMORY_SUBSYSTEM_STATUS == "shipped"

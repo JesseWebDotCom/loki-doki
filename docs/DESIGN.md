@@ -146,7 +146,7 @@ Token-efficient compression for Pi 5's limited context window:
 
 ## 6. Memory System
 
-The memory system uses seven tiers — policies and views over shared SQLite storage, not separate databases. The tiers model how information flows from volatile per-turn state to durable long-term knowledge, each with distinct write triggers, decay policies, and retrieval strategies.
+The memory system is one SQLite file (`data/lokidoki.db`), one gate-chain writer (`MemoryStore`), and one lazy per-tier reader. The seven tiers described below are policies and views over that shared storage, not separate databases — they model how information flows from volatile per-turn state to durable long-term knowledge, each with distinct write triggers, decay policies, and retrieval strategies.
 
 ### 6.1 Tier Descriptions
 

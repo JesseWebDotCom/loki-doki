@@ -482,13 +482,11 @@ def test_m2_cross_user_isolation_in_reader(store: MemoryStore) -> None:
 
 
 def test_m2_dev_status_phase_is_complete() -> None:
-    """M2 must always be marked complete on the dev-tools status, even
-    after later phases (M3+) advance the active phase past M2."""
+    """Memory subsystem status must be ``shipped`` on the dev-tools surface."""
     from lokidoki.api.routes.dev import _memory_status
 
     payload = _memory_status()
-    m2_phase = next(p for p in payload["phases"] if p["id"] == "m2")
-    assert m2_phase["status"] == "complete"
+    assert payload["subsystem"]["status"] == "shipped"
 
 
 # ----- Pipeline integration end-to-end -----------------------------------

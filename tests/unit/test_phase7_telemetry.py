@@ -29,16 +29,30 @@ def conn(tmp_path):
     return c, uid, sid
 
 
+def _insert_fact(c, *, user_id: int, value: str) -> int:
+    """Insert a semantic-self fact row directly for telemetry tests.
+
+    Telemetry just needs a row in ``facts`` whose id it can attach a
+    counter to — we skip the gate-chain writer here to keep these tests
+    focused on ``fact_telemetry`` behaviour.
+    """
+    cur = c.execute(
+        "INSERT INTO facts (owner_user_id, subject, subject_type, "
+        "predicate, value, category, confidence, status) "
+        "VALUES (?, 'self', 'self', 'likes', ?, 'general', 0.5, 'active')",
+        (user_id, value),
+    )
+    c.commit()
+    return int(cur.lastrowid)
+
+
 # ---------- telemetry updates ----------
 
 
 class TestFactTelemetry:
     def test_record_retrieval_creates_row(self, conn):
         c, uid, sid = conn
-        fid, _, _ = sql.upsert_fact(
-            c, user_id=uid, subject="self", predicate="likes",
-            value="music", category="general", source_message_id=None,
-        )
+        fid = _insert_fact(c, user_id=uid, value="music")
         sql.record_fact_retrieval(c, [fid])
         row = sql.get_fact_telemetry(c, fid)
         assert row is not None
@@ -48,10 +62,7 @@ class TestFactTelemetry:
 
     def test_record_retrieval_increments(self, conn):
         c, uid, sid = conn
-        fid, _, _ = sql.upsert_fact(
-            c, user_id=uid, subject="self", predicate="likes",
-            value="music", category="general", source_message_id=None,
-        )
+        fid = _insert_fact(c, user_id=uid, value="music")
         sql.record_fact_retrieval(c, [fid])
         sql.record_fact_retrieval(c, [fid])
         sql.record_fact_retrieval(c, [fid])
@@ -60,10 +71,7 @@ class TestFactTelemetry:
 
     def test_record_injection_creates_row(self, conn):
         c, uid, sid = conn
-        fid, _, _ = sql.upsert_fact(
-            c, user_id=uid, subject="self", predicate="likes",
-            value="coffee", category="general", source_message_id=None,
-        )
+        fid = _insert_fact(c, user_id=uid, value="coffee")
         sql.record_fact_injection(c, [fid])
         row = sql.get_fact_telemetry(c, fid)
         assert row["inject_count"] == 1
@@ -71,10 +79,7 @@ class TestFactTelemetry:
 
     def test_both_counters_independent(self, conn):
         c, uid, sid = conn
-        fid, _, _ = sql.upsert_fact(
-            c, user_id=uid, subject="self", predicate="likes",
-            value="tea", category="general", source_message_id=None,
-        )
+        fid = _insert_fact(c, user_id=uid, value="tea")
         sql.record_fact_retrieval(c, [fid])
         sql.record_fact_retrieval(c, [fid])
         sql.record_fact_injection(c, [fid])
@@ -84,14 +89,8 @@ class TestFactTelemetry:
 
     def test_multiple_fact_ids_in_one_call(self, conn):
         c, uid, sid = conn
-        fid1, _, _ = sql.upsert_fact(
-            c, user_id=uid, subject="self", predicate="likes",
-            value="a", category="general", source_message_id=None,
-        )
-        fid2, _, _ = sql.upsert_fact(
-            c, user_id=uid, subject="self", predicate="likes",
-            value="b", category="general", source_message_id=None,
-        )
+        fid1 = _insert_fact(c, user_id=uid, value="a")
+        fid2 = _insert_fact(c, user_id=uid, value="b")
         sql.record_fact_retrieval(c, [fid1, fid2])
         r1 = sql.get_fact_telemetry(c, fid1)
         r2 = sql.get_fact_telemetry(c, fid2)

@@ -520,13 +520,11 @@ def test_m3_render_social_context_handles_named_handle_and_relations() -> None:
 
 
 def test_m3_dev_status_phase_is_complete() -> None:
-    """M3 must always be marked complete on the dev-tools status, even
-    after later half-step phases (M3.5+) advance the active phase."""
+    """Memory subsystem status must be ``shipped`` on the dev-tools surface."""
     from lokidoki.api.routes.dev import _memory_status
 
     payload = _memory_status()
-    m3_phase = next(p for p in payload["phases"] if p["id"] == "m3")
-    assert m3_phase["status"] == "complete"
+    assert payload["subsystem"]["status"] == "shipped"
 
 
 # ----- End-to-end pipeline integration ----------------------------------

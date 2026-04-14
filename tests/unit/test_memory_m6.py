@@ -21,10 +21,9 @@ from lokidoki.orchestrator.memory.slots import (
     truncate_to_budget,
 )
 from lokidoki.orchestrator.memory import (
-    ACTIVE_PHASE_ID,
-    ACTIVE_PHASE_LABEL,
-    M6_PHASE_ID,
-    M6_PHASE_STATUS,
+    MEMORY_SUBSYSTEM_ID,
+    MEMORY_SUBSYSTEM_LABEL,
+    MEMORY_SUBSYSTEM_STATUS,
 )
 from lokidoki.orchestrator.fallbacks.prompts import (
     COMBINE_PROMPT,
@@ -537,12 +536,11 @@ class TestToneMapping:
 
 
 class TestPhaseConstants:
-    def test_m6_id(self):
-        assert M6_PHASE_ID == "m6"
+    def test_memory_subsystem_id(self):
+        assert MEMORY_SUBSYSTEM_ID == "memory"
 
-    def test_m6_status(self):
-        assert M6_PHASE_STATUS == "complete"
+    def test_memory_subsystem_status(self):
+        assert MEMORY_SUBSYSTEM_STATUS == "shipped"
 
-    def test_active_is_m6(self):
-        assert ACTIVE_PHASE_ID == "m6"
-        assert ACTIVE_PHASE_LABEL == "M6"
+    def test_memory_subsystem_label(self):
+        assert MEMORY_SUBSYSTEM_LABEL == "Memory"

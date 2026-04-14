@@ -494,13 +494,11 @@ def test_m1_pipeline_memory_write_runs_when_enabled(tmp_path: Path) -> None:
 
 
 def test_m1_dev_status_phase_is_complete() -> None:
-    """M1 must always be marked complete on the dev-tools status, even
-    after later phases (M2+) advance the active phase past M1."""
+    """Memory subsystem status must be ``shipped`` on the dev-tools surface."""
     from lokidoki.api.routes.dev import _memory_status
 
     payload = _memory_status()
-    m1_phase = next(p for p in payload["phases"] if p["id"] == "m1")
-    assert m1_phase["status"] == "complete"
+    assert payload["subsystem"]["status"] == "shipped"
 
 
 def test_m1_pipeline_president_bug_does_not_write(tmp_path: Path) -> None:

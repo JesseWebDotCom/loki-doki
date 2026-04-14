@@ -26,10 +26,9 @@ from lokidoki.orchestrator.memory.slots import (
     truncate_to_budget,
 )
 from lokidoki.orchestrator.memory import (
-    ACTIVE_PHASE_ID,
-    ACTIVE_PHASE_LABEL,
-    M5_PHASE_ID,
-    M5_PHASE_STATUS,
+    MEMORY_SUBSYSTEM_ID,
+    MEMORY_SUBSYSTEM_LABEL,
+    MEMORY_SUBSYSTEM_STATUS,
 )
 from types import SimpleNamespace
 
@@ -522,11 +521,7 @@ class TestPipelineIntegration:
 
 
 class TestPhaseConstants:
-    def test_m5_phase(self):
-        assert M5_PHASE_ID == "m5"
-        assert M5_PHASE_STATUS == "complete"
-
-    def test_active_phase_advanced_past_m5(self):
-        # M6 landed after M5 — active phase is now M6.
-        assert ACTIVE_PHASE_ID != "m4"  # at least M5
-        assert M5_PHASE_STATUS == "complete"
+    def test_memory_subsystem_constants(self):
+        assert MEMORY_SUBSYSTEM_ID == "memory"
+        assert MEMORY_SUBSYSTEM_LABEL == "Memory"
+        assert MEMORY_SUBSYSTEM_STATUS == "shipped"

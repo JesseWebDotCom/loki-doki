@@ -131,25 +131,16 @@ class TestMemoryStoreSingleton:
             set_memory_store(original)
 
 
-# ---- 4. dev status reflects M5/M6 complete --------------------------------
+# ---- 4. dev status reflects memory subsystem ------------------------------
 
 class TestDevStatusReflectsMemoryPhases:
-    """Dev status endpoint reports M5 and M6 as complete."""
+    """Dev status endpoint reports the memory subsystem as shipped."""
 
-    def test_m5_complete(self):
-        source = DEV_PY.read_text()
-        # Find the M5 phase entry
-        assert '"m5"' in source
-        # Check it says "complete" not "not_started"
-        m5_match = re.search(r'"id":\s*"m5".*?"status":\s*"(\w+)"', source, re.DOTALL)
-        assert m5_match, "M5 phase not found"
-        assert m5_match.group(1) == "complete"
+    def test_memory_subsystem_shipped(self):
+        from lokidoki.api.routes.dev import _memory_status
 
-    def test_m6_complete(self):
-        source = DEV_PY.read_text()
-        m6_match = re.search(r'"id":\s*"m6".*?"status":\s*"(\w+)"', source, re.DOTALL)
-        assert m6_match, "M6 phase not found"
-        assert m6_match.group(1) == "complete"
+        payload = _memory_status()
+        assert payload["subsystem"]["status"] == "shipped"
 
     def test_current_focus_mentions_cutover(self):
         source = DEV_PY.read_text()

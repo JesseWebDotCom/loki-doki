@@ -335,19 +335,8 @@ def test_m0_dev_status_payload_includes_memory_section() -> None:
     from lokidoki.api.routes.dev import _memory_status
 
     payload = _memory_status()
-    assert "active_phase" in payload
-    # The active phase id is whatever the most recently shipped phase
-    # is — could be m0..m6 or any half-step (m2_5, m3_5). The contract
-    # is that the active phase exists and is complete.
-    assert payload["active_phase"]["status"] == "complete"
-    # M0..M6 are always present in the roadmap; half-step phases (M2.5,
-    # M3.5, …) may or may not be listed depending on which have shipped.
-    phase_ids = {p["id"] for p in payload["phases"]}
-    assert {"m0", "m1", "m2", "m3", "m4", "m5", "m6"} <= phase_ids
-    # M0 itself stays marked complete forever — that's the contract this
-    # test guards on behalf of M0's deliverables.
-    m0_phase = next(p for p in payload["phases"] if p["id"] == "m0")
-    assert m0_phase["status"] == "complete"
+    assert "subsystem" in payload
+    assert payload["subsystem"]["status"] == "shipped"
     # Tiers 1..7 surfaced.
     assert sorted(t["tier"] for t in payload["tiers"]) == [1, 2, 3, 4, 5, 6, 7]
     # Slot worst-case budget surfaced.
