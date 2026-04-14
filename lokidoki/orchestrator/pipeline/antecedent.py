@@ -137,16 +137,16 @@ def _try_resolve(text: str, entity: str, *, defer_generic: bool = False) -> str:
     """Replace the first subject pronoun in ``text`` with ``entity``.
 
     Only fires when:
-    1. The text is short (< 12 words) — long sentences rarely need this.
-    2. The text contains at least one subject pronoun from the closed set.
-    3. The pronoun is a standalone referent, NOT a determiner before a noun
+    1. The text contains at least one subject pronoun from the closed set.
+    2. The pronoun is a standalone referent, NOT a determiner before a noun
        (e.g. "that movie" is left for the post-routing media resolver).
-    4. If ``defer_generic`` is True, generic pronouns (it/this/that/they/
+    3. If ``defer_generic`` is True, generic pronouns (it/this/that/they/
        them) are skipped — the post-routing media resolver handles those.
+    4. The current chunk does not already contain a same-type proper-noun
+       antecedent for the pronoun — a sentence that introduces a new named
+       person ("Tell me about Obi-Wan. Is he a Jedi?") should resolve against
+       the *in-chunk* antecedent, not the historical session entity.
     """
-    words = text.split()
-    if len(words) > 12:
-        return text
     lower = text.lower()
     words_lower = lower.split()
     if not any(p in words_lower for p in _ALL_PRONOUNS):
@@ -161,8 +161,30 @@ def _try_resolve(text: str, entity: str, *, defer_generic: bool = False) -> str:
     # Defer generic pronouns when a movie entity exists in session state.
     if defer_generic and pronoun in _GENERIC_PRONOUNS:
         return text
+    # If the chunk itself contains a proper noun *before* the pronoun, the
+    # user likely means that in-chunk antecedent, not the session entity.
+    if _has_in_chunk_antecedent(text, match, entity):
+        return text
     replacement = f"{entity}'s" if pronoun in _POSSESSIVE_PRONOUNS else entity
     return _PRONOUN_RE.sub(replacement, text, count=1)
+
+
+def _has_in_chunk_antecedent(text: str, match: re.Match, entity: str) -> bool:
+    """Return True if ``text`` introduces a new proper noun before the pronoun
+    that plausibly outranks the session entity as the antecedent.
+
+    Conservative: only trips when the in-chunk proper noun is a different
+    entity than the session one, to avoid over-blocking normal follow-ups.
+    """
+    before = text[: match.start()]
+    phrases = _all_proper_noun_phrases(before)
+    if not phrases:
+        return False
+    entity_lower = entity.lower()
+    for phrase in phrases:
+        if phrase.lower() != entity_lower and phrase.lower() not in entity_lower:
+            return True
+    return False
 
 
 def _is_determiner(text: str, match: re.Match) -> bool:

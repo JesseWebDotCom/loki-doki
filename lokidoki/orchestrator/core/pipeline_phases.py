@@ -24,6 +24,7 @@ from lokidoki.orchestrator.core.pipeline_memory import (
 from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.execution.request_spec import build_request_spec
 from lokidoki.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
+from lokidoki.orchestrator.media import augment_with_media
 from lokidoki.orchestrator.pipeline.combiner import combine_request_spec
 from lokidoki.orchestrator.pipeline.derivations import derive_need_flags, extract_structured_params
 from lokidoki.orchestrator.pipeline.extractor import extract_chunk_data
@@ -209,6 +210,37 @@ def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
     return request_spec
 
 
+_MEDIA_AUGMENT_TIMEOUT_S = 6.0
+
+
+async def run_media_augmentation_phase(trace, chunks, routes, executions, raw_text=""):
+    """Fan out media-producer skills in parallel and attach cards to the spec.
+
+    Runs independently of the LLM synthesis path so media fetches overlap
+    with the combine step's model inference. Augmentation is best-effort:
+    any failure or a timeout past :data:`_MEDIA_AUGMENT_TIMEOUT_S` yields
+    an empty list rather than breaking the turn.
+
+    ``raw_text`` flows through so the augmentor can gate + query on the
+    user's original utterance instead of the post-antecedent-resolution
+    chunk text (which can be contaminated by a stale recent_entity).
+    """
+    finish = trace.timed("media_augment")
+    try:
+        cards = await asyncio.wait_for(
+            augment_with_media(chunks, routes, executions, raw_text=raw_text),
+            timeout=_MEDIA_AUGMENT_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("media augmentation timed out after %ss", _MEDIA_AUGMENT_TIMEOUT_S)
+        cards = []
+    except Exception:  # noqa: BLE001 - augmentation must never break pipeline
+        logger.exception("media augmentation raised")
+        cards = []
+    finish(count=len(cards), kinds=[c.get("kind") for c in cards])
+    return cards
+
+
 async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime):
     """Read memory slots, decide LLM usage, produce final response."""
     finish = trace.timed("memory_read")
@@ -382,15 +414,16 @@ def _contextualize_query(query: str, raw_text: str, safe_context: dict) -> str:
     When the LLM emits ``[[NEED_SEARCH: is it free]]``, the bare query
     "is it free" will return irrelevant results. Uses the same antecedent
     resolver the main pipeline uses to replace pronouns with the most
-    recent topic.
+    recent entity (falling back to the broader topic).
     """
     from lokidoki.orchestrator.pipeline.antecedent import (
-        _extract_recent_topic,
+        _resolve_entity_and_topic,
         _try_resolve,
     )
-    topic = _extract_recent_topic(safe_context)
-    if topic:
-        resolved = _try_resolve(query, topic)
+    entity, topic = _resolve_entity_and_topic(safe_context)
+    referent = entity or topic
+    if referent:
+        resolved = _try_resolve(query, referent)
         if resolved != query:
             logger.info("[Loop] Contextualized query: '%s' → '%s'", query, resolved)
             return resolved

@@ -3750,7 +3750,7 @@
   },
   {
     "capability": "lookup_movie",
-    "description": "Look up details about a movie — title, release year, rating, synopsis.",
+    "description": "Look up details about a movie — title, release year, rating, synopsis, or trailer.",
     "examples": [
       "tell me about the movie inception",
       "what is the movie avatar about",
@@ -3763,7 +3763,23 @@
       "when did the matrix come out",
       "what year was jurassic park released",
       "who directed inception",
-      "what's the plot of avatar"
+      "what's the plot of avatar",
+      "show me the trailer for inception",
+      "show me the inception trailer",
+      "show me the maximum overdrive trailer",
+      "show me the dune movie trailer",
+      "play the trailer for dune",
+      "play the oppenheimer trailer",
+      "watch the trailer for barbie",
+      "watch the barbie trailer",
+      "trailer for the minecraft movie",
+      "the inception movie trailer",
+      "can i see the trailer for oppenheimer",
+      "i want to see the interstellar trailer",
+      "show me a clip from the dark knight",
+      "clip of the matrix",
+      "show me a scene from interstellar",
+      "show me the video for avatar"
     ],
     "enabled": true,
     "implementations": [
@@ -3975,5 +3991,136 @@
     ],
     "maturity": "production",
     "max_chunk_budget_ms": 6000
+  },
+  {
+    "capability": "get_video",
+    "description": "Find a YouTube video on any topic.",
+    "examples": [
+      "find a video about how to ferment kimchi",
+      "show me a review of the iphone 16",
+      "tutorial for changing a car battery",
+      "watch a video on the history of rome",
+      "find a video on how to tie a tie"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.youtube.get_video",
+        "handler_name": "skills.youtube.get_video",
+        "priority": 25,
+        "enabled": true,
+        "module_path": "lokidoki.orchestrator.skills.youtube",
+        "entry_point": "get_video"
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "get_video",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      }
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 12000
+  },
+  {
+    "capability": "get_music_video",
+    "description": "Find an official music video, live performance, or specific cover on YouTube.",
+    "examples": [
+      "find the official music video for am i evil",
+      "show me a live version of master of puppets",
+      "find a cover of bohemian rhapsody",
+      "play some live jazz",
+      "official video for the hunter by dokken",
+      "show me the thriller music video",
+      "show me michael jackson's thriller music video",
+      "show me the michael jackson thriller video",
+      "have you seen the thriller music video",
+      "have you ever seen the thriller video",
+      "have you ever seen michael jackson's thriller",
+      "play the thriller music video",
+      "play billie jean by michael jackson",
+      "watch the smooth criminal music video",
+      "watch the take on me music video",
+      "the official bohemian rhapsody music video",
+      "music video for november rain",
+      "show me the video for sweet child o mine"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.youtube.get_music_video",
+        "handler_name": "skills.youtube.get_music_video",
+        "priority": 25,
+        "enabled": true,
+        "module_path": "lokidoki.orchestrator.skills.youtube",
+        "entry_point": "get_music_video"
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      },
+      "video_type": {
+        "type": "string",
+        "required": false
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "get_music_video",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      }
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 12000
+  },
+  {
+    "capability": "get_youtube_channel",
+    "description": "Find a YouTube creator's channel and their content.",
+    "examples": [
+      "who is mkbhd",
+      "find the mrbeast channel",
+      "show me the verge youtube channel",
+      "find @marquesbrownlee on youtube",
+      "check out the channel linus tech tips"
+    ],
+    "enabled": true,
+    "implementations": [
+      {
+        "id": "skills.youtube.get_channel",
+        "handler_name": "skills.youtube.get_channel",
+        "priority": 25,
+        "enabled": true,
+        "module_path": "lokidoki.orchestrator.skills.youtube",
+        "entry_point": "get_youtube_channel"
+      }
+    ],
+    "parameters": {
+      "query": {
+        "type": "string",
+        "required": true
+      }
+    },
+    "mechanisms": [
+      {
+        "method": "get_youtube_channel",
+        "priority": 1,
+        "timeout_ms": 10000,
+        "requires_internet": true
+      }
+    ],
+    "maturity": "production",
+    "max_chunk_budget_ms": 12000
   }
 ]

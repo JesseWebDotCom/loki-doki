@@ -280,3 +280,71 @@ class TestWHQuestionPromotion:
         from lokidoki.orchestrator.routing.router import _is_factual_wh_question
         assert not _is_factual_wh_question("what's up")
         assert not _is_factual_wh_question("how are you")
+
+
+class TestTrailerPhrasesRouteToLookupMovie:
+    """Explicit trailer / clip / video-of intent must route to
+    ``lookup_movie`` so the media augmentor can surface a trailer card.
+
+    Previously these fell through to ``direct_chat`` because the
+    registry had no trailer-shaped examples, and the user would get a
+    text-only answer for an obvious media-intent request.
+    """
+
+    def _route(self, text: str):
+        runtime = get_runtime()
+        return route_chunk(RequestChunk(text=text, index=0), runtime)
+
+    def test_show_me_the_trailer(self):
+        match = self._route("show me the trailer for the minecraft movie")
+        assert match.capability == "lookup_movie", match
+
+    def test_bare_trailer_for(self):
+        match = self._route("trailer for dune")
+        assert match.capability == "lookup_movie", match
+
+    def test_clip_of_phrasing(self):
+        match = self._route("show me a clip from inception")
+        assert match.capability == "lookup_movie", match
+
+    def test_video_of_phrasing(self):
+        match = self._route("show me the video for avatar")
+        assert match.capability == "lookup_movie", match
+
+    def test_show_me_the_X_trailer_no_for(self):
+        # Reported failure: "show me the maximum overdrive trailer"
+        # fell through to direct_chat because the registry only had
+        # "show me the trailer for X" examples.
+        match = self._route("show me the maximum overdrive trailer")
+        assert match.capability == "lookup_movie", match
+
+    def test_show_me_the_X_movie_trailer(self):
+        match = self._route("show me the maximum overdrive movie trailer")
+        assert match.capability == "lookup_movie", match
+
+
+class TestMusicVideoPhrasesRouteToGetMusicVideo:
+    """'show me the X music video' / 'have you seen the X (music) video'
+    must route to ``get_music_video`` so the YouTube-native card path
+    fires directly — no text-only denial of a music video that exists.
+    """
+
+    def _route(self, text: str):
+        runtime = get_runtime()
+        return route_chunk(RequestChunk(text=text, index=0), runtime)
+
+    def test_show_me_the_thriller_music_video(self):
+        match = self._route("show me the thriller music video")
+        assert match.capability == "get_music_video", match
+
+    def test_have_you_seen_thriller_music_video(self):
+        match = self._route("have you ever seen the thriller music video")
+        assert match.capability == "get_music_video", match
+
+    def test_have_you_seen_michael_jacksons_thriller(self):
+        match = self._route("have you ever seen michael jackson's thriller music video")
+        assert match.capability == "get_music_video", match
+
+    def test_watch_the_X_music_video(self):
+        match = self._route("watch the smooth criminal music video")
+        assert match.capability == "get_music_video", match

@@ -51,3 +51,9 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 - **Target**: one DB file (`data/lokidoki.db`), both schemas coexist there. `MemoryStore` is the write surface for triple-shaped tiers; dedicated `pipeline_hooks` write session/episode/affect/behavior. `MemoryProvider` stays the async public face (chat/auth/projects) but its fact/people/relationship methods delegate to `MemoryStore` reads/writes.
 
 Seven-tier reference: [docs/DESIGN.md §6](../DESIGN.md).
+
+
+## NOTE
+
+Left memory_people_sql.create_person / add_relationship in place — they're still internally used by provider adapters and admin routes, contrary to what the chunk doc assumed.
+Did not touch the deferred-from-chunk-3 test predicate migrations (e.g. test_auth_api::test_user_isolation_facts, test_memory_search_hybrid) — they're preexisting failures unrelated to the migration core, and sprawling them in here would have made the commit unreviewable.

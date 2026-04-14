@@ -1,0 +1,45 @@
+{
+  "name": "YouTube Content",
+  "description": "Find and embed YouTube videos and creator channels.",
+  "capabilities": [
+    {
+      "capability": "get_video",
+      "description": "Find a YouTube video on any topic (tutorials, reviews, education, entertainment).",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "The search query (e.g. 'how to fix a faucet', 'iphone 16 review').",
+          "required": true
+        }
+      }
+    },
+    {
+      "capability": "get_music_video",
+      "description": "Find an official music video, live performance, or specific cover on YouTube.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "The name of the artist and song.",
+          "required": true
+        },
+        "video_type": {
+          "type": "string",
+          "enum": ["official", "live", "cover"],
+          "description": "The type of music video to find.",
+          "default": "official"
+        }
+      }
+    },
+    {
+      "capability": "get_youtube_channel",
+      "description": "Find a YouTube creator's channel and their latest content.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "The name of the YouTuber or channel handle (e.g. 'MKBHD', '@mrbeast').",
+          "required": true
+        }
+      }
+    }
+  ]
+}

@@ -140,6 +140,10 @@ class RequestSpec:
     # the API so the dev tools UI can show which model is actually
     # being used.
     llm_model: str | None = None
+    # Up to 3 media cards attached by the media augmentor (YouTube,
+    # Spotify, images). Rendered as a MediaBar above the assistant
+    # text. Never fed to the synthesis prompt — pure UI augmentation.
+    media: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

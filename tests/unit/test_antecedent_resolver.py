@@ -87,9 +87,33 @@ class TestTryResolve:
     def test_no_pronoun_returns_unchanged(self):
         assert _try_resolve("what time is the movie", "Avatar") == "what time is the movie"
 
-    def test_long_text_skipped(self):
+    def test_long_text_still_resolved(self):
+        """Long sentences used to be skipped by a 12-word cap. Real speech
+        (e.g. "I went to a Limp Bizkit concert with my daughter and saw him
+        perform") routinely exceeds 12 words; dropping the cap lets the
+        pronoun resolve. Gating moved to in-chunk antecedent detection."""
         long = "he was on the masked singer and also appeared in many other shows and things"
-        assert _try_resolve(long, "Corey Feldman") == long
+        assert _try_resolve(long, "Corey Feldman") == (
+            "Corey Feldman was on the masked singer and also"
+            " appeared in many other shows and things"
+        )
+
+    def test_in_chunk_antecedent_blocks_substitution(self):
+        """If the current chunk introduces a new proper-noun antecedent
+        before the pronoun, defer to that rather than the session entity.
+        ("Tell me about Obi-Wan. Is he a Jedi?" — "he" = Obi-Wan.)"""
+        text = "Obi-Wan trained Anakin and he was a Jedi Master"
+        assert _try_resolve(text, "Corey Feldman") == text
+
+    def test_lowercase_named_entity_does_not_block(self):
+        """User speech often lacks capitalization ("limp bizkit concert").
+        The in-chunk antecedent check relies on capitalization, so
+        lowercased band/product names do not mask the session entity."""
+        text = "i went to a limp bizkit concert with my daughter and saw him perform"
+        assert _try_resolve(text, "Corey Feldman") == (
+            "i went to a limp bizkit concert with my daughter"
+            " and saw Corey Feldman perform"
+        )
 
     def test_that_movie_not_substituted(self):
         """'that movie' uses 'that' as a determiner, not a pronoun —

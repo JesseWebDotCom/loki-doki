@@ -85,12 +85,34 @@ export interface SourceInfo {
   title: string;
 }
 
+export type MediaCard =
+  | {
+      kind: 'youtube_video';
+      url: string;
+      video_id?: string;
+      title?: string;
+      channel?: string;
+      video_type?: string;
+      score?: number;
+    }
+  | {
+      kind: 'youtube_channel';
+      url: string;
+      channel_name?: string;
+      handle?: string;
+      featured_video_id?: string;
+      avatar_url?: string;
+    };
+
 export interface SynthesisData {
   response: string;
   model: string;
   latency_ms: number;
   tone: string;
   sources?: SourceInfo[];
+  /** Up to 3 media cards rendered above the assistant text. Never
+   * woven into the response string — purely structural UI data. */
+  media?: MediaCard[];
   platform: string;
   /** Optional short summary for TTS — overrides `response` for audio
    * playback when present. Used when the on-screen response is rich

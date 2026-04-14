@@ -87,6 +87,7 @@ def _collect_sources(spec: RequestSpec) -> list[dict[str, str]]:
                 continue
             seen_urls.add(url)
             sources.append({
+                **src,
                 "url": url,
                 "title": src.get("title") or url,
             })
@@ -95,6 +96,7 @@ def _collect_sources(spec: RequestSpec) -> list[dict[str, str]]:
         if legacy_url and legacy_url not in seen_urls:
             seen_urls.add(legacy_url)
             sources.append({
+                **_sanitize_result(result),
                 "url": legacy_url,
                 "title": result.get("source_title") or legacy_url,
             })
@@ -106,8 +108,42 @@ def _render_sources_list(sources: list[dict[str, str]]) -> str:
     if not sources:
         return ""
     return " ".join(
-        f"[src:{i}] {src['title']} ({src['url']})"
+        f"[src:{i}] {src['title']} ({src['url']})" + (f" [type:{src['type']}]" if src.get("type") else "")
         for i, src in enumerate(sources, 1)
+    )
+
+
+def _render_media_hint(spec: RequestSpec) -> str:
+    """Tell the LLM about media cards the UI will render above its reply.
+
+    Returns an empty string when no media is attached so non-media
+    turns pay zero prompt-budget cost. When media is present, emits a
+    short block combining (a) the card metadata and (b) the rule: do
+    NOT deny the card's existence, because the user is literally about
+    to see it.
+    """
+    cards = list(getattr(spec, "media", []) or [])
+    if not cards:
+        return ""
+    lines: list[str] = []
+    for card in cards:
+        kind = str(card.get("kind") or "")
+        if kind == "youtube_video":
+            title = card.get("title") or "video"
+            channel = card.get("channel") or card.get("channel_name") or ""
+            suffix = f" by {channel}" if channel else ""
+            lines.append(f"- YouTube video: {title}{suffix}")
+        elif kind == "youtube_channel":
+            name = card.get("channel_name") or "channel"
+            handle = card.get("handle") or ""
+            suffix = f" ({handle})" if handle else ""
+            lines.append(f"- YouTube channel: {name}{suffix}")
+        else:
+            title = card.get("title") or card.get("url") or kind
+            lines.append(f"- {kind}: {title}")
+    return (
+        "media_attached (already visible to the user above your reply — do NOT say you "
+        "couldn't find it, and do NOT deny its existence):\n" + "\n".join(lines)
     )
 
 
@@ -217,6 +253,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         behavior_prompt=behavior_prompt,
         confidence_guide=_build_confidence_guide(spec),
         sources_list=_render_sources_list(sources),
+        media_hint=_render_media_hint(spec),
         current_time=current_time,
         user_name=user_name,
         **memory_slots,
