@@ -35,6 +35,7 @@ from .preflight.llm_engine import (
     pull_llm_weights,
     warm_resident_llm,
 )
+from .preflight.vision import ensure_vision
 from .run_app import spawn_fastapi_app
 
 
@@ -122,6 +123,8 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "pull-llm-fast": _pull_llm_fast_run,
     "pull-llm-thinking": _pull_llm_thinking_run,
     "warm-resident-llm": warm_resident_llm,
+    "install-vision": ensure_vision,
+    "pull-vision-model": ensure_vision,
     "spawn-app": spawn_fastapi_app,
 }
 

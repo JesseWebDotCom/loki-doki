@@ -9,6 +9,8 @@ wraps a single user message for callers migrating from Ollama's
 """
 from __future__ import annotations
 
+import base64
+import io
 import json
 import logging
 from dataclasses import dataclass
@@ -17,6 +19,9 @@ from typing import Any, AsyncIterator, Optional, Sequence, Union
 import httpx
 
 from .spec import ProviderSpec
+
+
+VisionImage = Union[bytes, "Any"]  # bytes OR PIL.Image.Image — imported lazily
 
 
 _log = logging.getLogger(__name__)
@@ -181,6 +186,72 @@ class HTTPProvider:
                 yield chunk.delta
 
     # ------------------------------------------------------------------
+    # vision
+    # ------------------------------------------------------------------
+    async def vision(
+        self,
+        model: str,
+        images: Sequence[VisionImage],
+        prompt: str,
+        *,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        extra_body: Optional[dict] = None,
+    ) -> dict:
+        """POST an OpenAI-style vision chat to the configured vision endpoint.
+
+        ``images`` may be raw ``bytes`` (PNG-encoded) or PIL ``Image``
+        objects — PIL is imported lazily so callers that never use
+        vision don't pay the import cost. All entries are base64-encoded
+        and emitted as ``image_url`` content parts alongside ``prompt``.
+
+        Routes to :attr:`ProviderSpec.vision_endpoint` when set (so
+        llama.cpp profiles hit :11435 instead of the text :11434); falls
+        back to :attr:`ProviderSpec.endpoint` on engines where the same
+        process handles both modalities (MLX).
+        """
+        if not images:
+            raise ValueError("vision() requires at least one image")
+        content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for img in images:
+            content_parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": _image_data_url(img)},
+                }
+            )
+        messages = [{"role": "user", "content": content_parts}]
+        payload = self._chat_payload(
+            model=model,
+            messages=messages,  # type: ignore[arg-type] — mixed-content shape is OpenAI-spec
+            stream=False,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format=None,
+            extra_body=extra_body,
+        )
+        endpoint = self.spec.vision_endpoint or self.spec.endpoint
+        client = self._vision_client(endpoint)
+        try:
+            resp = await client.post("/v1/chat/completions", json=payload)
+        except (httpx.ConnectError, ConnectionError, OSError) as exc:
+            raise ProviderError(f"vision endpoint unreachable at {endpoint}") from exc
+        finally:
+            if client is not self._client:
+                await client.aclose()
+        if resp.status_code != 200:
+            raise ProviderError(
+                f"vision endpoint error {resp.status_code}: {resp.text[:200]}"
+            )
+        return resp.json()
+
+    def _vision_client(self, endpoint: str) -> httpx.AsyncClient:
+        """Reuse the text client when endpoints match; otherwise build a short-lived one."""
+        if endpoint == self.spec.endpoint:
+            return self._client
+        return httpx.AsyncClient(base_url=endpoint, timeout=self._client.timeout)
+
+    # ------------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------------
     async def close(self) -> None:
@@ -223,6 +294,31 @@ def _extract_full_text(body: dict) -> str:
         return ""
     message = choices[0].get("message") or {}
     return message.get("content") or ""
+
+
+def _image_data_url(img: VisionImage) -> str:
+    """Encode ``img`` as a ``data:image/png;base64,…`` URL.
+
+    Accepts raw ``bytes`` (assumed PNG-encoded) or a PIL ``Image`` which
+    we serialise to PNG in-memory. PIL is imported lazily so the
+    text-only path stays dependency-light.
+    """
+    if isinstance(img, (bytes, bytearray)):
+        data = bytes(img)
+    else:
+        try:
+            from PIL import Image  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover — PIL ships with the app
+            raise ProviderError(
+                "vision() received a non-bytes image but PIL is not installed"
+            ) from exc
+        if not isinstance(img, Image.Image):
+            raise TypeError(f"vision() image must be bytes or PIL.Image, got {type(img)!r}")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        data = buf.getvalue()
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 async def _iter_sse_events(lines: AsyncIterator[str]) -> AsyncIterator[str]:

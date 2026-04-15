@@ -195,6 +195,23 @@ LLAMA_CPP = {
 MLX_LM = {"version": "0.31.2"}
 
 
+# llama.cpp loads vision models as two files: the language-model weights
+# (``.gguf``) and the visual projector (``mmproj-*.gguf``). Keys match
+# the values of ``PLATFORM_MODELS[profile]["vision_model"]`` on llama.cpp
+# profiles. We do not pin per-file sha256 — HF commit pinning via
+# ``<repo_id>@<sha>`` in the catalog covers integrity.
+VISION_MMPROJ: dict[str, dict[str, str]] = {
+    "Qwen/Qwen2-VL-7B-Instruct-GGUF:Q4_K_M": {
+        "weights_filename": "Qwen2-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj_filename": "mmproj-Qwen2-VL-7B-Instruct-f16.gguf",
+    },
+    "Qwen/Qwen2-VL-2B-Instruct-GGUF:Q4_K_M": {
+        "weights_filename": "Qwen2-VL-2B-Instruct-Q4_K_M.gguf",
+        "mmproj_filename": "mmproj-Qwen2-VL-2B-Instruct-f16.gguf",
+    },
+}
+
+
 PYTHON_MIN_VERSION = (3, 8, 0)
 """Floor for the *system* Python that launches Layer 1. The embedded
 python-build-standalone interpreter (3.12) runs Layer 2 once the wizard

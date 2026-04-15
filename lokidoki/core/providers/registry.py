@@ -22,6 +22,19 @@ _ENDPOINT_FOR_ENGINE = {
 }
 
 
+# MLX serves text + vision from the same ``mlx_lm.server`` process. The
+# llama.cpp profiles spawn a dedicated second llama-server instance on
+# :11435 with ``--mmproj``; splitting the process keeps the text model's
+# KV cache warm across modality switches. Hailo routes both paths
+# through ``hailo-ollama`` (chunk 7).
+_VISION_ENDPOINT_FOR_ENGINE = {
+    "mlx": "http://127.0.0.1:11434",
+    "llama_cpp_vulkan": "http://127.0.0.1:11435",
+    "llama_cpp_cpu": "http://127.0.0.1:11435",
+    "hailo_ollama": "http://127.0.0.1:11434",
+}
+
+
 def resolve_llm_provider(profile: str) -> ProviderSpec:
     """Build a :class:`ProviderSpec` for ``profile`` using ``PLATFORM_MODELS``.
 
@@ -40,4 +53,6 @@ def resolve_llm_provider(profile: str) -> ProviderSpec:
         model_fast=models["llm_fast"],
         model_thinking=models["llm_thinking"],
         api_style="openai_compat",
+        vision_model=models.get("vision_model"),
+        vision_endpoint=_VISION_ENDPOINT_FOR_ENGINE.get(engine),
     )

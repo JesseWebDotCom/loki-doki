@@ -25,7 +25,15 @@ def test_frozen_blocks_mutation() -> None:
 
 def test_required_fields_present() -> None:
     fields = {f.name for f in dataclasses.fields(ProviderSpec)}
-    assert fields == {"name", "endpoint", "model_fast", "model_thinking", "api_style"}
+    assert fields == {
+        "name",
+        "endpoint",
+        "model_fast",
+        "model_thinking",
+        "api_style",
+        "vision_model",
+        "vision_endpoint",
+    }
 
 
 def test_default_api_style_openai_compat() -> None:

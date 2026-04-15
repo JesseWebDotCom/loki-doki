@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,14 @@ class ProviderSpec:
             Ollama 0.1.37+ all expose ``/v1/chat/completions`` SSE. A
             future HTTPS-only or OpenRouter-style backend would add a
             new value here instead of branching inside the client.
+        vision_model: Engine-specific identifier of the image-aware
+            model. Same format rules as ``model_fast``. ``None`` when
+            the profile's engine has no vision path wired yet.
+        vision_endpoint: Base URL of the vision-capable server. On mac
+            (MLX) this equals ``endpoint`` — vision + text share the
+            same process. On llama.cpp profiles it is a distinct
+            loopback port (``:11435``) so the text model's KV cache
+            does not churn across modalities.
     """
 
     name: str
@@ -32,6 +41,8 @@ class ProviderSpec:
     model_fast: str
     model_thinking: str
     api_style: str = "openai_compat"
+    vision_model: Optional[str] = None
+    vision_endpoint: Optional[str] = None
 
     def model_for(self, complexity: str) -> str:
         """Pick ``model_fast`` or ``model_thinking`` from a complexity tag."""
