@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="/bootstrap/lokidoki-logo.svg">
+    <link rel="stylesheet" href="/bootstrap/bootstrap.css">
+    <title>LokiDoki · Getting things ready</title>
+    <!-- BOOTSTRAP_DATA -->
+</head>
+<body>
+    <div class="wizard">
+        <div class="ghost">
+            <img src="/bootstrap/lokidoki-logo.svg" width="64" height="64" alt="LokiDoki" />
+        </div>
+        <h1>Hey, I'm LokiDoki!</h1>
+        <p class="subtitle">Give me a sec to wake up — I'll be ready to chat in just a moment.</p>
+        <p id="profile-badge" class="profile-badge">Installing for: <span id="profile-label">…</span></p>
+
+        <div id="steps-grid" class="steps-grid"></div>
+
+        <div class="progress-section">
+            <div class="progress-bar-bg"><div id="progress-fill" class="progress-bar-fill"></div></div>
+            <div class="console-header">
+                <span id="current-task" class="current-task">System idle…</span>
+                <button class="details-btn" type="button" id="toggle-console-btn">View Detailed Logs</button>
+            </div>
+        </div>
+
+        <div id="halt-banner" class="halt-banner" hidden>
+            <h2>Install halted</h2>
+            <p id="halt-error"></p>
+            <p id="halt-remediation" class="halt-remediation"></p>
+            <button type="button" id="retry-btn" class="btn btn-retry">Retry step</button>
+        </div>
+
+        <pre id="console" class="console" hidden></pre>
+
+        <div class="buttons">
+            <button id="launch-btn" type="button" class="btn btn-launch" hidden>Let's chat →</button>
+            <button id="waiting-btn" type="button" class="btn btn-disabled">Just a sec…</button>
+        </div>
+    </div>
+    <script src="/bootstrap/bootstrap.js"></script>
+</body>
+</html>
