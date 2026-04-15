@@ -38,7 +38,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 3 | [Embedded Python + uv + deps in wizard](chunk-3-embedded-python.md)     | done    | 043ff09 |
 | 4 | [Embedded Node + frontend + CPU audio](chunk-4-embedded-node-audio.md)  | done    | 8b91aa3 |
 | 5 | [LLM engines (MLX, llama.cpp Vulkan/CPU) + provider layer](chunk-5-llm-engines.md) | done    | 77c8b5a |
-| 6 | [Vision models per engine](chunk-6-vision.md)                           | pending |         |
+| 6 | [Vision models per engine](chunk-6-vision.md)                           | done    | befa3d0 |
 | 7 | [pi_hailo runtime + graceful fallback](chunk-7-hailo.md)                | pending |         |
 | 8 | [Windows support (run.bat + win branches)](chunk-8-windows.md)          | pending |         |
 | 9 | [Offline bundle + README rewrite](chunk-9-offline.md)                   | pending |         |
