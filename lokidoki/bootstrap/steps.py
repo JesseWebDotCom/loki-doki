@@ -30,6 +30,9 @@ from .preflight import (
     install_frontend_deps,
     sync_python_deps,
 )
+from .preflight.hailo_ollama import ensure_hailo_ollama
+from .preflight.hailo_runtime import ensure_hailo_runtime
+from .preflight.hef_files import ensure_hef_files
 from .preflight.llm_engine import (
     ensure_llm_engine,
     pull_llm_weights,
@@ -119,6 +122,9 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "install-piper": _install_piper_run,
     "install-whisper": _install_whisper_run,
     "install-wake-word": _install_wake_word_run,
+    "check-hailo-runtime": ensure_hailo_runtime,
+    "install-hailo-ollama": ensure_hailo_ollama,
+    "ensure-hef-files": ensure_hef_files,
     "install-llm-engine": ensure_llm_engine,
     "pull-llm-fast": _pull_llm_fast_run,
     "pull-llm-thinking": _pull_llm_thinking_run,
@@ -141,11 +147,19 @@ class Step:
     run: RunFn = field(default=None)  # type: ignore[assignment]
 
 
-_COMMON_PRE: list[tuple[str, str, bool, int | None]] = [
+# Step specs are flat (id, label, can_skip, est) tuples. Profile-specific
+# rewrites (Hailo split, sub-steps swapped on pi_hailo) operate on these
+# spec lists, then ``_to_steps`` materialises ``Step`` objects with the
+# right runners attached.
+_PRE_TOOLCHAIN: list[tuple[str, str, bool, int | None]] = [
     ("detect-profile", "Detect host profile", False, 2),
     ("embed-python", "Install embedded Python", False, 60),
     ("install-uv", "Install uv", False, 15),
     ("sync-python-deps", "Sync Python dependencies", False, 120),
+]
+
+
+_PRE_FRONTEND: list[tuple[str, str, bool, int | None]] = [
     ("embed-node", "Install embedded Node.js", False, 60),
     ("install-frontend-deps", "Install frontend dependencies", False, 120),
     ("build-frontend", "Build frontend bundle", False, 60),
@@ -173,11 +187,15 @@ _COMMON_MEDIA: list[tuple[str, str, bool, int | None]] = [
 ]
 
 
-_HAILO_PRE: list[tuple[str, str, bool, int | None]] = [
-    ("check-hailo-runtime", "Verify Hailo runtime", False, 5),
-    ("install-hailo-ollama", "Install hailo-ollama", False, 120),
-    ("ensure-hef-files", "Ensure HEF model files", False, 120),
-]
+_CHECK_HAILO: tuple[str, str, bool, int | None] = (
+    "check-hailo-runtime", "Verify Hailo runtime", False, 5,
+)
+_INSTALL_HAILO_OLLAMA: tuple[str, str, bool, int | None] = (
+    "install-hailo-ollama", "Install hailo-ollama", False, 120,
+)
+_ENSURE_HEF: tuple[str, str, bool, int | None] = (
+    "ensure-hef-files", "Ensure HEF model files", False, 120,
+)
 
 
 # Tight-storage Pi setups can defer STT + wake-word — the app still
@@ -205,17 +223,38 @@ def _to_steps(
     return steps
 
 
+def _hailo_specs() -> list[tuple[str, str, bool, int | None]]:
+    """pi_hailo step ordering — see chunk-7-hailo.md.
+
+    - ``check-hailo-runtime`` runs immediately after ``sync-python-deps``
+      so a missing HAT can fall back to ``pi_cpu`` before we burn the
+      ~3 minutes the frontend build takes.
+    - ``install-hailo-ollama`` replaces ``install-llm-engine`` —
+      hailo-ollama owns the engine slot on this profile.
+    - ``ensure-hef-files`` lands before ``pull-vision-model`` (which
+      becomes a no-op on hailo_ollama) since the HEFs *are* the vision
+      weights for this profile.
+    """
+    llm = [s for s in _COMMON_LLM if s[0] != "install-llm-engine"]
+    llm.insert(0, _INSTALL_HAILO_OLLAMA)
+
+    media: list[tuple[str, str, bool, int | None]] = []
+    for spec in _COMMON_MEDIA:
+        if spec[0] == "pull-vision-model":
+            media.append(_ENSURE_HEF)
+        media.append(spec)
+
+    return _PRE_TOOLCHAIN + [_CHECK_HAILO] + _PRE_FRONTEND + llm + media
+
+
 def build_steps(profile: str) -> list[Step]:
     """Return the ordered step list for ``profile``.
 
-    ``pi_hailo`` inserts the Hailo runtime checks immediately before the
-    shared LLM-engine block. Every other profile shares a single linear
-    ordering.
+    ``pi_hailo`` swaps in Hailo-specific runners and reorders the
+    pre-toolchain block so the HAT is verified before slow steps run.
+    Every other profile shares a single linear ordering.
     """
-    pre = _to_steps(_COMMON_PRE, profile)
-    llm = _to_steps(_COMMON_LLM, profile)
-    media = _to_steps(_COMMON_MEDIA, profile)
-
     if profile == "pi_hailo":
-        return pre + _to_steps(_HAILO_PRE, profile) + llm + media
-    return pre + llm + media
+        return _to_steps(_hailo_specs(), profile)
+    specs = _PRE_TOOLCHAIN + _PRE_FRONTEND + _COMMON_LLM + _COMMON_MEDIA
+    return _to_steps(specs, profile)

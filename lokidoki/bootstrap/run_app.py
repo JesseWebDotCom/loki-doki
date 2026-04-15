@@ -22,15 +22,34 @@ from .events import PipelineComplete, StepLog
 
 _log = logging.getLogger(__name__)
 _STEP_ID = "spawn-app"
-_APP_PORT = 8000
 _READY_TIMEOUT_S = 30.0
 _POLL_INTERVAL_S = 0.5
 
 
+def app_port_for(profile: str) -> int:
+    """Port the FastAPI app + stdlib wizard bind on for ``profile``.
+
+    ``pi_hailo`` moves to :7860 because hailo-ollama owns :8000 — every
+    other profile keeps the historical default.
+    """
+    return 7860 if profile == "pi_hailo" else 8000
+
+
+def app_host_for(profile: str) -> str:
+    """Bind host for ``profile`` — Pis listen on the LAN, desktops on loopback.
+
+    Mirrors the legacy behaviour from
+    [loki-doki-old/app/config.py](../../../loki-doki-old/app/config.py): a
+    Pi installation almost always wants to be reachable from the user's
+    laptop or phone, while desktop installs default to localhost-only.
+    """
+    return "0.0.0.0" if profile in ("pi_cpu", "pi_hailo") else "127.0.0.1"
+
+
 async def spawn_fastapi_app(ctx: StepContext) -> str:
     """Launch uvicorn, poll health, emit ``PipelineComplete``. Return app URL."""
-    host = "0.0.0.0" if ctx.profile.startswith("pi_") else "127.0.0.1"
-    port = _APP_PORT
+    host = app_host_for(ctx.profile)
+    port = app_port_for(ctx.profile)
     project_root = ctx.data_dir.parent.resolve()
     interpreter = _resolve_interpreter(ctx, project_root)
 

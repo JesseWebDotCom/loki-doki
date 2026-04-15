@@ -35,10 +35,13 @@ async def ensure_vision(ctx: StepContext) -> None:
         await ensure_vision_llama_cpp(ctx, vision_model)
         return
     if engine == "hailo_ollama":
+        # On pi_hailo the vision HEF is fetched by the dedicated
+        # ``ensure-hef-files`` step and consumed in-process by the
+        # vision subsystem — no server to start, no model to load here.
         ctx.emit(
             StepLog(
                 step_id=_STEP_ID,
-                line="hailo vision (.hef) install deferred to the pi_hailo chunk",
+                line=f"hailo vision HEF {vision_model!r} loaded in-process — no server",
             )
         )
         return

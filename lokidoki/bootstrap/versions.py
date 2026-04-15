@@ -212,6 +212,53 @@ VISION_MMPROJ: dict[str, dict[str, str]] = {
 }
 
 
+# hailo-ollama is the Hailo HAT-aware Ollama fork. Only the linux/aarch64
+# build is meaningful — the engine only ever runs on a Pi 5 + Hailo HAT.
+# Filename, sha256, and version are pinned placeholders the operator
+# refreshes via ``scripts/update_bootstrap_versions.py`` once Hailo
+# publishes a stable release tag the wizard can fetch unattended.
+HAILO_OLLAMA = {
+    "version": "0.1.0",
+    "artifacts": {
+        ("linux", "aarch64"): (
+            "hailo-ollama-linux-arm64.tar.gz",
+            "0" * 64,
+        ),
+    },
+    "url_template": (
+        "https://github.com/hailo-ai/hailo-ollama/releases/download/"
+        "v{version}/{filename}"
+    ),
+}
+
+
+# Pinned HEF (Hailo Executable Format) weight files for ``pi_hailo``.
+# Map: HEF filename → (url, sha256, approx_size_mb). Filenames must
+# match the values in ``PLATFORM_MODELS["pi_hailo"]`` (vision_model,
+# object_detector_model, face_detector_model). Sizes are advisory —
+# the wizard surfaces them as ETA hints during ``ensure-hef-files``.
+HEF_FILES: dict[str, tuple[str, str, int]] = {
+    "yolov8m.hef": (
+        "https://hailo-csdata.s3.eu-west-2.amazonaws.com/"
+        "resources/hef/v2.13/yolov8m.hef",
+        "0" * 64,
+        50,
+    ),
+    "yolov5s_personface.hef": (
+        "https://hailo-csdata.s3.eu-west-2.amazonaws.com/"
+        "resources/hef/v2.13/yolov5s_personface.hef",
+        "0" * 64,
+        29,
+    ),
+    "Qwen2-VL-2B-Instruct.hef": (
+        "https://hailo-csdata.s3.eu-west-2.amazonaws.com/"
+        "resources/hef/v2.13/Qwen2-VL-2B-Instruct.hef",
+        "0" * 64,
+        420,
+    ),
+}
+
+
 PYTHON_MIN_VERSION = (3, 8, 0)
 """Floor for the *system* Python that launches Layer 1. The embedded
 python-build-standalone interpreter (3.12) runs Layer 2 once the wizard

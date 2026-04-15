@@ -25,9 +25,9 @@ def test_mac_resolves_to_mlx_on_11434() -> None:
 def test_pi_hailo_resolves_to_hailo_ollama() -> None:
     spec = resolve_llm_provider("pi_hailo")
     assert spec.name == "hailo_ollama"
-    # Single loopback port simplifies Layer 2 — the wizard picks which
-    # engine is live, the client just speaks OpenAI-compat.
-    assert spec.endpoint == "http://127.0.0.1:11434"
+    # hailo-ollama owns :8000; the FastAPI app moves to :7860 on this
+    # profile (see lokidoki.bootstrap.run_app.app_port_for).
+    assert spec.endpoint == "http://127.0.0.1:8000"
 
 
 def test_unknown_profile_raises() -> None:

@@ -12,6 +12,11 @@ from pathlib import Path
 
 from ..context import StepContext
 from ..events import StepLog
+from .hailo_ollama import (
+    HAILO_OLLAMA_PORT,
+    ensure_hailo_ollama,
+    start_hailo_ollama,
+)
 from .llama_cpp_runtime import (
     ensure_llama_cpp,
     llama_server_path,
@@ -47,13 +52,7 @@ async def ensure_llm_engine(ctx: StepContext) -> None:
     elif engine in {"llama_cpp_vulkan", "llama_cpp_cpu"}:
         await ensure_llama_cpp(ctx)
     elif engine == "hailo_ollama":
-        # chunk 7 owns this path; leave a breadcrumb instead of crashing
-        ctx.emit(
-            StepLog(
-                step_id=_STEP_ID_INSTALL,
-                line="hailo_ollama install deferred to the pi_hailo chunk",
-            )
-        )
+        await ensure_hailo_ollama(ctx)
     else:
         raise ValueError(f"unknown llm_engine {engine!r}")
 
@@ -76,12 +75,48 @@ async def pull_llm_weights(ctx: StepContext, slot: str, step_id: str) -> Path:
         return await pull_gguf(ctx, step_id, model_id)
 
     if engine == "hailo_ollama":
-        # hailo-ollama pulls weights via its own CLI in chunk 7; until
-        # then emit an informational skip.
-        ctx.emit(StepLog(step_id=step_id, line=f"{slot} pull deferred to hailo chunk"))
-        return ctx.data_dir / "hef"  # returned path is unused on this profile
+        # hailo-ollama exposes Ollama's ``/api/pull`` — kick the model
+        # down via its own engine. Returns the path the engine reports.
+        await _pull_via_hailo_ollama(ctx, step_id, model_id)
+        return ctx.data_dir / "hailo_ollama"
 
     raise ValueError(f"unknown llm_engine {engine!r}")
+
+
+async def _pull_via_hailo_ollama(
+    ctx: StepContext, step_id: str, model_id: str
+) -> None:
+    """Trigger ``POST /api/pull`` on the running hailo-ollama instance.
+
+    Ensures the engine is up first (idempotent — :func:`ensure_hailo_ollama`
+    no-ops if it already is). Logs progress events but tolerates a
+    transient ``404`` so an offline-bundle install can stage the model
+    files manually before the server starts.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    await ensure_hailo_ollama(ctx)
+    url = f"http://127.0.0.1:{HAILO_OLLAMA_PORT}/api/pull"
+    body = json.dumps({"name": model_id}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    ctx.emit(StepLog(step_id=step_id, line=f"hailo-ollama pull {model_id}"))
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8", errors="replace").rstrip()
+                if line:
+                    ctx.emit(StepLog(step_id=step_id, line=line))
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"hailo-ollama pull of {model_id!r} failed: {exc}"
+        ) from exc
 
 
 async def warm_resident_llm(ctx: StepContext) -> None:
@@ -103,10 +138,34 @@ async def warm_resident_llm(ctx: StepContext) -> None:
         return
 
     if engine == "hailo_ollama":
-        ctx.emit(StepLog(step_id=_STEP_ID_WARM, line="hailo_ollama warm deferred to chunk 7"))
+        # hailo-ollama is already running by the time we get here
+        # (``ensure_hailo_ollama`` is idempotent and start-on-demand).
+        # Re-assert health; restart the server if a crash dropped it.
+        if not _hailo_ollama_alive():
+            await start_hailo_ollama(ctx)
+        ctx.emit(
+            StepLog(
+                step_id=_STEP_ID_WARM,
+                line=f"hailo-ollama serving fast model {fast_model!r} on :{HAILO_OLLAMA_PORT}",
+            )
+        )
         return
 
     raise ValueError(f"unknown llm_engine {engine!r}")
+
+
+def _hailo_ollama_alive() -> bool:
+    """Quick, blocking ``/api/version`` probe used by ``warm-resident-llm``."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{HAILO_OLLAMA_PORT}/api/version", timeout=2
+        ) as resp:
+            return 200 <= resp.status < 500
+    except (urllib.error.URLError, OSError):
+        return False
 
 
 # re-export path resolver so steps.py can check server liveness

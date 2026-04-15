@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import json
 import logging
 import queue
 import threading
 import time
-from typing import AsyncIterator, Iterable, Iterator
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, Iterator
 
 from .context import StepContext
 from .events import (
@@ -27,9 +28,43 @@ from .events import (
     PipelineHalted,
     StepDone,
     StepFailed,
+    StepLog,
     StepStart,
 )
-from .steps import Step
+
+
+if TYPE_CHECKING:
+    # ``steps`` imports preflight modules that import this file. Pull the
+    # ``Step`` name only for type hints — runtime never sees this import.
+    from .steps import Step
+
+
+class StepHalt(Exception):
+    """A step raises this after emitting its own ``StepFailed``.
+
+    ``Pipeline._run_one`` treats this as a hard failure but skips its
+    fallback ``StepFailed`` emit (remediation/retryable would be wrong).
+    Steps that need a custom remediation string emit ``StepFailed``
+    themselves, then raise ``StepHalt`` to abort the pipeline.
+    """
+
+
+class ProfileFallback(Exception):
+    """Raised by a step when the active profile cannot run on this host.
+
+    ``Pipeline.run`` catches it, persists the new profile to
+    ``.lokidoki/bootstrap_config.json`` (so a re-run does not re-probe),
+    rebuilds the step list via :func:`build_steps`, and restarts from
+    the top. The user sees a single banner — no crash, no manual rerun.
+    """
+
+    def __init__(self, new_profile: str, reason: str = "") -> None:
+        self.new_profile = new_profile
+        self.reason = reason
+        super().__init__(
+            f"falling back to {new_profile}"
+            + (f": {reason}" if reason else "")
+        )
 
 
 _log = logging.getLogger(__name__)
@@ -68,17 +103,89 @@ class Pipeline:
     # main run
     # ------------------------------------------------------------------
     async def run(self, steps: Iterable[Step], ctx: StepContext) -> None:
-        """Execute ``steps`` in order. Stops on the first failure."""
+        """Execute ``steps`` in order. Stops on the first failure.
+
+        A step may raise :class:`ProfileFallback` to swap the active
+        profile (e.g. ``pi_hailo`` → ``pi_cpu`` when no Hailo HAT is
+        attached). The pipeline rewrites its step list, persists the
+        decision to ``bootstrap_config.json``, and restarts from the top.
+        We allow a single fallback per ``run`` call to keep the loop
+        bounded.
+        """
         async with self._run_lock:
-            self._steps_by_id = {s.id: s for s in steps}
-            for step in self._steps_by_id.values():
-                ok = await self._run_one(step, ctx)
-                if not ok:
-                    self.emit(PipelineHalted(reason=f"{step.id} failed"))
+            current_steps = list(steps)
+            fallbacks_used = 0
+            max_fallbacks = 1
+            while True:
+                self._steps_by_id = {s.id: s for s in current_steps}
+                try:
+                    halted = False
+                    for step in self._steps_by_id.values():
+                        ok = await self._run_one(step, ctx)
+                        if not ok:
+                            self.emit(PipelineHalted(reason=f"{step.id} failed"))
+                            self.done = True
+                            halted = True
+                            break
+                    if halted:
+                        return
+                    self.emit(PipelineComplete(app_url=self._app_url))
                     self.done = True
                     return
-            self.emit(PipelineComplete(app_url=self._app_url))
-            self.done = True
+                except ProfileFallback as fb:
+                    if fallbacks_used >= max_fallbacks:
+                        self.emit(
+                            PipelineHalted(
+                                reason=(
+                                    f"profile fallback to {fb.new_profile} "
+                                    "exhausted retry budget"
+                                )
+                            )
+                        )
+                        self.done = True
+                        return
+                    fallbacks_used += 1
+                    old_profile = ctx.profile
+                    ctx.profile = fb.new_profile
+                    self._persist_profile_fallback(ctx, old_profile, fb)
+                    self.emit(
+                        StepLog(
+                            step_id="profile-fallback",
+                            line=(
+                                f"Falling back from {old_profile} to "
+                                f"{fb.new_profile}: {fb.reason or 'no reason given'}"
+                            ),
+                        )
+                    )
+                    # Local import — ``steps`` imports preflight modules
+                    # that import this file, so the top-level import cycles.
+                    from .steps import build_steps
+
+                    current_steps = list(build_steps(fb.new_profile))
+                    self.failed_step_id = None
+                    # restart the outer while loop with the rebuilt list
+
+    def _persist_profile_fallback(
+        self, ctx: StepContext, old_profile: str, fb: "ProfileFallback"
+    ) -> None:
+        """Merge fallback metadata into ``.lokidoki/bootstrap_config.json``.
+
+        Re-reads any existing config (admin credentials etc.) so we don't
+        clobber ``setup``-time data, then rewrites with the new profile
+        info recorded.
+        """
+        path = ctx.data_dir / "bootstrap_config.json"
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                existing = {}
+        except (OSError, ValueError):
+            existing = {}
+        existing["profile"] = fb.new_profile
+        existing["profile_fallback_from"] = old_profile
+        existing["profile_fallback_reason"] = fb.reason
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
     async def retry(self, step_id: str, ctx: StepContext) -> bool:
         """Re-run a single previously-failed step in place."""
@@ -104,6 +211,14 @@ class Pipeline:
         started = time.monotonic()
         try:
             await step.run(ctx)
+        except ProfileFallback:
+            # Surface this to ``run`` so it can rewrite the step list.
+            # The step has already emitted its own ``StepFailed``.
+            raise
+        except StepHalt:
+            # Step already emitted its own ``StepFailed`` with remediation.
+            self.failed_step_id = step.id
+            return False
         except Exception as exc:  # noqa: BLE001 — pipeline must surface every failure
             _log.exception("step %s failed", step.id)
             self.emit(

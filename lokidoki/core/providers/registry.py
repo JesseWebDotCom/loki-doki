@@ -10,15 +10,16 @@ from __future__ import annotations
 from .spec import ProviderSpec
 
 
-# Every engine we ship binds its OpenAI-compatible server to loopback
-# on the same port. Keeping one port simplifies both the wizard's
-# health check and the Layer 2 provider — Layer 1 decides which engine
-# is live, Layer 2 just speaks OpenAI to ``:11434``.
+# mlx + llama.cpp engines bind their OpenAI-compatible server to :11434.
+# hailo-ollama is the exception — it owns :8000 because the upstream
+# Hailo client expects Ollama's fixed port, and we mirror the same port
+# in the wizard's :func:`run_app.app_port_for` (the FastAPI app on
+# pi_hailo moves to :7860 to free :8000 for hailo-ollama).
 _ENDPOINT_FOR_ENGINE = {
     "mlx": "http://127.0.0.1:11434",
     "llama_cpp_vulkan": "http://127.0.0.1:11434",
     "llama_cpp_cpu": "http://127.0.0.1:11434",
-    "hailo_ollama": "http://127.0.0.1:11434",
+    "hailo_ollama": "http://127.0.0.1:8000",
 }
 
 
@@ -26,12 +27,12 @@ _ENDPOINT_FOR_ENGINE = {
 # llama.cpp profiles spawn a dedicated second llama-server instance on
 # :11435 with ``--mmproj``; splitting the process keeps the text model's
 # KV cache warm across modality switches. Hailo routes both paths
-# through ``hailo-ollama`` (chunk 7).
+# through the same hailo-ollama process on :8000.
 _VISION_ENDPOINT_FOR_ENGINE = {
     "mlx": "http://127.0.0.1:11434",
     "llama_cpp_vulkan": "http://127.0.0.1:11435",
     "llama_cpp_cpu": "http://127.0.0.1:11435",
-    "hailo_ollama": "http://127.0.0.1:11434",
+    "hailo_ollama": "http://127.0.0.1:8000",
 }
 
 

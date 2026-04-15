@@ -80,11 +80,13 @@ def test_pi_hailo_leaves_breadcrumb(
     asyncio.run(vision_dispatch.ensure_vision(ctx))
 
     assert calls == [], "pi_hailo must not invoke mlx or llama.cpp installers"
-    deferred = [
+    # Chunk 7 wired the hailo branch — vision HEFs are loaded in-process by
+    # the vision subsystem (no server), and downloaded by ensure-hef-files.
+    in_process = [
         ev for ev in events
-        if isinstance(ev, StepLog) and "deferred" in ev.line
+        if isinstance(ev, StepLog) and "in-process" in ev.line
     ]
-    assert deferred, "pi_hailo should log a deferral breadcrumb"
+    assert in_process, "pi_hailo should log that the HEF is loaded in-process"
 
 
 def test_vision_mmproj_matches_llama_cpp_profiles() -> None:
