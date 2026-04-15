@@ -5,9 +5,10 @@ Each :class:`Step` has a stable ``id`` — later chunks replace the stub
 rename them without updating every later chunk that binds real work
 to the same IDs.
 
-Chunk 3 attaches real implementations to ``embed-python``, ``install-uv``,
-``sync-python-deps``, and ``spawn-app``. The rest remain stubs until
-their chunks land.
+Chunks 3 + 4 now attach real runners to the python/uv/deps toolchain,
+the embedded Node + frontend build, and the CPU-only audio stack. LLM
+engines, vision, Hailo, and the rest still run the stub until their
+chunks land.
 """
 from __future__ import annotations
 
@@ -17,7 +18,18 @@ from typing import Awaitable, Callable
 
 from .context import StepContext
 from .events import StepLog
-from .preflight import ensure_embedded_python, ensure_uv, sync_python_deps
+from .preflight import (
+    build_frontend,
+    ensure_embedded_python,
+    ensure_node,
+    ensure_piper,
+    ensure_tts_voice,
+    ensure_uv,
+    ensure_wake_word,
+    ensure_whisper_model,
+    install_frontend_deps,
+    sync_python_deps,
+)
 from .run_app import spawn_fastapi_app
 
 
@@ -46,11 +58,41 @@ async def _detect_profile_run(ctx: StepContext) -> None:
     )
 
 
+def _profile_models(profile: str) -> dict:
+    from lokidoki.core.platform import PLATFORM_MODELS  # local import avoids chunk-2 regressions
+
+    if profile not in PLATFORM_MODELS:
+        raise RuntimeError(f"unknown profile {profile!r}")
+    return PLATFORM_MODELS[profile]
+
+
+async def _install_piper_run(ctx: StepContext) -> None:
+    await ensure_piper(ctx)
+    voice = _profile_models(ctx.profile)["tts_voice"]
+    await ensure_tts_voice(ctx, voice)
+
+
+async def _install_whisper_run(ctx: StepContext) -> None:
+    model_name = _profile_models(ctx.profile)["stt_model"]
+    await ensure_whisper_model(ctx, model_name)
+
+
+async def _install_wake_word_run(ctx: StepContext) -> None:
+    engine = _profile_models(ctx.profile)["wake_word"]
+    await ensure_wake_word(ctx, engine)
+
+
 _REAL_RUNNERS: dict[str, RunFn] = {
     "detect-profile": _detect_profile_run,
     "embed-python": ensure_embedded_python,
     "install-uv": ensure_uv,
     "sync-python-deps": sync_python_deps,
+    "embed-node": ensure_node,
+    "install-frontend-deps": install_frontend_deps,
+    "build-frontend": build_frontend,
+    "install-piper": _install_piper_run,
+    "install-whisper": _install_whisper_run,
+    "install-wake-word": _install_wake_word_run,
     "spawn-app": spawn_fastapi_app,
 }
 
@@ -106,19 +148,29 @@ _HAILO_PRE: list[tuple[str, str, bool, int | None]] = [
 ]
 
 
+# Tight-storage Pi setups can defer STT + wake-word — the app still
+# boots without them, they just stay unwarmed until the user re-runs.
+_PI_SKIPPABLE: frozenset[str] = frozenset({"install-whisper", "install-wake-word"})
+
+
 def _to_steps(
     specs: list[tuple[str, str, bool, int | None]],
+    profile: str,
 ) -> list[Step]:
-    return [
-        Step(
-            id=sid,
-            label=label,
-            can_skip=can_skip,
-            est_seconds=est,
-            run=_REAL_RUNNERS.get(sid, _stub_for(sid)),
+    steps: list[Step] = []
+    for sid, label, can_skip, est in specs:
+        if profile in ("pi_cpu", "pi_hailo") and sid in _PI_SKIPPABLE:
+            can_skip = True
+        steps.append(
+            Step(
+                id=sid,
+                label=label,
+                can_skip=can_skip,
+                est_seconds=est,
+                run=_REAL_RUNNERS.get(sid, _stub_for(sid)),
+            )
         )
-        for sid, label, can_skip, est in specs
-    ]
+    return steps
 
 
 def build_steps(profile: str) -> list[Step]:
@@ -128,10 +180,10 @@ def build_steps(profile: str) -> list[Step]:
     shared LLM-engine block. Every other profile shares a single linear
     ordering.
     """
-    pre = _to_steps(_COMMON_PRE)
-    llm = _to_steps(_COMMON_LLM)
-    media = _to_steps(_COMMON_MEDIA)
+    pre = _to_steps(_COMMON_PRE, profile)
+    llm = _to_steps(_COMMON_LLM, profile)
+    media = _to_steps(_COMMON_MEDIA, profile)
 
     if profile == "pi_hailo":
-        return pre + _to_steps(_HAILO_PRE) + llm + media
+        return pre + _to_steps(_HAILO_PRE, profile) + llm + media
     return pre + llm + media

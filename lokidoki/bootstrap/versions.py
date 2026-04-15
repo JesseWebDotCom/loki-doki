@@ -66,6 +66,102 @@ UV = {
 }
 
 
+# Vite 8 / rolldown mandates node ≥ 20.19. Pinning the nearest LTS patch
+# that satisfies the engine field avoids "vite requires node 20.19+"
+# hard errors during ``npm run build``.
+NODE = {
+    "version": "20.19.0",
+    "artifacts": {
+        ("darwin", "arm64"): (
+            "node-v20.19.0-darwin-arm64.tar.gz",
+            "c016cd1975a264a29dc1b07c6fbe60d5df0a0c2beb4113c0450e3d998d1a0d9c",
+        ),
+        ("windows", "x86_64"): (
+            "node-v20.19.0-win-x64.zip",
+            "be72284c7bc62de07d5a9fd0ae196879842c085f11f7f2b60bf8864c0c9d6a4f",
+        ),
+        ("linux", "aarch64"): (
+            "node-v20.19.0-linux-arm64.tar.xz",
+            "dbe339e55eb393955a213e6b872066880bb9feceaa494f4d44c7aac205ec2ab9",
+        ),
+        ("linux", "x86_64"): (
+            "node-v20.19.0-linux-x64.tar.xz",
+            "b4e336584d62abefad31baecff7af167268be9bb7dd11f1297112e6eed3ca0d5",
+        ),
+    },
+    "url_template": "https://nodejs.org/dist/v{version}/{filename}",
+}
+
+
+# Piper's MIT-licensed binary releases only ship the mac/windows/linux
+# multi-arch bundle under the ``2023.11.14-2`` tag. Newer tags (``v1.2.0``
+# and later) drop mac + windows, and the post-transfer GPL repo was
+# explicitly removed in commit cfb0872. Pin this tag.
+PIPER = {
+    "version": "2023.11.14-2",
+    "artifacts": {
+        ("darwin", "arm64"): (
+            "piper_macos_aarch64.tar.gz",
+            "6b1eb03b3735946cb35216e063e7eebcc33a6bbf5dd96ec0217959bf1cdcb0cc",
+        ),
+        ("windows", "x86_64"): (
+            "piper_windows_amd64.zip",
+            "f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea",
+        ),
+        ("linux", "aarch64"): (
+            "piper_linux_aarch64.tar.gz",
+            "fea0fd2d87c54dbc7078d0f878289f404bd4d6eea6e7444a77835d1537ab88eb",
+        ),
+        ("linux", "x86_64"): (
+            "piper_linux_x86_64.tar.gz",
+            "a50cb45f355b7af1f6d758c1b360717877ba0a398cc8cbe6d2a7a3a26e225992",
+        ),
+    },
+    "url_template": (
+        "https://github.com/rhasspy/piper/releases/download/{version}/{filename}"
+    ),
+}
+
+
+PIPER_VOICES: dict[str, dict[str, tuple[str, str]]] = {
+    "en_US-lessac-high": {
+        "onnx": (
+            "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
+            "en/en_US/lessac/high/en_US-lessac-high.onnx",
+            "4cabf7c3a638017137f34a1516522032d4fe3f38228a843cc9b764ddcbcd9e09",
+        ),
+        "config": (
+            "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
+            "en/en_US/lessac/high/en_US-lessac-high.onnx.json",
+            "db42b97d9859f257bc1561b8ed980e7fb2398402050a74ddd6cbec931a92412f",
+        ),
+    },
+    "en_US-lessac-medium": {
+        "onnx": (
+            "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
+            "en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+            "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
+        ),
+        "config": (
+            "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
+            "en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
+            "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
+        ),
+    },
+}
+
+
+# ``faster-whisper small.en`` intentionally has no entry: faster-whisper's
+# CTranslate2 backend fetches on first use; the wizard just warms its HF
+# cache. ``whisper.cpp base.en`` needs an explicit GGML download.
+WHISPER: dict[str, tuple[str, str]] = {
+    "whisper.cpp base.en": (
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+        "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
+    ),
+}
+
+
 PYTHON_MIN_VERSION = (3, 8, 0)
 """Floor for the *system* Python that launches Layer 1. The embedded
 python-build-standalone interpreter (3.12) runs Layer 2 once the wizard

@@ -12,9 +12,13 @@ import re
 import pytest
 
 from lokidoki.bootstrap.versions import (
+    NODE,
+    PIPER,
+    PIPER_VOICES,
     PYTHON_BUILD_STANDALONE,
     PYTHON_MIN_VERSION,
     UV,
+    WHISPER,
     os_arch_key,
 )
 
@@ -28,14 +32,16 @@ REQUIRED_KEYS: set[tuple[str, str]] = {
 
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
+_BINARY_TABLES = [PYTHON_BUILD_STANDALONE, UV, NODE, PIPER]
 
-@pytest.mark.parametrize("table", [PYTHON_BUILD_STANDALONE, UV])
+
+@pytest.mark.parametrize("table", _BINARY_TABLES)
 def test_all_required_os_arch_keys_present(table: dict) -> None:
     missing = REQUIRED_KEYS - set(table["artifacts"].keys())
     assert not missing, f"missing artifact keys: {missing}"
 
 
-@pytest.mark.parametrize("table", [PYTHON_BUILD_STANDALONE, UV])
+@pytest.mark.parametrize("table", _BINARY_TABLES)
 def test_shas_are_64_char_hex(table: dict) -> None:
     for key, (filename, sha) in table["artifacts"].items():
         assert _SHA_RE.match(sha), (
@@ -43,7 +49,7 @@ def test_shas_are_64_char_hex(table: dict) -> None:
         )
 
 
-@pytest.mark.parametrize("table", [PYTHON_BUILD_STANDALONE, UV])
+@pytest.mark.parametrize("table", _BINARY_TABLES)
 def test_filename_is_nonempty(table: dict) -> None:
     for key, (filename, _) in table["artifacts"].items():
         assert filename, f"{key}: empty filename"
