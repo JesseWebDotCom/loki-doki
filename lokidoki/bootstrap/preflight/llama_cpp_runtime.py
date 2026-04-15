@@ -40,10 +40,9 @@ _WARM_STEP_ID = "warm-resident-llm"
 
 
 def llama_server_path(ctx: StepContext) -> Path:
-    root = ctx.data_dir / "llama.cpp"
-    if ctx.os_name == "Windows":
-        return root / "llama-server.exe"
-    return root / "llama-server"
+    """Delegate to :meth:`StepContext.binary_path` so the LAYOUT dict
+    stays the single source of truth for on-disk layout."""
+    return ctx.binary_path("llama_server")
 
 
 async def ensure_llama_cpp(ctx: StepContext) -> None:

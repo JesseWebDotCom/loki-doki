@@ -12,6 +12,7 @@ import hashlib
 import logging
 import os
 import ssl
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -41,7 +42,26 @@ _DEFAULT_TOOLS: tuple[str, ...] = (
 )
 
 
+# Centralised per-tool layout. Keys are logical tool names used by
+# callers (``ctx.binary_path("llama_server")``) and values carry the
+# on-disk path relative to ``.lokidoki/`` for each OS family. Unix
+# paths double as mac + linux (both pi profiles) since every non-Windows
+# target follows the same layout. The dict is the single source of
+# truth so preflights never reconstruct these paths by hand.
+_LAYOUT: dict[str, dict[str, str]] = {
+    "python":       {"unix": "python/bin/python",      "win": "python/python.exe"},
+    "uv":           {"unix": "uv/bin/uv",              "win": "uv/uv.exe"},
+    "node":         {"unix": "node/bin/node",          "win": "node/node.exe"},
+    "llama_server": {"unix": "llama.cpp/llama-server", "win": "llama.cpp/llama-server.exe"},
+    "piper":        {"unix": "piper/piper",            "win": "piper/piper.exe"},
+}
+
+
 _CHUNK_SIZE = 1024 * 1024  # 1 MB stream chunk
+
+
+def _is_windows(os_name: str) -> bool:
+    return os_name == "Windows" or sys.platform == "win32"
 
 
 @dataclass
@@ -80,13 +100,27 @@ class StepContext:
         cwd: Optional[Path] = None,
         env: Optional[dict[str, str]] = None,
     ) -> int:
-        """Run ``cmd``, stream stdout/stderr as :class:`StepLog` events."""
+        """Run ``cmd``, stream stdout/stderr as :class:`StepLog` events.
+
+        On Windows the child is spawned with ``CREATE_NEW_PROCESS_GROUP``
+        so Ctrl-C propagates cleanly to the wizard without nuking the
+        child. On unix we use ``start_new_session=True`` for the same
+        reason.
+        """
+        kwargs: dict = {}
+        if _is_windows(self.os_name):
+            kwargs["creationflags"] = getattr(
+                subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+            )
+        else:
+            kwargs["start_new_session"] = True
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(cwd) if cwd is not None else None,
             env=env,
+            **kwargs,
         )
         assert proc.stdout is not None  # PIPE above guarantees this
         while True:
@@ -184,14 +218,26 @@ class StepContext:
         return env
 
     def binary_path(self, name: str) -> Path:
-        """Resolve the expected on-disk path for an embedded tool's binary."""
+        """Resolve the expected on-disk path for an embedded tool's binary.
+
+        Uses :data:`_LAYOUT` when ``name`` is a registered logical tool
+        (``python``, ``uv``, ``node``, ``llama_server``, ``piper``).
+        Falls back to the historical ``<data_dir>/<name>/bin/<name>``
+        (unix) / ``<data_dir>/<name>/<name>.exe`` (windows) convention
+        for any other name so the helper keeps working on tools that
+        have not been registered yet.
+        """
+        win = _is_windows(self.os_name)
+        if name in _LAYOUT:
+            rel = _LAYOUT[name]["win" if win else "unix"]
+            return self.data_dir / rel
         root = self.data_dir / name
-        if self.os_name == "Windows" or sys.platform == "win32":
+        if win:
             return root / f"{name}.exe"
         return root / "bin" / name
 
     def _tool_bin_dir(self, name: str) -> Path:
         root = self.data_dir / name
-        if self.os_name == "Windows" or sys.platform == "win32":
+        if _is_windows(self.os_name):
             return root
         return root / "bin"

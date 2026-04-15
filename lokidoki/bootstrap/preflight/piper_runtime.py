@@ -27,10 +27,7 @@ _STEP_ID = "install-piper"
 
 
 def _piper_binary(ctx: StepContext) -> Path:
-    root = ctx.data_dir / "piper"
-    if ctx.os_name == "Windows":
-        return root / "piper.exe"
-    return root / "piper"
+    return ctx.binary_path("piper")
 
 
 async def ensure_piper(ctx: StepContext) -> None:

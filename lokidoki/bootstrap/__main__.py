@@ -12,14 +12,24 @@ from pathlib import Path
 
 from .context import StepContext
 from .pipeline import Pipeline
+from .run_app import app_host_for, app_port_for
 from .server import make_server, start_pipeline_loop
 from .steps import build_steps
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m lokidoki.bootstrap")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="Override the wizard bind host (default: profile-derived).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Override the wizard bind port (default: profile-derived).",
+    )
     parser.add_argument(
         "--profile",
         default=None,
@@ -66,7 +76,13 @@ def main(argv: list[str] | None = None) -> int:
     data_dir = args.data_dir.resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline = Pipeline(app_url=f"http://{args.host}:{args.port}")
+    # Wizard binds on the same (host, port) the FastAPI app will take
+    # over after spawn-app. ``pi_hailo`` moves both to :7860 because
+    # hailo-ollama owns :8000 — every other profile keeps the default.
+    host = args.host if args.host is not None else app_host_for(profile)
+    port = args.port if args.port is not None else app_port_for(profile)
+
+    pipeline = Pipeline(app_url=f"http://{host}:{port}")
     ctx = StepContext(
         data_dir=data_dir,
         profile=profile,
@@ -78,8 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     steps = build_steps(profile)
     loop, pipeline_thread = start_pipeline_loop(pipeline, steps, ctx)
     server = make_server(
-        args.host,
-        args.port,
+        host,
+        port,
         pipeline,
         ctx,
         loop,
@@ -100,7 +116,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ctx.handoff = _release_listener
 
-    url = f"http://{args.host}:{args.port}/bootstrap"
+    # 0.0.0.0 is a valid listen address but not a valid URL to hand the
+    # user's browser — rewrite to loopback for the auto-open link so
+    # headless Pi installs still land on a working URL.
+    browser_host = "127.0.0.1" if host == "0.0.0.0" else host
+    url = f"http://{browser_host}:{port}/bootstrap"
     logging.getLogger(__name__).info("bootstrap server listening on %s", url)
     if not args.no_open and not os.environ.get("LOKIDOKI_NO_BROWSER"):
         try:

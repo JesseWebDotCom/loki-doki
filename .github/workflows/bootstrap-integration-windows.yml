@@ -1,0 +1,61 @@
+name: bootstrap-integration-windows
+
+# Windows integration run for the stdlib bootstrap wizard. Heavy — pulls
+# python-build-standalone, uv, node, llama.cpp (Vulkan), Piper, and the
+# LLM weights — so the workflow only fires on explicit dispatch or when
+# a PR is labeled ``bootstrap-integration``. The default PR check set
+# does not include it.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, synchronize, opened]
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'bootstrap-integration')
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show system Python
+        shell: cmd
+        run: |
+          where py
+          py -3 --version
+
+      - name: Launch run.bat in the background
+        shell: cmd
+        run: |
+          start "lokidoki-bootstrap" /B cmd /c "run.bat"
+
+      - name: Poll /api/v1/health until ready (≤20 min)
+        shell: pwsh
+        run: |
+          $deadline = (Get-Date).AddMinutes(20)
+          $url = "http://127.0.0.1:8000/api/v1/health"
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $resp = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 5
+              if ($resp.StatusCode -eq 200) {
+                Write-Host "bootstrap ready: $($resp.Content)"
+                exit 0
+              }
+            } catch {
+              Start-Sleep -Seconds 10
+            }
+          }
+          Write-Error "bootstrap did not answer $url within 20 minutes"
+          exit 1
+
+      - name: Upload bootstrap logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-logs-windows
+          path: .lokidoki/logs/
+          if-no-files-found: warn
