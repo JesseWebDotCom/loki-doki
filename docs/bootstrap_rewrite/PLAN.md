@@ -41,7 +41,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 6 | [Vision models per engine](chunk-6-vision.md)                           | done    | befa3d0 |
 | 7 | [pi_hailo runtime + graceful fallback](chunk-7-hailo.md)                | done    | 7f218d8 |
 | 8 | [Windows support (run.bat + win branches)](chunk-8-windows.md)          | done    | be7a6c3 |
-| 9 | [Offline bundle + README rewrite](chunk-9-offline.md)                   | pending |         |
+| 9 | [Offline bundle + README rewrite](chunk-9-offline.md)                   | done    | f272c5a |
 
 ---
 
