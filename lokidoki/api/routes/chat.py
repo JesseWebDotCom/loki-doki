@@ -278,7 +278,7 @@ async def get_skills():
 @router.get("/platform")
 async def get_platform():
     return {
-        "platform": _model_policy.platform,
+        "platform": _model_policy.profile,
         "fast_model": _model_policy.fast_model,
         "thinking_model": _model_policy.thinking_model,
     }
@@ -347,7 +347,7 @@ async def get_system_info():
             pass
 
     return {
-        "platform": _model_policy.platform,
+        "platform": _model_policy.profile,
         "fast_model": _model_policy.fast_model,
         "thinking_model": _model_policy.thinking_model,
         "ollama_version": ollama_version,

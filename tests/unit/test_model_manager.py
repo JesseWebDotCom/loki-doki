@@ -1,51 +1,60 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from lokidoki.core.model_manager import ModelManager, ModelPolicy
+from lokidoki.core.platform import PLATFORM_MODELS
+
+
+VALID_PROFILES = {"mac", "windows", "linux", "pi_cpu", "pi_hailo"}
 
 
 class TestModelPolicy:
-    def test_auto_detects_platform(self):
+    def test_auto_detects_profile(self):
         policy = ModelPolicy()
-        assert policy.platform in ("mac", "linux", "pi5", "pi")
+        assert policy.profile in VALID_PROFILES
 
-    def test_pi5_selects_9b_for_thinking(self):
-        policy = ModelPolicy(platform="pi5")
+    def test_pi_cpu_thinking_uses_qwen3_4b(self):
+        policy = ModelPolicy(profile="pi_cpu")
         model, keep_alive = policy.select("thinking")
-        assert model == "qwen3:4b"
+        assert model == PLATFORM_MODELS["pi_cpu"]["llm_thinking"]
         assert keep_alive == "5m"
 
-    def test_pi5_selects_2b_for_fast(self):
-        policy = ModelPolicy(platform="pi5")
+    def test_pi_cpu_fast_uses_qwen3_4b_instruct(self):
+        policy = ModelPolicy(profile="pi_cpu")
         model, keep_alive = policy.select("fast")
-        assert model == "qwen3:4b-instruct-2507-q4_K_M"
+        assert model == PLATFORM_MODELS["pi_cpu"]["llm_fast"]
         assert keep_alive == -1
 
-    def test_pi4_uses_2b_for_thinking(self):
-        policy = ModelPolicy(platform="pi")
-        model, _ = policy.select("thinking")
-        assert model == "qwen3:4b-instruct-2507-q4_K_M"  # Pi 4 avoids reasoning variants
+    def test_pi_hailo_uses_hailo_ollama_tags(self):
+        policy = ModelPolicy(profile="pi_hailo")
+        assert policy.fast_model == "qwen3:1.7b"
+        assert policy.thinking_model == "qwen3:4b"
 
-    def test_mac_selects_9b_for_thinking(self):
-        policy = ModelPolicy(platform="mac")
+    def test_mac_thinking_uses_mlx_14b(self):
+        policy = ModelPolicy(profile="mac")
         model, _ = policy.select("thinking")
-        assert model == "qwen3:4b"
+        assert model == "mlx-community/Qwen3-14B-4bit"
 
     def test_unknown_complexity_defaults_to_fast(self):
-        policy = ModelPolicy(platform="mac")
+        policy = ModelPolicy(profile="mac")
         model, keep_alive = policy.select("unknown")
-        assert model == "qwen3:4b-instruct-2507-q4_K_M"
+        assert model == "mlx-community/Qwen3-8B-4bit"
         assert keep_alive == -1
 
     def test_custom_models_override_preset(self):
         policy = ModelPolicy(
-            fast_model="custom:2b",
-            thinking_model="custom:9b",
-            platform="mac",
+            fast_model="custom:fast",
+            thinking_model="custom:thinking",
+            profile="mac",
         )
         model, _ = policy.select("thinking")
-        assert model == "custom:9b"
+        assert model == "custom:thinking"
         model, _ = policy.select("fast")
-        assert model == "custom:2b"
+        assert model == "custom:fast"
+
+    def test_engine_property_matches_catalog(self):
+        for profile in VALID_PROFILES:
+            policy = ModelPolicy(profile=profile)
+            assert policy.engine == PLATFORM_MODELS[profile]["llm_engine"]
 
 
 class TestModelManager:
@@ -53,14 +62,14 @@ class TestModelManager:
     async def test_ensure_resident_loads_fast_model(self):
         mock_client = AsyncMock()
         mock_client.generate = AsyncMock(return_value="ok")
-        policy = ModelPolicy(platform="pi5")
+        policy = ModelPolicy(profile="pi_cpu")
 
         manager = ModelManager(inference_client=mock_client, policy=policy)
         result = await manager.ensure_resident()
 
         assert result is True
         call_kwargs = mock_client.generate.call_args.kwargs
-        assert call_kwargs["model"] == "qwen3:4b-instruct-2507-q4_K_M"
+        assert call_kwargs["model"] == PLATFORM_MODELS["pi_cpu"]["llm_fast"]
         assert call_kwargs["keep_alive"] == -1
 
     @pytest.mark.anyio
@@ -81,7 +90,7 @@ class TestModelManager:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "models": [
-                {"name": "qwen3:4b-instruct-2507-q4_K_M"},
+                {"name": "qwen3:4b-instruct"},
                 {"name": "qwen3:4b"},
             ]
         }
@@ -90,29 +99,30 @@ class TestModelManager:
         manager = ModelManager(inference_client=mock_client)
         models = await manager.list_available_models()
 
-        assert "qwen3:4b-instruct-2507-q4_K_M" in models
+        assert "qwen3:4b-instruct" in models
         assert "qwen3:4b" in models
 
     @pytest.mark.anyio
-    async def test_get_model_for_thinking_on_pi5(self):
+    async def test_get_model_for_thinking_on_pi_cpu(self):
         mock_client = AsyncMock()
-        policy = ModelPolicy(platform="pi5")
+        policy = ModelPolicy(profile="pi_cpu")
         manager = ModelManager(inference_client=mock_client, policy=policy)
 
         model, keep_alive = manager.get_model("thinking")
-        assert model == "qwen3:4b"
+        assert model == PLATFORM_MODELS["pi_cpu"]["llm_thinking"]
         assert keep_alive == "5m"
 
     @pytest.mark.anyio
     async def test_get_model_for_fast(self):
         mock_client = AsyncMock()
-        manager = ModelManager(inference_client=mock_client)
+        policy = ModelPolicy(profile="mac")
+        manager = ModelManager(inference_client=mock_client, policy=policy)
 
-        model, keep_alive = manager.get_model("fast")
-        assert model == "qwen3:4b-instruct-2507-q4_K_M"
+        model, _ = manager.get_model("fast")
+        assert model == "mlx-community/Qwen3-8B-4bit"
 
     def test_policy_property(self):
         mock_client = AsyncMock()
-        policy = ModelPolicy(platform="mac")
+        policy = ModelPolicy(profile="mac")
         manager = ModelManager(inference_client=mock_client, policy=policy)
-        assert manager.policy.platform == "mac"
+        assert manager.policy.profile == "mac"

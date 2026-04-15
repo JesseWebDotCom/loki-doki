@@ -1,30 +1,39 @@
 from dataclasses import dataclass
 from typing import Optional, Union, Tuple, List
 from lokidoki.core.inference import InferenceClient
-from lokidoki.core.platform import detect_platform, get_model_preset
+from lokidoki.core.platform import (
+    PLATFORM_MODELS,
+    detect_profile,
+    get_model_preset,
+)
 
 
 @dataclass
 class ModelPolicy:
     """Model switching policy per DESIGN.md Section II.
 
-    Defaults are set from platform detection at construction time.
+    Defaults are set from profile detection at construction time.
     """
     fast_model: str = ""
     thinking_model: str = ""
     fast_keep_alive: Union[int, str] = -1
     thinking_keep_alive: str = "5m"
-    platform: str = ""
+    profile: str = ""
 
     def __post_init__(self):
-        if not self.platform:
-            self.platform = detect_platform()
+        if not self.profile:
+            self.profile = detect_profile()
         if not self.fast_model or not self.thinking_model:
-            preset = get_model_preset(self.platform)
-            self.fast_model = self.fast_model or preset["fast_model"]
-            self.thinking_model = self.thinking_model or preset["thinking_model"]
+            preset = get_model_preset(self.profile)
+            self.fast_model = self.fast_model or preset["llm_fast"]
+            self.thinking_model = self.thinking_model or preset["llm_thinking"]
             self.fast_keep_alive = preset["fast_keep_alive"]
             self.thinking_keep_alive = preset["thinking_keep_alive"]
+
+    @property
+    def engine(self) -> str:
+        """Return the LLM engine for this profile (e.g. 'mlx', 'llama_cpp_vulkan')."""
+        return PLATFORM_MODELS[self.profile]["llm_engine"]
 
     def select(self, complexity: str) -> Tuple[str, Union[int, str]]:
         """Select model and keep_alive based on reasoning complexity."""

@@ -6,9 +6,9 @@ Read `docs/spec.md` before any non-trivial work. This file is the enforcement la
 
 ## Project Context
 LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). It uses a "Skills-First, LLM-Last" architecture.
-- **Backend**: FastAPI, `uv`, Ollama (Gemma 2B/9B).
+- **Backend**: FastAPI, `uv`, Qwen LLMs via profile-specific engines (MLX on mac, llama.cpp on win/linux/pi_cpu, hailo-ollama on pi_hailo).
 - **Frontend**: React (Vite), Tailwind, shadcn/ui.
-- **Core Loop**: Decomposition (2B) -> Skills -> Synthesis (9B).
+- **Core Loop**: Decomposition (fast Qwen) -> Skills -> Synthesis (thinking Qwen).
 - **Files**: `docs/`, `lokidoki/` (app), `assets/`, `data/`.
 
 ---
@@ -28,9 +28,7 @@ LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). I
 - Frontend: **React + Vite + Tailwind + shadcn/ui + Lucide**
 - Database: **SQLite** (users, memory, settings)
 - Auth: **FastAPI + JWT** (no external user system)
-- LLM chat (mac/pi_cpu): **Qwen via Ollama** — non-thinking (fast) and thinking (reasoning) modes
-- LLM chat (pi_hailo): **Qwen via hailo-ollama** on port 8000
-- Function model: **Gemma (~270M, function-calling fine-tune)** via Ollama — tool/API execution only
+- Models and engines: see `lokidoki/core/platform.py::PLATFORM_MODELS` for the authoritative per-profile catalog.
 - STT: **provider-swappable** — `faster-whisper` (default) or `whisper.cpp`; CPU only, all profiles
 - TTS: **Piper medium model** on CPU only, all profiles
 - Wake word: **openWakeWord** on CPU only, all profiles
@@ -97,7 +95,7 @@ scripts/
 ## Request Path
 
 ```
-[STT] → [Router] → fast Qwen / thinking Qwen / Gemma function model → [Tools/APIs] → [TTS]
+[STT] → [Classifier] → [Router] → [Skill Handlers | fast Qwen | thinking Qwen] → [TTS]
 ```
 
 Full pipeline:
@@ -110,7 +108,6 @@ input → classifier → route → subsystem / plugin / provider → response
   - `simple_query` → canned response, no LLM
   - `text_chat` easy → fast Qwen (non-thinking mode)
   - `text_chat` hard → thinking Qwen (reasoning mode)
-  - `tool_call` → Gemma function model → executes tool → result back to Qwen for final response
 
 ---
 
