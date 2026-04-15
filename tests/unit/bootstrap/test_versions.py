@@ -1,0 +1,82 @@
+"""Format guards on the pinned binary catalog.
+
+Ensures every supported (os, arch) tuple has an entry, every SHA-256 is a
+64-char hex string, and every URL template resolves to an HTTPS URL. The
+integration test in ``tests/integration/test_embedded_python.py`` is what
+actually exercises a real download.
+"""
+from __future__ import annotations
+
+import re
+
+import pytest
+
+from lokidoki.bootstrap.versions import (
+    PYTHON_BUILD_STANDALONE,
+    PYTHON_MIN_VERSION,
+    UV,
+    os_arch_key,
+)
+
+
+REQUIRED_KEYS: set[tuple[str, str]] = {
+    ("darwin", "arm64"),
+    ("windows", "x86_64"),
+    ("linux", "aarch64"),
+    ("linux", "x86_64"),
+}
+
+_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+@pytest.mark.parametrize("table", [PYTHON_BUILD_STANDALONE, UV])
+def test_all_required_os_arch_keys_present(table: dict) -> None:
+    missing = REQUIRED_KEYS - set(table["artifacts"].keys())
+    assert not missing, f"missing artifact keys: {missing}"
+
+
+@pytest.mark.parametrize("table", [PYTHON_BUILD_STANDALONE, UV])
+def test_shas_are_64_char_hex(table: dict) -> None:
+    for key, (filename, sha) in table["artifacts"].items():
+        assert _SHA_RE.match(sha), (
+            f"{key} {filename}: sha256 must be 64 lowercase hex chars (got {sha!r})"
+        )
+
+
+@pytest.mark.parametrize("table", [PYTHON_BUILD_STANDALONE, UV])
+def test_filename_is_nonempty(table: dict) -> None:
+    for key, (filename, _) in table["artifacts"].items():
+        assert filename, f"{key}: empty filename"
+
+
+def test_pbs_url_template_is_https() -> None:
+    url = PYTHON_BUILD_STANDALONE["url_template"].format(
+        tag=PYTHON_BUILD_STANDALONE["tag"], filename="x.tar.gz"
+    )
+    assert url.startswith("https://"), url
+
+
+def test_uv_url_template_is_https() -> None:
+    url = UV["url_template"].format(version=UV["version"], filename="x.tar.gz")
+    assert url.startswith("https://"), url
+
+
+def test_intel_mac_not_pinned() -> None:
+    # x86_64-apple-darwin must NOT appear — Intel Macs are unsupported.
+    for table in (PYTHON_BUILD_STANDALONE, UV):
+        assert ("darwin", "x86_64") not in table["artifacts"]
+
+
+def test_python_min_version_floor() -> None:
+    # Layer 1 must run on stock Python 3.8+. The embedded interpreter
+    # is on 3.12 so the *embedded* version must be higher than the floor.
+    assert PYTHON_MIN_VERSION == (3, 8, 0)
+    embed = tuple(int(p) for p in PYTHON_BUILD_STANDALONE["version"].split("."))
+    assert embed >= (3, 12, 0), f"embedded python must be >=3.12 (got {embed})"
+
+
+def test_os_arch_key_normalisation() -> None:
+    assert os_arch_key("Darwin", "arm64") == ("darwin", "arm64")
+    assert os_arch_key("Linux", "x86_64") == ("linux", "x86_64")
+    assert os_arch_key("Linux", "aarch64") == ("linux", "aarch64")
+    assert os_arch_key("Windows", "x86_64") == ("windows", "x86_64")

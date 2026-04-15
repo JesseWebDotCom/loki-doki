@@ -156,18 +156,23 @@ class TestStartupInitialization:
         source = MAIN_PY.read_text()
         assert "get_memory_store" in source
 
-    def test_startup_calls_before_bootstrap(self):
-        """Store init should happen before run_bootstrap() inside startup_event."""
+    def test_startup_initializes_memory_store(self):
+        """Store init must still happen inside startup_event.
+
+        Chunk 3 of docs/bootstrap_rewrite/PLAN.md moved the installer to
+        the stdlib Layer-1 server, so ``run_bootstrap()`` is no longer
+        scheduled here — only the memory-store warm-up remains.
+        """
         source = MAIN_PY.read_text()
-        # Find the startup_event function body
         startup_start = source.find("async def startup_event")
         assert startup_start > 0, "startup_event not found"
         startup_body = source[startup_start:]
-        store_pos = startup_body.find("get_memory_store")
-        bootstrap_pos = startup_body.find("run_bootstrap()")
-        assert store_pos > 0, "get_memory_store not in startup_event"
-        assert bootstrap_pos > 0, "run_bootstrap not in startup_event"
-        assert store_pos < bootstrap_pos, "memory store should initialize before bootstrap"
+        assert "get_memory_store" in startup_body, (
+            "get_memory_store not in startup_event"
+        )
+        assert "run_bootstrap()" not in startup_body, (
+            "run_bootstrap() must not run inside FastAPI startup anymore"
+        )
 
 
 # ---- 6. chat.py preserves message persistence ------------------------------

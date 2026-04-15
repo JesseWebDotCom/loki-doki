@@ -1,9 +1,13 @@
 """Step definitions + profile-specific step ordering.
 
-Each :class:`Step` has a stable ``id`` — chunks 3-7 replace the stub
+Each :class:`Step` has a stable ``id`` — later chunks replace the stub
 ``run()`` in place, so the IDs shipped here are load-bearing. Do not
 rename them without updating every later chunk that binds real work
 to the same IDs.
+
+Chunk 3 attaches real implementations to ``embed-python``, ``install-uv``,
+``sync-python-deps``, and ``spawn-app``. The rest remain stubs until
+their chunks land.
 """
 from __future__ import annotations
 
@@ -13,15 +17,17 @@ from typing import Awaitable, Callable
 
 from .context import StepContext
 from .events import StepLog
+from .preflight import ensure_embedded_python, ensure_uv, sync_python_deps
+from .run_app import spawn_fastapi_app
 
 
 RunFn = Callable[[StepContext], Awaitable[None]]
 
 
 async def _stub_run(step_id: str, ctx: StepContext) -> None:
-    """Chunk-2 placeholder: sleeps briefly and emits two log lines."""
+    """Placeholder for steps whose owning chunk hasn't landed yet."""
     ctx.emit(StepLog(step_id=step_id, line=f"[stub] {step_id} starting"))
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.05)
     ctx.emit(StepLog(step_id=step_id, line=f"[stub] {step_id} done"))
 
 
@@ -29,6 +35,24 @@ def _stub_for(step_id: str) -> RunFn:
     async def _run(ctx: StepContext) -> None:
         await _stub_run(step_id, ctx)
     return _run
+
+
+async def _detect_profile_run(ctx: StepContext) -> None:
+    ctx.emit(
+        StepLog(
+            step_id="detect-profile",
+            line=f"profile={ctx.profile} os={ctx.os_name} arch={ctx.arch}",
+        )
+    )
+
+
+_REAL_RUNNERS: dict[str, RunFn] = {
+    "detect-profile": _detect_profile_run,
+    "embed-python": ensure_embedded_python,
+    "install-uv": ensure_uv,
+    "sync-python-deps": sync_python_deps,
+    "spawn-app": spawn_fastapi_app,
+}
 
 
 @dataclass(frozen=True)
@@ -91,7 +115,7 @@ def _to_steps(
             label=label,
             can_skip=can_skip,
             est_seconds=est,
-            run=_stub_for(sid),
+            run=_REAL_RUNNERS.get(sid, _stub_for(sid)),
         )
         for sid, label, can_skip, est in specs
     ]

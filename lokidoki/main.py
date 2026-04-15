@@ -155,44 +155,48 @@ async def startup_event():
     from lokidoki.core.memory_store_singleton import get_memory_store
     get_memory_store()
 
-    asyncio.create_task(run_bootstrap())
 
-@app.get("/bootstrap", response_class=HTMLResponse)
-async def get_bootstrap():
-    with open("lokidoki/static/bootstrap.html", "r") as f:
-        return f.read()
+@app.get("/api/health")
+async def api_health():
+    """Readiness probe used by the stdlib bootstrap server during handoff.
 
-@app.get("/api/v1/bootstrap/status")
-async def bootstrap_status(request: Request):
-    async def event_generator():
-        # 1. Replay everything that has happened so far. A reload or
-        #    late connection must catch up before tailing live events,
-        #    otherwise the client sits at whatever state it last saw.
-        for evt in list(bootstrap_history):
-            yield f"data: {json.dumps(evt)}\n\n"
+    Stays minimal: no DB touch, no auth, no memory lookup. The bootstrap
+    server polls this while waiting for uvicorn to bind :8000 and is the
+    only signal Layer 1 uses to declare the pipeline complete.
+    """
+    return {"ok": True}
 
-        # 2. If bootstrap already finished, history already contains
-        #    the terminal `complete` (or `step_failed`) event — just
-        #    close the stream. The client closes its EventSource on
-        #    receiving `complete`, so this is the natural exit.
-        if bootstrap_done:
-            return
 
-        # 3. Otherwise subscribe for live updates with our own queue
-        #    so multiple viewers can each receive every event.
-        q: asyncio.Queue = asyncio.Queue()
-        bootstrap_subscribers.add(q)
-        try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                message = await q.get()
-                yield f"data: {json.dumps(message)}\n\n"
-                if message.get("type") == "complete":
-                    break
-        finally:
-            bootstrap_subscribers.discard(q)
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+# Legacy in-FastAPI bootstrap is off by default. Chunk 3 moves the wizard to
+# the stdlib Layer-1 server (``python -m lokidoki.bootstrap``); chunk 9
+# deletes these routes entirely. Set ``LOKIDOKI_LEGACY_BOOTSTRAP=1`` only
+# when running the old flow intentionally.
+if os.environ.get("LOKIDOKI_LEGACY_BOOTSTRAP") == "1":
+    @app.get("/bootstrap", response_class=HTMLResponse)
+    async def get_bootstrap():
+        with open("lokidoki/static/bootstrap.html", "r") as f:
+            return f.read()
+
+    @app.get("/api/v1/bootstrap/status")
+    async def bootstrap_status(request: Request):
+        async def event_generator():
+            for evt in list(bootstrap_history):
+                yield f"data: {json.dumps(evt)}\n\n"
+            if bootstrap_done:
+                return
+            q: asyncio.Queue = asyncio.Queue()
+            bootstrap_subscribers.add(q)
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    message = await q.get()
+                    yield f"data: {json.dumps(message)}\n\n"
+                    if message.get("type") == "complete":
+                        break
+            finally:
+                bootstrap_subscribers.discard(q)
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # Include routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])

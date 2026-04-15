@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from .steps import build_steps
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m lokidoki.bootstrap")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=7861)
+    parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
         "--profile",
         default=None,
@@ -65,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     data_dir = args.data_dir.resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline = Pipeline()
+    pipeline = Pipeline(app_url=f"http://{args.host}:{args.port}")
     ctx = StepContext(
         data_dir=data_dir,
         profile=profile,
@@ -75,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     steps = build_steps(profile)
-    loop, _thread = start_pipeline_loop(pipeline, steps, ctx)
+    loop, pipeline_thread = start_pipeline_loop(pipeline, steps, ctx)
     server = make_server(
         args.host,
         args.port,
@@ -84,6 +85,20 @@ def main(argv: list[str] | None = None) -> int:
         loop,
         config_path=data_dir / "bootstrap_config.json",
     )
+
+    # Wire the stdlib → FastAPI handoff so ``spawn-app`` can release :8000
+    # before uvicorn tries to bind the same port. ``server.shutdown`` exits
+    # ``serve_forever`` on the main thread; ``server_close`` releases the
+    # listening socket. Existing SSE handler threads keep writing until
+    # their sockets close.
+    def _release_listener() -> None:
+        server.shutdown()
+        try:
+            server.server_close()
+        except OSError:
+            pass
+
+    ctx.handoff = _release_listener
 
     url = f"http://{args.host}:{args.port}/bootstrap"
     logging.getLogger(__name__).info("bootstrap server listening on %s", url)
@@ -97,7 +112,16 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
+        # Wait for the pipeline to finish (handoff already called shutdown).
+        deadline = time.time() + 60.0
+        while not pipeline.done and time.time() < deadline:
+            time.sleep(0.1)
+        loop.call_soon_threadsafe(loop.stop)
+        pipeline_thread.join(timeout=5)
+        try:
+            server.server_close()
+        except OSError:
+            pass
     return 0
 
 

@@ -25,7 +25,9 @@ _ALLOW_PREFIXES = (
 )
 
 # Exact paths that are always allowed.
-_ALLOW_EXACT = {"/", "/favicon.ico"}
+# ``/api/health`` is the handoff probe Layer 1 polls while spawning
+# FastAPI — it must stay reachable before any user exists.
+_ALLOW_EXACT = {"/", "/favicon.ico", "/api/health"}
 
 
 def _is_allowed(path: str) -> bool:
