@@ -11,7 +11,7 @@
 LokiDoki brings AI into the home without sending your life to the cloud. It runs on your hardware, keeps household data local, and gives each person their own companion with their own character, voice, settings, and guardrails.
 
 <img src="https://img.shields.io/badge/Status-Early%20Development-orange?style=for-the-badge" alt="Status" />
-<img src="https://img.shields.io/badge/Stack-FastAPI%20%7C%20React%20%7C%20Ollama-blue?style=for-the-badge" alt="Stack" />
+<img src="https://img.shields.io/badge/Stack-FastAPI%20%7C%20React%20%7C%20MLX%20%7C%20llama.cpp-blue?style=for-the-badge" alt="Stack" />
 <img src="https://img.shields.io/badge/Hardware-Mac%20%7C%20Raspberry%20Pi%20%7C%20Hailo-purple?style=for-the-badge" alt="Hardware" />
 <img src="https://img.shields.io/badge/License-FSL--1.1--MIT-green?style=for-the-badge" alt="License" />
 
@@ -89,18 +89,54 @@ Think of LokiDoki as a **local alternative** to cloud assistants — like ChatGP
 
 ### Hardware
 
-Runs on M-series Macs and Raspberry Pi 5 (including Hailo-enabled Pis). Future placements include purpose-built devices — an Echo-style speaker and a kids' animatronic teddy bear.
+Runs on Apple Silicon Macs, x86_64 Windows/Linux desktops, and Raspberry Pi 5 (including Hailo-enabled Pis). Intel Macs are not supported.
 
-### Software
+### Install
+
+The only prerequisite is a Python 3.8+ interpreter on the system. A browser opens to the install wizard, which downloads an embedded Python, Node, and the right LLM engine for your platform (MLX on mac, llama.cpp Vulkan on Windows/Linux, llama.cpp CPU on Pi, hailo-ollama on Pi + Hailo HAT), plus the Qwen LLMs and vision models sized for your hardware. First run takes 10–30 minutes depending on network; subsequent runs start in seconds.
+
+#### macOS (Apple Silicon)
 
 ```bash
-git clone https://github.com/JesseWebDotCom/loki-doki.git
+git clone https://github.com/JesseWebDotCom/loki-doki
 cd loki-doki
-chmod +x run.sh
 ./run.sh
 ```
 
-`run.sh` is the launcher. It handles setup and starts LokiDoki.
+#### Linux (x86_64 desktop) and Raspberry Pi 5
+
+```bash
+git clone https://github.com/JesseWebDotCom/loki-doki
+cd loki-doki
+./run.sh
+```
+
+#### Windows
+
+```
+git clone https://github.com/JesseWebDotCom/loki-doki
+cd loki-doki
+run.bat
+```
+
+#### Prerequisites
+
+- **macOS** — Apple Silicon required. Intel Macs are not supported. If you don't have Python, run `xcode-select --install`.
+- **Linux** — your distribution's `python3` (Raspberry Pi OS ships one).
+- **Windows** — Python 3.11+ from https://python.org if not already installed. The launcher will prompt if it can't find one.
+
+#### Offline install
+
+Pre-download every pinned artifact and model snapshot for your target profile, copy the bundle next to a fresh clone, and the wizard installs without network access:
+
+```bash
+python scripts/build_offline_bundle.py --profile=mac --output=/media/usb/lokidoki-offline-bundle
+# on the target machine:
+cp -r /media/usb/lokidoki-offline-bundle ./
+./run.sh
+```
+
+Use `--profile=all` to bundle every supported profile, or pass the bundle path explicitly with `./run.sh --offline-bundle=/path/to/lokidoki-offline-bundle`.
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
 
@@ -138,7 +174,7 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 | :----------------- | :------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------- |
 | **Frontend**       | <img src="https://skillicons.dev/icons?i=react,vite,ts,tailwind" valign="middle" />                | React + Vite + TypeScript + Tailwind + shadcn/ui, styled with the Onyx Material design system.  |
 | **Backend**        | <img src="https://skillicons.dev/icons?i=python,fastapi" valign="middle" />                        | FastAPI control plane managed with `uv`. Serves the React bundle and the internal API.          |
-| **LLM Runtime**    | <img src="https://skillicons.dev/icons?i=linux,bash" valign="middle" />                            | Qwen (chat) and a Gemma ~270M function-calling model, both via Ollama. Hailo-accelerated on Pi. |
+| **LLM Runtime**    | <img src="https://skillicons.dev/icons?i=linux,bash" valign="middle" />                            | Qwen via best-of-breed engines per profile — MLX on mac, llama.cpp (Vulkan) on Windows/Linux, llama.cpp (CPU) on Pi, hailo-ollama on Pi + Hailo HAT. |
 | **Voice**          | <img src="https://skillicons.dev/icons?i=raspberrypi" valign="middle" />                           | `faster-whisper` or `whisper.cpp` for STT, Piper for TTS, openWakeWord for wake — all CPU only. |
 | **Data**           | <img src="https://skillicons.dev/icons?i=sqlite" valign="middle" />                                | SQLite for users, memory, and settings. JWT auth, no external user system.                      |
 | **Hardware**       | <img src="https://skillicons.dev/icons?i=apple,raspberrypi" valign="middle" />                     | M-series Mac for development; Raspberry Pi 5 (with optional Hailo) for home deployment.         |

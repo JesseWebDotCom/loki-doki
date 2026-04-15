@@ -11,6 +11,7 @@ import webbrowser
 from pathlib import Path
 
 from .context import StepContext
+from .offline import apply_bundle, discover_bundle, reset_data_dir
 from .pipeline import Pipeline
 from .run_app import app_host_for, app_port_for
 from .server import make_server, start_pipeline_loop
@@ -36,8 +37,35 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Override auto-detected profile (mac/windows/linux/pi_cpu/pi_hailo).",
     )
     parser.add_argument("--data-dir", default=".lokidoki", type=Path)
-    parser.add_argument("--no-open", action="store_true")
+    parser.add_argument(
+        "--no-open",
+        "--no-browser",
+        dest="no_open",
+        action="store_true",
+        help="Don't auto-open the wizard URL in a browser.",
+    )
     parser.add_argument("--log-file", default=None, type=Path)
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Delete .lokidoki/ before starting so the wizard installs fresh.",
+    )
+    parser.add_argument(
+        "--skip-optional",
+        action="store_true",
+        help="Auto-skip every step flagged can_skip=True (low-bandwidth installs).",
+    )
+    parser.add_argument(
+        "--offline-bundle",
+        default=None,
+        type=Path,
+        help=(
+            "Path to an offline bundle dir (built by scripts/build_offline_bundle.py). "
+            "Seeds .lokidoki/cache + huggingface before the pipeline runs so the "
+            "wizard can install with no network access. When omitted the wizard "
+            "also auto-picks up a sibling 'lokidoki-offline-bundle/' directory."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -74,7 +102,17 @@ def main(argv: list[str] | None = None) -> int:
 
     profile = _resolve_profile(args.profile)
     data_dir = args.data_dir.resolve()
+    if args.reset:
+        logging.getLogger(__name__).warning(
+            "--reset: wiping %s for a clean install", data_dir
+        )
+        reset_data_dir(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
+
+    bundle = discover_bundle(args.offline_bundle)
+    if bundle is not None:
+        logging.getLogger(__name__).info("seeding from offline bundle: %s", bundle)
+        apply_bundle(bundle, data_dir)
 
     # Wizard binds on the same (host, port) the FastAPI app will take
     # over after spawn-app. ``pi_hailo`` moves both to :7860 because
@@ -92,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     steps = build_steps(profile)
+    if args.skip_optional:
+        for step in steps:
+            if step.can_skip:
+                pipeline.skip_requested.add(step.id)
     loop, pipeline_thread = start_pipeline_loop(pipeline, steps, ctx)
     server = make_server(
         host,

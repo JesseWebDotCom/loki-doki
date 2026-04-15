@@ -46,9 +46,33 @@
             <button type="button" class="step-skip">Skip</button>
         `;
         tile.querySelector(".step-label").textContent = label || stepId;
+        const skipBtn = tile.querySelector(".step-skip");
+        if (canSkip) {
+            skipBtn.addEventListener("click", () => onSkipClick(stepId, skipBtn));
+        } else {
+            skipBtn.remove();
+        }
         stepsGridEl.appendChild(tile);
         steps.set(stepId, tile);
         return tile;
+    }
+
+    async function onSkipClick(stepId, btn) {
+        btn.disabled = true;
+        btn.textContent = "Skipping…";
+        try {
+            const res = await fetch("/api/v1/bootstrap/skip", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ step_id: stepId }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            log(`[skip-requested] ${stepId}`);
+        } catch (err) {
+            log(`[skip-error] ${err.message}`);
+            btn.disabled = false;
+            btn.textContent = "Skip";
+        }
     }
 
     function setStepStatus(stepId, status) {
@@ -68,9 +92,13 @@
     }
 
     function onStepStart(evt) {
-        ensureStepTile(evt.step_id, evt.label, evt.can_skip);
+        const tile = ensureStepTile(evt.step_id, evt.label, evt.can_skip);
         setStepStatus(evt.step_id, "active");
         taskEl.textContent = evt.label || evt.step_id;
+        // Skip is pre-start only — once the runner is live the pipeline
+        // has already committed to executing it, so drop the button.
+        const skipBtn = tile.querySelector(".step-skip");
+        if (skipBtn) skipBtn.remove();
         log(`[start] ${evt.step_id}`);
     }
 
@@ -156,6 +184,18 @@
             retryBtn.disabled = false;
         }
     });
+
+    // Pre-populate tiles so skip buttons on can_skip steps are visible
+    // before the pipeline reaches them. Best-effort: if the fetch fails
+    // the SSE stream still lazily creates tiles via step_start.
+    fetch("/api/v1/bootstrap/steps")
+        .then((r) => (r.ok ? r.json() : { steps: [] }))
+        .then((data) => {
+            for (const step of data.steps || []) {
+                ensureStepTile(step.id, step.label, step.can_skip);
+            }
+        })
+        .catch(() => {});
 
     const evtSource = new EventSource("/api/v1/bootstrap/events");
     evtSource.onmessage = (e) => {

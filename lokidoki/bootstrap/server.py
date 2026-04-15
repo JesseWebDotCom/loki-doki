@@ -131,12 +131,38 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/v1/bootstrap/events":
             self._serve_events()
             return
+        if path == "/api/v1/bootstrap/steps":
+            self._serve_steps()
+            return
         self._send_status(HTTPStatus.NOT_FOUND, "not found")
+
+    # ------------------------------------------------------------------
+    # GET /api/v1/bootstrap/steps
+    # ------------------------------------------------------------------
+    def _serve_steps(self) -> None:
+        # ``_steps_by_id`` is populated by ``Pipeline.run`` before any step
+        # executes — so this endpoint returns the full ordered list the UI
+        # pre-populates its tile grid from, including ``can_skip`` so the
+        # skip button renders before the runner starts.
+        steps_by_id = self.app.pipeline._steps_by_id  # noqa: SLF001 — co-located module
+        payload = [
+            {
+                "id": step.id,
+                "label": step.label,
+                "can_skip": step.can_skip,
+                "est_seconds": step.est_seconds,
+            }
+            for step in steps_by_id.values()
+        ]
+        self._send_json(HTTPStatus.OK, {"steps": payload})
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path == "/api/v1/bootstrap/retry":
             self._serve_retry()
+            return
+        if path == "/api/v1/bootstrap/skip":
+            self._serve_skip()
             return
         if path == "/api/v1/bootstrap/setup":
             self._serve_setup()
@@ -222,6 +248,24 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(HTTPStatus.OK, {"ok": bool(ok), "step_id": step_id})
 
     # ------------------------------------------------------------------
+    # POST /api/v1/bootstrap/skip
+    # ------------------------------------------------------------------
+    def _serve_skip(self) -> None:
+        body = self._read_body()
+        step_id = body.get("step_id")
+        if not isinstance(step_id, str) or not step_id:
+            self._send_status(HTTPStatus.BAD_REQUEST, "step_id required")
+            return
+        ok = self.app.pipeline.request_skip(step_id)
+        if not ok:
+            self._send_status(
+                HTTPStatus.BAD_REQUEST,
+                f"step {step_id!r} is unknown or not marked can_skip=True",
+            )
+            return
+        self._send_json(HTTPStatus.OK, {"ok": True, "step_id": step_id})
+
+    # ------------------------------------------------------------------
     # POST /api/v1/bootstrap/setup
     # ------------------------------------------------------------------
     def _serve_setup(self) -> None:
@@ -279,6 +323,10 @@ def start_pipeline_loop(
     pipeline: Pipeline, steps: list[Step], ctx: StepContext
 ) -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
     """Start a dedicated asyncio loop in a daemon thread and schedule ``run()``."""
+    # Make the step list queryable via ``/api/v1/bootstrap/steps`` before
+    # ``Pipeline.run`` rewrites it on the async loop — the HTTP server can
+    # otherwise race the pipeline thread and serve an empty list.
+    pipeline._steps_by_id = {s.id: s for s in steps}  # noqa: SLF001
     loop = asyncio.new_event_loop()
 
     def _runner() -> None:

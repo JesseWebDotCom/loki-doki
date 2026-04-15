@@ -45,7 +45,7 @@ LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). I
 
 ## Absolute Hard Rules
 
-- `run.py` is the only user entry point — never tell users to run `app/main.py`
+- Entry points are `./run.sh` (mac/linux) and `run.bat` (windows) — not `run.py`, not `app/main.py`. The shell launchers probe for Python and delegate to `python -m lokidoki.bootstrap`.
 - STT **never** routes to Hailo — CPU only, always
 - TTS **never** routes to Hailo — CPU only, always
 - Wake word **never** routes to Hailo — CPU only, always
@@ -65,30 +65,38 @@ LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). I
 ## Core Repo Structure
 
 ```
-run.py                    # single entry point
-app/
-  main.py
-  config.py
-  orchestrator.py
-  classifier.py
-  bootstrap/
-    server.py             # stdlib http.server, zero deps
-    installer.py
-    health.py
-    static/               # plain HTML/CSS/JS installer UI
-  ui/                     # React app (built by Vite, served by FastAPI)
-  platform/
-    mac/audio.py
-    pi/audio.py
-  subsystems/
-    text/  image/  video/  live_video/  voice/  memory/  persona/
-  providers/
-  settings/
+run.sh / run.bat                # Layer 0 launchers — probe Python, exec Layer 1
+lokidoki/
+  bootstrap/                    # Layer 1 — stdlib http.server install wizard
+    __main__.py                 # `python -m lokidoki.bootstrap` entry
+    server.py                   # ThreadingHTTPServer, SSE event stream
+    pipeline.py                 # ordered step runner with retry/skip
+    steps.py                    # per-profile step specs
+    versions.py                 # pinned runtime binary SHAs
+    offline.py                  # sibling offline-bundle seeding
+    preflight/                  # one file per toolchain (python, uv, node, ...)
+    ui/                         # plain HTML/CSS/JS wizard (no framework)
+  core/
+    platform.py                 # PLATFORM_MODELS — per-profile model catalog
+  ...                           # subsystems, orchestrator, skills, providers
 scripts/
+  build_offline_bundle.py       # pre-download every pinned artifact
+  verify_offline_bundle.py      # sha256 + size check against manifest
   enforce_residency.py
   bench_llm_models.py
 .pi.env.example
 ```
+
+---
+
+## Bootstrap Architecture
+
+- Entry point is `./run.sh` (mac/linux) or `run.bat` (windows). `run.py` is not the entry point.
+- All bootstrap logic lives under `lokidoki/bootstrap/`. The install wizard is plain HTML/CSS/JS at `lokidoki/bootstrap/ui/` — do not replace it with a framework.
+- Model IDs live in `lokidoki/core/platform.py::PLATFORM_MODELS`. Runtime binary versions live in `lokidoki/bootstrap/versions.py`. Do not create a third location.
+- Intel Macs are not supported. `detect_profile()` raises `UnsupportedPlatform`; the shell launcher exits with a one-line message.
+- LLM engines: MLX on `mac`, llama.cpp (Vulkan) on `windows` + `linux`, llama.cpp (CPU ARM NEON) on `pi_cpu`, hailo-ollama on `pi_hailo`. No stock Ollama anywhere in the codebase.
+- Offline installs: `scripts/build_offline_bundle.py` pre-downloads every pinned artifact + HF snapshot; the wizard auto-detects a sibling `lokidoki-offline-bundle/` directory (or `--offline-bundle=<path>`) and runs without network.
 
 ---
 

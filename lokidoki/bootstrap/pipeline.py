@@ -78,11 +78,23 @@ class Pipeline:
         self.subscribers: set[queue.Queue[Event]] = set()
         self.done: bool = False
         self.failed_step_id: str | None = None
+        self.skip_requested: set[str] = set()
         self._steps_by_id: dict[str, Step] = {}
         self._app_url = app_url
         self._history_lock = threading.Lock()
         self._subs_lock = threading.Lock()
         self._run_lock = asyncio.Lock()
+
+    def request_skip(self, step_id: str) -> bool:
+        """Mark ``step_id`` so the pipeline emits a ``StepDone`` with 0s instead
+        of running its ``run()``. Returns ``True`` when the step exists and is
+        ``can_skip=True``; ``False`` otherwise so the server can 400 cleanly.
+        """
+        step = self._steps_by_id.get(step_id)
+        if step is None or not step.can_skip:
+            return False
+        self.skip_requested.add(step_id)
+        return True
 
     # ------------------------------------------------------------------
     # event publishing
@@ -208,6 +220,12 @@ class Pipeline:
                 est_seconds=step.est_seconds,
             )
         )
+        if step.can_skip and step.id in self.skip_requested:
+            self.emit(
+                StepLog(step_id=step.id, line="skipped (--skip-optional / user request)")
+            )
+            self.emit(StepDone(step_id=step.id, duration_s=0.0))
+            return True
         started = time.monotonic()
         try:
             await step.run(ctx)
