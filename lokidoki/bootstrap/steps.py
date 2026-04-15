@@ -30,6 +30,11 @@ from .preflight import (
     install_frontend_deps,
     sync_python_deps,
 )
+from .preflight.llm_engine import (
+    ensure_llm_engine,
+    pull_llm_weights,
+    warm_resident_llm,
+)
 from .run_app import spawn_fastapi_app
 
 
@@ -82,6 +87,26 @@ async def _install_wake_word_run(ctx: StepContext) -> None:
     await ensure_wake_word(ctx, engine)
 
 
+async def _pull_llm_fast_run(ctx: StepContext) -> None:
+    await pull_llm_weights(ctx, "llm_fast", step_id="pull-llm-fast")
+
+
+async def _pull_llm_thinking_run(ctx: StepContext) -> None:
+    # On profiles where the fast + thinking slots reference the same
+    # weights file (e.g. pi_hailo), ``pull_llm_weights`` short-circuits
+    # on the on-disk file check so this step emits "already present".
+    models = _profile_models(ctx.profile)
+    if models["llm_thinking"] == models["llm_fast"]:
+        ctx.emit(
+            StepLog(
+                step_id="pull-llm-thinking",
+                line="thinking model equals fast model — already downloaded",
+            )
+        )
+        return
+    await pull_llm_weights(ctx, "llm_thinking", step_id="pull-llm-thinking")
+
+
 _REAL_RUNNERS: dict[str, RunFn] = {
     "detect-profile": _detect_profile_run,
     "embed-python": ensure_embedded_python,
@@ -93,6 +118,10 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "install-piper": _install_piper_run,
     "install-whisper": _install_whisper_run,
     "install-wake-word": _install_wake_word_run,
+    "install-llm-engine": ensure_llm_engine,
+    "pull-llm-fast": _pull_llm_fast_run,
+    "pull-llm-thinking": _pull_llm_thinking_run,
+    "warm-resident-llm": warm_resident_llm,
     "spawn-app": spawn_fastapi_app,
 }
 

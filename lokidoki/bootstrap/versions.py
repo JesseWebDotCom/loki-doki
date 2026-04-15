@@ -162,6 +162,39 @@ WHISPER: dict[str, tuple[str, str]] = {
 }
 
 
+# Prebuilt llama.cpp server binaries. Mac is absent because Apple Silicon
+# uses MLX (see :data:`MLX_LM`); Intel macs are unsupported.
+# - windows/linux x86_64 → Vulkan build (covers NVIDIA/AMD/Intel GPUs).
+# - linux aarch64 → plain CPU/NEON build; Vulkan isn't useful on Pi 5.
+LLAMA_CPP = {
+    "version": "b8797",
+    "artifacts": {
+        ("windows", "x86_64"): (
+            "llama-b8797-bin-win-vulkan-x64.zip",
+            "fee8b7a27d85a66da09f98c81ee984041779dc2ec698e0fcc9940bcc7edd2337",
+        ),
+        ("linux", "x86_64"): (
+            "llama-b8797-bin-ubuntu-vulkan-x64.tar.gz",
+            "efbff9087d26b69e995aa18fa8a7e2af39270d0863dcdcf5a07bc4bd2d761be5",
+        ),
+        ("linux", "aarch64"): (
+            "llama-b8797-bin-ubuntu-arm64.tar.gz",
+            "c15e108663bd7c23147fc926baeab14812a07b532bc564ccce6f799c5889266b",
+        ),
+    },
+    "url_template": (
+        "https://github.com/ggml-org/llama.cpp/releases/download/{version}/{filename}"
+    ),
+}
+
+
+# MLX engine is a Python package, not a prebuilt binary — ``uv sync``
+# from chunk 3 installs it (gated to Apple Silicon via pyproject.toml
+# marker). This constant exists so the bootstrap can assert the
+# installed ``mlx_lm.__version__`` matches what we validated against.
+MLX_LM = {"version": "0.31.2"}
+
+
 PYTHON_MIN_VERSION = (3, 8, 0)
 """Floor for the *system* Python that launches Layer 1. The embedded
 python-build-standalone interpreter (3.12) runs Layer 2 once the wizard

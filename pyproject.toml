@@ -23,6 +23,10 @@ dependencies = [
     "rapidfuzz>=3.14.1",
     "num2words>=0.5.14",
     "colorlog>=6.10.1",
+    # mlx-lm backs the MLX LLM engine on macOS Apple Silicon (chunk 5).
+    # The wheel only resolves on ``sys_platform == 'darwin'`` + ``arm64``;
+    # uv skips the install on other platforms automatically.
+    "mlx-lm>=0.29.4 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 # Pin the spaCy English model to a wheel so `uv sync` installs it
