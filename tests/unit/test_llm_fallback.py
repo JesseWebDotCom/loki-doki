@@ -1,8 +1,16 @@
 """Unit tests for the LLM fallback decision + stub synthesizer."""
 from __future__ import annotations
 
+import pytest
+
 from lokidoki.orchestrator.core.types import RequestChunkResult, RequestSpec
-from lokidoki.orchestrator.fallbacks.llm_fallback import build_llm_payload, decide_llm, llm_synthesize
+from lokidoki.orchestrator.fallbacks.llm_fallback import (
+    _stub_chunk_text,
+    build_llm_payload,
+    decide_llm,
+    llm_synthesize,
+    llm_synthesize_async,
+)
 
 
 def _spec(chunks: list[RequestChunkResult], supporting: list[str] | None = None) -> RequestSpec:
@@ -235,3 +243,77 @@ def test_build_llm_payload_serialises_chunks_and_context():
     assert payload["original_request"] == "test"
     assert payload["chunks"][0]["capability"] == "greeting_response"
     assert "recent_entities" in payload["context_keys"]
+
+
+# ── Chunk 1: direct_chat dead-end removal ──────────────────────────
+
+
+def test_stub_chunk_text_returns_none_for_direct_chat_when_llm_enabled():
+    """When LLM is enabled, _stub_chunk_text should yield None for
+    direct_chat so the real LLM handles it instead of tombstoning."""
+    from lokidoki.orchestrator.core import config as cfg
+
+    object.__setattr__(cfg.CONFIG, "llm_enabled", True)
+    try:
+        chunk = RequestChunkResult(
+            text="hey there",
+            role="primary_request",
+            capability="direct_chat",
+            confidence=0.55,
+            success=True,
+            result={"output_text": "hey there"},
+        )
+        assert _stub_chunk_text(chunk, {}) is None
+    finally:
+        object.__setattr__(cfg.CONFIG, "llm_enabled", False)
+
+
+def test_stub_chunk_text_returns_tombstone_for_direct_chat_when_llm_disabled():
+    """When LLM is disabled, direct_chat should still tombstone."""
+    from lokidoki.orchestrator.core import config as cfg
+
+    object.__setattr__(cfg.CONFIG, "llm_enabled", False)
+    chunk = RequestChunkResult(
+        text="hey there",
+        role="primary_request",
+        capability="direct_chat",
+        confidence=0.55,
+        success=True,
+        result={"output_text": "hey there"},
+    )
+    result = _stub_chunk_text(chunk, {})
+    assert result is not None
+    assert "built-in answer" in result.lower()
+
+
+@pytest.mark.anyio
+async def test_llm_synthesize_async_graceful_fallback_on_direct_chat():
+    """When LLM is enabled but the real LLM call fails, the async path
+    should not produce empty text for direct_chat — it should return a
+    graceful fallback message."""
+    from lokidoki.orchestrator.core import config as cfg
+
+    import lokidoki.orchestrator.fallbacks.llm_fallback as fb
+
+    original_call = fb._call_real_llm
+    object.__setattr__(cfg.CONFIG, "llm_enabled", True)
+
+    async def _boom(spec):
+        raise RuntimeError("model unavailable")
+
+    fb._call_real_llm = _boom
+    try:
+        chunk = RequestChunkResult(
+            text="wassup",
+            role="primary_request",
+            capability="direct_chat",
+            confidence=0.55,
+            success=True,
+            result={"output_text": "wassup"},
+        )
+        response = await llm_synthesize_async(_spec([chunk]))
+        assert response.output_text.strip()
+        assert "I'm here" in response.output_text
+    finally:
+        object.__setattr__(cfg.CONFIG, "llm_enabled", False)
+        fb._call_real_llm = original_call

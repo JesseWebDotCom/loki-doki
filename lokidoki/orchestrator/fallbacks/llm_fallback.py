@@ -106,7 +106,13 @@ async def llm_synthesize_async(spec: RequestSpec) -> ResponseObject:
         spec.llm_reason = (
             f"{spec.llm_reason or ''} (degraded:{type(exc).__name__}:{exc})"
         ).strip()
-        return _stub_synthesize(spec)
+        result = _stub_synthesize(spec)
+        if not (result.output_text or "").strip() and any(
+            c.capability == "direct_chat" and c.role == "primary_request"
+            for c in spec.chunks
+        ):
+            result.output_text = "I'm here — what would you like to talk about?"
+        return result
 
 
 def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
@@ -156,6 +162,8 @@ def _stub_chunk_text(
         return f"I couldn't complete that ({chunk.capability})."
 
     if chunk.capability == "direct_chat":
+        if CONFIG.llm_enabled:
+            return None  # let the real LLM handle it
         return (
             "I don't have a built-in answer for that — try enabling LLM "
             "or rephrasing as a question I can route to a skill."
