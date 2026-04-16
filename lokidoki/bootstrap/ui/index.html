@@ -11,35 +11,40 @@
 <body>
     <div class="wizard">
         <div class="ghost">
-            <img src="/bootstrap/lokidoki-logo.svg" width="64" height="64" alt="LokiDoki" />
+            <img src="/bootstrap/lokidoki-logo.svg" width="56" height="56" alt="LokiDoki" />
         </div>
-        <h1>Hey, I'm LokiDoki!</h1>
-        <p class="subtitle">Give me a sec to wake up — I'll be ready to chat in just a moment.</p>
-        <p id="profile-badge" class="profile-badge">Installing for: <span id="profile-label">…</span></p>
+        <h1 id="page-title">Getting LokiDoki ready</h1>
 
-        <div id="steps-grid" class="steps-grid"></div>
+        <div id="category-stepper" class="categories"></div>
 
-        <div class="progress-section">
-            <div class="progress-bar-bg"><div id="progress-fill" class="progress-bar-fill"></div></div>
-            <div class="console-header">
-                <span id="current-task" class="current-task">System idle…</span>
-                <button class="details-btn" type="button" id="toggle-console-btn">View Detailed Logs</button>
+        <div class="progress-ring-wrap">
+            <svg class="progress-ring" viewBox="0 0 120 120">
+                <circle class="progress-ring-bg" cx="60" cy="60" r="52" />
+                <circle class="progress-ring-fill" id="progress-ring" cx="60" cy="60" r="52" />
+            </svg>
+            <span class="ring-center" id="ring-center">
+                <span class="ring-pct" id="ring-pct">0%</span>
+            </span>
+        </div>
+
+        <p class="current-step" id="current-task">Getting ready...</p>
+        <p class="step-counter" id="step-counter" hidden></p>
+        <p class="subtitle subtitle-detail" id="profile-label" hidden></p>
+
+        <div id="halt-banner" class="halt-banner" hidden>
+            <div class="halt-icon">!</div>
+            <div class="halt-body">
+                <p class="halt-title">Something went wrong</p>
+                <p id="halt-error" class="halt-error"></p>
+                <p id="halt-remediation" class="halt-remediation"></p>
+                <button type="button" id="retry-btn" class="btn btn-retry">Try again</button>
             </div>
         </div>
 
-        <div id="halt-banner" class="halt-banner" hidden>
-            <h2>Install halted</h2>
-            <p id="halt-error"></p>
-            <p id="halt-remediation" class="halt-remediation"></p>
-            <button type="button" id="retry-btn" class="btn btn-retry">Retry step</button>
-        </div>
+        <button id="launch-btn" type="button" class="btn btn-launch">Open LokiDoki</button>
 
+        <button class="log-toggle" type="button" id="toggle-console-btn">Show details</button>
         <pre id="console" class="console" hidden></pre>
-
-        <div class="buttons">
-            <button id="launch-btn" type="button" class="btn btn-launch" hidden>Let's chat →</button>
-            <button id="waiting-btn" type="button" class="btn btn-disabled">Just a sec…</button>
-        </div>
     </div>
     <script src="/bootstrap/bootstrap.js"></script>
 </body>

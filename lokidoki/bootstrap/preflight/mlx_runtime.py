@@ -10,6 +10,7 @@ other profiles.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import subprocess
 import sys
@@ -66,7 +67,22 @@ async def start_mlx_server(
     port: int = 11434,
     ready_timeout_s: float = 180.0,
 ) -> int:
-    """Launch ``python -m mlx_lm server`` in the background."""
+    """Launch ``python -m mlx_lm server`` in the background.
+
+    Idempotent: if a healthy mlx_lm is already serving ``port`` we reuse it
+    rather than fight for the bind. Reusing avoids the ~5 GB Qwen3-8B-4bit
+    reload and prevents the orphan-server pile-up where a prior wizard run
+    left a detached mlx_lm process holding the port.
+    """
+    if _probe(f"http://127.0.0.1:{port}/v1/models"):
+        ctx.emit(
+            StepLog(
+                step_id=_WARM_STEP_ID,
+                line=f"mlx_lm server already healthy on :{port} — reusing",
+            )
+        )
+        return port
+
     py_bin = _venv_python(ctx)
     if not py_bin.exists():
         raise RuntimeError(f"venv python missing at {py_bin}")
@@ -102,8 +118,50 @@ async def start_mlx_server(
     subprocess.Popen(cmd, **kwargs)  # noqa: S603 — paths validated above
 
     await _wait_for_models(f"http://127.0.0.1:{port}/v1/models", ready_timeout_s)
-    ctx.emit(StepLog(step_id=_WARM_STEP_ID, line=f"mlx_lm server healthy on :{port}"))
+    ctx.emit(StepLog(step_id=_WARM_STEP_ID, line=f"mlx_lm server up on :{port}, loading weights into memory..."))
+    # /v1/models reports the catalog before the weights are mmap'd into
+    # VRAM; mlx_lm is lazy and only loads on the first inference call.
+    # Send a 1-token completion so this step ends with the model actually
+    # resident — without this, the first real chat message paid the load
+    # cost and felt unresponsive for ~30s on M-series silicon.
+    started = time.monotonic()
+    await _force_model_load(
+        f"http://127.0.0.1:{port}/v1/chat/completions",
+        model_id,
+        ready_timeout_s,
+    )
+    ctx.emit(
+        StepLog(
+            step_id=_WARM_STEP_ID,
+            line=f"mlx_lm model {model_id!r} resident in {time.monotonic() - started:.1f}s",
+        )
+    )
     return port
+
+
+async def _force_model_load(url: str, model_id: str, timeout_s: float) -> None:
+    """POST a 1-token completion so mlx_lm finishes loading the weights."""
+    body = json.dumps(
+        {
+            "model": model_id,
+            "messages": [{"role": "user", "content": "."}],
+            "max_tokens": 1,
+            "temperature": 0,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    def _post() -> None:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            resp.read()  # drain so the connection closes cleanly
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _post)
 
 
 async def _wait_for_models(url: str, timeout_s: float) -> None:

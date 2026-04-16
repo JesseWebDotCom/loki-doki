@@ -145,6 +145,38 @@ class Step:
     est_seconds: int | None = None
     depends_on: tuple[str, ...] = ()
     run: RunFn = field(default=None)  # type: ignore[assignment]
+    category: str = "system"
+
+
+# Step → category bucket. The wizard renders a 5-chip stepper above the
+# progress ring; each chip represents one of these categories. Adding a
+# new step requires assigning it a category here, otherwise it falls
+# through to "system" and clutters the first chip.
+_STEP_CATEGORY: dict[str, str] = {
+    "detect-profile": "system",
+    "embed-python": "system",
+    "install-uv": "system",
+    "sync-python-deps": "system",
+    "check-hailo-runtime": "system",
+    "embed-node": "frontend",
+    "install-frontend-deps": "frontend",
+    "build-frontend": "frontend",
+    "install-llm-engine": "ai",
+    "install-hailo-ollama": "ai",
+    "ensure-hef-files": "ai",
+    "pull-llm-fast": "ai",
+    "pull-llm-thinking": "ai",
+    "warm-resident-llm": "ai",
+    "install-vision": "ai",
+    "pull-vision-model": "ai",
+    "install-piper": "audio",
+    "install-whisper": "audio",
+    "install-wake-word": "audio",
+    "install-detectors": "audio",
+    "install-image-gen": "audio",
+    "seed-database": "finalize",
+    "spawn-app": "finalize",
+}
 
 
 # Step specs are flat (id, label, can_skip, est) tuples. Profile-specific
@@ -218,6 +250,7 @@ def _to_steps(
                 can_skip=can_skip,
                 est_seconds=est,
                 run=_REAL_RUNNERS.get(sid, _stub_for(sid)),
+                category=_STEP_CATEGORY.get(sid, "system"),
             )
         )
     return steps

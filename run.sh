@@ -32,8 +32,28 @@ fi
 
 unset VIRTUAL_ENV
 
-# Clean up any stale Layer 1 server and anything holding :8000.
-pgrep -f "lokidoki.bootstrap" 2>/dev/null | xargs -r kill -9 2>/dev/null
-lsof -ti:8000 2>/dev/null | xargs -r kill -9 2>/dev/null
+# Clean up any stale Layer 1 server, the FastAPI app, and any background
+# model servers prior wizard runs left detached via start_new_session=True.
+# Without this, every ./run.sh leaks an mlx_lm / llama-server / hailo-ollama
+# holding multi-GB of resident memory until reboot.
+# (BSD xargs has no -r, so we avoid it and check for empty PID lists explicitly.)
+kill_pattern() {
+    pids=$(pgrep -f "$1" 2>/dev/null)
+    [ -n "$pids" ] && kill -9 $pids 2>/dev/null
+    return 0
+}
+kill_port() {
+    pids=$(lsof -ti:"$1" 2>/dev/null)
+    [ -n "$pids" ] && kill -9 $pids 2>/dev/null
+    return 0
+}
+kill_pattern "lokidoki.bootstrap"
+kill_pattern "uvicorn lokidoki.main"
+kill_pattern "mlx_lm[. ]server"
+kill_pattern "llama-server"
+kill_pattern "hailo-ollama"
+kill_port 8000
+kill_port 11434
+kill_port 11435
 
 exec "$PY" -m lokidoki.bootstrap "$@"

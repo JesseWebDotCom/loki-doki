@@ -15,6 +15,7 @@ need to live next to the binary, so we do not split the layout further.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -102,7 +103,20 @@ async def start_llama_server(
     context_size: int = 8192,
     ready_timeout_s: float = 120.0,
 ) -> int:
-    """Spawn ``llama-server`` in the background and wait for ``/health`` to report ready."""
+    """Spawn ``llama-server`` in the background and wait for ``/health`` to report ready.
+
+    Idempotent: reuses a healthy server already on ``port`` so a re-run of
+    the wizard doesn't fight the prior detached process for the bind.
+    """
+    if _probe(f"http://127.0.0.1:{port}/health"):
+        ctx.emit(
+            StepLog(
+                step_id=_WARM_STEP_ID,
+                line=f"llama-server already healthy on :{port} — reusing",
+            )
+        )
+        return port
+
     binary = llama_server_path(ctx)
     if not binary.exists():
         raise RuntimeError(f"llama-server is not installed at {binary}")
@@ -140,8 +154,47 @@ async def start_llama_server(
     subprocess.Popen(cmd, **kwargs)  # noqa: S603 — path validated above
 
     await _wait_for_health(f"http://127.0.0.1:{port}/health", ready_timeout_s)
-    ctx.emit(StepLog(step_id=_WARM_STEP_ID, line=f"llama-server healthy on :{port}"))
+    ctx.emit(StepLog(step_id=_WARM_STEP_ID, line=f"llama-server up on :{port}, loading weights into memory..."))
+    # /health flips green when the HTTP server is bound, but llama.cpp
+    # finishes mmap'ing the weights and warming the KV cache only on the
+    # first inference. A 1-token completion forces that to happen here
+    # so the user's first real chat doesn't pay the cold-start tax.
+    started = time.monotonic()
+    await _force_model_load(
+        f"http://127.0.0.1:{port}/v1/chat/completions",
+        ready_timeout_s,
+    )
+    ctx.emit(
+        StepLog(
+            step_id=_WARM_STEP_ID,
+            line=f"llama-server model resident in {time.monotonic() - started:.1f}s",
+        )
+    )
     return port
+
+
+async def _force_model_load(url: str, timeout_s: float) -> None:
+    """POST a 1-token completion so llama-server finishes loading the weights."""
+    body = json.dumps(
+        {
+            "messages": [{"role": "user", "content": "."}],
+            "max_tokens": 1,
+            "temperature": 0,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    def _post() -> None:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            resp.read()
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _post)
 
 
 async def _wait_for_health(url: str, timeout_s: float) -> None:

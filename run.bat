@@ -33,9 +33,14 @@ if errorlevel 1 (
 
 set VIRTUAL_ENV=
 
-REM Clear any stale Layer 1 server and anything holding :8000.
+REM Clear stale Layer 1 server, FastAPI, and any background model servers
+REM prior wizard runs left detached. Without this each ./run leaks a
+REM mlx_lm / llama-server process holding multi-GB of resident memory.
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000 ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>nul
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :11434 ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>nul
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :11435 ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>nul
 taskkill /F /FI "WINDOWTITLE eq lokidoki-bootstrap" >nul 2>nul
+taskkill /F /IM llama-server.exe >nul 2>nul
 timeout /t 1 /nobreak >nul
 
 title lokidoki-bootstrap

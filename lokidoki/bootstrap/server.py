@@ -150,6 +150,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "label": step.label,
                 "can_skip": step.can_skip,
                 "est_seconds": step.est_seconds,
+                "category": step.category,
             }
             for step in steps_by_id.values()
         ]
@@ -206,6 +207,7 @@ class _Handler(BaseHTTPRequestHandler):
             _STATIC_TYPES.get(safe.suffix, "application/octet-stream"),
         )
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 

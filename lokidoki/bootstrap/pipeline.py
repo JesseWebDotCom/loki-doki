@@ -200,7 +200,12 @@ class Pipeline:
         path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
     async def retry(self, step_id: str, ctx: StepContext) -> bool:
-        """Re-run a single previously-failed step in place."""
+        """Re-run a single previously-failed step in place.
+
+        If the retried step was the last pending one (i.e. every step in
+        the pipeline is now done), emit ``PipelineComplete`` so the UI
+        gets the launch signal without relying on the health-poll fallback.
+        """
         step = self._steps_by_id.get(step_id)
         if step is None:
             return False
@@ -209,7 +214,26 @@ class Pipeline:
             ok = await self._run_one(step, ctx)
             if ok:
                 self.failed_step_id = None
+                # Resume any steps that never ran after the original failure
+                remaining = self._steps_after(step_id)
+                for rem_step in remaining:
+                    ok = await self._run_one(rem_step, ctx)
+                    if not ok:
+                        self.emit(PipelineHalted(reason=f"{rem_step.id} failed"))
+                        self.done = True
+                        return False
+                self.emit(PipelineComplete(app_url=self._app_url))
+                self.done = True
             return ok
+
+    def _steps_after(self, step_id: str) -> list[Step]:
+        """Return steps ordered after ``step_id`` that haven't completed."""
+        ids = list(self._steps_by_id.keys())
+        try:
+            idx = ids.index(step_id)
+        except ValueError:
+            return []
+        return [self._steps_by_id[sid] for sid in ids[idx + 1:]]
 
     async def _run_one(self, step: Step, ctx: StepContext) -> bool:
         self.emit(
