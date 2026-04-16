@@ -3,6 +3,11 @@
 Uses a fake provider factory so the tests never make a real HTTP call.
 The factory is installed via ``set_inference_client_factory`` and torn
 down between tests.
+
+The ``Test*WireGuard`` section at the bottom exists specifically to
+prevent regressions like the silent-404 bug: the default (no-factory)
+client MUST be an ``HTTPProvider`` that speaks ``/v1/chat/completions``,
+never the legacy ``InferenceClient`` that spoke ``/api/generate``.
 """
 from __future__ import annotations
 
@@ -13,6 +18,7 @@ from lokidoki.orchestrator.core.types import RequestChunkResult, RequestSpec
 from lokidoki.orchestrator.fallbacks import llm_fallback
 from lokidoki.orchestrator.fallbacks.llm_fallback import llm_synthesize_async
 from lokidoki.orchestrator.fallbacks.llm_client import (
+    _get_client,
     call_llm,
     set_inference_client_factory,
 )
@@ -219,3 +225,57 @@ async def test_llm_synthesize_async_treats_empty_response_as_failure(llm_enabled
     assert response.output_text != ""
     assert spec.llm_reason and "degraded:" in spec.llm_reason
     assert "empty response" in spec.llm_reason
+
+
+# ---------------------------------------------------------------------------
+# Wire-format guard tests
+#
+# These prevent a recurrence of the silent-404 bug where the client
+# spoke Ollama's /api/generate but the engine only served
+# /v1/chat/completions. The default (no-factory) client MUST be an
+# HTTPProvider, and when LLM is enabled direct_chat MUST NOT leak
+# the canned stub message.
+# ---------------------------------------------------------------------------
+
+
+CANNED_STUB = "I don't have a built-in answer for that"
+
+
+def test_default_client_is_http_provider():
+    """The default client must be HTTPProvider (OpenAI /v1/chat/completions),
+    never the legacy InferenceClient (/api/generate)."""
+    from unittest.mock import patch
+
+    from lokidoki.core.providers.client import HTTPProvider
+
+    set_inference_client_factory(None)
+    # Mock AsyncClient to avoid SSL context errors in CI / embedded Python.
+    with patch("httpx.AsyncClient"):
+        try:
+            client = _get_client()
+            assert isinstance(client, HTTPProvider), (
+                f"Expected HTTPProvider, got {type(client).__name__}. "
+                "Legacy InferenceClient (/api/generate) must not be used — "
+                "it silently 404s against mlx-lm / llama-server."
+            )
+        finally:
+            set_inference_client_factory(None)
+
+
+@pytest.mark.anyio
+async def test_direct_chat_never_leaks_canned_stub_when_llm_enabled(llm_enabled):
+    """When LLM is enabled and the client returns a real answer, the
+    canned 'I don't have a built-in answer' stub must never reach the
+    user. This catches the scenario where synthesis silently falls
+    back to the stub because the HTTP call failed."""
+    fake = FakeInferenceClient(response="Not much, just here to help!")
+    set_inference_client_factory(lambda: fake)
+
+    spec = _spec_direct_chat_only("what's happening?")
+    response = await llm_synthesize_async(spec)
+
+    assert CANNED_STUB not in response.output_text, (
+        f"Canned stub leaked into response: {response.output_text!r}. "
+        "The LLM client is likely failing and silently degrading."
+    )
+    assert response.output_text == "Not much, just here to help!"

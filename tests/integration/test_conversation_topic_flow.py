@@ -91,6 +91,26 @@ class TestKnowledgeQueryEnrichment:
         assert "what's happening" not in result
         assert result == "who is the active us president"
 
+    def test_threshold_boundary_four_words_enriched(self):
+        """Queries of exactly 4 words SHOULD be enriched (short enough
+        to be pronoun-heavy / vague)."""
+        payload = {
+            "chunk_text": "is it still playing",
+            "conversation_topic": "Avatar",
+        }
+        result = _extract_query(payload)
+        assert "Avatar" in result
+
+    def test_threshold_boundary_five_words_not_enriched(self):
+        """Queries of 5+ words must NOT be enriched — they carry enough
+        specificity to search on their own."""
+        payload = {
+            "chunk_text": "when is the next election",
+            "conversation_topic": "what's happening",
+        }
+        result = _extract_query(payload)
+        assert "what's happening" not in result
+
 
 # ---------------------------------------------------------------------------
 # Unit: session state topic persistence
