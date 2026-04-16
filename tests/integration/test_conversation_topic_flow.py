@@ -79,6 +79,18 @@ class TestKnowledgeQueryEnrichment:
         }
         assert _extract_query(payload) == "explicit query"
 
+    def test_complete_question_not_contaminated_by_stale_topic(self):
+        """A fully-formed 5+ word query must not get a stale topic
+        appended — "who is the active us president" + "what's happening"
+        → garbled search results."""
+        payload = {
+            "chunk_text": "who is the active us president",
+            "conversation_topic": "what's happening",
+        }
+        result = _extract_query(payload)
+        assert "what's happening" not in result
+        assert result == "who is the active us president"
+
 
 # ---------------------------------------------------------------------------
 # Unit: session state topic persistence

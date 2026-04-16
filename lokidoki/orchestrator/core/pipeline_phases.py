@@ -427,8 +427,16 @@ def _contextualize_query(query: str, raw_text: str, safe_context: dict) -> str:
         if resolved != query:
             logger.info("[Loop] Contextualized query: '%s' → '%s'", query, resolved)
             return resolved
-    # Fallback: if no topic found but raw_text differs, prepend it
-    if raw_text.strip().lower() != query.strip().lower():
+    # Fallback: only prepend raw_text when the extracted query is
+    # genuinely short / vague (4 words or fewer). A complete question
+    # like "who is the active us president" must NOT get a prior turn's
+    # text appended — that produced garbled search queries like
+    # "who is the active us president what's happening".
+    query_words = query.split()
+    if (
+        len(query_words) <= 4
+        and raw_text.strip().lower() != query.strip().lower()
+    ):
         enriched = f"{raw_text.strip()} {query}"
         if len(enriched) > 120:
             enriched = enriched[:120]

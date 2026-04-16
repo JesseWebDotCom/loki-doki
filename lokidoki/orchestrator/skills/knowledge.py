@@ -51,13 +51,16 @@ def _extract_query(payload: dict[str, Any]) -> str:
     if explicit:
         return str(explicit)
     base = str(payload.get("chunk_text") or "").strip(" ?.!")
-    # Enrich short queries with the conversational topic when available.
-    # "did Corey Feldman win" + topic "The Masked Singer"
-    # → "did Corey Feldman win The Masked Singer"
+    # Enrich very short, pronoun-heavy queries with the conversational
+    # topic so "is it free" + topic "Claude Cowork" → "is it free
+    # Claude Cowork". Cap at 4 words — anything longer already has
+    # enough specificity to search on its own. A 7-word cap caused
+    # "who is the active us president" (7 words) to get "what's
+    # happening" appended from a stale prior turn's topic.
     topic = str(payload.get("conversation_topic") or "").strip()
     if topic and base and topic.lower() not in base.lower():
         words = base.split()
-        if len(words) <= 7:
+        if len(words) <= 4:
             base = f"{base} {topic}"
     return base
 

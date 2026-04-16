@@ -2432,6 +2432,17 @@
         "fast_lane_matched": false,
         "capability": "direct_chat"
       }
+    },
+    {
+      "id": "edge.chitchat_whats_happening",
+      "utterance": "what's happening?",
+      "context": {},
+      "expect": {
+        "fast_lane_matched": false,
+        "capability": "direct_chat",
+        "llm_used": true,
+        "llm_reason": "direct_chat"
+      }
     }
   ]
 }

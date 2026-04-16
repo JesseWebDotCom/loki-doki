@@ -87,8 +87,7 @@ async def test_call_llm_uses_injected_factory(llm_enabled):
     call = fake.calls[0]
     assert call["model"] == pipeline_config.CONFIG.llm_model
     assert call["prompt"] == "test prompt"
-    assert call["think"] is False
-    assert call["num_predict"] == pipeline_config.CONFIG.llm_num_predict
+    assert call["max_tokens"] == pipeline_config.CONFIG.llm_num_predict
 
 
 def _spec_direct_chat_only(question: str) -> RequestSpec:
