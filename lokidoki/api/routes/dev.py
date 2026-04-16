@@ -151,7 +151,7 @@ async def get_pipeline_status(_: User = Depends(require_admin)):
                     "decide_gemma() decision in fallbacks/gemma_fallback.py",
                     "Prompt templates for split / resolve / combine in fallbacks/prompts.py",
                     "build_split_prompt / build_resolve_prompt / build_combine_prompt helpers",
-                    "Real Ollama client wired through lokidoki.core.inference.InferenceClient (fallbacks/ollama_client.py)",
+                    "HTTPProvider wired through lokidoki.core.providers.client (fallbacks/llm_client.py)",
                     "gemma_synthesize_async on the pipeline path; degrades to stub on Ollama failures and tags trace 'degraded:gemma_error'",
                     "Stub synthesizer covers unresolved + ambiguous + supporting-context paths",
                     "Subordinate-clause chunks appear in RequestSpec.chunks for the decider",

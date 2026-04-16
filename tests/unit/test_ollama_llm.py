@@ -1,8 +1,8 @@
-"""Tests for the Ollama LLM client wiring (Phase 5).
+"""Tests for the LLM client wiring (Phase 5).
 
-Uses a fake :class:`InferenceClient` factory so the tests never make a
-real HTTP call. The factory is installed via
-``set_inference_client_factory`` and torn down between tests.
+Uses a fake provider factory so the tests never make a real HTTP call.
+The factory is installed via ``set_inference_client_factory`` and torn
+down between tests.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from lokidoki.orchestrator.core import config as pipeline_config
 from lokidoki.orchestrator.core.types import RequestChunkResult, RequestSpec
 from lokidoki.orchestrator.fallbacks import llm_fallback
 from lokidoki.orchestrator.fallbacks.llm_fallback import llm_synthesize_async
-from lokidoki.orchestrator.fallbacks.ollama_client import (
+from lokidoki.orchestrator.fallbacks.llm_client import (
     call_llm,
     set_inference_client_factory,
 )

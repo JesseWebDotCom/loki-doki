@@ -100,7 +100,7 @@ async def llm_synthesize_async(spec: RequestSpec) -> ResponseObject:
         log.warning(
             "LLM fallback degraded to stub: model=%s url=%s error=%s",
             CONFIG.llm_model,
-            CONFIG.llm_ollama_url,
+            CONFIG.llm_endpoint,
             exc,
         )
         spec.llm_reason = (
@@ -193,7 +193,7 @@ def _stub_output_text(
 
 async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
     """Real LLM client path."""
-    from lokidoki.orchestrator.fallbacks.ollama_client import call_llm
+    from lokidoki.orchestrator.fallbacks.llm_client import call_llm
 
     prompt = build_combine_prompt(spec)
     raw = await call_llm(prompt)

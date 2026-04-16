@@ -56,7 +56,7 @@ class PipelineConfig:
     # hermetic. Override with ``LOKI_LLM_ENABLED=0`` or ``=1``.
     llm_enabled: bool = field(default_factory=_default_llm_enabled)
 
-    # Ollama base URL + model tag for the LLM fallback. The HTTP call
+    # LLM endpoint URL + model tag for the LLM fallback. The HTTP call
     # only fires when ``llm_enabled`` is true; otherwise these values
     # are inert.
     #
@@ -85,13 +85,16 @@ class PipelineConfig:
     # entire reasoning monologue into the response and pushes latency
     # past 3.5s. Confirmed via Ollama issue ollama/ollama#12917.
     #
-    # Override with ``LOKI_LLM_MODEL`` and ``LOKI_OLLAMA_URL`` env
-    # vars without touching code:
+    # Override with ``LOKI_LLM_MODEL`` and ``LOKI_LLM_ENDPOINT`` (or
+    # legacy ``LOKI_OLLAMA_URL``) env vars without touching code:
     #   LOKI_LLM_MODEL=phi4-mini    # tied on small set, slower at scale
     #   LOKI_LLM_MODEL=gemma4:e4b   # highest quality, 4x larger on disk
     #   LOKI_LLM_MODEL=llama3.2:3b  # smallest, fastest, RAM-budget
-    llm_ollama_url: str = field(
-        default_factory=lambda: os.environ.get("LOKI_OLLAMA_URL", "http://localhost:11434")
+    llm_endpoint: str = field(
+        default_factory=lambda: os.environ.get(
+            "LOKI_LLM_ENDPOINT",
+            os.environ.get("LOKI_OLLAMA_URL", "http://localhost:11434"),
+        )
     )
     llm_model: str = field(
         default_factory=lambda: os.environ.get(

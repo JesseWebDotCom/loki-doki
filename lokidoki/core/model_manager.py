@@ -1,6 +1,15 @@
+"""Model policy and lifecycle management.
+
+``ModelPolicy`` selects fast / thinking models per profile.
+``ModelManager`` handles residency warm-up and model listing via the
+OpenAI-compatible ``/v1/`` API that all shipped engines expose.
+"""
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional, Union, Tuple, List
-from lokidoki.core.inference import InferenceClient
+
+from lokidoki.core.providers.client import HTTPProvider
 from lokidoki.core.platform import (
     PLATFORM_MODELS,
     detect_profile,
@@ -43,14 +52,19 @@ class ModelPolicy:
 
 
 class ModelManager:
-    """Manages model lifecycle: residency, switching, and availability checks."""
+    """Manages model lifecycle: residency warm-up and availability checks.
+
+    Uses :class:`HTTPProvider` which speaks the OpenAI-compatible
+    ``/v1/chat/completions`` and ``/v1/models`` endpoints supported by
+    all shipped engines (mlx-lm, llama-server, hailo-ollama).
+    """
 
     def __init__(
         self,
-        inference_client: InferenceClient,
+        provider: HTTPProvider,
         policy: Optional[ModelPolicy] = None,
     ):
-        self._client = inference_client
+        self._provider = provider
         self._policy = policy or ModelPolicy()
 
     @property
@@ -62,76 +76,58 @@ class ModelManager:
         return self._policy.select(complexity)
 
     async def ensure_resident(self) -> bool:
-        """Pre-load the fast model into RAM for minimal cold-start latency."""
+        """Pre-load the fast model into RAM by sending a minimal prompt."""
         try:
-            await self._client.generate(
+            await self._provider.generate(
                 model=self._policy.fast_model,
                 prompt=".",
-                keep_alive=self._policy.fast_keep_alive,
+                max_tokens=1,
             )
             return True
         except Exception:
             return False
 
     async def list_available_models(self) -> list[str]:
-        """Query Ollama for available model tags."""
+        """Query the engine for available models via ``/v1/models``."""
         try:
-            response = await self._client._client.get("/api/tags")
+            response = await self._provider._client.get("/v1/models")
             if response.status_code == 200:
                 data = response.json()
-                return [m["name"] for m in data.get("models", [])]
+                return [m["id"] for m in data.get("data", [])]
             return []
         except Exception:
             return []
 
     async def enforce_residency(self) -> dict[str, List[str]]:
-        """Ensure ONLY configured models are in RAM; unload all others.
-        
-        Returns a dict with 'kept' and 'unloaded' model lists.
+        """Return which configured models are available.
+
+        Unlike the old Ollama-based implementation, OpenAI-compat
+        engines (mlx-lm, llama-server) do not support per-model
+        keep_alive / unload. We simply report which models the engine
+        knows about.
         """
         from lokidoki.orchestrator.core.config import CONFIG
-        
-        # 1. Identify authorized models
+
         authorized = {
             self._policy.fast_model,
             self._policy.thinking_model,
             CONFIG.llm_model,
         }
-        # Strip potential duplicates/empty strings
         authorized = {m for m in authorized if m}
 
-        results = {"kept": [], "unloaded": []}
-        
+        results: dict[str, List[str]] = {"kept": [], "unloaded": []}
+
         try:
-            # 2. Query currently loaded models
-            response = await self._client._client.get("/api/ps")
-            if response.status_code != 200:
-                return results
-            
-            loaded = response.json().get("models", [])
-            for model_info in loaded:
-                name = model_info.get("name")
-                if not name:
-                    continue
-                
-                # Check if this model (or its base tag) is authorized
-                # (Ollama often returns full tags like 'qwen3:4b-instruct-2507-q4_K_M')
+            available = await self.list_available_models()
+            for model_id in available:
                 is_auth = any(
-                    name == auth or name.startswith(auth + ":") or auth.startswith(name + ":")
+                    model_id == auth or model_id.startswith(auth + ":")
+                    or auth.startswith(model_id + ":")
                     for auth in authorized
                 )
-                
                 if is_auth:
-                    results["kept"].append(name)
-                else:
-                    # 3. Unload Unauthorized Model
-                    # We do this by sending a dummy generate with keep_alive: 0
-                    await self._client._client.post(
-                        "/api/generate",
-                        json={"model": name, "prompt": ".", "keep_alive": 0, "stream": False}
-                    )
-                    results["unloaded"].append(name)
-                    
+                    results["kept"].append(model_id)
+                # No unload action — OpenAI-compat engines don't support it
             return results
         except Exception:
             return results

@@ -34,7 +34,7 @@ import logging
 from typing import Any, Callable
 
 from lokidoki.orchestrator.core.config import CONFIG
-from lokidoki.orchestrator.fallbacks.ollama_client import call_llm
+from lokidoki.orchestrator.fallbacks.llm_client import call_llm
 from lokidoki.orchestrator.skills._runner import AdapterResult
 
 log = logging.getLogger("lokidoki.orchestrator.skills.llm")

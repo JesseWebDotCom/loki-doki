@@ -64,20 +64,19 @@ class TestModelManager:
         mock_client.generate = AsyncMock(return_value="ok")
         policy = ModelPolicy(profile="pi_cpu")
 
-        manager = ModelManager(inference_client=mock_client, policy=policy)
+        manager = ModelManager(provider=mock_client, policy=policy)
         result = await manager.ensure_resident()
 
         assert result is True
         call_kwargs = mock_client.generate.call_args.kwargs
         assert call_kwargs["model"] == PLATFORM_MODELS["pi_cpu"]["llm_fast"]
-        assert call_kwargs["keep_alive"] == -1
 
     @pytest.mark.anyio
     async def test_ensure_resident_handles_error(self):
         mock_client = AsyncMock()
         mock_client.generate = AsyncMock(side_effect=Exception("unreachable"))
 
-        manager = ModelManager(inference_client=mock_client)
+        manager = ModelManager(provider=mock_client)
         result = await manager.ensure_resident()
         assert result is False
 
@@ -89,14 +88,14 @@ class TestModelManager:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "models": [
-                {"name": "qwen3:4b-instruct"},
-                {"name": "qwen3:4b"},
+            "data": [
+                {"id": "qwen3:4b-instruct", "object": "model"},
+                {"id": "qwen3:4b", "object": "model"},
             ]
         }
         mock_client._client.get = AsyncMock(return_value=mock_response)
 
-        manager = ModelManager(inference_client=mock_client)
+        manager = ModelManager(provider=mock_client)
         models = await manager.list_available_models()
 
         assert "qwen3:4b-instruct" in models
@@ -106,7 +105,7 @@ class TestModelManager:
     async def test_get_model_for_thinking_on_pi_cpu(self):
         mock_client = AsyncMock()
         policy = ModelPolicy(profile="pi_cpu")
-        manager = ModelManager(inference_client=mock_client, policy=policy)
+        manager = ModelManager(provider=mock_client, policy=policy)
 
         model, keep_alive = manager.get_model("thinking")
         assert model == PLATFORM_MODELS["pi_cpu"]["llm_thinking"]
@@ -116,7 +115,7 @@ class TestModelManager:
     async def test_get_model_for_fast(self):
         mock_client = AsyncMock()
         policy = ModelPolicy(profile="mac")
-        manager = ModelManager(inference_client=mock_client, policy=policy)
+        manager = ModelManager(provider=mock_client, policy=policy)
 
         model, _ = manager.get_model("fast")
         assert model == "mlx-community/Qwen3-8B-4bit"
@@ -124,5 +123,5 @@ class TestModelManager:
     def test_policy_property(self):
         mock_client = AsyncMock()
         policy = ModelPolicy(profile="mac")
-        manager = ModelManager(inference_client=mock_client, policy=policy)
+        manager = ModelManager(provider=mock_client, policy=policy)
         assert manager.policy.profile == "mac"

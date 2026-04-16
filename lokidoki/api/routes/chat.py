@@ -22,10 +22,12 @@ from pydantic import BaseModel, field_validator
 from lokidoki.auth.dependencies import current_user, get_memory
 from lokidoki.auth.users import User
 from lokidoki.core import character_ops
-from lokidoki.core.inference import InferenceClient
 from lokidoki.core.memory_provider import MemoryProvider
 from lokidoki.core.memory_singleton import get_memory_provider  # noqa: F401 (test patch)
 from lokidoki.core.model_manager import ModelPolicy
+from lokidoki.core.providers.client import HTTPProvider
+from lokidoki.core.providers.spec import ProviderSpec
+from lokidoki.orchestrator.core.config import CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +36,15 @@ router = APIRouter()
 _model_policy = ModelPolicy()
 
 
-def get_inference_client() -> InferenceClient:
-    """Factory for the inference client. Patched in tests."""
-    return InferenceClient()
+def get_inference_client() -> HTTPProvider:
+    """Factory for the LLM client. Patched in tests."""
+    spec = ProviderSpec(
+        name="chat_autonaming",
+        endpoint=CONFIG.llm_endpoint,
+        model_fast=_model_policy.fast_model,
+        model_thinking=_model_policy.thinking_model,
+    )
+    return HTTPProvider(spec)
 
 
 class ChatRequest(BaseModel):
@@ -193,7 +201,7 @@ async def _auto_name_session(
         raw = await client.generate(
             model=_model_policy.fast_model,
             prompt=prompt,
-            num_predict=40,
+            max_tokens=40,
             temperature=0.3,
         )
         await client.close()
@@ -286,75 +294,47 @@ async def get_platform():
 
 @router.get("/system-info")
 async def get_system_info():
-    """Return runtime diagnostics: platform, models, Ollama, hardware."""
+    """Return runtime diagnostics: platform, models, engine, hardware."""
     import asyncio
     from pathlib import Path
+
+    import httpx
+
     from lokidoki.core.metrics import collect as collect_metrics
 
     client = get_inference_client()
-    ollama_version = ""
+    engine_ok = False
     available_models: list[dict] = []
-    loaded_models: list[dict] = []
-    ollama_ok = False
     try:
-        vr = await client._client.get("/api/version")
-        if vr.status_code == 200:
-            ollama_version = vr.json().get("version", "")
-            ollama_ok = True
-    except Exception:
-        pass
-    try:
-        tr = await client._client.get("/api/tags")
-        if tr.status_code == 200:
-            for m in tr.json().get("models", []):
+        mr = await client._client.get("/v1/models")
+        if mr.status_code == 200:
+            engine_ok = True
+            for m in mr.json().get("data", []):
                 available_models.append({
-                    "name": m.get("name", ""),
-                    "size": m.get("size", 0),
-                    "parameter_size": m.get("details", {}).get("parameter_size", ""),
-                    "quantization": m.get("details", {}).get("quantization_level", ""),
-                    "family": m.get("details", {}).get("family", ""),
-                    "modified_at": m.get("modified_at", ""),
+                    "name": m.get("id", ""),
+                    "owned_by": m.get("owned_by", ""),
                 })
     except Exception:
         pass
-    try:
-        pr = await client._client.get("/api/ps")
-        if pr.status_code == 200:
-            for m in pr.json().get("models", []):
-                loaded_models.append({
-                    "name": m.get("name", ""),
-                    "size": m.get("size", 0),
-                    "size_vram": m.get("size_vram", 0),
-                    "expires_at": m.get("expires_at", ""),
-                })
-    except Exception:
-        pass
-    await client._client.aclose()
+    await client.close()
 
     hw = await asyncio.to_thread(collect_metrics, Path("data"))
 
     internet_ok = False
     try:
-        check = await client._client.head("https://1.1.1.1", timeout=3.0)
-        internet_ok = check.status_code < 500
+        async with httpx.AsyncClient(timeout=3.0) as tmp:
+            check = await tmp.head("https://1.1.1.1")
+            internet_ok = check.status_code < 500
     except Exception:
-        import httpx
-        try:
-            async with httpx.AsyncClient(timeout=3.0) as tmp:
-                check = await tmp.head("https://1.1.1.1")
-                internet_ok = check.status_code < 500
-        except Exception:
-            pass
+        pass
 
     return {
         "platform": _model_policy.profile,
         "fast_model": _model_policy.fast_model,
         "thinking_model": _model_policy.thinking_model,
-        "ollama_version": ollama_version,
-        "ollama_ok": ollama_ok,
+        "engine_ok": engine_ok,
         "internet_ok": internet_ok,
         "available_models": available_models,
-        "loaded_models": loaded_models,
         **hw,
     }
 

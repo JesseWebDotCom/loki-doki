@@ -52,7 +52,7 @@ from typing import Any
 from lokidoki.orchestrator.core import config as v2_config
 from lokidoki.orchestrator.core.types import RequestChunkResult, RequestSpec
 from lokidoki.orchestrator.fallbacks.llm_fallback import build_combine_prompt
-from lokidoki.orchestrator.fallbacks.ollama_client import call_llm, set_inference_client_factory
+from lokidoki.orchestrator.fallbacks.llm_client import call_llm, set_inference_client_factory
 
 
 # ---------------------------------------------------------------------------

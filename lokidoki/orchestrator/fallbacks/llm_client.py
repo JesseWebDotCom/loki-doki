@@ -46,7 +46,7 @@ def _get_client() -> object:
 
     spec = ProviderSpec(
         name="pipeline_synth",
-        endpoint=CONFIG.llm_ollama_url,
+        endpoint=CONFIG.llm_endpoint,
         model_fast=CONFIG.llm_model,
         model_thinking=CONFIG.llm_model,
     )
@@ -65,7 +65,7 @@ async def call_llm(prompt: str) -> str:
     log.debug(
         "calling LLM: model=%s url=%s prompt_chars=%d",
         CONFIG.llm_model,
-        CONFIG.llm_ollama_url,
+        CONFIG.llm_endpoint,
         len(prompt),
     )
 

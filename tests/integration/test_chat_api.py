@@ -55,7 +55,7 @@ MOCK_DECOMPOSITION_JSON = json.dumps({
 
 
 def _make_stream(text: str):
-    """Build an async generator factory matching InferenceClient.generate_stream."""
+    """Build an async generator factory matching HTTPProvider.generate_stream."""
     async def _gen(*_a, **_kw):
         for tok in text.split(" "):
             yield tok + " "

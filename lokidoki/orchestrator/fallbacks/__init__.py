@@ -11,7 +11,7 @@ from lokidoki.orchestrator.fallbacks.llm_fallback import (
     llm_synthesize,
     llm_synthesize_async,
 )
-from lokidoki.orchestrator.fallbacks.ollama_client import (
+from lokidoki.orchestrator.fallbacks.llm_client import (
     call_llm,
     close_client,
     set_inference_client_factory,
