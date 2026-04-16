@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import html
 import json
 import logging
 import secrets
@@ -178,7 +177,7 @@ class _Handler(BaseHTTPRequestHandler):
         ctx = self.app.ctx
         inject = (
             f'<script id="bootstrap-data" type="application/json">'
-            f"{html.escape(json.dumps({'profile': ctx.profile, 'profile_label': _PROFILE_LABEL.get(ctx.profile, ctx.profile), 'os': ctx.os_name, 'arch': ctx.arch}))}"
+            f"{json.dumps({'profile': ctx.profile, 'profile_label': _PROFILE_LABEL.get(ctx.profile, ctx.profile), 'os': ctx.os_name, 'arch': ctx.arch})}"
             f"</script>"
         )
         rendered = raw.replace("<!-- BOOTSTRAP_DATA -->", inject)

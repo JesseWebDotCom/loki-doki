@@ -2,7 +2,8 @@
     "use strict";
 
     const dataNode = document.getElementById("bootstrap-data");
-    const bootstrapData = dataNode ? JSON.parse(dataNode.textContent || "{}") : {};
+    let bootstrapData = {};
+    try { bootstrapData = JSON.parse(dataNode?.textContent || "{}"); } catch (_) {}
     const stepsGridEl = document.getElementById("steps-grid");
     const progressFillEl = document.getElementById("progress-fill");
     const taskEl = document.getElementById("current-task");
@@ -205,6 +206,40 @@
         if (handler) handler(payload);
     };
     evtSource.onerror = () => {
-        log("[sse] connection lost — browser will retry");
+        log("[sse] connection lost — checking if app is already running");
+        // The bootstrap server hands the port to FastAPI once install
+        // finishes, which kills the SSE stream. Probe the app's health
+        // endpoint — if it answers, install succeeded and we redirect.
+        fetch("/api/health", { method: "GET" })
+            .then((r) => {
+                if (r.ok) {
+                    log("[sse] app is running — redirecting");
+                    evtSource.close();
+                    window.location.href = "/";
+                }
+            })
+            .catch(() => {});
     };
+
+    // Fallback: if the pipeline finished and handed off before the page
+    // even loaded (cached browser, fast install), the SSE endpoint may
+    // never connect at all. Poll /api/health every 2s as a safety net.
+    let _pipelineReceived = false;
+    const _origOnMessage = evtSource.onmessage;
+    evtSource.onmessage = (e) => {
+        _pipelineReceived = true;
+        _origOnMessage(e);
+    };
+    const _healthPoll = setInterval(() => {
+        if (_pipelineReceived) return;  // SSE is working, no need to poll
+        fetch("/api/health", { method: "GET" })
+            .then((r) => {
+                if (r.ok) {
+                    clearInterval(_healthPoll);
+                    evtSource.close();
+                    window.location.href = "/";
+                }
+            })
+            .catch(() => {});
+    }, 2000);
 })();
