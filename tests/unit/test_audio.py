@@ -168,16 +168,17 @@ def test_synthesize_stream_normalizes_and_segments_text():
             )
         )
 
-    assert len(voice.calls) == 4
-    assert voice.calls[0]["text"] == "Doctor Kim is at April ninth,"
+    # Comma splits were removed from the prosody planner so naturalised
+    # dates ("April ninth, twenty twenty-six") survive intact — see
+    # tests/integration/test_audio_speech_naturalization.py for the
+    # end-to-end contract this matches.
+    assert len(voice.calls) == 2
+    assert voice.calls[0]["text"] == "Doctor Kim is at April ninth, twenty twenty-six."
     assert voice.calls[0]["length_scale"] == 1.0
-    assert voice.calls[1]["text"] == "twenty twenty-six."
-    assert voice.calls[1]["length_scale"] == 1.0
-    assert voice.calls[2]["text"] == "Also,"
-    assert voice.calls[2]["length_scale"] == 0.95
-    assert voice.calls[3]["text"] == "we're eighty-five percent done."
-    assert voice.calls[3]["length_scale"] == 1.0
-    assert len(chunks) == 7
+    assert voice.calls[1]["text"] == "Also, we're eighty-five percent done."
+    assert voice.calls[1]["length_scale"] == 0.95
+    # 2 sentences + 1 silence between = 3 chunks
+    assert len(chunks) == 3
 
 
 def test_synthesize_stream_injects_silence_between_segments():

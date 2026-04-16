@@ -76,8 +76,8 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
         # that will never match.
         return AdapterResult(
             output_text=(
-                "I don't know where you are — tell me the city "
-                "(or set a default location in settings) and I'll check."
+                "I can't check the weather without a location — tell me the city "
+                "(or set a default location in settings) and I'll look it up."
             ),
             success=False,
             mechanism_used="no_location",

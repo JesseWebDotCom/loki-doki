@@ -293,7 +293,7 @@ def _patch_skill_singletons() -> None:
         setattr(target, attr_name, original)
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(autouse=True)
 def _seed_people_db_for_integration():
     """Inject the pop-culture seed roster into the in-memory PeopleDBAdapter.
 
@@ -305,8 +305,10 @@ def _seed_people_db_for_integration():
     fixtures that resolve "mom" / "sister" / "brother" would fall to the
     "missing person" branch and the assertions would fail.
 
-    Session-scoped + autouse so the seed is in place for every test
-    that runs through ``run_pipeline_async``.
+    Function-scoped (not session-scoped) so the patch is reverted after
+    every integration test. A session-scoped fixture leaked the SEED
+    roster into unit tests that ran later in the same pytest invocation
+    (test_resolvers + test_skills_phase3 expect an empty default roster).
     """
     from lokidoki.orchestrator.adapters import people_db
 

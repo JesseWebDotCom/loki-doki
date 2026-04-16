@@ -46,14 +46,14 @@ async def test_bootstrap_creates_first_admin_then_409():
     async with _client() as ac:
         r = await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "alice", "pin": "1234", "password": "password1"},
+            json={"username": "alice", "pin": "1234", "password": "test-pass-1"},
         )
         assert r.status_code == 200, r.text
         assert r.json()["role"] == "admin"
         # second bootstrap rejected
         r2 = await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "bob", "pin": "1234", "password": "password1"},
+            json={"username": "bob", "pin": "1234", "password": "test-pass-1"},
         )
         assert r2.status_code == 409
 
@@ -63,7 +63,7 @@ async def test_login_success_and_me():
     async with _client() as ac:
         await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "alice", "pin": "1234", "password": "password1"},
+            json={"username": "alice", "pin": "1234", "password": "test-pass-1"},
         )
         # logging out clears cookie so login is exercised cleanly
         await ac.post("/api/v1/auth/logout")
@@ -81,7 +81,7 @@ async def test_login_wrong_pin_and_rate_limit():
     async with _client() as ac:
         await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "alice", "pin": "1234", "password": "password1"},
+            json={"username": "alice", "pin": "1234", "password": "test-pass-1"},
         )
         await ac.post("/api/v1/auth/logout")
         for _ in range(5):
@@ -101,7 +101,7 @@ async def test_admin_user_mgmt_full_flow():
     async with _client() as ac:
         await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "alice", "pin": "1234", "password": "password1"},
+            json={"username": "alice", "pin": "1234", "password": "test-pass-1"},
         )
         # admin freshness was stamped during bootstrap
         r = await ac.post(
@@ -135,7 +135,7 @@ async def test_admin_reset_memory_wipes_facts_keeps_users(_fresh_memory):
     async with _client() as ac:
         await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "alice", "pin": "1234", "password": "password1"},
+            json={"username": "alice", "pin": "1234", "password": "test-pass-1"},
         )
         # Seed some memory state we expect to be wiped.
         uid = await mp.get_or_create_user("alice")
@@ -172,7 +172,7 @@ async def test_non_admin_cannot_hit_admin_routes():
     async with _client() as ac:
         await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "alice", "pin": "1234", "password": "password1"},
+            json={"username": "alice", "pin": "1234", "password": "test-pass-1"},
         )
         # alice creates a child
         r = await ac.post(
@@ -196,7 +196,7 @@ async def test_user_isolation_facts(_fresh_memory):
     async with _client() as ac:
         await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "alice", "pin": "1234", "password": "password1"},
+            json={"username": "alice", "pin": "1234", "password": "test-pass-1"},
         )
         # create a second user
         r = await ac.post(
@@ -204,12 +204,14 @@ async def test_user_isolation_facts(_fresh_memory):
             json={"username": "bob", "pin": "1111", "role": "user"},
         )
         bob_id = r.json()["id"]
-        # alice owns id=1
+        # alice owns id=1. ``prefers`` is the Tier-4 predicate that maps
+        # to "likes" semantically — the closed enum in
+        # lokidoki.orchestrator.memory.predicates rejects raw "likes".
         await mp.upsert_fact(
-            user_id=1, subject="self", predicate="likes", value="hiking"
+            user_id=1, subject="self", predicate="prefers", value="hiking"
         )
         await mp.upsert_fact(
-            user_id=bob_id, subject="self", predicate="likes", value="kayaking"
+            user_id=bob_id, subject="self", predicate="prefers", value="kayaking"
         )
         r = await ac.get("/api/v1/memory/facts")
         vals = {f["value"] for f in r.json()["facts"]}
@@ -228,7 +230,7 @@ async def test_admin_freshness_expires(_fresh_memory):
     async with _client() as ac:
         await ac.post(
             "/api/v1/auth/bootstrap",
-            json={"username": "alice", "pin": "1234", "password": "password1"},
+            json={"username": "alice", "pin": "1234", "password": "test-pass-1"},
         )
         # Force-clear last_password_auth_at to simulate stale session
         await mp.run_sync(
@@ -240,7 +242,7 @@ async def test_admin_freshness_expires(_fresh_memory):
         assert r.status_code == 403
         # challenge re-stamps freshness
         r = await ac.post(
-            "/api/v1/auth/challenge-admin", json={"password": "password1"}
+            "/api/v1/auth/challenge-admin", json={"password": "test-pass-1"}
         )
         assert r.status_code == 200
         r = await ac.get("/api/v1/admin/users")

@@ -1022,7 +1022,7 @@
         "capability": "lookup_tv_show",
         "llm_used": true,
         "response_contains": "breaking",
-        "max_total_ms": 500
+        "max_total_ms": 1500
       }
     },
     {

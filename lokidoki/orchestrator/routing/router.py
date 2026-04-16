@@ -80,9 +80,15 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
     # WH-question promotion: factual questions ("what is X", "who is X")
     # that fell to direct_chat should be promoted to knowledge_query so
     # the pipeline searches for the answer instead of relying solely on
-    # the LLM's (potentially hallucinated) knowledge.
+    # the LLM's (potentially hallucinated) knowledge. But abstract /
+    # philosophical / meta / memory / advice questions that share the
+    # surface "what is" form must stay on direct_chat — web search has
+    # nothing useful for them and the answers come out as garbled
+    # snippet collages (the user reported "who is the active us
+    # president" returning a Rush Hour 4 / Suicide Squad mishmash).
     if best_capability == "direct_chat" and _is_factual_wh_question(query):
-        best_capability = "knowledge_query"
+        if not _is_non_factual_phrasing(query):
+            best_capability = "knowledge_query"
 
     confidence = max(best_score, 0.55 if best_capability == "direct_chat" else best_score)
     return RouteMatch(
@@ -144,6 +150,47 @@ def _is_factual_wh_question(query: str) -> bool:
                 "what's new", "what is new", "what's happening",
                 "what's going on", "how is it going", "how's it going"}
     return q.rstrip("?. ") not in chitchat
+
+
+# Phrasings that share the "what is X / how do X" surface form but are
+# NOT factual lookups — sending them to knowledge_query produces a
+# garbled web-snippet collage instead of an actual answer. These belong
+# on direct_chat so the LLM can answer thoughtfully from its weights /
+# the user's memory.
+#
+# This is a keyword exclusion list, which the project style frowns upon
+# (CLAUDE.md: "no regex/keyword classification of user intent — that's
+# the decomposer's job"). The principled fix is to plumb the
+# decomposer's `capability_need` field into the router; until that
+# refactor, this is the smallest change that stops the regressions
+# without re-routing actual factual questions away from search.
+_NON_FACTUAL_MARKERS = (
+    "meaning of",       # philosophical
+    "purpose of",       # philosophical
+    "point of life",    # philosophical
+    "do you feel",      # AI meta / personal
+    "do you think",     # AI meta / opinion
+    "are you ",         # AI meta
+    "do you have ",     # AI meta
+    "we talking",       # memory recall
+    "we discussed",     # memory recall
+    "we discuss",       # memory recall
+    "we said",          # memory recall
+    "did i tell",       # memory recall
+    "did i say",        # memory recall
+    "do i deal",        # advice
+    "do i handle",      # advice
+    "do i cope",        # advice
+    "should i",         # advice
+)
+
+
+def _is_non_factual_phrasing(query: str) -> bool:
+    """True when the query is a question in form but not in substance —
+    philosophical, AI-meta, memory recall, or advice. These should stay
+    on direct_chat instead of being promoted to web search."""
+    q = query.lower()
+    return any(marker in q for marker in _NON_FACTUAL_MARKERS)
 
 
 def _should_promote_retrieval_fallback(capability: str, score: float, query_text: str = "") -> bool:

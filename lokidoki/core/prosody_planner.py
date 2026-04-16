@@ -43,8 +43,11 @@ def _split_segments(text: str) -> list[str]:
     if _is_list_text(text):
         return [re.sub(r"^(?:[-*]|\d+\.)\s+", "", line).strip() for line in lines]
     protected = re.sub(r"\b(Dr|Mr|Mrs|Ms|Prof|St)\.", lambda m: m.group(1) + "<prd>", text)
-    # Split at major punctuation: . ! ? ; : and also at commas followed by space
-    parts = re.split(r"(?<=[.!?])\s+|(?<=[;:])\s+|(?<=,)\s+", protected)
+    # Split on sentence boundaries only (.!?) and major clause breaks (;:).
+    # Commas stay inside the same segment — splitting on them shattered
+    # naturalised dates ("April ninth, twenty twenty-six") into separate
+    # TTS calls and broke prosody / phoneme alignment.
+    parts = re.split(r"(?<=[.!?])\s+|(?<=[;:])\s+", protected)
     parts = [part.replace("<prd>", ".") for part in parts]
     return [part.strip() for part in parts if part.strip()]
 

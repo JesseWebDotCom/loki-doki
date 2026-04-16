@@ -13,21 +13,23 @@ def test_single_sentence_defaults_to_one_segment():
 
 
 def test_question_and_topic_shift_get_distinct_pauses():
+    # Sentence-level splits only — internal commas stay inside the same
+    # segment so naturalised dates/numbers ("April ninth, twenty
+    # twenty-six") survive the splitter intact. The integration test in
+    # test_audio_speech_naturalization pins this contract end-to-end.
     text = "The short answer is yes. Also, we can revisit it tomorrow. What do you think?"
     segments = plan_prosody(text)
 
     assert [segment.text for segment in segments] == [
         "The short answer is yes.",
-        "Also,",
-        "we can revisit it tomorrow.",
+        "Also, we can revisit it tomorrow.",
         "What do you think?",
     ]
     assert segments[0].length_scale == 1.0
     assert segments[0].post_silence_s == 0.4
     assert segments[1].length_scale == 0.95
-    assert segments[1].post_silence_s == 0.15
-    assert segments[2].post_silence_s == 0.4
-    assert segments[3].post_silence_s == 0.0
+    assert segments[1].post_silence_s == 0.4
+    assert segments[2].post_silence_s == 0.0
 
 
 def test_list_items_get_uniform_pacing():

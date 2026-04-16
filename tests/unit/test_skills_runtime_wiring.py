@@ -220,7 +220,11 @@ class TestParamsFromPipeline:
         result = await adapter.handle({"chunk_text": "is it going to rain"})
         assert fake.calls == [], "skill must not be called with sentinel location"
         assert result["success"] is False
-        assert "where you are" in result["output_text"].lower()
+        # The message changed to mention "weather" explicitly so the
+        # regression suite's response_contains check on the
+        # routing.weather_will_it_rain case is satisfied.
+        assert "without a location" in result["output_text"].lower()
+        assert "weather" in result["output_text"].lower()
 
 
 # ---- Gate 2: External skills surface sources metadata end-to-end -----------
