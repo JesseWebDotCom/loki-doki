@@ -57,7 +57,8 @@ async def run_pipeline_async(
     resolutions = await run_resolve_phase(trace, ctx, routable, routable_ext, routes, dp)
     executions = await run_execute_phase(trace, ctx, runtime, routable, routes, impls, resolutions)
     spec = build_and_annotate_spec(
-        trace, ctx, raw_text, chunks, routes, impls, resolutions, executions, signals)
+        trace, ctx, raw_text, chunks, routes, impls, resolutions, executions, signals,
+        extractions=extractions)
     # Media augmentation runs BEFORE synthesis so the combine prompt
     # can include a media_hint slot — otherwise the LLM writes things
     # like "I couldn't find the trailer" while a trailer card is

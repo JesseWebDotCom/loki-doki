@@ -296,6 +296,14 @@ def _extract_full_text(body: dict) -> str:
     return message.get("content") or ""
 
 
+def _extract_finish_reason(body: dict) -> str:
+    """Extract the finish_reason from the first choice."""
+    choices = body.get("choices") or []
+    if not choices:
+        return ""
+    return choices[0].get("finish_reason") or ""
+
+
 def _image_data_url(img: VisionImage) -> str:
     """Encode ``img`` as a ``data:image/png;base64,…`` URL.
 

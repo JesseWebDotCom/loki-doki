@@ -151,6 +151,9 @@ def run_session_state_update(
     safe_context: dict[str, Any],
     resolutions: list,
     executions: list | None = None,
+    *,
+    routes: list | None = None,
+    extractions: list | None = None,
 ) -> None:
     """Update the session's last-seen map from resolved entities (M4).
 
@@ -274,6 +277,64 @@ def run_session_state_update(
             "[session_state] pass3: storing topic=%r from antecedent resolver",
             conv_topic.strip(),
         )
+
+    # Pass 4: for direct_chat turns where no skill stored an entity,
+    # extract a topic from the NER entities found in the user's input.
+    # This keeps session context alive through conversational turns
+    # like "The A-Team was a great show" → next turn can reference it.
+    if routes and extractions:
+        ext_by_chunk = {ext.chunk_index: ext for ext in extractions}
+        for route in routes:
+            if route.capability != "direct_chat":
+                continue
+            if route.chunk_index in stored_indices:
+                continue
+            ext = ext_by_chunk.get(route.chunk_index)
+            if ext is None:
+                continue
+            # Store any named entities from the user's input as session entities.
+            for entity_text, label in ext.entities:
+                if label in ("PERSON", "ORG", "GPE", "LOC", "FAC", "WORK_OF_ART",
+                             "EVENT", "PRODUCT", "LAW", "NORP"):
+                    entity_type = _ner_label_to_entity_type(label)
+                    store.update_last_seen(
+                        int(session_id),
+                        entity_type=entity_type,
+                        entity_name=entity_text,
+                    )
+                    log.info(
+                        "[session_state] pass4: storing %s=%r from direct_chat NER (%s)",
+                        entity_type, entity_text, label,
+                    )
+            # Also store the subject as a topic if no entity was found.
+            if not ext.entities and ext.subject_candidates:
+                topic_name = ext.subject_candidates[0]
+                store.update_last_seen(
+                    int(session_id),
+                    entity_type="topic",
+                    entity_name=topic_name,
+                )
+                log.info(
+                    "[session_state] pass4: storing topic=%r from direct_chat subject",
+                    topic_name,
+                )
+
+
+def _ner_label_to_entity_type(label: str) -> str:
+    """Map spaCy NER labels to session-state entity types."""
+    _MAP = {
+        "PERSON": "person",
+        "ORG": "entity",
+        "GPE": "entity",
+        "LOC": "entity",
+        "FAC": "entity",
+        "WORK_OF_ART": "topic",
+        "EVENT": "topic",
+        "PRODUCT": "topic",
+        "LAW": "topic",
+        "NORP": "entity",
+    }
+    return _MAP.get(label, "entity")
 
 
 # Capabilities whose output text is a free-text answer about a subject

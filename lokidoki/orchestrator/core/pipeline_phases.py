@@ -227,7 +227,8 @@ async def run_execute_phase(trace, safe_context, runtime, routable, routes, impl
 
 
 def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
-                            implementations, resolutions, executions, signals):
+                            implementations, resolutions, executions, signals,
+                            extractions=None):
     """Build request spec and run post-execution hooks."""
     finish = trace.timed("request_spec")
     request_spec = build_request_spec(
@@ -247,7 +248,10 @@ def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
     likely_goal = infer_goal(constraints, features, routes, raw_text)
     safe_context["likely_goal"] = likely_goal
 
-    run_session_state_update(safe_context, resolutions, executions)
+    run_session_state_update(
+        safe_context, resolutions, executions,
+        routes=routes, extractions=extractions,
+    )
     auto_raise_need_session_context(safe_context, resolutions)
     record_behavior_event(safe_context, executions, routes)
     record_sentiment(safe_context, signals)

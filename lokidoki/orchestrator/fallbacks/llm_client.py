@@ -57,8 +57,10 @@ def _get_client() -> object:
 async def call_llm(prompt: str) -> str:
     """Send a rendered prompt to the local LLM via OpenAI-compatible API.
 
-    Returns the raw response text. Raises ``ProviderError`` on failure;
-    the ``llm_fallback`` layer wraps the call in fallback logic.
+    Returns the raw response text. If the model hits the token cap
+    (``finish_reason="length"``), retries once with a doubled budget.
+    Raises ``ProviderError`` on failure; the ``llm_fallback`` layer
+    wraps the call in fallback logic.
     """
     client = _get_client()
 
@@ -69,13 +71,35 @@ async def call_llm(prompt: str) -> str:
         len(prompt),
     )
 
-    response: str = await client.generate(  # type: ignore[attr-defined]
+    from lokidoki.core.providers.client import _extract_finish_reason, _extract_full_text
+
+    budget = CONFIG.llm_num_predict
+    body = await client.chat(  # type: ignore[attr-defined]
         model=CONFIG.llm_model,
-        prompt=prompt,
-        max_tokens=CONFIG.llm_num_predict,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=budget,
         temperature=CONFIG.llm_temperature,
     )
-    return response
+    text = _extract_full_text(body)
+    finish = _extract_finish_reason(body)
+
+    if finish == "length" and text:
+        log.warning(
+            "LLM response truncated at %d tokens — retrying with %d",
+            budget, budget * 2,
+        )
+        body = await client.chat(  # type: ignore[attr-defined]
+            model=CONFIG.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=budget * 2,
+            temperature=CONFIG.llm_temperature,
+        )
+        text = _extract_full_text(body)
+        finish = _extract_finish_reason(body)
+        if finish == "length":
+            log.warning("LLM response still truncated after retry — returning as-is")
+
+    return text
 
 
 async def close_client() -> None:

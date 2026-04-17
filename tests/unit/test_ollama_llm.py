@@ -30,6 +30,15 @@ class FakeInferenceClient:
         self.calls: list[dict] = []
         self.closed = False
 
+    async def chat(self, model, messages, **kwargs):
+        self.calls.append({"model": model, "messages": messages, **kwargs})
+        return {
+            "choices": [{
+                "message": {"content": self.response},
+                "finish_reason": "stop",
+            }],
+        }
+
     async def generate(self, **kwargs):
         self.calls.append(kwargs)
         return self.response
@@ -39,6 +48,9 @@ class FakeInferenceClient:
 
 
 class ExplodingInferenceClient:
+    async def chat(self, model, messages, **kwargs):
+        raise RuntimeError("ollama unreachable")
+
     async def generate(self, **kwargs):
         raise RuntimeError("ollama unreachable")
 
@@ -92,7 +104,7 @@ async def test_call_llm_uses_injected_factory(llm_enabled):
     assert len(fake.calls) == 1
     call = fake.calls[0]
     assert call["model"] == pipeline_config.CONFIG.llm_model
-    assert call["prompt"] == "test prompt"
+    assert call["messages"] == [{"role": "user", "content": "test prompt"}]
     assert call["max_tokens"] == pipeline_config.CONFIG.llm_num_predict
 
 
@@ -135,7 +147,7 @@ async def test_direct_chat_prompt_asks_question_not_spec_summary(llm_enabled):
 
     assert "Ring cameras" in response.output_text
     assert len(fake.calls) == 1
-    sent_prompt = fake.calls[0]["prompt"]
+    sent_prompt = fake.calls[0]["messages"][0]["content"]
     # The conversational template includes the user-question slot.
     assert "do my ring cameras spy on me" in sent_prompt
     assert "USER QUESTION" in sent_prompt
@@ -176,7 +188,7 @@ async def test_llm_synthesize_async_calls_real_path_when_enabled(llm_enabled):
     assert response.output_text == "It's 3:42 PM and you still have time."
     # The combine prompt should have been rendered and sent through.
     assert len(fake.calls) == 1
-    sent_prompt = fake.calls[0]["prompt"]
+    sent_prompt = fake.calls[0]["messages"][0]["content"]
     assert "RequestSpec" in sent_prompt
     assert "what time is it" in sent_prompt
     assert "because im late" in sent_prompt

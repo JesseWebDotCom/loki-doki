@@ -144,6 +144,83 @@ class TestSessionStateTopicPersistence:
         assert "last_topic" not in last_seen
 
 
+class TestDirectChatEntityPersistence:
+    """Verify Pass 4: direct_chat turns store NER entities in session state."""
+
+    def test_direct_chat_stores_person_entity(self):
+        from lokidoki.orchestrator.core.types import ChunkExtraction, RouteMatch
+
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        ctx = {"session_id": sid, "memory_provider": SimpleNamespace(store=store)}
+        routes = [RouteMatch(chunk_index=0, capability="direct_chat", confidence=0.55)]
+        extractions = [ChunkExtraction(
+            chunk_index=0,
+            entities=[("Anakin", "PERSON")],
+        )]
+        run_session_state_update(ctx, resolutions=[], executions=[],
+                                routes=routes, extractions=extractions)
+        state = store.get_session_state(sid)
+        last_seen = state.get("last_seen", {})
+        assert "last_person" in last_seen
+        assert last_seen["last_person"]["name"] == "Anakin"
+
+    def test_direct_chat_stores_work_of_art_as_topic(self):
+        from lokidoki.orchestrator.core.types import ChunkExtraction, RouteMatch
+
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        ctx = {"session_id": sid, "memory_provider": SimpleNamespace(store=store)}
+        routes = [RouteMatch(chunk_index=0, capability="direct_chat", confidence=0.55)]
+        extractions = [ChunkExtraction(
+            chunk_index=0,
+            entities=[("The A-Team", "WORK_OF_ART")],
+        )]
+        run_session_state_update(ctx, resolutions=[], executions=[],
+                                routes=routes, extractions=extractions)
+        state = store.get_session_state(sid)
+        last_seen = state.get("last_seen", {})
+        assert "last_topic" in last_seen
+        assert last_seen["last_topic"]["name"] == "The A-Team"
+
+    def test_direct_chat_stores_subject_when_no_entities(self):
+        from lokidoki.orchestrator.core.types import ChunkExtraction, RouteMatch
+
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        ctx = {"session_id": sid, "memory_provider": SimpleNamespace(store=store)}
+        routes = [RouteMatch(chunk_index=0, capability="direct_chat", confidence=0.55)]
+        extractions = [ChunkExtraction(
+            chunk_index=0,
+            entities=[],
+            subject_candidates=["quantum computing"],
+        )]
+        run_session_state_update(ctx, resolutions=[], executions=[],
+                                routes=routes, extractions=extractions)
+        state = store.get_session_state(sid)
+        last_seen = state.get("last_seen", {})
+        assert "last_topic" in last_seen
+        assert last_seen["last_topic"]["name"] == "quantum computing"
+
+    def test_non_direct_chat_routes_ignored(self):
+        from lokidoki.orchestrator.core.types import ChunkExtraction, RouteMatch
+
+        store = MemoryStore(":memory:")
+        sid = store.create_session(owner_user_id=1)
+        ctx = {"session_id": sid, "memory_provider": SimpleNamespace(store=store)}
+        routes = [RouteMatch(chunk_index=0, capability="get_weather", confidence=0.9)]
+        extractions = [ChunkExtraction(
+            chunk_index=0,
+            entities=[("Chicago", "GPE")],
+        )]
+        run_session_state_update(ctx, resolutions=[], executions=[],
+                                routes=routes, extractions=extractions)
+        state = store.get_session_state(sid)
+        last_seen = state.get("last_seen", {})
+        # Pass 4 should not trigger for non-direct_chat routes
+        assert "last_entity" not in last_seen
+
+
 # ---------------------------------------------------------------------------
 # Unit: knowledge_query entity extraction from free-text output
 # ---------------------------------------------------------------------------

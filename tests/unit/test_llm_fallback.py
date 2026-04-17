@@ -313,7 +313,38 @@ async def test_llm_synthesize_async_graceful_fallback_on_direct_chat():
         )
         response = await llm_synthesize_async(_spec([chunk]))
         assert response.output_text.strip()
-        assert "I'm here" in response.output_text
+        assert "rephras" in response.output_text.lower()
     finally:
         object.__setattr__(cfg.CONFIG, "llm_enabled", False)
         fb._call_real_llm = original_call
+
+
+def test_stub_chunk_text_degraded_gives_message_for_direct_chat():
+    """When degraded=True, direct_chat should get a user-facing fallback
+    instead of None — the LLM already failed."""
+    from lokidoki.orchestrator.core import config as cfg
+
+    object.__setattr__(cfg.CONFIG, "llm_enabled", True)
+    try:
+        chunk = RequestChunkResult(
+            text="we were talking about the a-team",
+            role="primary_request",
+            capability="direct_chat",
+            confidence=0.55,
+            success=True,
+            result={"output_text": "we were talking about the a-team"},
+        )
+        result = _stub_chunk_text(chunk, {}, degraded=True)
+        assert result is not None
+        assert "rephras" in result.lower()
+    finally:
+        object.__setattr__(cfg.CONFIG, "llm_enabled", False)
+
+
+def test_config_token_limit_is_generous():
+    """The synthesis token cap should be high enough for normal responses."""
+    from lokidoki.orchestrator.core.config import CONFIG
+    assert CONFIG.llm_num_predict >= 1024, (
+        f"llm_num_predict={CONFIG.llm_num_predict} is too low — "
+        "normal responses will be truncated mid-sentence"
+    )

@@ -106,16 +106,11 @@ async def llm_synthesize_async(spec: RequestSpec) -> ResponseObject:
         spec.llm_reason = (
             f"{spec.llm_reason or ''} (degraded:{type(exc).__name__}:{exc})"
         ).strip()
-        result = _stub_synthesize(spec)
-        if not (result.output_text or "").strip() and any(
-            c.capability == "direct_chat" and c.role == "primary_request"
-            for c in spec.chunks
-        ):
-            result.output_text = "I'm here — what would you like to talk about?"
+        result = _stub_synthesize(spec, degraded=True)
         return result
 
 
-def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
+def _stub_synthesize(spec: RequestSpec, *, degraded: bool = False) -> ResponseObject:
     """Deterministic stub used as the default and as a degradation fallback."""
     sources = _collect_sources(spec)
     url_to_index: dict[str, int] = {src["url"]: i for i, src in enumerate(sources, 1)}
@@ -124,7 +119,7 @@ def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
     for chunk in spec.chunks:
         if chunk.role != "primary_request":
             continue
-        part = _stub_chunk_text(chunk, url_to_index)
+        part = _stub_chunk_text(chunk, url_to_index, degraded=degraded)
         if part is not None:
             parts.append(part)
 
@@ -138,6 +133,8 @@ def _stub_synthesize(spec: RequestSpec) -> ResponseObject:
 def _stub_chunk_text(
     chunk: RequestChunkResult,
     url_to_index: dict[str, int],
+    *,
+    degraded: bool = False,
 ) -> str | None:
     """Return the stub text for a single primary-request chunk, or None to skip."""
     if chunk.unresolved and "recent_media" in chunk.unresolved:
@@ -162,6 +159,13 @@ def _stub_chunk_text(
         return f"I couldn't complete that ({chunk.capability})."
 
     if chunk.capability == "direct_chat":
+        if degraded:
+            # LLM failed — acknowledge the user's message instead of
+            # returning the generic "I'm here" placeholder.
+            return (
+                "I wasn't able to fully process that — could you "
+                "try rephrasing or ask me something else?"
+            )
         if CONFIG.llm_enabled:
             return None  # let the real LLM handle it
         return (

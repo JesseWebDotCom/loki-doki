@@ -111,9 +111,11 @@ class PipelineConfig:
             # Use object.__setattr__ because the dataclass is frozen.
             object.__setattr__(self, "llm_model", ModelPolicy().fast_model)
 
-    # Hard cap on LLM synthesis output tokens. Synthesis is supposed
-    # to be a single short response, so the budget stays tight.
-    llm_num_predict: int = 256
+    # Safety cap on LLM synthesis output tokens. The model should
+    # finish naturally via EOS; this cap prevents runaway generation.
+    # Set high enough that normal responses never hit it — truncation
+    # is caught at the client level via finish_reason detection.
+    llm_num_predict: int = 2048
 
     # Sampling temperature for LLM synthesis. Zero = deterministic.
     llm_temperature: float = 0.2
