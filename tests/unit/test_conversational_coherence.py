@@ -102,7 +102,7 @@ class TestConversationHistoryInPrompt:
     def test_conversation_history_instruction_in_combine(self):
         from lokidoki.orchestrator.fallbacks.prompts import COMBINE_PROMPT
         assert "conversation_history" in COMBINE_PROMPT
-        assert "Never quote it verbatim" in COMBINE_PROMPT
+        assert "never quote or mention" in COMBINE_PROMPT.lower()
 
     def test_conversation_history_instruction_in_direct_chat(self):
         from lokidoki.orchestrator.fallbacks.prompts import DIRECT_CHAT_PROMPT
