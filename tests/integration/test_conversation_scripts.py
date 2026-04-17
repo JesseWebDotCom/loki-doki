@@ -49,7 +49,7 @@ _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "conversation
 
 def _load_scripts() -> list[dict[str, Any]]:
     payload = json.loads(_FIXTURE_PATH.read_text())
-    return list(payload.get("scripts") or [])
+    return [s for s in (payload.get("scripts") or []) if "id" in s]
 
 
 _SCRIPTS = _load_scripts()

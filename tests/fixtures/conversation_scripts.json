@@ -1,154 +1,1101 @@
 {
   "$schema": "Multi-turn conversation scripts. Each script runs through the full pipeline turn-by-turn with shared session state. Names use pop-culture characters per CLAUDE.md mock-data rule.",
   "scripts": [
+
+    {"_comment": "=== BASELINE PIPELINE SCRIPTS ==="},
+
     {
-      "id": "weather_then_definition",
+      "id": "baseline.weather_then_definition",
       "description": "Weather query followed by an unrelated definition query",
       "turns": [
         {
           "utterance": "what's the weather in New York",
-          "expect": {
-            "capability": "get_weather",
-            "response_contains": "new york"
-          }
+          "expect": { "capability": "get_weather", "response_contains": "new york" }
         },
         {
           "utterance": "define serendipity",
-          "expect": {
-            "capability": "define_word",
-            "response_contains": "serendipity"
-          }
+          "expect": { "capability": "define_word", "response_contains": "serendipity" }
         }
       ]
     },
     {
-      "id": "movie_context_chain",
+      "id": "baseline.movie_context_chain",
       "description": "Ask about a movie, then use pronouns to reference it",
       "turns": [
         {
           "utterance": "have you seen the movie inception",
-          "expect": {
-            "capability": "lookup_movie",
-            "response_contains": "inception"
-          }
+          "expect": { "capability": "lookup_movie", "response_contains": "inception" }
         },
         {
           "utterance": "who's in it",
-          "expect": {
-            "resolved_target_contains": "inception"
-          }
+          "expect": { "resolved_target_contains": "inception" }
         }
       ]
     },
     {
-      "id": "greeting_then_knowledge",
+      "id": "baseline.greeting_then_knowledge",
       "description": "Greeting hits fast lane, then a real question routes normally",
       "turns": [
         {
           "utterance": "hello",
-          "expect": {
-            "fast_lane_matched": true,
-            "capability": "greeting_response"
-          }
+          "expect": { "fast_lane_matched": true, "capability": "greeting_response" }
         },
         {
           "utterance": "what is the capital of France",
-          "expect": {
-            "fast_lane_matched": false,
-            "capability": "knowledge_query"
-          }
+          "expect": { "fast_lane_matched": false, "capability": "knowledge_query" }
         }
       ]
     },
     {
-      "id": "comparison_goal_inference",
+      "id": "baseline.comparison_goal",
       "description": "Comparison question should infer the right goal",
       "turns": [
         {
           "utterance": "which is better, Python or JavaScript for web development",
-          "expect": {
-            "likely_goal": "comparison"
-          }
+          "expect": { "likely_goal": "comparison" }
         }
       ]
     },
     {
-      "id": "feasibility_goal_inference",
+      "id": "baseline.feasibility_goal",
       "description": "Can-I question routed to direct_chat infers feasibility",
       "turns": [
         {
           "utterance": "can I run a marathon without training",
-          "expect": {
-            "likely_goal": "feasibility"
-          }
+          "expect": { "likely_goal": "feasibility" }
         }
       ]
     },
     {
-      "id": "memory_seeded_preference",
+      "id": "baseline.memory_seeded_preference",
       "description": "Seed a food preference, then ask a question that should surface it",
       "seed_memory": [
-        {
-          "subject": "self",
-          "predicate": "favorite_food",
-          "value": "pizza",
-          "confidence": 0.95
-        }
+        { "subject": "self", "predicate": "favorite_food", "value": "pizza", "confidence": 0.95 }
       ],
       "turns": [
         {
           "utterance": "what should I have for dinner",
-          "expect": {
-            "capability": "direct_chat",
-            "llm_used": true
-          }
+          "expect": { "capability": "direct_chat", "llm_used": true }
         }
       ]
     },
     {
-      "id": "multi_turn_latency",
+      "id": "baseline.multi_turn_latency",
       "description": "Verify pipeline stays fast across multiple turns",
       "turns": [
-        {
-          "utterance": "hello",
-          "expect": {
-            "fast_lane_matched": true,
-            "max_total_ms": 200
-          }
-        },
-        {
-          "utterance": "how do you spell necessary",
-          "expect": {
-            "fast_lane_matched": true,
-            "max_total_ms": 200
-          }
-        },
-        {
-          "utterance": "what is 6 times 7",
-          "expect": {
-            "fast_lane_matched": true,
-            "response_contains": "42",
-            "max_total_ms": 200
-          }
-        }
+        { "utterance": "hello", "expect": { "fast_lane_matched": true, "max_total_ms": 200 } },
+        { "utterance": "how do you spell necessary", "expect": { "fast_lane_matched": true, "max_total_ms": 200 } },
+        { "utterance": "what is 6 times 7", "expect": { "fast_lane_matched": true, "response_contains": "42", "max_total_ms": 200 } }
       ]
     },
     {
-      "id": "definition_then_followup",
+      "id": "baseline.definition_then_followup",
       "description": "Define a word, then ask a follow-up about usage",
       "turns": [
         {
           "utterance": "define ephemeral",
-          "expect": {
-            "capability": "lookup_definition",
-            "response_contains": "ephemeral"
-          }
+          "expect": { "capability": "lookup_definition", "response_contains": "ephemeral" }
         },
         {
           "utterance": "use it in a sentence",
-          "expect": {
-            "llm_used": true
-          }
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== CHILD PERSONA — curious, simple phrasing, rapid-fire questions ==="},
+
+    {
+      "id": "child.curious_rapid_fire",
+      "description": "Young child asking why-questions in quick succession",
+      "turns": [
+        {
+          "utterance": "why is the sky blue",
+          "expect": { "capability": "knowledge_query" }
+        },
+        {
+          "utterance": "why is the ocean blue too",
+          "expect": { "capability": "knowledge_query" }
+        },
+        {
+          "utterance": "do fish know they're wet",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "how big is the biggest fish",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "child.homework_help",
+      "description": "Child asking for help with schoolwork, simple language",
+      "turns": [
+        {
+          "utterance": "hi",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "what is 12 times 8",
+          "expect": { "fast_lane_matched": true, "response_contains": "96" }
+        },
+        {
+          "utterance": "how do you spell dinosaur",
+          "expect": { "fast_lane_matched": true, "response_contains": "dinosaur" }
+        },
+        {
+          "utterance": "what does extinct mean",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "when did dinosaurs go extinct",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "child.bedtime_routine",
+      "description": "Child at bedtime — joke, then time, then countdown",
+      "turns": [
+        {
+          "utterance": "tell me a joke",
+          "expect": { "capability": "tell_joke" }
+        },
+        {
+          "utterance": "tell me another one",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what time is it",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "how many days until christmas",
+          "expect": { "capability": "time_until" }
+        }
+      ]
+    },
+    {
+      "id": "child.imagination_overflow",
+      "description": "Child mixing real questions with fantasy — pipeline should not crash",
+      "turns": [
+        {
+          "utterance": "can dragons really fly",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what about birds how do birds fly",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what is the fastest bird",
+          "expect": { "capability": "knowledge_query" }
+        }
+      ]
+    },
+
+    {"_comment": "=== ELDERLY PERSONA — polite, verbose, sometimes confused about tech ==="},
+
+    {
+      "id": "elderly.polite_weather_check",
+      "description": "Elderly user — polite, slow, checking weather before going out",
+      "turns": [
+        {
+          "utterance": "good morning",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "what's the weather going to be like today dear",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "will I need an umbrella",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what time does the sun set today",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "elderly.medication_and_appointments",
+      "description": "Elderly user tracking health and schedule",
+      "turns": [
+        {
+          "utterance": "what day is it today",
+          "expect": { "fast_lane_matched": false, "llm_used": true }
+        },
+        {
+          "utterance": "do I have anything on my calendar today",
+          "expect": { "capability": "get_events" }
+        },
+        {
+          "utterance": "remind me to take my blood pressure medication at 2pm",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "actually can you make that 3pm instead",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "elderly.tech_confusion",
+      "description": "Elderly user confused about technology, needs patient explanations",
+      "turns": [
+        {
+          "utterance": "what is wifi exactly how does it work",
+          "expect": { "capability": "knowledge_query" }
+        },
+        {
+          "utterance": "my wifi is not working at home what do I do",
+          "expect": { "likely_goal": "troubleshooting" }
+        },
+        {
+          "utterance": "what does it mean when it says no internet connection",
+          "expect": { "capability": "knowledge_query" }
+        }
+      ]
+    },
+    {
+      "id": "elderly.family_check_in",
+      "description": "Elderly user asking about family — uses relationship terms",
+      "turns": [
+        {
+          "utterance": "when is my daughter's birthday",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "I want to send her a message saying happy birthday",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "thank you dear that's very helpful",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== SLANG / CASUAL — abbreviations, informal grammar ==="},
+
+    {
+      "id": "slang.casual_morning",
+      "description": "Casual user with slang and abbreviations",
+      "turns": [
+        {
+          "utterance": "yo whats good",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "whats the weather lookin like",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "aight cool tell me a joke",
+          "expect": { "capability": "tell_joke" }
+        },
+        {
+          "utterance": "lol that was trash give me another",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "slang.planning_hangout",
+      "description": "Casual user planning to go out with friends",
+      "turns": [
+        {
+          "utterance": "yo what movies are playing tonight",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "nah forget movies whats the score of the lakers game",
+          "expect": { "capability": "get_score" }
+        },
+        {
+          "utterance": "bet is it gonna rain later",
+          "expect": { "capability": "get_weather" }
+        }
+      ]
+    },
+    {
+      "id": "slang.music_vibes",
+      "description": "Casual user looking for music, vague descriptions",
+      "turns": [
+        {
+          "utterance": "who sings that song with the beat that goes like dun dun dun",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "nah i mean the old one from like the 80s",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "whatever just play some 80s music",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== TYPOS AND MISSPELLINGS — messy input, known routing gaps ==="},
+
+    {
+      "id": "typos.weather_misspelled",
+      "description": "User with consistent typos — router struggles with misspellings",
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "Router cosine similarity drops below floor on misspelled text; routes to direct_chat instead of get_weather",
+      "turns": [
+        {
+          "utterance": "waht is teh weather toaday",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "how abut tomorrw",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "typos.knowledge_garbled",
+      "description": "Misspelled knowledge queries — router can't match embeddings",
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "Heavy misspellings drop below ROUTE_FLOOR; all three turns route to direct_chat",
+      "turns": [
+        {
+          "utterance": "how manny planits are in the solar systm",
+          "expect": { "capability": "knowledge_query" }
+        },
+        {
+          "utterance": "wich one is the bigest",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "how far is jupitr from earth",
+          "expect": { "capability": "knowledge_query" }
+        }
+      ]
+    },
+    {
+      "id": "typos.autocorrect_chaos",
+      "description": "Phone autocorrect-style substitutions — known gap",
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "Substituted words (remainder/reminder, grocers/groceries) confuse router",
+      "turns": [
+        {
+          "utterance": "set a remainder for 5pm to pick up grocers",
+          "expect": { "capability": "set_reminder" }
+        },
+        {
+          "utterance": "waht time is it in Tokio",
+          "expect": { "capability": "get_time_in_location" }
+        }
+      ]
+    },
+
+    {"_comment": "=== RAMBLING / VERBOSE — buries the question in filler ==="},
+
+    {
+      "id": "rambling.buried_weather",
+      "description": "User buries weather question in a wall of context — routes to direct_chat",
+      "turns": [
+        {
+          "utterance": "so I was thinking about going out tonight and I know it's been kind of rainy lately but I'm not sure if it's going to rain tonight what's the weather",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "ok cool so yeah I was going to maybe see a movie or something what's playing tonight",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "actually you know what never mind the movie thing let me just do something simple how do you spell restaurant",
+          "expect": { "fast_lane_matched": false, "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "rambling.over_explaining",
+      "description": "User gives way too much context for a simple question",
+      "turns": [
+        {
+          "utterance": "so my friend Leia told me about this word and I can't remember exactly what it means but she used it in a sentence about something temporary and fleeting and I think the word was ephemeral what does it mean",
+          "expect": { "capability": "lookup_definition" }
+        },
+        {
+          "utterance": "oh nice yeah that makes sense and while I'm thinking about it what is 15 percent of 85",
+          "expect": { "fast_lane_matched": false, "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "rambling.stream_of_consciousness",
+      "description": "User who thinks out loud while asking things",
+      "turns": [
+        {
+          "utterance": "hmm I wonder what time it is in Tokyo right now because I need to call someone there",
+          "expect": { "capability": "get_time_in_location" }
+        },
+        {
+          "utterance": "also wait I was supposed to ask you something else oh right what is the tallest building in the world",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== FORGETFUL — repeats, contradicts, circles back ==="},
+
+    {
+      "id": "forgetful.repeat_question",
+      "description": "User asks the same question twice in a conversation",
+      "turns": [
+        {
+          "utterance": "what's the weather in Chicago",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "how do you spell necessary",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "wait what did you say the weather was in Chicago",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "forgetful.lost_train_of_thought",
+      "description": "User starts a question, gets sidetracked, tries again",
+      "turns": [
+        {
+          "utterance": "I wanted to ask you something about oh wait what time is it",
+          "expect": { "fast_lane_matched": false, "llm_used": true }
+        },
+        {
+          "utterance": "ok right so what I was going to ask was what is the capital of Australia",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "wait is it Sydney or Canberra I always forget",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "forgetful.contradict_then_correct",
+      "description": "User changes their mind mid-conversation",
+      "turns": [
+        {
+          "utterance": "what's the weather in Los Angeles",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "actually I meant San Francisco not LA",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "thanks",
+          "expect": { "fast_lane_matched": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== TOPIC SWITCHER — jumps between unrelated subjects ==="},
+
+    {
+      "id": "topic_switch.whiplash",
+      "description": "User switches topics every single turn with no connection",
+      "turns": [
+        {
+          "utterance": "what's the weather",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "tell me a joke",
+          "expect": { "capability": "tell_joke" }
+        },
+        {
+          "utterance": "what is 234 times 17",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "who was the first person on the moon",
+          "expect": { "capability": "knowledge_query" }
+        },
+        {
+          "utterance": "how do you spell entrepreneur",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "convert 10 miles to kilometers",
+          "expect": { "fast_lane_matched": true }
+        }
+      ]
+    },
+    {
+      "id": "topic_switch.interrupt_self",
+      "description": "User starts one topic then immediately pivots",
+      "turns": [
+        {
+          "utterance": "tell me about the movie the matrix",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "oh forget about movies what's the stock price of Apple",
+          "expect": { "capability": "get_stock_price" }
+        },
+        {
+          "utterance": "hmm ok nevermind stocks either how many calories in a banana",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== EMOTIONAL — sad, frustrated, anxious, aggressive, lonely ==="},
+
+    {
+      "id": "emotional.sad_opening",
+      "description": "User who is sad and looking for comfort, then practical help",
+      "turns": [
+        {
+          "utterance": "I'm having a really bad day",
+          "expect": { "capability": "emotional_support" }
+        },
+        {
+          "utterance": "I just feel like nothing is going right lately",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "maybe I should just watch a movie to take my mind off things what's playing tonight",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "emotional.frustrated_tech",
+      "description": "Frustrated user whose device isn't working",
+      "turns": [
+        {
+          "utterance": "my wifi keeps dropping every five minutes and I'm losing my mind",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "I've already restarted the router three times it's still broken",
+          "expect": { "likely_goal": "troubleshooting" }
+        },
+        {
+          "utterance": "whatever just tell me the weather so I know if I should go to a coffee shop to work",
+          "expect": { "capability": "get_weather" }
+        }
+      ]
+    },
+    {
+      "id": "emotional.anxious_planner",
+      "description": "Anxious user planning for worst case scenarios",
+      "turns": [
+        {
+          "utterance": "is it going to rain tomorrow because I have an outdoor event and I'm really stressed about it",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what if it does rain what's the temperature going to be",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "can I still hold an outdoor party in light rain",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "emotional.aggressive_impatient",
+      "description": "Aggressive user who is short-tempered and demanding",
+      "turns": [
+        {
+          "utterance": "just tell me the weather",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "what time is it",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "turn on the living room lights",
+          "expect": { "capability": "control_device" }
+        },
+        {
+          "utterance": "is the front door locked",
+          "expect": { "capability": "get_device_state" }
+        }
+      ]
+    },
+    {
+      "id": "emotional.lonely_chatty",
+      "description": "Lonely user who wants to chat and be heard",
+      "turns": [
+        {
+          "utterance": "hey I don't really have a question I just wanted to talk",
+          "expect": { "capability": "direct_chat", "llm_used": true }
+        },
+        {
+          "utterance": "do you ever feel lonely",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what's something fun I could do tonight by myself",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "that's a good idea thanks",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== FAMILY / FRIENDS / COWORKERS — relationship-centered ==="},
+
+    {
+      "id": "family.birthday_planning",
+      "description": "Planning a family birthday party across multiple turns",
+      "turns": [
+        {
+          "utterance": "when is my brother's birthday",
+          "expect": { "capability": "lookup_person_birthday" }
+        },
+        {
+          "utterance": "find a recipe for chocolate cake",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "add birthday candles to my shopping list",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "remind me to order balloons tomorrow at 10am",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "family.checking_on_everyone",
+      "description": "User checking in on multiple family members",
+      "turns": [
+        {
+          "utterance": "when is mom's birthday",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what about dad",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "send a text to my sister saying thinking of you today",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "family.worried_parent",
+      "description": "Parent worried about their child, checking things",
+      "turns": [
+        {
+          "utterance": "what's the weather going to be like for the school trip tomorrow",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "can kids get sick from being out in cold rain",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "remind me to pack an extra jacket in the morning",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "friends.planning_dinner",
+      "description": "Planning dinner with friends — involves recipes and messages",
+      "turns": [
+        {
+          "utterance": "find a recipe for lasagna",
+          "expect": { "capability": "find_recipe" }
+        },
+        {
+          "utterance": "what can I use instead of ricotta cheese",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "add mozzarella and pasta sheets to my grocery list",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what time should I start cooking if dinner is at 7",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "coworkers.meeting_prep",
+      "description": "Preparing for a work meeting — calendar, notes, knowledge",
+      "turns": [
+        {
+          "utterance": "what's on my calendar today",
+          "expect": { "capability": "get_events" }
+        },
+        {
+          "utterance": "what does API stand for",
+          "expect": { "capability": "knowledge_query" }
+        },
+        {
+          "utterance": "write a professional email to Han asking if the deadline can be extended by one week",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "coworkers.venting_then_working",
+      "description": "User vents about work stress then gets down to business",
+      "turns": [
+        {
+          "utterance": "I'm so tired of these meetings that could have been emails",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what is 3500 divided by 7",
+          "expect": { "fast_lane_matched": true, "response_contains": "500" }
+        },
+        {
+          "utterance": "create a note called project ideas",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== ACCESSIBILITY — users with limited abilities, simple/short input ==="},
+
+    {
+      "id": "accessibility.minimal_input",
+      "description": "User who types very few words per turn — motor difficulty or limited literacy",
+      "turns": [
+        {
+          "utterance": "weather",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "time",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "joke",
+          "expect": { "capability": "tell_joke" }
+        }
+      ]
+    },
+    {
+      "id": "accessibility.voice_transcription_errors",
+      "description": "STT errors from speech impediment or accent",
+      "known_tuning_gap": true,
+      "tuning_gap_reason": "STT transcription errors (whether/weather, tent/ten, tanks/thanks) confuse the router",
+      "turns": [
+        {
+          "utterance": "what is the whether like today",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "set a timer for tent minutes",
+          "expect": { "capability": "set_timer" }
+        },
+        {
+          "utterance": "tanks",
+          "expect": { "fast_lane_matched": true }
+        }
+      ]
+    },
+    {
+      "id": "accessibility.repetitive_phrasing",
+      "description": "User with cognitive difficulty who repeats sentence structure",
+      "turns": [
+        {
+          "utterance": "I want to know the weather",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "I want to know the time",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "I want to know a joke",
+          "expect": { "capability": "tell_joke" }
+        },
+        {
+          "utterance": "how do you spell beautiful",
+          "expect": { "fast_lane_matched": true, "response_contains": "beautiful" }
+        }
+      ]
+    },
+    {
+      "id": "accessibility.caregiver_assisting",
+      "description": "Caregiver helping someone — formal, simple requests",
+      "turns": [
+        {
+          "utterance": "please set a reminder for 2pm to take medication",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what is the temperature outside right now",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "please read the grocery list",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== NONSENSE / EDGE CASES — gibberish, single words, limits ==="},
+
+    {
+      "id": "nonsense.gibberish_then_real",
+      "description": "User sends gibberish, then asks a real question — pipeline must not crash",
+      "turns": [
+        {
+          "utterance": "asdfghjkl qwerty zxcvbn",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "sorry my cat walked on the keyboard what time is it",
+          "expect": { "fast_lane_matched": false, "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "nonsense.single_word_turns",
+      "description": "User sends single words that may or may not be questions",
+      "turns": [
+        {
+          "utterance": "hello",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "pizza",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "help",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "thanks",
+          "expect": { "fast_lane_matched": true }
+        }
+      ]
+    },
+    {
+      "id": "nonsense.repeated_input",
+      "description": "User sends the same thing multiple times — pipeline stays stable",
+      "turns": [
+        {
+          "utterance": "what time is it",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "what time is it",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "what time is it",
+          "expect": { "fast_lane_matched": true }
+        }
+      ]
+    },
+    {
+      "id": "nonsense.adversarial_phrasing",
+      "description": "User phrases things in deliberately confusing ways",
+      "turns": [
+        {
+          "utterance": "don't tell me the weather",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "I didn't ask for the time but if you were going to tell me what would it be",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "ok fine just tell me a joke",
+          "expect": { "capability": "tell_joke" }
+        }
+      ]
+    },
+
+    {"_comment": "=== LONG MULTI-TURN — sustained, realistic sessions ==="},
+
+    {
+      "id": "long.morning_routine",
+      "description": "Full morning routine — weather, calendar, news, reminders",
+      "turns": [
+        {
+          "utterance": "good morning",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "what's the weather today",
+          "expect": { "capability": "get_weather" }
+        },
+        {
+          "utterance": "what do I have on my calendar",
+          "expect": { "capability": "get_events" }
+        },
+        {
+          "utterance": "what's happening in the news",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "set an alarm for 7am tomorrow",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "remind me to call Chewie at noon",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "thanks have a good day",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "long.evening_wind_down",
+      "description": "Evening conversation — cooking, entertainment, planning",
+      "turns": [
+        {
+          "utterance": "hey",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "find a recipe for chicken stir fry",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "set a timer for 20 minutes",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what movies are playing near me tonight",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "tell me about the movie the godfather",
+          "expect": { "capability": "lookup_movie" }
+        },
+        {
+          "utterance": "what's on TV tonight",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "tell me a joke to end the night",
+          "expect": { "capability": "tell_joke" }
+        }
+      ]
+    },
+    {
+      "id": "long.travel_planning",
+      "description": "Planning a trip — flights, weather, currency, translation",
+      "turns": [
+        {
+          "utterance": "I want to plan a trip to Japan",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "do I need a visa to travel to Japan",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what's the exchange rate for dollars to yen",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "how do you say thank you in Japanese",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what's the weather like in Tokyo in March",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+
+    {"_comment": "=== MIXED EMOTION + PRACTICAL — real life blend ==="},
+
+    {
+      "id": "mixed.bad_day_but_productive",
+      "description": "User having a rough day but needs to get things done",
+      "turns": [
+        {
+          "utterance": "ugh I'm so stressed out today",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "I know I just need to power through what's on my calendar",
+          "expect": { "capability": "get_events" }
+        },
+        {
+          "utterance": "fine can you write a professional email to Padme apologizing for missing the deadline",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "add milk and eggs to my grocery list so I don't forget on the way home",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what's the weather like because I'm walking home",
+          "expect": { "capability": "get_weather" }
+        }
+      ]
+    },
+    {
+      "id": "mixed.excited_discovery",
+      "description": "User excitedly exploring a new topic, rapid context shifts",
+      "turns": [
+        {
+          "utterance": "oh man I just heard about this thing called quantum computing what is it",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "wait so is it faster than normal computers",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "who invented it",
+          "expect": { "capability": "knowledge_query" }
+        },
+        {
+          "utterance": "this is so cool can normal people buy one",
+          "expect": { "llm_used": true }
+        }
+      ]
+    },
+    {
+      "id": "mixed.parent_multitasking",
+      "description": "Busy parent juggling kids, cooking, and planning",
+      "turns": [
+        {
+          "utterance": "set a timer for 15 minutes for the pasta",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "what is 3 times 12",
+          "expect": { "fast_lane_matched": true, "response_contains": "36" }
+        },
+        {
+          "utterance": "how do you spell multiplication",
+          "expect": { "fast_lane_matched": true }
+        },
+        {
+          "utterance": "remind me to sign the permission slip tonight",
+          "expect": { "llm_used": true }
+        },
+        {
+          "utterance": "is it going to be cold tomorrow",
+          "expect": { "llm_used": true }
         }
       ]
     }
