@@ -27,6 +27,7 @@ from lokidoki.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthes
 from lokidoki.orchestrator.media import augment_with_media
 from lokidoki.orchestrator.pipeline.combiner import combine_request_spec
 from lokidoki.orchestrator.pipeline.derivations import derive_need_flags, extract_structured_params
+from lokidoki.orchestrator.pipeline.constraint_extractor import extract_constraints
 from lokidoki.orchestrator.pipeline.extractor import extract_chunk_data
 from lokidoki.orchestrator.pipeline.fast_lane import check_fast_lane
 from lokidoki.orchestrator.pipeline.normalizer import normalize_text
@@ -78,11 +79,20 @@ def run_initial_phase(trace, safe_context, raw_text, normalized):
            predicates=[i.predicates for i in extractions],
            entities=[i.entities for i in extractions])
 
+    finish = trace.timed("constraints")
+    constraints = extract_constraints(parsed.doc, normalized.cleaned_text)
+    finish(budget_max=constraints.budget_max,
+           time_constraint=constraints.time_constraint,
+           is_comparison=constraints.is_comparison,
+           is_recommendation=constraints.is_recommendation,
+           negations=constraints.negations,
+           quantity=constraints.quantity)
+
     finish = trace.timed("memory_write")
     memory_write_result = run_memory_write_path(parsed, chunks, safe_context)
     finish(accepted=len(memory_write_result.accepted),
            rejected=len(memory_write_result.rejected))
-    return parsed, chunks, extractions, memory_write_result
+    return parsed, chunks, extractions, constraints, memory_write_result
 
 
 async def run_routing_phase(trace, safe_context, routable, runtime, routable_extractions=None):

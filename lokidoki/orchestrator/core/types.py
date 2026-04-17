@@ -59,6 +59,16 @@ class ChunkExtraction:
 
 
 @dataclass(slots=True)
+class ConstraintResult:
+    budget_max: float | None = None
+    time_constraint: str | None = None
+    is_comparison: bool = False
+    is_recommendation: bool = False
+    negations: list[str] = field(default_factory=list)
+    quantity: str | None = None
+
+
+@dataclass(slots=True)
 class RouteMatch:
     chunk_index: int
     capability: str

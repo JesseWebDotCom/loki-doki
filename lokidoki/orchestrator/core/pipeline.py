@@ -48,7 +48,8 @@ async def run_pipeline_async(
     normalized, signals, fast_lane = run_pre_parse_phase(trace, ctx, raw_text)
     if fast_lane.matched:
         return _fast_lane_result(raw_text, normalized, signals, fast_lane, ctx, trace)
-    parsed, chunks, extractions, mw = run_initial_phase(trace, ctx, raw_text, normalized)
+    parsed, chunks, extractions, constraints, mw = run_initial_phase(trace, ctx, raw_text, normalized)
+    ctx["constraints"] = constraints
     routable, routable_ext = _filter_routable(chunks, extractions)
     routable = _resolve_antecedents(routable, ctx)
     routes, impls = await run_routing_phase(trace, ctx, routable, runtime, routable_ext)
