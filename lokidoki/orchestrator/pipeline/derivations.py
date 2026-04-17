@@ -100,7 +100,7 @@ def derive_need_flags(
         flags["need_preference"] = True
     if _should_need_social(parsed, extractions, routes):
         flags["need_social"] = True
-    if _should_need_session_context(extractions):
+    if _should_need_session_context(parsed, extractions):
         flags["need_session_context"] = True
     if _should_need_episode(parsed):
         flags["need_episode"] = True
@@ -168,10 +168,22 @@ def _has_definite_phrase(references: list[str]) -> bool:
     return False
 
 
+# Maximum token count for a "short utterance" — inputs this brief are
+# almost always reactions or continuations of the previous turn (e.g.
+# "so sad", "wow", "nice", "no way") and are meaningless without the
+# session context that preceded them.
+_SHORT_UTTERANCE_CEILING: int = 4
+
+
 def _should_need_session_context(
+    parsed: ParsedInput,
     extractions: list[ChunkExtraction],
 ) -> bool:
-    """True when chunks contain referent pronouns or definite phrases needing session context."""
+    """True when chunks contain referent pronouns, definite phrases, or are
+    short reactions that need the preceding turn for interpretation."""
+    # Short utterances are implicit continuations — always need context.
+    if parsed.token_count <= _SHORT_UTTERANCE_CEILING:
+        return True
     for ext in extractions:
         if any(ref in _REFERENT_PRONOUNS for ref in ext.references):
             return True

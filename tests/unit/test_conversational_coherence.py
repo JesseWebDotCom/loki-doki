@@ -238,6 +238,45 @@ class TestDefinitePhraseDetection:
         assert _has_definite_phrase([]) is False
 
 
+class TestShortUtteranceSessionContext:
+    """Short reactions like 'so sad' or 'wow' trigger session context."""
+
+    def _make_parsed(self, text: str):
+        from lokidoki.orchestrator.core.types import ParsedInput
+        tokens = text.split()
+        return ParsedInput(token_count=len(tokens), tokens=tokens, sentences=[text])
+
+    def test_so_sad_triggers_session_context(self):
+        from lokidoki.orchestrator.pipeline.derivations import _should_need_session_context
+        parsed = self._make_parsed("so sad")
+        assert _should_need_session_context(parsed, []) is True
+
+    def test_wow_triggers_session_context(self):
+        from lokidoki.orchestrator.pipeline.derivations import _should_need_session_context
+        parsed = self._make_parsed("wow")
+        assert _should_need_session_context(parsed, []) is True
+
+    def test_nice_triggers_session_context(self):
+        from lokidoki.orchestrator.pipeline.derivations import _should_need_session_context
+        parsed = self._make_parsed("nice")
+        assert _should_need_session_context(parsed, []) is True
+
+    def test_no_way_triggers_session_context(self):
+        from lokidoki.orchestrator.pipeline.derivations import _should_need_session_context
+        parsed = self._make_parsed("no way")
+        assert _should_need_session_context(parsed, []) is True
+
+    def test_four_token_reaction(self):
+        from lokidoki.orchestrator.pipeline.derivations import _should_need_session_context
+        parsed = self._make_parsed("that is so sad")
+        assert _should_need_session_context(parsed, []) is True
+
+    def test_longer_input_not_auto_triggered(self):
+        from lokidoki.orchestrator.pipeline.derivations import _should_need_session_context
+        parsed = self._make_parsed("tell me more about the history of cinema")
+        assert _should_need_session_context(parsed, []) is False
+
+
 class TestMediaResolverDirectChat:
     """Phase C (RC3): media resolver fires for context-needing direct_chat."""
 

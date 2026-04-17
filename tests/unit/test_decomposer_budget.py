@@ -232,13 +232,13 @@ class TestNeedSessionContext:
         assert flags.get("need_session_context") is True
 
     def test_no_session_context_without_referents(self):
-        parsed = _parsed(["what", "time", "is", "it"])
-        chunks = [_chunk(0, "what time is it")]
+        parsed = _parsed(["what", "time", "is", "it", "in", "paris"])
+        chunks = [_chunk(0, "what time is it in paris")]
         extractions = [_extraction(0, references=[])]
         routes = [_route(0, "get_current_time")]
         flags = derive_need_flags(parsed, chunks, extractions, routes, {})
-        # "it" in "what time is it" would be caught by extraction, but
-        # if extraction didn't flag it, derivation shouldn't either
+        # No referent pronouns or definite phrases in extraction, and
+        # input is long enough not to trigger the short-utterance heuristic.
         assert "need_session_context" not in flags
 
 
