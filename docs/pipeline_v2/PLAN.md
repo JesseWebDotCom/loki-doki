@@ -37,7 +37,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 |---|-------|--------|--------|
 | 1 | [Kill the dead-end — LLM fallback from stub synthesis](chunk-1-llm-fallback.md) | done | f7e22c4 |
 | 2 | [resolved_query — conversation-aware decomposer output](chunk-2-resolved-query.md) | done | 9bd9a84 |
-| 3 | [Slot compatibility scoring in router](chunk-3-slot-scoring.md) | pending | |
+| 3 | [Slot compatibility scoring in router](chunk-3-slot-scoring.md) | done | 93d24a7 |
 | 4 | [Constraint extraction matchers](chunk-4-constraint-matchers.md) | pending | |
 | 5 | [Response schemas in synthesis prompt](chunk-5-response-schemas.md) | pending | |
 | 6 | [FTS5 + embedding-based memory retrieval](chunk-6-memory-retrieval.md) | pending | |
