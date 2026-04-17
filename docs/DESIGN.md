@@ -18,27 +18,26 @@ LokiDoki is a high-performance, private, and local AI conversational assistant d
 - **Backend**: **FastAPI** (Python) for API endpoints and orchestrator logic.
 - **Frontend**: **React** (Vite) + **Tailwind CSS** + **shadcn/ui** + **Lucide** icons.
 - **Database**: **SQLite** for structured data + **FTS5** for full-text search + optional **sqlite-vec** for embeddings.
-- **LLM Engine**: Local execution via **Ollama** (Qwen for chat, Gemma for function-calling).
-- **Hardware Target**: Raspberry Pi 5 (also runs on macOS for development).
+- **LLM Engine**: Local execution via profile-specific engines — **MLX** on Mac, **llama.cpp** (Vulkan) on Windows/Linux, **llama.cpp** (CPU ARM NEON) on Pi, **hailo-ollama** on Pi + Hailo HAT. All engines serve an OpenAI-compatible `/v1/chat/completions` endpoint.
+- **Hardware Target**: Raspberry Pi 5 (also runs on macOS for development; Windows/Linux supported but not yet tested).
 
 ---
 
 ## 3. System Architecture & Entry Points
 
-### `run.sh` / `run.py`
-`run.sh` is the user entry point. It performs system checks and executes `run.py`, which:
-1. Installs/updates dependencies via `uv`.
-2. Starts the FastAPI backend server.
-3. Opens the local web interface in the default browser.
+### `run.sh` / `run.bat`
+Entry points are `./run.sh` (Mac/Linux) and `run.bat` (Windows). The shell launchers probe for Python and delegate to `python -m lokidoki.bootstrap`, which opens a browser-based install wizard. The wizard downloads an embedded Python, Node, and the right LLM engine for the detected platform profile, plus the Qwen LLMs and vision models sized for the hardware. First run takes 10-30 minutes; subsequent runs start in seconds.
 
 ### Request Path
 ```
-[STT] -> [Router] -> fast Qwen / thinking Qwen / Gemma function model -> [Tools/APIs] -> [TTS]
+[STT] -> [Classifier] -> [Router] -> [Skill Handlers | fast Qwen | thinking Qwen] -> [TTS]
 ```
 
-Full pipeline:
+Full pipeline (8 phases):
 ```
-input -> normalize -> signals -> parse -> split -> extract -> resolve -> route -> execute -> combine -> response
+input -> normalize -> signals -> fast_lane -> parse -> split -> extract -> canonicalize
+      -> constraints -> route -> derive_flags -> goal_inference -> resolve -> execute
+      -> memory_read -> synthesis (LLM or deterministic) -> response
 ```
 
 ---
@@ -80,13 +79,17 @@ User input is enriched with:
 
 ### II. Decomposition
 The pipeline parses input into structured signals using spaCy (parse, split, extract) rather than an LLM. Each chunk gets:
-1. **Intent Mapping**: Semantic matching against the capability registry via embedding similarity.
-2. **Parameter Extraction**: Typed extraction of `location`, `date`, `movie_title`, etc.
-3. **Routing Signals**: `need_preference`, `need_social`, `need_episode`, etc.
+1. **Intent Mapping**: Semantic matching against the capability registry via MiniLM embedding similarity.
+2. **Parameter Extraction**: Typed extraction of `location`, `date`, `movie_title`, etc. via NER + slot-compatibility scoring.
+3. **Constraint Extraction**: spaCy Matcher-based extraction of budget, time, comparison, recommendation, negation, and quantity signals from user input.
+4. **Entity Canonicalization**: Shorthand and slang normalization (e.g. "mbp" -> "MacBook Pro") via a user-extensible alias table before routing.
+5. **Goal Inference**: Deterministic derivation of the user's likely intent (comparison, recommendation, feasibility, troubleshooting, time_sensitive_decision) from constraints + routes + text — no LLM call needed.
+6. **Routing Signals**: `need_preference`, `need_social`, `need_episode`, `need_routine`, `response_shape`, etc.
 
 ### III. Parallel Execution & Routing
 Chunks are routed to appropriate skills in parallel:
 - **Skills**: Weather, Search, Knowledge (Wikipedia), Showtimes, TV Shows, Calculator, Dictionary, Recipes, News, Unit Conversion, Smart Home, etc.
+- **Slot-Compatibility Scoring**: Router adjusts confidence based on how well the query's NER entities match the target capability's expected parameter slots. A weather query with a GPE entity scores higher against `get_weather` than `knowledge_query`.
 - **Mechanism Logic**: Prioritized fallback chains with strict timeouts and connectivity awareness.
 - **First-Successful-Win**: Multiple mechanisms race; first valid response wins, others cancelled.
 
@@ -95,14 +98,17 @@ Chunks are routed to appropriate skills in parallel:
 - **`clarification_question`** emitted for ambiguous facts (threaded into synthesis prompt).
 
 ### IV. Final Synthesis
-1. Consolidated prompt from skill results, user intent, and bot style/tone.
-2. **Model selection**: Fast Qwen for simple queries, thinking Qwen for complex reasoning.
-3. Response streamed to UI as SSE events.
+1. **Memory retrieval**: Hybrid FTS5 keyword + sqlite-vec embedding search with Reciprocal Rank Fusion (RRF) merge, per-tier char budgets, relevance-score floors.
+2. **Response-shape-aware prompting**: Synthesis prompt includes structured schemas for comparison, recommendation, troubleshooting, and utility response shapes, selected based on constraint signals and routed capabilities.
+3. **LLM-always synthesis**: Every response goes through the LLM (Qwen via local engine). The deterministic combiner only fires as a degradation fallback when the LLM call itself fails.
+4. **Truncation detection**: If the LLM hits the token safety cap (2048), the client detects `finish_reason: "length"` and retries with a doubled budget. No more silent mid-sentence cutoffs.
+5. **Knowledge-gap loop**: When the LLM admits ignorance (`[[NEED_SEARCH:...]]` or natural-language hedging), the pipeline automatically fires a web search and re-synthesizes with the results.
+6. Response streamed to UI as SSE events.
 
 ### V. Model Resident & Switching Policy
-- **Primary (fast Qwen)**: Stays resident in RAM via Ollama `keep_alive: -1`.
-- **Reasoning (thinking Qwen)**: Loaded dynamically when `overall_reasoning_complexity` triggers it. Uses `keep_alive: "5m"`.
-- **LLM fallback model**: `qwen3:4b-instruct-2507-q4_K_M` — used when no skill matches or skill returns empty. Override via `LOKI_LLM_MODEL` env var.
+- **Primary (fast Qwen)**: Stays resident in RAM. Served by the platform-specific engine (MLX on Mac, llama.cpp on others).
+- **Reasoning (thinking Qwen)**: Loaded dynamically when `overall_reasoning_complexity` triggers it.
+- **LLM synthesis model**: Defaults from `PLATFORM_MODELS` in `lokidoki/core/platform.py` (e.g. `mlx-community/Qwen3-8B-4bit` on Mac). Override via `LOKI_LLM_MODEL` env var.
 
 ### V.a LLM Model Selection (Bake-Off Results)
 
@@ -146,7 +152,9 @@ Token-efficient compression for Pi 5's limited context window:
 
 ## 6. Memory System
 
-The memory system is one SQLite file (`data/lokidoki.db`), one gate-chain writer (`MemoryStore`), and one lazy per-tier reader. The seven tiers described below are policies and views over that shared storage, not separate databases — they model how information flows from volatile per-turn state to durable long-term knowledge, each with distinct write triggers, decay policies, and retrieval strategies.
+The memory system is one SQLite file (`data/lokidoki.db`), one unified gate-chain writer (`MemoryStore`), and one lazy per-tier reader — all sharing a single DB connection. An earlier two-DB architecture (separate `memory.sqlite` for the v2 memory subsystem) was unified so that pipeline extractions, UI-facing facts/people, auth, and chat history all live in one file. The seven tiers described below are policies and views over that shared storage, not separate databases — they model how information flows from volatile per-turn state to durable long-term knowledge, each with distinct write triggers, decay policies, and retrieval strategies.
+
+**Retrieval strategy**: Tiers 3-5 use hybrid retrieval — FTS5 keyword search + sqlite-vec dense embedding search merged via Reciprocal Rank Fusion (RRF). This replaced the earlier keyword-only retrieval, improving recall on semantic matches while preserving exact-match precision.
 
 ### 6.1 Tier Descriptions
 
@@ -155,6 +163,8 @@ Per-turn volatile state: the spaCy parse tree, extracted entities, resolved pron
 
 #### Tier 2 — Session Memory
 The rolling conversation window. Stores the last N messages in the `messages` table and a `session_state` JSON blob on the `sessions` row (last-seen map for entity tracking, unresolved questions, turn counter). Cleared when the session closes. Retrieved via `need_session_context` — the pipeline reads the last few messages to give the synthesis LLM conversational continuity.
+
+**Session entity tracking**: After each turn, `run_session_state_update` stores entities in the session's `last_seen` map via four passes: (1) resolution-derived entities from spaCy, (2) execution-derived entities from skill results, (2b) knowledge-query subject extraction from free-text output, (3) conversation topic from the antecedent resolver, and (4) NER entities from `direct_chat` turns — so conversational topics ("The A-Team was a great show") persist into the next turn for pronoun resolution even when no skill handler ran.
 
 #### Tier 3 — Episodic Memory
 Compact narrative summaries with timestamps and emotional tone — *"On 2026-04-09, user was excited about planning a Japan trip."* Written by an out-of-band summarization job at session close (triggered when the session had 20+ turns). Stored in the `episodes` table with FTS5 full-text index and optional sqlite-vec embeddings for hybrid retrieval. Decays with a **90-day half-life**; episodes older than 6 months roll into period summaries. Retrieved via `need_episode` (max 2 entries, ranked by BM25 + temporal proximity, subject to a relevance-score floor).
@@ -372,7 +382,7 @@ Skills only satisfy the capability-family contracts they claim:
 | `search_web` | `search` (DuckDuckGo) | Production |
 | `lookup_person_birthday` | `people_lookup` (local graph) | Production |
 
-**LLM-backed skills** (6): `generate_email`, `code_assistance`, `summarize_text`, `create_plan`, `weigh_options`, `emotional_support` — dispatched through Ollama, degrade to deterministic stub when disabled.
+**LLM-backed skills** (6): `generate_email`, `code_assistance`, `summarize_text`, `create_plan`, `weigh_options`, `emotional_support` — dispatched through the local LLM engine, degrade to deterministic stub when disabled.
 
 **Offline KB adapters** (8): `find_products`, `get_streaming`, `search_flights`, `search_hotels`, `get_visa_info`, `get_transit`, `detect_presence`, `send_text_message` — curated in-process catalogs.
 
@@ -406,10 +416,11 @@ Admin Global placed last in system instruction block (LLMs weigh recent instruct
 ## 12. Testing & Quality
 
 - **TDD**: Failing test first before new core logic.
-- **Unit Tests**: Core logic, parsing, skill selection. Run on `git commit`.
+- **Unit Tests**: Core logic, parsing, skill selection. Run on `git commit` via pre-commit hook.
 - **Integration Tests**: End-to-end orchestration and API. Run on `git push`.
-- **Current count**: ~1400 tests passing.
-- **Pre-commit hooks**: `gitleaks` for secret detection.
+- **Conversation Scripts**: JSON-driven multi-turn conversation tests (`tests/fixtures/conversation_scripts.json`) that replay scripted conversations through the full pipeline with shared session state. 55 scripts across 16 persona categories (child, elderly, slang, typos, rambling, forgetful, topic-switching, emotional, family, friends, coworkers, accessibility, nonsense, long sessions, mixed). Assertions cover routing, response content, timing budgets, goal inference, memory retrieval, and pronoun resolution. Known routing gaps are tracked as `xfail` with documented reasons.
+- **Current count**: ~1750 tests passing.
+- **Pre-commit hooks**: `gitleaks` for secret detection, unit test suite.
 
 ---
 

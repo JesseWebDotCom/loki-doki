@@ -91,6 +91,8 @@ Think of LokiDoki as a **local alternative** to cloud assistants — like ChatGP
 
 Runs on Apple Silicon Macs, x86_64 Windows/Linux desktops, and Raspberry Pi 5 (including Hailo-enabled Pis). Intel Macs are not supported.
 
+> **Platform note:** Active development and testing happens on macOS (Apple Silicon). Windows, Linux, and Raspberry Pi profiles are implemented in the bootstrap and engine layers but **have not been tested on real hardware yet**. They should work based on the architecture, but expect rough edges until they get real-world validation. Bug reports from Pi and Windows users are especially welcome.
+
 ### Install
 
 The only prerequisite is a Python 3.8+ interpreter on the system. A browser opens to the install wizard, which downloads an embedded Python, Node, and the right LLM engine for your platform (MLX on mac, llama.cpp Vulkan on Windows/Linux, llama.cpp CPU on Pi, hailo-ollama on Pi + Hailo HAT), plus the Qwen LLMs and vision models sized for your hardware. First run takes 10–30 minutes depending on network; subsequent runs start in seconds.
@@ -186,21 +188,25 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 ## 🗺️ Roadmap
 
 - [x] Core platform — FastAPI control plane, orchestrator, classifier
-- [x] Skills-First pipeline — decomposition → skills → synthesis
+- [x] Skills-First pipeline — decomposition → routing → skills → synthesis
+- [x] Pipeline v2 — LLM fallback, constraint extraction, slot scoring, response schemas, goal inference, entity canonicalization, hybrid memory retrieval
 - [x] Seven-tier memory, scoped per household member
+- [x] Memory unification — single SQLite DB, unified gate-chain writer and reader
+- [x] Hybrid memory retrieval — FTS5 + embedding search with RRF merge
 - [x] Persona / companion system
 - [x] Voice pipeline — wake word, push-to-talk, STT, TTS on CPU
-- [x] Mac profile
-- [ ] Pi CPU profile — first-class Raspberry Pi 5 deployment
-- [ ] Pi Hailo profile — LLM and vision acceleration with CPU fallback
+- [x] Mac profile (actively tested)
+- [x] Browser bootstrap installer
+- [x] Multi-turn conversation test suite — 55 persona-based scripts, 181 turns
+- [ ] Pi CPU profile — implemented, not yet tested on real hardware
+- [ ] Pi Hailo profile — implemented, not yet tested on real hardware
+- [ ] Windows profile — implemented, not yet tested on real hardware
 - [ ] Face and person recognition — know who is in the room and switch profiles automatically
 - [ ] Document understanding — summarize, Q&A, and extract from PDFs and images
 - [ ] Image and video understanding — describe, caption, and search your media library
 - [ ] Live video — real-time scene understanding from a camera feed
 - [ ] Home automation skills — lights, locks, climate, scenes
-- [ ] Everyday skills — calendar, weather, notifications, web search
 - [ ] Offline knowledge cache — bundled Wikipedia, WebMD, and other references for fully offline answers
-- [ ] Browser bootstrap installer
 - [ ] Plugin marketplace
 - [ ] Device builds — Echo-style speaker and animatronic teddy bear
 - [ ] Systemd / launchd auto-start
