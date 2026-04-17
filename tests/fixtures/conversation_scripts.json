@@ -1,0 +1,156 @@
+{
+  "$schema": "Multi-turn conversation scripts. Each script runs through the full pipeline turn-by-turn with shared session state. Names use pop-culture characters per CLAUDE.md mock-data rule.",
+  "scripts": [
+    {
+      "id": "weather_then_definition",
+      "description": "Weather query followed by an unrelated definition query",
+      "turns": [
+        {
+          "utterance": "what's the weather in New York",
+          "expect": {
+            "capability": "get_weather",
+            "response_contains": "new york"
+          }
+        },
+        {
+          "utterance": "define serendipity",
+          "expect": {
+            "capability": "define_word",
+            "response_contains": "serendipity"
+          }
+        }
+      ]
+    },
+    {
+      "id": "movie_context_chain",
+      "description": "Ask about a movie, then use pronouns to reference it",
+      "turns": [
+        {
+          "utterance": "have you seen the movie inception",
+          "expect": {
+            "capability": "lookup_movie",
+            "response_contains": "inception"
+          }
+        },
+        {
+          "utterance": "who's in it",
+          "expect": {
+            "resolved_target_contains": "inception"
+          }
+        }
+      ]
+    },
+    {
+      "id": "greeting_then_knowledge",
+      "description": "Greeting hits fast lane, then a real question routes normally",
+      "turns": [
+        {
+          "utterance": "hello",
+          "expect": {
+            "fast_lane_matched": true,
+            "capability": "greeting_response"
+          }
+        },
+        {
+          "utterance": "what is the capital of France",
+          "expect": {
+            "fast_lane_matched": false,
+            "capability": "knowledge_query"
+          }
+        }
+      ]
+    },
+    {
+      "id": "comparison_goal_inference",
+      "description": "Comparison question should infer the right goal",
+      "turns": [
+        {
+          "utterance": "which is better, Python or JavaScript for web development",
+          "expect": {
+            "likely_goal": "comparison"
+          }
+        }
+      ]
+    },
+    {
+      "id": "feasibility_goal_inference",
+      "description": "Can-I question routed to direct_chat infers feasibility",
+      "turns": [
+        {
+          "utterance": "can I run a marathon without training",
+          "expect": {
+            "likely_goal": "feasibility"
+          }
+        }
+      ]
+    },
+    {
+      "id": "memory_seeded_preference",
+      "description": "Seed a food preference, then ask a question that should surface it",
+      "seed_memory": [
+        {
+          "subject": "self",
+          "predicate": "favorite_food",
+          "value": "pizza",
+          "confidence": 0.95
+        }
+      ],
+      "turns": [
+        {
+          "utterance": "what should I have for dinner",
+          "expect": {
+            "capability": "direct_chat",
+            "llm_used": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "multi_turn_latency",
+      "description": "Verify pipeline stays fast across multiple turns",
+      "turns": [
+        {
+          "utterance": "hello",
+          "expect": {
+            "fast_lane_matched": true,
+            "max_total_ms": 200
+          }
+        },
+        {
+          "utterance": "how do you spell necessary",
+          "expect": {
+            "fast_lane_matched": true,
+            "max_total_ms": 200
+          }
+        },
+        {
+          "utterance": "what is 6 times 7",
+          "expect": {
+            "fast_lane_matched": true,
+            "response_contains": "42",
+            "max_total_ms": 200
+          }
+        }
+      ]
+    },
+    {
+      "id": "definition_then_followup",
+      "description": "Define a word, then ask a follow-up about usage",
+      "turns": [
+        {
+          "utterance": "define ephemeral",
+          "expect": {
+            "capability": "lookup_definition",
+            "response_contains": "ephemeral"
+          }
+        },
+        {
+          "utterance": "use it in a sentence",
+          "expect": {
+            "llm_used": true
+          }
+        }
+      ]
+    }
+  ]
+}
