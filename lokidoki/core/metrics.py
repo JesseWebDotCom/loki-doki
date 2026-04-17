@@ -149,15 +149,15 @@ def tracked_processes() -> list[dict[str, Any]]:
     return [
         _match(rows, lambda r: r["pid"] == pid, "LokiDoki"),
         _match(rows, lambda r: "ollama" in Path(r["comm"]).name.lower()
-               or "ollama serve" in r["command"].lower(), "Ollama"),
+               or "ollama serve" in r["command"].lower(), "LLM Engine"),
     ]
 
 
 # ── storage ──────────────────────────────────────────────────────
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OLLAMA_HOME = Path.home() / ".ollama"
-OLLAMA_MODELS = OLLAMA_HOME / "models"
+LLM_ENGINE_HOME = Path.home() / ".ollama"  # hailo-ollama on pi_hailo
+LLM_ENGINE_MODELS = LLM_ENGINE_HOME / "models"
 
 
 def _dir_size(path: Path) -> int:
@@ -188,8 +188,8 @@ def storage_buckets(data_dir: Path) -> list[dict[str, Any]]:
         _bucket("lokidoki_app", "LokiDoki App", REPO_ROOT),
         _bucket("lokidoki_data", "LokiDoki Data", data_dir),
         _bucket("zim_archives", "Knowledge Archives", data_dir / "archives"),
-        _bucket("ollama_home", "Ollama", OLLAMA_HOME),
-        _bucket("ollama_models", "Ollama Models", OLLAMA_MODELS),
+        _bucket("llm_engine_home", "LLM Engine", LLM_ENGINE_HOME),
+        _bucket("llm_engine_models", "LLM Models", LLM_ENGINE_MODELS),
     ]
 
 

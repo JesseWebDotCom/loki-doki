@@ -14,7 +14,7 @@ calls ``/v1/chat/completions`` and works on all profiles.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from lokidoki.orchestrator.core.config import CONFIG
 
@@ -54,11 +54,19 @@ def _get_client() -> object:
     return _cached_client
 
 
-async def call_llm(prompt: str) -> str:
+async def call_llm(
+    prompt: str,
+    *,
+    on_token: "Optional[Callable[[str], None]]" = None,
+) -> str:
     """Send a rendered prompt to the local LLM via OpenAI-compatible API.
 
-    Returns the raw response text. If the model hits the token cap
-    (``finish_reason="length"``), retries once with a doubled budget.
+    Returns the raw response text. When ``on_token`` is provided, streams
+    the response and calls the callback with each text delta so the SSE
+    layer can push partial updates to the frontend in real time.
+
+    If the model hits the token cap (``finish_reason="length"``), retries
+    once with a doubled budget (non-streaming, since the retry is rare).
     Raises ``ProviderError`` on failure; the ``llm_fallback`` layer
     wraps the call in fallback logic.
     """
@@ -74,6 +82,39 @@ async def call_llm(prompt: str) -> str:
     from lokidoki.core.providers.client import _extract_finish_reason, _extract_full_text
 
     budget = CONFIG.llm_num_predict
+
+    # ── Streaming path: push tokens to frontend as they arrive ──
+    if on_token is not None and hasattr(client, "chat_stream"):
+        parts: list[str] = []
+        finish = ""
+        async for chunk in client.chat_stream(  # type: ignore[attr-defined]
+            model=CONFIG.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=budget,
+            temperature=CONFIG.llm_temperature,
+        ):
+            if chunk.delta:
+                parts.append(chunk.delta)
+                on_token(chunk.delta)
+            if chunk.done and chunk.raw:
+                choice = (chunk.raw.get("choices") or [{}])[0]
+                finish = choice.get("finish_reason") or ""
+        text = "".join(parts)
+        if finish == "length" and text:
+            log.warning(
+                "LLM response truncated at %d tokens — retrying (non-streaming) with %d",
+                budget, budget * 2,
+            )
+            body = await client.chat(  # type: ignore[attr-defined]
+                model=CONFIG.llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=budget * 2,
+                temperature=CONFIG.llm_temperature,
+            )
+            text = _extract_full_text(body)
+        return text
+
+    # ── Non-streaming path (tests / stub) ──
     body = await client.chat(  # type: ignore[attr-defined]
         model=CONFIG.llm_model,
         messages=[{"role": "user", "content": prompt}],

@@ -1,28 +1,19 @@
-"""knowledge_query adapter — parallel Wikipedia + web-search lookup.
-
-Wikipedia is authoritative on canonical, established topics. Web search
-catches novel, niche, or branded things Wikipedia has no page for. The
-two are complementary, not redundant — which is why this adapter runs
-both in parallel and scores each result against the user's query
-instead of waterfall-falling from one to the other.
+"""knowledge_query adapter — local-first, then parallel network lookup.
 
 Flow:
 
-1. Kick off two independent sources concurrently:
-   - ``wikipedia`` — :class:`WikipediaSkill` with its own internal
-     ``mediawiki_api`` → ``web_scraper`` waterfall.
-   - ``web`` — shared :func:`web_search_source` (DuckDuckGo) from
-     ``_runner``.
+1. Try local ZIM archives first (instant, offline). If the result
+   scores above :data:`MIN_SUBJECT_COVERAGE`, return immediately —
+   no network calls at all.
 
-2. When both settle, each successful result is scored by
-   :func:`score_subject_coverage` — the fraction of the query's
-   significant tokens that actually appear in the source's body text.
+2. Only if ZIM misses or scores too low, fan out Wikipedia and
+   DuckDuckGo in parallel and pick the best-scoring network result.
 
 3. Ties are broken in favor of Wikipedia (first in the ``sources``
    list), which is the authoritative preference when both sources
    cover the subject equally.
 
-4. If both sources score below :data:`MIN_SUBJECT_COVERAGE`, the skill
+4. If all sources score below :data:`MIN_SUBJECT_COVERAGE`, the skill
    fails and the LLM fallback handles the turn.
 """
 from __future__ import annotations
@@ -81,8 +72,33 @@ def _format_wiki(result, method: str) -> str:
     return "I couldn't extract a Wikipedia summary for that."
 
 
+import re
+
+_QUESTION_PREFIX = re.compile(
+    r"^(?:who\s+(?:is|was|are|were)|what\s+(?:is|was|are|were|'s))\s+",
+    re.IGNORECASE,
+)
+
+
+def _zim_query(query: str) -> str:
+    """Strip question prefixes so ZIM title-suggestion matching works.
+
+    "who is corey feldman" → "corey feldman" — gives the title
+    suggestion engine a prefix that matches the article title directly,
+    instead of falling through to full-text search which may rank a
+    tangentially related article higher.
+    """
+    return _QUESTION_PREFIX.sub("", query).strip() or query
+
+
 async def _zim_source(query: str) -> AdapterResult:
-    """Query local ZIM archives — fastest, offline-first path."""
+    """Query local ZIM archives — fastest, offline-first path.
+
+    Optimized two-pass strategy:
+    1. Search with max_results=1 (fast — title suggestion usually nails it).
+    2. If that result scores well, return immediately.
+    3. If not, widen to 3 results and pick the best scorer.
+    """
     try:
         from lokidoki.archives.search import get_search_engine
 
@@ -91,17 +107,31 @@ async def _zim_source(query: str) -> AdapterResult:
             return AdapterResult(
                 output_text="", success=False, error="no ZIM archives loaded",
             )
-        results = await engine.search(query, max_results=1)
+        clean = _zim_query(query)
+
+        # Fast path: single best result
+        results = await engine.search(clean, max_results=1)
         if not results:
             return AdapterResult(
                 output_text="", success=False, error="no local article found",
             )
-        article = results[0]
+        best = results[0]
+        if score_subject_coverage(query, best.snippet) >= MIN_SUBJECT_COVERAGE:
+            return AdapterResult(
+                output_text=best.snippet,
+                success=True,
+                source_url=best.url,
+                source_title=f"{best.source_label} (offline)",
+            )
+
+        # Wider search when first result is off-subject
+        results = await engine.search(clean, max_results=3)
+        best = max(results, key=lambda r: score_subject_coverage(query, r.snippet))
         return AdapterResult(
-            output_text=article.snippet,
+            output_text=best.snippet,
             success=True,
-            source_url=article.url,
-            source_title=f"{article.source_label} (offline)",
+            source_url=best.url,
+            source_title=f"{best.source_label} (offline)",
         )
     except Exception as exc:
         return AdapterResult(
@@ -133,9 +163,14 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
     def score(result: AdapterResult) -> float:
         return score_subject_coverage(query, result.output_text)
 
+    # ── Local-first: try ZIM archives before any network call ──
+    zim_result = await _zim_source(query)
+    if zim_result.success and score(zim_result) >= MIN_SUBJECT_COVERAGE:
+        return zim_result.to_payload()
+
+    # ── ZIM missed — fall back to parallel network sources ──
     result = await run_sources_parallel_scored(
         [
-            ("zim", _zim_source(query)),
             ("wikipedia", _wiki_source(query)),
             ("web", web_search_source(query)),
         ],

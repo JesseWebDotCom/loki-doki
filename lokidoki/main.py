@@ -161,7 +161,10 @@ async def startup_event():
     states = load_states()
     enabled = [s for s in states if s.download_complete]
     if enabled:
-        initialize_search_engine(enabled)
+        try:
+            engine = initialize_search_engine(enabled)
+        except Exception:
+            pass
 
 
 @app.get("/api/health")

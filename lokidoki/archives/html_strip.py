@@ -11,24 +11,45 @@ from html.parser import HTMLParser
 
 
 class _TextExtractor(HTMLParser):
-    """Extracts visible text from HTML, skipping script/style/nav elements."""
+    """Extracts visible text from HTML, skipping non-body content.
+
+    Skips script/style/nav and tracks class-based skip regions
+    (Wikipedia infobox tables, sidebars, etc.) using a tag-depth stack
+    so that endtags — which don't carry attrs — correctly decrement
+    the skip counter.
+    """
 
     _SKIP_TAGS = frozenset({"script", "style", "nav", "noscript", "svg", "math"})
+    _SKIP_CLASSES = frozenset({
+        "infobox", "sidebar", "navbox", "metadata", "mw-editsection",
+        "hatnote", "shortdescription", "mbox-small", "ambox",
+    })
 
     def __init__(self) -> None:
         super().__init__()
         self._parts: list[str] = []
         self._skip_depth = 0
+        # Stack of tags that started a skip region, so we only
+        # decrement on the matching endtag.
+        self._skip_tags_stack: list[str] = []
+
+    def _should_skip(self, tag: str, attrs: list[tuple[str, str | None]]) -> bool:
+        if tag in self._SKIP_TAGS:
+            return True
+        cls = dict(attrs).get("class") or ""
+        return any(sc in cls for sc in self._SKIP_CLASSES)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in self._SKIP_TAGS:
+        if self._should_skip(tag, attrs):
             self._skip_depth += 1
+            self._skip_tags_stack.append(tag)
         elif tag in ("p", "br", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"):
             if self._skip_depth == 0:
                 self._parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in self._SKIP_TAGS and self._skip_depth > 0:
+        if self._skip_depth > 0 and self._skip_tags_stack and self._skip_tags_stack[-1] == tag:
+            self._skip_tags_stack.pop()
             self._skip_depth -= 1
 
     def handle_data(self, data: str) -> None:

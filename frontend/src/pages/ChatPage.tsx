@@ -63,6 +63,8 @@ export interface Message {
 
 export interface PipelineState {
   phase: 'idle' | 'augmentation' | 'decomposition' | 'routing' | 'synthesis' | 'completed';
+  /** Descriptive label for the current activity, e.g. "Searching Corey Feldman" */
+  activity: string;
   augmentation: AugmentationData | null;
   decomposition: DecompositionData | null;
   routing: RoutingData | null;
@@ -81,6 +83,7 @@ interface OpenSourcesState {
 
 const INITIAL_PIPELINE: PipelineState = {
   phase: 'idle',
+  activity: '',
   augmentation: null,
   decomposition: null,
   routing: null,
@@ -141,6 +144,7 @@ function buildPipelineStateFromDb(m: any): PipelineState | undefined {
       platform: 'lokidoki',
     },
     microFastLane: null,
+    activity: '',
     streamingResponse: m.content,
     totalLatencyMs: Object.values(latencies).reduce((a: any, b: any) => a + (typeof b === 'number' ? b : 0), 0) as number,
     confirmations: [],
@@ -370,6 +374,11 @@ const ChatPage: React.FC = () => {
 
       const next = { ...prev, phase: event.phase as PipelineState['phase'] };
 
+      // Capture descriptive activity label from active events
+      if (event.status === 'active' && event.data?.activity) {
+        next.activity = event.data.activity as string;
+      }
+
       if (event.phase === 'augmentation' && event.status === 'done') {
         next.augmentation = event.data as AugmentationData;
       }
@@ -470,7 +479,7 @@ const ChatPage: React.FC = () => {
     } catch (err) {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}. Is Ollama running?`,
+        content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}. Is the LLM engine running?`,
         timestamp: createMessageTimestamp(),
       }]);
       setPipeline({ ...INITIAL_PIPELINE });

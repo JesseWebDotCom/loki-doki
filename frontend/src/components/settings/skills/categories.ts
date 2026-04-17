@@ -1,9 +1,9 @@
 /**
  * Category derivation for skills.
  *
- * V2 capabilities use descriptive names like `get_weather` and
- * `lookup_movie` rather than v1 provider-prefixed IDs. We derive
- * categories from explicit mappings and keyword patterns.
+ * Capabilities use descriptive names like `get_weather` and
+ * `lookup_movie`. We derive categories from explicit mappings
+ * and keyword patterns.
  */
 import {
   Wrench,

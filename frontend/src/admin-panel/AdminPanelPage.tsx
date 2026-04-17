@@ -292,7 +292,7 @@ const GeneralPane: React.FC = () => {
         </div>
       </div>
 
-      {/* Loaded Models (Ollama RAM) */}
+      {/* Loaded Models */}
       <div>
         <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
           Models in Memory ({(info.loaded_models ?? []).length})

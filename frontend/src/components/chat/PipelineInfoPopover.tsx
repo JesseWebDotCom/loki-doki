@@ -230,7 +230,7 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline, currentPhase = 'comple
   const totalLabel = pipeline.totalLatencyMs > 0
     ? `Thought for ${formatDuration(pipeline.totalLatencyMs)}`
     : isLive
-      ? 'Thinking...'
+      ? (pipeline.activity || 'Thinking…')
       : 'Pipeline complete';
 
   const stepCount = userSteps.length;

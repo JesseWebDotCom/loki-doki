@@ -59,16 +59,15 @@ def decide_llm(spec: RequestSpec) -> LLMDecision:
         for chunk in primary_chunks
     ):
         return LLMDecision(needed=True, reason="empty_output")
-    if any(chunk.confidence <= CONFIG.route_confidence_threshold for chunk in primary_chunks):
-        return LLMDecision(needed=True, reason="low_confidence")
-
     # ── Offline knowledge fast-path ────────────────────────────
-    # When the knowledge skill returned a substantive answer from a
-    # local ZIM archive, skip LLM synthesis entirely. The snippet is
-    # already a well-written encyclopedia paragraph — rephrasing it
-    # through the LLM wastes 20-30s without adding value.
+    # Check BEFORE confidence gate: a successful ZIM hit with a
+    # substantive encyclopedia paragraph is trustworthy regardless of
+    # routing confidence. Skips the 10-30s LLM synthesis entirely.
     if _can_skip_synthesis_for_offline(primary_chunks):
         return LLMDecision(needed=False, reason="offline_knowledge_fast_path")
+
+    if any(chunk.confidence <= CONFIG.route_confidence_threshold for chunk in primary_chunks):
+        return LLMDecision(needed=True, reason="low_confidence")
 
     if supporting:
         return LLMDecision(needed=True, reason="supporting_context")
@@ -232,11 +231,31 @@ def _stub_output_text(
 
 
 async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
-    """Real LLM client path."""
+    """Real LLM client path.
+
+    When an SSE queue is available in context, streams token deltas to
+    the frontend so the user sees partial text instead of staring at
+    "Wrapping Up" for 10+ seconds.
+    """
     from lokidoki.orchestrator.fallbacks.llm_client import call_llm
 
     prompt = build_combine_prompt(spec)
-    raw = await call_llm(prompt)
+
+    # Build streaming callback if SSE queue is wired in
+    on_token = None
+    ctx = spec.context if isinstance(spec.context, dict) else {}
+    sse_queue = ctx.get("_sse_queue")
+    if sse_queue is not None:
+        from lokidoki.orchestrator.core.streaming import SSEEvent
+
+        def on_token(delta: str) -> None:  # type: ignore[no-redef]
+            sse_queue.put_nowait(SSEEvent(
+                phase="synthesis",
+                status="streaming",
+                data={"delta": delta},
+            ))
+
+    raw = await call_llm(prompt, on_token=on_token)
     text = raw.strip()
     if not text:
         raise RuntimeError("LLM returned an empty response")

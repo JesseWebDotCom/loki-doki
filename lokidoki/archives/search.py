@@ -33,6 +33,22 @@ _URL_TEMPLATES: dict[str, str] = {
 SNIPPET_CHARS = 1500
 
 
+def _strip_leading_title(text: str, title: str) -> str:
+    """Remove repeated article title from the start of stripped text.
+
+    Wikipedia ZIM articles often start with the title in h1, then again
+    in the article header, producing "Corey Feldman\\n\\nCorey Feldman\\n".
+    Strip up to 3 leading occurrences so the snippet starts at the body.
+    """
+    stripped = text.lstrip()
+    for _ in range(3):
+        if stripped.startswith(title):
+            stripped = stripped[len(title):].lstrip("\n ")
+        else:
+            break
+    return stripped
+
+
 @dataclass
 class ZimArticle:
     """A search result from a ZIM archive."""
@@ -173,6 +189,8 @@ class ZimSearchEngine:
                 html = content_bytes.decode("utf-8", errors="replace")
 
                 raw_text = strip_html(html, max_chars=SNIPPET_CHARS * 2)
+                # Strip leading title repetitions (h1 + article header)
+                raw_text = _strip_leading_title(raw_text, title)
                 snippet = trim_to_sentences(raw_text, SNIPPET_CHARS)
 
                 url = _build_url(source_id, path)

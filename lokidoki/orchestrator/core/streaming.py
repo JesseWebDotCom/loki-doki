@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class SSEEvent:
-    """V1-compatible pipeline event."""
+    """Pipeline SSE event."""
 
     phase: str
     status: str
@@ -101,8 +101,12 @@ def _step_to_sse_event(
     phase_timing: dict[str, float],
 ) -> SSEEvent | None:
     """Map a single trace step to an SSE phase event, or None if no transition."""
-    if step.name in ("normalize", "route", "combine"):
-        return _simple_active_event(step.name)
+    if step.name == "normalize":
+        return SSEEvent(phase="decomposition", status="active", data={"activity": "Understanding…"})
+    if step.name == "route":
+        return _route_active_event(step)
+    if step.name == "combine":
+        return _combine_active_event(step, step_cache)
     if step.name == "fast_lane" and step.details.get("matched"):
         return _fast_lane_event(step)
     if step.name == "extract":
@@ -114,10 +118,55 @@ def _step_to_sse_event(
     return None
 
 
-def _simple_active_event(step_name: str) -> SSEEvent:
-    """Return the ``active`` SSE event for normalize/route/combine steps."""
-    phase_map = {"normalize": "decomposition", "route": "routing", "combine": "synthesis"}
-    return SSEEvent(phase=phase_map[step_name], status="active")
+def _route_active_event(step: TraceStep) -> SSEEvent:
+    """Build a descriptive routing active event from route step details."""
+    chunks = step.details.get("chunks") or []
+    if chunks:
+        skills = [_human_skill_name(c.get("capability", "")) for c in chunks if c.get("capability") != "direct_chat"]
+        queries = [c.get("text", "").strip() for c in chunks if c.get("text")]
+        if skills and queries:
+            activity = f"Searching {queries[0][:60]}"
+        elif skills:
+            activity = f"Looking up {', '.join(skills[:2])}"
+        else:
+            activity = "Thinking about this…"
+    else:
+        activity = "Routing…"
+    return SSEEvent(phase="routing", status="active", data={"activity": activity})
+
+
+def _combine_active_event(step: TraceStep, step_cache: dict[str, TraceStep]) -> SSEEvent:
+    """Build a descriptive synthesis active event."""
+    execute_step = step_cache.get("execute")
+    if execute_step:
+        exec_chunks = execute_step.details.get("chunks") or []
+        successful = [c for c in exec_chunks if c.get("success")]
+        if successful:
+            cap = successful[0].get("capability", "")
+            activity = f"Composing answer from {_human_skill_name(cap)}"
+        else:
+            activity = "Generating response…"
+    else:
+        activity = "Generating response…"
+    return SSEEvent(phase="synthesis", status="active", data={"activity": activity})
+
+
+def _human_skill_name(capability: str) -> str:
+    """Convert a capability ID to a human-readable label."""
+    _MAP = {
+        "knowledge_query": "Wikipedia",
+        "search_web": "web search",
+        "direct_chat": "knowledge",
+        "get_weather": "weather",
+        "lookup_movie": "movies",
+        "movie_showtimes": "showtimes",
+        "youtube_search": "YouTube",
+        "dictionary_lookup": "dictionary",
+        "unit_conversion": "converter",
+        "people_lookup": "people",
+        "sports_scores": "sports",
+    }
+    return _MAP.get(capability, capability.replace("_", " "))
 
 
 def _fast_lane_event(step: TraceStep) -> SSEEvent:

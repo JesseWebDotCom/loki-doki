@@ -172,9 +172,9 @@ async def _call_llm_with_fallback(
     return AdapterResult(
         output_text=text,
         success=True,
-        mechanism_used="ollama_llm",
+        mechanism_used="llm",
         source_title="LLM-generated",
-        data={"request": request, "provider": "ollama_llm"},
+        data={"request": request, "provider": "llm"},
     ).to_payload()
 
 

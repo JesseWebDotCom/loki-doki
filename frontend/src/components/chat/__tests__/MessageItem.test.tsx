@@ -38,6 +38,7 @@ describe('MessageItem sources', () => {
   it('renders completed pipeline details as an inline accordion instead of an info hover trigger', () => {
     const pipeline: PipelineState = {
       phase: 'completed',
+      activity: '',
       augmentation: { latency_ms: 28, context_messages: 3, relevant_facts: 1, past_messages: 0 },
       decomposition: {
         model: 'qwen-fast',

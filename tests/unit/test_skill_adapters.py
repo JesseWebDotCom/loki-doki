@@ -113,11 +113,11 @@ async def test_weather_adapter_graceful_failure_when_all_mechs_fail(monkeypatch)
 
 # ---- knowledge adapter -----------------------------------------------------
 #
-# knowledge_query runs two independent sources in parallel (Wikipedia and
-# DuckDuckGo web search) and picks the winner by subject-coverage score.
-# Each source has its own internal mechanism waterfall. Tests install a
-# fake for each source via monkeypatch.setattr so neither ever makes a
-# real HTTP call.
+# knowledge_query tries local ZIM first (instant, offline). If ZIM scores
+# above the coverage threshold it returns immediately — no network calls.
+# When ZIM misses, Wikipedia and DuckDuckGo run in parallel and the winner
+# is picked by subject-coverage score. Tests install fakes via
+# monkeypatch.setattr so neither source ever makes a real HTTP call.
 
 
 def _disable_zim(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -139,6 +139,45 @@ def _install_ddg_fake(monkeypatch: pytest.MonkeyPatch, adapter_module, fake) -> 
         from lokidoki.skills.search.skill import DuckDuckGoSkill
         web_search_source._skill = DuckDuckGoSkill()  # type: ignore[attr-defined]
     monkeypatch.setattr(web_search_source, "_skill", fake)
+
+
+@pytest.mark.anyio
+async def test_knowledge_adapter_zim_fast_path_skips_network(monkeypatch):
+    """When ZIM has a high-scoring local hit, the adapter returns it
+    immediately without touching Wikipedia or DuckDuckGo."""
+    from unittest.mock import AsyncMock
+    from lokidoki.orchestrator.skills import knowledge as adapter
+    import lokidoki.archives.search as _search_mod
+    from lokidoki.archives.search import ZimArticle
+
+    article = ZimArticle(
+        source_id="wikipedia",
+        title="Corey Feldman",
+        path="A/Corey_Feldman",
+        snippet="Corey Scott Feldman is an American actor known for roles in 1980s films.",
+        url="https://en.wikipedia.org/wiki/Corey_Feldman",
+        source_label="Wikipedia",
+    )
+    mock_engine = type("E", (), {
+        "loaded_sources": ["wikipedia"],
+        "search": AsyncMock(return_value=[article]),
+    })()
+    monkeypatch.setattr(_search_mod, "get_search_engine", lambda: mock_engine)
+
+    # Install wiki + ddg fakes that MUST NOT be called
+    wiki = _RecordingFake({"mediawiki_api": _fail("should not be called")})
+    ddg = _RecordingFake({"ddg_api": _fail("should not be called")})
+    _install_wiki_fake.__wrapped__ = None  # skip _disable_zim
+    monkeypatch.setattr(adapter, "_WIKI", wiki, raising=True)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "who is corey feldman"})
+    assert result["success"] is True
+    assert "Corey" in result["output_text"]
+    assert "(offline)" in result.get("source_title", "")
+    # Network sources must NOT have been contacted
+    assert wiki.calls == []
+    assert ddg.calls == []
 
 
 @pytest.mark.anyio
