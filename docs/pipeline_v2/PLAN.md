@@ -40,7 +40,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 3 | [Slot compatibility scoring in router](chunk-3-slot-scoring.md) | done | 93d24a7 |
 | 4 | [Constraint extraction matchers](chunk-4-constraint-matchers.md) | done | 7508fb2 |
 | 5 | [Response schemas in synthesis prompt](chunk-5-response-schemas.md) | done | 1c3e6f6 |
-| 6 | [FTS5 + embedding-based memory retrieval](chunk-6-memory-retrieval.md) | pending | |
+| 6 | [FTS5 + embedding-based memory retrieval](chunk-6-memory-retrieval.md) | done | 02d60f6 |
 | 7 | [Python-derived goal inference + entity canonicalization](chunk-7-goal-and-aliases.md) | pending | |
 | 8 | [Routing confidence + adaptive pipeline depth](chunk-8-routing-confidence.md) | pending | |
 
