@@ -5,7 +5,7 @@ from lokidoki.orchestrator.core.types import InteractionSignalResult
 
 
 def detect_interaction_signals(cleaned_text: str) -> InteractionSignalResult:
-    """Detect simple correction, tone, and urgency signals."""
+    """Detect simple correction, skepticism, tone, and urgency signals."""
     lower = cleaned_text.lower()
     if any(phrase in lower for phrase in ("no i meant", "that's wrong", "you are wrong")):
         return InteractionSignalResult(
@@ -13,6 +13,26 @@ def detect_interaction_signals(cleaned_text: str) -> InteractionSignalResult:
             tone_signal="neutral",
             urgency="low",
             confidence=0.9,
+        )
+    # Skeptical pushback — user is challenging the assistant's prior claim.
+    skepticism_phrases = (
+        "are you sure",
+        "really?",
+        "wait what",
+        "that can't be right",
+        "that's not right",
+        "i don't think that's",
+        "as what?",
+        "since when",
+        "no way",
+        "you're making that up",
+    )
+    if any(phrase in lower for phrase in skepticism_phrases):
+        return InteractionSignalResult(
+            interaction_signal="correction",
+            tone_signal="skepticism",
+            urgency="low",
+            confidence=0.85,
         )
     frustration_phrases = (
         "dammit",

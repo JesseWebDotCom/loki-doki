@@ -40,6 +40,29 @@ def test_splitter_does_not_split_movie_attribute_query():
     assert len(primary_texts) == 2
 
 
+def test_splitter_splits_multi_sentence_questions():
+    """Multiple ?-separated questions should split into separate chunks."""
+    parsed = parse_text(
+        "what? he was on the sopranos? as what? "
+        "was that before or after he was on the shield?"
+    )
+    chunks = split_requests(parsed)
+    primary = [c for c in chunks if c.role == "primary_request"]
+    assert len(primary) >= 3, (
+        f"Expected ≥3 chunks from multi-sentence question, got {len(primary)}: "
+        f"{[c.text for c in primary]}"
+    )
+
+
+def test_splitter_splits_sentence_boundary_string_fallback():
+    """String-only fallback should also split on sentence boundaries."""
+    from lokidoki.orchestrator.pipeline.splitter import _string_only_split
+    chunks = _string_only_split("what? he was on the sopranos? as what?")
+    assert len(chunks) >= 2, (
+        f"Expected ≥2 chunks, got {len(chunks)}: {[c.text for c in chunks]}"
+    )
+
+
 def test_extractor_pulls_pronouns_from_doc():
     parsed = parse_text("play it for me")
     chunks = split_requests(parsed)

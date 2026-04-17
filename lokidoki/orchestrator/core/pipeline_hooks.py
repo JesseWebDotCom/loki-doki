@@ -456,7 +456,7 @@ _TONE_TO_SENTIMENT: dict[str, float] = {
     "positive": 0.7, "very_positive": 1.0,
     "negative": -0.7, "very_negative": -1.0,
     "neutral": 0.0, "excited": 0.8,
-    "frustrated": -0.6, "curious": 0.3,
+    "frustrated": -0.6, "skepticism": -0.3, "curious": 0.3,
     "sad": -0.5, "angry": -0.8,
     "grateful": 0.9, "confused": -0.2,
 }

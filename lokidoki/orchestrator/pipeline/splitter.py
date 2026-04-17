@@ -41,6 +41,18 @@ def _doc_split(doc: Any) -> list[RequestChunk]:
     if not text.strip():
         return []
 
+    # 0. Split on sentence boundaries when spaCy finds multiple sentences
+    #    and each looks like an independent speech act. Handles multi-part
+    #    inputs like "what? he was on the sopranos? as what?"
+    sents = list(doc.sents)
+    if len(sents) >= 2:
+        sent_texts = [s.text.strip() for s in sents if s.text.strip()]
+        if len(sent_texts) >= 2 and _independent_requests(sent_texts):
+            return [
+                RequestChunk(text=st, index=i, role="primary_request")
+                for i, st in enumerate(sent_texts)
+            ]
+
     # 1. Peel off subordinate clauses (because/if/since/...).
     primary_text, supporting_text = _split_subordinate(doc)
 
@@ -158,8 +170,14 @@ def _independent_requests(parts: list[str]) -> bool:
         if lower in INTERJECTIONS:
             flags.append(True)
             continue
-        first = lower.split(maxsplit=1)[0]
+        words = lower.split()
+        first = words[0]
         if first in WH_WORDS:
+            flags.append(True)
+            continue
+        # Short interrogative fragments ("as what?", "since when?",
+        # "for real?") — any WH-word in a ≤3 word phrase.
+        if len(words) <= 3 and any(w in WH_WORDS for w in words):
             flags.append(True)
             continue
         if _looks_like_command(lower):
@@ -220,6 +238,16 @@ def _string_only_split(text: str) -> list[RequestChunk]:
         return []
 
     cleaned = text.strip()
+
+    # Sentence-boundary split: split on "? " when it produces multiple
+    # independent sentences (e.g. "what? he said that? since when?").
+    sents = _split_on_sentence_boundaries(cleaned)
+    if len(sents) >= 2 and _independent_requests(sents):
+        return [
+            RequestChunk(text=s, index=i, role="primary_request")
+            for i, s in enumerate(sents)
+        ]
+
     primary, supporting = _peel_subordinator_string(cleaned)
     parts = _coordinator_split(primary)
     chunks = [
@@ -231,6 +259,14 @@ def _string_only_split(text: str) -> list[RequestChunk]:
             RequestChunk(text=supporting, index=len(chunks), role="supporting_context")
         )
     return chunks or [RequestChunk(text=cleaned, index=0)]
+
+
+def _split_on_sentence_boundaries(text: str) -> list[str]:
+    """Split text on sentence-ending punctuation (? ! .) into segments."""
+    import re
+    # Split after sentence-ending punctuation followed by a space or end.
+    parts = re.split(r'(?<=[.?!])\s+', text)
+    return [p.strip() for p in parts if p.strip()]
 
 
 def _peel_subordinator_string(text: str) -> tuple[str, str]:
