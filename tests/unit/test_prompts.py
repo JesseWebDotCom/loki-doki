@@ -11,7 +11,12 @@ from lokidoki.orchestrator.fallbacks.llm_fallback import (
     build_resolve_prompt,
     build_split_prompt,
 )
-from lokidoki.orchestrator.fallbacks.prompts import PromptRenderError, list_templates, render_prompt
+from lokidoki.orchestrator.fallbacks.prompts import (
+    PromptRenderError,
+    RESPONSE_SCHEMA_COMPARISON,
+    list_templates,
+    render_prompt,
+)
 
 
 def test_list_templates_exposes_all_four_families():
@@ -107,3 +112,46 @@ def test_build_combine_prompt_serialises_request_spec_payload():
     parsed = json.loads(json_blob)
     assert parsed["original_request"] == "hello and what time is it"
     assert parsed["trace_id"] == "trace-x"
+
+
+def test_render_combine_with_response_schema_includes_format_block():
+    prompt = render_prompt(
+        "combine",
+        spec='{"chunks":[]}',
+        current_time="3:42 PM",
+        user_name="Luke",
+        character_name="LokiDoki",
+        behavior_prompt="",
+        confidence_guide="",
+        response_schema=RESPONSE_SCHEMA_COMPARISON,
+    )
+    assert "RESPONSE FORMAT — Comparison:" in prompt
+    assert "State the winner" in prompt
+
+
+def test_render_combine_with_empty_response_schema_matches_baseline():
+    """Empty response_schema preserves the current generic output."""
+    prompt = render_prompt(
+        "combine",
+        spec='{"chunks":[]}',
+        current_time="3:42 PM",
+        user_name="Luke",
+        character_name="LokiDoki",
+        behavior_prompt="",
+        confidence_guide="",
+        response_schema="",
+    )
+    assert "RESPONSE FORMAT" not in prompt
+
+
+def test_render_direct_chat_with_response_schema():
+    prompt = render_prompt(
+        "direct_chat",
+        user_question="what is Docker?",
+        current_time="3:42 PM",
+        user_name="Luke",
+        character_name="LokiDoki",
+        behavior_prompt="",
+        response_schema=RESPONSE_SCHEMA_COMPARISON,
+    )
+    assert "RESPONSE FORMAT — Comparison:" in prompt

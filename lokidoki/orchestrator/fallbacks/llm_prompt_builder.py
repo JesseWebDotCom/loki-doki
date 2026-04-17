@@ -11,8 +11,14 @@ import re
 from typing import Any
 
 from lokidoki.orchestrator.core.config import CONFIG
-from lokidoki.orchestrator.core.types import RequestSpec
-from lokidoki.orchestrator.fallbacks.prompts import render_prompt
+from lokidoki.orchestrator.core.types import ConstraintResult, RequestSpec
+from lokidoki.orchestrator.fallbacks.prompts import (
+    RESPONSE_SCHEMA_COMPARISON,
+    RESPONSE_SCHEMA_RECOMMENDATION,
+    RESPONSE_SCHEMA_TROUBLESHOOTING,
+    RESPONSE_SCHEMA_UTILITY,
+    render_prompt,
+)
 
 
 _STRUCTURAL_SOURCES = frozenset({
@@ -191,6 +197,41 @@ def _sanitize_result(result: dict | None) -> dict | None:
     return {k: v for k, v in result.items() if k not in _METADATA_KEYS}
 
 
+def _select_response_schema(spec: RequestSpec) -> str:
+    """Pick a response-shape schema from constraint data or route heuristics.
+
+    Returns an empty string when no schema matches, preserving the
+    current generic prompt behavior.
+    """
+    ctx = spec.context if isinstance(spec.context, dict) else {}
+
+    # Prefer structured constraint data from Chunk 4's extractor.
+    constraints = ctx.get("constraints")
+    if isinstance(constraints, ConstraintResult):
+        if constraints.is_comparison:
+            return RESPONSE_SCHEMA_COMPARISON
+        if constraints.is_recommendation:
+            return RESPONSE_SCHEMA_RECOMMENDATION
+
+    # Route-based heuristics: check capabilities for shape signals.
+    for chunk in spec.chunks:
+        if chunk.role != "primary_request":
+            continue
+        cap = (chunk.capability or "").lower()
+        if "compare" in cap:
+            return RESPONSE_SCHEMA_COMPARISON
+        if "recommend" in cap or "suggestion" in cap:
+            return RESPONSE_SCHEMA_RECOMMENDATION
+        if "troubleshoot" in cap or "diagnose" in cap or "fix" in cap:
+            return RESPONSE_SCHEMA_TROUBLESHOOTING
+
+    # direct_chat with no skill data → utility (concise direct answer).
+    if _is_direct_chat_only(spec):
+        return RESPONSE_SCHEMA_UTILITY
+
+    return ""
+
+
 def build_llm_payload(spec: RequestSpec) -> dict[str, Any]:
     """Serialise a RequestSpec into the structured payload LLM sees."""
     return {
@@ -233,6 +274,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
 
     current_time = spec.context.get("current_time", "Unknown Time")
     user_name = spec.context.get("user_name", "User")
+    response_schema = _select_response_schema(spec)
 
     if _is_direct_chat_only(spec):
         return render_prompt(
@@ -242,6 +284,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
             behavior_prompt=behavior_prompt,
             current_time=current_time,
             user_name=user_name,
+            response_schema=response_schema,
             **memory_slots,
         )
     payload = build_llm_payload(spec)
@@ -256,6 +299,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         media_hint=_render_media_hint(spec),
         current_time=current_time,
         user_name=user_name,
+        response_schema=response_schema,
         **memory_slots,
     )
 

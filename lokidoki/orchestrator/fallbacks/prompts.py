@@ -27,6 +27,37 @@ from string import Formatter
 from typing import Any
 
 
+# ---- Response schema instruction blocks --------------------------------------
+# Injected into combine/direct_chat prompts based on detected response shape.
+
+RESPONSE_SCHEMA_COMPARISON = (
+    "RESPONSE FORMAT — Comparison:\n"
+    "- State the winner or \"it depends\" with one-line reason.\n"
+    "- List 2-3 key tradeoffs as bullet points.\n"
+    "- End with a one-line recommendation for the user's stated use case.\n"
+)
+
+RESPONSE_SCHEMA_RECOMMENDATION = (
+    "RESPONSE FORMAT — Recommendation:\n"
+    "- Lead with your top pick and why.\n"
+    "- Mention 1-2 alternatives if relevant.\n"
+    "- Note any important tradeoff the user should know.\n"
+)
+
+RESPONSE_SCHEMA_TROUBLESHOOTING = (
+    "RESPONSE FORMAT — Troubleshooting:\n"
+    "- State the most likely cause first.\n"
+    "- Give 1-3 concrete fix steps.\n"
+    "- Mention a fallback if the fix doesn't work.\n"
+)
+
+RESPONSE_SCHEMA_UTILITY = (
+    "RESPONSE FORMAT — Direct Answer:\n"
+    "- Lead with the direct answer.\n"
+    "- Add one line of relevant context if helpful.\n"
+)
+
+
 SPLIT_PROMPT = """You are the splitter for the LokiDoki request orchestrator.
 Current Time: {current_time}
 User Name: {user_name}
@@ -101,7 +132,7 @@ Rules:
 - If sources_list is non-empty, cite relevant sources inline using
   [src:N] markers (1-indexed). Only cite a source when your sentence
   uses information from it. Do not cite sources you did not use.
-
+{response_schema}
 conversation_history:
 {conversation_history}
 
@@ -154,7 +185,7 @@ Rules:
   Use it for context and continuity. Never quote it verbatim.
 - If user_style is non-empty, adapt your response style silently.
 - If recent_mood is non-empty, adjust warmth to match. Never mention it.
-
+{response_schema}
 conversation_history:
 {conversation_history}
 

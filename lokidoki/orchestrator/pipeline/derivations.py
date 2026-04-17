@@ -13,6 +13,7 @@ from typing import Any
 
 from lokidoki.orchestrator.core.types import (
     ChunkExtraction,
+    ConstraintResult,
     ParsedInput,
     RequestChunk,
     RouteMatch,
@@ -106,6 +107,10 @@ def derive_need_flags(
     if _should_need_routine(parsed, routes):
         flags["need_routine"] = True
 
+    response_shape = _derive_response_shape(context, routes)
+    if response_shape:
+        flags["response_shape"] = response_shape  # type: ignore[assignment]
+
     return flags
 
 
@@ -179,6 +184,39 @@ def _should_need_episode(parsed: ParsedInput) -> bool:
     """True when the user references past conversations."""
     lower_text = " ".join(parsed.tokens).lower() if parsed.tokens else ""
     return any(lemma in lower_text for lemma in _EPISODE_LEMMAS)
+
+
+def _derive_response_shape(
+    context: dict[str, Any],
+    routes: list[RouteMatch],
+) -> str:
+    """Derive the response shape from constraint data and route capabilities.
+
+    Returns a shape label (``comparison``, ``recommendation``,
+    ``troubleshooting``, ``utility``) or empty string if no signal.
+    """
+    constraints = context.get("constraints")
+    if isinstance(constraints, ConstraintResult):
+        if constraints.is_comparison:
+            return "comparison"
+        if constraints.is_recommendation:
+            return "recommendation"
+
+    # Route-based heuristics.
+    for route in routes:
+        cap = (route.capability or "").lower()
+        if "compare" in cap:
+            return "comparison"
+        if "recommend" in cap or "suggestion" in cap:
+            return "recommendation"
+        if "troubleshoot" in cap or "diagnose" in cap or "fix" in cap:
+            return "troubleshooting"
+
+    # All direct_chat → utility.
+    if routes and all(r.capability == "direct_chat" for r in routes):
+        return "utility"
+
+    return ""
 
 
 def _should_need_routine(
