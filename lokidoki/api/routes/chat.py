@@ -194,7 +194,7 @@ async def _auto_name_session(
         f"Summarize the following short user prompt into a 3-5 word title. "
         f"Output ONLY the title, no quotes or preamble.\n\n"
         f"PROMPT: {first_input}\n"
-        f"TITLE:"
+        f"TITLE: /no_think"
     )
     try:
         client = get_inference_client()

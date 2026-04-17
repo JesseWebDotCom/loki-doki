@@ -91,8 +91,7 @@ Think of LokiDoki as a **local alternative** to cloud assistants — like ChatGP
 
 Runs on Apple Silicon Macs, x86_64 Windows/Linux desktops, and Raspberry Pi 5 (including Hailo-enabled Pis). Intel Macs are not supported.
 
-> **Platform note:** Active development and testing happens on macOS (Apple Silicon). Windows, Linux, and Raspberry Pi profiles are implemented in the bootstrap and engine layers but **have not been tested on real hardware yet**. They should work based on the architecture, but expect rough edges until they get real-world validation. Bug reports from Pi and Windows users are especially welcome.
-
+> **Platform note:** Active development and testing happens on macOS (Apple Silicon). Windows, Linux, and Raspberry Pi profiles are implemented in the bootstrap and engine layers but **have not been tested on real hardware yet**. They should work based on the architecture, but expect rough edges until they get real-world validation.
 ### Install
 
 The only prerequisite is a Python 3.8+ interpreter on the system. A browser opens to the install wizard, which downloads an embedded Python, Node, and the right LLM engine for your platform (MLX on mac, llama.cpp Vulkan on Windows/Linux, llama.cpp CPU on Pi, hailo-ollama on Pi + Hailo HAT), plus the Qwen LLMs and vision models sized for your hardware. First run takes 10–30 minutes depending on network; subsequent runs start in seconds.
@@ -126,19 +125,6 @@ run.bat
 - **macOS** — Apple Silicon required. Intel Macs are not supported. If you don't have Python, run `xcode-select --install`.
 - **Linux** — your distribution's `python3` (Raspberry Pi OS ships one).
 - **Windows** — Python 3.11+ from https://python.org if not already installed. The launcher will prompt if it can't find one.
-
-#### Offline install
-
-Pre-download every pinned artifact and model snapshot for your target profile, copy the bundle next to a fresh clone, and the wizard installs without network access:
-
-```bash
-python scripts/build_offline_bundle.py --profile=mac --output=/media/usb/lokidoki-offline-bundle
-# on the target machine:
-cp -r /media/usb/lokidoki-offline-bundle ./
-./run.sh
-```
-
-Use `--profile=all` to bundle every supported profile, or pass the bundle path explicitly with `./run.sh --offline-bundle=/path/to/lokidoki-offline-bundle`.
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
 
@@ -194,7 +180,7 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 - [x] Memory unification — single SQLite DB, unified gate-chain writer and reader
 - [x] Hybrid memory retrieval — FTS5 + embedding search with RRF merge
 - [x] Persona / companion system
-- [x] Voice pipeline — wake word, push-to-talk, STT, TTS on CPU
+- [ ] Voice pipeline — wake word, STT, TTS on CPU
 - [x] Mac profile (actively tested)
 - [x] Browser bootstrap installer
 - [x] Multi-turn conversation test suite — 55 persona-based scripts, 181 turns
