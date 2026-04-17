@@ -221,7 +221,7 @@ def _build_decomposition_data(
     }
     if split_step:
         data["asks"] = [
-            {"ask_id": f"chunk_{i}", "distilled_query": text}
+            {"ask_id": f"chunk_{i}", "distilled_query": text, "resolved_query": text}
             for i, text in enumerate(split_step.details.get("chunks", []))
         ]
     if signals_step:

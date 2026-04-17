@@ -64,6 +64,7 @@ class RouteMatch:
     capability: str
     confidence: float
     matched_text: str = ""
+    resolved_query: str = ""
 
 
 @dataclass(slots=True)
