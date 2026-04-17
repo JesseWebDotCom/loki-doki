@@ -25,11 +25,14 @@ from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.execution.request_spec import build_request_spec
 from lokidoki.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
 from lokidoki.orchestrator.media import augment_with_media
+from lokidoki.orchestrator.core.types import ConstraintResult
 from lokidoki.orchestrator.pipeline.combiner import combine_request_spec
 from lokidoki.orchestrator.pipeline.derivations import derive_need_flags, extract_structured_params
 from lokidoki.orchestrator.pipeline.constraint_extractor import extract_constraints
+from lokidoki.orchestrator.pipeline.entity_aliases import canonicalize_entities
 from lokidoki.orchestrator.pipeline.extractor import extract_chunk_data
 from lokidoki.orchestrator.pipeline.fast_lane import check_fast_lane
+from lokidoki.orchestrator.pipeline.goal_inference import infer_goal
 from lokidoki.orchestrator.pipeline.normalizer import normalize_text
 from lokidoki.orchestrator.pipeline.parser import parse_text
 from lokidoki.orchestrator.pipeline.splitter import split_requests
@@ -78,6 +81,11 @@ def run_initial_phase(trace, safe_context, raw_text, normalized):
     finish(references=[i.references for i in extractions],
            predicates=[i.predicates for i in extractions],
            entities=[i.entities for i in extractions])
+
+    finish = trace.timed("canonicalize")
+    for ext in extractions:
+        _, ext.entities = canonicalize_entities("", ext.entities)
+    finish(count=len(extractions))
 
     finish = trace.timed("constraints")
     constraints = extract_constraints(parsed.doc, normalized.cleaned_text)
@@ -149,6 +157,17 @@ def run_derivations_phase(trace, safe_context, parsed, chunks, extractions, rout
         safe_context.setdefault(key, value)
     derived_params = extract_structured_params(chunks, extractions, routes)
     finish(flags=sorted(derived.keys()), params_chunks=sorted(derived_params.keys()))
+
+    finish = trace.timed("goal_inference")
+    constraints = safe_context.get("constraints", ConstraintResult())
+    if not isinstance(constraints, ConstraintResult):
+        constraints = ConstraintResult()
+    features: dict = {}
+    text = " ".join(c.text for c in chunks) if chunks else ""
+    likely_goal = infer_goal(constraints, features, routes, text)
+    safe_context["likely_goal"] = likely_goal
+    finish(likely_goal=likely_goal)
+
     return derived_params
 
 
@@ -217,6 +236,17 @@ def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
         executions=executions, context=safe_context, trace_id=trace.trace_id,
     )
     finish(chunk_count=len(request_spec.chunks), trace_id=request_spec.trace_id)
+
+    # Re-derive goal now that execution results are available.
+    constraints = safe_context.get("constraints", ConstraintResult())
+    if not isinstance(constraints, ConstraintResult):
+        constraints = ConstraintResult()
+    features: dict = {}
+    if any(ex.success for ex in executions):
+        features["has_execution_result"] = True
+    likely_goal = infer_goal(constraints, features, routes, raw_text)
+    safe_context["likely_goal"] = likely_goal
+
     run_session_state_update(safe_context, resolutions, executions)
     auto_raise_need_session_context(safe_context, resolutions)
     record_behavior_event(safe_context, executions, routes)
