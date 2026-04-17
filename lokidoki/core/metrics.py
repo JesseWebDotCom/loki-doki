@@ -187,6 +187,7 @@ def storage_buckets(data_dir: Path) -> list[dict[str, Any]]:
     return [
         _bucket("lokidoki_app", "LokiDoki App", REPO_ROOT),
         _bucket("lokidoki_data", "LokiDoki Data", data_dir),
+        _bucket("zim_archives", "Knowledge Archives", data_dir / "archives"),
         _bucket("ollama_home", "Ollama", OLLAMA_HOME),
         _bucket("ollama_models", "Ollama Models", OLLAMA_MODELS),
     ]

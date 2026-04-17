@@ -23,6 +23,7 @@ dependencies = [
     "rapidfuzz>=3.14.1",
     "num2words>=0.5.14",
     "colorlog>=6.10.1",
+    "libzim>=3.6.0",
     # mlx-lm backs the MLX LLM engine on macOS Apple Silicon (chunk 5).
     # The wheel only resolves on ``sys_platform == 'darwin'`` + ``arm64``;
     # uv skips the install on other platforms automatically.

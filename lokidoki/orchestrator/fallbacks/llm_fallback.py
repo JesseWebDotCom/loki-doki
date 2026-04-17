@@ -37,15 +37,13 @@ class LLMDecision:
 def decide_llm(spec: RequestSpec) -> LLMDecision:
     """Inspect a RequestSpec and decide whether LLM should run.
 
-    Always returns ``needed=True``. Every response from a
-    conversational assistant should go through LLM synthesis so the
-    reply addresses the user's actual question framing — not just raw
-    skill output. The deterministic combiner only fires as a
-    degradation fallback when the LLM call itself fails or is disabled.
+    Returns ``needed=False`` when a local offline source (ZIM archive)
+    already provides a substantive answer to a straightforward lookup.
+    This skips the 20-30s synthesis LLM call entirely — the
+    deterministic combiner formats the skill output with citations.
 
-    The ``reason`` field is still populated so the synthesis prompt
-    builder can tailor its instructions (e.g. direct_chat gets a
-    different prompt template than a successful skill result).
+    Otherwise returns ``needed=True`` so the LLM can synthesize a
+    conversational response.
     """
     primary_chunks = [chunk for chunk in spec.chunks if chunk.role == "primary_request"]
     supporting = [chunk for chunk in spec.chunks if chunk.role == "supporting_context"]
@@ -63,9 +61,39 @@ def decide_llm(spec: RequestSpec) -> LLMDecision:
         return LLMDecision(needed=True, reason="empty_output")
     if any(chunk.confidence <= CONFIG.route_confidence_threshold for chunk in primary_chunks):
         return LLMDecision(needed=True, reason="low_confidence")
+
+    # ── Offline knowledge fast-path ────────────────────────────
+    # When the knowledge skill returned a substantive answer from a
+    # local ZIM archive, skip LLM synthesis entirely. The snippet is
+    # already a well-written encyclopedia paragraph — rephrasing it
+    # through the LLM wastes 20-30s without adding value.
+    if _can_skip_synthesis_for_offline(primary_chunks):
+        return LLMDecision(needed=False, reason="offline_knowledge_fast_path")
+
     if supporting:
         return LLMDecision(needed=True, reason="supporting_context")
     return LLMDecision(needed=True, reason="synthesis")
+
+
+def _can_skip_synthesis_for_offline(chunks: list[RequestChunkResult]) -> bool:
+    """Check if all primary chunks are successful offline knowledge lookups."""
+    if not chunks:
+        return False
+    for chunk in chunks:
+        if chunk.capability != "knowledge_query":
+            return False
+        if not chunk.success:
+            return False
+        result = chunk.result or {}
+        output = str(result.get("output_text") or "").strip()
+        # Need a substantive answer (at least ~50 chars / a full sentence)
+        if len(output) < 50:
+            return False
+        # Must be from an offline source
+        source_title = str(result.get("source_title") or "")
+        if "(offline)" not in source_title.lower():
+            return False
+    return True
 
 
 def llm_synthesize(spec: RequestSpec) -> ResponseObject:

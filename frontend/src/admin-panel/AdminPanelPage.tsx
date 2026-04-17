@@ -28,6 +28,7 @@ import AppearanceSection from '../components/settings/AppearanceSection';
 import CharactersSection from '../components/settings/CharactersSection';
 import RelationshipAliasesSection from '../components/settings/RelationshipAliasesSection';
 import SkillsSection from '../components/settings/SkillsSection';
+import ArchivesSection from '../components/settings/ArchivesSection';
 import CharactersAdminSection from '../components/admin/CharactersAdminSection';
 import { getSystemInfo, getSettings, saveSettings } from '../lib/api';
 import type { SettingsData } from '../lib/api';
@@ -161,6 +162,7 @@ const SectionBody: React.FC<{ section: SectionDef }> = ({ section }) => {
     case 'logs':              return <LogsPane />;
     case 'tools':             return <ToolsPane />;
     case 'feedback':          return <FeedbackPane />;
+    case 'knowledge-archives': return <ArchivesSection />;
     case 'knowledge-gaps':    return <KnowledgeGapsPane />;
   }
 };
@@ -293,9 +295,9 @@ const GeneralPane: React.FC = () => {
       {/* Loaded Models (Ollama RAM) */}
       <div>
         <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
-          Models in Memory ({info.loaded_models.length})
+          Models in Memory ({(info.loaded_models ?? []).length})
         </div>
-        {info.loaded_models.length === 0 ? (
+        {(info.loaded_models ?? []).length === 0 ? (
           <div className="text-xs text-muted-foreground italic p-3 rounded-xl bg-card/50 border border-border/30">
             No models currently loaded.
           </div>
@@ -311,7 +313,7 @@ const GeneralPane: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {info.loaded_models.map((m) => (
+                {(info.loaded_models ?? []).map((m) => (
                   <tr key={m.name} className="border-b border-border/10 last:border-0 text-xs">
                     <td className="px-4 py-2 font-bold font-mono">{m.name}</td>
                     <td className="px-4 py-2 text-muted-foreground">{formatBytes(m.size)}</td>

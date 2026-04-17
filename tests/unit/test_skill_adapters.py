@@ -120,7 +120,14 @@ async def test_weather_adapter_graceful_failure_when_all_mechs_fail(monkeypatch)
 # real HTTP call.
 
 
+def _disable_zim(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure the ZIM search engine is not used in adapter tests."""
+    import lokidoki.archives.search as _search_mod
+    monkeypatch.setattr(_search_mod, "get_search_engine", lambda: None)
+
+
 def _install_wiki_fake(monkeypatch: pytest.MonkeyPatch, adapter_module, fake) -> None:
+    _disable_zim(monkeypatch)
     monkeypatch.setattr(adapter_module, "_WIKI", fake, raising=True)
 
 

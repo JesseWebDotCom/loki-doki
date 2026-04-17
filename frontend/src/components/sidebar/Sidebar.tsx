@@ -7,6 +7,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PenLine,
+  Search,
   Wifi,
   WifiOff,
   Bot,
@@ -164,6 +165,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isChat = location.pathname === '/';
   const isMemory = location.pathname === '/memory';
   const isPeople = location.pathname === '/people';
+  const isSearch = location.pathname === '/search';
 
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('ld-sidebar-collapsed') === 'true',
@@ -319,6 +321,15 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             <Brain size={16} />
           </Link>
+          <Link
+            to="/search"
+            title="Search Archives"
+            className={`${slot} cursor-pointer ${
+              isSearch ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
+            }`}
+          >
+            <Search size={16} />
+          </Link>
         </nav>
         <div className="mt-2 flex w-full flex-col items-center border-t border-sidebar-border/40 pt-2">
           <div className="flex h-10 w-10 items-center justify-center">
@@ -392,6 +403,17 @@ const Sidebar: React.FC<SidebarProps> = ({
             <Brain size={18} />
           </span>
           <span className="ml-1">Memory</span>
+        </Link>
+        <Link
+          to="/search"
+          className={`flex items-center rounded-xl transition-colors text-sm font-medium cursor-pointer ${
+            isSearch ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
+          }`}
+        >
+          <span className="flex h-10 w-10 items-center justify-center shrink-0">
+            <Search size={18} />
+          </span>
+          <span className="ml-1">Search</span>
         </Link>
       </nav>
 

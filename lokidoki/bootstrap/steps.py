@@ -38,6 +38,7 @@ from .preflight.llm_engine import (
     pull_llm_weights,
     warm_resident_llm,
 )
+from .preflight.archive_favicons import ensure_archive_favicons
 from .preflight.vision import ensure_vision
 from .run_app import spawn_fastapi_app
 
@@ -131,6 +132,7 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "warm-resident-llm": warm_resident_llm,
     "install-vision": ensure_vision,
     "pull-vision-model": ensure_vision,
+    "fetch-archive-icons": ensure_archive_favicons,
     "spawn-app": spawn_fastapi_app,
 }
 
@@ -174,6 +176,7 @@ _STEP_CATEGORY: dict[str, str] = {
     "install-wake-word": "audio",
     "install-detectors": "audio",
     "install-image-gen": "audio",
+    "fetch-archive-icons": "finalize",
     "seed-database": "finalize",
     "spawn-app": "finalize",
 }
@@ -215,6 +218,7 @@ _COMMON_MEDIA: list[tuple[str, str, bool, int | None]] = [
     ("install-detectors", "Install object and face detectors", False, 30),
     ("install-image-gen", "Install image generator", True, 120),
     ("seed-database", "Seed SQLite database", False, 5),
+    ("fetch-archive-icons", "Fetch archive icons", True, 15),
     ("spawn-app", "Launch LokiDoki app", False, 10),
 ]
 

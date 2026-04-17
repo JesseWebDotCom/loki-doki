@@ -22,6 +22,8 @@ const AdminPage = lazy(() =>
 const DevToolsPage = lazy(() =>
   import('./admin-panel/AdminPanelPage').then(m => ({ default: m.DevToolsPage }))
 );
+const SearchPage = lazy(() => import('./pages/SearchPage'));
+const ArticlePage = lazy(() => import('./pages/ArticlePage'));
 
 const App: React.FC = () => {
   return (
@@ -45,6 +47,9 @@ const App: React.FC = () => {
                 <Route path="/admin/:section" element={<AdminPage />} />
                 <Route path="/dev" element={<DevToolsPage />} />
                 <Route path="/dev/:section" element={<DevToolsPage />} />
+
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/browse/:sourceId/*" element={<ArticlePage />} />
 
                 {/* Legacy redirect from earlier merged layout */}
                 <Route path="/admin-panel" element={<Navigate to="/settings" replace />} />

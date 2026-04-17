@@ -8,13 +8,13 @@
 import {
   Cpu, Sparkles, Volume2, Puzzle, Palette,
   Users, Shield, Brain, AlertTriangle,
-  ScrollText, Wrench,
+  ScrollText, Wrench, BookOpen,
 } from 'lucide-react';
 
 export type SectionId =
   | 'general' | 'characters' | 'audio' | 'skills' | 'appearance'
   | 'users' | 'character-catalog' | 'controls' | 'memory' | 'admin-skills' | 'feedback' | 'danger'
-  | 'logs' | 'tools' | 'knowledge-gaps';
+  | 'logs' | 'tools' | 'knowledge-gaps' | 'knowledge-archives';
 
 export interface SectionDef {
   id: SectionId;
@@ -63,6 +63,9 @@ export const SECTIONS: SectionDef[] = [
   { id: 'feedback',          group: 'Permissions', label: 'Feedback Review',   icon: ScrollText,
     title: 'Feedback Review', description: 'Audit user feedback and pipeline traces across all users.',
     adminOnly: true, requiresChallenge: true, fullWidth: true },
+  { id: 'knowledge-archives', group: 'Permissions', label: 'Knowledge Archives', icon: BookOpen,
+    title: 'Knowledge Archives', description: 'Download and manage offline knowledge bases (Wikipedia, Wiktionary, iFixit, etc.).',
+    adminOnly: true, requiresChallenge: true },
   { id: 'knowledge-gaps',    group: 'Permissions', label: 'Knowledge Gaps',    icon: AlertTriangle,
     title: 'Knowledge Gaps', description: 'Manual review of queries where the system admitted ignorance.',
     adminOnly: true, requiresChallenge: true },

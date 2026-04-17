@@ -20,6 +20,12 @@
   },
   "mechanisms": [
     {
+      "method": "zim_local",
+      "priority": 0,
+      "timeout_ms": 2000,
+      "requires_internet": false
+    },
+    {
       "method": "mediawiki_api",
       "priority": 1,
       "timeout_ms": 3000,

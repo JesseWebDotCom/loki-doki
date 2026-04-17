@@ -81,6 +81,34 @@ def _format_wiki(result, method: str) -> str:
     return "I couldn't extract a Wikipedia summary for that."
 
 
+async def _zim_source(query: str) -> AdapterResult:
+    """Query local ZIM archives — fastest, offline-first path."""
+    try:
+        from lokidoki.archives.search import get_search_engine
+
+        engine = get_search_engine()
+        if engine is None or not engine.loaded_sources:
+            return AdapterResult(
+                output_text="", success=False, error="no ZIM archives loaded",
+            )
+        results = await engine.search(query, max_results=1)
+        if not results:
+            return AdapterResult(
+                output_text="", success=False, error="no local article found",
+            )
+        article = results[0]
+        return AdapterResult(
+            output_text=article.snippet,
+            success=True,
+            source_url=article.url,
+            source_title=f"{article.source_label} (offline)",
+        )
+    except Exception as exc:
+        return AdapterResult(
+            output_text="", success=False, error=str(exc),
+        )
+
+
 async def _wiki_source(query: str) -> AdapterResult:
     return await run_mechanisms(
         _WIKI,
@@ -107,6 +135,7 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
 
     result = await run_sources_parallel_scored(
         [
+            ("zim", _zim_source(query)),
             ("wikipedia", _wiki_source(query)),
             ("web", web_search_source(query)),
         ],

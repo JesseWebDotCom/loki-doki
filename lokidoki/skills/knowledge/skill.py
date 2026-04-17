@@ -37,11 +37,49 @@ class WikipediaSkill(BaseSkill):
         self._cache: dict[str, dict] = {}
 
     async def execute_mechanism(self, method: str, parameters: dict) -> MechanismResult:
-        if method == "mediawiki_api":
+        if method == "zim_local":
+            return await self._zim_local(parameters)
+        elif method == "mediawiki_api":
             return await self._mediawiki_api(parameters)
         elif method == "web_scraper":
             return await self._web_scraper(parameters)
         raise ValueError(f"Unknown mechanism: {method}")
+
+    async def _zim_local(self, parameters: dict) -> MechanismResult:
+        """Query local ZIM archives. Fastest path — no network needed."""
+        query = parameters.get("query")
+        if not query:
+            return MechanismResult(success=False, error="Query parameter required")
+
+        try:
+            from lokidoki.archives.search import get_search_engine
+
+            engine = get_search_engine()
+            if engine is None or not engine.loaded_sources:
+                return MechanismResult(success=False, error="No ZIM archives loaded")
+
+            results = await engine.search(query, max_results=1)
+            if not results:
+                return MechanismResult(success=False, error="No local article found")
+
+            article = results[0]
+            lead = _trim_to_sentences(article.snippet, VERBATIM_LEAD_CHAR_CAP)
+            data = {
+                "title": article.title,
+                "lead": lead,
+                "extract": article.snippet,
+                "sections": [],
+                "url": article.url,
+            }
+            self._cache[query.lower()] = data
+            return MechanismResult(
+                success=True,
+                data=data,
+                source_url=article.url,
+                source_title=f"{article.source_label} (offline) - {article.title}",
+            )
+        except Exception as e:
+            return MechanismResult(success=False, error=str(e))
 
     async def _mediawiki_api(self, parameters: dict) -> MechanismResult:
         query = parameters.get("query")

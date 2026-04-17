@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from lokidoki.api.routes import chat, memory, audio, settings, auth, admin, projects, logs, skills, characters, people, dev
+from lokidoki.api.routes import chat, memory, audio, settings, auth, admin, projects, logs, skills, characters, people, dev, archives
 from lokidoki.api.middleware.bootstrap_gate import BootstrapGateMiddleware
 from lokidoki.core.model_manager import ModelPolicy
 from lokidoki.core.log_buffer import install as install_log_buffer, set_log_level
@@ -155,6 +155,14 @@ async def startup_event():
     from lokidoki.core.memory_store_singleton import get_memory_store
     get_memory_store()
 
+    # Initialize ZIM search engine from persisted archive state
+    from lokidoki.archives.store import load_states
+    from lokidoki.archives.search import initialize_search_engine
+    states = load_states()
+    enabled = [s for s in states if s.download_complete]
+    if enabled:
+        initialize_search_engine(enabled)
+
 
 @app.get("/api/health")
 async def api_health():
@@ -211,6 +219,7 @@ app.include_router(skills.router, prefix="/api/v1/skills", tags=["Skills"])
 app.include_router(characters.router, prefix="/api/v1/characters", tags=["Characters"])
 app.include_router(logs.router, prefix="/api/v1/logs", tags=["Logs"])
 app.include_router(dev.router, prefix="/api/v1/dev", tags=["Dev"])
+app.include_router(archives.router, prefix="/api/v1/archives", tags=["Archives"])
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
