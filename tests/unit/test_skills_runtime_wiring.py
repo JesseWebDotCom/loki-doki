@@ -169,13 +169,13 @@ class TestParamsFromPipeline:
 
     def test_derivations_cover_key_capabilities(self):
         """NER derivation map covers weather, stocks, time, showtimes."""
-        from lokidoki.orchestrator.pipeline.derivations import _CAPABILITY_PARAMS
-        assert "get_weather" in _CAPABILITY_PARAMS
-        assert "get_stock_price" in _CAPABILITY_PARAMS
-        assert "get_stock_info" in _CAPABILITY_PARAMS
-        assert "time_in_location" in _CAPABILITY_PARAMS
-        assert "get_movie_showtimes" in _CAPABILITY_PARAMS
-        assert "lookup_person_facts" in _CAPABILITY_PARAMS
+        from lokidoki.orchestrator.pipeline.derivations import CAPABILITY_PARAMS
+        assert "get_weather" in CAPABILITY_PARAMS
+        assert "get_stock_price" in CAPABILITY_PARAMS
+        assert "get_stock_info" in CAPABILITY_PARAMS
+        assert "time_in_location" in CAPABILITY_PARAMS
+        assert "get_movie_showtimes" in CAPABILITY_PARAMS
+        assert "lookup_person_facts" in CAPABILITY_PARAMS
 
     @pytest.mark.anyio
     async def test_weather_uses_param_location(self, monkeypatch):

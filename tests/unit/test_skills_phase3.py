@@ -355,17 +355,17 @@ class TestDerivationsWiring:
         assert "list_family" in _SOCIAL_CAPABILITIES
 
     def test_capability_params_include_relationships(self):
-        from lokidoki.orchestrator.pipeline.derivations import _CAPABILITY_PARAMS
-        assert "lookup_relationship" in _CAPABILITY_PARAMS
-        assert "list_family" in _CAPABILITY_PARAMS
+        from lokidoki.orchestrator.pipeline.derivations import CAPABILITY_PARAMS
+        assert "lookup_relationship" in CAPABILITY_PARAMS
+        assert "list_family" in CAPABILITY_PARAMS
 
     def test_capability_params_include_movies(self):
-        from lokidoki.orchestrator.pipeline.derivations import _CAPABILITY_PARAMS
-        assert "lookup_movie" in _CAPABILITY_PARAMS
+        from lokidoki.orchestrator.pipeline.derivations import CAPABILITY_PARAMS
+        assert "lookup_movie" in CAPABILITY_PARAMS
 
     def test_capability_params_include_episodes(self):
-        from lokidoki.orchestrator.pipeline.derivations import _CAPABILITY_PARAMS
-        assert "get_episode_detail" in _CAPABILITY_PARAMS
+        from lokidoki.orchestrator.pipeline.derivations import CAPABILITY_PARAMS
+        assert "get_episode_detail" in CAPABILITY_PARAMS
 
 
 # ---- Gate: No v1 skill in "mystery missing" state ---------------------------

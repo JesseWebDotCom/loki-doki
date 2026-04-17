@@ -6,6 +6,7 @@ import math
 
 from lokidoki.orchestrator.core.config import CONFIG
 from lokidoki.orchestrator.core.types import RequestChunk, RouteMatch
+from lokidoki.orchestrator.pipeline.derivations import CAPABILITY_PARAMS, NER_PARAM_MAP
 from lokidoki.orchestrator.registry.runtime import CapabilityRuntime, get_runtime
 
 # Hard floor on cosine similarity. When the best registry match scores
@@ -50,7 +51,11 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
     return numerator / (left_norm * right_norm)
 
 
-def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -> RouteMatch:
+def route_chunk(
+    chunk: RequestChunk,
+    runtime: CapabilityRuntime | None = None,
+    extracted_entities: list[tuple[str, str]] | None = None,
+) -> RouteMatch:
     """Map a chunk to a prototype capability using the cached registry."""
     active_runtime = runtime or get_runtime()
     query = " ".join(chunk.text.lower().split())
@@ -62,6 +67,11 @@ def route_chunk(chunk: RequestChunk, runtime: CapabilityRuntime | None = None) -
     best_capability, best_score, best_text = _best_index_match(
         query_vector, active_runtime.router_index, best_capability, best_score, best_text
     )
+
+    # Slot-compatibility adjustment: penalize capabilities missing required
+    # params and bonus those whose slots are extractable from NER entities.
+    if extracted_entities is not None and best_capability != "direct_chat":
+        best_score = _apply_slot_adjustment(best_capability, best_score, extracted_entities)
 
     if best_score < ROUTE_FLOOR:
         if _should_promote_retrieval_fallback(best_capability, best_score, query):
@@ -122,6 +132,42 @@ def _best_index_match(
                 best_capability = item["capability"]
                 best_text = text
     return best_capability, best_score, best_text
+
+
+# Slot scoring constants — per-slot penalty/bonus applied to cosine score.
+SLOT_MISSING_PENALTY = 0.10
+SLOT_PRESENT_BONUS = 0.05
+
+# Reverse map: param name → set of NER labels that satisfy it.
+_PARAM_TO_NER: dict[str, set[str]] = {}
+for _label, _param in NER_PARAM_MAP.items():
+    _PARAM_TO_NER.setdefault(_param, set()).add(_label)
+
+
+def _apply_slot_adjustment(
+    capability: str,
+    score: float,
+    entities: list[tuple[str, str]],
+) -> float:
+    """Adjust cosine score based on required-slot coverage.
+
+    Penalizes capabilities whose required params are missing from the
+    extracted NER entities and bonuses capabilities whose slots are filled.
+    """
+    required_params = CAPABILITY_PARAMS.get(capability)
+    if not required_params:
+        return score  # no slot requirements → unchanged
+
+    present_labels = {label for _, label in entities}
+    for param in required_params:
+        ner_labels = _PARAM_TO_NER.get(param)
+        if not ner_labels:
+            continue
+        if present_labels & ner_labels:
+            score += SLOT_PRESENT_BONUS
+        else:
+            score -= SLOT_MISSING_PENALTY
+    return score
 
 
 _FACTUAL_WH_PREFIXES = (
@@ -221,6 +267,7 @@ def _should_promote_retrieval_fallback(capability: str, score: float, query_text
 async def route_chunk_async(
     chunk: RequestChunk,
     runtime: CapabilityRuntime | None = None,
+    extracted_entities: list[tuple[str, str]] | None = None,
 ) -> RouteMatch:
     """Offload routing work so embedding calls do not block the event loop."""
-    return await asyncio.to_thread(route_chunk, chunk, runtime)
+    return await asyncio.to_thread(route_chunk, chunk, runtime, extracted_entities)

@@ -85,10 +85,14 @@ def run_initial_phase(trace, safe_context, raw_text, normalized):
     return parsed, chunks, extractions, memory_write_result
 
 
-async def run_routing_phase(trace, safe_context, routable, runtime):
+async def run_routing_phase(trace, safe_context, routable, runtime, routable_extractions=None):
     """Route each routable chunk and select its implementation."""
     finish = trace.timed("route")
-    routed = list(await asyncio.gather(*(_timed_route(c, runtime) for c in routable)))
+    ext_by_chunk = {ext.chunk_index: ext for ext in (routable_extractions or [])}
+    routed = list(await asyncio.gather(*(
+        _timed_route(c, runtime, entities=(ext_by_chunk.get(c.index, None) and ext_by_chunk[c.index].entities) or None)
+        for c in routable
+    )))
     routes = [item["route"] for item in routed]
     for r in routes:
         logger.debug("[Pipeline] Routed chunk %d to %s (conf=%s)",
@@ -490,9 +494,9 @@ def _log_knowledge_gap(original_input: str, resolved_query: str, context: dict):
 
 # ---- timed wrappers ---------------------------------------------------------
 
-async def _timed_route(chunk, runtime):
+async def _timed_route(chunk, runtime, entities=None):
     started = time.perf_counter()
-    route = await route_chunk_async(chunk, runtime)
+    route = await route_chunk_async(chunk, runtime, extracted_entities=entities)
     return {"route": route, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
 
 

@@ -51,7 +51,7 @@ async def run_pipeline_async(
     parsed, chunks, extractions, mw = run_initial_phase(trace, ctx, raw_text, normalized)
     routable, routable_ext = _filter_routable(chunks, extractions)
     routable = _resolve_antecedents(routable, ctx)
-    routes, impls = await run_routing_phase(trace, ctx, routable, runtime)
+    routes, impls = await run_routing_phase(trace, ctx, routable, runtime, routable_ext)
     dp = run_derivations_phase(trace, ctx, parsed, chunks, extractions, routes)
     resolutions = await run_resolve_phase(trace, ctx, routable, routable_ext, routes, dp)
     executions = await run_execute_phase(trace, ctx, runtime, routable, routes, impls, resolutions)

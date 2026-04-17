@@ -199,7 +199,8 @@ def _should_need_routine(
 # ---- structured param extraction --------------------------------------------
 
 # NER label → param name mappings for skill parameter extraction.
-_NER_PARAM_MAP: dict[str, str] = {
+# Public: also consumed by the router for slot-compatibility scoring.
+NER_PARAM_MAP: dict[str, str] = {
     "GPE": "location",    # geopolitical entity → location/city/country
     "LOC": "location",    # named location
     "PERSON": "person",   # person name
@@ -207,7 +208,8 @@ _NER_PARAM_MAP: dict[str, str] = {
 }
 
 # Capability → which NER params are relevant.
-_CAPABILITY_PARAMS: dict[str, tuple[str, ...]] = {
+# Public: also consumed by the router for slot-compatibility scoring.
+CAPABILITY_PARAMS: dict[str, tuple[str, ...]] = {
     "get_weather": ("location",),
     "get_forecast": ("location",),
     "time_in_location": ("location",),
@@ -237,13 +239,13 @@ def extract_structured_params(
     """Extract structured params per chunk from NER entities.
 
     Returns a dict mapping chunk_index → param dict. Only chunks whose
-    routed capability has entries in ``_CAPABILITY_PARAMS`` are processed.
+    routed capability has entries in ``CAPABILITY_PARAMS`` are processed.
     """
     extraction_by_chunk = {ext.chunk_index: ext for ext in extractions}
     out: dict[int, dict[str, str]] = {}
 
     for route in routes:
-        wanted = _CAPABILITY_PARAMS.get(route.capability)
+        wanted = CAPABILITY_PARAMS.get(route.capability)
         if not wanted:
             continue
         ext = extraction_by_chunk.get(route.chunk_index)
@@ -251,7 +253,7 @@ def extract_structured_params(
             continue
         params: dict[str, str] = {}
         for entity_text, label in ext.entities:
-            param_name = _NER_PARAM_MAP.get(label)
+            param_name = NER_PARAM_MAP.get(label)
             if param_name and param_name in wanted and param_name not in params:
                 params[param_name] = entity_text
         if params:
