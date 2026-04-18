@@ -38,7 +38,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 3 | [Frontend tile rendering — vector + satellite + hybrid toggle](chunk-3-tile-rendering.md) | done    | 25fb564 |
 | 4 | [Apple Maps-style left rail + place-details card](chunk-4-apple-maps-ui.md)       | done    | 3492a8a |
 | 5 | [Offline geocoding — FTS5 address index per region](chunk-5-offline-geocoding.md) | done    | 61fbe70 |
-| 6 | [Offline routing backend — Valhalla sidecar per region](chunk-6-routing-backend.md) | pending |        |
+| 6 | [Offline routing backend — Valhalla sidecar per region](chunk-6-routing-backend.md) | done    | dd07abe |
 | 7 | [Directions panel UI + route alternatives + turn-by-turn](chunk-7-directions-ui.md) | pending |        |
 
 ---
