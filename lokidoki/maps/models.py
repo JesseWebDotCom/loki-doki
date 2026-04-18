@@ -1,0 +1,55 @@
+"""Runtime data models for map region config, state, and install progress.
+
+``MapArchiveConfig`` captures the user's selection (which regions, which
+artifact types). ``MapRegionState`` is the on-disk reality — what
+artifacts actually exist and how big they are. ``MapInstallProgress``
+is the shape sent over SSE while an install is in flight.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class MapArchiveConfig:
+    """One row in ``data/maps_config.json`` — admin's intent per region."""
+
+    region_id: str
+    street: bool = False
+    satellite: bool = False
+
+    @property
+    def any_selected(self) -> bool:
+        return self.street or self.satellite
+
+
+@dataclass
+class MapRegionState:
+    """One row in ``data/maps_state.json`` — what is actually on disk."""
+
+    region_id: str
+    street_installed: bool = False
+    satellite_installed: bool = False
+    valhalla_installed: bool = False
+    pbf_installed: bool = False
+    geocoder_installed: bool = False       # Chunk 5 flips this.
+    # Per-artifact bytes on disk — used by the /storage aggregate.
+    bytes_on_disk: dict[str, int] = field(default_factory=dict)
+    installed_at: str | None = None        # ISO timestamp of last completed install.
+
+
+@dataclass
+class MapInstallProgress:
+    """Single SSE event emitted by ``store.install_region``.
+
+    ``artifact`` values: ``"street"``, ``"satellite"``, ``"pbf"``,
+    ``"valhalla"``, ``"geocoder"``, ``"done"``, ``"error"``,
+    ``"cancelled"``.
+    """
+
+    region_id: str
+    artifact: str
+    bytes_done: int = 0
+    bytes_total: int = 0
+    phase: str = "downloading"   # "resolving" | "downloading" | "verifying" | "extracting" | "complete"
+    error: str | None = None

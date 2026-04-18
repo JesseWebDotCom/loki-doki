@@ -8,13 +8,13 @@
 import {
   Cpu, Sparkles, Volume2, Puzzle, Palette, Mic,
   Users, Shield, Brain, AlertTriangle,
-  ScrollText, Wrench, BookOpen,
+  ScrollText, Wrench, BookOpen, Map as MapIcon,
 } from 'lucide-react';
 
 export type SectionId =
   | 'general' | 'characters' | 'audio' | 'skills' | 'appearance'
   | 'users' | 'character-catalog' | 'controls' | 'memory' | 'admin-skills' | 'feedback' | 'danger'
-  | 'logs' | 'tools' | 'knowledge-gaps' | 'knowledge-archives' | 'voices';
+  | 'logs' | 'tools' | 'knowledge-gaps' | 'knowledge-archives' | 'knowledge-maps' | 'voices';
 
 export interface SectionDef {
   id: SectionId;
@@ -68,6 +68,9 @@ export const SECTIONS: SectionDef[] = [
     adminOnly: true, requiresChallenge: true },
   { id: 'knowledge-archives', group: 'Permissions', label: 'Knowledge Archives', icon: BookOpen,
     title: 'Knowledge Archives', description: 'Download and manage offline knowledge bases (Wikipedia, Wiktionary, iFixit, etc.).',
+    adminOnly: true, requiresChallenge: true },
+  { id: 'knowledge-maps', group: 'Permissions', label: 'Maps', icon: MapIcon,
+    title: 'Offline Maps', description: 'Pick the map regions to keep on disk. Street basemap + optional satellite imagery per region.',
     adminOnly: true, requiresChallenge: true },
   { id: 'knowledge-gaps',    group: 'Permissions', label: 'Knowledge Gaps',    icon: AlertTriangle,
     title: 'Knowledge Gaps', description: 'Manual review of queries where the system admitted ignorance.',

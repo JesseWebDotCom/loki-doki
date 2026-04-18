@@ -29,6 +29,7 @@ import CharactersSection from '../components/settings/CharactersSection';
 import RelationshipAliasesSection from '../components/settings/RelationshipAliasesSection';
 import SkillsSection from '../components/settings/SkillsSection';
 import ArchivesSection from '../components/settings/ArchivesSection';
+import MapsSection from '../components/settings/MapsSection';
 import VoicesSection from '../components/settings/VoicesSection';
 import CharactersAdminSection from '../components/admin/CharactersAdminSection';
 import { getSystemInfo, getSettings, saveSettings } from '../lib/api';
@@ -168,6 +169,7 @@ const SectionBody: React.FC<{ section: SectionDef }> = ({ section }) => {
     case 'feedback':          return <FeedbackPane />;
     case 'voices':             return <VoicesSection />;
     case 'knowledge-archives': return <ArchivesSection />;
+    case 'knowledge-maps':     return <MapsSection />;
     case 'knowledge-gaps':    return <KnowledgeGapsPane />;
   }
 };

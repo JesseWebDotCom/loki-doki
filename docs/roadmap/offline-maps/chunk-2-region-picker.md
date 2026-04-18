@@ -143,4 +143,15 @@ Refs docs/roadmap/offline-maps/PLAN.md chunk 2.
 
 ## Deferrals section (append as you discover)
 
-*(empty)*
+### Out-of-scope files touched during Chunk 2
+
+Two files beyond the `## Files` list received minimal additions so
+Manual smoke could work end-to-end (the new pane otherwise has no
+admin-panel entry point):
+
+- `frontend/src/admin-panel/sections.ts` — added `knowledge-maps`
+  section id + nav entry under Permissions.
+- `frontend/src/admin-panel/AdminPanelPage.tsx` — added the
+  `MapsSection` import + render case.
+
+These were the only two lines each; no behaviour changes elsewhere.
