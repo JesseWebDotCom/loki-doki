@@ -19,7 +19,7 @@ plan is fully shipped and Chunk 8 can itself flip to `done` on
 
 | # | Sub-chunk                                                  | Status  | Commit |
 |---|------------------------------------------------------------|---------|--------|
-| 8a | Chunk-6 deferral — install artifact host + dist override  | done    | _(staged)_ |
+| 8a | Chunk-6 deferral — install artifact host + dist override  | done    | d798d53 |
 | 8b | Chunk-6 deferral — cross-region routing                   | pending |        |
 | 8c | Chunk-6 deferral — offline `find_nearby` (POI extractor)  | pending |        |
 | 8d | Chunk-7 deferral — `Leave at…` / `Arrive by…` depart time | pending |        |
