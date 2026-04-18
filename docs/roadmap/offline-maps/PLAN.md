@@ -33,7 +33,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 
 | # | Chunk                                                                             | Status  | Commit |
 |---|-----------------------------------------------------------------------------------|---------|--------|
-| 1 | [PMTiles infrastructure + protocol wiring](chunk-1-pmtiles-infra.md)              | pending |        |
+| 1 | [PMTiles infrastructure + protocol wiring](chunk-1-pmtiles-infra.md)              | done    | 1bd5119 |
 | 2 | [Map region catalog + admin panel + download pipeline](chunk-2-region-picker.md)  | pending |        |
 | 3 | [Frontend tile rendering — vector + satellite + hybrid toggle](chunk-3-tile-rendering.md) | pending |        |
 | 4 | [Apple Maps-style left rail + place-details card](chunk-4-apple-maps-ui.md)       | pending |        |
