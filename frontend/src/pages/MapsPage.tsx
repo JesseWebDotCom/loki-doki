@@ -13,7 +13,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { Protocol } from 'pmtiles';
 import { WifiOff } from 'lucide-react';
+import { buildDarkStyle } from './maps/style-dark';
+import { resolveTileSource } from './maps/tile-source';
+
+// Register the pmtiles:// protocol globally, once per module load.
+// Guarded so Vite HMR doesn't stack duplicate handlers (MapLibre throws
+// if the same protocol is added twice).
+declare global {
+  interface Window { __ldPmtilesRegistered?: boolean }
+}
+if (typeof window !== 'undefined' && !window.__ldPmtilesRegistered) {
+  maplibregl.addProtocol('pmtiles', new Protocol().tile);
+  window.__ldPmtilesRegistered = true;
+}
 
 // Dark-theme override for MapLibre's default popup + controls — without
 // this the popup renders as white-on-white over the (dark-mode) map
@@ -95,32 +109,6 @@ const COUNTRY_OPTIONS: Array<{ code: string; label: string }> = [
   { code: '',   label: 'Worldwide' },
 ];
 
-// ── Map style — swap for Protomaps PMTiles to go fully offline later ──
-
-const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-
-const mapStyle: maplibregl.StyleSpecification = {
-  version: 8,
-  // Use a PNG:// glyphs URL placeholder — MapLibre needs glyphs defined
-  // for text layers, but since we only render raster tiles we can omit.
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: [OSM_TILE_URL],
-      tileSize: 256,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    // Solid background layer so the canvas paints SOMETHING even when
-    // tile requests fail (ad-blocker, rate-limited, offline). Without
-    // this a blocked tile server makes the whole map area look missing.
-    { id: 'bg', type: 'background', paint: { 'background-color': '#1a1d22' } },
-    { id: 'osm', type: 'raster', source: 'osm' },
-  ],
-};
-
 // ── Component ──────────────────────────────────────────────────
 
 const MapsPage: React.FC = () => {
@@ -162,75 +150,91 @@ const MapsPage: React.FC = () => {
     const container = containerRef.current;
     if (!container) return;
 
-    // Synchronous init — the useEffect fires after the DOM is attached,
-    // so the container has dimensions. Earlier versions tried RAF to
-    // "wait for layout" but that introduced a race in React 19 strict
-    // mode where the cleanup cancelled the init. Just initialize now.
-    let map: MapLibreMap;
-    try {
-      map = new maplibregl.Map({
-        container,
-        style: mapStyle,
-        center: [-98.5, 39.8],
-        zoom: 3,
-        attributionControl: { compact: true },
-      });
-    } catch (exc) {
-      setMapError(
-        exc instanceof Error
-          ? `Map init failed: ${exc.message}`
-          : 'Map init failed',
+    // Tile source resolution is async (backend round-trip to
+    // /api/v1/maps/regions), but the rest of init is sync once we have
+    // the style. `cancelled` guards against the effect cleaning up
+    // before the promise resolves — critical under React 19 strict
+    // mode's double-mount.
+    let cancelled = false;
+    let ro: ResizeObserver | null = null;
+    let removeCtxListeners: (() => void) | null = null;
+
+    (async () => {
+      const source = await resolveTileSource();
+      if (cancelled || !container) return;
+
+      let map: MapLibreMap;
+      try {
+        map = new maplibregl.Map({
+          container,
+          style: buildDarkStyle(source.url),
+          center: [-98.5, 39.8],
+          zoom: 3,
+          attributionControl: { compact: true },
+        });
+      } catch (exc) {
+        setMapError(
+          exc instanceof Error
+            ? `Map init failed: ${exc.message}`
+            : 'Map init failed',
+        );
+        return;
+      }
+
+      map.addControl(new maplibregl.NavigationControl(), 'top-right');
+      map.addControl(
+        new maplibregl.GeolocateControl({
+          positionOptions: { enableHighAccuracy: true },
+          trackUserLocation: false,
+        }),
+        'top-right',
       );
-      return;
-    }
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right');
-    map.addControl(
-      new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: false,
-      }),
-      'top-right',
-    );
+      map.on('load', () => {
+        setMapReady(true);
+        // Extra resize() on load — belt and braces for the 0×0 canvas bug
+        // where the container briefly lacks dimensions during init.
+        map.resize();
+      });
+      map.on('error', (e) => {
+        // eslint-disable-next-line no-console
+        console.warn('MapLibre error', e);
+      });
 
-    map.on('load', () => {
-      setMapReady(true);
-      // Extra resize() on load — belt and braces for the 0×0 canvas bug
-      // where the container briefly lacks dimensions during init.
-      map.resize();
-    });
-    map.on('error', (e) => {
-      // eslint-disable-next-line no-console
-      console.warn('MapLibre error', e);
-    });
+      // WebGL contexts can be lost when the GPU resets, the tab
+      // backgrounds too aggressively, or too many contexts are open. Tell
+      // the canvas to re-acquire context automatically rather than
+      // silently dying.
+      const canvas = map.getCanvas();
+      const onCtxLost = (e: Event) => {
+        e.preventDefault();  // allow context restore
+        setMapError('Map context lost — reloading tiles…');
+      };
+      const onCtxRestored = () => {
+        setMapError('');
+        map.triggerRepaint();
+      };
+      canvas.addEventListener('webglcontextlost', onCtxLost);
+      canvas.addEventListener('webglcontextrestored', onCtxRestored);
+      removeCtxListeners = () => {
+        canvas.removeEventListener('webglcontextlost', onCtxLost);
+        canvas.removeEventListener('webglcontextrestored', onCtxRestored);
+      };
 
-    // WebGL contexts can be lost when the GPU resets, the tab
-    // backgrounds too aggressively, or too many contexts are open. Tell
-    // the canvas to re-acquire context automatically rather than
-    // silently dying.
-    const canvas = map.getCanvas();
-    const onCtxLost = (e: Event) => {
-      e.preventDefault();  // allow context restore
-      setMapError('Map context lost — reloading tiles…');
-    };
-    const onCtxRestored = () => {
-      setMapError('');
-      map.triggerRepaint();
-    };
-    canvas.addEventListener('webglcontextlost', onCtxLost);
-    canvas.addEventListener('webglcontextrestored', onCtxRestored);
+      mapRef.current = map;
 
-    mapRef.current = map;
-
-    // ResizeObserver — force a canvas resize whenever the container
-    // dimensions change (sidebar collapse, window resize, etc).
-    const ro = new ResizeObserver(() => {
-      mapRef.current?.resize();
-    });
-    ro.observe(container);
+      // ResizeObserver — force a canvas resize whenever the container
+      // dimensions change (sidebar collapse, window resize, etc).
+      ro = new ResizeObserver(() => {
+        mapRef.current?.resize();
+      });
+      ro.observe(container);
+    })();
 
     return () => {
-      ro.disconnect();
+      cancelled = true;
+      ro?.disconnect();
+      removeCtxListeners?.();
       markerRef.current?.remove();
       markerRef.current = null;
       mapRef.current?.remove();
