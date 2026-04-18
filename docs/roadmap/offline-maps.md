@@ -34,55 +34,161 @@ against a dev-local test file.
 
 ---
 
-## Chunk 2 — Downloadable map-region catalog
+## Chunk 2 — Region-picker admin panel (not "download one file")
 
-**Goal**: A user can pick a region from the admin panel and download
-its map tile bundle, same flow as downloading Wikipedia today.
+**Goal**: The map archive is NOT a monolithic Wikipedia-style
+download. Users pick which regions they want for streets, pick a
+(possibly smaller) subset for satellite, watch the size update live,
+and commit with one button. Downloading "the map" without choosing
+regions is a trap — users would unknowingly fetch 100 GB.
 
-**Work**:
-- Extend the archive catalog with a `MapRegion` type (distinct from
-  `ZimSource`) covering: label, bounding box, approximate size,
-  download URL on a Protomaps mirror.
-- Seed the catalog with a small starter list:
-  - United States — regional (~2 GB)
-  - United Kingdom — regional (~500 MB)
-  - Japan — regional (~1 GB)
-  - California (state example, ~400 MB)
-  - Connecticut (small-state example, ~80 MB)
-- Admin panel category "Maps" with hero cards and the same toggle UX
-  as ZIM archives. Each card shows bounding-box preview + size.
-- `resolver.py` gets a new path for PMTiles downloads (single file,
-  not HTML-listing resolution).
+### Data model
 
-**Ship criteria**: admin can toggle a region on, watch the download
-progress, see it appear in the "Installed" list. Map tiles for that
-region are served via a new backend route.
+The catalog gains a new `MapArchive` type distinct from `ZimSource`:
 
-**Estimated size**: 2-3 days.
+```python
+@dataclass(frozen=True)
+class MapRegion:
+    region_id: str                  # "us", "us-ca", "ca-canada", "mx"
+    label: str                      # "United States", "California", "Canada"
+    parent_id: str | None           # "us" for "us-ca"; None for top-level
+    center_lat: float               # for the zoom-to-preview map
+    center_lon: float
+    street_size_mb: float           # street-map (PMTiles) bytes
+    satellite_size_mb: float        # add-on satellite imagery bytes
+    street_url_template: str        # Protomaps/daylight URL pattern
+    satellite_url_template: str     # Esri or similar
+```
+
+Stored state (per-user config, SQLite):
+
+```python
+MapArchiveConfig:
+    street_regions: list[str]       # ["us-ct", "us-ny"]
+    satellite_regions: list[str]    # ["us-ct"]  — subset (or disjoint!) of streets
+    storage_path: str | None
+```
+
+Street and satellite selections are **independent**. You can have
+satellite for Connecticut (80 MB street + 8 GB sat) and just streets
+for California (400 MB) in the same archive. Total size = sum of
+`street_size_mb` over selected street regions + sum of
+`satellite_size_mb` over selected satellite regions.
+
+### Seed catalog (starter regions)
+
+Tree-structured so the UI can nest: continents → countries →
+first-level subdivisions.
+
+| Region                      | Street | Satellite | Parent |
+|-----------------------------|-------:|----------:|:-------|
+| North America               | —      | —         | —      |
+|  United States (contig.)    | ~2 GB  | ~400 GB   | NA     |
+|   California                | ~400 MB| ~40 GB    | US     |
+|   New York                  | ~300 MB| ~28 GB    | US     |
+|   Connecticut               | ~80 MB | ~8 GB     | US     |
+|   Texas                     | ~500 MB| ~55 GB    | US     |
+|   (~50 US states)           | …      | …         | US     |
+|  Canada                     | ~2.5 GB| ~500 GB   | NA     |
+|  Mexico                     | ~1.5 GB| ~300 GB   | NA     |
+| Europe                      | —      | —         | —      |
+|  United Kingdom             | ~500 MB| ~60 GB    | EU     |
+|  Germany, France, Italy…    | …      | …         | EU     |
+| Asia                        | —      | —         | —      |
+|  Japan                      | ~1 GB  | ~100 GB   | AS     |
+
+(Satellite sizes are rough — real numbers come from the provider.)
+
+### Admin panel UX
+
+Clicking "Knowledge Archives → Maps" opens a different panel from the
+ZIM detail modal. Two tabs:
+
+**Tab 1 — Street maps** (the default, "always free-ish"):
+
+- Tree-view of regions with checkboxes. Parents show aggregate size
+  (uncheckable — a convenience for "pick all children").
+- Per-row: region name · street size · checkbox.
+- Running total pill at the bottom: `Street maps: 480 MB (2 regions)`.
+- Preset buttons above the tree: "My state" (auto-detect), "My country",
+  "North America (US + CA + MX)", "Clear all".
+
+**Tab 2 — Satellite imagery** (opt-in, scary sizes):
+
+- Same tree, same checkboxes — but a **separate selection set**.
+- Each row has a clear size-warning when size > 5 GB.
+- A bold warning banner above: "Satellite imagery is 10–20× larger than
+  street maps. Pick only the regions you actually need photography
+  for."
+- Greyed-out rows for regions not included in the street selection —
+  you can't have satellite-without-street (forces users to understand
+  they're adding on top of, not instead of).
+
+**Footer** (always visible):
+
+```
+Street maps: 480 MB · Satellite: 8 GB · Total: 8.5 GB
+              [Install / Update]
+```
+
+Install button runs a multi-file download: one PMTiles per street
+region + one raster bundle per satellite region. Progress bar shows
+file count and bytes. Cancel works mid-download and rolls back partial
+files.
+
+### Presets
+
+The biggest UX win over the ZIM flow. Three buttons that auto-select
+sensible regions:
+
+- **"My region"** — detects user's state/province from IP or
+  navigator.geolocation (fall back to prompt). Selects that admin unit
+  + surrounding states at street resolution.
+- **"My country"** — auto-selects the user's country.
+- **"North America"** — US + Canada + Mexico street-only.
+
+All three still show the size and require a click to install — no
+silent downloads.
+
+**Ship criteria**: a user unfamiliar with tile formats can pick
+"Connecticut street + satellite, California street only" from the
+admin panel, watch a single combined progress bar, and end up with
+the four correct files on disk.
+
+**Estimated size**: 3-4 days (was 2-3; the region-picker UI is the
+bulk of the extra time).
 
 ---
 
-## Chunk 3 — Frontend wiring for installed regions
+## Chunk 3 — Frontend wiring for installed regions + satellite toggle
 
-**Goal**: When the user opens `/maps` and has a region installed,
-MapLibre uses the local PMTiles instead of the OSM public server.
-Fall back to online when the view is outside every installed region.
+**Goal**: When the user opens `/maps` and has regions installed,
+MapLibre uses local PMTiles for street and local raster tiles for
+satellite. Falls back to online only when the view is outside every
+installed region.
 
 **Work**:
-- Frontend polls `/api/v1/maps/regions` on mount; merges the
-  bounding-boxes into a region-aware map source.
-- `MapsPage` style branching: if 1+ region installed → vector PMTiles
-  style (offline); if 0 installed → raster OSM style (online, today's
-  behavior).
-- When the user pans outside an installed region while offline, show a
-  soft tint on the out-of-region area and a pill ("No tiles for this
-  area — install a larger region").
+- Frontend polls `/api/v1/maps/regions` on mount; merges all installed
+  street bounding-boxes into a single offline-coverage polygon and
+  satellite bounding-boxes into a second polygon.
+- `MapsPage` style has three display modes:
+  - **Map** (streets only) — vector PMTiles when in-coverage, online OSM
+    when out-of-coverage.
+  - **Satellite** — raster satellite when in-coverage; a muted tint
+    with "No satellite for this area — install it in the admin panel"
+    when outside.
+  - **Hybrid** — satellite underneath + streets labels on top.
+- Top-right chip (under the zoom controls): `Map · Satellite · Hybrid`
+  toggle, matching Google Maps.
+- When user pans outside every installed region while offline: soft
+  grey tint + small pill "No tiles here — install a larger region".
 
-**Ship criteria**: toggling a region on in the admin panel immediately
-lights up that region's tiles in the Maps page; offline, the region
-stays visible and outside-region is politely dimmed.
+**Ship criteria**: toggling regions on/off in the admin panel
+immediately reshapes the offline-coverage polygon in the Maps page.
+Satellite mode is greyed out when zero satellite regions are
+installed.
 
-**Estimated size**: 1-2 days.
+**Estimated size**: 2-3 days.
 
 ---
 
@@ -130,16 +236,26 @@ against the installed region.
 
 ## Size overview (install footprint by region)
 
-| Region                    | Tiles    | FTS-only addresses | Pelias/Photon |
-|---------------------------|----------|--------------------|---------------|
-| Small state (CT)          | ~80 MB   | ~40 MB             | ~120 MB       |
-| Large state (CA)          | ~400 MB  | ~200 MB            | ~600 MB       |
-| United Kingdom            | ~500 MB  | ~300 MB            | ~800 MB       |
-| United States (contig.)   | ~2 GB    | ~1.5 GB            | ~6 GB         |
-| Whole world               | ~100 GB  | ~60 GB             | ~200 GB       |
+Sum street + optional satellite + optional address index. These
+are the numbers the footer pill in the region picker is showing.
 
-The catalog should default to "small region" presets to stay under 1 GB
-for first-time users.
+| Region                    | Street   | Satellite | Addresses (FTS) | Addresses (Photon) |
+|---------------------------|---------:|----------:|----------------:|-------------------:|
+| Small state (CT)          | ~80 MB   | ~8 GB     | ~40 MB          | ~120 MB            |
+| Large state (CA)          | ~400 MB  | ~40 GB    | ~200 MB         | ~600 MB            |
+| United Kingdom            | ~500 MB  | ~60 GB    | ~300 MB         | ~800 MB            |
+| United States (contig.)   | ~2 GB    | ~400 GB   | ~1.5 GB         | ~6 GB              |
+| Whole world               | ~100 GB  | ~60–150 TB| ~60 GB          | ~200 GB            |
+
+Defaults the first-install flow should steer toward:
+
+- **Preset "My state"** — single-state street + FTS address index.
+  Typically under 500 MB.
+- **Preset "My country"** — country-level street + FTS addresses.
+  Under 3 GB for most countries.
+- Satellite is always **opt-in, off by default** — the size warning
+  on the satellite tab makes it clear that checking a state adds a
+  whole other order of magnitude.
 
 ---
 
