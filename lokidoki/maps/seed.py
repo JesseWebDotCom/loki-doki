@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import math
 
-from .catalog import MapRegion
+from .catalog import MapRegion, dist_base
 
-# Base host for LokiDoki-hosted artifacts (PMTiles, satellite, Valhalla).
-# Geofabrik serves the .osm.pbf files directly.
-_DIST = "https://dist.lokidoki.app/maps"
+# Geofabrik serves the .osm.pbf files directly; the PMTiles / satellite /
+# Valhalla artifacts come from the configurable dist host (defaults to
+# https://dist.lokidoki.app/maps; override with LOKIDOKI_MAPS_DIST_BASE).
 _GEOFABRIK = "https://download.geofabrik.de"
 
 # ── Continents (parent-only) ───────────────────────────────────────
@@ -147,6 +147,7 @@ def _span_for_area(area_mi2: float, center_lat: float) -> tuple[float, float]:
 def build_catalog() -> list[MapRegion]:
     """Return the full ``MapRegion`` list in seed order."""
     out: list[MapRegion] = []
+    dist = dist_base()
 
     # Continents — parent-only, no downloads.
     for region_id, label, lat, lon, bbox in _CONTINENTS:
@@ -169,11 +170,11 @@ def build_catalog() -> list[MapRegion]:
             center_lat=lat, center_lon=lon, bbox=bbox,
             street_size_mb=street_mb,
             satellite_size_mb=round(street_mb * 20.0, 1),
-            street_url_template=f"{_DIST}/{region_id}/streets.pmtiles",
-            satellite_url_template=f"{_DIST}/{region_id}/satellite.tar.zst",
+            street_url_template=f"{dist}/{region_id}/streets.pmtiles",
+            satellite_url_template=f"{dist}/{region_id}/satellite.tar.zst",
             street_sha256="", satellite_sha256=None,
             valhalla_size_mb=round(street_mb * 0.5, 1),
-            valhalla_url_template=f"{_DIST}/{region_id}/valhalla.tar.zst",
+            valhalla_url_template=f"{dist}/{region_id}/valhalla.tar.zst",
             valhalla_sha256="",
             pbf_size_mb=pbf_mb,
             pbf_url_template=f"{_GEOFABRIK}/{geofabrik_path}-latest.osm.pbf",
@@ -196,11 +197,11 @@ def build_catalog() -> list[MapRegion]:
             center_lat=lat, center_lon=lon, bbox=bbox,
             street_size_mb=street_mb,
             satellite_size_mb=round(street_mb * 20.0, 1),
-            street_url_template=f"{_DIST}/{region_id}/streets.pmtiles",
-            satellite_url_template=f"{_DIST}/{region_id}/satellite.tar.zst",
+            street_url_template=f"{dist}/{region_id}/streets.pmtiles",
+            satellite_url_template=f"{dist}/{region_id}/satellite.tar.zst",
             street_sha256="", satellite_sha256=None,
             valhalla_size_mb=round(street_mb * 0.5, 1),
-            valhalla_url_template=f"{_DIST}/{region_id}/valhalla.tar.zst",
+            valhalla_url_template=f"{dist}/{region_id}/valhalla.tar.zst",
             valhalla_sha256="",
             pbf_size_mb=pbf_mb,
             pbf_url_template=f"{_GEOFABRIK}/north-america/us/{slug}-latest.osm.pbf",

@@ -65,12 +65,17 @@ const MapsSection: React.FC = () => {
   const [progress, setProgress] = useState<Record<string, InstallProgress>>({});
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [distBase, setDistBase] = useState<string>("");
+  const [isStubDist, setIsStubDist] = useState<boolean>(false);
 
   const reload = useCallback(async () => {
     try {
-      const [catRes, regionsRes] = await Promise.all([
+      const [catRes, regionsRes, storageRes] = await Promise.all([
         fetch(`${API}/catalog`, { headers: authHeaders() }).then((r) => r.json()),
         fetch(`${API}/regions`, { headers: authHeaders() }).then((r) => r.json()),
+        fetch(`${API}/storage`, { headers: authHeaders() })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
       ]);
       setTree(catRes?.regions ?? []);
       const byId: Record<string, RegionStatus> = {};
@@ -84,6 +89,10 @@ const MapsSection: React.FC = () => {
       }
       setInstalled(byId);
       setSelection(initial);
+      if (storageRes) {
+        setDistBase(String(storageRes.dist_base ?? ""));
+        setIsStubDist(Boolean(storageRes.is_stub_dist));
+      }
     } finally {
       setLoading(false);
     }
@@ -254,12 +263,36 @@ const MapsSection: React.FC = () => {
 
   const showSatellite = tab === "satellite";
 
+  const anyInstalled = Object.values(installed).some(
+    (r) => r.state.street_installed || r.state.satellite_installed,
+  );
+  const showStubBanner = isStubDist && !anyInstalled;
+
   return (
     <div className="space-y-5">
       <p className="text-xs text-muted-foreground">
         Pick the regions you want usable offline. Maps work without the internet
         once their region artifacts are installed.
       </p>
+
+      {showStubBanner && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-100">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div className="flex-1 space-y-1">
+            <p>
+              <strong>Install source is the stub default.</strong> The built-in
+              host <code>{distBase}</code> is not live yet, so downloads will
+              fail. Point <code>LOKIDOKI_MAPS_DIST_BASE</code> at your own
+              artifact bucket before installing.
+            </p>
+            <p className="text-[11px] opacity-80">
+              See <code>docs/maps-dist.md</code> for the artifact layout and a
+              one-command build via{" "}
+              <code>scripts/build_offline_bundle.py --maps &lt;region&gt;</code>.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border/40">

@@ -10,7 +10,30 @@ size table.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+
+# Env var that lets a self-hoster point the installer at their own
+# artifact bucket before the real CDN exists. Sub-chunk 8a fix for the
+# Chunk-6 deferral: the default points at a stub that does not resolve,
+# which is why an install with zero config appears to "do nothing".
+DIST_BASE_ENV = "LOKIDOKI_MAPS_DIST_BASE"
+DEFAULT_DIST_BASE = "https://dist.lokidoki.app/maps"
+
+
+def dist_base() -> str:
+    """Current base URL the region catalog builds artifact URLs under.
+
+    Reads ``LOKIDOKI_MAPS_DIST_BASE`` on every call so a process that
+    exports the env var after boot still picks up the override on the
+    next catalog rebuild.
+    """
+    return os.environ.get(DIST_BASE_ENV) or DEFAULT_DIST_BASE
+
+
+def is_stub_dist() -> bool:
+    """True when the default (non-existent) dist host is active."""
+    return dist_base() == DEFAULT_DIST_BASE
 
 
 @dataclass(frozen=True)

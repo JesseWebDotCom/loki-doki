@@ -352,13 +352,21 @@ async def get_satellite_tile(region_id: str, z: int, x: int, y: int, ext: str):
 
 @router.get("/storage")
 async def get_storage() -> dict:
-    """Aggregate bytes-on-disk per artifact across all installed regions."""
+    """Aggregate bytes-on-disk per artifact across all installed regions.
+
+    The response also carries ``dist_base`` (the currently-active
+    artifact host) and ``is_stub_dist`` — the frontend uses the
+    latter to show a "point me at your own dist host" banner while
+    the built-in default still resolves to the stub CDN.
+    """
     states = store.load_states()
     totals = store.aggregate_storage(states)
     return {
         "totals": totals,
         "total_bytes": sum(totals.values()),
         "regions": [asdict(s) for s in states],
+        "dist_base": catalog.dist_base(),
+        "is_stub_dist": catalog.is_stub_dist(),
     }
 
 

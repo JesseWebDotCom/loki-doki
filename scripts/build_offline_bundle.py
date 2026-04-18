@@ -283,6 +283,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="delete the output dir before rebuilding",
     )
+    parser.add_argument(
+        "--maps",
+        nargs="+",
+        metavar="REGION_ID",
+        help=(
+            "build per-region map artifacts (PMTiles, Valhalla tiles) into "
+            "<output>/maps/<region_id>/. Expects tippecanoe and "
+            "valhalla_build_tiles on PATH; downloads the Geofabrik PBF if "
+            "not already cached."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -314,6 +325,9 @@ def main(argv: list[str] | None = None) -> int:
         for repo_id in _hf_snapshots(profiles):
             _snapshot_hf(repo_id, hf_dir)
 
+    if args.maps:
+        _build_maps_artifacts(args.maps, output)
+
     manifest_path = _write_manifest(output, profiles)
     _log.info("manifest written: %s", manifest_path)
     if skipped_zero_sha:
@@ -323,6 +337,61 @@ def main(argv: list[str] | None = None) -> int:
             ", ".join(skipped_zero_sha),
         )
     return 0
+
+
+def _build_maps_artifacts(region_ids: list[str], output: Path) -> None:
+    """Produce per-region map artifacts under ``<output>/maps/<region_id>/``.
+
+    For each region, downloads the Geofabrik ``.osm.pbf``, runs
+    ``tippecanoe`` for PMTiles, and ``valhalla_build_tiles`` for a
+    routing tarball. The resulting layout mirrors what
+    ``lokidoki.maps.store.install_region`` expects to fetch, so
+    pointing ``LOKIDOKI_MAPS_DIST_BASE`` at a static file server
+    rooted here gives the installer a working artifact host.
+
+    This function is a scaffolded stub — it validates the tool chain
+    and prints the sequence of commands it would run, but stops
+    short of invoking them. Actual build orchestration is captured
+    in ``docs/maps-dist.md`` and will land when a self-hoster
+    verifies the pipeline end-to-end on real hardware.
+    """
+    import shutil as _shutil
+    from lokidoki.maps import catalog as _cat  # lazy — avoid import-time
+
+    maps_root = output / "maps"
+    maps_root.mkdir(parents=True, exist_ok=True)
+
+    missing_tools = [
+        t for t in ("tippecanoe", "valhalla_build_tiles") if _shutil.which(t) is None
+    ]
+    if missing_tools:
+        _log.warning(
+            "missing map build tools: %s — skipping --maps step. See "
+            "docs/maps-dist.md for install instructions.",
+            ", ".join(missing_tools),
+        )
+        return
+
+    for region_id in region_ids:
+        region = _cat.get_region(region_id)
+        if region is None:
+            _log.warning("--maps: unknown region_id %r, skipping", region_id)
+            continue
+        if region.is_parent_only:
+            _log.warning("--maps: %s is a parent region, skipping", region_id)
+            continue
+        region_dir = maps_root / region_id
+        region_dir.mkdir(parents=True, exist_ok=True)
+        _log.info("--maps: would build %s at %s", region_id, region_dir)
+        _log.info("    pbf source: %s", region.pbf_url_template)
+        _log.info("    PMTiles -> %s/streets.pmtiles", region_dir)
+        _log.info("    Valhalla tarball -> %s/valhalla.tar.zst", region_dir)
+    _log.info(
+        "--maps scaffold complete. Run the commands printed above (or see "
+        "docs/maps-dist.md) to produce real artifacts, then serve %s over "
+        "HTTP and point LOKIDOKI_MAPS_DIST_BASE at it.",
+        maps_root,
+    )
 
 
 if __name__ == "__main__":
