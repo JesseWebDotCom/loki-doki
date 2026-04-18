@@ -475,22 +475,16 @@ const MapsPage: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
-      <main
-        className="flex-1 grid min-w-0 h-screen"
-        style={{
-          gridTemplateColumns: railCollapsed ? '72px 1fr' : '320px 1fr',
-        }}
-      >
-        <LeftRail
-          active={activePanel}
-          onSelectPanel={handleSelectPanel}
-          recents={recents}
-          onSelectRecent={handleSelectRecent}
-          collapsed={railCollapsed}
-          onToggleCollapsed={() => setRailCollapsed((v) => !v)}
-        />
+      <LeftRail
+        active={activePanel}
+        onSelectPanel={handleSelectPanel}
+        recents={recents}
+        onSelectRecent={handleSelectRecent}
+        collapsed={railCollapsed}
+        onToggleCollapsed={() => setRailCollapsed((v) => !v)}
+      />
 
-        <div className="relative min-w-0 h-full">
+      <main className="flex-1 relative min-w-0 h-screen">
           {/* Map canvas */}
           <div
             ref={containerRef}
@@ -539,12 +533,11 @@ const MapsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Attribution pill */}
-          <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
-            <div className="rounded-full bg-card/80 backdrop-blur px-3 py-1 text-[10px] text-muted-foreground flex items-center gap-1.5">
-              <MapPin size={10} />
-              OpenStreetMap · Nominatim
-            </div>
+        {/* Attribution pill */}
+        <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
+          <div className="rounded-full bg-card/80 backdrop-blur px-3 py-1 text-[10px] text-muted-foreground flex items-center gap-1.5">
+            <MapPin size={10} />
+            OpenStreetMap · Nominatim
           </div>
         </div>
       </main>

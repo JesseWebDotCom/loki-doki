@@ -73,10 +73,8 @@ const LeftRail: React.FC<LeftRailProps> = ({
   return (
     <aside
       aria-label="Maps navigation"
-      className={cn(
-        'flex h-full flex-col border-r border-border/30 bg-card/80 backdrop-blur transition-[width]',
-        collapsed ? 'w-[72px]' : 'w-full',
-      )}
+      className="flex h-screen flex-col border-r border-border/30 bg-card/80 backdrop-blur transition-[width] shrink-0 z-10"
+      style={{ width: collapsed ? '72px' : '320px' }}
     >
       {/* Brand row */}
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
