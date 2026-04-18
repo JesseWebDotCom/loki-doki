@@ -335,11 +335,11 @@ class TestPromptTemplates:
 
     def test_mood_instruction_in_combine(self):
         assert "recent_mood" in COMBINE_PROMPT
-        assert "never quote or mention" in COMBINE_PROMPT.lower()
+        assert "silently" in COMBINE_PROMPT.lower()
 
     def test_mood_instruction_in_direct_chat(self):
         assert "recent_mood" in DIRECT_CHAT_PROMPT
-        assert "never quote or mention" in DIRECT_CHAT_PROMPT.lower()
+        assert "silently" in DIRECT_CHAT_PROMPT.lower()
 
 
 # -----------------------------------------------------------------------

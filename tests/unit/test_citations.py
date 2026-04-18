@@ -463,7 +463,7 @@ class TestCombinePromptSourcesSlot:
         assert "[src:1]" not in prompt
 
     def test_cite_instruction_in_template(self):
-        assert "cite with [src:n]" in COMBINE_PROMPT.lower()
+        assert "[src:n]" in COMBINE_PROMPT.lower()
 
 
 # ---------------------------------------------------------------------------

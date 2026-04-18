@@ -317,7 +317,25 @@ def _extract_memory_slots(spec: RequestSpec) -> dict[str, str]:
     # not from memory_slots. Render it here.
     from lokidoki.orchestrator.memory.slot_renderers import render_conversation_history
     raw_history = spec.context.get("conversation_history") or []
-    result["conversation_history"] = render_conversation_history(raw_history) if raw_history else ""
+    # Extract last assistant message for the dedicated follow-up slot.
+    # Strip it from the history list to avoid sending it twice.
+    last_asst = ""
+    deduped_history = list(raw_history)
+    if deduped_history:
+        # Walk backwards to find the last assistant message.
+        for i in range(len(deduped_history) - 1, -1, -1):
+            m = deduped_history[i] if isinstance(deduped_history[i], dict) else dict(deduped_history[i])
+            if m.get("role") == "assistant" and m.get("content"):
+                last_asst = m["content"].strip()
+                if len(last_asst) > 300:
+                    last_asst = last_asst[:297].rsplit(" ", 1)[0] + "..."
+                deduped_history = deduped_history[:i] + deduped_history[i + 1:]
+                break
+    result["conversation_history"] = render_conversation_history(deduped_history) if deduped_history else ""
+    result["last_assistant_msg"] = (
+        f"YOUR LAST MESSAGE (fulfill any offer if user confirms):\n{last_asst}"
+        if last_asst else ""
+    )
     return result
 
 

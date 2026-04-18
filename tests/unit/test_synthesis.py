@@ -144,7 +144,7 @@ class TestIDontKnowPath:
 
     def test_combine_prompt_has_search_fallback_instruction(self):
         assert "NEED_SEARCH" in COMBINE_PROMPT
-        assert "do not guess" in COMBINE_PROMPT.lower()
+        assert "never guess" in COMBINE_PROMPT.lower()
 
     def test_all_direct_chat_renders_direct_template(self):
         """When all chunks are direct_chat, we get the direct_chat template

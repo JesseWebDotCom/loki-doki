@@ -102,7 +102,7 @@ class TestConversationHistoryInPrompt:
     def test_conversation_history_instruction_in_combine(self):
         from lokidoki.orchestrator.fallbacks.prompts import COMBINE_PROMPT
         assert "conversation_history" in COMBINE_PROMPT
-        assert "never quote or mention" in COMBINE_PROMPT.lower()
+        assert "silently" in COMBINE_PROMPT.lower()
 
     def test_conversation_history_instruction_in_direct_chat(self):
         from lokidoki.orchestrator.fallbacks.prompts import DIRECT_CHAT_PROMPT
@@ -121,12 +121,18 @@ class TestConversationHistoryInPrompt:
                 "conversation_history": [
                     {"role": "user", "content": "hello"},
                     {"role": "assistant", "content": "hi there"},
+                    {"role": "user", "content": "yes please"},
+                    {"role": "assistant", "content": "sure thing"},
                 ],
             },
         )
         slots = _extract_memory_slots(spec)
         assert "conversation_history" in slots
-        assert "hi there" in slots["conversation_history"]
+        # Last assistant message is surfaced in last_assistant_msg (not
+        # duplicated in conversation_history).
+        assert "sure thing" in slots["last_assistant_msg"]
+        assert "hello" in slots["conversation_history"]
+        assert "sure thing" not in slots["conversation_history"]
 
 
 class TestMetadataStripping:
