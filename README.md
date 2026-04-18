@@ -181,32 +181,39 @@ A built-in map for finding addresses, cities, and ZIP codes. Drop a pin, pan, zo
 
 ## 🗺️ Roadmap
 
-- [x] Core platform — FastAPI control plane, orchestrator, classifier
-- [x] Skills-First pipeline — decomposition → routing → skills → synthesis
-- [x] Pipeline v2 — LLM fallback, constraint extraction, slot scoring, response schemas, goal inference, entity canonicalization, hybrid memory retrieval
-- [x] Seven-tier memory, scoped per household member
-- [x] Memory unification — single SQLite DB, unified gate-chain writer and reader
-- [x] Hybrid memory retrieval — FTS5 + embedding search with RRF merge
-- [x] Persona / companion system
-- [x] Offline knowledge archives — 21+ downloadable references (Wikipedia, medical encyclopedias, first-aid guide, iFixit repair guides, Khan Academy, coding courses, recipes, classic books, country factbook, travel guides, Linux wiki, and more), unified search across whatever you've downloaded, and a browsable home page per archive
-- [x] Maps (online) — interactive map with address, city, and ZIP search; pin-drop and fly-to result
-- [x] Smarter routing — a small local model reads each message and helps the assistant pick the right reference (medical questions go to the medical archive, how-to questions go to the repair/how-to archive, etc.). Held-out test accuracy went from ~76% to ~98%.
-- [ ] Voice pipeline — wake word, STT, TTS on CPU
-- [x] Mac profile (actively tested)
-- [x] Browser bootstrap installer
-- [x] Multi-turn conversation test suite — 55 persona-based scripts, 181 turns
-- [ ] Pi CPU profile — implemented, not yet tested on real hardware
-- [ ] Pi Hailo profile — implemented, not yet tested on real hardware
-- [ ] Windows profile — implemented, not yet tested on real hardware
-- [ ] Face and person recognition — know who is in the room and switch profiles automatically
-- [ ] Document understanding — summarize, Q&A, and extract from PDFs and images
-- [ ] Image and video understanding — describe, caption, and search your media library
-- [ ] Live video — real-time scene understanding from a camera feed
-- [ ] Home automation skills — lights, locks, climate, scenes
-- [ ] Offline Maps — download a map region (your state, country, or a custom area) so the Maps page keeps working without internet; address search and road directions covered too. Chunked plan: [docs/roadmap/offline-maps.md](docs/roadmap/offline-maps.md)
-- [ ] Plugin marketplace
-- [ ] Device builds — Echo-style speaker and animatronic teddy bear
-- [ ] Systemd / launchd auto-start
+Everything here runs fully offline on your own hardware — no cloud, no subscription, no data leaving your network.
+
+**Working today (Mac, actively tested):**
+
+- [x] Chat with a local AI — type or speak, answers come from a model running on your machine
+- [x] Remembers each person in your household separately — your preferences don't mix with your spouse's or kids'
+- [x] Switchable AI personalities — pick a companion or design your own
+- [x] Offline reference library — download 21+ archives (Wikipedia, medical encyclopedias, first-aid, iFixit repair guides, Khan Academy, coding tutorials, recipes, classic books, country factbook, travel guides, Linux wiki, and more). Works fully offline once downloaded. Unified search across everything you've installed.
+- [x] Smart answers — a small local model picks the right reference for each question (medical questions go to the medical archive, how-to questions go to the repair guides). Accuracy went from ~76% to ~98% on our test set.
+- [x] Maps with address search — interactive map, type an address, city, or ZIP, pin drops and flies to it. *Still needs internet today — "Offline Maps" below makes it fully offline.*
+- [x] One-command install — runs a setup wizard in your browser, no terminal gymnastics.
+
+**Built but not yet tested on real hardware:**
+
+- [ ] Raspberry Pi 5 (CPU only)
+- [ ] Raspberry Pi 5 with the Hailo AI HAT
+- [ ] Windows
+
+**Coming next:**
+
+- [ ] Hands-free voice — say "Hey LokiDoki", ask anything, hear the answer. Wake word, speech-to-text, and speech synthesis all run locally on CPU.
+- [ ] **Offline Maps** — download the map for your state or country so everything keeps working without internet: vector map, satellite imagery, address search, and turn-by-turn driving / walking / cycling directions. Apple Maps–style interface with route alternatives and read-aloud directions. [Chunked plan](docs/roadmap/offline-maps/PLAN.md).
+- [ ] Knows who's in the room — face and person recognition so LokiDoki switches to your profile automatically when you walk up.
+- [ ] Understands documents — drop in a PDF, get a summary or ask questions about it.
+- [ ] Understands photos and videos — describe, caption, and search your media library.
+- [ ] Live camera — describe what LokiDoki sees in real time.
+- [ ] Home automation — control lights, locks, thermostat, and scenes by voice.
+- [ ] Auto-start on boot — no manual `./run.sh` every time.
+
+**Later:**
+
+- [ ] Plugin marketplace — browse and install third-party skills.
+- [ ] Dedicated hardware — an Echo-style speaker and an animatronic teddy bear you can actually buy.
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
 
