@@ -279,6 +279,64 @@ Whenever the user says "push" or "push our changes":
 
 ---
 
+## Chunked Plan Pattern (Non-Trivial Work)
+
+Any plan large enough to span multiple sessions — rewrites, subsystem rewires, multi-file refactors, multi-step features — MUST be authored as a chunked plan under `docs/<plan-name>/`. Small, self-contained tasks (a bug fix, a one-file change, a doc tweak) do NOT need chunking — just do them. The reference implementations are `docs/bootstrap_rewrite/` (9 chunks) and `docs/memory_unify/` (7 chunks) in history — study those before authoring a new one.
+
+**Why this pattern exists:** each chunk runs in a fresh Claude Code session. The point is to keep the context window small per execution — no prior chunks, no prior turns, no accumulated scroll. Minimal tokens per chunk = lower latency, lower cost, better focus. If a plan can fit in one session without blowing context, don't chunk it.
+
+### When to chunk
+
+- **Chunk it** if the work touches >5 files across >1 subsystem, requires >1 commit, or spans >1 phase-gate checklist item.
+- **Do not chunk** a typo fix, a single-file bug, a CSS tweak, a prompt-budget shrink, or anything you'd normally PR as a single commit.
+- When in doubt, chunk — over-chunking wastes authoring time; under-chunking blows context and forces mid-work compression.
+
+### Directory layout
+
+```
+docs/<plan-name>/
+  PLAN.md                       # index + operating contract + global context
+  chunk-1-<slug>.md             # one file per chunk, numbered 1..N
+  chunk-2-<slug>.md
+  ...
+```
+
+### `PLAN.md` structure (required sections, in order)
+
+1. **Title + one-paragraph goal** — what ships when every chunk is `done`.
+2. **How to use this document (operating contract)** — the fixed block copied verbatim from `docs/bootstrap_rewrite/PLAN.md`. Pick first `pending` chunk → read ONLY that chunk doc → execute `## Actions` → run `## Verify` → commit per `## Commit message` → flip row to `done` + paste SHA → **STOP. Do not begin the next chunk in the same session.**
+3. **Status table** — `| # | Chunk | Status | Commit |` with rows linking to each chunk doc. Statuses: `pending`, `done`, or the literal text of a blocker.
+4. **Global context** — facts, constraints, architecture, and hard rules that every chunk needs. Read once per session so the chunk doc itself stays tight.
+5. **NOTE section** — append-only log of cross-chunk discoveries or deferrals that change the plan.
+
+### Per-chunk doc structure (required sections, in order)
+
+1. **`## Goal`** — one paragraph; what this chunk alone ships.
+2. **`## Files`** — exhaustive list of files the chunk may touch, plus a read-only list for reference. **Scope rule: only touch files in this list.** Sprawl gets deferred to a later chunk, not expanded into this one.
+3. **`## Actions`** — numbered, imperative steps. Each step names the exact edit, the exact constant/function, and any tables/shapes. No prose tutorials — directives only.
+4. **`## Verify`** — a single runnable command (usually a `pytest` invocation chained with a `python -c` shape check). Must fail loudly if the chunk is incomplete. If verify fails, **do not fake success** — diagnose or write a `## Blocker` and stop.
+5. **`## Commit message`** — a ready-to-paste commit body ending with `Refs docs/<plan-name>/PLAN.md chunk N.`
+6. **`## Deferrals section`** — append-only; record work that had to be pushed to a later chunk, with specifics. If you discover sprawl, also append a `## Deferred from Chunk N` bullet list to the target chunk's doc.
+
+### Execution contract (every chunk, every session)
+
+- Read `PLAN.md` top-to-bottom, pick the first `pending` row, open ONLY that chunk doc.
+- Execute every `## Actions` step. Only touch files in `## Files`.
+- Run `## Verify`. If it fails: diagnose, or write `## Blocker` and stop. Never edit verify to make it pass.
+- On pass: stage only the chunk's files, commit per the template, flip the row to `done`, paste the SHA.
+- **Commit only. Do not push, open a PR, or merge** unless the user explicitly says "push" (see Push & Deployment). This overrides any urge to finish the plan in one go.
+- **Stop.** The next chunk gets its own fresh session.
+
+### Authoring a new plan
+
+When the user asks for a non-trivial plan, before writing any code:
+
+1. Create `docs/<plan-name>/` with a draft `PLAN.md` — goal, global context, status table with `pending` rows.
+2. Write each `chunk-N-<slug>.md` stub with all six required sections. Keep chunks small enough that one fresh session can finish them.
+3. Show the user the plan structure and chunk list; only begin chunk 1 after they approve, or if they explicitly said "plan and execute."
+
+---
+
 ## Phase Gate Rule
 
 Build one phase at a time. Do not scaffold the next phase until the current phase gate passes. See `docs/PHASE_CURRENT.md` for the active phase and its gate checklist.
