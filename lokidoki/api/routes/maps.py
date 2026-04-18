@@ -29,6 +29,15 @@ from lokidoki.maps import catalog, store
 from lokidoki.maps.geocode import fts_search, nominatim_fallback
 from lokidoki.maps.geocode.fts_index import region_db_path
 from lokidoki.maps.models import MapArchiveConfig, MapInstallProgress, MapRegionState
+from lokidoki.maps.routing import (
+    AvoidOpts,
+    LatLon,
+    LocalRouterUnavailable,
+    RouteRequest,
+    RouteResponse,
+)
+from lokidoki.maps.routing import valhalla as valhalla_mod
+from lokidoki.maps.routing.online_fallback import OnlineOSRMRouter
 
 # Tiles are long-lived, content-addressed artefacts; the browser may
 # cache them hard. PMTiles does byte-range fetches — Starlette's
@@ -443,6 +452,149 @@ def _geocode_payload(result) -> dict:
         "lon": result.lon,
         "bbox": list(result.bbox) if result.bbox else None,
         "source": result.source,
+    }
+
+
+# ── Routing (Chunk 6) ─────────────────────────────────────────────
+
+_VALID_PROFILES = {"auto", "pedestrian", "bicycle"}
+
+
+class _Coord(BaseModel):
+    lat: float
+    lon: float
+
+
+class _AvoidOpts(BaseModel):
+    highways: bool = False
+    tolls: bool = False
+    ferries: bool = False
+
+
+class RouteBody(BaseModel):
+    origin: _Coord
+    destination: _Coord
+    waypoints: list[_Coord] | None = None
+    profile: str = "auto"
+    alternates: int = 0
+    avoid: _AvoidOpts | None = None
+
+
+def _serialise_route(response: RouteResponse) -> dict:
+    """Shape the :class:`RouteResponse` into the JSON the API returns.
+
+    Wraps the response in an OSRM-looking ``routes[0].legs[0].steps[]``
+    envelope so any downstream client written against OSRM keeps working
+    unchanged — plus the Valhalla-native fields
+    (``instructions_text``, ``alternates``) the Directions panel wants.
+    """
+    steps = [
+        {
+            "instruction": m.instruction,
+            "distance": m.distance_m,
+            "duration": m.duration_s,
+            "type": m.type,
+            "begin_shape_index": m.begin_shape_index,
+            "end_shape_index": m.end_shape_index,
+        }
+        for m in response.maneuvers
+    ]
+    return {
+        "routes": [
+            {
+                "duration_s": response.duration_s,
+                "distance_m": response.distance_m,
+                "geometry": response.geometry,
+                "profile": response.profile,
+                "legs": [{"steps": steps}],
+            },
+        ],
+        "instructions_text": list(response.instructions_text),
+        "alternates": [
+            {
+                "duration_s": a.duration_s,
+                "distance_m": a.distance_m,
+                "geometry": a.geometry,
+            }
+            for a in response.alternates
+        ],
+    }
+
+
+def _build_route_request(body: RouteBody) -> RouteRequest:
+    if body.profile not in _VALID_PROFILES:
+        raise HTTPException(400, f"Unknown profile: {body.profile}")
+    waypoints = tuple(
+        LatLon(lat=w.lat, lon=w.lon) for w in (body.waypoints or [])
+    )
+    avoid = AvoidOpts(
+        highways=body.avoid.highways if body.avoid else False,
+        tolls=body.avoid.tolls if body.avoid else False,
+        ferries=body.avoid.ferries if body.avoid else False,
+    )
+    return RouteRequest(
+        origin=LatLon(lat=body.origin.lat, lon=body.origin.lon),
+        destination=LatLon(lat=body.destination.lat, lon=body.destination.lon),
+        profile=body.profile,  # type: ignore[arg-type]
+        waypoints=waypoints,
+        alternates=max(0, int(body.alternates)),
+        avoid=avoid,
+    )
+
+
+async def _resolve_route(request: RouteRequest) -> tuple[RouteResponse, str]:
+    """Try the local Valhalla router first; fall back to remote OSRM.
+
+    Returns ``(response, mechanism)`` where ``mechanism`` is either
+    ``"valhalla"`` or ``"osrm"``. The second return is surfaced in the
+    response JSON so the client can show which path served the route.
+    """
+    try:
+        response = await valhalla_mod.get_router().route(request)
+        return response, "valhalla"
+    except LocalRouterUnavailable:
+        response = await OnlineOSRMRouter().route(request)
+        return response, "osrm"
+
+
+@router.post("/route")
+async def post_route(body: RouteBody) -> dict:
+    """Compute a route — local Valhalla first, remote OSRM on fallback."""
+    request = _build_route_request(body)
+    try:
+        response, mechanism = await _resolve_route(request)
+    except LocalRouterUnavailable as exc:
+        raise HTTPException(503, f"no router available: {exc}") from exc
+    payload = _serialise_route(response)
+    payload["mechanism_used"] = mechanism
+    return payload
+
+
+@router.get("/eta")
+async def get_eta(
+    o_lat: float,
+    o_lon: float,
+    d_lat: float,
+    d_lon: float,
+    profile: str = "auto",
+) -> dict:
+    """Thin ETA endpoint — returns only duration + distance."""
+    if profile not in _VALID_PROFILES:
+        raise HTTPException(400, f"Unknown profile: {profile}")
+    request = RouteRequest(
+        origin=LatLon(lat=o_lat, lon=o_lon),
+        destination=LatLon(lat=d_lat, lon=d_lon),
+        profile=profile,  # type: ignore[arg-type]
+    )
+    try:
+        response, mechanism = await _resolve_route(request)
+    except LocalRouterUnavailable as exc:
+        raise HTTPException(503, f"no router available: {exc}") from exc
+    return {
+        "duration_s": response.duration_s,
+        "distance_m": response.distance_m,
+        "profile": response.profile,
+        "mechanism_used": mechanism,
     }
 
 

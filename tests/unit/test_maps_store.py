@@ -66,6 +66,19 @@ def test_config_round_trip():
 def test_install_region_creates_expected_files(monkeypatch):
     _patch_download(monkeypatch, payload=b"fake-pmtiles-bytes")
 
+    # Chunk 6: the real install pipeline extracts ``valhalla.tar.zst`` into
+    # ``valhalla/`` on success; the stub payload above isn't a valid
+    # archive, so we monkeypatch the extraction step to just create an
+    # empty directory and report zero bytes.
+    async def _fake_extract(region_id, archive_path, emit):
+        dest = store.region_dir(region_id) / "valhalla"
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / ".keep").write_bytes(b"")
+        archive_path.unlink(missing_ok=True)
+        return 0
+
+    monkeypatch.setattr(store, "_extract_valhalla_step", _fake_extract)
+
     async def _run():
         return await store.install_region(
             "us-ct",
@@ -76,7 +89,9 @@ def test_install_region_creates_expected_files(monkeypatch):
 
     region_dir = store.region_dir("us-ct")
     assert (region_dir / "streets.pmtiles").exists()
-    assert (region_dir / "valhalla.tar.zst").exists()
+    # Chunk 6 extracts the archive, then removes it.
+    assert (region_dir / "valhalla").is_dir()
+    assert not (region_dir / "valhalla.tar.zst").exists()
     # .tmp must be cleaned up on success.
     assert not (region_dir / ".tmp").exists()
 

@@ -1,16 +1,27 @@
-"""Navigation adapters using Nominatim, OSRM, and Overpass."""
+"""Navigation adapters — local-first Valhalla with remote OSRM fallback.
+
+Chunk 6 of the offline-maps plan: :func:`get_directions` and
+:func:`get_eta` try the locally-installed Valhalla sidecar before ever
+hitting the network. The signature and return shape are
+byte-identical to the pre-Chunk-6 OSRM-only implementation so no
+caller, prompt template, or TTS formatter has to change.
+"""
 from __future__ import annotations
 
-import math
+import logging
 import re
 from typing import Any
 
 import httpx
 
+from lokidoki.maps.routing import LatLon, LocalRouterUnavailable, RouteRequest
+from lokidoki.maps.routing.online_fallback import OnlineOSRMRouter
+from lokidoki.maps.routing.valhalla import get_router
 from lokidoki.orchestrator.skills._runner import AdapterResult
 
+log = logging.getLogger(__name__)
+
 _NOMINATIM = "https://nominatim.openstreetmap.org/search"
-_OSRM = "https://router.project-osrm.org/route/v1"
 _OVERPASS = "https://overpass-api.de/api/interpreter"
 
 
@@ -47,6 +58,20 @@ def _parse_origin_dest(text: str) -> tuple[str, str] | None:
     return None
 
 
+async def _route_local_first(request: RouteRequest):
+    """Try the local Valhalla sidecar; fall back to remote OSRM.
+
+    Returns ``(response, mechanism)`` where ``mechanism`` records which
+    router actually served the request for the skill's provenance blob.
+    """
+    try:
+        response = await get_router().route(request)
+        return response, "valhalla"
+    except LocalRouterUnavailable:
+        response = await OnlineOSRMRouter().route(request)
+        return response, "osrm"
+
+
 async def get_directions(payload: dict[str, Any]) -> dict[str, Any]:
     text = str(payload.get("chunk_text") or "")
     parsed = _parse_origin_dest(text)
@@ -57,22 +82,26 @@ async def get_directions(payload: dict[str, Any]) -> dict[str, Any]:
     dest_coords = await _geocode(dest)
     if origin_coords is None or dest_coords is None:
         return AdapterResult(output_text="I couldn't geocode that route.", success=False, error="geocode failed").to_payload()
-    url = f"{_OSRM}/driving/{origin_coords[1]},{origin_coords[0]};{dest_coords[1]},{dest_coords[0]}"
-    async with httpx.AsyncClient(timeout=6.0) as client:
-        response = await client.get(url, params={"overview": "false", "steps": "false"})
-    if response.status_code != 200:
-        return AdapterResult(output_text="I couldn't get directions right now.", success=False, error=f"http {response.status_code}").to_payload()
-    routes = response.json().get("routes") or []
-    if not routes:
+    request = RouteRequest(
+        origin=LatLon(lat=origin_coords[0], lon=origin_coords[1]),
+        destination=LatLon(lat=dest_coords[0], lon=dest_coords[1]),
+        profile="auto",
+    )
+    try:
+        response, mechanism = await _route_local_first(request)
+    except LocalRouterUnavailable as exc:
+        return AdapterResult(output_text="I couldn't get directions right now.", success=False, error=str(exc)).to_payload()
+    except httpx.HTTPError as exc:
+        return AdapterResult(output_text="I couldn't get directions right now.", success=False, error=str(exc)).to_payload()
+    if response.duration_s <= 0 and response.distance_m <= 0:
         return AdapterResult(output_text="I couldn't find a route for that trip.", success=False, error="no route").to_payload()
-    route = routes[0]
-    distance_miles = route["distance"] / 1609.344
-    duration = _format_duration(route["duration"])
+    distance_miles = response.distance_m / 1609.344
+    duration = _format_duration(response.duration_s)
     return AdapterResult(
         output_text=f"Driving from {origin.title()} to {dest.title()} is about {distance_miles:.1f} miles and takes {duration}.",
         success=True,
-        mechanism_used="osrm",
-        data={"distance_miles": distance_miles, "duration_seconds": route["duration"]},
+        mechanism_used=mechanism,
+        data={"distance_miles": distance_miles, "duration_seconds": response.duration_s},
         source_url="https://www.openstreetmap.org/directions",
         source_title="OpenStreetMap / OSRM",
     ).to_payload()

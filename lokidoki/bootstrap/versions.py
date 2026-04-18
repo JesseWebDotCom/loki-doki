@@ -184,6 +184,49 @@ VISION_MMPROJ: dict[str, dict[str, str]] = {
 }
 
 
+# Valhalla routing engine. Upstream ships no official static binaries,
+# so our offline-bundle pipeline compiles Valhalla once per profile on a
+# beefy build host and mirrors the resulting tarballs next to the rest
+# of the pinned artefacts. The tarball contains ``valhalla_service`` +
+# ``valhalla_build_*`` CLIs; the runtime serves 127.0.0.1:8002.
+#
+# URLs + SHAs below are stubs until the bundle pipeline publishes real
+# builds. ``ValhallaRouter._spawn()`` falls back to the Docker image in
+# :data:`VALHALLA_DOCKER_FALLBACK` when the tarball isn't present — the
+# fallback is a community multi-arch fork with aarch64 layers so the
+# Pi path still works without native binaries.
+VALHALLA_RUNTIME = {
+    "version": "3.5.0",
+    "artifacts": {
+        ("darwin", "arm64"): (
+            "valhalla-3.5.0-darwin-arm64.tar.zst",
+            "0" * 64,
+        ),
+        ("linux", "x86_64"): (
+            "valhalla-3.5.0-linux-x86_64.tar.zst",
+            "0" * 64,
+        ),
+        ("linux", "aarch64"): (
+            "valhalla-3.5.0-linux-aarch64.tar.zst",
+            "0" * 64,
+        ),
+        ("windows", "x86_64"): (
+            "valhalla-3.5.0-windows-x86_64.tar.zst",
+            "0" * 64,
+        ),
+    },
+    "url_template": (
+        "https://cdn.lokidoki.local/valhalla/{version}/{filename}"
+    ),
+}
+
+
+VALHALLA_DOCKER_FALLBACK = {
+    "image": "ghcr.io/gis-ops/docker-valhalla/valhalla",
+    "digest": "sha256:" + "0" * 64,
+}
+
+
 # hailo-ollama is the Hailo HAT-aware Ollama fork. Only the linux/aarch64
 # build is meaningful — the engine only ever runs on a Pi 5 + Hailo HAT.
 # Filename, sha256, and version are pinned placeholders the operator

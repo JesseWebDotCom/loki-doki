@@ -386,6 +386,41 @@ async def _build_geocoder_step(
     ))
 
 
+async def _extract_valhalla_step(
+    region_id: str,
+    archive_path: Path,
+    emit,
+) -> int:
+    """Extract ``valhalla.tar.zst`` into ``<region>/valhalla/``.
+
+    Returns the total bytes of the extracted tile tree. Runs in a
+    thread because tar extraction is CPU-bound; the SSE queue stays
+    responsive that way. On success the archive is deleted — the
+    extracted dir is the only artefact Valhalla actually reads.
+    """
+    from .routing.build_tiles import extract_archive, tile_dir
+
+    dest = tile_dir(region_id)
+
+    await emit(MapInstallProgress(
+        region_id=region_id, artifact="valhalla",
+        phase="extracting",
+    ))
+
+    loop = asyncio.get_event_loop()
+    total_bytes = await loop.run_in_executor(
+        None, extract_archive, archive_path, dest,
+    )
+
+    # Archive no longer needed — the extracted tree is the live artefact.
+    try:
+        archive_path.unlink()
+    except OSError:
+        pass
+
+    return total_bytes
+
+
 async def install_region(
     region_id: str,
     config: MapArchiveConfig,
@@ -475,6 +510,26 @@ async def install_region(
 
             setattr(state, f"{artifact}_installed", True)
             state.bytes_on_disk[artifact] = bytes_written
+
+            # Chunk 6: the Valhalla artifact arrives as a ``.tar.zst`` of
+            # the prebuilt tile tree. Extract it in-place so the sidecar
+            # can mmap ``data/maps/<region>/valhalla/`` directly, then
+            # drop the archive to reclaim disk.
+            if artifact == "valhalla":
+                try:
+                    extracted_bytes = await _extract_valhalla_step(
+                        region_id, final, _emit,
+                    )
+                except Exception as exc:  # noqa: BLE001 — surfaced via SSE
+                    log.exception(
+                        "valhalla extraction failed for %s", region_id,
+                    )
+                    await _emit(MapInstallProgress(
+                        region_id=region_id, artifact="valhalla",
+                        phase="complete", error=str(exc),
+                    ))
+                    raise
+                state.bytes_on_disk["valhalla"] = extracted_bytes
 
             await _emit(MapInstallProgress(
                 region_id=region_id, artifact=artifact,
