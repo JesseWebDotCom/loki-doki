@@ -52,7 +52,7 @@ Think of LokiDoki as a **local alternative** to cloud assistants — like ChatGP
   <tr>
     <td width="50%" valign="top">
       <img src="./assets/readme/readme-icon-powerful.svg" alt="" width="42" align="absmiddle"> <strong>Works offline</strong><br><br>
-      Keep chatting, controlling your home, and looking things up on a plane, during a blackout, or in a country that blocks cloud AI. Downloadable Kiwix archives — Wikipedia, MDWiki, WikEM, iFixit, Khan Academy, Arch Linux Wiki, and more — plus an interactive map, all searchable offline.
+      Keep chatting, controlling your home, and looking things up on a plane, during a blackout, or in a country that blocks cloud AI. Download references you care about — Wikipedia, a medical encyclopedia, a first-aid guide, iFixit repair guides, recipes, classic books, and more — and they stay searchable whether or not you have internet.
     </td>
     <td width="50%" valign="top">
       <img src="./assets/readme/readme-icon-personal.svg" alt="" width="42" align="absmiddle"> <strong>Always yours</strong><br><br>
@@ -154,11 +154,11 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 
 ### Offline Knowledge Archives
 
-Pick from a curated catalog of [Kiwix](https://kiwix.org) ZIM archives — Wikipedia, Wiktionary, Wikiquote, Wikisource, iFixit, Stack Exchange, MDWiki, WikEM, Khan Academy, freeCodeCamp, Gutenberg, CIA World Factbook, Arch Linux Wiki, Appropedia, OpenStreetMap Wiki, TED Talks, and more. A single search bar queries everything at once; a per-archive landing page gives each source a Wikipedia-portal-style home with Random Article, scoped search, and recently viewed. The decomposer routes medical/how-to/country-facts questions to the right archive family automatically (MDWiki for symptoms, WikEM for first aid, Factbook for country stats), so the assistant answers from local disk first and only falls back to the web when a ZIM misses.
+Download the references you care about — Wikipedia, a medical reference, a first-aid guide, iFixit repair guides, Khan Academy, recipes, Project Gutenberg classics, a country factbook, and more — and have them available whether or not you have internet. One search bar covers everything you've downloaded. Each archive also gets its own home page so you can browse it like a regular website: open Wikipedia, read an article, follow links, search inside that archive only. When you ask the assistant something medical or practical ("my toe is bleeding", "how do I unclog a drain"), it looks in the right archive first and only goes to the internet if it can't find a good answer locally.
 
 ### Maps
 
-An interactive [MapLibre GL JS](https://maplibre.org/) map with OpenStreetMap tiles, country-scoped address/city/ZIP search via [Nominatim](https://nominatim.org/), and a drop-pin-and-fly result flow. The map style is isolated so a Protomaps PMTiles swap takes it fully offline without touching the UI.
+A built-in map for finding addresses, cities, and ZIP codes. Drop a pin, pan, zoom, and see where you are. **Today the map needs an internet connection** to load map imagery and search addresses. Full offline map support — downloading a map region of your choice so it works without any network — is on the roadmap below.
 
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
 
@@ -188,9 +188,9 @@ An interactive [MapLibre GL JS](https://maplibre.org/) map with OpenStreetMap ti
 - [x] Memory unification — single SQLite DB, unified gate-chain writer and reader
 - [x] Hybrid memory retrieval — FTS5 + embedding search with RRF merge
 - [x] Persona / companion system
-- [x] Offline knowledge archives — 21+ curated Kiwix ZIM sources (Wikipedia, MDWiki, WikEM, iFixit, Khan Academy, freeCodeCamp, Gutenberg, Appropedia, Arch Linux Wiki, CIA Factbook, OpenStreetMap Wiki, TED, and more), unified search, per-archive branded landing page, decomposer-driven routing to the right medical / how-to / country-facts family
-- [x] Interactive maps — MapLibre GL JS + OpenStreetMap tiles, country-scoped Nominatim address search, fly-to-pin UX
-- [x] LLM-driven routing prior — fast Qwen decomposer runs in parallel with MiniLM cosine match to tip borderline cases (~90% → 97% held-out corpus accuracy)
+- [x] Offline knowledge archives — 21+ downloadable references (Wikipedia, medical encyclopedias, first-aid guide, iFixit repair guides, Khan Academy, coding courses, recipes, classic books, country factbook, travel guides, Linux wiki, and more), unified search across whatever you've downloaded, and a browsable home page per archive
+- [x] Maps (online) — interactive map with address, city, and ZIP search; pin-drop and fly-to result
+- [x] Smarter routing — a small local model reads each message and helps the assistant pick the right reference (medical questions go to the medical archive, how-to questions go to the repair/how-to archive, etc.). Held-out test accuracy went from ~76% to ~98%.
 - [ ] Voice pipeline — wake word, STT, TTS on CPU
 - [x] Mac profile (actively tested)
 - [x] Browser bootstrap installer
@@ -203,7 +203,7 @@ An interactive [MapLibre GL JS](https://maplibre.org/) map with OpenStreetMap ti
 - [ ] Image and video understanding — describe, caption, and search your media library
 - [ ] Live video — real-time scene understanding from a camera feed
 - [ ] Home automation skills — lights, locks, climate, scenes
-- [ ] Offline map tiles — Protomaps PMTiles swap so the Maps page works without any network
+- [ ] Offline Maps — download a map region (your state, country, or a custom area) so the Maps page keeps working without internet; address search and road directions covered too. Chunked plan: [docs/roadmap/offline-maps.md](docs/roadmap/offline-maps.md)
 - [ ] Plugin marketplace
 - [ ] Device builds — Echo-style speaker and animatronic teddy bear
 - [ ] Systemd / launchd auto-start

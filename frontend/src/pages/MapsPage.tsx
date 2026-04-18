@@ -13,6 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { WifiOff } from 'lucide-react';
 
 // Dark-theme override for MapLibre's default popup + controls — without
 // this the popup renders as white-on-white over the (dark-mode) map
@@ -139,6 +140,22 @@ const MapsPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
+  // Online state — maps + geocoding both need internet today. Listening
+  // to browser events means we show a clear offline banner instantly
+  // rather than a tired blank canvas.
+  const [online, setOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  );
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
 
   // ── Initialize the map ───────────────────────────────────────
   useEffect(() => {
@@ -452,6 +469,24 @@ const MapsPage: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Offline banner — maps currently need internet for tiles
+            AND address search. Instead of a mysterious blank canvas,
+            explain the state + point at the roadmap. */}
+        {!online && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85 backdrop-blur-sm p-8">
+            <div className="max-w-md rounded-2xl border border-border/30 bg-card/95 p-6 text-center space-y-3">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <WifiOff size={22} className="text-muted-foreground" />
+              </div>
+              <div className="text-base font-bold">Maps need an internet connection</div>
+              <p className="text-sm text-muted-foreground leading-snug">
+                Map imagery and address search currently require a network.
+                Offline maps — where you download a region of your choice — is on the roadmap.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Bottom-right attribution pill */}
         <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
