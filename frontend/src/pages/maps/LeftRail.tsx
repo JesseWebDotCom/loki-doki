@@ -16,6 +16,7 @@ import {
   ChevronRight,
   ExternalLink,
   LayoutGrid,
+  LogOut,
   MapPin,
   PanelLeftClose,
   PanelLeftOpen,
@@ -192,11 +193,11 @@ const LeftRail: React.FC<LeftRailProps> = ({
       )}
 
       {/* Footer */}
-      {!collapsed && (
-        <div className="mt-auto p-3">
+      <div className={cn('mt-auto border-t border-border/30 p-3', collapsed && 'px-2')}>
+        {!collapsed && (
           <Link
             to="/settings?section=maps"
-            className="flex items-center justify-between rounded-xl border border-border/30 bg-card/60 px-3 py-2.5 text-xs text-foreground transition-colors hover:bg-card"
+            className="mb-2 flex items-center justify-between rounded-xl border border-border/30 bg-card/60 px-3 py-2.5 text-xs text-foreground transition-colors hover:bg-card"
           >
             <div className="flex flex-col">
               <span className="font-medium">Manage map regions</span>
@@ -206,8 +207,20 @@ const LeftRail: React.FC<LeftRailProps> = ({
             </div>
             <ExternalLink size={13} className="text-muted-foreground" />
           </Link>
-        </div>
-      )}
+        )}
+        <Link
+          to="/"
+          aria-label="Back to Chat"
+          title="Back to Chat"
+          className={cn(
+            'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-card/50 hover:text-foreground',
+            collapsed && 'justify-center px-2',
+          )}
+        >
+          <LogOut size={16} className="shrink-0" />
+          {!collapsed && <span>Back to Chat</span>}
+        </Link>
+      </div>
     </aside>
   );
 };

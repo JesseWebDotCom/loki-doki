@@ -64,6 +64,7 @@ const MapsSection: React.FC = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [progress, setProgress] = useState<Record<string, InstallProgress>>({});
   const [installing, setInstalling] = useState<Set<string>>(new Set());
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const reload = useCallback(async () => {
     try {
@@ -169,6 +170,7 @@ const MapsSection: React.FC = () => {
 
   const runInstall = async () => {
     setConfirmOpen(false);
+    setErrors({});
     const nextInstalling = new Set(installing);
     for (const regionId of changed) {
       const sel = selection[regionId] ?? { street: false, satellite: false };
@@ -177,7 +179,14 @@ const MapsSection: React.FC = () => {
         headers: authHeaders(),
         body: sel.street || sel.satellite ? JSON.stringify(sel) : undefined,
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        setErrors((prev) => ({
+          ...prev,
+          [regionId]: `${res.status} ${res.statusText}${msg ? ` — ${msg}` : ""}`,
+        }));
+        continue;
+      }
       if (sel.street || sel.satellite) {
         nextInstalling.add(regionId);
         streamProgress(regionId);
@@ -186,13 +195,27 @@ const MapsSection: React.FC = () => {
     setInstalling(nextInstalling);
   };
 
+  const clearRegionError = (regionId: string) => {
+    setErrors((prev) => {
+      if (!(regionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[regionId];
+      return next;
+    });
+  };
+
   const streamProgress = (regionId: string) => {
     const es = new EventSource(`${API}/regions/${regionId}/progress`);
+    let sawAnyEvent = false;
     es.onmessage = (ev) => {
+      sawAnyEvent = true;
       try {
         const p = JSON.parse(ev.data) as InstallProgress | { status: string };
         if ("bytes_done" in p) {
           setProgress((prev) => ({ ...prev, [regionId]: p }));
+          if (p.error) {
+            setErrors((prev) => ({ ...prev, [regionId]: p.error ?? "install failed" }));
+          }
           if (p.phase === "complete" && (p.artifact === "done" || p.error)) {
             es.close();
             setInstalling((prev) => {
@@ -209,7 +232,20 @@ const MapsSection: React.FC = () => {
         es.close();
       }
     };
-    es.onerror = () => es.close();
+    es.onerror = () => {
+      es.close();
+      setInstalling((prev) => {
+        const next = new Set(prev);
+        next.delete(regionId);
+        return next;
+      });
+      if (!sawAnyEvent) {
+        setErrors((prev) => ({
+          ...prev,
+          [regionId]: "progress stream disconnected before the install started",
+        }));
+      }
+    };
   };
 
   if (loading) {
@@ -266,6 +302,8 @@ const MapsSection: React.FC = () => {
               onToggleSatellite={() => toggle(region.region_id, "satellite")}
               progress={progress[region.region_id]}
               installing={installing.has(region.region_id)}
+              error={errors[region.region_id]}
+              onDismissError={() => clearRegionError(region.region_id)}
             />
           ))}
         </div>
@@ -337,10 +375,13 @@ interface RegionRowProps {
   onToggleSatellite: () => void;
   progress: InstallProgress | undefined;
   installing: boolean;
+  error?: string;
+  onDismissError: () => void;
 }
 
 const RegionRow: React.FC<RegionRowProps> = ({
-  region, depth, tab, selection, onToggleStreet, onToggleSatellite, progress, installing,
+  region, depth, tab, selection, onToggleStreet, onToggleSatellite,
+  progress, installing, error, onDismissError,
 }) => {
   const sel = selection ?? { street: false, satellite: false };
   const satDisabled = tab === "satellite" && !sel.street;
@@ -352,25 +393,47 @@ const RegionRow: React.FC<RegionRowProps> = ({
 
   return (
     <div
-      className={`flex items-center gap-2 px-2 py-1.5 text-xs ${
+      className={`flex flex-col gap-1 px-2 py-1.5 text-xs ${
         satDisabled ? "opacity-40" : ""
       }`}
       style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}
     >
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={!region.downloadable || satDisabled || installing}
-        onChange={onSelect}
-      />
-      <span className="flex-1 truncate">{region.label}</span>
-      {region.downloadable && (
-        <span className="text-[10px] text-muted-foreground">{formatMB(size)}</span>
-      )}
-      {progress && progress.bytes_total > 0 && (
-        <span className="text-[10px] text-primary">
-          {Math.round((progress.bytes_done / progress.bytes_total) * 100)}%
-        </span>
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={!region.downloadable || satDisabled || installing}
+          onChange={onSelect}
+        />
+        <span className="flex-1 truncate">{region.label}</span>
+        {region.downloadable && (
+          <span className="text-[10px] text-muted-foreground">{formatMB(size)}</span>
+        )}
+        {installing && !progress && (
+          <span className="text-[10px] text-muted-foreground">starting…</span>
+        )}
+        {progress && progress.bytes_total > 0 && (
+          <span className="text-[10px] text-primary">
+            {Math.round((progress.bytes_done / progress.bytes_total) * 100)}%
+          </span>
+        )}
+      </div>
+      {error && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive-foreground"
+        >
+          <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button
+            type="button"
+            onClick={onDismissError}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
       )}
     </div>
   );

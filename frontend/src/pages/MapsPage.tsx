@@ -1,8 +1,12 @@
 /**
  * MapsPage — Apple Maps-style two-pane layout (Chunk 4).
  *
+ * Takes over the whole viewport like the Admin panel — no global app
+ * Sidebar. The Maps LeftRail owns navigation and surfaces a
+ * "Back to Chat" link at the footer.
+ *
  * Left column (320px): `LeftRail` with brand + Search/Guides/Directions
- * nav + Recents + footer link to Settings → Maps.
+ * nav + Recents + footer link to Settings → Maps + Back-to-Chat.
  *
  * Right column (1fr): the map surface. MapLibre renders the vector
  * basemap via the `pmtiles://` protocol; the tile-source resolver picks
@@ -48,7 +52,6 @@ import {
 } from './maps/route-layer';
 import { loadRecents, pushRecent } from './maps/recents';
 import type { ActivePanel, PlaceResult, Recent } from './maps/types';
-import Sidebar from '../components/sidebar/Sidebar';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 
 // Register the pmtiles:// protocol globally, once per module load.
@@ -472,7 +475,6 @@ const MapsPage: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
-      <Sidebar phase="idle" />
       <main
         className="flex-1 grid min-w-0 h-screen"
         style={{
