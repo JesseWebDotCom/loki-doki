@@ -325,29 +325,126 @@ async def import_zim(
 
 @router.get("/favicon/{source_id}")
 async def get_favicon(source_id: str):
-    """Serve a cached archive favicon. Fetches on demand if not cached."""
-    import httpx as _httpx
+    """Serve a high-quality archive icon.
 
-    favicon_dir = store.favicon_dir()
-    favicon_dir.mkdir(parents=True, exist_ok=True)
-    favicon_path = favicon_dir / f"{source_id}.ico"
+    Resolution priority:
+      1. On-disk cache hit (``<source_id>.png`` preferred, ``.ico`` fallback).
+      2. ZIM illustration extracted from the downloaded file (96 or 48 px).
+         Kiwix embeds these as part of standard ZIM metadata — they are
+         purpose-made square PNGs, much higher quality than favicons.
+      3. ``apple-touch-icon.png`` at the archive's canonical site (180 px).
+      4. Vanilla ``favicon.ico`` at the canonical site (last resort).
 
-    # Fetch on demand if not cached (bootstrap may not have run)
-    if not favicon_path.exists():
-        source = catalog.get_source(source_id)
-        if not source:
-            raise HTTPException(404, "Unknown source")
+    Results are cached to ``favicon_dir`` so subsequent hits are instant.
+    """
+    from lokidoki.api.routes.archives_favicon import resolve_and_cache_favicon
+
+    source = catalog.get_source(source_id)
+    if not source:
+        raise HTTPException(404, "Unknown source")
+
+    cached_path, media_type = await resolve_and_cache_favicon(source)
+    if cached_path is None:
+        raise HTTPException(404, "Favicon not available")
+    return FileResponse(cached_path, media_type=media_type)
+
+
+# ── ZIM main entry (home page for archive browser) ─────────────
+
+@router.get("/{source_id}/main")
+async def get_main_entry(source_id: str):
+    """Return the ZIM's main-entry path so the browser can jump to the home page.
+
+    Every ZIM stores a ``mainEntry`` metadata pointer — for Wikipedia
+    that's the Main Page, for iFixit it's the landing page, etc. The
+    frontend uses this to turn "Browse iFixit" into a real article URL
+    instead of falling back to an empty search box.
+    """
+    from lokidoki.archives.search import get_search_engine
+
+    engine = get_search_engine()
+    if engine is None:
+        raise HTTPException(404, "No archives loaded")
+    reader = engine._readers.get(source_id)  # noqa: SLF001 — single known caller
+    if reader is None:
+        raise HTTPException(404, f"Archive {source_id} not loaded")
+    try:
+        if not reader.has_main_entry:
+            raise HTTPException(404, "Archive has no main entry")
+        entry = reader.main_entry
+        # Follow redirect so the returned path opens a real article.
+        target = entry.get_item() if entry.is_redirect is False else None
+        path = entry.path if target else entry.get_redirect_entry().path
+        return {
+            "source_id": source_id,
+            "path": path,
+            "title": entry.title,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — libzim surfaces varied errors
+        raise HTTPException(500, f"Failed to read main entry: {exc}") from exc
+
+
+@router.get("/{source_id}/random")
+async def get_random_entry(source_id: str):
+    """Return a random article path from the ZIM for 'surprise me' browsing.
+
+    Wrappers :meth:`libzim.reader.Archive.get_random_entry`. Used by the
+    archive landing page to mimic Wikipedia's 'Random article' button.
+    """
+    from lokidoki.archives.search import get_search_engine
+
+    engine = get_search_engine()
+    if engine is None:
+        raise HTTPException(404, "No archives loaded")
+    reader = engine._readers.get(source_id)  # noqa: SLF001
+    if reader is None:
+        raise HTTPException(404, f"Archive {source_id} not loaded")
+    try:
+        entry = reader.get_random_entry()
+        # Follow redirect if the random draw landed on one.
+        if entry.is_redirect:
+            entry = entry.get_redirect_entry()
+        return {
+            "source_id": source_id,
+            "path": entry.path,
+            "title": entry.title,
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"Failed to pick random entry: {exc}") from exc
+
+
+@router.get("/{source_id}/meta")
+async def get_archive_meta(source_id: str):
+    """Return archive-level metadata for the landing page hero."""
+    from lokidoki.archives.search import get_search_engine
+
+    engine = get_search_engine()
+    if engine is None:
+        raise HTTPException(404, "No archives loaded")
+    reader = engine._readers.get(source_id)  # noqa: SLF001
+    if reader is None:
+        raise HTTPException(404, f"Archive {source_id} not loaded")
+
+    def _safe_meta(key: str) -> str:
         try:
-            async with _httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(source.favicon_url, follow_redirects=True)
-                if resp.status_code == 200 and len(resp.content) > 0:
-                    favicon_path.write_bytes(resp.content)
-        except Exception:
-            raise HTTPException(404, "Favicon not available")
+            return reader.get_metadata(key).decode("utf-8", errors="replace").strip()
+        except Exception:  # noqa: BLE001
+            return ""
 
-    if not favicon_path.exists():
-        raise HTTPException(404, "Favicon not found")
-    return FileResponse(favicon_path, media_type="image/x-icon")
+    source = catalog.get_source(source_id)
+    return {
+        "source_id": source_id,
+        "label": source.label if source else source_id,
+        "category": source.category if source else "",
+        "description": source.description if source else "",
+        "zim_title": _safe_meta("Title"),
+        "zim_description": _safe_meta("Description"),
+        "zim_language": _safe_meta("Language"),
+        "zim_creator": _safe_meta("Creator"),
+        "article_count": int(getattr(reader, "article_count", 0)),
+    }
 
 
 # ── Search ──────────────────────────────────────────────────────

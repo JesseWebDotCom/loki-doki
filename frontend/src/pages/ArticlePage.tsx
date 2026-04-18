@@ -52,6 +52,17 @@ const ArticlePage: React.FC = () => {
       .then(data => {
         setArticle(data);
         window.scrollTo(0, 0);
+        // Track visit for the per-archive "Recently viewed" list on
+        // ArchiveHomePage. Cap at 8 entries so the key stays small.
+        try {
+          const key = `ld-archive-recent-${sourceId}`;
+          const raw = localStorage.getItem(key);
+          const existing: Array<{ path: string; title: string; visited_at: number }> =
+            raw ? JSON.parse(raw) : [];
+          const filtered = existing.filter(e => e.path !== articlePath);
+          filtered.unshift({ path: articlePath!, title: data.title, visited_at: Date.now() });
+          localStorage.setItem(key, JSON.stringify(filtered.slice(0, 8)));
+        } catch { /* localStorage full or blocked — non-critical */ }
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));

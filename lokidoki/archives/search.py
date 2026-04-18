@@ -28,6 +28,16 @@ _URL_TEMPLATES: dict[str, str] = {
     "stackexchange": "https://stackexchange.com/search?q={path}",
     "ifixit": "https://www.ifixit.com/{path}",
     "gutenberg": "https://www.gutenberg.org/ebooks/{path}",
+    "khanacademy": "https://www.khanacademy.org/{path}",
+    "mdwiki": "https://mdwiki.org/wiki/{path}",
+    "wikem": "https://wikem.org/wiki/{path}",
+    "factbook": "https://www.cia.gov/the-world-factbook/countries/{path}",
+    "appropedia": "https://www.appropedia.org/{path}",
+    "archlinux": "https://wiki.archlinux.org/title/{path}",
+    "freecodecamp": "https://www.freecodecamp.org/learn/{path}",
+    "vikidia": "https://en.vikidia.org/wiki/{path}",
+    "openstreetmap_wiki": "https://wiki.openstreetmap.org/wiki/{path}",
+    "python_docs": "https://docs.python.org/3/{path}",
 }
 
 SNIPPET_CHARS = 1500

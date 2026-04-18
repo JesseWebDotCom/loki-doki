@@ -47,10 +47,22 @@ async def test_people_fact_uses_wikidata_chain(monkeypatch):
     assert "United Kingdom" in result["output_text"]
 
 
+def _disable_zim_engine(monkeypatch):
+    """Force ``get_search_engine`` to return None so the health skills'
+    ZIM-first probe cleanly misses and falls through to the mocked
+    HTTP path. Needed because a dev box may have real medical ZIMs
+    downloaded (WikEM etc.) and the skill would otherwise return
+    genuine offline content instead of hitting the fake httpx client.
+    """
+    import lokidoki.archives.search as archives_search
+    monkeypatch.setattr(archives_search, "get_search_engine", lambda: None)
+
+
 @pytest.mark.anyio
 async def test_health_medication_uses_rxnorm(monkeypatch):
     from lokidoki.orchestrator.skills import health
 
+    _disable_zim_engine(monkeypatch)
     fake = _FakeClient([
         _FakeResponse(200, {"approximateGroup": {"candidate": [{"rxcui": "860975"}]}}),
         _FakeResponse(200, {"propConceptGroup": {"propConcept": [{"propValue": "Metformin 500 MG Oral Tablet"}]}}),
@@ -66,6 +78,7 @@ async def test_health_medication_uses_rxnorm(monkeypatch):
 async def test_health_symptom_uses_medline_search(monkeypatch):
     from lokidoki.orchestrator.skills import health
 
+    _disable_zim_engine(monkeypatch)
     fake = _FakeClient([
         _FakeResponse(200, {"spellingCorrection": None, "list": {"document": [{"title": "Knee Injuries and Disorders"}]}}),
     ])

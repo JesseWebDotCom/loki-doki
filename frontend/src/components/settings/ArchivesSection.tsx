@@ -1,9 +1,9 @@
 /**
  * ArchivesSection — admin panel for managing offline knowledge archives.
  *
- * Uses a tile grid layout matching the Skills section. Each tile shows
- * the archive favicon, name, size, and a status dot. Toggle ON starts
- * download + enables. Toggle OFF disables (keeps file). Remove deletes.
+ * Layout: category-grouped grid of "hero" cards. Each card has a
+ * colored top region with the archive's favicon + a body containing
+ * the category tag, title, and description. Click → detail modal.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -95,7 +95,30 @@ const authHeaders = (): HeadersInit => {
   return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
 };
 
-const CATEGORIES = ['General', 'Reference', 'Practical', 'Education', 'Emergency'];
+/**
+ * Map each category to a tinted header background. Stays within the
+ * Onyx Material palette — not brand colors — so the carousel feels
+ * consistent with the rest of the app.
+ */
+const CATEGORY_BG: Record<string, string> = {
+  Knowledge:   'bg-blue-500/15 dark:bg-blue-400/15',
+  Maintenance: 'bg-sky-500/15 dark:bg-sky-400/15',
+  Medical:     'bg-rose-500/15 dark:bg-rose-400/15',
+  Survival:    'bg-amber-500/15 dark:bg-amber-400/15',
+  Education:   'bg-violet-500/15 dark:bg-violet-400/15',
+  Reference:   'bg-slate-500/15 dark:bg-slate-400/15',
+  Inspiration: 'bg-emerald-500/15 dark:bg-emerald-400/15',
+  Navigation:  'bg-teal-500/15 dark:bg-teal-400/15',
+};
+
+const categoryBg = (category: string): string =>
+  CATEGORY_BG[category] ?? 'bg-primary/10';
+
+// Display order of categories in the carousel.
+const CATEGORY_ORDER = [
+  'Knowledge', 'Maintenance', 'Medical', 'Survival',
+  'Education', 'Navigation', 'Reference', 'Inspiration',
+];
 
 // ── Component ──────────────────────────────────────────────────
 
@@ -108,15 +131,32 @@ const ArchivesSection: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
+    const parse = async (path: string): Promise<object | null> => {
+      try {
+        const res = await fetch(`${API}${path}`, { headers: authHeaders() });
+        if (!res.ok) return null;
+        return await res.json();
+      } catch {
+        return null;
+      }
+    };
     try {
       const [catRes, statusRes, storageRes] = await Promise.all([
-        fetch(`${API}/catalog`, { headers: authHeaders() }).then(r => r.json()),
-        fetch(`${API}/status`, { headers: authHeaders() }).then(r => r.json()),
-        fetch(`${API}/storage`, { headers: authHeaders() }).then(r => r.json()),
+        parse('/catalog'),
+        parse('/status'),
+        parse('/storage'),
       ]);
-      setCatalog(catRes.catalog || []);
-      setStatuses(statusRes.archives || []);
-      setStorage(storageRes);
+      setCatalog(((catRes as { catalog?: CatalogEntry[] } | null)?.catalog) ?? []);
+      setStatuses(((statusRes as { archives?: ArchiveStatus[] } | null)?.archives) ?? []);
+      // Only keep a storage object if it actually has the expected
+      // shape — a 401 body would otherwise render as {detail:"..."} and
+      // blow up the render tree on ``storage.default_location.free_bytes``.
+      const s = storageRes as StorageInfo | null;
+      if (s && s.default_location && typeof s.default_location === 'object') {
+        setStorage(s);
+      } else {
+        setStorage(null);
+      }
     } catch (e) {
       console.error('Failed to load archive data', e);
     } finally {
@@ -151,13 +191,25 @@ const ArchivesSection: React.FC = () => {
     return m;
   }, [statuses]);
 
+  // Bucket catalog by category, preserving CATEGORY_ORDER. Categories
+  // with no entries are skipped so the admin doesn't see empty headers.
+  const grouped = useMemo(() => {
+    const buckets: Record<string, CatalogEntry[]> = {};
+    for (const entry of catalog) {
+      (buckets[entry.category] ||= []).push(entry);
+    }
+    return CATEGORY_ORDER
+      .map(category => ({ category, entries: buckets[category] || [] }))
+      .filter(g => g.entries.length > 0);
+  }, [catalog]);
+
   // ── Handlers ─────────────────────────────────────────────────
 
-  /** Toggle ON = configure + download if needed. Toggle OFF = disable. */
   const handleToggle = async (sourceId: string, entry: CatalogEntry) => {
     const status = statusMap[sourceId];
-    const isCurrentlyEnabled = status?.config?.enabled ?? false;
     const isInstalled = status?.state?.download_complete ?? false;
+    // Mirror the card's view: downloaded + no config counts as on.
+    const isCurrentlyEnabled = status?.config?.enabled ?? isInstalled;
 
     if (isCurrentlyEnabled) {
       await fetch(`${API}/${sourceId}`, {
@@ -215,11 +267,6 @@ const ArchivesSection: React.FC = () => {
     return <div className="text-muted-foreground text-sm p-4">Loading…</div>;
   }
 
-  const grouped = CATEGORIES.map(cat => ({
-    category: cat,
-    entries: catalog.filter(e => e.category === cat),
-  })).filter(g => g.entries.length > 0);
-
   const selected = selectedId ? catalog.find(e => e.source_id === selectedId) : null;
   const selectedStatus = selectedId ? statusMap[selectedId] : null;
   const selectedDl = selectedId ? downloads[selectedId] : null;
@@ -254,92 +301,27 @@ const ArchivesSection: React.FC = () => {
         </div>
       )}
 
-      {/* Tile grid by category */}
-      <div className="space-y-6">
+      {/* Category-grouped tile grid */}
+      <div className="space-y-8">
         {grouped.map(({ category, entries }) => (
           <section key={category} className="space-y-3">
             <div className="flex items-center gap-2">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
                 {category}
               </h3>
               <span className="text-[10px] text-muted-foreground/60">{entries.length}</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {entries.map(entry => {
-                const status = statusMap[entry.source_id];
-                const dl = downloads[entry.source_id];
-                const isDownloading = dl && ['resolving', 'downloading'].includes(dl.status);
-                const variant = entry.variants.find(v => v.key === (status?.config?.variant || entry.default_variant)) || entry.variants[0];
-
-                const isEnabled = status?.config?.enabled ?? false;
-
-                return (
-                  <div
-                    key={entry.source_id}
-                    className="group relative flex flex-col items-start gap-2 p-4 rounded-2xl border border-border/30 bg-card/40 hover:bg-card/70 hover:border-primary/40 transition-all text-left h-full"
-                  >
-                    {/* Toggle switch — top right */}
-                    <div
-                      className="absolute top-3 right-3"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={() => !isDownloading && handleToggle(entry.source_id, entry)}
-                        disabled={!!isDownloading}
-                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus:outline-none ${
-                          (isEnabled || isDownloading)
-                            ? 'bg-primary border-primary'
-                            : 'bg-muted-foreground/30 border-muted-foreground/30'
-                        } ${isDownloading ? 'opacity-60 cursor-wait' : ''}`}
-                        title={isEnabled ? 'Disable' : 'Enable (downloads if needed)'}
-                      >
-                        <span
-                          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${
-                            (isEnabled || isDownloading) ? 'translate-x-4' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-                    </div>
-
-                    {/* Clickable body → opens detail */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(entry.source_id)}
-                      className="flex flex-col items-start gap-2 w-full text-left cursor-pointer"
-                    >
-                      {/* Favicon */}
-                      <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors overflow-hidden">
-                        <img
-                          src={`${API}/favicon/${entry.source_id}`}
-                          alt=""
-                          className="w-6 h-6"
-                          onError={e => {
-                            const el = e.target as HTMLImageElement;
-                            el.style.display = 'none';
-                            el.parentElement!.innerHTML = `<span class="text-lg font-bold">${entry.label[0]}</span>`;
-                          }}
-                        />
-                      </div>
-                      <h3 className="text-sm font-bold tracking-tight truncate w-full">
-                        {entry.label}
-                      </h3>
-                      <p className="text-[11px] text-muted-foreground line-clamp-2 leading-snug">
-                        {entry.description}
-                      </p>
-                      <span className="text-[10px] text-muted-foreground/60 mt-auto">
-                        ~{variant.approx_size_gb} GB
-                      </span>
-                    </button>
-
-                    {/* Download progress overlay */}
-                    {isDownloading && dl && (
-                      <div className="absolute bottom-0 left-0 right-0 h-1 rounded-b-2xl bg-muted overflow-hidden">
-                        <div className="h-full bg-primary transition-all" style={{ width: `${dl.percent}%` }} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
+              {entries.map(entry => (
+                <ArchiveCard
+                  key={entry.source_id}
+                  entry={entry}
+                  status={statusMap[entry.source_id]}
+                  dl={downloads[entry.source_id]}
+                  onClick={() => setSelectedId(entry.source_id)}
+                  onToggle={() => handleToggle(entry.source_id, entry)}
+                />
+              ))}
             </div>
           </section>
         ))}
@@ -358,6 +340,91 @@ const ArchivesSection: React.FC = () => {
           onClose={() => setSelectedId(null)}
         />
       )}
+    </div>
+  );
+};
+
+// ── Single hero card ───────────────────────────────────────────
+
+interface CardProps {
+  entry: CatalogEntry;
+  status?: ArchiveStatus;
+  dl?: DownloadProgress;
+  onClick: () => void;
+  onToggle: () => void;
+}
+
+const ArchiveCard: React.FC<CardProps> = ({ entry, status, dl, onClick, onToggle }) => {
+  // Downloaded-but-no-config counts as enabled — prevents the "file is
+  // on disk but toggle shows off" orphan state that confused users
+  // when a download completed before a config row existed.
+  const isInstalled = status?.state?.download_complete ?? false;
+  const isEnabled = status?.config?.enabled ?? isInstalled;
+  const isDownloading = dl && ['resolving', 'downloading'].includes(dl.status);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(); }}
+      className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/30 bg-card shadow-sm hover:border-primary/40 hover:shadow-md transition-all cursor-pointer"
+    >
+      {/* Hero area with favicon */}
+      <div
+        className={`relative flex h-40 items-center justify-center ${categoryBg(entry.category)}`}
+      >
+        <img
+          src={`${API}/favicon/${entry.source_id}`}
+          alt=""
+          className="h-20 w-20 object-contain"
+          onError={e => {
+            const el = e.target as HTMLImageElement;
+            el.style.display = 'none';
+            el.parentElement!.innerHTML += `<span class="text-5xl font-black text-foreground/50">${entry.label[0]}</span>`;
+          }}
+        />
+
+        {/* Toggle in top-right */}
+        <div className="absolute top-3 right-3" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={() => !isDownloading && onToggle()}
+            disabled={!!isDownloading}
+            className={`relative inline-flex h-6 w-10 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus:outline-none ${
+              (isEnabled || isDownloading)
+                ? 'bg-primary border-primary'
+                : 'bg-card border-border'
+            } ${isDownloading ? 'opacity-60 cursor-wait' : ''}`}
+            title={isEnabled ? 'Disable' : 'Enable (downloads if needed)'}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${
+                (isEnabled || isDownloading) ? 'translate-x-4' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Download progress ribbon */}
+        {isDownloading && dl && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-muted">
+            <div className="h-full bg-primary transition-all" style={{ width: `${dl.percent}%` }} />
+          </div>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-1 flex-col gap-2 p-5">
+        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+          {entry.category}
+        </span>
+        <h3 className="text-lg font-bold tracking-tight leading-tight">
+          {entry.label}
+        </h3>
+        <p className="text-sm text-muted-foreground leading-snug line-clamp-4">
+          {entry.description}
+        </p>
+      </div>
     </div>
   );
 };
@@ -391,48 +458,42 @@ const ArchiveDetailPanel: React.FC<DetailProps> = ({
         className="bg-card border border-border rounded-2xl shadow-m4 w-full max-w-lg mx-4 overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="p-6 border-b border-border/20">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden">
-                <img
-                  src={`${API}/favicon/${entry.source_id}`}
-                  alt=""
-                  className="w-7 h-7"
-                  onError={e => {
-                    const el = e.target as HTMLImageElement;
-                    el.style.display = 'none';
-                    el.parentElement!.innerHTML = `<span class="text-xl font-bold text-primary">${entry.label[0]}</span>`;
-                  }}
-                />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold tracking-tight">{entry.label}</h3>
-                <p className="text-xs text-muted-foreground">{entry.description}</p>
-              </div>
-            </div>
-
-            {/* Toggle switch */}
-            <button
-              onClick={onToggle}
-              disabled={!!isDownloading}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus:outline-none mt-1 ${
-                (isEnabled || isDownloading) ? 'bg-primary border-primary' : 'bg-muted-foreground/30 border-muted-foreground/30'
-              } ${isDownloading ? 'opacity-60 cursor-wait' : ''}`}
-              title={isEnabled ? 'Disable' : isInstalled ? 'Enable' : 'Download & enable'}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${
-                  (isEnabled || isDownloading) ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
+        {/* Header with hero */}
+        <div className={`relative flex h-32 items-center justify-center ${categoryBg(entry.category)}`}>
+          <img
+            src={`${API}/favicon/${entry.source_id}`}
+            alt=""
+            className="h-16 w-16 object-contain"
+            onError={e => {
+              const el = e.target as HTMLImageElement;
+              el.style.display = 'none';
+            }}
+          />
+          <button
+            onClick={onToggle}
+            disabled={!!isDownloading}
+            className={`absolute top-4 right-4 relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus:outline-none ${
+              (isEnabled || isDownloading) ? 'bg-primary border-primary' : 'bg-card border-border'
+            } ${isDownloading ? 'opacity-60 cursor-wait' : ''}`}
+            title={isEnabled ? 'Disable' : isInstalled ? 'Enable' : 'Download & enable'}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${
+                (isEnabled || isDownloading) ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
         </div>
 
-        {/* Body */}
         <div className="p-6 space-y-4">
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+              {entry.category}
+            </span>
+            <h3 className="text-xl font-bold tracking-tight">{entry.label}</h3>
+            <p className="text-sm text-muted-foreground">{entry.description}</p>
+          </div>
+
           {/* Variant selector */}
           {entry.variants.length > 1 && (
             <div className="space-y-2">

@@ -41,13 +41,22 @@ def _extract_query(payload: dict[str, Any]) -> str:
     explicit = (payload.get("params") or {}).get("query")
     if explicit:
         return str(explicit)
+    # Prefer the decomposer's pre-resolved query when present — the fast
+    # LLM has already rewritten pronouns against the in-turn context
+    # (e.g. "is it free" + prior-turn entity → "is Claude Cowork free").
+    # This supersedes conversation_topic enrichment, which used to pull
+    # in STALE topics ("The Dark Knight" from ten turns ago) when the
+    # user asked a follow-up like "how do I do that" about a brand-new
+    # medical question.
+    resolved = str(payload.get("resolved_query") or "").strip()
+    if resolved:
+        return resolved
     base = str(payload.get("chunk_text") or "").strip(" ?.!")
-    # Enrich very short, pronoun-heavy queries with the conversational
-    # topic so "is it free" + topic "Claude Cowork" → "is it free
-    # Claude Cowork". Cap at 4 words — anything longer already has
-    # enough specificity to search on its own. A 7-word cap caused
-    # "who is the active us president" (7 words) to get "what's
-    # happening" appended from a stale prior turn's topic.
+    # Conversation-topic enrichment is gated behind "no decomposer
+    # signal at all" — otherwise we'd keep poisoning follow-ups with
+    # unrelated earlier topics.
+    if payload.get("capability_need"):
+        return base
     topic = str(payload.get("conversation_topic") or "").strip()
     if topic and base and topic.lower() not in base.lower():
         words = base.split()
@@ -91,8 +100,19 @@ def _zim_query(query: str) -> str:
     return _QUESTION_PREFIX.sub("", query).strip() or query
 
 
-async def _zim_source(query: str) -> AdapterResult:
+async def _zim_source(
+    query: str,
+    archive_hint: str = "",
+    capability_need: str = "",
+) -> AdapterResult:
     """Query local ZIM archives — fastest, offline-first path.
+
+    When the decomposer supplies an ``archive_hint`` or a
+    topic-specific ``capability_need`` (medical, howto, etc.), search
+    is scoped to the matching source family first — so "chest pain"
+    lands in MedlinePlus/WikEM instead of surfacing a loose Wikipedia
+    match. Falls back to searching all loaded archives when the hinted
+    sources aren't installed or return no results.
 
     Optimized two-pass strategy:
     1. Search with max_results=1 (fast — title suggestion usually nails it).
@@ -100,6 +120,7 @@ async def _zim_source(query: str) -> AdapterResult:
     3. If not, widen to 3 results and pick the best scorer.
     """
     try:
+        from lokidoki.archives.hint_map import filter_to_loaded, sources_for_hint
         from lokidoki.archives.search import get_search_engine
 
         engine = get_search_engine()
@@ -109,23 +130,35 @@ async def _zim_source(query: str) -> AdapterResult:
             )
         clean = _zim_query(query)
 
-        # Fast path: single best result
-        results = await engine.search(clean, max_results=1)
+        # Resolve hint → concrete loaded source subset. Empty means
+        # "search everything" (caller-side default).
+        hinted = sources_for_hint(archive_hint, capability_need)
+        scoped = filter_to_loaded(hinted, engine.loaded_sources) if hinted else []
+
+        # Fast path: hinted-scope single best result
+        results = await engine.search(clean, sources=scoped or None, max_results=1)
+        if results:
+            best = results[0]
+            if score_subject_coverage(query, best.snippet) >= MIN_SUBJECT_COVERAGE:
+                return AdapterResult(
+                    output_text=best.snippet,
+                    success=True,
+                    source_url=best.url,
+                    source_title=f"{best.source_label} (offline)",
+                )
+
+        # Wider search (still hint-scoped if hinted, else all loaded)
+        results = await engine.search(clean, sources=scoped or None, max_results=3)
+
+        # If hinted search came up empty, fall back to all-loaded — better
+        # to surface an off-scope hit than fail entirely.
+        if not results and scoped:
+            results = await engine.search(clean, max_results=3)
+
         if not results:
             return AdapterResult(
                 output_text="", success=False, error="no local article found",
             )
-        best = results[0]
-        if score_subject_coverage(query, best.snippet) >= MIN_SUBJECT_COVERAGE:
-            return AdapterResult(
-                output_text=best.snippet,
-                success=True,
-                source_url=best.url,
-                source_title=f"{best.source_label} (offline)",
-            )
-
-        # Wider search when first result is off-subject
-        results = await engine.search(clean, max_results=3)
         best = max(results, key=lambda r: score_subject_coverage(query, r.snippet))
         return AdapterResult(
             output_text=best.snippet,
@@ -160,11 +193,14 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
             error="missing query",
         ).to_payload()
 
+    archive_hint = str(payload.get("archive_hint") or "")
+    capability_need = str(payload.get("capability_need") or "")
+
     def score(result: AdapterResult) -> float:
         return score_subject_coverage(query, result.output_text)
 
     # ── Local-first: try ZIM archives before any network call ──
-    zim_result = await _zim_source(query)
+    zim_result = await _zim_source(query, archive_hint, capability_need)
     if zim_result.success and score(zim_result) >= MIN_SUBJECT_COVERAGE:
         return zim_result.to_payload()
 

@@ -6,6 +6,12 @@ import math
 
 from lokidoki.orchestrator.core.config import CONFIG
 from lokidoki.orchestrator.core.types import RequestChunk, RouteMatch
+from lokidoki.orchestrator.decomposer.capability_map import (
+    PRIMARY_BOOST,
+    SECONDARY_BOOST,
+    capabilities_for_need,
+)
+from lokidoki.orchestrator.decomposer.types import RouteDecomposition
 from lokidoki.orchestrator.pipeline.derivations import CAPABILITY_PARAMS, NER_PARAM_MAP
 from lokidoki.orchestrator.registry.runtime import CapabilityRuntime, get_runtime
 
@@ -55,8 +61,15 @@ def route_chunk(
     chunk: RequestChunk,
     runtime: CapabilityRuntime | None = None,
     extracted_entities: list[tuple[str, str]] | None = None,
+    decomposition: RouteDecomposition | None = None,
 ) -> RouteMatch:
-    """Map a chunk to a prototype capability using the cached registry."""
+    """Map a chunk to a prototype capability using the cached registry.
+
+    ``decomposition`` (when provided) supplies an LLM-derived
+    ``capability_need`` prior. Capabilities named by that enum get a
+    per-example boost during cosine scoring — tipping borderline
+    matches above the floor without overriding confident MiniLM wins.
+    """
     active_runtime = runtime or get_runtime()
     query = " ".join(chunk.text.lower().split())
     query_vector = active_runtime.embed_query(query)
@@ -64,8 +77,11 @@ def route_chunk(
     best_score = 0.0
     best_text = ""
 
+    capability_boosts = _build_capability_boosts(decomposition)
+
     best_capability, best_score, best_text = _best_index_match(
-        query_vector, active_runtime.router_index, best_capability, best_score, best_text
+        query_vector, active_runtime.router_index, best_capability, best_score, best_text,
+        capability_boosts=capability_boosts,
     )
 
     # Slot-compatibility adjustment: penalize capabilities missing required
@@ -115,23 +131,53 @@ def _best_index_match(
     best_capability: str,
     best_score: float,
     best_text: str,
+    capability_boosts: dict[str, float] | None = None,
 ) -> tuple[str, float, str]:
-    """Scan the router index and return (capability, score, text) for the best match."""
+    """Scan the router index and return (capability, score, text) for the best match.
+
+    ``capability_boosts`` (when supplied) adds a per-capability constant
+    to every example's cosine score before comparison — used by the
+    decomposer prior to tip borderline matches for capabilities the
+    fast LLM thinks are right.
+    """
+    boosts = capability_boosts or {}
     for item in router_index:
         if item["capability"] == "direct_chat":
             # direct_chat is the floor-based fallback, never the
             # best-cosine winner — its examples are intentionally vague
             # and would otherwise dominate the index.
             continue
+        boost = boosts.get(item["capability"], 0.0)
         texts = item.get("texts") or []
         vectors = item.get("vectors") or []
         for text, vector in zip(texts, vectors, strict=True):
-            score = _cosine_similarity(query_vector, vector)
+            score = _cosine_similarity(query_vector, vector) + boost
             if score > best_score:
                 best_score = score
                 best_capability = item["capability"]
                 best_text = text
     return best_capability, best_score, best_text
+
+
+def _build_capability_boosts(
+    decomposition: RouteDecomposition | None,
+) -> dict[str, float]:
+    """Convert a :class:`RouteDecomposition` into a per-capability boost map.
+
+    The decomposer's primary preference gets :data:`PRIMARY_BOOST`; any
+    secondary preferences get :data:`SECONDARY_BOOST`. Fallback /
+    failure cases (``source`` != ``"llm"``) emit an empty map so the
+    router behaves exactly as it did pre-decomposer integration.
+    """
+    if decomposition is None or not decomposition.is_authoritative():
+        return {}
+    preferences = capabilities_for_need(decomposition.capability_need)
+    if not preferences:
+        return {}
+    boosts: dict[str, float] = {preferences[0]: PRIMARY_BOOST}
+    for capability in preferences[1:]:
+        boosts[capability] = SECONDARY_BOOST
+    return boosts
 
 
 # Slot scoring constants — per-slot penalty/bonus applied to cosine score.
@@ -268,6 +314,9 @@ async def route_chunk_async(
     chunk: RequestChunk,
     runtime: CapabilityRuntime | None = None,
     extracted_entities: list[tuple[str, str]] | None = None,
+    decomposition: RouteDecomposition | None = None,
 ) -> RouteMatch:
     """Offload routing work so embedding calls do not block the event loop."""
-    return await asyncio.to_thread(route_chunk, chunk, runtime, extracted_entities)
+    return await asyncio.to_thread(
+        route_chunk, chunk, runtime, extracted_entities, decomposition,
+    )

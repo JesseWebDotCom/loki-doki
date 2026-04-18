@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Brain,
+  MapPin,
   Network,
   Plus,
   FolderPlus,
@@ -63,6 +64,9 @@ const healthColor = (pct: number) =>
 const StatusIcons: React.FC<{ compact?: boolean }> = ({ compact }) => {
   const s = useSystemStatus();
   if (!s) return null;
+  // Pretty-print the engine + model for the tooltip: "MLX · Qwen3-8B"
+  // rather than the opaque HuggingFace slug.
+  const fastModelShort = (s.fast_model || '').split('/').pop() ?? '';
   const items = [
     {
       icon: s.internet_ok ? Wifi : WifiOff,
@@ -71,8 +75,10 @@ const StatusIcons: React.FC<{ compact?: boolean }> = ({ compact }) => {
     },
     {
       icon: Bot,
-      color: s.ollama_ok ? 'text-emerald-400' : 'text-red-400',
-      title: s.ollama_ok ? `Ollama ${s.ollama_version}` : 'Ollama offline',
+      color: s.engine_ok ? 'text-emerald-400' : 'text-red-400',
+      title: s.engine_ok
+        ? `LLM ready · ${fastModelShort || s.platform}`
+        : 'LLM engine unreachable',
     },
     {
       icon: MemoryStick,
@@ -166,6 +172,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isMemory = location.pathname === '/memory';
   const isPeople = location.pathname === '/people';
   const isSearch = location.pathname === '/search';
+  const isMaps = location.pathname === '/maps';
 
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('ld-sidebar-collapsed') === 'true',
@@ -330,6 +337,15 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             <Search size={16} />
           </Link>
+          <Link
+            to="/maps"
+            title="Maps"
+            className={`${slot} cursor-pointer ${
+              isMaps ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
+            }`}
+          >
+            <MapPin size={16} />
+          </Link>
         </nav>
         <div className="mt-2 flex w-full flex-col items-center border-t border-sidebar-border/40 pt-2">
           <div className="flex h-10 w-10 items-center justify-center">
@@ -414,6 +430,17 @@ const Sidebar: React.FC<SidebarProps> = ({
             <Search size={18} />
           </span>
           <span className="ml-1">Search</span>
+        </Link>
+        <Link
+          to="/maps"
+          className={`flex items-center rounded-xl transition-colors text-sm font-medium cursor-pointer ${
+            isMaps ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-card/50 hover:text-foreground'
+          }`}
+        >
+          <span className="flex h-10 w-10 items-center justify-center shrink-0">
+            <MapPin size={18} />
+          </span>
+          <span className="ml-1">Maps</span>
         </Link>
       </nav>
 

@@ -21,6 +21,10 @@ from lokidoki.orchestrator.core.pipeline_memory import (
     run_memory_read_path,
     run_memory_write_path,
 )
+from lokidoki.orchestrator.decomposer import (
+    RouteDecomposition,
+    decompose_for_routing,
+)
 from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.execution.request_spec import build_request_spec
 from lokidoki.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
@@ -104,25 +108,58 @@ def run_initial_phase(trace, safe_context, raw_text, normalized):
 
 
 async def run_routing_phase(trace, safe_context, routable, runtime, routable_extractions=None):
-    """Route each routable chunk and select its implementation."""
+    """Route each routable chunk and select its implementation.
+
+    Fires the decomposer (fast LLM capability_need extractor) in parallel
+    with MiniLM cosine scoring. The decomposer's output becomes a
+    per-capability boost in :func:`route_chunk`, tipping borderline
+    matches without overriding confident wins. If the decomposer times
+    out or errors, its result is a no-op fallback and routing proceeds
+    on MiniLM alone.
+    """
+    # Combine routable chunk text for one decomposer call. The
+    # decomposer operates on user intent, which is usually unified
+    # across a multi-sentence utterance; per-chunk calls would just
+    # triple latency for no accuracy gain.
+    combined_text = " ".join(c.text for c in routable).strip()
+    decompose_task = asyncio.create_task(decompose_for_routing(combined_text))
+
     finish = trace.timed("route")
     ext_by_chunk = {ext.chunk_index: ext for ext in (routable_extractions or [])}
-    routed = list(await asyncio.gather(*(
-        _timed_route(c, runtime, entities=(ext_by_chunk.get(c.index, None) and ext_by_chunk[c.index].entities) or None)
+    # Wait for decomposer alongside the cosine lookups. Both are awaitable,
+    # so gather schedules them concurrently — decomposer network I/O
+    # overlaps with MiniLM to_thread() CPU work.
+    routing_tasks = [
+        _timed_route(
+            c, runtime,
+            entities=(ext_by_chunk.get(c.index, None) and ext_by_chunk[c.index].entities) or None,
+            decompose_task=decompose_task,
+        )
         for c in routable
-    )))
+    ]
+    routed = list(await asyncio.gather(*routing_tasks))
     routes = [item["route"] for item in routed]
+    # Every _timed_route awaited the same decompose_task, so it's done
+    # by now — pull the result for observability.
+    decomposition = decompose_task.result() if decompose_task.done() else RouteDecomposition()
+    safe_context["route_decomposition"] = decomposition
     for r in routes:
         logger.debug("[Pipeline] Routed chunk %d to %s (conf=%s)",
                      r.chunk_index, r.capability, r.confidence)
-    finish(chunks=[
-        {"chunk_index": item["route"].chunk_index, "text": c.text,
-         "capability": item["route"].capability,
-         "confidence": item["route"].confidence,
-         "matched_text": item["route"].matched_text,
-         "timing_ms": item["timing_ms"]}
-        for c, item in zip(routable, routed, strict=True)
-    ])
+    finish(
+        chunks=[
+            {"chunk_index": item["route"].chunk_index, "text": c.text,
+             "capability": item["route"].capability,
+             "confidence": item["route"].confidence,
+             "matched_text": item["route"].matched_text,
+             "timing_ms": item["timing_ms"]}
+            for c, item in zip(routable, routed, strict=True)
+        ],
+        decomposer_source=decomposition.source,
+        decomposer_capability_need=decomposition.capability_need,
+        decomposer_archive_hint=decomposition.archive_hint,
+        decomposer_latency_ms=decomposition.latency_ms,
+    )
 
     finish = trace.timed("select_implementation")
     selected = list(await asyncio.gather(*(
@@ -538,9 +575,25 @@ def _log_knowledge_gap(original_input: str, resolved_query: str, context: dict):
 
 # ---- timed wrappers ---------------------------------------------------------
 
-async def _timed_route(chunk, runtime, entities=None):
+async def _timed_route(chunk, runtime, entities=None, decompose_task=None):
+    """Run one chunk's routing after awaiting the (shared) decomposer task.
+
+    All chunks await the SAME task, so the decomposer only runs once
+    per turn even when there are multiple routable chunks. The await is
+    cheap once the task is complete.
+    """
     started = time.perf_counter()
-    route = await route_chunk_async(chunk, runtime, extracted_entities=entities)
+    decomposition = None
+    if decompose_task is not None:
+        try:
+            decomposition = await decompose_task
+        except Exception:  # noqa: BLE001 — decomposer must never break routing
+            decomposition = None
+    route = await route_chunk_async(
+        chunk, runtime,
+        extracted_entities=entities,
+        decomposition=decomposition,
+    )
     return {"route": route, "timing_ms": round((time.perf_counter() - started) * 1000, 3)}
 
 

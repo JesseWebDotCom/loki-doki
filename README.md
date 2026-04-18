@@ -52,7 +52,7 @@ Think of LokiDoki as a **local alternative** to cloud assistants — like ChatGP
   <tr>
     <td width="50%" valign="top">
       <img src="./assets/readme/readme-icon-powerful.svg" alt="" width="42" align="absmiddle"> <strong>Works offline</strong><br><br>
-      Keep chatting, controlling your home, and looking things up on a plane, during a blackout, or in a country that blocks cloud AI. Optional cached content — Wikipedia, WebMD, and more — for fully offline answers.
+      Keep chatting, controlling your home, and looking things up on a plane, during a blackout, or in a country that blocks cloud AI. Downloadable Kiwix archives — Wikipedia, MDWiki, WikEM, iFixit, Khan Academy, Arch Linux Wiki, and more — plus an interactive map, all searchable offline.
     </td>
     <td width="50%" valign="top">
       <img src="./assets/readme/readme-icon-personal.svg" alt="" width="42" align="absmiddle"> <strong>Always yours</strong><br><br>
@@ -152,6 +152,14 @@ Every user gets their own animated companion with its own face, voice, personali
 
 LokiDoki is built around a household, not a single account. It recognizes who is there, adapts settings and care profiles per person, and applies household-wide and per-person permissions so parents stay in control of what their family can access.
 
+### Offline Knowledge Archives
+
+Pick from a curated catalog of [Kiwix](https://kiwix.org) ZIM archives — Wikipedia, Wiktionary, Wikiquote, Wikisource, iFixit, Stack Exchange, MDWiki, WikEM, Khan Academy, freeCodeCamp, Gutenberg, CIA World Factbook, Arch Linux Wiki, Appropedia, OpenStreetMap Wiki, TED Talks, and more. A single search bar queries everything at once; a per-archive landing page gives each source a Wikipedia-portal-style home with Random Article, scoped search, and recently viewed. The decomposer routes medical/how-to/country-facts questions to the right archive family automatically (MDWiki for symptoms, WikEM for first aid, Factbook for country stats), so the assistant answers from local disk first and only falls back to the web when a ZIM misses.
+
+### Maps
+
+An interactive [MapLibre GL JS](https://maplibre.org/) map with OpenStreetMap tiles, country-scoped address/city/ZIP search via [Nominatim](https://nominatim.org/), and a drop-pin-and-fly result flow. The map style is isolated so a Protomaps PMTiles swap takes it fully offline without touching the UI.
+
 <div align="right"><a href="#readme-top">&nwarr; Back to top</a></div>
 
 <a id="tech-stack"></a>
@@ -180,6 +188,9 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 - [x] Memory unification — single SQLite DB, unified gate-chain writer and reader
 - [x] Hybrid memory retrieval — FTS5 + embedding search with RRF merge
 - [x] Persona / companion system
+- [x] Offline knowledge archives — 21+ curated Kiwix ZIM sources (Wikipedia, MDWiki, WikEM, iFixit, Khan Academy, freeCodeCamp, Gutenberg, Appropedia, Arch Linux Wiki, CIA Factbook, OpenStreetMap Wiki, TED, and more), unified search, per-archive branded landing page, decomposer-driven routing to the right medical / how-to / country-facts family
+- [x] Interactive maps — MapLibre GL JS + OpenStreetMap tiles, country-scoped Nominatim address search, fly-to-pin UX
+- [x] LLM-driven routing prior — fast Qwen decomposer runs in parallel with MiniLM cosine match to tip borderline cases (~90% → 97% held-out corpus accuracy)
 - [ ] Voice pipeline — wake word, STT, TTS on CPU
 - [x] Mac profile (actively tested)
 - [x] Browser bootstrap installer
@@ -192,7 +203,7 @@ LokiDoki is built around a household, not a single account. It recognizes who is
 - [ ] Image and video understanding — describe, caption, and search your media library
 - [ ] Live video — real-time scene understanding from a camera feed
 - [ ] Home automation skills — lights, locks, climate, scenes
-- [ ] Offline knowledge cache — bundled Wikipedia, WebMD, and other references for fully offline answers
+- [ ] Offline map tiles — Protomaps PMTiles swap so the Maps page works without any network
 - [ ] Plugin marketplace
 - [ ] Device builds — Echo-style speaker and animatronic teddy bear
 - [ ] Systemd / launchd auto-start

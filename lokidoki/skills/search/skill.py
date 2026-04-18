@@ -6,6 +6,22 @@ from lokidoki.core.skill_executor import BaseSkill, MechanismResult
 DDG_API_URL = "https://api.duckduckgo.com/"
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 
+# DDG's Instant Answer API sometimes returns self-referential rows
+# ("About DuckDuckGo", "DuckDuckGo is a search engine...") when the
+# query has no good AbstractText. Those leak the brand name into the
+# final LLM response ("...don't ignore it! DuckDuckGo If..."). This
+# regex strips the brand from snippets before they reach the prompt.
+_BRAND_LEAK_RE = re.compile(
+    r"\b(?:about\s+)?duckduckgo(?:\s+is\s+a[^.]*\.?)?\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_brand(text: str) -> str:
+    cleaned = _BRAND_LEAK_RE.sub("", text or "")
+    # Collapse whitespace left behind by the excision.
+    return re.sub(r"\s{2,}", " ", cleaned).strip(" .,;:")
+
 
 class DuckDuckGoSkill(BaseSkill):
     """Web search via DuckDuckGo instant answers API with HTML scraper fallback."""
@@ -33,15 +49,18 @@ class DuckDuckGoSkill(BaseSkill):
                 return MechanismResult(success=False, error=f"DDG API error: {response.status_code}")
 
             data = response.json()
-            abstract = data.get("AbstractText", "")
-            heading = data.get("Heading", "")
+            abstract = _strip_brand(data.get("AbstractText", ""))
+            heading = _strip_brand(data.get("Heading", ""))
             source_url = data.get("AbstractURL", "")
 
-            # Also collect related topics as results
-            results = []
+            # Also collect related topics as results. Skip any topic
+            # that reduces to empty after brand-stripping — those are
+            # DDG self-referential rows with no real content.
+            results: list[str] = []
             for topic in data.get("RelatedTopics", [])[:5]:
-                if "Text" in topic:
-                    results.append(topic["Text"])
+                text = _strip_brand(topic.get("Text", "")) if isinstance(topic, dict) else ""
+                if text:
+                    results.append(text)
 
             if not abstract and not results:
                 return MechanismResult(success=False, error="No instant answer available")
@@ -54,7 +73,10 @@ class DuckDuckGoSkill(BaseSkill):
                     "results": results,
                 },
                 source_url=source_url or f"https://duckduckgo.com/?q={query}",
-                source_title=f"DuckDuckGo - {heading or query}",
+                # Plain title — no brand prefix. The LLM prompt renders
+                # ``[src:N] {title} ({url})`` for citations; the brand
+                # name only creeps back if we put it there ourselves.
+                source_title=heading or query,
             )
         except Exception as e:
             return MechanismResult(success=False, error=str(e))
@@ -81,7 +103,7 @@ class DuckDuckGoSkill(BaseSkill):
                 response.text,
                 re.DOTALL,
             )
-            clean = [re.sub(r'<[^>]+>', '', s).strip() for s in snippets[:5]]
+            clean = [_strip_brand(re.sub(r'<[^>]+>', '', s)) for s in snippets[:5]]
             clean = [s for s in clean if s]
 
             if not clean:
@@ -91,7 +113,7 @@ class DuckDuckGoSkill(BaseSkill):
                 success=True,
                 data={"results": clean},
                 source_url=f"https://duckduckgo.com/?q={query}",
-                source_title=f"DuckDuckGo - {query}",
+                source_title=query,
             )
         except Exception as e:
             return MechanismResult(success=False, error=str(e))

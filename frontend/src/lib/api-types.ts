@@ -597,8 +597,10 @@ export interface SystemInfo {
   platform: string;
   fast_model: string;
   thinking_model: string;
-  ollama_version: string;
-  ollama_ok: boolean;
+  /** True when the profile-specific LLM engine (mlx-lm / llama-server /
+   *  hailo-ollama) responds to ``/v1/models``. Replaces the legacy
+   *  ``ollama_ok`` flag from pre-engine-abstraction days. */
+  engine_ok: boolean;
   internet_ok: boolean;
   available_models: OllamaModel[];
   loaded_models: LoadedModel[];

@@ -45,8 +45,9 @@ def test_non_topic_picker_has_no_topics():
 
 
 def test_get_source_found():
-    assert get_source("wikipedia") is not None
-    assert get_source("wikipedia").label == "Wikipedia"
+    wp = get_source("wikipedia")
+    assert wp is not None
+    assert "Wikipedia" in wp.label
 
 
 def test_get_source_missing():

@@ -201,6 +201,18 @@ class DownloadManager:
             from .search import reload_search_engine
             reload_search_engine()
 
+            # Invalidate any cached favicon — the archive is now loaded
+            # so the next request extracts the high-quality ZIM
+            # illustration instead of returning a stale scraped ico.
+            favicon_base = store.favicon_dir()
+            for suffix in ("png", "ico"):
+                stale = favicon_base / f"{source_id}.{suffix}"
+                if stale.exists():
+                    try:
+                        stale.unlink()
+                    except OSError:
+                        pass
+
             progress.status = "complete"
             progress.percent = 100.0
             progress.bytes_downloaded = downloaded

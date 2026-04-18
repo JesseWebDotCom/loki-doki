@@ -227,13 +227,17 @@ const GeneralPane: React.FC = () => {
           <Cpu className="text-primary w-5 h-5" />
           <h2 className="text-xl font-bold tracking-tight">Runtime</h2>
           <div className="ml-auto flex items-center gap-4">
-            <StatusDot ok={info.ollama_ok} label="Ollama" />
+            <StatusDot ok={info.engine_ok} label="LLM engine" />
             <StatusDot ok={info.internet_ok} label="Internet" />
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Stat label="Platform" value={info.platform} />
-          <Stat label="Ollama" value={info.ollama_version || 'unavailable'} accent={info.ollama_ok ? 'text-green-400' : 'text-red-400'} />
+          <Stat
+            label="Engine"
+            value={info.engine_ok ? 'online' : 'offline'}
+            accent={info.engine_ok ? 'text-green-400' : 'text-red-400'}
+          />
           <Stat label="Fast Model" value={info.fast_model} accent="text-green-400" />
           <Stat label="Thinking Model" value={info.thinking_model} accent="text-primary" />
         </div>

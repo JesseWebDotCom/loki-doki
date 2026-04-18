@@ -24,6 +24,8 @@ const DevToolsPage = lazy(() =>
 );
 const SearchPage = lazy(() => import('./pages/SearchPage'));
 const ArticlePage = lazy(() => import('./pages/ArticlePage'));
+const ArchiveHomePage = lazy(() => import('./pages/ArchiveHomePage'));
+const MapsPage = lazy(() => import('./pages/MapsPage'));
 
 const App: React.FC = () => {
   return (
@@ -49,7 +51,11 @@ const App: React.FC = () => {
                 <Route path="/dev/:section" element={<DevToolsPage />} />
 
                 <Route path="/search" element={<SearchPage />} />
+                {/* Legacy /archives → unified search page */}
+                <Route path="/archives" element={<Navigate to="/search" replace />} />
+                <Route path="/archive/:sourceId" element={<ArchiveHomePage />} />
                 <Route path="/browse/:sourceId/*" element={<ArticlePage />} />
+                <Route path="/maps" element={<MapsPage />} />
 
                 {/* Legacy redirect from earlier merged layout */}
                 <Route path="/admin-panel" element={<Navigate to="/settings" replace />} />

@@ -871,7 +871,34 @@
       "why is my phone battery draining so fast",
       "how do i stay motivated",
       "what is the best laptop for gaming",
-      "how do you make sourdough bread"
+      "how do you make sourdough bread",
+      "how do i unclog a drain",
+      "how do i re-caulk a bathtub",
+      "how do i change a tire",
+      "how to remove a stripped screw",
+      "how do i start a garden",
+      "how do you pitch a tent in the wind",
+      "i cut my toe",
+      "i sprained my ankle",
+      "i have a headache",
+      "i burned my hand",
+      "i have a fever",
+      "what to do for a sprained wrist",
+      "how to treat a shallow cut",
+      "how to ice a sprain",
+      "population of sweden",
+      "what language do they speak in brazil",
+      "currency of thailand",
+      "capital of kenya",
+      "gdp of japan",
+      "when did the roman empire fall",
+      "explain derivatives in calculus",
+      "how does photosynthesis work",
+      "what is integration by parts",
+      "things to do in kyoto",
+      "best time to visit iceland",
+      "systemd unit file syntax",
+      "how does git rebase work"
     ],
     "enabled": true,
     "implementations": [
@@ -1805,7 +1832,15 @@
     "description": "Create a calendar event in the local prototype calendar store.",
     "examples": [
       "add lunch with Leia tomorrow at 1pm",
-      "create event dentist appointment 2026-05-01 3pm"
+      "create event dentist appointment 2026-05-01 3pm",
+      "add event to calendar",
+      "schedule a meeting friday at 10",
+      "add a dentist appointment next tuesday",
+      "book a haircut saturday",
+      "put a call with luke on wednesday at 4",
+      "new event: team sync 2pm today",
+      "create a reminder event for pickup",
+      "add birthday party saturday night"
     ],
     "enabled": true,
     "implementations": [
@@ -1852,7 +1887,15 @@
     "description": "Read calendar events from the local prototype calendar store.",
     "examples": [
       "what is on my calendar today",
-      "show my calendar"
+      "show my calendar",
+      "what events do i have next week",
+      "do i have anything tomorrow",
+      "whats scheduled this weekend",
+      "list my meetings today",
+      "whats coming up on friday",
+      "show my appointments",
+      "am i busy at 3pm",
+      "whats on my schedule"
     ],
     "enabled": true,
     "implementations": [
@@ -1892,7 +1935,11 @@
     "description": "Update an existing local prototype calendar event.",
     "examples": [
       "move my lunch event to 2pm",
-      "update event_001"
+      "update event_001",
+      "reschedule my dentist to thursday",
+      "change my 3pm meeting to 4",
+      "push my lunch to 1pm",
+      "move tomorrow's call to friday"
     ],
     "enabled": true,
     "implementations": [
@@ -1939,7 +1986,10 @@
     "description": "Delete a local prototype calendar event.",
     "examples": [
       "cancel my dentist appointment",
-      "delete event_001"
+      "delete event_001",
+      "remove tomorrow's meeting",
+      "cancel the friday call",
+      "delete my haircut appointment"
     ],
     "enabled": true,
     "implementations": [
@@ -1973,7 +2023,15 @@
     "capability": "set_alarm",
     "description": "Set an alarm in the local prototype alarm store.",
     "examples": [
-      "set an alarm for 7am"
+      "set an alarm for 7am",
+      "wake me up at 6:30",
+      "alarm for tomorrow morning at 8",
+      "set a weekday alarm at 7",
+      "wake me in time for my flight",
+      "alarm every weekday at 6am",
+      "set alarm 9am saturday",
+      "can you wake me at 5:45",
+      "set an alarm for 30 minutes before sunrise"
     ],
     "enabled": true,
     "implementations": [
@@ -2015,7 +2073,15 @@
     "capability": "set_timer",
     "description": "Set a timer in the local prototype timer store.",
     "examples": [
-      "set a 10 minute timer"
+      "set a 10 minute timer",
+      "start a 5 minute timer",
+      "timer for 45 seconds",
+      "set a timer for 2 hours",
+      "begin a pasta timer",
+      "20 minute countdown please",
+      "1 hour timer",
+      "start a 90 second timer",
+      "set a timer for 15 minutes"
     ],
     "enabled": true,
     "implementations": [
@@ -2053,7 +2119,16 @@
     "capability": "set_reminder",
     "description": "Set a reminder in the local prototype reminder store.",
     "examples": [
-      "remind me to call Luke at 6pm"
+      "remind me to call Luke at 6pm",
+      "remind me to take out the trash",
+      "remind me about the dentist tomorrow",
+      "set a reminder for monday morning",
+      "remind me to water the plants",
+      "remind me in an hour",
+      "remind me to check the oven at 5",
+      "remind me to feed the cat at 8",
+      "remind me to pay rent on the first",
+      "reminder for my prescription pickup"
     ],
     "enabled": true,
     "implementations": [
@@ -2091,7 +2166,12 @@
     "capability": "cancel_alarm",
     "description": "Cancel an alarm in the local prototype alarm store.",
     "examples": [
-      "cancel my 7am alarm"
+      "cancel my 7am alarm",
+      "delete the morning alarm",
+      "turn off my alarm",
+      "remove my weekday alarm",
+      "cancel all alarms",
+      "stop the 6:30 alarm"
     ],
     "enabled": true,
     "implementations": [
@@ -2272,7 +2352,11 @@
     "description": "Start a phone call from the local prototype call log backend.",
     "examples": [
       "call Leia",
-      "call Luke"
+      "call Luke",
+      "phone mom",
+      "dial my brother",
+      "call the office",
+      "make a call to dad"
     ],
     "enabled": true,
     "implementations": [
@@ -2451,7 +2535,14 @@
     "description": "Play music in the local prototype playback state store.",
     "examples": [
       "play some jazz",
-      "play Beyonce"
+      "play Beyonce",
+      "put on some music",
+      "play my favorites playlist",
+      "start the morning playlist",
+      "play taylor swift",
+      "shuffle my liked songs",
+      "play hip hop",
+      "start some focus music"
     ],
     "enabled": true,
     "implementations": [
@@ -2490,7 +2581,15 @@
     "description": "Control playback in the local prototype playback state store.",
     "examples": [
       "pause",
-      "skip this song"
+      "skip this song",
+      "pause the music",
+      "next song",
+      "previous track",
+      "resume music",
+      "stop the music",
+      "skip",
+      "play the next track",
+      "go back one song"
     ],
     "enabled": true,
     "implementations": [
@@ -2623,7 +2722,13 @@
     "description": "Get driving directions using Nominatim and OSRM.",
     "examples": [
       "how do i get to the airport from here",
-      "drive from Hoboken to Newark Airport"
+      "drive from Hoboken to Newark Airport",
+      "directions to the mall",
+      "navigate to work",
+      "take me to chinatown",
+      "how do i get to central park",
+      "route to the grocery store",
+      "directions home"
     ],
     "enabled": true,
     "implementations": [
@@ -2671,7 +2776,13 @@
     "capability": "get_eta",
     "description": "Get driving ETA using Nominatim and OSRM.",
     "examples": [
-      "how long will it take to drive downtown"
+      "how long will it take to drive downtown",
+      "how long to drive to san francisco",
+      "whats the drive time to the airport",
+      "how far is chicago from here",
+      "eta to home",
+      "how many minutes to downtown",
+      "travel time to golden gate bridge"
     ],
     "enabled": true,
     "implementations": [
@@ -2715,7 +2826,14 @@
     "capability": "find_nearby",
     "description": "Find nearby places using Overpass and OpenStreetMap.",
     "examples": [
-      "find coffee shops near me"
+      "find coffee shops near me",
+      "whats the closest pharmacy",
+      "gas stations nearby",
+      "any restaurants around here",
+      "find a grocery store close by",
+      "closest atm",
+      "hardware stores near me",
+      "find parking nearby"
     ],
     "enabled": true,
     "implementations": [
@@ -2998,9 +3116,24 @@
   },
   {
     "capability": "look_up_symptom",
-    "description": "Look up symptom information via MedlinePlus (DuckDuckGo web search).",
+    "description": "Look up symptom, condition, or health-concern information (medical reference — MedlinePlus, WikEM, or MDWiki via ZIM archives).",
     "examples": [
-      "what causes a sharp pain behind the knee"
+      "what causes a sharp pain behind the knee",
+      "my chest hurts",
+      "why do i have a headache",
+      "what causes nausea",
+      "my stomach is cramping",
+      "why am i dizzy",
+      "rash on my arm",
+      "sore throat symptoms",
+      "why is my back stiff",
+      "what does chest pain mean",
+      "fever for three days",
+      "can't stop coughing",
+      "my knee is swollen",
+      "shortness of breath causes",
+      "what causes migraines",
+      "why do my feet tingle"
     ],
     "enabled": true,
     "implementations": [
@@ -3032,10 +3165,25 @@
   },
   {
     "capability": "check_medication",
-    "description": "Look up medication information via MedlinePlus (DuckDuckGo web search).",
+    "description": "Look up medication information — dosage, side effects, interactions (MedlinePlus or MDWiki via ZIM archives).",
     "examples": [
       "what is metformin for",
-      "can i take ibuprofen with amoxicillin"
+      "can i take ibuprofen with amoxicillin",
+      "ibuprofen max daily dose",
+      "how much tylenol is safe",
+      "side effects of advil",
+      "can i drink alcohol with antibiotics",
+      "benadryl dosage for adults",
+      "is it safe to take aspirin daily",
+      "metformin side effects",
+      "lipitor interactions",
+      "what is amoxicillin used for",
+      "can i take melatonin every night",
+      "aleve vs tylenol",
+      "what does lisinopril do",
+      "what does zoloft treat",
+      "what does prozac treat",
+      "what does adderall do"
     ],
     "enabled": true,
     "implementations": [

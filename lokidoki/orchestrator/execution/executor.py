@@ -103,6 +103,7 @@ async def _build_payload_async(
             merged_config = await memory.run_sync(_load)
         except Exception:
             log.exception("config injection failed for %s", skill_id)
+    decomposition = (context or {}).get("route_decomposition")
     return {
         "chunk_text": chunk.text,
         "capability": route.capability,
@@ -119,6 +120,9 @@ async def _build_payload_async(
         "current_time": (context or {}).get("current_time"),
         "current_iso_time": (context or {}).get("current_iso_time"),
         "conversation_topic": (context or {}).get("conversation_topic", ""),
+        "archive_hint": getattr(decomposition, "archive_hint", "") or "",
+        "capability_need": getattr(decomposition, "capability_need", "") or "",
+        "resolved_query": getattr(decomposition, "resolved_query", "") or "",
         "mechanism": "asynchronous_skill",
     }
 
