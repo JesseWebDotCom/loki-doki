@@ -1,10 +1,10 @@
 /**
  * Search panel — the "Search" left-rail item's main pane.
  *
- * The fetch target is abstracted into `searchPlaces()` so Chunk 5 can
- * swap it for `/api/v1/maps/geocode` (offline FTS5) without touching
- * any feature code below. Today it hits Nominatim directly, matching
- * the behavior the old floating search bar had.
+ * Chunk 5 moved the fetch off Nominatim and onto the offline FTS5
+ * backend at `/api/v1/maps/geocode`. The backend unions results across
+ * every installed region whose bbox covers the viewport, and only
+ * falls back to Nominatim when no region covers the current area.
  *
  * Results reach the parent via `onSelect(place)` — `MapsPage` drops the
  * pin, flies the map, pushes to recents, and switches to the
@@ -16,8 +16,8 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { PlaceResult } from '../types';
 
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-const MAX_RESULTS = 5;
+const GEOCODE_URL = '/api/v1/maps/geocode';
+const MAX_RESULTS = 10;
 const DEBOUNCE_MS = 300;
 
 export interface ViewportCenter {
@@ -25,65 +25,70 @@ export interface ViewportCenter {
   lat: number;
 }
 
+export interface SearchResponse {
+  results: PlaceResult[];
+  fallback_used: boolean;
+  offline: boolean;
+}
+
+interface GeocodeRaw {
+  place_id: string;
+  title: string;
+  subtitle: string;
+  lat: number;
+  lon: number;
+  bbox: number[] | null;
+  source: 'fts' | 'nominatim';
+}
+
 /**
- * Single callsite for place search. Today: online Nominatim. Chunk 5
- * swaps the implementation to hit `/api/v1/maps/geocode` when an
- * offline region covers `viewportCenter`.
+ * Single callsite for place search. Hits the offline FTS backend first
+ * and surfaces `fallback_used` / `offline` to the caller so the panel
+ * can render the right helper chip.
  */
 export async function searchPlaces(
   query: string,
-  _viewportCenter: ViewportCenter | null,
+  viewportCenter: ViewportCenter | null,
   signal: AbortSignal,
-): Promise<PlaceResult[]> {
+): Promise<SearchResponse> {
   const trimmed = query.trim();
-  if (!trimmed) return [];
+  if (!trimmed) return { results: [], fallback_used: false, offline: false };
 
-  const url = new URL(NOMINATIM_URL);
+  const url = new URL(GEOCODE_URL, window.location.origin);
   url.searchParams.set('q', trimmed);
-  url.searchParams.set('format', 'json');
   url.searchParams.set('limit', String(MAX_RESULTS));
-  url.searchParams.set('addressdetails', '1');
+  if (viewportCenter) {
+    url.searchParams.set('lat', String(viewportCenter.lat));
+    url.searchParams.set('lon', String(viewportCenter.lng));
+  }
 
-  const res = await fetch(url.toString(), {
-    signal,
-    headers: { 'Accept-Language': navigator.language || 'en' },
-  });
+  const res = await fetch(url.toString(), { signal });
   if (!res.ok) throw new Error(`Geocoder ${res.status}`);
-  const raw = (await res.json()) as NominatimRaw[];
-  return raw.map(toPlaceResult).filter(isLocatable);
-}
-
-interface NominatimRaw {
-  place_id: number;
-  display_name: string;
-  lat: string;
-  lon: string;
-  type?: string;
-  class?: string;
-  address?: Record<string, string | undefined>;
-}
-
-function toPlaceResult(r: NominatimRaw): PlaceResult {
-  const [head, ...tail] = r.display_name.split(', ');
-  const addr = r.address ?? {};
-  const lines: string[] = [];
-  const line1 = [addr['house_number'], addr['road']].filter(Boolean).join(' ');
-  if (line1) lines.push(line1);
-  const city = addr['city'] || addr['town'] || addr['village'] || addr['hamlet'];
-  const region = addr['state'] || addr['region'];
-  const cityRegion = [city, region, addr['postcode']].filter(Boolean).join(', ');
-  if (cityRegion) lines.push(cityRegion);
-  if (addr['country']) lines.push(addr['country']);
-  if (lines.length === 0) lines.push(r.display_name);
-
+  const body = (await res.json()) as {
+    results: GeocodeRaw[];
+    fallback_used?: boolean;
+    offline?: boolean;
+  };
   return {
-    place_id: String(r.place_id),
-    title: head ?? r.display_name,
-    subtitle: tail.join(', '),
+    results: body.results.map(toPlaceResult).filter(isLocatable),
+    fallback_used: Boolean(body.fallback_used),
+    offline: Boolean(body.offline),
+  };
+}
+
+function toPlaceResult(r: GeocodeRaw): PlaceResult {
+  const lines: string[] = [];
+  if (r.title) lines.push(r.title);
+  if (r.subtitle) lines.push(r.subtitle);
+  if (lines.length === 0) lines.push(r.place_id);
+  return {
+    place_id: r.place_id,
+    title: r.title || r.place_id,
+    subtitle: r.subtitle || '',
     address_lines: lines,
-    lat: parseFloat(r.lat),
-    lon: parseFloat(r.lon),
-    kind: r.type || r.class,
+    lat: r.lat,
+    lon: r.lon,
+    kind: r.source,
   };
 }
 
@@ -111,6 +116,8 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [cursor, setCursor] = useState<number>(-1);
+  const [fallbackUsed, setFallbackUsed] = useState(false);
+  const [offline, setOffline] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -129,19 +136,27 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
       if (!trimmed) {
         setResults([]);
         setError('');
+        setFallbackUsed(false);
+        setOffline(false);
         setBusy(false);
         return;
       }
       setBusy(true);
       setError('');
       try {
-        const found = await searchPlaces(trimmed, viewportCenter, controller.signal);
-        setResults(found);
-        setCursor(found.length > 0 ? 0 : -1);
-        if (found.length === 0) setError(`No matches for "${trimmed}"`);
+        const response = await searchPlaces(trimmed, viewportCenter, controller.signal);
+        setResults(response.results);
+        setFallbackUsed(response.fallback_used);
+        setOffline(response.offline);
+        setCursor(response.results.length > 0 ? 0 : -1);
+        if (response.results.length === 0 && !response.offline) {
+          setError(`No matches for "${trimmed}"`);
+        }
       } catch (e) {
         if ((e as { name?: string }).name === 'AbortError') return;
         setResults([]);
+        setFallbackUsed(false);
+        setOffline(false);
         setError(e instanceof Error ? e.message : 'Search failed');
       } finally {
         setBusy(false);
@@ -261,6 +276,27 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
 
       {helper && (
         <div className="px-1 text-xs text-muted-foreground">{helper}</div>
+      )}
+
+      {fallbackUsed && results.length > 0 && (
+        <div
+          role="status"
+          className="mx-1 rounded-md border border-border/40 bg-card/60 px-2 py-1 text-[11px] text-muted-foreground"
+        >
+          Using online search for this area — install a region for offline results.
+        </div>
+      )}
+
+      {offline && query.trim() && !busy && (
+        <div
+          role="status"
+          className="mx-1 flex items-start gap-2 rounded-md border border-border/40 bg-card/60 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <MapPin size={14} className="mt-0.5 shrink-0" />
+          <span>
+            No offline results for this area. Install a region to search here offline.
+          </span>
+        </div>
       )}
 
       {results.length > 0 && (

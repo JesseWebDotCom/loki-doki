@@ -19,6 +19,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import shutil
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -36,6 +37,17 @@ _DATA_DIR: Path | None = None
 _CHUNK_SIZE = 1024 * 1024  # 1 MB download chunks
 _USER_AGENT = "LokiDoki/0.1 (offline-maps)"
 
+# Chunk 5: after the FTS5 geocoder index is built, the source .osm.pbf
+# is multiple times larger than the index we just produced. Delete it
+# by default to reclaim disk (users); keep it with LOKIDOKI_KEEP_PBF=1
+# so developers can rebuild without re-downloading.
+_KEEP_PBF_ENV = "LOKIDOKI_KEEP_PBF"
+
+
+def _keep_pbf() -> bool:
+    """Return True if the source .osm.pbf should be retained post-index."""
+    return os.environ.get(_KEEP_PBF_ENV, "").strip() in {"1", "true", "yes"}
+
 
 # ── Directory layout ──────────────────────────────────────────────
 
@@ -49,6 +61,11 @@ def _data_dir() -> Path:
     if _DATA_DIR is not None:
         return _DATA_DIR
     return Path("data")
+
+
+def data_dir() -> Path:
+    """Public accessor for the maps data root — used by routes + tests."""
+    return _data_dir()
 
 
 def maps_root() -> Path:
@@ -303,6 +320,72 @@ async def _download_to(
     return downloaded
 
 
+async def _build_geocoder_step(
+    region_id: str,
+    state: MapRegionState,
+    emit,
+    cancel_event: asyncio.Event,
+) -> None:
+    """Build the FTS5 geocoder index for ``region_id`` from the PBF on disk.
+
+    Runs in a thread so the pyosmium stream does not block the event loop.
+    Emits ``{artifact: "geocoder", phase: "indexing"|"ready"}`` events so
+    the admin-panel SSE stream surfaces progress.
+    """
+    from .geocode.fts_index import build_index, region_db_path
+
+    pbf_path = _final_path_for(region_id, "pbf")
+    if not pbf_path.exists():
+        return
+
+    db_path = region_db_path(_data_dir(), region_id)
+    if db_path.exists():
+        db_path.unlink()
+
+    await emit(MapInstallProgress(
+        region_id=region_id, artifact="geocoder",
+        bytes_done=0, bytes_total=0,
+        phase="indexing",
+    ))
+
+    def _run() -> int:
+        stats = build_index(pbf_path, db_path, region_id)
+        return stats.total
+
+    loop = asyncio.get_event_loop()
+    try:
+        total_rows = await loop.run_in_executor(None, _run)
+    except Exception as exc:  # noqa: BLE001 — surfaced via SSE
+        log.exception("geocoder build failed for %s", region_id)
+        if db_path.exists():
+            db_path.unlink()
+        await emit(MapInstallProgress(
+            region_id=region_id, artifact="geocoder",
+            phase="complete", error=str(exc),
+        ))
+        raise
+
+    if cancel_event.is_set():
+        if db_path.exists():
+            db_path.unlink()
+        raise asyncio.CancelledError()
+
+    state.geocoder_installed = True
+    state.bytes_on_disk["geocoder"] = db_path.stat().st_size
+
+    # Optional disk cleanup — default is to reclaim the PBF.
+    if not _keep_pbf() and pbf_path.exists():
+        pbf_path.unlink()
+        state.pbf_installed = False
+        state.bytes_on_disk.pop("pbf", None)
+
+    await emit(MapInstallProgress(
+        region_id=region_id, artifact="geocoder",
+        bytes_done=total_rows, bytes_total=total_rows,
+        phase="ready",
+    ))
+
+
 async def install_region(
     region_id: str,
     config: MapArchiveConfig,
@@ -402,6 +485,12 @@ async def install_region(
         # Drop the .tmp dir once every artifact landed.
         shutil.rmtree(tmp, ignore_errors=True)
 
+        # Chunk 5: build the FTS5 address index if the PBF is on disk.
+        # Runs only when the caller explicitly asked for `need_pbf` — the
+        # geocoder depends on the raw OSM data.
+        if need_pbf and state.pbf_installed:
+            await _build_geocoder_step(region_id, state, _emit, cancel_event)
+
         state.installed_at = datetime.now(timezone.utc).isoformat()
         upsert_state(state)
 
@@ -426,7 +515,10 @@ async def install_region(
 
 def aggregate_storage(states: Iterable[MapRegionState]) -> dict[str, int]:
     """Sum ``bytes_on_disk`` across every region, bucketed by artifact."""
-    totals: dict[str, int] = {"street": 0, "satellite": 0, "valhalla": 0, "pbf": 0}
+    totals: dict[str, int] = {
+        "street": 0, "satellite": 0, "valhalla": 0,
+        "pbf": 0, "geocoder": 0,
+    }
     for st in states:
         for artifact, size in st.bytes_on_disk.items():
             totals[artifact] = totals.get(artifact, 0) + int(size)

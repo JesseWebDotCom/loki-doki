@@ -26,6 +26,8 @@ from pydantic import BaseModel
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
 from lokidoki.maps import catalog, store
+from lokidoki.maps.geocode import fts_search, nominatim_fallback
+from lokidoki.maps.geocode.fts_index import region_db_path
 from lokidoki.maps.models import MapArchiveConfig, MapInstallProgress, MapRegionState
 
 # Tiles are long-lived, content-addressed artefacts; the browser may
@@ -62,10 +64,16 @@ def _launch_install(region_id: str, config: MapArchiveConfig) -> _InstallTask:
     queue: asyncio.Queue[MapInstallProgress] = asyncio.Queue(maxsize=1024)
     cancel_event = asyncio.Event()
 
+    # Chunk 5 routes the geocoder build into the install pipeline — it
+    # needs the source .osm.pbf, so every street install now pulls the
+    # PBF as well. The pbf is deleted after indexing by default.
+    need_pbf = bool(config.street)
+
     async def _runner() -> None:
         try:
             await store.install_region(
-                region_id, config, queue=queue, cancel_event=cancel_event,
+                region_id, config, queue=queue,
+                cancel_event=cancel_event, need_pbf=need_pbf,
             )
         except (asyncio.CancelledError, Exception):  # noqa: BLE001
             # store.install_region already emits an error / cancelled
@@ -343,3 +351,102 @@ async def get_storage() -> dict:
         "total_bytes": sum(totals.values()),
         "regions": [asdict(s) for s in states],
     }
+
+
+# ── Geocoding (Chunk 5) ───────────────────────────────────────────
+
+def _viewport_covered_by(region, lat: float, lon: float) -> bool:
+    """True iff (lat, lon) falls inside the region's bbox.
+
+    Catalog bboxes are (minLon, minLat, maxLon, maxLat).
+    """
+    min_lon, min_lat, max_lon, max_lat = region.bbox
+    return (min_lat <= lat <= max_lat) and (min_lon <= lon <= max_lon)
+
+
+def _regions_for_viewport(lat: float | None, lon: float | None) -> list[str]:
+    """Return installed region ids whose bbox contains (lat, lon).
+
+    When no viewport is supplied, every installed region with a
+    geocoder index is returned so callers see the union.
+    """
+    installed = [
+        st for st in store.load_states()
+        if st.geocoder_installed
+    ]
+    if lat is None or lon is None:
+        return [st.region_id for st in installed]
+    covering: list[str] = []
+    for st in installed:
+        region = catalog.get_region(st.region_id)
+        if region is None or region.is_parent_only:
+            continue
+        if _viewport_covered_by(region, lat, lon):
+            covering.append(st.region_id)
+    return covering
+
+
+@router.get("/geocode")
+async def geocode(
+    q: str,
+    lat: float | None = None,
+    lon: float | None = None,
+    limit: int = 10,
+) -> dict:
+    """Union FTS results across covering regions; fall back to Nominatim.
+
+    ``lat`` / ``lon`` bias ranking and decide which installed regions
+    can serve the query. When nothing covers the viewport and the
+    network is unreachable, ``offline: true`` tells the frontend to
+    show the out-of-coverage banner.
+    """
+    q = q.strip()
+    if not q:
+        return {"results": [], "fallback_used": False}
+
+    viewport = (lat, lon) if lat is not None and lon is not None else None
+    region_ids = _regions_for_viewport(lat, lon)
+
+    if region_ids:
+        hits = await fts_search.search(
+            q, viewport, region_ids,
+            data_root=store.data_dir(),
+            limit=limit,
+        )
+        return {
+            "results": [_geocode_payload(h) for h in hits],
+            "fallback_used": False,
+        }
+
+    # No installed region covers this viewport — try Nominatim.
+    fallback = await nominatim_fallback.search(q, viewport, limit=limit)
+    if fallback:
+        return {
+            "results": [_geocode_payload(h) for h in fallback],
+            "fallback_used": True,
+        }
+
+    return {
+        "results": [],
+        "fallback_used": False,
+        "offline": True,
+    }
+
+
+def _geocode_payload(result) -> dict:
+    """Serialise a :class:`GeocodeResult` for the API response."""
+    return {
+        "place_id": result.place_id,
+        "title": result.title,
+        "subtitle": result.subtitle,
+        "lat": result.lat,
+        "lon": result.lon,
+        "bbox": list(result.bbox) if result.bbox else None,
+        "source": result.source,
+    }
+
+
+# Keep ``region_db_path`` reachable for tests and any future callers
+# that need to resolve the per-region geocoder file without repeating
+# the path logic.
+__all__ = ["router", "region_db_path"]

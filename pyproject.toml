@@ -29,6 +29,7 @@ dependencies = [
     # The wheel only resolves on ``sys_platform == 'darwin'`` + ``arm64``;
     # uv skips the install on other platforms automatically.
     "mlx-lm>=0.29.4 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "osmium>=4.3.1",
 ]
 
 # Pin the spaCy English model to a wheel so `uv sync` installs it
