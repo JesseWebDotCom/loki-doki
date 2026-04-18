@@ -93,36 +93,8 @@ NODE = {
 }
 
 
-# Piper's MIT-licensed binary releases only ship the mac/windows/linux
-# multi-arch bundle under the ``2023.11.14-2`` tag. Newer tags (``v1.2.0``
-# and later) drop mac + windows, and the post-transfer GPL repo was
-# explicitly removed in commit cfb0872. Pin this tag.
-PIPER = {
-    "version": "2023.11.14-2",
-    "artifacts": {
-        ("darwin", "arm64"): (
-            "piper_macos_aarch64.tar.gz",
-            "6b1eb03b3735946cb35216e063e7eebcc33a6bbf5dd96ec0217959bf1cdcb0cc",
-        ),
-        ("windows", "x86_64"): (
-            "piper_windows_amd64.zip",
-            "f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea",
-        ),
-        ("linux", "aarch64"): (
-            "piper_linux_aarch64.tar.gz",
-            "fea0fd2d87c54dbc7078d0f878289f404bd4d6eea6e7444a77835d1537ab88eb",
-        ),
-        ("linux", "x86_64"): (
-            "piper_linux_x86_64.tar.gz",
-            "a50cb45f355b7af1f6d758c1b360717877ba0a398cc8cbe6d2a7a3a26e225992",
-        ),
-    },
-    "url_template": (
-        "https://github.com/rhasspy/piper/releases/download/{version}/{filename}"
-    ),
-}
-
-
+# Piper voice models — synthesis uses the piper-tts Python package
+# in-process (no CLI binary needed).
 PIPER_VOICES: dict[str, dict[str, tuple[str, str]]] = {
     "en_US-lessac-high": {
         "onnx": (

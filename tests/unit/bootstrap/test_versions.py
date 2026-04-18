@@ -13,7 +13,6 @@ import pytest
 
 from lokidoki.bootstrap.versions import (
     NODE,
-    PIPER,
     PIPER_VOICES,
     PYTHON_BUILD_STANDALONE,
     PYTHON_MIN_VERSION,
@@ -32,7 +31,7 @@ REQUIRED_KEYS: set[tuple[str, str]] = {
 
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
-_BINARY_TABLES = [PYTHON_BUILD_STANDALONE, UV, NODE, PIPER]
+_BINARY_TABLES = [PYTHON_BUILD_STANDALONE, UV, NODE]
 
 
 @pytest.mark.parametrize("table", _BINARY_TABLES)

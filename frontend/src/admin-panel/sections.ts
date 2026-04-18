@@ -6,7 +6,7 @@
  * link in the left rail and renders one self-contained pane.
  */
 import {
-  Cpu, Sparkles, Volume2, Puzzle, Palette,
+  Cpu, Sparkles, Volume2, Puzzle, Palette, Mic,
   Users, Shield, Brain, AlertTriangle,
   ScrollText, Wrench, BookOpen,
 } from 'lucide-react';
@@ -14,7 +14,7 @@ import {
 export type SectionId =
   | 'general' | 'characters' | 'audio' | 'skills' | 'appearance'
   | 'users' | 'character-catalog' | 'controls' | 'memory' | 'admin-skills' | 'feedback' | 'danger'
-  | 'logs' | 'tools' | 'knowledge-gaps' | 'knowledge-archives';
+  | 'logs' | 'tools' | 'knowledge-gaps' | 'knowledge-archives' | 'voices';
 
 export interface SectionDef {
   id: SectionId;
@@ -63,6 +63,9 @@ export const SECTIONS: SectionDef[] = [
   { id: 'feedback',          group: 'Permissions', label: 'Feedback Review',   icon: ScrollText,
     title: 'Feedback Review', description: 'Audit user feedback and pipeline traces across all users.',
     adminOnly: true, requiresChallenge: true, fullWidth: true },
+  { id: 'voices',             group: 'Permissions', label: 'Voice Library',      icon: Mic,
+    title: 'Voice Library', description: 'Upload, test, and manage Piper TTS voice models.',
+    adminOnly: true, requiresChallenge: true },
   { id: 'knowledge-archives', group: 'Permissions', label: 'Knowledge Archives', icon: BookOpen,
     title: 'Knowledge Archives', description: 'Download and manage offline knowledge bases (Wikipedia, Wiktionary, iFixit, etc.).',
     adminOnly: true, requiresChallenge: true },

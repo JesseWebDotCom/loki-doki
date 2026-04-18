@@ -3,27 +3,14 @@ import { Check, Loader2, Mic, PauseCircle, Play, Save, Volume2 } from "lucide-re
 import { getSettings, saveSettings, type SettingsData } from "../../lib/api";
 import { VoiceStreamer } from "../../utils/VoiceStreamer";
 
-const VOICE_OPTIONS = [
-  {
-    value: "en_US-lessac-medium",
-    label: "Clear and natural (US)",
-    note: "Balanced default voice",
-  },
-  {
-    value: "en_US-amy-medium",
-    label: "Warm and friendly (US)",
-    note: "Softer, conversational tone",
-  },
-  {
-    value: "en_US-ryan-medium",
-    label: "Calm and steady (US)",
-    note: "Lower, more grounded tone",
-  },
-  {
-    value: "en_GB-alba-medium",
-    label: "Bright and clear (UK)",
-    note: "British English voice",
-  },
+interface VoiceOption {
+  value: string;
+  label: string;
+  note: string;
+}
+
+const FALLBACK_VOICES: VoiceOption[] = [
+  { value: "en_US-lessac-medium", label: "Clear and natural (US)", note: "Balanced default voice" },
 ];
 
 const LISTENING_OPTIONS = [
@@ -40,11 +27,27 @@ const AudioSection: React.FC = () => {
   const [saved, setSaved] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [voiceOptions, setVoiceOptions] = useState<VoiceOption[]>(FALLBACK_VOICES);
   const streamerRef = useRef<VoiceStreamer | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     void getSettings().then(setSettings).catch(() => {});
+    // Fetch installed voices to populate the dropdown dynamically.
+    void fetch("/api/v1/audio/voices", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.voices?.length) {
+          setVoiceOptions(
+            data.voices.map((v: { voice_id: string; display_name: string; description: string }) => ({
+              value: v.voice_id,
+              label: v.display_name,
+              note: v.description || v.voice_id,
+            })),
+          );
+        }
+      })
+      .catch(() => {});
     return () => {
       abortRef.current?.abort();
       streamerRef.current?.stop();
@@ -115,7 +118,7 @@ const AudioSection: React.FC = () => {
                 }
                 className="w-full bg-card/50 border border-border/50 rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-primary/50"
               >
-                {VOICE_OPTIONS.map((option) => (
+                {voiceOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label} ({option.note})
                   </option>

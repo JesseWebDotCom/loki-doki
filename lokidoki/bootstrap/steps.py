@@ -22,7 +22,6 @@ from .preflight import (
     build_frontend,
     ensure_embedded_python,
     ensure_node,
-    ensure_piper,
     ensure_tts_voice,
     ensure_uv,
     ensure_wake_word,
@@ -77,7 +76,6 @@ def _profile_models(profile: str) -> dict:
 
 
 async def _install_piper_run(ctx: StepContext) -> None:
-    await ensure_piper(ctx)
     voice = _profile_models(ctx.profile)["tts_voice"]
     await ensure_tts_voice(ctx, voice)
 

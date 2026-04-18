@@ -90,12 +90,12 @@ def _pinned_fetch_specs(profiles: Iterable[str], cache: Path) -> list[FetchSpec]
         url = tpl.format(**fmt_kwargs)
         specs.append(FetchSpec(url=url, dest=cache / filename, sha256=sha, label=label))
 
-    # Always-needed toolchain (python, uv, node, piper) — once per os/arch.
+    # Always-needed toolchain (python, uv, node) — once per os/arch.
+    # Piper TTS uses the piper-tts Python package (no CLI binary).
     for key in os_arches:
         _push_tpl(V.PYTHON_BUILD_STANDALONE, "python", key=key)
         _push_tpl(V.UV, "uv", key=key)
         _push_tpl(V.NODE, "node", key=key)
-        _push_tpl(V.PIPER, "piper", key=key)
 
     # Engine binaries: llama.cpp ships prebuilt on win/linux/pi_cpu; mac uses
     # MLX (pip package, no prebuilt); pi_hailo uses hailo-ollama.

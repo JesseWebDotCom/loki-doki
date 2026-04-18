@@ -29,6 +29,7 @@ import CharactersSection from '../components/settings/CharactersSection';
 import RelationshipAliasesSection from '../components/settings/RelationshipAliasesSection';
 import SkillsSection from '../components/settings/SkillsSection';
 import ArchivesSection from '../components/settings/ArchivesSection';
+import VoicesSection from '../components/settings/VoicesSection';
 import CharactersAdminSection from '../components/admin/CharactersAdminSection';
 import { getSystemInfo, getSettings, saveSettings } from '../lib/api';
 import type { SettingsData } from '../lib/api';
@@ -125,22 +126,25 @@ const SectionGate: React.FC<{ section: SectionDef; children: React.ReactNode }> 
 
   useEffect(() => { void probe(); }, [probe]);
 
-  if (checking) {
-    return (
-      <div className="text-xs text-muted-foreground italic py-12 text-center">
-        Verifying admin session…
-      </div>
-    );
-  }
-  if (needsChallenge) {
-    return (
-      <AdminPasswordPrompt
-        onSuccess={() => { setNeedsChallenge(false); void probe(); }}
-        onCancel={() => { window.location.href = '/'; }}
-      />
-    );
-  }
-  return <>{children}</>;
+  // Always render children so form state survives re-auth.
+  // Overlay the challenge prompt instead of replacing content.
+  return (
+    <>
+      {(checking || needsChallenge) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          {checking ? (
+            <div className="text-xs text-muted-foreground italic">Verifying admin session…</div>
+          ) : (
+            <AdminPasswordPrompt
+              onSuccess={() => { setNeedsChallenge(false); void probe(); }}
+              onCancel={() => { window.location.href = '/'; }}
+            />
+          )}
+        </div>
+      )}
+      {children}
+    </>
+  );
 };
 
 // ────────────────────────────────────────────────────────────────
@@ -162,6 +166,7 @@ const SectionBody: React.FC<{ section: SectionDef }> = ({ section }) => {
     case 'logs':              return <LogsPane />;
     case 'tools':             return <ToolsPane />;
     case 'feedback':          return <FeedbackPane />;
+    case 'voices':             return <VoicesSection />;
     case 'knowledge-archives': return <ArchivesSection />;
     case 'knowledge-gaps':    return <KnowledgeGapsPane />;
   }
