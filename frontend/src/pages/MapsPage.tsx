@@ -26,7 +26,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
-import { MapPin } from 'lucide-react';
+import { Download, Globe, MapPin } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { buildDarkStyle, type LayerMode } from './maps/style-dark';
 import {
   fetchInstalledRegions,
@@ -148,9 +149,13 @@ const MapsPage: React.FC = () => {
   // Layer mode + coverage resolution — carried over from Chunk 3.
   const [mode, setMode] = useState<LayerMode>('map');
   const [regions, setRegions] = useState<InstalledRegion[]>([]);
+  const [regionsLoaded, setRegionsLoaded] = useState(false);
   const [resolution, setResolution] = useState<ResolveResult | null>(null);
   const [viewportCenter, setViewportCenter] = useState<{ lng: number; lat: number } | null>(null);
   const regionsRef = useRef<InstalledRegion[]>([]);
+  // "Use online preview anyway" dismissal — session-scoped so the
+  // empty state returns on next page load until a region is installed.
+  const [emptyAck, setEmptyAck] = useState(false);
 
   const satelliteAvailable = useMemo(
     () => regions.some((r) => r.has_satellite),
@@ -237,6 +242,7 @@ const MapsPage: React.FC = () => {
       if (cancelled) return;
       regionsRef.current = fetched;
       setRegions(fetched);
+      setRegionsLoaded(true);
       const initial = await resolveTileSource(undefined, fetched);
       if (cancelled) return;
       setResolution(initial);
@@ -497,6 +503,10 @@ const MapsPage: React.FC = () => {
             }}
           />
 
+          {regionsLoaded && regions.length === 0 && !emptyAck && (
+            <NoRegionsEmptyState onContinue={() => setEmptyAck(true)} />
+          )}
+
           {/* Floating panel sheet — lives inside the map surface, pinned
               to the top-left corner. Mirrors Apple Maps' inline sheet. */}
           {panelBody && (
@@ -544,6 +554,55 @@ const MapsPage: React.FC = () => {
     </div>
   );
 };
+
+// ── Empty state ────────────────────────────────────────────────────
+
+const NoRegionsEmptyState: React.FC<{ onContinue: () => void }> = ({
+  onContinue,
+}) => (
+  <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85 backdrop-blur-sm">
+    <div className="mx-6 flex max-w-md flex-col items-center gap-4 rounded-2xl border border-border/40 bg-card/95 p-8 text-center shadow-m4">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/15 text-primary">
+        <MapPin size={26} />
+      </div>
+      <div className="space-y-1.5">
+        <h2 className="text-xl font-semibold tracking-tight">
+          No offline regions installed
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          LokiDoki Maps is designed for offline use. Install at least one
+          region to search, route, and render tiles without an internet
+          connection.
+        </p>
+      </div>
+      <div className="flex w-full flex-col gap-2">
+        <Link
+          to="/settings?section=maps"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-m2 transition-colors hover:bg-primary/90"
+        >
+          <Download size={14} />
+          Install a region
+        </Link>
+        <button
+          type="button"
+          onClick={onContinue}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-border/40 bg-card/60 px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+        >
+          <Globe size={12} />
+          Use online preview anyway
+        </button>
+      </div>
+      <p className="text-[11px] text-muted-foreground/80">
+        Self-hosting? Point{' '}
+        <code className="rounded bg-card px-1 py-0.5">
+          LOKIDOKI_MAPS_DIST_BASE
+        </code>{' '}
+        at your artifact bucket. See{' '}
+        <code className="rounded bg-card px-1 py-0.5">docs/maps-dist.md</code>.
+      </p>
+    </div>
+  </div>
+);
 
 // ── Deep link parsing ──────────────────────────────────────────────
 
