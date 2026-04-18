@@ -40,6 +40,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 5 | [Offline geocoding — FTS5 address index per region](chunk-5-offline-geocoding.md) | done    | 61fbe70 |
 | 6 | [Offline routing backend — Valhalla sidecar per region](chunk-6-routing-backend.md) | done    | dd07abe |
 | 7 | [Directions panel UI + route alternatives + turn-by-turn](chunk-7-directions-ui.md) | done    | 9dab52b |
+| 8 | [Deferrals rollup — sub-chunks 8a–8g](chunk-8-deferrals-rollup.md)                  | pending |        |
 
 ---
 
