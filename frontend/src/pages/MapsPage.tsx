@@ -1,19 +1,26 @@
 /**
- * MapsPage — Google-Maps-style search + MapLibre GL viewer.
+ * MapsPage — Apple Maps-style two-pane layout (Chunk 4).
  *
- * Layout mimics Google Maps: a floating search column on the left
- * (type-ahead results, click a row to fly the map). The map fills the
- * rest of the viewport.
+ * Left column (320px): `LeftRail` with brand + Search/Guides/Directions
+ * nav + Recents + footer link to Settings → Maps.
  *
- * Search uses Nominatim with a country filter (US default, toggle to
- * "Worldwide") so noisy global hits don't bury the one the user wants.
- * Non-locatable results are filtered out in JS — Nominatim occasionally
- * returns entries without lat/lon (e.g. relations with empty coords).
+ * Right column (1fr): the map surface. MapLibre renders the vector
+ * basemap via the `pmtiles://` protocol; the tile-source resolver picks
+ * between a local installed region and the online Protomaps demo.
+ * Active panels (SearchPanel / PlaceDetailsCard / GuidesPanel /
+ * DirectionsPanelPlaceholder) are pinned as a 360px sheet at the
+ * map's top-left so the rail nav stays visible alongside.
+ *
+ * Place selection flow: SearchPanel → onSelect(place) → MapsPage drops
+ * a pin, flies the map, pushes to `recents`, and shows PlaceDetailsCard.
+ * Clicking the blue Directions button flips activePanel to
+ * `directions`, which renders the placeholder until Chunk 7.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
+import { MapPin } from 'lucide-react';
 import { buildDarkStyle, type LayerMode } from './maps/style-dark';
 import {
   fetchInstalledRegions,
@@ -23,6 +30,15 @@ import {
 } from './maps/tile-source';
 import LayerModeChip from './maps/LayerModeChip';
 import OutOfCoverageBanner from './maps/OutOfCoverageBanner';
+import LeftRail from './maps/LeftRail';
+import SearchPanel from './maps/panels/SearchPanel';
+import PlaceDetailsCard from './maps/panels/PlaceDetailsCard';
+import GuidesPanel from './maps/panels/GuidesPanel';
+import DirectionsPanelPlaceholder from './maps/panels/DirectionsPanelPlaceholder';
+import { loadRecents, pushRecent } from './maps/recents';
+import type { ActivePanel, PlaceResult, Recent } from './maps/types';
+import Sidebar from '../components/sidebar/Sidebar';
+import { useDocumentTitle } from '../lib/useDocumentTitle';
 
 // Register the pmtiles:// protocol globally, once per module load.
 // Guarded so Vite HMR doesn't stack duplicate handlers (MapLibre throws
@@ -35,11 +51,7 @@ if (typeof window !== 'undefined' && !window.__ldPmtilesRegistered) {
   window.__ldPmtilesRegistered = true;
 }
 
-// Dark-theme override for MapLibre's default popup + controls — without
-// this the popup renders as white-on-white over the (dark-mode) map
-// tiles, and the zoom/navigation chrome has no contrast against the
-// background. Injected once via a <style> tag in a module-level effect
-// so we don't duplicate stylesheets across remounts.
+// Dark-theme override for MapLibre's default popup + controls.
 const MAPLIBRE_DARK_CSS = `
 .maplibregl-popup { max-width: 320px; }
 .maplibregl-popup-content {
@@ -88,36 +100,6 @@ if (typeof document !== 'undefined' && !document.getElementById('ld-maplibre-dar
   style.textContent = MAPLIBRE_DARK_CSS;
   document.head.appendChild(style);
 }
-import { MapPin, Search, Loader2, Globe, X } from 'lucide-react';
-import Sidebar from '../components/sidebar/Sidebar';
-import { useDocumentTitle } from '../lib/useDocumentTitle';
-
-// Satellite imagery tiles live at /api/v1/maps/tiles/<region>/sat/{z}/{x}/{y}.jpg
-// (see `tile-source.ts::resolveTileSource`). The vector basemap is served
-// via the `pmtiles://` protocol. Both are consumed by `buildDarkStyle()`.
-
-// ── Types ──────────────────────────────────────────────────────
-
-interface NominatimResult {
-  place_id: number;
-  display_name: string;
-  lat: string;
-  lon: string;
-  type: string;
-  class: string;
-  importance: number;
-}
-
-// Popular country scope options. Keep short — a full dropdown of 200
-// ISO codes is overwhelming. Users who need a different country can
-// pick "Worldwide" and include the country name in the query.
-const COUNTRY_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: 'us', label: 'United States' },
-  { code: 'ca', label: 'Canada' },
-  { code: 'gb', label: 'United Kingdom' },
-  { code: 'au', label: 'Australia' },
-  { code: '',   label: 'Worldwide' },
-];
 
 // ── Component ──────────────────────────────────────────────────
 
@@ -127,24 +109,21 @@ const MapsPage: React.FC = () => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const hoverMarkerRef = useRef<Marker | null>(null);
 
-  const [query, setQuery] = useState('');
-  const [countryCode, setCountryCode] = useState('us');
-  const [results, setResults] = useState<NominatimResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState('');
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [activePanel, setActivePanel] = useState<ActivePanel>('search');
+  const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
+  const [recents, setRecents] = useState<Recent[]>(() => loadRecents());
+  const [railCollapsed, setRailCollapsed] = useState(false);
+
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
 
-  // Chunk 3: layer mode + coverage resolution. `regions` is fetched once
-  // at mount so every `moveend` can re-resolve without another round
-  // trip. `resolution` is the source picked for the current viewport.
+  // Layer mode + coverage resolution — carried over from Chunk 3.
   const [mode, setMode] = useState<LayerMode>('map');
   const [regions, setRegions] = useState<InstalledRegion[]>([]);
   const [resolution, setResolution] = useState<ResolveResult | null>(null);
+  const [viewportCenter, setViewportCenter] = useState<{ lng: number; lat: number } | null>(null);
   const regionsRef = useRef<InstalledRegion[]>([]);
 
   const satelliteAvailable = useMemo(
@@ -153,11 +132,6 @@ const MapsPage: React.FC = () => {
   );
 
   // ── Initialize the map ───────────────────────────────────────
-  //
-  // The map is created once with an empty placeholder style. A second
-  // effect below reacts to `mode` / `resolution` and calls `setStyle()`
-  // so the camera is preserved across mode swaps and region changes.
-  // Any full-remount would flash the canvas — deliberately avoided.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -169,8 +143,6 @@ const MapsPage: React.FC = () => {
     try {
       map = new maplibregl.Map({
         container,
-        // Minimal bootstrap style — swapped in the reactive effect
-        // below once the coverage resolver reports back.
         style: { version: 8, sources: {}, layers: [] },
         center: [-98.5, 39.8],
         zoom: 3,
@@ -196,8 +168,6 @@ const MapsPage: React.FC = () => {
 
     map.on('load', () => {
       setMapReady(true);
-      // Extra resize() on load — belt and braces for the 0×0 canvas bug
-      // where the container briefly lacks dimensions during init.
       map.resize();
     });
     map.on('error', (e) => {
@@ -205,21 +175,16 @@ const MapsPage: React.FC = () => {
       console.warn('MapLibre error', e);
     });
 
-    // Re-resolve coverage on every pan/zoom settle — a region swap
-    // takes the same setStyle path as a user-initiated mode change.
     map.on('moveend', () => {
       const c = map.getCenter();
+      setViewportCenter({ lng: c.lng, lat: c.lat });
       void resolveTileSource({ lng: c.lng, lat: c.lat }, regionsRef.current)
         .then((next) => setResolution(next));
     });
 
-    // WebGL contexts can be lost when the GPU resets, the tab
-    // backgrounds too aggressively, or too many contexts are open. Tell
-    // the canvas to re-acquire context automatically rather than
-    // silently dying.
     const canvas = map.getCanvas();
     const onCtxLost = (e: Event) => {
-      e.preventDefault();  // allow context restore
+      e.preventDefault();
       setMapError('Map context lost — reloading tiles…');
     };
     const onCtxRestored = () => {
@@ -235,14 +200,11 @@ const MapsPage: React.FC = () => {
 
     mapRef.current = map;
 
-    // ResizeObserver — force a canvas resize whenever the container
-    // dimensions change (sidebar collapse, window resize, etc).
     ro = new ResizeObserver(() => {
       mapRef.current?.resize();
     });
     ro.observe(container);
 
-    // Hydrate installed regions once, then seed the first resolution.
     let cancelled = false;
     (async () => {
       const fetched = await fetchInstalledRegions();
@@ -260,6 +222,8 @@ const MapsPage: React.FC = () => {
       removeCtxListeners?.();
       markerRef.current?.remove();
       markerRef.current = null;
+      hoverMarkerRef.current?.remove();
+      hoverMarkerRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
       setMapReady(false);
@@ -272,8 +236,6 @@ const MapsPage: React.FC = () => {
     if (!map || !resolution) return;
 
     if (resolution.kind === 'none') {
-      // Offline + outside every installed region. Clear the map to a
-      // neutral dark so the OutOfCoverageBanner reads against it.
       map.setStyle({
         version: 8,
         sources: {},
@@ -288,8 +250,7 @@ const MapsPage: React.FC = () => {
       return;
     }
 
-    const streetUrl =
-      resolution.kind === 'local' ? resolution.streetUrl : resolution.streetUrl;
+    const streetUrl = resolution.streetUrl;
     const satUrlTemplate =
       resolution.kind === 'local' ? resolution.satUrlTemplate : null;
     map.setStyle(
@@ -297,262 +258,197 @@ const MapsPage: React.FC = () => {
     );
   }, [mode, resolution]);
 
-  // ── Geocoding ────────────────────────────────────────────────
-  const runSearch = useCallback(async (text: string, country: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      setResults([]);
-      setSearchError('');
-      return;
-    }
-    // Cancel any in-flight request so fast typing doesn't flood Nominatim.
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setSearching(true);
-    setSearchError('');
-    try {
-      const url = new URL('https://nominatim.openstreetmap.org/search');
-      url.searchParams.set('q', trimmed);
-      url.searchParams.set('format', 'json');
-      url.searchParams.set('limit', '10');
-      url.searchParams.set('addressdetails', '0');
-      if (country) url.searchParams.set('countrycodes', country);
-
-      const res = await fetch(url.toString(), {
-        signal: controller.signal,
-        headers: {
-          'Accept-Language': navigator.language || 'en',
-          // Nominatim usage policy asks for a distinct UA; browser
-          // UA is fine for a personal assistant.
-        },
-      });
-      if (!res.ok) throw new Error(`Nominatim ${res.status}`);
-      const raw: NominatimResult[] = await res.json();
-
-      // Drop entries without parseable coordinates — those were the
-      // "not map results" the user was seeing (relation rows, etc).
-      const clean = raw.filter(r => {
-        const lat = parseFloat(r.lat);
-        const lon = parseFloat(r.lon);
-        return Number.isFinite(lat) && Number.isFinite(lon);
-      });
-      setResults(clean);
-      if (clean.length === 0) setSearchError(`No locations for "${trimmed}"`);
-    } catch (e) {
-      if ((e as { name?: string }).name === 'AbortError') return;
-      setResults([]);
-      setSearchError(e instanceof Error ? e.message : 'Search failed');
-    } finally {
-      setSearching(false);
-    }
-  }, []);
-
-  // Debounced type-ahead — fires 350ms after the last keystroke.
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) {
-      setResults([]);
-      setSearchError('');
-      return;
-    }
-    debounceRef.current = setTimeout(() => {
-      runSearch(query, countryCode);
-    }, 350);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query, countryCode, runSearch]);
-
-  const flyTo = useCallback((result: NominatimResult) => {
+  // ── Place selection ──────────────────────────────────────────
+  const pinAndFly = useCallback((place: PlaceResult) => {
     const map = mapRef.current;
-    const lat = parseFloat(result.lat);
-    const lon = parseFloat(result.lon);
-    if (Number.isNaN(lat) || Number.isNaN(lon)) {
-      // eslint-disable-next-line no-console
-      console.warn('[Maps] result has no valid lat/lon', result);
-      return;
-    }
-    if (!map) {
-      // eslint-disable-next-line no-console
-      console.warn('[Maps] flyTo called but map not initialized yet');
-      setSelectedId(result.place_id);
-      return;
-    }
+    if (!map) return;
 
     markerRef.current?.remove();
-    markerRef.current = new maplibregl.Marker({ color: '#f97316' })
-      .setLngLat([lon, lat])
-      .setPopup(new maplibregl.Popup({ offset: 25 }).setText(result.display_name))
+    markerRef.current = new maplibregl.Marker({ color: '#a855f7' })
+      .setLngLat([place.lon, place.lat])
+      .setPopup(new maplibregl.Popup({ offset: 25 }).setText(place.title))
       .addTo(map);
     markerRef.current.togglePopup();
 
-    // Zoom heuristic: countries/states zoom out, addresses zoom in.
-    const zoom = result.type === 'country' ? 4
-      : result.type === 'state' || result.type === 'administrative' ? 7
-      : result.type === 'city' || result.type === 'town' ? 11
-      : result.type === 'postcode' ? 13
-      : 16;
+    const zoom =
+      place.kind === 'country' ? 4 :
+      place.kind === 'state' || place.kind === 'administrative' ? 7 :
+      place.kind === 'city' || place.kind === 'town' ? 11 :
+      place.kind === 'postcode' ? 13 :
+      16;
 
-    map.flyTo({ center: [lon, lat], zoom, speed: 1.5, curve: 1.6 });
-    setSelectedId(result.place_id);
+    map.flyTo({ center: [place.lon, place.lat], zoom, speed: 1.5, curve: 1.6 });
   }, []);
 
-  const splitName = useMemo(
-    () => (full: string) => {
-      const [head, ...rest] = full.split(', ');
-      return { head, tail: rest.join(', ') };
-    },
-    [],
-  );
+  const handleSelect = useCallback((place: PlaceResult) => {
+    pinAndFly(place);
+    hoverMarkerRef.current?.remove();
+    hoverMarkerRef.current = null;
+    setSelectedPlace(place);
+    setRecents(pushRecent(place));
+    setActivePanel(null);
+  }, [pinAndFly]);
 
-  const clearSearch = () => {
-    setQuery('');
-    setResults([]);
-    setSearchError('');
-    setSelectedId(null);
-  };
+  const handleHover = useCallback((place: PlaceResult | null) => {
+    const map = mapRef.current;
+    if (!map) return;
+    hoverMarkerRef.current?.remove();
+    hoverMarkerRef.current = null;
+    if (place) {
+      hoverMarkerRef.current = new maplibregl.Marker({
+        color: '#c4b5fd',
+        scale: 0.7,
+      })
+        .setLngLat([place.lon, place.lat])
+        .addTo(map);
+    }
+  }, []);
+
+  const handleSelectRecent = useCallback((place: PlaceResult) => {
+    pinAndFly(place);
+    setSelectedPlace(place);
+    setRecents(pushRecent(place));
+    setActivePanel(null);
+  }, [pinAndFly]);
+
+  const handleDirections = useCallback((_place: PlaceResult) => {
+    setActivePanel('directions');
+  }, []);
+
+  const handleSelectPanel = useCallback((panel: Exclude<ActivePanel, null>) => {
+    setActivePanel(panel);
+    if (panel !== 'directions') {
+      // Leaving directions back to search / guides clears the details
+      // card so the new panel isn't dueling with PlaceDetailsCard.
+      setSelectedPlace(null);
+    }
+  }, []);
+
+  const closePanel = useCallback(() => {
+    setActivePanel(null);
+    setSelectedPlace(null);
+    markerRef.current?.remove();
+    markerRef.current = null;
+    hoverMarkerRef.current?.remove();
+    hoverMarkerRef.current = null;
+  }, []);
+
+  // Choose which panel body to render inside the floating sheet.
+  const panelBody = useMemo(() => {
+    if (activePanel === 'directions') {
+      return (
+        <DirectionsPanelPlaceholder
+          toPlace={selectedPlace}
+          onClose={closePanel}
+        />
+      );
+    }
+    if (selectedPlace) {
+      return (
+        <PlaceDetailsCard
+          place={selectedPlace}
+          onDirections={handleDirections}
+          onClose={closePanel}
+        />
+      );
+    }
+    if (activePanel === 'search') {
+      return (
+        <SearchPanel
+          viewportCenter={viewportCenter}
+          onSelect={handleSelect}
+          onHover={handleHover}
+          onClose={closePanel}
+        />
+      );
+    }
+    if (activePanel === 'guides') {
+      return <GuidesPanel onClose={closePanel} />;
+    }
+    return null;
+  }, [
+    activePanel,
+    selectedPlace,
+    viewportCenter,
+    handleSelect,
+    handleHover,
+    handleDirections,
+    closePanel,
+  ]);
 
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
       <Sidebar phase="idle" />
-      <main className="flex-1 relative min-w-0 h-screen">
-        {/* Map canvas — explicit 100% dims so MapLibre always sees a
-            non-zero container at init time. Black bg prevents the app
-            shell colour bleeding through during tile fetch. */}
-        <div
-          ref={containerRef}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            background: '#1a1d22',
-          }}
+      <main
+        className="flex-1 grid min-w-0 h-screen"
+        style={{
+          gridTemplateColumns: railCollapsed ? '72px 1fr' : '320px 1fr',
+        }}
+      >
+        <LeftRail
+          active={activePanel}
+          onSelectPanel={handleSelectPanel}
+          recents={recents}
+          onSelectRecent={handleSelectRecent}
+          collapsed={railCollapsed}
+          onToggleCollapsed={() => setRailCollapsed((v) => !v)}
         />
 
-        {/* Floating search panel — Google-Maps-style on top-left */}
-        <div className="absolute left-4 top-4 z-10 w-[min(420px,calc(100vw-2rem))] flex flex-col gap-2 pointer-events-none">
-          <div className="pointer-events-auto rounded-2xl border border-border/30 bg-card/95 backdrop-blur shadow-m4 overflow-hidden">
-            {/* Top row — search bar + country pill */}
-            <div className="flex items-center gap-0">
-              <div className="relative flex-1 min-w-0">
-                {searching
-                  ? <Loader2 size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin" />
-                  : <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />}
-                <input
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="Search address, city, ZIP, country…"
-                  className="w-full bg-transparent py-3.5 pl-12 pr-10 text-sm placeholder:text-muted-foreground focus:outline-none"
-                />
-                {query && (
-                  <button
-                    onClick={clearSearch}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-                    aria-label="Clear"
-                  >
-                    <X size={16} />
-                  </button>
-                )}
-              </div>
-              <div className="h-8 w-px bg-border/40" />
-              <div className="relative pr-2">
-                <Globe size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                <select
-                  value={countryCode}
-                  onChange={e => setCountryCode(e.target.value)}
-                  className="appearance-none bg-transparent pl-8 pr-2 py-3 text-xs text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer"
-                  aria-label="Country scope"
-                >
-                  {COUNTRY_OPTIONS.map(c => (
-                    <option key={c.code} value={c.code}>{c.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
+        <div className="relative min-w-0 h-full">
+          {/* Map canvas */}
+          <div
+            ref={containerRef}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              background: '#1a1d22',
+            }}
+          />
 
-            {/* Results / error */}
-            {(results.length > 0 || searchError) && (
-              <div className="border-t border-border/30">
-                {searchError && (
-                  <div className="px-4 py-3 text-xs text-muted-foreground">{searchError}</div>
-                )}
-                {results.length > 0 && (
-                  <ul className="max-h-[60vh] overflow-y-auto divide-y divide-border/20">
-                    {results.map(r => {
-                      const { head, tail } = splitName(r.display_name);
-                      const isActive = r.place_id === selectedId;
-                      return (
-                        <li key={r.place_id}>
-                          <button
-                            type="button"
-                            onClick={() => flyTo(r)}
-                            className={`w-full text-left px-4 py-3 transition-colors ${
-                              isActive
-                                ? 'bg-primary/10'
-                                : 'hover:bg-card'
-                            }`}
-                          >
-                            <div className="text-sm font-semibold tracking-tight truncate">
-                              {head}
-                            </div>
-                            {tail && (
-                              <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                                {tail}
-                              </div>
-                            )}
-                            <div className="text-[10px] text-muted-foreground/60 mt-1 uppercase tracking-wider">
-                              {r.class}
-                              {r.type && r.type !== r.class ? ` · ${r.type}` : ''}
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            )}
+          {/* Floating panel sheet — lives inside the map surface, pinned
+              to the top-left corner. Mirrors Apple Maps' inline sheet. */}
+          {panelBody && (
+            <div className="absolute left-4 top-4 z-10 w-[360px] max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] overflow-hidden rounded-2xl border border-border/30 bg-card/95 backdrop-blur shadow-m4 flex flex-col">
+              {panelBody}
+            </div>
+          )}
+
+          {/* Top-right layer chip */}
+          <div className="absolute right-4 top-32 z-10 pointer-events-auto">
+            <LayerModeChip
+              mode={mode}
+              onChange={setMode}
+              satelliteAvailable={satelliteAvailable}
+            />
           </div>
 
-          {/* Map status — loading or error */}
+          {/* Out-of-coverage banner */}
+          {resolution?.kind === 'none' && (
+            <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 pointer-events-none">
+              <OutOfCoverageBanner />
+            </div>
+          )}
+
+          {/* Map status pills */}
           {mapError && (
-            <div className="pointer-events-none rounded-full bg-destructive/90 backdrop-blur px-3 py-1.5 text-[10px] text-destructive-foreground w-fit">
+            <div className="absolute bottom-12 left-4 z-10 pointer-events-none rounded-full bg-destructive/90 backdrop-blur px-3 py-1.5 text-[10px] text-destructive-foreground w-fit">
               {mapError}
             </div>
           )}
           {!mapReady && !mapError && (
-            <div className="pointer-events-none rounded-full bg-card/90 backdrop-blur px-3 py-1.5 text-[10px] text-muted-foreground w-fit">
+            <div className="absolute bottom-12 left-4 z-10 pointer-events-none rounded-full bg-card/90 backdrop-blur px-3 py-1.5 text-[10px] text-muted-foreground w-fit">
               Loading map…
             </div>
           )}
-        </div>
 
-        {/* Top-right layer chip — stacked below the NavigationControl
-            (which MapLibre injects at the same anchor). */}
-        <div className="absolute right-4 top-32 z-10 pointer-events-auto">
-          <LayerModeChip
-            mode={mode}
-            onChange={setMode}
-            satelliteAvailable={satelliteAvailable}
-          />
-        </div>
-
-        {/* Out-of-coverage banner — fires when the resolver returns
-            `kind: "none"` (offline and panned outside every installed
-            region). Intentionally subtle: the map surface stays, but
-            we explain why the tiles went away. */}
-        {resolution?.kind === 'none' && (
-          <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 pointer-events-none">
-            <OutOfCoverageBanner />
-          </div>
-        )}
-
-        {/* Bottom-right attribution pill */}
-        <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
-          <div className="rounded-full bg-card/80 backdrop-blur px-3 py-1 text-[10px] text-muted-foreground flex items-center gap-1.5">
-            <MapPin size={10} />
-            OpenStreetMap · Nominatim
+          {/* Attribution pill */}
+          <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
+            <div className="rounded-full bg-card/80 backdrop-blur px-3 py-1 text-[10px] text-muted-foreground flex items-center gap-1.5">
+              <MapPin size={10} />
+              OpenStreetMap · Nominatim
+            </div>
           </div>
         </div>
       </main>
