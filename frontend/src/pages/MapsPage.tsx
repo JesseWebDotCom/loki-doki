@@ -14,9 +14,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
-import { WifiOff } from 'lucide-react';
-import { buildDarkStyle } from './maps/style-dark';
-import { resolveTileSource } from './maps/tile-source';
+import { buildDarkStyle, type LayerMode } from './maps/style-dark';
+import {
+  fetchInstalledRegions,
+  resolveTileSource,
+  type InstalledRegion,
+  type ResolveResult,
+} from './maps/tile-source';
+import LayerModeChip from './maps/LayerModeChip';
+import OutOfCoverageBanner from './maps/OutOfCoverageBanner';
 
 // Register the pmtiles:// protocol globally, once per module load.
 // Guarded so Vite HMR doesn't stack duplicate handlers (MapLibre throws
@@ -86,6 +92,10 @@ import { MapPin, Search, Loader2, Globe, X } from 'lucide-react';
 import Sidebar from '../components/sidebar/Sidebar';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 
+// Satellite imagery tiles live at /api/v1/maps/tiles/<region>/sat/{z}/{x}/{y}.jpg
+// (see `tile-source.ts::resolveTileSource`). The vector basemap is served
+// via the `pmtiles://` protocol. Both are consumed by `buildDarkStyle()`.
+
 // ── Types ──────────────────────────────────────────────────────
 
 interface NominatimResult {
@@ -128,107 +138,120 @@ const MapsPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
-  // Online state — maps + geocoding both need internet today. Listening
-  // to browser events means we show a clear offline banner instantly
-  // rather than a tired blank canvas.
-  const [online, setOnline] = useState(
-    typeof navigator === 'undefined' ? true : navigator.onLine,
+
+  // Chunk 3: layer mode + coverage resolution. `regions` is fetched once
+  // at mount so every `moveend` can re-resolve without another round
+  // trip. `resolution` is the source picked for the current viewport.
+  const [mode, setMode] = useState<LayerMode>('map');
+  const [regions, setRegions] = useState<InstalledRegion[]>([]);
+  const [resolution, setResolution] = useState<ResolveResult | null>(null);
+  const regionsRef = useRef<InstalledRegion[]>([]);
+
+  const satelliteAvailable = useMemo(
+    () => regions.some((r) => r.has_satellite),
+    [regions],
   );
-  useEffect(() => {
-    const on = () => setOnline(true);
-    const off = () => setOnline(false);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
-    return () => {
-      window.removeEventListener('online', on);
-      window.removeEventListener('offline', off);
-    };
-  }, []);
 
   // ── Initialize the map ───────────────────────────────────────
+  //
+  // The map is created once with an empty placeholder style. A second
+  // effect below reacts to `mode` / `resolution` and calls `setStyle()`
+  // so the camera is preserved across mode swaps and region changes.
+  // Any full-remount would flash the canvas — deliberately avoided.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // Tile source resolution is async (backend round-trip to
-    // /api/v1/maps/regions), but the rest of init is sync once we have
-    // the style. `cancelled` guards against the effect cleaning up
-    // before the promise resolves — critical under React 19 strict
-    // mode's double-mount.
-    let cancelled = false;
     let ro: ResizeObserver | null = null;
     let removeCtxListeners: (() => void) | null = null;
 
-    (async () => {
-      const source = await resolveTileSource();
-      if (cancelled || !container) return;
-
-      let map: MapLibreMap;
-      try {
-        map = new maplibregl.Map({
-          container,
-          style: buildDarkStyle(source.url),
-          center: [-98.5, 39.8],
-          zoom: 3,
-          attributionControl: { compact: true },
-        });
-      } catch (exc) {
-        setMapError(
-          exc instanceof Error
-            ? `Map init failed: ${exc.message}`
-            : 'Map init failed',
-        );
-        return;
-      }
-
-      map.addControl(new maplibregl.NavigationControl(), 'top-right');
-      map.addControl(
-        new maplibregl.GeolocateControl({
-          positionOptions: { enableHighAccuracy: true },
-          trackUserLocation: false,
-        }),
-        'top-right',
+    let map: MapLibreMap;
+    try {
+      map = new maplibregl.Map({
+        container,
+        // Minimal bootstrap style — swapped in the reactive effect
+        // below once the coverage resolver reports back.
+        style: { version: 8, sources: {}, layers: [] },
+        center: [-98.5, 39.8],
+        zoom: 3,
+        attributionControl: { compact: true },
+      });
+    } catch (exc) {
+      setMapError(
+        exc instanceof Error
+          ? `Map init failed: ${exc.message}`
+          : 'Map init failed',
       );
+      return;
+    }
 
-      map.on('load', () => {
-        setMapReady(true);
-        // Extra resize() on load — belt and braces for the 0×0 canvas bug
-        // where the container briefly lacks dimensions during init.
-        map.resize();
-      });
-      map.on('error', (e) => {
-        // eslint-disable-next-line no-console
-        console.warn('MapLibre error', e);
-      });
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(
+      new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: false,
+      }),
+      'top-right',
+    );
 
-      // WebGL contexts can be lost when the GPU resets, the tab
-      // backgrounds too aggressively, or too many contexts are open. Tell
-      // the canvas to re-acquire context automatically rather than
-      // silently dying.
-      const canvas = map.getCanvas();
-      const onCtxLost = (e: Event) => {
-        e.preventDefault();  // allow context restore
-        setMapError('Map context lost — reloading tiles…');
-      };
-      const onCtxRestored = () => {
-        setMapError('');
-        map.triggerRepaint();
-      };
-      canvas.addEventListener('webglcontextlost', onCtxLost);
-      canvas.addEventListener('webglcontextrestored', onCtxRestored);
-      removeCtxListeners = () => {
-        canvas.removeEventListener('webglcontextlost', onCtxLost);
-        canvas.removeEventListener('webglcontextrestored', onCtxRestored);
-      };
+    map.on('load', () => {
+      setMapReady(true);
+      // Extra resize() on load — belt and braces for the 0×0 canvas bug
+      // where the container briefly lacks dimensions during init.
+      map.resize();
+    });
+    map.on('error', (e) => {
+      // eslint-disable-next-line no-console
+      console.warn('MapLibre error', e);
+    });
 
-      mapRef.current = map;
+    // Re-resolve coverage on every pan/zoom settle — a region swap
+    // takes the same setStyle path as a user-initiated mode change.
+    map.on('moveend', () => {
+      const c = map.getCenter();
+      void resolveTileSource({ lng: c.lng, lat: c.lat }, regionsRef.current)
+        .then((next) => setResolution(next));
+    });
 
-      // ResizeObserver — force a canvas resize whenever the container
-      // dimensions change (sidebar collapse, window resize, etc).
-      ro = new ResizeObserver(() => {
-        mapRef.current?.resize();
-      });
-      ro.observe(container);
+    // WebGL contexts can be lost when the GPU resets, the tab
+    // backgrounds too aggressively, or too many contexts are open. Tell
+    // the canvas to re-acquire context automatically rather than
+    // silently dying.
+    const canvas = map.getCanvas();
+    const onCtxLost = (e: Event) => {
+      e.preventDefault();  // allow context restore
+      setMapError('Map context lost — reloading tiles…');
+    };
+    const onCtxRestored = () => {
+      setMapError('');
+      map.triggerRepaint();
+    };
+    canvas.addEventListener('webglcontextlost', onCtxLost);
+    canvas.addEventListener('webglcontextrestored', onCtxRestored);
+    removeCtxListeners = () => {
+      canvas.removeEventListener('webglcontextlost', onCtxLost);
+      canvas.removeEventListener('webglcontextrestored', onCtxRestored);
+    };
+
+    mapRef.current = map;
+
+    // ResizeObserver — force a canvas resize whenever the container
+    // dimensions change (sidebar collapse, window resize, etc).
+    ro = new ResizeObserver(() => {
+      mapRef.current?.resize();
+    });
+    ro.observe(container);
+
+    // Hydrate installed regions once, then seed the first resolution.
+    let cancelled = false;
+    (async () => {
+      const fetched = await fetchInstalledRegions();
+      if (cancelled) return;
+      regionsRef.current = fetched;
+      setRegions(fetched);
+      const initial = await resolveTileSource(undefined, fetched);
+      if (cancelled) return;
+      setResolution(initial);
     })();
 
     return () => {
@@ -242,6 +265,37 @@ const MapsPage: React.FC = () => {
       setMapReady(false);
     };
   }, []);
+
+  // ── Apply the current tile source as a style swap ────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !resolution) return;
+
+    if (resolution.kind === 'none') {
+      // Offline + outside every installed region. Clear the map to a
+      // neutral dark so the OutOfCoverageBanner reads against it.
+      map.setStyle({
+        version: 8,
+        sources: {},
+        layers: [
+          {
+            id: 'bg',
+            type: 'background',
+            paint: { 'background-color': '#141519' },
+          },
+        ],
+      });
+      return;
+    }
+
+    const streetUrl =
+      resolution.kind === 'local' ? resolution.streetUrl : resolution.streetUrl;
+    const satUrlTemplate =
+      resolution.kind === 'local' ? resolution.satUrlTemplate : null;
+    map.setStyle(
+      buildDarkStyle(streetUrl, { mode, satelliteUrlTemplate: satUrlTemplate }),
+    );
+  }, [mode, resolution]);
 
   // ── Geocoding ────────────────────────────────────────────────
   const runSearch = useCallback(async (text: string, country: string) => {
@@ -474,21 +528,23 @@ const MapsPage: React.FC = () => {
           )}
         </div>
 
-        {/* Offline banner — maps currently need internet for tiles
-            AND address search. Instead of a mysterious blank canvas,
-            explain the state + point at the roadmap. */}
-        {!online && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85 backdrop-blur-sm p-8">
-            <div className="max-w-md rounded-2xl border border-border/30 bg-card/95 p-6 text-center space-y-3">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-                <WifiOff size={22} className="text-muted-foreground" />
-              </div>
-              <div className="text-base font-bold">Maps need an internet connection</div>
-              <p className="text-sm text-muted-foreground leading-snug">
-                Map imagery and address search currently require a network.
-                Offline maps — where you download a region of your choice — is on the roadmap.
-              </p>
-            </div>
+        {/* Top-right layer chip — stacked below the NavigationControl
+            (which MapLibre injects at the same anchor). */}
+        <div className="absolute right-4 top-32 z-10 pointer-events-auto">
+          <LayerModeChip
+            mode={mode}
+            onChange={setMode}
+            satelliteAvailable={satelliteAvailable}
+          />
+        </div>
+
+        {/* Out-of-coverage banner — fires when the resolver returns
+            `kind: "none"` (offline and panned outside every installed
+            region). Intentionally subtle: the map surface stays, but
+            we explain why the tiles went away. */}
+        {resolution?.kind === 'none' && (
+          <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 pointer-events-none">
+            <OutOfCoverageBanner />
           </div>
         )}
 

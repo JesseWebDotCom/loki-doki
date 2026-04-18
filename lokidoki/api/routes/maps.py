@@ -20,13 +20,19 @@ import json
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
 from lokidoki.maps import catalog, store
 from lokidoki.maps.models import MapArchiveConfig, MapInstallProgress, MapRegionState
+
+# Tiles are long-lived, content-addressed artefacts; the browser may
+# cache them hard. PMTiles does byte-range fetches — Starlette's
+# FileResponse handles that automatically when given a path.
+_TILE_CACHE_CONTROL = "public, max-age=86400, immutable"
+_ALLOWED_SAT_EXTS = {"png", "jpg", "jpeg", "webp"}
 
 router = APIRouter()
 
@@ -145,12 +151,19 @@ async def list_regions() -> list[dict]:
     for st in states:
         cfg = configs_by_id.get(st.region_id)
         region = catalog.get_region(st.region_id)
-        out.append({
+        entry: dict = {
             "region_id": st.region_id,
             "label": region.label if region else st.region_id,
             "config": asdict(cfg) if cfg else None,
             "state": asdict(st),
-        })
+        }
+        # Chunk 3: bbox + center are required for the frontend coverage
+        # resolver — returning them here avoids a second /catalog round
+        # trip on every moveend.
+        if region is not None:
+            entry["bbox"] = list(region.bbox)
+            entry["center"] = {"lat": region.center_lat, "lon": region.center_lon}
+        out.append(entry)
     return out
 
 
@@ -240,6 +253,85 @@ async def region_progress(region_id: str, request: Request):
 
 
 # ── Storage ───────────────────────────────────────────────────────
+
+# ── Tile serving (Chunk 3) ────────────────────────────────────────
+
+def _validate_region_id(region_id: str) -> None:
+    """Reject anything that isn't a known, catalog-listed region.
+
+    Defends against directory traversal (``../``, absolute paths) and
+    confused-deputy access to regions that were never installed.
+    """
+    if catalog.get_region(region_id) is None:
+        raise HTTPException(400, f"Unknown region: {region_id}")
+
+
+def _resolve_under(root: "Path", *parts: str) -> "Path":  # noqa: F821
+    """Resolve ``parts`` under ``root`` and refuse traversal escape."""
+    from pathlib import Path
+
+    candidate = (root.joinpath(*parts)).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid tile path") from exc
+    return candidate
+
+
+@router.get("/tiles/{region_id}/streets.pmtiles")
+async def get_streets_pmtiles(region_id: str):
+    """Serve the region's vector basemap as a static PMTiles file.
+
+    MapLibre's ``pmtiles://`` protocol issues ``Range`` requests for the
+    directory + individual tile blobs — Starlette's ``FileResponse``
+    honours those automatically when handed a filesystem path.
+    """
+    _validate_region_id(region_id)
+    path = store.region_dir(region_id) / "streets.pmtiles"
+    if not path.is_file():
+        raise HTTPException(404, "streets.pmtiles not installed")
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": _TILE_CACHE_CONTROL,
+        },
+    )
+
+
+@router.get("/tiles/{region_id}/sat/{z}/{x}/{y}.{ext}")
+async def get_satellite_tile(region_id: str, z: int, x: int, y: int, ext: str):
+    """Serve a single raster satellite tile from the region's bundle.
+
+    The satellite tarball is extracted into ``satellite/{z}/{x}/{y}.{ext}``
+    on install. Missing tiles return 404 so MapLibre falls through to
+    the vector style rather than rendering a broken image.
+    """
+    if ext.lower() not in _ALLOWED_SAT_EXTS:
+        raise HTTPException(400, f"Unsupported tile extension: {ext}")
+    _validate_region_id(region_id)
+
+    sat_root = store.region_dir(region_id) / "satellite"
+    if not sat_root.is_dir():
+        raise HTTPException(404, "satellite tiles not installed")
+
+    tile_path = _resolve_under(sat_root, str(z), str(x), f"{y}.{ext.lower()}")
+    if not tile_path.is_file():
+        raise HTTPException(404, "tile not found")
+
+    media_type = {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "webp": "image/webp",
+    }[ext.lower()]
+    return FileResponse(
+        tile_path,
+        media_type=media_type,
+        headers={"Cache-Control": _TILE_CACHE_CONTROL},
+    )
+
 
 @router.get("/storage")
 async def get_storage() -> dict:
