@@ -8,13 +8,15 @@
  * basemap via the `pmtiles://` protocol; the tile-source resolver picks
  * between a local installed region and the online Protomaps demo.
  * Active panels (SearchPanel / PlaceDetailsCard / GuidesPanel /
- * DirectionsPanelPlaceholder) are pinned as a 360px sheet at the
- * map's top-left so the rail nav stays visible alongside.
+ * DirectionsPanel) are pinned as a 360px sheet at the map's top-left
+ * so the rail nav stays visible alongside.
  *
  * Place selection flow: SearchPanel → onSelect(place) → MapsPage drops
  * a pin, flies the map, pushes to `recents`, and shows PlaceDetailsCard.
  * Clicking the blue Directions button flips activePanel to
- * `directions`, which renders the placeholder until Chunk 7.
+ * `directions`, which mounts DirectionsPanel (Chunk 7). A URL deep
+ * link of the form /maps?from=lat,lon&to=lat,lon&mode=auto opens the
+ * Directions panel pre-filled so skills can hand off to the UI.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
@@ -34,7 +36,16 @@ import LeftRail from './maps/LeftRail';
 import SearchPanel from './maps/panels/SearchPanel';
 import PlaceDetailsCard from './maps/panels/PlaceDetailsCard';
 import GuidesPanel from './maps/panels/GuidesPanel';
-import DirectionsPanelPlaceholder from './maps/panels/DirectionsPanelPlaceholder';
+import DirectionsPanel from './maps/panels/DirectionsPanel';
+import type {
+  ModeId,
+  RouteAlt,
+} from './maps/panels/DirectionsPanel.types';
+import {
+  applyRoutes,
+  boundsForAlts,
+  clearRoutes,
+} from './maps/route-layer';
 import { loadRecents, pushRecent } from './maps/recents';
 import type { ActivePanel, PlaceResult, Recent } from './maps/types';
 import Sidebar from '../components/sidebar/Sidebar';
@@ -111,10 +122,22 @@ const MapsPage: React.FC = () => {
   const markerRef = useRef<Marker | null>(null);
   const hoverMarkerRef = useRef<Marker | null>(null);
 
-  const [activePanel, setActivePanel] = useState<ActivePanel>('search');
-  const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
+  const deepLink = useMemo(() => parseDeepLink(), []);
+  const [activePanel, setActivePanel] = useState<ActivePanel>(
+    deepLink ? 'directions' : 'search',
+  );
+  const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(
+    deepLink?.toPlace ?? null,
+  );
+  const [directionsFromPlace, setDirectionsFromPlace] = useState<PlaceResult | null>(
+    deepLink?.fromPlace ?? null,
+  );
+  const [directionsMode] = useState<ModeId>(deepLink?.mode ?? 'auto');
   const [recents, setRecents] = useState<Recent[]>(() => loadRecents());
   const [railCollapsed, setRailCollapsed] = useState(false);
+
+  const [routeAlts, setRouteAlts] = useState<RouteAlt[]>([]);
+  const [routeSelectedIdx, setRouteSelectedIdx] = useState(0);
 
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
@@ -315,6 +338,30 @@ const MapsPage: React.FC = () => {
     setActivePanel('directions');
   }, []);
 
+  const handleRoutesChanged = useCallback(
+    (alts: RouteAlt[], selectedIdx: number) => {
+      setRouteAlts(alts);
+      setRouteSelectedIdx(selectedIdx);
+    },
+    [],
+  );
+
+  const handleFitToCoords = useCallback((coords: [number, number][]) => {
+    const map = mapRef.current;
+    if (!map || coords.length === 0) return;
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+    for (const [lng, lat] of coords) {
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+    map.fitBounds(
+      [[minLng, minLat], [maxLng, maxLat]],
+      { padding: 80, duration: 600, maxZoom: 17 },
+    );
+  }, []);
+
   const handleSelectPanel = useCallback((panel: Exclude<ActivePanel, null>) => {
     setActivePanel(panel);
     if (panel !== 'directions') {
@@ -327,19 +374,62 @@ const MapsPage: React.FC = () => {
   const closePanel = useCallback(() => {
     setActivePanel(null);
     setSelectedPlace(null);
+    setDirectionsFromPlace(null);
+    setRouteAlts([]);
+    setRouteSelectedIdx(0);
     markerRef.current?.remove();
     markerRef.current = null;
     hoverMarkerRef.current?.remove();
     hoverMarkerRef.current = null;
-  }, []);
+    const map = mapRef.current;
+    if (map && mapReady) {
+      try { clearRoutes(map); } catch { /* style swap can race */ }
+    }
+  }, [mapReady]);
+
+  // Apply route alts + selection to the map whenever they change.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (routeAlts.length === 0) {
+      try { clearRoutes(map); } catch { /* style swap race */ }
+      return;
+    }
+    try {
+      applyRoutes(
+        map,
+        routeAlts.map((a) => ({
+          coords: a.coords,
+          duration_s: a.duration_s,
+          distance_m: a.distance_m,
+          is_fastest: a.is_fastest,
+        })),
+        routeSelectedIdx,
+      );
+      // First paint after alternates arrive → fit to the union bounds.
+      if (routeSelectedIdx === 0) {
+        const bounds = boundsForAlts(routeAlts);
+        if (bounds) {
+          map.fitBounds(bounds, { padding: 80, duration: 600, maxZoom: 15 });
+        }
+      }
+    } catch {
+      // Safe no-op if the style swap is mid-flight.
+    }
+  }, [mapReady, routeAlts, routeSelectedIdx]);
 
   // Choose which panel body to render inside the floating sheet.
   const panelBody = useMemo(() => {
     if (activePanel === 'directions') {
       return (
-        <DirectionsPanelPlaceholder
+        <DirectionsPanel
           toPlace={selectedPlace}
+          fromPlace={directionsFromPlace}
+          initialMode={directionsMode}
+          viewportCenter={viewportCenter}
           onClose={closePanel}
+          onRoutesChanged={handleRoutesChanged}
+          onFitToCoords={handleFitToCoords}
         />
       );
     }
@@ -369,10 +459,14 @@ const MapsPage: React.FC = () => {
   }, [
     activePanel,
     selectedPlace,
+    directionsFromPlace,
+    directionsMode,
     viewportCenter,
     handleSelect,
     handleHover,
     handleDirections,
+    handleRoutesChanged,
+    handleFitToCoords,
     closePanel,
   ]);
 
@@ -455,5 +549,45 @@ const MapsPage: React.FC = () => {
     </div>
   );
 };
+
+// ── Deep link parsing ──────────────────────────────────────────────
+
+interface DeepLink {
+  fromPlace: PlaceResult | null;
+  toPlace: PlaceResult | null;
+  mode: ModeId;
+}
+
+function coordPlace(raw: string, label: string): PlaceResult | null {
+  const [latStr, lonStr] = raw.split(',');
+  const lat = Number(latStr);
+  const lon = Number(lonStr);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return {
+    place_id: `${label}:${lat},${lon}`,
+    title: label,
+    subtitle: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+    address_lines: [label],
+    lat,
+    lon,
+    kind: 'deep-link',
+  };
+}
+
+function parseDeepLink(): DeepLink | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const fromRaw = params.get('from');
+  const toRaw = params.get('to');
+  if (!fromRaw && !toRaw) return null;
+  const modeRaw = params.get('mode');
+  const mode: ModeId =
+    modeRaw === 'pedestrian' || modeRaw === 'bicycle' ? modeRaw : 'auto';
+  return {
+    fromPlace: fromRaw ? coordPlace(fromRaw, 'Start') : null,
+    toPlace: toRaw ? coordPlace(toRaw, 'Destination') : null,
+    mode,
+  };
+}
 
 export default MapsPage;
