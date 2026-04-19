@@ -38,6 +38,8 @@ from .preflight.llm_engine import (
     warm_resident_llm,
 )
 from .preflight.archive_favicons import ensure_archive_favicons
+from .preflight.tippecanoe import ensure_tippecanoe
+from .preflight.valhalla_tools import ensure_valhalla_tools
 from .preflight.vision import ensure_vision
 from .run_app import spawn_fastapi_app
 
@@ -130,6 +132,8 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "warm-resident-llm": warm_resident_llm,
     "install-vision": ensure_vision,
     "pull-vision-model": ensure_vision,
+    "install-tippecanoe": ensure_tippecanoe,
+    "install-valhalla-tools": ensure_valhalla_tools,
     "fetch-archive-icons": ensure_archive_favicons,
     "spawn-app": spawn_fastapi_app,
 }
@@ -174,6 +178,8 @@ _STEP_CATEGORY: dict[str, str] = {
     "install-wake-word": "audio",
     "install-detectors": "audio",
     "install-image-gen": "audio",
+    "install-tippecanoe": "system",
+    "install-valhalla-tools": "system",
     "fetch-archive-icons": "finalize",
     "seed-database": "finalize",
     "spawn-app": "finalize",
@@ -197,6 +203,22 @@ _PRE_FRONTEND: list[tuple[str, str, bool, int | None]] = [
     ("install-frontend-deps", "Install frontend dependencies", False, 120),
     ("build-frontend", "Build frontend bundle", False, 60),
 ]
+
+
+# Maps toolchain — pinned tippecanoe + Valhalla build CLIs. Gated by
+# :data:`_MAPS_ENABLED_PROFILES` so ``pi_hailo`` (and any future
+# server-only profile) skips the ~1-minute download entirely. Runs
+# after the frontend block so a maps-disabled profile still gets the
+# app up quickly even if the maps-tools mirror is down.
+_PRE_MAPS_TOOLS: list[tuple[str, str, bool, int | None]] = [
+    ("install-tippecanoe", "Install tippecanoe (map compiler)", False, 45),
+    ("install-valhalla-tools", "Install Valhalla routing tools", False, 60),
+]
+
+
+_MAPS_ENABLED_PROFILES: frozenset[str] = frozenset(
+    {"mac", "windows", "linux", "pi_cpu"}
+)
 
 
 _COMMON_LLM: list[tuple[str, str, bool, int | None]] = [
@@ -287,9 +309,27 @@ def build_steps(profile: str) -> list[Step]:
 
     ``pi_hailo`` swaps in Hailo-specific runners and reorders the
     pre-toolchain block so the HAT is verified before slow steps run.
-    Every other profile shares a single linear ordering.
+    Every other profile shares a single linear ordering. Maps-tools
+    preflights only run on profiles in :data:`_MAPS_ENABLED_PROFILES`.
     """
     if profile == "pi_hailo":
         return _to_steps(_hailo_specs(), profile)
-    specs = _PRE_TOOLCHAIN + _PRE_FRONTEND + _COMMON_LLM + _COMMON_MEDIA
+    specs = _PRE_TOOLCHAIN + _PRE_FRONTEND
+    if profile in _MAPS_ENABLED_PROFILES:
+        specs += _PRE_MAPS_TOOLS
+    specs += _COMMON_LLM + _COMMON_MEDIA
+    return _to_steps(specs, profile)
+
+
+def build_maps_tools_only_steps(profile: str) -> list[Step]:
+    """Return just the maps-tools preflights — the ``--maps-tools-only``
+    CI / developer path.
+
+    Includes ``detect-profile`` so the event stream records the host
+    metadata before the downloads, then the two maps-tools steps. Skips
+    every other step in the wizard.
+    """
+    specs = [
+        ("detect-profile", "Detect host profile", False, 2),
+    ] + _PRE_MAPS_TOOLS
     return _to_steps(specs, profile)

@@ -3,13 +3,12 @@
 Lifecycle:
 
 * :meth:`ValhallaRouter.ensure_started` spawns the Valhalla process on
-  first use. Priority order:
-  1. Native tarball extracted to ``.lokidoki/valhalla/valhalla_service``
-     (pinned in :data:`lokidoki.bootstrap.versions.VALHALLA_RUNTIME`).
-  2. ``docker run`` of :data:`VALHALLA_DOCKER_FALLBACK` when ``docker``
-     is on ``$PATH``.
-  3. :class:`ValhallaUnavailable` — the navigation skill catches this
-     and falls back to remote OSRM.
+  first use from the native tarball at
+  ``.lokidoki/valhalla/valhalla_service`` (pinned in
+  :data:`lokidoki.bootstrap.versions.VALHALLA_RUNTIME`). If the binary
+  is absent, it raises :class:`ValhallaUnavailable` and the navigation
+  skill falls back to remote OSRM. LokiDoki does not depend on Docker
+  on any profile.
 * :meth:`route` + :meth:`eta` POST to ``http://127.0.0.1:8002/route``.
 * A single-flight lock serialises spawn attempts so concurrent callers
   don't race to start two processes.
@@ -24,7 +23,6 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -62,9 +60,10 @@ def _native_binary() -> Path | None:
     """Return the path to the extracted Valhalla CLI, or None.
 
     Bootstrap writes the tarball under ``.lokidoki/valhalla/`` next to
-    the other runtime binaries. Until the bundle pipeline publishes
-    real artefacts this path is simply absent on most developer
-    machines, which is why the Docker fallback exists.
+    the other runtime binaries. Until the offline-bundle pipeline
+    publishes real artefacts this path is simply absent — callers get
+    a :class:`ValhallaUnavailable` and the skill falls back to remote
+    OSRM.
     """
     candidates = [
         Path(".lokidoki/valhalla/valhalla_service"),
@@ -74,10 +73,6 @@ def _native_binary() -> Path | None:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate.resolve()
     return None
-
-
-def _docker_on_path() -> bool:
-    return shutil.which("docker") is not None
 
 
 def _write_config(config_path: Path, tile_dir: Path) -> None:
@@ -166,51 +161,25 @@ class ValhallaRouter(RouterProtocol):
     def _spawn_locked(self, region_id: str) -> None:
         tile_dir = build_tiles.tile_dir(region_id)
         native = _native_binary()
-        if native is not None:
-            config_path = store.data_dir() / "maps" / "valhalla-config.json"
-            _write_config(config_path, tile_dir)
-            cmd = [str(native), "--config", str(config_path)]
-            log.info("spawning Valhalla (native): %s", " ".join(cmd))
-            try:
-                self._process = subprocess.Popen(  # noqa: S603
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except OSError as exc:
-                raise ValhallaUnavailable(
-                    f"failed to spawn native Valhalla: {exc}",
-                ) from exc
-            return
-
-        if _docker_on_path():
-            from lokidoki.bootstrap.versions import VALHALLA_DOCKER_FALLBACK
-
-            image = VALHALLA_DOCKER_FALLBACK["image"]
-            data_root = (store.data_dir() / "maps").resolve()
-            cmd = [
-                "docker", "run", "--rm", "-d",
-                "-p", f"{self._port}:{self._port}",
-                "-v", f"{data_root}:/data",
-                "-e", f"VALHALLA_TILE_DIR=/data/{region_id}/valhalla",
-                image,
-            ]
-            log.info("spawning Valhalla (docker): %s", " ".join(cmd))
-            try:
-                self._process = subprocess.Popen(  # noqa: S603
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except OSError as exc:
-                raise ValhallaUnavailable(
-                    f"failed to spawn Docker Valhalla: {exc}",
-                ) from exc
-            return
-
-        raise ValhallaUnavailable(
-            "no Valhalla runtime available: tarball missing and docker not on PATH",
-        )
+        if native is None:
+            raise ValhallaUnavailable(
+                "Valhalla runtime not installed — expected "
+                ".lokidoki/valhalla/valhalla_service (offline-bundle artefact)",
+            )
+        config_path = store.data_dir() / "maps" / "valhalla-config.json"
+        _write_config(config_path, tile_dir)
+        cmd = [str(native), "--config", str(config_path)]
+        log.info("spawning Valhalla: %s", " ".join(cmd))
+        try:
+            self._process = subprocess.Popen(  # noqa: S603
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            raise ValhallaUnavailable(
+                f"failed to spawn Valhalla: {exc}",
+            ) from exc
 
     async def _wait_healthy(self) -> None:
         """Poll the status endpoint until 200 or timeout."""

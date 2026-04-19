@@ -16,7 +16,9 @@ from lokidoki.bootstrap.versions import (
     PIPER_VOICES,
     PYTHON_BUILD_STANDALONE,
     PYTHON_MIN_VERSION,
+    TIPPECANOE,
     UV,
+    VALHALLA_TOOLS,
     WHISPER,
     os_arch_key,
 )
@@ -85,3 +87,47 @@ def test_os_arch_key_normalisation() -> None:
     assert os_arch_key("Linux", "x86_64") == ("linux", "x86_64")
     assert os_arch_key("Linux", "aarch64") == ("linux", "aarch64")
     assert os_arch_key("Windows", "x86_64") == ("windows", "x86_64")
+
+
+# Maps-tools pins (tippecanoe + Valhalla build CLIs). Windows entries
+# may be explicitly ``None`` until an upstream static build exists, so
+# the shape is different from the core toolchain tables above.
+_MAPS_TOOLS_TABLES = [TIPPECANOE, VALHALLA_TOOLS]
+
+
+@pytest.mark.parametrize("table", _MAPS_TOOLS_TABLES)
+def test_maps_tools_all_required_keys_present(table: dict) -> None:
+    """Every supported (os, arch) key must appear — even when the value
+    is ``None`` the explicit entry is what the preflight branches on."""
+    missing = REQUIRED_KEYS - set(table["artifacts"].keys())
+    assert not missing, f"maps-tools missing keys: {missing}"
+
+
+@pytest.mark.parametrize("table", _MAPS_TOOLS_TABLES)
+def test_maps_tools_non_null_entries_shapes(table: dict) -> None:
+    for key, spec in table["artifacts"].items():
+        if spec is None:
+            continue
+        filename, sha = spec
+        assert filename, f"{key}: empty filename"
+        assert _SHA_RE.match(sha), (
+            f"{key} {filename}: sha256 must be 64 lowercase hex chars (got {sha!r})"
+        )
+
+
+@pytest.mark.parametrize("table", _MAPS_TOOLS_TABLES)
+def test_maps_tools_url_template_is_https(table: dict) -> None:
+    url = table["url_template"].format(
+        version=table["version"], filename="x.tar.gz"
+    )
+    assert url.startswith("https://"), url
+
+
+def test_maps_tools_version_tag_pinned() -> None:
+    """Both tippecanoe and Valhalla ship from the same ``maps-tools-v*``
+    GitHub Release so a version bump moves both together."""
+    assert TIPPECANOE["version"] == VALHALLA_TOOLS["version"], (
+        f"tippecanoe={TIPPECANOE['version']!r} "
+        f"valhalla_tools={VALHALLA_TOOLS['version']!r}"
+    )
+    assert TIPPECANOE["version"].startswith("maps-tools-v"), TIPPECANOE["version"]

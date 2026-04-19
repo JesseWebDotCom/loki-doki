@@ -191,10 +191,77 @@ VISION_MMPROJ: dict[str, dict[str, str]] = {
 # ``valhalla_build_*`` CLIs; the runtime serves 127.0.0.1:8002.
 #
 # URLs + SHAs below are stubs until the bundle pipeline publishes real
-# builds. ``ValhallaRouter._spawn()`` falls back to the Docker image in
-# :data:`VALHALLA_DOCKER_FALLBACK` when the tarball isn't present — the
-# fallback is a community multi-arch fork with aarch64 layers so the
-# Pi path still works without native binaries.
+# builds. Until then the routing endpoint raises ``ValhallaUnavailable``
+# and the navigation skill falls back to remote OSRM. There is no
+# Docker fallback — LokiDoki does not depend on Docker on any profile.
+# tippecanoe is the Mapbox CT-tile compiler. The maps subsystem builds
+# a PMTiles vector basemap for every installed region locally from the
+# upstream Geofabrik PBF — no remote CDN for prebuilt tiles — so this
+# binary has to be on disk for any maps-enabled profile. Upstream ships
+# no official static builds, so the loki-doki maintainer compiles them
+# once per (os, arch) on a build host and mirrors the tarballs as
+# assets on the ``maps-tools-v1`` GitHub Release, same pattern as
+# llama.cpp's pinned release artefacts.
+#
+# Windows tippecanoe builds are historically flaky against MSVC, so the
+# Windows key is pinned to ``None`` until a reliable static build
+# exists; :mod:`preflight.tippecanoe` no-ops with a clear log line on
+# that path and the maps page surfaces the unsupported-host state.
+TIPPECANOE = {
+    "version": "maps-tools-v1",
+    "artifacts": {
+        ("darwin", "arm64"): (
+            "tippecanoe-darwin-arm64.tar.gz",
+            "0" * 64,
+        ),
+        ("linux", "x86_64"): (
+            "tippecanoe-linux-x86_64.tar.gz",
+            "0" * 64,
+        ),
+        ("linux", "aarch64"): (
+            "tippecanoe-linux-aarch64.tar.gz",
+            "0" * 64,
+        ),
+        ("windows", "x86_64"): None,
+    },
+    "url_template": (
+        "https://github.com/JesseWebDotCom/loki-doki/releases/download/"
+        "{version}/{filename}"
+    ),
+}
+
+
+# Valhalla build CLIs + the ``valhalla_service`` HTTP routing daemon.
+# Tarball contains ``valhalla_build_tiles``, ``valhalla_build_admins``,
+# ``valhalla_build_elevations``, and ``valhalla_service``; chunk 3
+# consumes the build_* CLIs during per-region install, chunk 6 spawns
+# the service daemon lazily. Same maps-tools-v1 release assets as
+# :data:`TIPPECANOE`. This entry supersedes :data:`VALHALLA_RUNTIME` —
+# chunk 6 will collapse the two.
+VALHALLA_TOOLS = {
+    "version": "maps-tools-v1",
+    "artifacts": {
+        ("darwin", "arm64"): (
+            "valhalla-tools-darwin-arm64.tar.gz",
+            "0" * 64,
+        ),
+        ("linux", "x86_64"): (
+            "valhalla-tools-linux-x86_64.tar.gz",
+            "0" * 64,
+        ),
+        ("linux", "aarch64"): (
+            "valhalla-tools-linux-aarch64.tar.gz",
+            "0" * 64,
+        ),
+        ("windows", "x86_64"): None,
+    },
+    "url_template": (
+        "https://github.com/JesseWebDotCom/loki-doki/releases/download/"
+        "{version}/{filename}"
+    ),
+}
+
+
 VALHALLA_RUNTIME = {
     "version": "3.5.0",
     "artifacts": {
@@ -218,12 +285,6 @@ VALHALLA_RUNTIME = {
     "url_template": (
         "https://cdn.lokidoki.local/valhalla/{version}/{filename}"
     ),
-}
-
-
-VALHALLA_DOCKER_FALLBACK = {
-    "image": "ghcr.io/gis-ops/docker-valhalla/valhalla",
-    "digest": "sha256:" + "0" * 64,
 }
 
 

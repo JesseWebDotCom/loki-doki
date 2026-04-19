@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import sys
+import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -15,7 +16,7 @@ from .offline import apply_bundle, discover_bundle, reset_data_dir
 from .pipeline import Pipeline
 from .run_app import app_host_for, app_port_for
 from .server import make_server, start_pipeline_loop
-from .steps import build_steps
+from .steps import build_maps_tools_only_steps, build_steps
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -64,6 +65,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "Seeds .lokidoki/cache + huggingface before the pipeline runs so the "
             "wizard can install with no network access. When omitted the wizard "
             "also auto-picks up a sibling 'lokidoki-offline-bundle/' directory."
+        ),
+    )
+    parser.add_argument(
+        "--maps-tools-only",
+        action="store_true",
+        help=(
+            "Run ONLY the maps-tools preflights (tippecanoe + Valhalla CLIs). "
+            "Skips the rest of the wizard; intended for CI and for developers "
+            "validating the maps toolchain. Auto-shuts down the stdlib server "
+            "once both preflights complete."
         ),
     )
     return parser.parse_args(argv)
@@ -129,7 +140,11 @@ def main(argv: list[str] | None = None) -> int:
         emit=pipeline.emit,
     )
 
-    steps = build_steps(profile)
+    steps = (
+        build_maps_tools_only_steps(profile)
+        if args.maps_tools_only
+        else build_steps(profile)
+    )
     if args.skip_optional:
         for step in steps:
             if step.can_skip:
@@ -158,13 +173,34 @@ def main(argv: list[str] | None = None) -> int:
 
     ctx.handoff = _release_listener
 
+    # ``--maps-tools-only`` skips ``spawn-app`` entirely, so the usual
+    # handoff that releases ``server.serve_forever()`` never fires. Watch
+    # ``pipeline.done`` in a daemon thread and shut the server down the
+    # instant the two maps-tools preflights finish.
+    if args.maps_tools_only:
+
+        def _autoshutdown_after_pipeline() -> None:
+            while not pipeline.done:
+                time.sleep(0.2)
+            _release_listener()
+
+        threading.Thread(
+            target=_autoshutdown_after_pipeline,
+            name="bootstrap-maps-tools-shutdown",
+            daemon=True,
+        ).start()
+
     # 0.0.0.0 is a valid listen address but not a valid URL to hand the
     # user's browser — rewrite to loopback for the auto-open link so
     # headless Pi installs still land on a working URL.
     browser_host = "127.0.0.1" if host == "0.0.0.0" else host
     url = f"http://{browser_host}:{port}/bootstrap"
     logging.getLogger(__name__).info("bootstrap server listening on %s", url)
-    if not args.no_open and not os.environ.get("LOKIDOKI_NO_BROWSER"):
+    if (
+        not args.no_open
+        and not args.maps_tools_only
+        and not os.environ.get("LOKIDOKI_NO_BROWSER")
+    ):
         try:
             webbrowser.open(url)
         except Exception:  # noqa: BLE001
