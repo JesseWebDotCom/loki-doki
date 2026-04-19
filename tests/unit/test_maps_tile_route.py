@@ -5,7 +5,6 @@ Covers:
 * Range-aware streams of ``streets.pmtiles`` (MapLibre's PMTiles
   protocol issues byte-range reads for the directory + tile blobs).
 * 404 when the region has been selected but not yet installed.
-* Raster satellite passthrough.
 * Directory-traversal rejection — ``region_id`` must match the static
   catalog, not a filesystem path.
 """
@@ -98,68 +97,3 @@ def test_directory_traversal_rejected():
     # Non-traversal but not-in-catalog ids go straight to our validator.
     r2 = client.get("/api/v1/maps/tiles/not-a-real-region/streets.pmtiles")
     assert r2.status_code == 400
-
-
-# ── satellite tiles ───────────────────────────────────────────────
-
-def test_satellite_tile_served():
-    region_id = "us-ct"
-    tile_path = store.region_dir(region_id) / "satellite" / "4" / "2" / "5.jpg"
-    tile_path.parent.mkdir(parents=True, exist_ok=True)
-    tile_path.write_bytes(b"\xFF\xD8\xFFfakejpeg")
-
-    client = _client()
-    r = client.get("/api/v1/maps/tiles/us-ct/sat/4/2/5.jpg")
-    assert r.status_code == 200, r.text
-    assert r.content == b"\xFF\xD8\xFFfakejpeg"
-    assert r.headers.get("content-type") == "image/jpeg"
-
-
-def test_satellite_tile_404_when_file_missing():
-    # satellite/ dir exists but the specific tile does not.
-    region_id = "us-ct"
-    (store.region_dir(region_id) / "satellite").mkdir(parents=True, exist_ok=True)
-    client = _client()
-    r = client.get("/api/v1/maps/tiles/us-ct/sat/9/9/9.jpg")
-    assert r.status_code == 404
-
-
-def test_satellite_tile_rejects_bad_extension():
-    client = _client()
-    r = client.get("/api/v1/maps/tiles/us-ct/sat/1/2/3.gif")
-    assert r.status_code == 400
-
-
-def test_satellite_tile_traversal_via_path_rejected(tmp_path):
-    # If an attacker crafts z/x/y segments that resolve outside the
-    # satellite dir, refuse with 400 rather than silently serve.
-    # FastAPI's int-typed path params already block this for z/x, but
-    # `ext` is a free string — assert we still guard the resolve.
-    region_id = "us-ct"
-    sat_root = store.region_dir(region_id) / "satellite"
-    sat_root.mkdir(parents=True, exist_ok=True)
-
-    outside = store.region_dir(region_id) / "outside.jpg"
-    outside.write_bytes(b"secret")
-
-    client = _client()
-    # FastAPI rejects a non-int z via 422; the real traversal surface is
-    # the symlink case — confirm a symlink pointing outside the sat root
-    # is blocked.
-    link = sat_root / "0" / "0"
-    link.mkdir(parents=True, exist_ok=True)
-    linked = link / "0.jpg"
-    try:
-        linked.symlink_to(outside)
-    except OSError:
-        pytest.skip("symlinks not supported on this filesystem")
-
-    # A file that resolves inside the satellite root is fine — this
-    # symlink does, because link.resolve() stays inside sat_root's
-    # parent structure when the target is a sibling. Adjust the
-    # assertion to reflect that the guard is structural, not symlink
-    # semantics: the served bytes come from the symlink target.
-    r = client.get("/api/v1/maps/tiles/us-ct/sat/0/0/0.jpg")
-    # Accept either a refuse (400) or a serve (200) — but if it serves,
-    # verify the target was legitimately inside the region folder.
-    assert r.status_code in (200, 400), r.status_code

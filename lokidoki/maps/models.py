@@ -1,9 +1,9 @@
 """Runtime data models for map region config, state, and install progress.
 
-``MapArchiveConfig`` captures the user's selection (which regions, which
-artifact types). ``MapRegionState`` is the on-disk reality — what
-artifacts actually exist and how big they are. ``MapInstallProgress``
-is the shape sent over SSE while an install is in flight.
+``MapArchiveConfig`` captures the user's selection (which regions are
+enabled). ``MapRegionState`` is the on-disk reality — what artifacts
+actually exist and how big they are. ``MapInstallProgress`` is the
+shape sent over SSE while an install is in flight.
 """
 from __future__ import annotations
 
@@ -16,11 +16,10 @@ class MapArchiveConfig:
 
     region_id: str
     street: bool = False
-    satellite: bool = False
 
     @property
     def any_selected(self) -> bool:
-        return self.street or self.satellite
+        return self.street
 
 
 @dataclass
@@ -29,10 +28,9 @@ class MapRegionState:
 
     region_id: str
     street_installed: bool = False
-    satellite_installed: bool = False
     valhalla_installed: bool = False
     pbf_installed: bool = False
-    geocoder_installed: bool = False       # Chunk 5 flips this.
+    geocoder_installed: bool = False
     # Per-artifact bytes on disk — used by the /storage aggregate.
     bytes_on_disk: dict[str, int] = field(default_factory=dict)
     installed_at: str | None = None        # ISO timestamp of last completed install.
@@ -42,9 +40,8 @@ class MapRegionState:
 class MapInstallProgress:
     """Single SSE event emitted by ``store.install_region``.
 
-    ``artifact`` values: ``"street"``, ``"satellite"``, ``"pbf"``,
-    ``"valhalla"``, ``"geocoder"``, ``"done"``, ``"error"``,
-    ``"cancelled"``.
+    ``artifact`` values: ``"street"``, ``"pbf"``, ``"valhalla"``,
+    ``"geocoder"``, ``"done"``, ``"error"``, ``"cancelled"``.
     """
 
     region_id: str

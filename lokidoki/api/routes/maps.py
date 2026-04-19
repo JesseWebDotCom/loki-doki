@@ -43,7 +43,6 @@ from lokidoki.maps.routing.online_fallback import OnlineOSRMRouter
 # cache them hard. PMTiles does byte-range fetches — Starlette's
 # FileResponse handles that automatically when given a path.
 _TILE_CACHE_CONTROL = "public, max-age=86400, immutable"
-_ALLOWED_SAT_EXTS = {"png", "jpg", "jpeg", "webp"}
 
 router = APIRouter()
 
@@ -103,7 +102,6 @@ def _launch_install(region_id: str, config: MapArchiveConfig) -> _InstallTask:
 
 class RegionSelection(BaseModel):
     street: bool = False
-    satellite: bool = False
 
 
 # ── Catalog ───────────────────────────────────────────────────────
@@ -118,7 +116,6 @@ def _region_payload(region) -> dict:
         "bbox": list(region.bbox),
         "sizes_mb": {
             "street": region.street_size_mb,
-            "satellite": region.satellite_size_mb,
             "valhalla": region.valhalla_size_mb,
             "pbf": region.pbf_size_mb,
         },
@@ -196,11 +193,9 @@ async def upsert_region(
         raise HTTPException(404, f"Unknown region: {region_id}")
     if region.is_parent_only:
         raise HTTPException(400, f"Region {region_id} is parent-only")
-    if body.satellite and not body.street:
-        raise HTTPException(409, {"error": "satellite_requires_street"})
 
     config = MapArchiveConfig(
-        region_id=region_id, street=body.street, satellite=body.satellite,
+        region_id=region_id, street=body.street,
     )
     store.upsert_config(config)
 
@@ -283,18 +278,6 @@ def _validate_region_id(region_id: str) -> None:
         raise HTTPException(400, f"Unknown region: {region_id}")
 
 
-def _resolve_under(root: "Path", *parts: str) -> "Path":  # noqa: F821
-    """Resolve ``parts`` under ``root`` and refuse traversal escape."""
-    from pathlib import Path
-
-    candidate = (root.joinpath(*parts)).resolve()
-    try:
-        candidate.relative_to(root.resolve())
-    except ValueError as exc:
-        raise HTTPException(400, "Invalid tile path") from exc
-    return candidate
-
-
 @router.get("/tiles/{region_id}/streets.pmtiles")
 async def get_streets_pmtiles(region_id: str):
     """Serve the region's vector basemap as a static PMTiles file.
@@ -317,56 +300,15 @@ async def get_streets_pmtiles(region_id: str):
     )
 
 
-@router.get("/tiles/{region_id}/sat/{z}/{x}/{y}.{ext}")
-async def get_satellite_tile(region_id: str, z: int, x: int, y: int, ext: str):
-    """Serve a single raster satellite tile from the region's bundle.
-
-    The satellite tarball is extracted into ``satellite/{z}/{x}/{y}.{ext}``
-    on install. Missing tiles return 404 so MapLibre falls through to
-    the vector style rather than rendering a broken image.
-    """
-    if ext.lower() not in _ALLOWED_SAT_EXTS:
-        raise HTTPException(400, f"Unsupported tile extension: {ext}")
-    _validate_region_id(region_id)
-
-    sat_root = store.region_dir(region_id) / "satellite"
-    if not sat_root.is_dir():
-        raise HTTPException(404, "satellite tiles not installed")
-
-    tile_path = _resolve_under(sat_root, str(z), str(x), f"{y}.{ext.lower()}")
-    if not tile_path.is_file():
-        raise HTTPException(404, "tile not found")
-
-    media_type = {
-        "png": "image/png",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "webp": "image/webp",
-    }[ext.lower()]
-    return FileResponse(
-        tile_path,
-        media_type=media_type,
-        headers={"Cache-Control": _TILE_CACHE_CONTROL},
-    )
-
-
 @router.get("/storage")
 async def get_storage() -> dict:
-    """Aggregate bytes-on-disk per artifact across all installed regions.
-
-    The response also carries ``dist_base`` (the currently-active
-    artifact host) and ``is_stub_dist`` — the frontend uses the
-    latter to show a "point me at your own dist host" banner while
-    the built-in default still resolves to the stub CDN.
-    """
+    """Aggregate bytes-on-disk per artifact across all installed regions."""
     states = store.load_states()
     totals = store.aggregate_storage(states)
     return {
         "totals": totals,
         "total_bytes": sum(totals.values()),
         "regions": [asdict(s) for s in states],
-        "dist_base": catalog.dist_base(),
-        "is_stub_dist": catalog.is_stub_dist(),
     }
 
 

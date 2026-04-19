@@ -1,24 +1,19 @@
-"""Catalog sanity tests — Chunk 2 of the offline-maps plan.
+"""Catalog sanity tests — offline-maps Chunk 2, maps-local-build Chunk 2.
 
 The catalog is the single source of truth for what regions the admin
 panel can offer. These tests guard against common regressions: missing
-states, dangling parent refs, and malformed URL templates.
+states, dangling parent refs, and malformed URL templates. The only
+real URL per region now is the Geofabrik PBF; everything else is
+built locally.
 """
 from __future__ import annotations
 
 import re
 
-import pytest
-
-from lokidoki.maps import catalog as catalog_mod
 from lokidoki.maps.catalog import (
-    DEFAULT_DIST_BASE,
-    DIST_BASE_ENV,
     MAP_CATALOG,
     MapRegion,
     children_of,
-    dist_base,
-    is_stub_dist,
 )
 
 
@@ -30,21 +25,16 @@ def test_catalog_has_at_least_50_us_states():
     assert len(states) >= 50, f"only {len(states)} US states in catalog"
 
 
-def test_every_region_has_valid_url_templates():
+def test_every_region_has_valid_pbf_url():
     for region in MAP_CATALOG.values():
         if region.is_parent_only:
-            # Continents carry empty templates — nothing to validate.
-            assert region.street_url_template == ""
-            assert region.satellite_url_template == ""
+            # Continents carry an empty template — nothing to validate.
+            assert region.pbf_url_template == ""
             continue
-        for field_name in (
-            "street_url_template", "satellite_url_template",
-            "valhalla_url_template", "pbf_url_template",
-        ):
-            value = getattr(region, field_name)
-            assert _URL_RE.match(value), (
-                f"{region.region_id}.{field_name} is not a valid URL: {value!r}"
-            )
+        assert _URL_RE.match(region.pbf_url_template), (
+            f"{region.region_id}.pbf_url_template is not a valid URL: "
+            f"{region.pbf_url_template!r}"
+        )
 
 
 def test_parent_ids_resolve():
@@ -90,30 +80,3 @@ def test_children_of_us_are_states():
 def test_every_region_is_a_mapregion():
     for region in MAP_CATALOG.values():
         assert isinstance(region, MapRegion)
-
-
-def test_dist_base_defaults_to_stub(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(DIST_BASE_ENV, raising=False)
-    assert dist_base() == DEFAULT_DIST_BASE
-    assert is_stub_dist() is True
-
-
-def test_dist_base_env_override(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv(DIST_BASE_ENV, "http://localhost:9000/maps")
-    assert dist_base() == "http://localhost:9000/maps"
-    assert is_stub_dist() is False
-
-
-def test_env_override_flows_into_seed(monkeypatch: pytest.MonkeyPatch):
-    """Rebuilding the catalog with the env set rewrites every artifact URL."""
-    monkeypatch.setenv(DIST_BASE_ENV, "http://my-host/maps")
-    # Trigger a fresh catalog build by re-running the loader.
-    catalog_mod._load_seed()
-    try:
-        ct = MAP_CATALOG["us-ct"]
-        assert ct.street_url_template.startswith("http://my-host/maps/")
-        assert ct.valhalla_url_template.startswith("http://my-host/maps/")
-    finally:
-        # Restore default-host catalog so later tests see the shipping URLs.
-        monkeypatch.delenv(DIST_BASE_ENV, raising=False)
-        catalog_mod._load_seed()

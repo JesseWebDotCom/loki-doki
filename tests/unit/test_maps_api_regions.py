@@ -1,13 +1,11 @@
-"""Maps API tests — Chunk 2 of the offline-maps plan.
+"""Maps API tests — maps-local-build Chunk 2.
 
-Supersedes the minimal stub test from Chunk 1. We mount the maps
-router on a bare FastAPI app so these tests never trip the bootstrap
-gate middleware, then override ``require_admin`` for the endpoints
-that demand admin auth.
+Supersedes the minimal stub test from the original offline-maps
+Chunk 1. We mount the maps router on a bare FastAPI app so these
+tests never trip the bootstrap gate middleware, then override
+``require_admin`` for the endpoints that demand admin auth.
 """
 from __future__ import annotations
-
-import asyncio
 
 import pytest
 from fastapi import FastAPI
@@ -81,35 +79,22 @@ def test_storage_zero_before_any_install():
 
 # ── Selection validation ─────────────────────────────────────────
 
-def test_put_region_conflicts_when_satellite_without_street(monkeypatch):
-    client = _client()
-    r = client.put("/api/v1/maps/regions/us-ct",
-                   json={"street": False, "satellite": True})
-    assert r.status_code == 409, r.text
-    body = r.json()
-    # FastAPI wraps structured error in detail.
-    assert body["detail"]["error"] == "satellite_requires_street"
-
-
 def test_put_region_unknown_region_404():
     client = _client()
     r = client.put("/api/v1/maps/regions/not-real",
-                   json={"street": True, "satellite": False})
+                   json={"street": True})
     assert r.status_code == 404
 
 
 def test_put_region_parent_only_rejected():
     client = _client()
     r = client.put("/api/v1/maps/regions/na",
-                   json={"street": True, "satellite": False})
+                   json={"street": True})
     assert r.status_code == 400
 
 
 def test_put_region_persists_config_and_launches_install(monkeypatch):
     """A valid PUT persists the config and kicks off a tracked install."""
-
-    async def _noop(*args, **kwargs):
-        return None
 
     # Replace the download so no network is touched.
     async def _fake(url, dest, expected_sha256, progress_cb, cancel_event):
@@ -121,7 +106,7 @@ def test_put_region_persists_config_and_launches_install(monkeypatch):
 
     client = _client()
     r = client.put("/api/v1/maps/regions/us-ct",
-                   json={"street": True, "satellite": False})
+                   json={"street": True})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["installing"] is True
@@ -159,8 +144,8 @@ def test_storage_aggregates_by_artifact_type():
         bytes_on_disk={"street": 100, "valhalla": 50},
     ))
     store.upsert_state(MapRegionState(
-        region_id="us-ri", street_installed=True, satellite_installed=True,
-        bytes_on_disk={"street": 30, "satellite": 400, "valhalla": 15},
+        region_id="us-ri", street_installed=True,
+        bytes_on_disk={"street": 30, "valhalla": 15, "pbf": 400},
     ))
 
     client = _client()
@@ -168,8 +153,8 @@ def test_storage_aggregates_by_artifact_type():
     assert r.status_code == 200
     body = r.json()
     assert body["totals"]["street"] == 130
-    assert body["totals"]["satellite"] == 400
     assert body["totals"]["valhalla"] == 65
+    assert body["totals"]["pbf"] == 400
     assert body["total_bytes"] == 595
 
 

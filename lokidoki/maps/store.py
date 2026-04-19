@@ -2,13 +2,16 @@
 
 Two JSON files under the data directory:
 
-  - ``maps_config.json`` — per-region admin selection (street/satellite).
+  - ``maps_config.json`` — per-region admin selection.
   - ``maps_state.json``  — per-region on-disk reality (artifact flags + bytes).
 
-``install_region`` is an async coroutine that downloads every artifact
-the config asks for, verifies sha256 (when one is set in the catalog),
-and atomically renames into ``data/maps/<region_id>/``. Progress is
-published through an :class:`asyncio.Queue` the SSE endpoint drains.
+``install_region`` is an async coroutine that downloads the source
+OpenStreetMap PBF for a region (the only real network download), with
+sha256 verification when the catalog carries one, and atomically
+renames it into ``data/maps/<region_id>/``. Progress is published
+through an :class:`asyncio.Queue` the SSE endpoint drains. Later
+chunks layer local builds (PMTiles, routing graph, FTS geocoder) on
+top of the downloaded PBF.
 
 Follows the shape of :mod:`lokidoki.archives.store` — different content,
 same lightweight JSON-file pattern.
@@ -37,10 +40,10 @@ _DATA_DIR: Path | None = None
 _CHUNK_SIZE = 1024 * 1024  # 1 MB download chunks
 _USER_AGENT = "LokiDoki/0.1 (offline-maps)"
 
-# Chunk 5: after the FTS5 geocoder index is built, the source .osm.pbf
-# is multiple times larger than the index we just produced. Delete it
-# by default to reclaim disk (users); keep it with LOKIDOKI_KEEP_PBF=1
-# so developers can rebuild without re-downloading.
+# After the FTS5 geocoder index is built, the source .osm.pbf is
+# multiple times larger than the index we just produced. Delete it by
+# default to reclaim disk (users); keep it with LOKIDOKI_KEEP_PBF=1 so
+# developers can rebuild without re-downloading.
 _KEEP_PBF_ENV = "LOKIDOKI_KEEP_PBF"
 
 
@@ -201,71 +204,31 @@ def cleanup_stale_tmp() -> None:
 # ── Install pipeline ──────────────────────────────────────────────
 
 def _final_path_for(region_id: str, artifact: str) -> Path:
-    """Final on-disk destination for a given artifact.
-
-    Satellite and Valhalla are archive bundles — the caller extracts
-    them into a directory under the same name, so the "final path"
-    returned here is the bundle file the download lands at. Extraction
-    is not yet implemented (Chunk 2 ships bytes-on-disk; Chunk 6
-    spins Valhalla against the extracted tree).
-    """
+    """Final on-disk destination for a given artifact."""
     d = region_dir(region_id)
     return {
-        "street":    d / "streets.pmtiles",
-        "satellite": d / "satellite.tar.zst",
-        "valhalla":  d / "valhalla.tar.zst",
-        "pbf":       d / "region.osm.pbf",
+        "pbf": d / "region.osm.pbf",
     }[artifact]
 
 
 def _artifact_plan(
     region: MapRegion,
     config: MapArchiveConfig,
-    need_pbf: bool,
 ) -> list[tuple[str, str, int, str]]:
     """Return ``(artifact, url, size_bytes_hint, sha256)`` for each
     artifact this install needs to download.
 
-    ``need_pbf`` is True when either geocoder build (Chunk 5) or a
-    local Valhalla tile build (Chunk 6) will run after download. The
-    default Chunk-2 install always downloads the prebuilt Valhalla
-    tarball and skips the .pbf to save disk.
+    After the maps-local-build switch, the only real network download
+    is the Geofabrik ``.osm.pbf`` — every other artifact (basemap,
+    routing graph, geocoder) is produced locally by later build
+    steps that consume the PBF on disk.
     """
-    plan: list[tuple[str, str, int, str]] = []
-
-    if config.street:
-        plan.append((
-            "street",
-            region.street_url_template,
-            int(region.street_size_mb * 1024 * 1024),
-            region.street_sha256,
-        ))
-        # Every installed region gets prebuilt Valhalla tiles so Chunk 6
-        # can spin up routing without any build step.
-        plan.append((
-            "valhalla",
-            region.valhalla_url_template,
-            int(region.valhalla_size_mb * 1024 * 1024),
-            region.valhalla_sha256,
-        ))
-
-    if config.satellite:
-        plan.append((
-            "satellite",
-            region.satellite_url_template,
-            int(region.satellite_size_mb * 1024 * 1024),
-            region.satellite_sha256 or "",
-        ))
-
-    if need_pbf:
-        plan.append((
-            "pbf",
-            region.pbf_url_template,
-            int(region.pbf_size_mb * 1024 * 1024),
-            region.pbf_sha256,
-        ))
-
-    return plan
+    return [(
+        "pbf",
+        region.pbf_url_template,
+        int(region.pbf_size_mb * 1024 * 1024),
+        region.pbf_sha256,
+    )]
 
 
 async def _download_to(
@@ -386,41 +349,6 @@ async def _build_geocoder_step(
     ))
 
 
-async def _extract_valhalla_step(
-    region_id: str,
-    archive_path: Path,
-    emit,
-) -> int:
-    """Extract ``valhalla.tar.zst`` into ``<region>/valhalla/``.
-
-    Returns the total bytes of the extracted tile tree. Runs in a
-    thread because tar extraction is CPU-bound; the SSE queue stays
-    responsive that way. On success the archive is deleted — the
-    extracted dir is the only artefact Valhalla actually reads.
-    """
-    from .routing.build_tiles import extract_archive, tile_dir
-
-    dest = tile_dir(region_id)
-
-    await emit(MapInstallProgress(
-        region_id=region_id, artifact="valhalla",
-        phase="extracting",
-    ))
-
-    loop = asyncio.get_event_loop()
-    total_bytes = await loop.run_in_executor(
-        None, extract_archive, archive_path, dest,
-    )
-
-    # Archive no longer needed — the extracted tree is the live artefact.
-    try:
-        archive_path.unlink()
-    except OSError:
-        pass
-
-    return total_bytes
-
-
 async def install_region(
     region_id: str,
     config: MapArchiveConfig,
@@ -428,14 +356,16 @@ async def install_region(
     cancel_event: asyncio.Event | None = None,
     need_pbf: bool = False,
 ) -> MapRegionState:
-    """Download every artifact the config requests for ``region_id``.
+    """Download the region's source PBF into ``data/maps/<region_id>/``.
 
     Files land first in ``data/maps/<region_id>/.tmp/`` then are
     ``os.replace``-d into the final path. Emits one
     :class:`MapInstallProgress` per chunk-size step on ``queue``.
 
-    ``need_pbf`` is set by Chunks 5/6 when they need the .osm.pbf to
-    stay on disk after install; default is to skip pbf entirely.
+    Later chunks add the local build steps that turn the PBF into a
+    basemap, a routing graph, and an FTS geocoder. ``need_pbf`` is
+    accepted for forward-compat with callers that will trigger the
+    geocoder build once it is wired in.
     """
     region = get_region(region_id)
     if region is None:
@@ -451,7 +381,7 @@ async def install_region(
         if queue is not None:
             await queue.put(progress)
 
-    plan = _artifact_plan(region, config, need_pbf)
+    plan = _artifact_plan(region, config)
 
     tmp = _tmp_dir(region_id)
     tmp.mkdir(parents=True, exist_ok=True)
@@ -464,8 +394,6 @@ async def install_region(
             tmp_path = tmp / final.name
 
             def _cb(done: int, total: int, artifact=artifact) -> None:
-                # Use asyncio.run_coroutine_threadsafe? No — progress_cb
-                # runs on the event loop, use put_nowait on the queue.
                 if queue is not None:
                     try:
                         queue.put_nowait(MapInstallProgress(
@@ -503,33 +431,10 @@ async def install_region(
             ))
 
             final.parent.mkdir(parents=True, exist_ok=True)
-            # Atomic rename — even an interrupted interpreter leaves the
-            # old final file intact until this succeeds.
-            import os
             os.replace(tmp_path, final)
 
             setattr(state, f"{artifact}_installed", True)
             state.bytes_on_disk[artifact] = bytes_written
-
-            # Chunk 6: the Valhalla artifact arrives as a ``.tar.zst`` of
-            # the prebuilt tile tree. Extract it in-place so the sidecar
-            # can mmap ``data/maps/<region>/valhalla/`` directly, then
-            # drop the archive to reclaim disk.
-            if artifact == "valhalla":
-                try:
-                    extracted_bytes = await _extract_valhalla_step(
-                        region_id, final, _emit,
-                    )
-                except Exception as exc:  # noqa: BLE001 — surfaced via SSE
-                    log.exception(
-                        "valhalla extraction failed for %s", region_id,
-                    )
-                    await _emit(MapInstallProgress(
-                        region_id=region_id, artifact="valhalla",
-                        phase="complete", error=str(exc),
-                    ))
-                    raise
-                state.bytes_on_disk["valhalla"] = extracted_bytes
 
             await _emit(MapInstallProgress(
                 region_id=region_id, artifact=artifact,
@@ -540,9 +445,9 @@ async def install_region(
         # Drop the .tmp dir once every artifact landed.
         shutil.rmtree(tmp, ignore_errors=True)
 
-        # Chunk 5: build the FTS5 address index if the PBF is on disk.
-        # Runs only when the caller explicitly asked for `need_pbf` — the
-        # geocoder depends on the raw OSM data.
+        # Build the FTS5 address index if the PBF is on disk and the
+        # caller asked for it. Later chunks fold PMTiles + Valhalla
+        # builds in alongside this step.
         if need_pbf and state.pbf_installed:
             await _build_geocoder_step(region_id, state, _emit, cancel_event)
 
@@ -571,7 +476,7 @@ async def install_region(
 def aggregate_storage(states: Iterable[MapRegionState]) -> dict[str, int]:
     """Sum ``bytes_on_disk`` across every region, bucketed by artifact."""
     totals: dict[str, int] = {
-        "street": 0, "satellite": 0, "valhalla": 0,
+        "street": 0, "valhalla": 0,
         "pbf": 0, "geocoder": 0,
     }
     for st in states:

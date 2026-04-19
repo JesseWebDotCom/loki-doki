@@ -1,8 +1,10 @@
 """Static catalog of map regions available for offline install.
 
 One entry per selectable region — continents are parent-only scaffolds
-(zero bytes, no URLs); countries and US states carry the download
-templates and sha256s used by :mod:`lokidoki.maps.store`.
+(zero bytes, no URLs); countries and US states carry the Geofabrik
+``.osm.pbf`` URL used by :mod:`lokidoki.maps.store`. Every other
+artifact (PMTiles, routing graph, FTS geocoder) is built locally from
+that PBF in the install pipeline.
 
 The catalog itself is populated in :mod:`lokidoki.maps.seed` so the
 dataclass / lookup layer stays importable without parsing the 50-state
@@ -10,30 +12,7 @@ size table.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-
-# Env var that lets a self-hoster point the installer at their own
-# artifact bucket before the real CDN exists. Sub-chunk 8a fix for the
-# Chunk-6 deferral: the default points at a stub that does not resolve,
-# which is why an install with zero config appears to "do nothing".
-DIST_BASE_ENV = "LOKIDOKI_MAPS_DIST_BASE"
-DEFAULT_DIST_BASE = "https://dist.lokidoki.app/maps"
-
-
-def dist_base() -> str:
-    """Current base URL the region catalog builds artifact URLs under.
-
-    Reads ``LOKIDOKI_MAPS_DIST_BASE`` on every call so a process that
-    exports the env var after boot still picks up the override on the
-    next catalog rebuild.
-    """
-    return os.environ.get(DIST_BASE_ENV) or DEFAULT_DIST_BASE
-
-
-def is_stub_dist() -> bool:
-    """True when the default (non-existent) dist host is active."""
-    return dist_base() == DEFAULT_DIST_BASE
 
 
 @dataclass(frozen=True)
@@ -41,9 +20,9 @@ class MapRegion:
     """One selectable map region.
 
     ``pi_local_build_ok`` is a catalog-authored boolean: ``True`` iff
-    ``pbf_size_mb < 500`` (roughly state-scale). Chunk 6 refuses local
-    Valhalla tile builds for ``False`` regions regardless of the user's
-    ``allow_local_build`` flag and always pulls the prebuilt tarball.
+    ``pbf_size_mb < 500`` (roughly state-scale). The install pipeline
+    refuses local Valhalla / PMTiles builds for ``False`` regions on
+    Pi hardware regardless of the user's preferences.
     """
 
     region_id: str
@@ -52,17 +31,10 @@ class MapRegion:
     center_lat: float
     center_lon: float
     bbox: tuple[float, float, float, float]  # (minLon, minLat, maxLon, maxLat)
-    # Streets + satellite — distributed as artifacts.
+    # Approximate on-disk footprint after local build (for the admin UI).
     street_size_mb: float
-    satellite_size_mb: float
-    street_url_template: str
-    satellite_url_template: str
-    street_sha256: str
-    satellite_sha256: str | None
-    # Routing — prebuilt tiles always available; .pbf only when local build allowed.
     valhalla_size_mb: float
-    valhalla_url_template: str
-    valhalla_sha256: str
+    # The one real download — OpenStreetMap PBF from Geofabrik.
     pbf_size_mb: float
     pbf_url_template: str
     pbf_sha256: str
@@ -71,7 +43,7 @@ class MapRegion:
     @property
     def is_parent_only(self) -> bool:
         """True for catalog scaffolding entries with no downloadable artifacts."""
-        return self.street_url_template == ""
+        return self.pbf_url_template == ""
 
 
 # Populated by :mod:`lokidoki.maps.seed` at import time.
