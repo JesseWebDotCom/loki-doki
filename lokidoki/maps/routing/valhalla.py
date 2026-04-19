@@ -1,17 +1,20 @@
 """Valhalla sidecar — manages the local routing subprocess + HTTP calls.
 
-Lifecycle:
+Lifecycle (Chunk 6):
 
-* :meth:`ValhallaRouter.ensure_started` spawns the Valhalla process on
-  first use from the native tarball at
+* The Valhalla process is cold-started on the first :meth:`route` /
+  :meth:`eta` call from the native binary at
   ``.lokidoki/valhalla/valhalla_service`` (pinned in
   :data:`lokidoki.bootstrap.versions.VALHALLA_RUNTIME`). If the binary
-  is absent, it raises :class:`ValhallaUnavailable` and the navigation
+  is absent, :class:`ValhallaUnavailable` bubbles up and the navigation
   skill falls back to remote OSRM. LokiDoki does not depend on Docker
   on any profile.
 * :meth:`route` + :meth:`eta` POST to ``http://127.0.0.1:8002/route``.
-* A single-flight lock serialises spawn attempts so concurrent callers
-  don't race to start two processes.
+* :class:`lokidoki.maps.routing.lifecycle.ValhallaLifecycle` owns the
+  spawn lock, the idle clock, and the watchdog: concurrent first-callers
+  share one cold-start, and the sidecar is torn down after
+  ``LOKIDOKI_VALHALLA_IDLE_S`` (default 900 s) of silence to return
+  100–800 MB of resident memory to the LLM.
 
 The router never builds tiles — tiles arrive prebuilt as a region
 artefact (Chunk 2). :func:`build_tiles.ensure_tiles` validates their
@@ -42,6 +45,7 @@ from lokidoki.maps.routing import (
     ValhallaUnavailable,
 )
 from lokidoki.maps.routing import build_tiles
+from lokidoki.maps.routing.lifecycle import ValhallaLifecycle
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +53,6 @@ log = logging.getLogger(__name__)
 _DEFAULT_PORT = 8002
 _HEALTH_TIMEOUT_S = 10.0
 _REQUEST_TIMEOUT_S = 15.0
-_SPAWN_LOCK = asyncio.Lock()
 
 # Valhalla maneuver types → textual hint (used only if the narrative
 # string is missing; Valhalla normally supplies ``instruction``).
@@ -112,35 +115,35 @@ class ValhallaRouter(RouterProtocol):
     stays up for the lifetime of the FastAPI process.
     """
 
-    def __init__(self, port: int = _DEFAULT_PORT) -> None:
+    def __init__(
+        self,
+        port: int = _DEFAULT_PORT,
+        *,
+        lifecycle: ValhallaLifecycle | None = None,
+    ) -> None:
         self._port = port
         self._base_url = f"http://127.0.0.1:{port}"
         self._process: subprocess.Popen[bytes] | None = None
         self._active_region: str | None = None
+        self._lifecycle = lifecycle or ValhallaLifecycle(self)
+
+    @property
+    def lifecycle(self) -> ValhallaLifecycle:
+        return self._lifecycle
 
     # ── Lifecycle ────────────────────────────────────────────────
 
     async def ensure_started(self, region_id: str) -> None:
         """Spawn the sidecar if needed; validate tiles first.
 
-        Re-entry is safe: holds :data:`_SPAWN_LOCK` while deciding
-        whether to spawn, short-circuits when the process is already up
-        AND already serving ``region_id``. Raises
-        :class:`ValhallaUnavailable` when no spawn path works.
+        Delegates the spawn lock, idle clock, and watchdog to
+        :class:`ValhallaLifecycle`. Concurrent first-callers serialise on
+        the lifecycle's single :class:`asyncio.Lock` so only one
+        cold-start ever happens. Raises :class:`ValhallaUnavailable`
+        when no spawn path works.
         """
         build_tiles.ensure_tiles(region_id)
-        async with _SPAWN_LOCK:
-            if self._process is not None and self._process.poll() is None \
-                    and self._active_region == region_id:
-                return
-            # Region switch or first start: tear down and respawn against
-            # the new tile dir. Running Valhalla can't swap tile_dir at
-            # runtime without a SIGHUP handler the community builds
-            # don't ship.
-            await self._stop_locked()
-            self._spawn_locked(region_id)
-            await self._wait_healthy()
-            self._active_region = region_id
+        await self._lifecycle.ensure_started(region_id)
 
     async def _stop_locked(self) -> None:
         if self._process is None:
@@ -150,7 +153,7 @@ class ValhallaRouter(RouterProtocol):
             try:
                 await asyncio.wait_for(
                     asyncio.to_thread(self._process.wait),
-                    timeout=5.0,
+                    timeout=10.0,
                 )
             except asyncio.TimeoutError:
                 self._process.kill()
@@ -218,6 +221,10 @@ class ValhallaRouter(RouterProtocol):
             raise ValueError(
                 f"Valhalla returned {resp.status_code}: {resp.text[:200]}",
             )
+        # Keep the sidecar warm — every successful /route resets the
+        # lifecycle's idle clock so the watchdog only fires during true
+        # silence (both API-driven and skill-driven traffic count).
+        self._lifecycle.touch()
         return _parse_route(resp.json(), request.profile)
 
     async def eta(

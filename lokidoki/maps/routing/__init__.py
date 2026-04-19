@@ -119,6 +119,20 @@ class RouterProtocol(Protocol):
         ...
 
 
+def __getattr__(name: str):
+    """Lazy re-export of :class:`ValhallaLifecycle`.
+
+    Importing the lifecycle eagerly would create a cycle — ``lifecycle``
+    doesn't import from this package, but keeping the import lazy lets
+    downstream callers grab the symbol via ``from lokidoki.maps.routing
+    import ValhallaLifecycle`` without paying the cost on every import.
+    """
+    if name == "ValhallaLifecycle":
+        from lokidoki.maps.routing.lifecycle import ValhallaLifecycle
+        return ValhallaLifecycle
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "AvoidOpts",
     "LatLon",
@@ -129,5 +143,6 @@ __all__ = [
     "RouteResponse",
     "RouterProfile",
     "RouterProtocol",
+    "ValhallaLifecycle",
     "ValhallaUnavailable",
 ]

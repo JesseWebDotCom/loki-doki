@@ -509,7 +509,14 @@ async def _resolve_route(request: RouteRequest) -> tuple[RouteResponse, str]:
 
 @router.post("/route")
 async def post_route(body: RouteBody) -> dict:
-    """Compute a route — local Valhalla first, remote OSRM on fallback."""
+    """Compute a route — local Valhalla first, remote OSRM on fallback.
+
+    ``_resolve_route`` drives the Valhalla router, which hooks into
+    :class:`lokidoki.maps.routing.lifecycle.ValhallaLifecycle`. First
+    call cold-starts the sidecar; every successful call resets the idle
+    clock so the watchdog only fires during real silence. No additional
+    wiring is needed here — the touch is inside ``ValhallaRouter.route``.
+    """
     request = _build_route_request(body)
     try:
         response, mechanism = await _resolve_route(request)

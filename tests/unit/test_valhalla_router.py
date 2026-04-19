@@ -17,6 +17,7 @@ from lokidoki.maps.routing import (
     ValhallaUnavailable,
 )
 from lokidoki.maps.routing import valhalla as valhalla_mod
+from lokidoki.maps.routing.lifecycle import ValhallaLifecycle
 
 
 @pytest.fixture(autouse=True)
@@ -231,6 +232,219 @@ def test_pick_region_rejects_uncovered_endpoints(monkeypatch, tmp_path):
             valhalla_mod.ValhallaRouter._pick_region(origin, dest)
     finally:
         store.set_data_dir(None)
+
+
+# ── Chunk 6 — lifecycle tests ────────────────────────────────────
+
+
+class _DummyProc:
+    """Minimal ``subprocess.Popen``-compatible stub for lifecycle tests."""
+
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        self.returncode = 0
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.returncode = -9
+
+    def wait(self) -> int:
+        return self.returncode if self.returncode is not None else 0
+
+    def simulate_crash(self, code: int = 137) -> None:
+        self.returncode = code
+
+
+class _FakeRouter:
+    """Stand-in for :class:`ValhallaRouter` — records spawn attempts."""
+
+    def __init__(self) -> None:
+        self._process: _DummyProc | None = None
+        self._active_region: str | None = None
+        self.spawn_count = 0
+        self.stop_count = 0
+        self.health_delay_s = 0.0
+        self.spawn_delay_s = 0.0
+
+    def _spawn_locked(self, region_id: str) -> None:
+        self.spawn_count += 1
+        self._process = _DummyProc()
+
+    async def _wait_healthy(self) -> None:
+        if self.health_delay_s:
+            await asyncio.sleep(self.health_delay_s)
+
+    async def _stop_locked(self) -> None:
+        self.stop_count += 1
+        self._process = None
+        self._active_region = None
+
+
+def _run(coro):
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+@pytest.fixture
+def _event_loop():
+    loop = asyncio.new_event_loop()
+    try:
+        yield loop
+    finally:
+        loop.close()
+
+
+def test_lifecycle_ensure_started_spawns_once_per_region(_event_loop):
+    async def _go():
+        router = _FakeRouter()
+        lifecycle = ValhallaLifecycle(
+            router, idle_timeout_s=60, watchdog_interval_s=60,
+        )
+        await lifecycle.ensure_started("us-ct")
+        await lifecycle.ensure_started("us-ct")
+        await lifecycle.ensure_started("us-ct")
+        assert router.spawn_count == 1
+        assert router._active_region == "us-ct"
+        # Stop the watchdog so the loop can close cleanly.
+        if lifecycle._watchdog_task is not None:
+            lifecycle._watchdog_task.cancel()
+
+    _event_loop.run_until_complete(_go())
+
+
+def test_lifecycle_region_switch_respawns(_event_loop):
+    async def _go():
+        router = _FakeRouter()
+        lifecycle = ValhallaLifecycle(
+            router, idle_timeout_s=60, watchdog_interval_s=60,
+        )
+        await lifecycle.ensure_started("us-ct")
+        await lifecycle.ensure_started("us-ma")
+        assert router.spawn_count == 2
+        assert router.stop_count == 1
+        assert router._active_region == "us-ma"
+        if lifecycle._watchdog_task is not None:
+            lifecycle._watchdog_task.cancel()
+
+    _event_loop.run_until_complete(_go())
+
+
+def test_lifecycle_concurrent_first_calls_share_one_spawn(_event_loop):
+    async def _go():
+        router = _FakeRouter()
+        router.health_delay_s = 0.05  # force the race window open
+        lifecycle = ValhallaLifecycle(
+            router, idle_timeout_s=60, watchdog_interval_s=60,
+        )
+        await asyncio.gather(*[
+            lifecycle.ensure_started("us-ct") for _ in range(5)
+        ])
+        assert router.spawn_count == 1, (
+            "concurrent first-callers must share one cold-start"
+        )
+        if lifecycle._watchdog_task is not None:
+            lifecycle._watchdog_task.cancel()
+
+    _event_loop.run_until_complete(_go())
+
+
+def test_lifecycle_watchdog_shuts_down_after_idle(_event_loop):
+    async def _go():
+        router = _FakeRouter()
+        lifecycle = ValhallaLifecycle(
+            router, idle_timeout_s=0.1, watchdog_interval_s=0.05,
+        )
+        await lifecycle.ensure_started("us-ct")
+        assert router._process is not None
+        # Wait longer than idle_timeout + watchdog_interval so the
+        # watchdog has a chance to fire at least once.
+        await asyncio.sleep(0.5)
+        assert router._process is None
+        assert router._active_region is None
+        assert router.stop_count >= 1
+
+    _event_loop.run_until_complete(_go())
+
+
+def test_lifecycle_touch_keeps_process_warm(_event_loop):
+    async def _go():
+        router = _FakeRouter()
+        lifecycle = ValhallaLifecycle(
+            router, idle_timeout_s=0.25, watchdog_interval_s=0.05,
+        )
+        await lifecycle.ensure_started("us-ct")
+        # Tap touch() repeatedly — faster than the idle ceiling — so
+        # the watchdog never sees an expired clock.
+        for _ in range(10):
+            lifecycle.touch()
+            await asyncio.sleep(0.05)
+        assert router._process is not None, (
+            "touch() must keep the sidecar warm while requests arrive"
+        )
+        if lifecycle._watchdog_task is not None:
+            lifecycle._watchdog_task.cancel()
+
+    _event_loop.run_until_complete(_go())
+
+
+def test_lifecycle_detects_crash_and_respawns(_event_loop):
+    async def _go():
+        router = _FakeRouter()
+        lifecycle = ValhallaLifecycle(
+            router, idle_timeout_s=60, watchdog_interval_s=60,
+        )
+        await lifecycle.ensure_started("us-ct")
+        assert router.spawn_count == 1
+        # Valhalla died on its own — simulate by flipping the Popen
+        # returncode. The next ensure_started must notice and respawn.
+        assert router._process is not None
+        router._process.simulate_crash(137)
+        await lifecycle.ensure_started("us-ct")
+        assert router.spawn_count == 2
+        if lifecycle._watchdog_task is not None:
+            lifecycle._watchdog_task.cancel()
+
+    _event_loop.run_until_complete(_go())
+
+
+def test_lifecycle_env_override(monkeypatch):
+    monkeypatch.setenv("LOKIDOKI_VALHALLA_IDLE_S", "42")
+    router = _FakeRouter()
+    lifecycle = ValhallaLifecycle(router)
+    assert lifecycle.idle_timeout_s == 42
+
+
+def test_lifecycle_env_override_invalid_falls_back(monkeypatch):
+    monkeypatch.setenv("LOKIDOKI_VALHALLA_IDLE_S", "not-a-number")
+    router = _FakeRouter()
+    lifecycle = ValhallaLifecycle(router)
+    assert lifecycle.idle_timeout_s == 900  # documented default
+
+
+def test_router_route_touches_lifecycle(monkeypatch, _patch_ensure):
+    async def on_post(url: str, body: dict[str, Any]) -> _FakeResponse:
+        return _FakeResponse(200, {
+            "trip": {"summary": {"time": 60.0, "length": 1.0}, "legs": []},
+        })
+
+    monkeypatch.setattr(
+        valhalla_mod.httpx, "AsyncClient",
+        lambda **_kwargs: _FakeClient(on_post),
+    )
+
+    router = _mk_router()
+    # Baseline — no touch yet.
+    assert router.lifecycle.last_request_at == 0.0
+    req = RouteRequest(origin=LatLon(0, 0), destination=LatLon(1, 1))
+    asyncio.run(router.route(req))
+    assert router.lifecycle.last_request_at > 0.0
 
 
 def test_parse_route_flattens_alternates():
