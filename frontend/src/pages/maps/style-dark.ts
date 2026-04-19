@@ -298,24 +298,39 @@ const worldOverviewBoundaryLayers = (
   },
 ];
 
+// Country + state labels. Read from a static GeoJSON source (built at
+// bootstrap time from Natural Earth) rather than the pmtiles ``place``
+// source-layer — planetiler's OpenMapTiles profile sources ``place=*``
+// from OSM, and our world-overview build feeds it a Monaco-only OSM
+// input, so the pmtiles ``place`` layer contains exactly one country
+// (Monaco). The GeoJSON approach sidesteps that limitation entirely.
+//
+// Each feature carries ``min_zoom`` / ``max_zoom`` / ``rank`` properties
+// extracted from Natural Earth's ``min_label`` / ``max_label`` /
+// ``labelrank`` columns — the filters below stage labels across z0–z7.
 const worldOverviewPlaceLayers = (
   p: Palette,
 ): maplibregl.LayerSpecification[] => [
   {
     id: 'world_place_country',
     type: 'symbol',
-    source: 'world_overview',
-    'source-layer': 'place',
-    filter: ['==', ['get', 'class'], 'country'],
+    source: 'world_labels',
+    filter: [
+      'all',
+      ['==', ['get', 'kind'], 'country'],
+      ['>=', ['zoom'], ['get', 'min_zoom']],
+      ['<=', ['zoom'], ['get', 'max_zoom']],
+    ],
     minzoom: 1,
     maxzoom: 7,
     layout: {
-      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-field': ['get', 'name'],
       'text-font': ['Noto Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 1, 10, 5, 20],
       'text-transform': 'uppercase',
       'text-letter-spacing': 0.15,
       'text-max-width': 9,
+      'text-padding': 2,
     },
     paint: {
       'text-color': p.place_label,
@@ -326,23 +341,29 @@ const worldOverviewPlaceLayers = (
   {
     id: 'world_place_state',
     type: 'symbol',
-    source: 'world_overview',
-    'source-layer': 'place',
-    filter: ['==', ['get', 'class'], 'state'],
+    source: 'world_labels',
+    filter: [
+      'all',
+      ['==', ['get', 'kind'], 'state'],
+      ['>=', ['zoom'], ['get', 'min_zoom']],
+      ['<=', ['zoom'], ['get', 'max_zoom']],
+    ],
     minzoom: 3,
     maxzoom: 7,
     layout: {
-      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-field': ['get', 'name'],
       'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 16],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 10, 7, 15],
       'text-transform': 'uppercase',
       'text-letter-spacing': 0.1,
+      'text-max-width': 8,
+      'text-padding': 2,
     },
     paint: {
       'text-color': p.place_label,
       'text-halo-color': p.place_label_halo,
-      'text-halo-width': 1.4,
-      'text-opacity': 0.9,
+      'text-halo-width': 1.3,
+      'text-opacity': 0.85,
     },
   },
 ];
@@ -681,6 +702,7 @@ const buildings2dLayer = (p: Palette): maplibregl.LayerSpecification => ({
 export function buildDarkStyle(
   tileUrl: string,
   overviewUrl: string,
+  labelsUrl: string,
   opts: DarkStyleOptions = {},
 ): maplibregl.StyleSpecification {
   const mode: LayerMode = opts.mode ?? 'map';
@@ -697,6 +719,12 @@ export function buildDarkStyle(
     world_overview: {
       type: 'vector',
       url: overviewUrl,
+      attribution:
+        '© <a href="https://naturalearthdata.com">Natural Earth</a>',
+    },
+    world_labels: {
+      type: 'geojson',
+      data: labelsUrl,
       attribution:
         '© <a href="https://naturalearthdata.com">Natural Earth</a>',
     },

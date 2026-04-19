@@ -329,6 +329,7 @@ async def get_glyph_pbf(fontstack: str, range_suffix: str):
 
 
 _OVERVIEW_PMTILES_PATH = Path(".lokidoki/tools/planetiler/world-overview.pmtiles")
+_OVERVIEW_LABELS_PATH = Path(".lokidoki/tools/planetiler/world-labels.geojson")
 
 
 def _overview_pmtiles_path() -> Path:
@@ -341,6 +342,11 @@ def _overview_pmtiles_path() -> Path:
     the glyph root.
     """
     return _OVERVIEW_PMTILES_PATH
+
+
+def _overview_labels_path() -> Path:
+    """Resolve the on-disk ``world-labels.geojson`` path."""
+    return _OVERVIEW_LABELS_PATH
 
 
 @router.get("/tiles/_overview/streets.pmtiles")
@@ -369,6 +375,29 @@ async def get_overview_pmtiles():
             "Accept-Ranges": "bytes",
             "Cache-Control": _TILE_CACHE_CONTROL,
         },
+    )
+
+
+@router.get("/tiles/_overview/labels.geojson")
+async def get_overview_labels():
+    """Serve the static country/state label GeoJSON built by bootstrap.
+
+    Paired with :func:`get_overview_pmtiles` — the pmtiles carries the
+    boundaries + water polygons globally, this file carries the actual
+    country + state labels that planetiler can't extract from Natural
+    Earth on its own (its OpenMapTiles profile sources ``place=*`` from
+    OSM, and our OSM input is Monaco-only).
+    """
+    path = _overview_labels_path()
+    if not path.is_file():
+        raise HTTPException(
+            404,
+            "world-labels.geojson not built — run ./run.sh --maps-tools-only",
+        )
+    return FileResponse(
+        path,
+        media_type="application/geo+json",
+        headers={"Cache-Control": _TILE_CACHE_CONTROL},
     )
 
 

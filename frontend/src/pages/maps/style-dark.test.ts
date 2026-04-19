@@ -3,21 +3,22 @@ import { buildDarkStyle } from './style-dark';
 
 const TILE_URL = 'pmtiles:///maps/regions/us-ct/streets.pmtiles';
 const OVERVIEW_URL = 'pmtiles:///api/v1/maps/tiles/_overview/streets.pmtiles';
+const LABELS_URL = '/api/v1/maps/tiles/_overview/labels.geojson';
 
 describe('buildDarkStyle', () => {
   it('omits the 3D-buildings extrusion layer in flat map mode (default)', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL);
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const extrusion = style.layers.find((l) => l.id === 'buildings-3d');
     expect(extrusion).toBeUndefined();
   });
 
   it('omits the extrusion layer when mode is explicitly "map"', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, { mode: 'map' });
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { mode: 'map' });
     expect(style.layers.find((l) => l.id === 'buildings-3d')).toBeUndefined();
   });
 
   it('adds a fill-extrusion layer against the OpenMapTiles building source-layer in 3D mode', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, { mode: '3d' });
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { mode: '3d' });
     const extrusion = style.layers.find((l) => l.id === 'buildings-3d');
     expect(extrusion).toBeDefined();
     expect(extrusion?.type).toBe('fill-extrusion');
@@ -30,7 +31,7 @@ describe('buildDarkStyle', () => {
   });
 
   it('extrusion reads render_height / render_min_height (OpenMapTiles pre-resolves OSM height)', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, { mode: '3d' });
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { mode: '3d' });
     const extrusion = style.layers.find((l) => l.id === 'buildings-3d') as
       | { paint: Record<string, unknown> }
       | undefined;
@@ -41,7 +42,7 @@ describe('buildDarkStyle', () => {
   });
 
   it('places the extrusion layer before the place-labels so labels stay on top', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, { mode: '3d' });
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { mode: '3d' });
     const ids = style.layers.map((l) => l.id);
     const extrusionIdx = ids.indexOf('buildings-3d');
     // Place labels are split per class (country/state/city/town/...); pick
@@ -53,7 +54,7 @@ describe('buildDarkStyle', () => {
   });
 
   it('includes street-name labels on transportation_name source-layer', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL);
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const streetLabels = style.layers.filter(
       (l) => (l as { 'source-layer'?: string })['source-layer'] === 'transportation_name',
     );
@@ -65,7 +66,7 @@ describe('buildDarkStyle', () => {
   });
 
   it('includes a housenumber layer gated to close zoom', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL);
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const hn = style.layers.find((l) => l.id === 'housenumber');
     expect(hn).toBeDefined();
     expect((hn as { 'source-layer': string })['source-layer']).toBe('housenumber');
@@ -73,14 +74,14 @@ describe('buildDarkStyle', () => {
   });
 
   it('uses the supplied tile URL on the protomaps vector source', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, { mode: '3d' });
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { mode: '3d' });
     const src = style.sources.protomaps as { type: string; url: string };
     expect(src.type).toBe('vector');
     expect(src.url).toBe(TILE_URL);
   });
 
   it('references OpenMapTiles source layers (not Protomaps basemap schema)', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL);
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const sourceLayers = new Set(
       style.layers
         .map((l) => (l as { 'source-layer'?: string })['source-layer'])
@@ -99,8 +100,8 @@ describe('buildDarkStyle', () => {
   });
 
   it('swaps the palette between dark and light themes', () => {
-    const dark = buildDarkStyle(TILE_URL, OVERVIEW_URL, { theme: 'dark' });
-    const light = buildDarkStyle(TILE_URL, OVERVIEW_URL, { theme: 'light' });
+    const dark = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { theme: 'dark' });
+    const light = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { theme: 'light' });
     const bgOf = (s: typeof dark) =>
       (s.layers.find((l) => l.id === 'bg') as {
         paint: { 'background-color': string };
@@ -110,42 +111,55 @@ describe('buildDarkStyle', () => {
 
   // ── Dual-source / world overview assertions ─────────────────────
 
-  it('declares both protomaps and world_overview as vector sources', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL);
+  it('declares protomaps, world_overview, and world_labels as sources', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     expect(Object.keys(style.sources).sort()).toEqual(
-      ['protomaps', 'world_overview'].sort(),
+      ['protomaps', 'world_labels', 'world_overview'].sort(),
     );
     const overview = style.sources.world_overview as { type: string; url: string };
     expect(overview.type).toBe('vector');
     expect(overview.url).toBe(OVERVIEW_URL);
   });
 
-  it('gates every world-overview layer to maxzoom 7 so the region source takes over', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL);
+  it('world_labels is a geojson source backed by the supplied URL', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const labels = style.sources.world_labels as { type: string; data: string };
+    expect(labels.type).toBe('geojson');
+    expect(labels.data).toBe(LABELS_URL);
+  });
+
+  it('gates every world-overview (pmtiles-backed) layer to maxzoom 7', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const overviewLayers = style.layers.filter(
       (l) => (l as { source?: string }).source === 'world_overview',
     );
-    // Six layers: two fills, two boundaries, two symbols.
-    expect(overviewLayers.length).toBe(6);
+    // Four pmtiles-backed layers (two fills + two boundaries); the two
+    // country/state label layers have moved to the world_labels source.
+    expect(overviewLayers.length).toBe(4);
     for (const l of overviewLayers) {
       expect((l as { maxzoom?: number }).maxzoom).toBe(7);
     }
   });
 
-  it('includes country + state label layers on the world_overview place source-layer', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL);
+  it('country + state label layers read from world_labels and gate on kind', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const country = style.layers.find((l) => l.id === 'world_place_country');
     const state = style.layers.find((l) => l.id === 'world_place_state');
     expect(country).toBeDefined();
     expect(state).toBeDefined();
-    expect((country as { source: string }).source).toBe('world_overview');
-    expect((state as { source: string }).source).toBe('world_overview');
-    expect((country as { 'source-layer': string })['source-layer']).toBe('place');
-    expect((state as { 'source-layer': string })['source-layer']).toBe('place');
+    expect((country as { source: string }).source).toBe('world_labels');
+    expect((state as { source: string }).source).toBe('world_labels');
+    // Filter must key on the ``kind`` property we write into every
+    // feature in the NE-backed geojson.
+    expect(JSON.stringify((country as { filter: unknown }).filter)).toContain('country');
+    expect(JSON.stringify((state as { filter: unknown }).filter)).toContain('state');
+    // And must still carry maxzoom=7 so they stop before region tiles.
+    expect((country as { maxzoom?: number }).maxzoom).toBe(7);
+    expect((state as { maxzoom?: number }).maxzoom).toBe(7);
   });
 
   it('paints world-overview fills beneath the per-region fills', () => {
-    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL);
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const ids = style.layers.map((l) => l.id);
     const worldWaterIdx = ids.indexOf('world_water');
     const regionWaterIdx = ids.indexOf('water');

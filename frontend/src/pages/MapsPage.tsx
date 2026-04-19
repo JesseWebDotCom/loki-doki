@@ -58,10 +58,17 @@ import { useDocumentTitle } from '../lib/useDocumentTitle';
 
 // Global z0–z7 Natural Earth basemap served by bootstrap. Paired with
 // the per-region tile URL in every `buildDarkStyle` call so country /
-// state polygons + labels + ocean fill render worldwide at low zoom,
-// closing the "blank outside installed region" gap.
+// state polygons + ocean fill render worldwide at low zoom, closing the
+// "blank outside installed region" gap.
 const OVERVIEW_PMTILES_URL =
   'pmtiles:///api/v1/maps/tiles/_overview/streets.pmtiles';
+
+// Static country + state label GeoJSON built from Natural Earth. Rendered
+// as a maplibre ``geojson`` source because planetiler's OpenMapTiles
+// profile sources ``place=*`` from OSM (and the overview pmtiles uses
+// Monaco as its OSM input — so only Monaco labels flow through that
+// path). Loading this file gives us country/state names globally.
+const WORLD_LABELS_URL = '/api/v1/maps/tiles/_overview/labels.geojson';
 
 // Register the pmtiles:// protocol globally, once per module load.
 // Guarded so Vite HMR doesn't stack duplicate handlers (MapLibre throws
@@ -339,10 +346,12 @@ const MapsPage: React.FC = () => {
     }
 
     map.setStyle(
-      buildDarkStyle(resolution.streetUrl, OVERVIEW_PMTILES_URL, {
-        mode,
-        theme: colorTheme,
-      }),
+      buildDarkStyle(
+        resolution.streetUrl,
+        OVERVIEW_PMTILES_URL,
+        WORLD_LABELS_URL,
+        { mode, theme: colorTheme },
+      ),
     );
   }, [resolution, mode, colorTheme]);
 

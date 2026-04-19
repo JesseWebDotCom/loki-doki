@@ -150,3 +150,37 @@ def test_overview_pmtiles_served_with_range_support(
     assert r.status_code == 206, r.text
     assert r.content == payload[:16]
     assert r.headers.get("content-range", "").startswith("bytes 0-15/")
+
+
+# ── world-overview labels.geojson ─────────────────────────────────
+
+@pytest.fixture
+def overview_labels_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    path = tmp_path / "tools" / "planetiler" / "world-labels.geojson"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(maps_routes, "_overview_labels_path", lambda: path)
+    return path
+
+
+def test_overview_labels_404_when_missing(overview_labels_path: Path):
+    client = _client()
+    r = client.get("/api/v1/maps/tiles/_overview/labels.geojson")
+    assert r.status_code == 404, r.text
+    assert "--maps-tools-only" in r.json()["detail"]
+
+
+def test_overview_labels_served_as_geojson(overview_labels_path: Path):
+    payload = (
+        b'{"type":"FeatureCollection","features":['
+        b'{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},'
+        b'"properties":{"kind":"country","name":"Nowhere"}}]}'
+    )
+    overview_labels_path.write_bytes(payload)
+    client = _client()
+    r = client.get("/api/v1/maps/tiles/_overview/labels.geojson")
+    assert r.status_code == 200, r.text
+    assert r.content == payload
+    assert r.headers.get("content-type") == "application/geo+json"
+    assert "immutable" in r.headers.get("cache-control", "")
