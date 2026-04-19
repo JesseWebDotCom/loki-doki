@@ -120,8 +120,8 @@ This plan scraps the remote-CDN design.
   (mac arm64, linux x86_64, linux arm64 aka pi) — mirrored as GitHub
   Release assets on the `loki-doki` repo, same pattern as llama.cpp.
 - Sub-chunk 8a's `LOKIDOKI_MAPS_DIST_BASE` env var, stub-dist banner,
-  and self-host doc (`docs/maps-dist.md`) are removed; replaced by
-  `docs/maps-build.md`.
+  and self-host guide are removed; replaced by
+  [docs/maps-build.md](../../maps-build.md).
 - Install progress phases become `downloading_pbf` →
   `building_geocoder` → `building_streets` → `building_routing` →
   `complete`. Geocoder is built first so search works during the

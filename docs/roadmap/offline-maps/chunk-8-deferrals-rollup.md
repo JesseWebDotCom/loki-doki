@@ -19,7 +19,7 @@ plan is fully shipped and Chunk 8 can itself flip to `done` on
 
 | # | Sub-chunk                                                  | Status  | Commit |
 |---|------------------------------------------------------------|---------|--------|
-| 8a | Chunk-6 deferral — install artifact host + dist override  | done    | d798d53 |
+| 8a | Chunk-6 deferral — install artifact host + dist override  | superseded — [maps-local-build](../maps-local-build/PLAN.md) | d798d53 |
 | 8b | Chunk-6 deferral — cross-region routing                   | pending |        |
 | 8c | Chunk-6 deferral — offline `find_nearby` (POI extractor)  | pending |        |
 | 8d | Chunk-7 deferral — `Leave at…` / `Arrive by…` depart time | pending |        |
@@ -40,82 +40,31 @@ plan is fully shipped and Chunk 8 can itself flip to `done` on
 
 ---
 
-## Sub-chunk 8a — Install artifact host + dist override
+## Sub-chunk 8a — Install artifact host + dist override  _(superseded)_
 
 **Source:** Chunk 6 deferral — _"Offline-bundle build host + publishing pipeline … this chunk consumes prebuilt Valhalla tarballs + per-region tile archives from a CDN URL; it does not implement the build host that produces them."_
 
-### Goal
+### Superseded by
 
-Unblock the install flow for self-hosters even before the real
-`dist.lokidoki.app` bucket exists. Make the base URL configurable,
-teach the admin UI to detect a default/unset dist host and explain
-what's needed, and extend
-[scripts/build_offline_bundle.py](../../../scripts/build_offline_bundle.py)
-to produce per-region artifacts into a local directory that can be
-served over HTTP.
+The entire artifact-hosting design this sub-chunk papered over has
+been replaced. Installs no longer pull pre-built PMTiles / satellite /
+Valhalla tarballs from any CDN; they download the raw Geofabrik
+`.osm.pbf` for the region and run `tippecanoe` +
+`valhalla_build_tiles` locally on the user's device. The
+`LOKIDOKI_MAPS_DIST_BASE` env var, the stub-dist banner, the
+`is_stub_dist` API field, and the self-host guide this sub-chunk
+added are all gone. See
+[docs/roadmap/maps-local-build/PLAN.md](../maps-local-build/PLAN.md)
+and [docs/maps-build.md](../../maps-build.md) for the replacement
+story. The commit listed in the status row above is kept only as a
+historical pointer.
 
-### Files
+### Historical record
 
-- `lokidoki/maps/seed.py` — replace `_DIST` with a lookup that honours
-  `LOKIDOKI_MAPS_DIST_BASE` (env var) with a sane fallback.
-- `lokidoki/maps/catalog.py` — expose `dist_base()` helper + unit
-  hook for tests.
-- `lokidoki/api/routes/maps.py` — surface the active dist base in
-  `GET /api/v1/maps/storage` so the UI can tell when it's the stub.
-- `frontend/src/components/settings/MapsSection.tsx` — render an
-  orange notice when `dist_base` equals the stub and no regions are
-  installed.
-- `scripts/build_offline_bundle.py` — new `--maps <region_id…>` flag
-  that runs the per-region artifact build (reuses the existing
-  publish layout).
-- `tests/unit/test_maps_catalog.py` — assert env-override behaviour.
-- `docs/maps-dist.md` (new) — 1-page guide: "How to host your own
-  offline-maps artifacts."
-
-### Actions
-
-1. Introduce `DIST_BASE_ENV = "LOKIDOKI_MAPS_DIST_BASE"` and a
-   `dist_base()` helper in `catalog.py` that returns
-   `os.environ.get(DIST_BASE_ENV, "https://dist.lokidoki.app/maps")`.
-2. Rewrite `_DIST` usage in `seed.py` to call `dist_base()` at
-   `build_catalog()` time (catalog already rebuilds on module load —
-   no restart needed).
-3. Extend `scripts/build_offline_bundle.py` with a `--maps` command
-   that, for each region, downloads the source `.osm.pbf`, runs
-   `tippecanoe` for PMTiles and `valhalla_build_tiles` for the
-   routing tarball, emits a `sha256` manifest, and writes everything
-   under `./lokidoki-offline-bundle/maps/<region_id>/`. Document the
-   output layout in `docs/maps-dist.md`.
-4. `GET /storage` response gains `dist_base: <url>` so the admin can
-   render a "Install source: <url>" hint; add a boolean
-   `is_stub_dist` flag based on string equality with the default.
-5. Admin banner: when `is_stub_dist && installed.length === 0`,
-   render an `AlertTriangle` card pointing at `docs/maps-dist.md`.
-6. Add `tests/unit/test_maps_catalog.py::test_dist_base_env_override`.
-
-### Verify
-
-```bash
-pytest tests/unit/test_maps_catalog.py -k dist_base -x
-LOKIDOKI_MAPS_DIST_BASE=http://localhost:9000/maps \
-  python -c "from lokidoki.maps.catalog import dist_base; print(dist_base())"
-cd frontend && npm run build && cd ..
-```
-
-### Commit message
-
-```
-feat(maps): configurable dist base + self-host guide
-
-Unblocks region install for self-hosters before the real CDN exists.
-LOKIDOKI_MAPS_DIST_BASE overrides the default dist host; the admin
-shows an orange banner when the stub default is active and zero
-regions are installed. scripts/build_offline_bundle.py gains a
---maps flag that produces per-region artifacts under
-./lokidoki-offline-bundle/maps/.
-
-Refs docs/roadmap/offline-maps/PLAN.md chunk 8a.
-```
+The content that used to live here — the `Goal` / `Files` / `Actions`
+/ `Verify` / `Commit message` for the original 8a — is preserved in
+git history at commit `d798d53`. It's intentionally removed from this
+doc so a grep for artifacts that no longer exist comes back clean.
 
 ---
 

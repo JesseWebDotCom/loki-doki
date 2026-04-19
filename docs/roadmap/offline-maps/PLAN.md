@@ -122,4 +122,14 @@ Valhalla routing adds roughly 0.5× the PMTiles size at state level and ~7× at 
 
 ## NOTE (append as chunks land)
 
-*(empty — chunks add cross-chunk notes or deferrals here)*
+**Install pipeline rewritten.** The artifact-hosting assumption that
+shaped chunks 1–7 — a remote CDN at `dist.lokidoki.app/maps`
+publishing per-region PMTiles / satellite / Valhalla tarballs — was
+scrapped. The install flow now downloads the raw Geofabrik `.osm.pbf`
+and builds PMTiles, Valhalla routing tiles, and the FTS5 geocoder
+locally on the user's device. Satellite imagery is dropped; a 3D
+buildings layer takes its place. See
+[docs/roadmap/maps-local-build/PLAN.md](../maps-local-build/PLAN.md)
+for the replacement plan. The UI from chunks 1–7 of this plan stays
+as-is; only the install pipeline and the satellite affordance
+changed. Sub-chunk 8a is superseded accordingly — see the rollup.
