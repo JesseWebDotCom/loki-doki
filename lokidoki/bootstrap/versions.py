@@ -142,6 +142,22 @@ GRAPHHOPPER = {
 }
 
 
+# Protomaps basemaps-assets — PBF glyph range files the MapLibre style
+# references via its ``glyphs:`` URL. Pinned to an immutable commit SHA
+# (the upstream repo ships no release tags, so a commit SHA is the only
+# content-addressed pin available). Only the ``fonts/Noto Sans Regular``
+# subtree is extracted; the rest of the archive (sprites, icons) is
+# discarded by the preflight.
+GLYPHS_ASSETS = {
+    "commit": "028c18f713baecad011301ff7a69acc39bcc2ae7",
+    "filename": "basemaps-assets-028c18f7.tar.gz",
+    "sha256": "57e40e8c512bd8042d0a3a251f19d0d1c8523ad963c666c3c6643bada4dc92d0",
+    "url_template": (
+        "https://github.com/protomaps/basemaps-assets/archive/{commit}.tar.gz"
+    ),
+}
+
+
 # Piper voice models — synthesis uses the piper-tts Python package
 # in-process (no CLI binary needed).
 PIPER_VOICES: dict[str, dict[str, tuple[str, str]]] = {

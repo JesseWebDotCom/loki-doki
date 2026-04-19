@@ -12,6 +12,7 @@ import re
 import pytest
 
 from lokidoki.bootstrap.versions import (
+    GLYPHS_ASSETS,
     GRAPHHOPPER,
     NODE,
     PLANETILER,
@@ -121,3 +122,16 @@ def test_graphhopper_pin_shape() -> None:
     )
     assert url.startswith("https://")
     assert url.endswith("/graphhopper-web-10.1.jar")
+
+
+def test_glyphs_assets_pin_shape() -> None:
+    # Upstream basemaps-assets ships no release tags, so the pin is an
+    # immutable commit SHA (40-char lowercase hex). Same guarantee as a
+    # release tarball — the URL resolves to one content-addressed bytes
+    # blob forever.
+    assert re.match(r"^[0-9a-f]{40}$", GLYPHS_ASSETS["commit"]), GLYPHS_ASSETS["commit"]
+    assert _SHA_RE.match(GLYPHS_ASSETS["sha256"]), GLYPHS_ASSETS["sha256"]
+    assert GLYPHS_ASSETS["filename"].endswith(".tar.gz")
+    url = GLYPHS_ASSETS["url_template"].format(commit=GLYPHS_ASSETS["commit"])
+    assert url.startswith("https://github.com/protomaps/basemaps-assets/archive/")
+    assert url.endswith(".tar.gz")

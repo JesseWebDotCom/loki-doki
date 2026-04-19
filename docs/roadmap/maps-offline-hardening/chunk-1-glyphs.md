@@ -147,4 +147,20 @@ Refs docs/roadmap/maps-offline-hardening/PLAN.md chunk 1.
 
 ## Deferrals section (append as you discover)
 
-*(empty — leave for chunk-1 execution to fill)*
+- **Pin shape deviation.** The chunk spec assumed an upstream release
+  tag (``v{version}``), but ``protomaps/basemaps-assets`` ships no
+  tags or releases — the only thing published is the ``main`` branch.
+  The pin is therefore an immutable commit SHA
+  (``028c18f713baecad011301ff7a69acc39bcc2ae7``) with URL template
+  ``https://github.com/protomaps/basemaps-assets/archive/{commit}.tar.gz``.
+  Same content-addressed guarantee as a release tarball, different
+  key. ``test_versions.test_glyphs_assets_pin_shape`` asserts the
+  40-char hex commit shape; update both if upstream ever starts
+  publishing tags.
+- **Runtime glyph root is ``.lokidoki/tools/glyphs/``, not
+  ``data/tools/glyphs/``.** The chunk spec's verify block mentioned
+  the ``data/`` path, but every other bootstrap tool
+  (``tools/jre``, ``tools/planetiler``, ``tools/graphhopper``) lives
+  under ``.lokidoki/``. The route uses a ``_glyphs_dir()`` helper that
+  tests monkeypatch, so the on-disk location is a one-line swap if a
+  future install layout changes.

@@ -97,6 +97,23 @@ def _pinned_fetch_specs(profiles: Iterable[str], cache: Path) -> list[FetchSpec]
         _push_tpl(V.UV, "uv", key=key)
         _push_tpl(V.NODE, "node", key=key)
 
+    # Maps glyph fonts — single tarball, OS-agnostic, used on every
+    # profile that runs MapLibre (i.e. not pi_hailo). The preflight
+    # discards everything except ``fonts/Noto Sans Regular/*.pbf``.
+    _MAPS_PROFILES = {"mac", "windows", "linux", "pi_cpu"}
+    if any(p in _MAPS_PROFILES for p in profiles):
+        glyphs_url = V.GLYPHS_ASSETS["url_template"].format(
+            commit=V.GLYPHS_ASSETS["commit"]
+        )
+        specs.append(
+            FetchSpec(
+                url=glyphs_url,
+                dest=cache / V.GLYPHS_ASSETS["filename"],
+                sha256=V.GLYPHS_ASSETS["sha256"],
+                label="glyphs",
+            )
+        )
+
     # Engine binaries: llama.cpp ships prebuilt on win/linux/pi_cpu; mac uses
     # MLX (pip package, no prebuilt); pi_hailo uses hailo-ollama.
     for profile in profiles:

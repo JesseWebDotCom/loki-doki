@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import asdict
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -276,6 +278,54 @@ def _validate_region_id(region_id: str) -> None:
     """
     if catalog.get_region(region_id) is None:
         raise HTTPException(400, f"Unknown region: {region_id}")
+
+
+# ── Glyph PBFs (offline-hardening chunk 1) ────────────────────────
+#
+# The MapLibre style references ``glyphs: /api/v1/maps/glyphs/{fontstack}/{range}.pbf``
+# so every text layer resolves to this route instead of the Protomaps
+# GitHub Pages CDN. The pinned basemaps-assets tarball is extracted by
+# the ``install-glyphs`` bootstrap preflight into
+# ``.lokidoki/tools/glyphs/<fontstack>/<range>.pbf``.
+
+_FONTSTACK_RE = re.compile(r"^[A-Za-z0-9 ]+$")
+_RANGE_RE = re.compile(r"^\d+-\d+$")
+_GLYPHS_ROOT = Path(".lokidoki/tools/glyphs")
+
+
+def _glyphs_dir() -> Path:
+    """Resolve the on-disk glyph directory.
+
+    Split out so tests can monkeypatch the path — the runtime install
+    target is fixed by the bootstrap, but test fixtures need to write
+    PBFs into ``tmp_path``.
+    """
+    return _GLYPHS_ROOT
+
+
+@router.get("/glyphs/{fontstack}/{range_suffix}")
+async def get_glyph_pbf(fontstack: str, range_suffix: str):
+    """Serve a single glyph PBF for the given fontstack and codepoint range.
+
+    ``range_suffix`` is the ``<start>-<end>.pbf`` tail of the MapLibre
+    glyphs URL template. Both path components are validated against
+    narrow regexes before being joined onto the on-disk glyph root to
+    block directory traversal and junk input.
+    """
+    if not range_suffix.endswith(".pbf"):
+        raise HTTPException(400, "glyph range must end in .pbf")
+    range_stem = range_suffix[:-4]
+    if not _FONTSTACK_RE.match(fontstack) or not _RANGE_RE.match(range_stem):
+        raise HTTPException(400, "invalid glyph request")
+
+    path = _glyphs_dir() / fontstack / f"{range_stem}.pbf"
+    if not path.is_file():
+        raise HTTPException(404, "glyph not installed")
+    return FileResponse(
+        path,
+        media_type="application/x-protobuf",
+        headers={"Cache-Control": _TILE_CACHE_CONTROL},
+    )
 
 
 @router.get("/tiles/{region_id}/streets.pmtiles")

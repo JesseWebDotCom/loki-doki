@@ -597,7 +597,7 @@ export function buildDarkStyle(
 
   return {
     version: 8,
-    glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
+    glyphs: '/api/v1/maps/glyphs/{fontstack}/{range}.pbf',
     sources,
     layers,
   };
