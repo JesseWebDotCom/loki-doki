@@ -30,11 +30,7 @@ export type ResolveResult =
       streetUrl: string;
       bbox: BBox;
     }
-  | { kind: 'online'; streetUrl: string }
   | { kind: 'none' };
-
-const ONLINE_DEMO_URL =
-  'pmtiles://https://demo-bucket.protomaps.com/v4.pmtiles';
 
 // ── Raw region fetch ──────────────────────────────────────────────
 
@@ -138,11 +134,6 @@ export function inCoverage(
 
 // ── Main resolver ─────────────────────────────────────────────────
 
-function isBrowserOnline(): boolean {
-  if (typeof navigator === 'undefined') return true;
-  return navigator.onLine !== false;
-}
-
 /** Squared great-circle-ish distance between two lng/lat points. */
 function centerDist2(a: LngLat, b: { lat: number; lon: number }): number {
   const dx = a.lng - b.lon;
@@ -163,14 +154,15 @@ function asLocal(r: InstalledRegion): ResolveResult {
 /**
  * Pick the tile source for a given viewport centre.
  *
- * Invariant: once at least one region is installed, the source is ALWAYS
- * the local pmtiles route — we never flip back to the online CDN fallback
- * mid-session. Flipping sources would call `map.setStyle()` which clears
- * rendered tiles and causes a visible "flash → blank" every time the
- * viewport crossed an installed bbox boundary. When the viewport is
- * outside every bbox we fall back to the *nearest* installed region
- * rather than going online; the source URL is stable, MapLibre keeps the
- * cached tiles rendered, and out-of-coverage is surfaced by the banner.
+ * Offline-first: we never reach out to a remote tile CDN. When at least
+ * one region is installed the source is ALWAYS the local pmtiles route
+ * and we never flip it mid-session (flipping would call `map.setStyle()`
+ * which clears rendered tiles and causes a visible "flash → blank"
+ * every time the viewport crossed an installed bbox boundary). When the
+ * viewport is outside every bbox we fall back to the *nearest* installed
+ * region rather than going online. When no regions are installed at all
+ * the resolver returns `kind: 'none'` — the empty-state overlay guides
+ * the user to install one.
  */
 export async function resolveTileSource(
   center?: LngLat,
@@ -179,9 +171,7 @@ export async function resolveTileSource(
   const regions = regionsInput ?? (await fetchInstalledRegions());
 
   if (regions.length === 0) {
-    return isBrowserOnline()
-      ? { kind: 'online', streetUrl: ONLINE_DEMO_URL }
-      : { kind: 'none' };
+    return { kind: 'none' };
   }
 
   const probe: LngLat =

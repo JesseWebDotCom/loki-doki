@@ -26,7 +26,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
-import { Download, Globe, MapPin } from 'lucide-react';
+import { Download, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { buildDarkStyle, type ColorTheme, type LayerMode } from './maps/style-dark';
 import LayerModeChip from './maps/LayerModeChip';
@@ -646,8 +646,7 @@ const NoRegionsEmptyState: React.FC<{ onContinue: () => void }> = ({
           onClick={onContinue}
           className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-border/40 bg-card/60 px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
         >
-          <Globe size={12} />
-          Use online preview anyway
+          Dismiss
         </button>
       </div>
       <p className="text-[11px] text-muted-foreground/80">

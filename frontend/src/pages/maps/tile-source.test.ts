@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   inCoverage,
   mergedCoverage,
@@ -55,26 +55,7 @@ describe("inCoverage", () => {
 // ── resolveTileSource ─────────────────────────────────────────────
 
 describe("resolveTileSource", () => {
-  const origOnline = Object.getOwnPropertyDescriptor(
-    window.navigator,
-    "onLine",
-  );
-
-  const setOnline = (value: boolean) => {
-    Object.defineProperty(window.navigator, "onLine", {
-      configurable: true,
-      get: () => value,
-    });
-  };
-
-  beforeEach(() => {
-    setOnline(true);
-  });
-
   afterEach(() => {
-    if (origOnline) {
-      Object.defineProperty(window.navigator, "onLine", origOnline);
-    }
     vi.restoreAllMocks();
   });
 
@@ -112,8 +93,7 @@ describe("resolveTileSource", () => {
     }
   });
 
-  it("stays local even when offline+outside-bbox once a region is installed", async () => {
-    setOnline(false);
+  it("stays local even outside every bbox once a region is installed", async () => {
     const ct = region("us-ct", CT);
     const result = await resolveTileSource(
       { lng: -30, lat: 40 },
@@ -122,20 +102,11 @@ describe("resolveTileSource", () => {
     expect(result.kind).toBe("local");
   });
 
-  it("returns kind=none with zero regions and offline", async () => {
-    setOnline(false);
+  it("returns kind=none with zero regions installed — no online CDN fallback", async () => {
     const result = await resolveTileSource(
       { lng: -72.7, lat: 41.6 },
       [],
     );
     expect(result.kind).toBe("none");
-  });
-
-  it("returns kind=online with zero regions and online (demo fallback)", async () => {
-    const result = await resolveTileSource(
-      { lng: -72.7, lat: 41.6 },
-      [],
-    );
-    expect(result.kind).toBe("online");
   });
 });
