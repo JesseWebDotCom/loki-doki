@@ -186,4 +186,11 @@ route is a **separate handler** — not a parameterised reuse.
 
 ## NOTE (append as chunks land)
 
-*(empty — chunks add cross-chunk notes or deferrals here)*
+- **Post-chunk-3 bounds fix:** chunk 1's planetiler invocation omitted
+  `--bounds`, which caused planetiler to clip NE + water polygons to
+  the OSM input's bbox (Monaco, ~2 km²). First end-to-end build
+  produced a 45 KB pmtiles with zero global coverage instead of the
+  ~11 MB global basemap. Fix: pass `--bounds=-180,-85,180,85` in
+  `lokidoki/bootstrap/preflight/world_overview.py`. Regression guarded
+  by `test_preflight_world_overview.py::test_happy_path_...`. Landed in
+  the chunk-3 deferral-closeout commit (not chunk 1's original commit).

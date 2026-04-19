@@ -133,6 +133,10 @@ def test_happy_path_downloads_monaco_and_runs_planetiler(
     assert f"--natural_earth_path={ne}" in cmd
     assert f"--water_polygons_path={wp}" in cmd
     assert "--maxzoom=7" in cmd
+    # Without an explicit world bbox, planetiler clips NE output to the
+    # OSM input's bounds (Monaco's ~2 km²) and the pmtiles ends up ~45 KB
+    # with zero global coverage. Guard the fix.
+    assert "--bounds=-180,-85,180,85" in cmd
     assert any(a.startswith(f"--output=") and "world-overview" in a for a in cmd)
 
     # Final atomic rename landed the pmtiles.

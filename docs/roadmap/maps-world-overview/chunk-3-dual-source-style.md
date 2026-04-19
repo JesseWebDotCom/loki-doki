@@ -186,15 +186,21 @@ Refs docs/roadmap/maps-world-overview/PLAN.md chunk 3.
 
 ## Deferrals section (append as you discover)
 
-- **Source-layer names unverified against a live pmtiles file.** The
-  agent shell did not have `.lokidoki/tools/planetiler/world-overview.pmtiles`
-  on disk (bootstrap has not been re-run since chunk 1 landed), so
-  action 1 — "inspect the actual source-layer names planetiler writes"
-  — was skipped. The style ships with OpenMapTiles-conventional names
-  (`landcover`, `water`, `boundary`, `place`) which match the existing
-  region style. If a local smoke test reveals planetiler emits NE land
-  polygons under a different layer, `world_background_fill` will render
-  empty and the fill filter/source-layer needs a follow-up commit.
-- **Manual in-browser smoke test** (zoom-out from CT → z3, verify
-  country outlines + ocean fill paint globally) is still required
-  before closing the feature. Not runnable from the sandbox.
+- ~~Source-layer names unverified against a live pmtiles file.~~
+  **Resolved.** Rebuilt `world-overview.pmtiles` locally, inspected the
+  embedded `vector_layers` metadata: emitted layers are `boundary`,
+  `landcover`, `landuse`, `mountain_peak`, `place`, `transportation`,
+  `water`, `waterway`. Every source-layer the chunk-3 style references
+  is present.
+- ~~Manual in-browser smoke test.~~ **Partially resolved via HTTP.**
+  Bootstrap built the 11 MB file, the FastAPI route serves it (GET
+  returns `206` + correct PMTiles magic on a Range request). A full
+  visual smoke in a browser remains the canonical sign-off but is
+  human-in-loop and cannot be run from an agent shell.
+- **Cross-chunk fix (chunk 1):** the original preflight omitted an
+  explicit `--bounds`. Planetiler then derives bounds from the OSM
+  input — Monaco's ~2 km² — so NE + water polygons were clipped
+  globally, producing a 45 KB pmtiles with zero global coverage. Fixed
+  in this chunk's follow-up commit by passing `--bounds=-180,-85,180,85`.
+  Test in `test_preflight_world_overview.py` updated to guard the
+  regression.

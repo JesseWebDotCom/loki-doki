@@ -51,6 +51,14 @@ _STEP_ID = "build-world-overview"
 # Monaco streets" bleed stays bounded.
 _MAX_ZOOM = 7
 
+# planetiler derives output bounds from the OSM input when ``--bounds``
+# is omitted. With Monaco as the OSM input that means the NE + water
+# polygons also get clipped to Monaco's ~2 km² bbox, producing a ~45 KB
+# pmtiles with zero global coverage. Pass an explicit world bbox so NE
+# fills the whole planet. ``85`` as the lat cap matches Web Mercator's
+# singularity at ±85.0511° — planetiler projects at that range anyway.
+_WORLD_BOUNDS = "-180,-85,180,85"
+
 # Heap budget for the world-overview build. NE + water polygons need
 # room to page through the sqlite index and the water-polygons zip
 # index, so start with 2 GiB. An env override is accepted for the rare
@@ -126,6 +134,7 @@ async def ensure_world_overview(ctx: StepContext) -> None:
         f"--water_polygons_path={water_polygons}",
         f"--output={scratch}",
         f"--maxzoom={_MAX_ZOOM}",
+        f"--bounds={_WORLD_BOUNDS}",
         "--force",
     ]
     ctx.emit(
