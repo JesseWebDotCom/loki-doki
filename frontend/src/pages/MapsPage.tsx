@@ -28,7 +28,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
 import { Download, Globe, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { buildDarkStyle } from './maps/style-dark';
+import { buildDarkStyle, type LayerMode } from './maps/style-dark';
+import LayerModeChip from './maps/LayerModeChip';
 import {
   fetchInstalledRegions,
   resolveTileSource,
@@ -145,6 +146,11 @@ const MapsPage: React.FC = () => {
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
 
+  // Layer mode — flat ``map`` or ``3d`` (fill-extrusion buildings).
+  // Flipping to 3D auto-pitches the camera; flipping back resets pitch
+  // iff the user hasn't tilted it themselves in the meantime.
+  const [mode, setMode] = useState<LayerMode>('map');
+
   // Coverage resolution — carried over from Chunk 3.
   const [regions, setRegions] = useState<InstalledRegion[]>([]);
   const [regionsLoaded, setRegionsLoaded] = useState(false);
@@ -181,7 +187,10 @@ const MapsPage: React.FC = () => {
       return;
     }
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(
+      new maplibregl.NavigationControl({ visualizePitch: true }),
+      'top-right',
+    );
     map.addControl(
       new maplibregl.GeolocateControl({
         positionOptions: { enableHighAccuracy: true },
@@ -275,8 +284,24 @@ const MapsPage: React.FC = () => {
       return;
     }
 
-    map.setStyle(buildDarkStyle(resolution.streetUrl));
-  }, [resolution]);
+    map.setStyle(buildDarkStyle(resolution.streetUrl, { mode }));
+  }, [resolution, mode]);
+
+  // ── Auto-pitch when flipping layer mode ──────────────────────
+  // Flat ➜ 3D with a pitch of 0 gets a one-time 45° nudge so the
+  // extrusions read as buildings. 3D ➜ flat resets pitch only if
+  // the user left it at the nudge value — respecting manual tilt.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (mode === '3d') {
+      if (map.getPitch() === 0) {
+        map.easeTo({ pitch: 45, duration: 600 });
+      }
+    } else if (map.getPitch() !== 0) {
+      map.easeTo({ pitch: 0, duration: 600 });
+    }
+  }, [mapReady, mode]);
 
   // ── Place selection ──────────────────────────────────────────
   const pinAndFly = useCallback((place: PlaceResult) => {
@@ -521,6 +546,11 @@ const MapsPage: React.FC = () => {
               Loading map…
             </div>
           )}
+
+        {/* Layer-mode chip — top-right beneath the MapLibre controls. */}
+        <div className="absolute top-28 right-3 z-10">
+          <LayerModeChip mode={mode} onChange={setMode} />
+        </div>
 
         {/* Attribution pill */}
         <div className="absolute bottom-4 left-4 z-10 pointer-events-none">

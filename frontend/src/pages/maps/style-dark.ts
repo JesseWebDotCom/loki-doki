@@ -1,9 +1,14 @@
 /**
  * Protomaps dark basemap style for MapLibre GL.
  *
- * Vector-only — chunk 5 will re-introduce a second mode that renders
- * the 3D buildings layer from the vector `building` features already
- * in the PMTiles we ship.
+ * Two modes:
+ *  - ``map`` (default): classic flat vector basemap.
+ *  - ``3d``: everything from ``map`` plus a ``fill-extrusion`` layer
+ *    that renders OSM ``building=*`` features from the vector tiles
+ *    we build locally (chunk 3 preserves ``height`` /
+ *    ``building:levels`` / ``min_height`` attributes). No extra
+ *    downloads — the extrusion paint reads attributes already in the
+ *    installed PMTiles.
  *
  * The ``tileUrl`` string must already carry the ``pmtiles://`` prefix —
  * the caller picks between the online Protomaps demo and a locally
@@ -11,7 +16,7 @@
  */
 import type maplibregl from 'maplibre-gl';
 
-export type LayerMode = 'map';
+export type LayerMode = 'map' | '3d';
 
 // Onyx palette (mirrors the CSS tokens --elevation-1..4 and the
 // purple accent). Kept as string literals here instead of reading from
@@ -28,6 +33,7 @@ const COLOR = {
   boundary: '#4a3a6a',    // purple accent for admin borders
   place_label: '#d7dae3',
   place_label_halo: '#14161c',
+  building: '#3a3f4a',    // extrusion fill for the 3D buildings layer
 } as const;
 
 export interface DarkStyleOptions {
@@ -126,6 +132,41 @@ const vectorLayers = (
   },
 ];
 
+// The 3D buildings extrusion layer. Height resolves from the first
+// available OSM tag: explicit ``height`` (metres), then ``building:levels``
+// × 3 m per storey, then a conservative 8 m fallback. ``min_height``
+// lifts sections that sit on top of another structure (rooftop plant,
+// elevated walkways). Inserted after the road lines but before place
+// labels so labels stay readable when tilted.
+const buildings3dLayer = (): maplibregl.LayerSpecification => ({
+  id: 'buildings-3d',
+  type: 'fill-extrusion',
+  source: 'protomaps',
+  'source-layer': 'buildings',
+  minzoom: 13,
+  paint: {
+    'fill-extrusion-color': COLOR.building,
+    'fill-extrusion-height': [
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      13, 0,
+      14, [
+        'coalesce',
+        ['to-number', ['get', 'height']],
+        ['*', ['to-number', ['get', 'building:levels']], 3],
+        8,
+      ],
+    ],
+    'fill-extrusion-base': [
+      'coalesce',
+      ['to-number', ['get', 'min_height']],
+      0,
+    ],
+    'fill-extrusion-opacity': 0.85,
+  },
+});
+
 // ── Public builder ────────────────────────────────────────────────
 
 /**
@@ -133,11 +174,15 @@ const vectorLayers = (
  *
  * @param tileUrl The pmtiles URL to use for the vector source. May be
  *                the online Protomaps demo or a backend sendfile route.
+ * @param opts    Style options — currently only ``mode`` to switch
+ *                between the flat map and the 3D-buildings view.
  */
 export function buildDarkStyle(
   tileUrl: string,
-  _opts: DarkStyleOptions = {},
+  opts: DarkStyleOptions = {},
 ): maplibregl.StyleSpecification {
+  const mode: LayerMode = opts.mode ?? 'map';
+
   const sources: maplibregl.StyleSpecification['sources'] = {
     protomaps: {
       type: 'vector',
@@ -147,13 +192,22 @@ export function buildDarkStyle(
     },
   };
 
+  const base = vectorLayers(COLOR.place_label_halo);
+  // Splice the extrusion layer in after the roads/boundaries but
+  // before the place-label symbols (last entry in vectorLayers).
+  const placesIdx = base.findIndex((l) => l.id === 'places');
+  const layersBeforePlaces = placesIdx === -1 ? base : base.slice(0, placesIdx);
+  const layersPlaces = placesIdx === -1 ? [] : base.slice(placesIdx);
+
   const layers: maplibregl.LayerSpecification[] = [
     {
       id: 'bg',
       type: 'background',
       paint: { 'background-color': COLOR.earth },
     },
-    ...vectorLayers(COLOR.place_label_halo),
+    ...layersBeforePlaces,
+    ...(mode === '3d' ? [buildings3dLayer()] : []),
+    ...layersPlaces,
   ];
 
   return {
