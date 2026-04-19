@@ -67,7 +67,7 @@ to a later chunk.
 | 1 | [Pin tippecanoe + valhalla prebuilt binaries via bootstrap](chunk-1-toolchain.md)       | done    | 6b2bd54 |
 | 2 | [Rewrite maps catalog — drop CDN fields, keep Geofabrik PBF](chunk-2-catalog.md)        | done    | 0876365 |
 | 3 | [Rewrite install_region to build locally](chunk-3-install-local.md)                     | done    | 7fe5b61 |
-| 4 | [Frontend cleanup — new progress phases, remove stub-dist banner](chunk-4-frontend.md)  | pending |        |
+| 4 | [Frontend cleanup — new progress phases, remove stub-dist banner](chunk-4-frontend.md)  | done    | cf43c81 |
 | 5 | [3D buildings + pitch/tilt control (replaces satellite)](chunk-5-3d-buildings.md)       | pending |        |
 | 6 | [Lazy Valhalla sidecar lifecycle](chunk-6-lazy-router.md)                               | pending |        |
 | 7 | [Documentation + supersede offline-maps chunk 8a](chunk-7-docs.md)                      | pending |        |
