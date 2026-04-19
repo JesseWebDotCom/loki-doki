@@ -235,6 +235,118 @@ const roadLayers = (p: Palette): maplibregl.LayerSpecification[] => [
   },
 ];
 
+// ── World overview layers (Natural Earth via world-overview.pmtiles) ──
+//
+// These read from the second vector source (`world_overview`) — a global
+// z0–z7 pmtiles built by bootstrap from Natural Earth. Every world-
+// overview layer carries ``maxzoom: 7`` so the per-region source takes
+// over at street zoom and the two sources never stack at the same zoom.
+// Paint order is controlled in `buildDarkStyle` below — fills go under
+// the region source, symbols coexist alongside region place labels.
+
+const worldOverviewFillLayers = (p: Palette): maplibregl.LayerSpecification[] => [
+  // Natural Earth glaciers / ice caps come through on `landcover`.
+  // Renders as a very low-contrast land-tone fill where present;
+  // elsewhere the bg color shows through — that's the intended look.
+  {
+    id: 'world_background_fill',
+    type: 'fill',
+    source: 'world_overview',
+    'source-layer': 'landcover',
+    maxzoom: 7,
+    paint: { 'fill-color': p.residential, 'fill-opacity': 0.5 },
+  },
+  // Ocean / major lakes from Natural Earth water polygons.
+  {
+    id: 'world_water',
+    type: 'fill',
+    source: 'world_overview',
+    'source-layer': 'water',
+    maxzoom: 7,
+    paint: { 'fill-color': p.water },
+  },
+];
+
+const worldOverviewBoundaryLayers = (
+  p: Palette,
+): maplibregl.LayerSpecification[] => [
+  {
+    id: 'world_boundary_state',
+    type: 'line',
+    source: 'world_overview',
+    'source-layer': 'boundary',
+    filter: ['==', ['get', 'admin_level'], 4],
+    maxzoom: 7,
+    paint: {
+      'line-color': p.boundary_state,
+      'line-width': 0.6,
+      'line-dasharray': [3, 2],
+      'line-opacity': 0.8,
+    },
+  },
+  {
+    id: 'world_boundary_country',
+    type: 'line',
+    source: 'world_overview',
+    'source-layer': 'boundary',
+    filter: ['<=', ['get', 'admin_level'], 2],
+    maxzoom: 7,
+    paint: {
+      'line-color': p.boundary_country,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.6, 7, 1.4],
+    },
+  },
+];
+
+const worldOverviewPlaceLayers = (
+  p: Palette,
+): maplibregl.LayerSpecification[] => [
+  {
+    id: 'world_place_country',
+    type: 'symbol',
+    source: 'world_overview',
+    'source-layer': 'place',
+    filter: ['==', ['get', 'class'], 'country'],
+    minzoom: 1,
+    maxzoom: 7,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 1, 10, 5, 20],
+      'text-transform': 'uppercase',
+      'text-letter-spacing': 0.15,
+      'text-max-width': 9,
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1.6,
+    },
+  },
+  {
+    id: 'world_place_state',
+    type: 'symbol',
+    source: 'world_overview',
+    'source-layer': 'place',
+    filter: ['==', ['get', 'class'], 'state'],
+    minzoom: 3,
+    maxzoom: 7,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 16],
+      'text-transform': 'uppercase',
+      'text-letter-spacing': 0.1,
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1.4,
+      'text-opacity': 0.9,
+    },
+  },
+];
+
 const boundaryLayers = (p: Palette): maplibregl.LayerSpecification[] => [
   {
     id: 'boundary_state',
@@ -568,6 +680,7 @@ const buildings2dLayer = (p: Palette): maplibregl.LayerSpecification => ({
 
 export function buildDarkStyle(
   tileUrl: string,
+  overviewUrl: string,
   opts: DarkStyleOptions = {},
 ): maplibregl.StyleSpecification {
   const mode: LayerMode = opts.mode ?? 'map';
@@ -581,17 +694,30 @@ export function buildDarkStyle(
       attribution:
         '© <a href="https://openstreetmap.org">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>',
     },
+    world_overview: {
+      type: 'vector',
+      url: overviewUrl,
+      attribution:
+        '© <a href="https://naturalearthdata.com">Natural Earth</a>',
+    },
   };
 
-  // Layer order matters — MapLibre paints bottom-up.
+  // Layer order matters — MapLibre paints bottom-up. World-overview
+  // fills + boundaries paint UNDER the per-region source so region
+  // tiles fully cover them at street zoom; world-overview labels
+  // paint alongside region place labels (both maxzoom-gated so they
+  // hand off cleanly).
   const layers: maplibregl.LayerSpecification[] = [
     { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
+    ...worldOverviewFillLayers(p),
     ...fillLayers(p),
+    ...worldOverviewBoundaryLayers(p),
     ...boundaryLayers(p),
     ...(mode === '3d' ? [buildings3dLayer(p)] : [buildings2dLayer(p)]),
     ...roadLayers(p),
     ...transportationNameLayers(p),
     ...water_and_poi_labels(p),
+    ...worldOverviewPlaceLayers(p),
     ...placeLabelLayers(p),
   ];
 

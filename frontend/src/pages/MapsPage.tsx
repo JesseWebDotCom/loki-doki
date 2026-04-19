@@ -56,6 +56,13 @@ import { loadRecents, pushRecent } from './maps/recents';
 import type { ActivePanel, PlaceResult, Recent } from './maps/types';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 
+// Global z0–z7 Natural Earth basemap served by bootstrap. Paired with
+// the per-region tile URL in every `buildDarkStyle` call so country /
+// state polygons + labels + ocean fill render worldwide at low zoom,
+// closing the "blank outside installed region" gap.
+const OVERVIEW_PMTILES_URL =
+  'pmtiles:///api/v1/maps/tiles/_overview/streets.pmtiles';
+
 // Register the pmtiles:// protocol globally, once per module load.
 // Guarded so Vite HMR doesn't stack duplicate handlers (MapLibre throws
 // if the same protocol is added twice).
@@ -331,7 +338,12 @@ const MapsPage: React.FC = () => {
       return;
     }
 
-    map.setStyle(buildDarkStyle(resolution.streetUrl, { mode, theme: colorTheme }));
+    map.setStyle(
+      buildDarkStyle(resolution.streetUrl, OVERVIEW_PMTILES_URL, {
+        mode,
+        theme: colorTheme,
+      }),
+    );
   }, [resolution, mode, colorTheme]);
 
   // ── Auto-pitch when flipping layer mode ──────────────────────
