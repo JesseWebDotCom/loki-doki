@@ -157,6 +157,25 @@ OSM_WATER_POLYGONS = {
 }
 
 
+# Geofabrik's Monaco extract. Used ONLY as a throwaway tiny OSM input for
+# the ``build-world-overview`` preflight — planetiler's OpenMapTiles
+# profile requires some OSM file even when we only care about its
+# Natural Earth output at low zoom. ~800 KB; the resulting Monaco
+# streets occupy a ~2 km² strip on the Mediterranean coast in the
+# world-overview pmtiles — negligible payload, harmless visually.
+# Upstream serves a mutable URL (daily rebuild) so sha256 is the only
+# reliable integrity pin; refresh deliberately via
+# ``scripts/update_bootstrap_versions.py``.
+MONACO_PBF = {
+    "version": "latest",
+    "filename": "monaco-latest.osm.pbf",
+    "sha256": "39aae010ced30f6d5742de3e0952e768763e48df48abb6ee56e03c66e6c83820",
+    "url_template": (
+        "https://download.geofabrik.de/europe/{filename}"
+    ),
+}
+
+
 GRAPHHOPPER = {
     "version": "10.1",
     "filename": "graphhopper-web-10.1.jar",

@@ -55,6 +55,7 @@ _LAYOUT: dict[str, dict[str, str]] = {
     "java":         {"unix": "tools/jre/bin/java",     "win": "tools/jre/bin/java.exe"},
     "planetiler_jar": {"unix": "tools/planetiler/planetiler.jar", "win": "tools/planetiler/planetiler.jar"},
     "planetiler_sources": {"unix": "tools/planetiler/sources", "win": "tools/planetiler/sources"},
+    "world_overview_pmtiles": {"unix": "tools/planetiler/world-overview.pmtiles", "win": "tools/planetiler/world-overview.pmtiles"},
     "graphhopper_jar": {"unix": "tools/graphhopper/graphhopper.jar", "win": "tools/graphhopper/graphhopper.jar"},
     "glyphs":       {"unix": "tools/glyphs",           "win": "tools/glyphs"},
     "llama_server": {"unix": "llama.cpp/llama-server", "win": "llama.cpp/llama-server.exe"},

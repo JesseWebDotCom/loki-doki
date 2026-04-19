@@ -31,6 +31,7 @@ from .preflight import (
     ensure_uv,
     ensure_wake_word,
     ensure_whisper_model,
+    ensure_world_overview,
     install_frontend_deps,
     sync_python_deps,
 )
@@ -123,6 +124,7 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "install-glyphs": ensure_glyphs,
     "install-planetiler": ensure_planetiler,
     "install-planetiler-data": ensure_planetiler_data,
+    "build-world-overview": ensure_world_overview,
     "install-graphhopper": ensure_graphhopper,
     "sync-python-deps": sync_python_deps,
     "embed-node": ensure_node,
@@ -170,6 +172,7 @@ _STEP_CATEGORY: dict[str, str] = {
     "install-glyphs": "system",
     "install-planetiler": "system",
     "install-planetiler-data": "system",
+    "build-world-overview": "system",
     "install-graphhopper": "system",
     "sync-python-deps": "system",
     "check-hailo-runtime": "system",
@@ -228,6 +231,7 @@ _PRE_MAPS_STACK: list[tuple[str, str, bool, int | None]] = [
     ("install-glyphs", "Install map glyph fonts", False, 15),
     ("install-planetiler", "Install planetiler", False, 30),
     ("install-planetiler-data", "Install planetiler sources", False, 180),
+    ("build-world-overview", "Build world overview basemap", False, 120),
     ("install-graphhopper", "Install GraphHopper", False, 30),
 ]
 

@@ -18,6 +18,7 @@ from .temurin_jre import ensure_temurin_jre
 from .uv_runtime import ensure_uv
 from .wake_word import ensure_wake_word
 from .whisper_runtime import ensure_whisper_model
+from .world_overview import ensure_world_overview
 
 __all__ = [
     "build_frontend",
@@ -32,6 +33,7 @@ __all__ = [
     "ensure_uv",
     "ensure_wake_word",
     "ensure_whisper_model",
+    "ensure_world_overview",
     "install_frontend_deps",
     "sync_python_deps",
 ]

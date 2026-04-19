@@ -14,6 +14,7 @@ import pytest
 from lokidoki.bootstrap.versions import (
     GLYPHS_ASSETS,
     GRAPHHOPPER,
+    MONACO_PBF,
     NATURAL_EARTH,
     NODE,
     OSM_WATER_POLYGONS,
@@ -142,6 +143,19 @@ def test_osm_water_polygons_pin_shape() -> None:
     )
     assert url.startswith("https://"), url
     assert url.endswith("/water-polygons-split-3857.zip")
+
+
+def test_monaco_pbf_pin_shape() -> None:
+    # Used as a throwaway tiny OSM input for the ``build-world-overview``
+    # preflight — planetiler needs some OSM file even when we only want
+    # its Natural Earth output. Upstream ships a mutable URL, so the
+    # sha256 is the only reliable integrity pin.
+    assert MONACO_PBF["filename"].endswith(".osm.pbf"), MONACO_PBF["filename"]
+    assert MONACO_PBF["filename"] == "monaco-latest.osm.pbf"
+    assert _SHA_RE.match(MONACO_PBF["sha256"]), MONACO_PBF["sha256"]
+    url = MONACO_PBF["url_template"].format(filename=MONACO_PBF["filename"])
+    assert url.startswith("https://"), url
+    assert url.endswith("/monaco-latest.osm.pbf")
 
 
 def test_glyphs_assets_pin_shape() -> None:
