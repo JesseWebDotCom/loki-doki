@@ -6,6 +6,7 @@ build, and the CPU-only audio stack (Piper, Whisper, openWakeWord).
 ``steps.py`` binds these to pipeline step IDs.
 """
 from .frontend import build_frontend, install_frontend_deps
+from .graphhopper import ensure_graphhopper
 from .node_runtime import ensure_node
 from .planetiler import ensure_planetiler
 from .piper_runtime import ensure_tts_voice
@@ -19,6 +20,7 @@ from .whisper_runtime import ensure_whisper_model
 __all__ = [
     "build_frontend",
     "ensure_embedded_python",
+    "ensure_graphhopper",
     "ensure_node",
     "ensure_planetiler",
     "ensure_temurin_jre",

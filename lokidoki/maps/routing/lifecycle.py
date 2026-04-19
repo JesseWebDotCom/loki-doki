@@ -1,14 +1,14 @@
-"""Lazy lifecycle for the local Valhalla sidecar (Chunk 6).
+"""Lazy lifecycle for the local routing sidecar.
 
-Valhalla only runs while the user is actively routing. The process is
-cold-started on the first :meth:`ValhallaLifecycle.ensure_started` call,
-kept warm while requests keep arriving (``touch()`` resets the clock),
-and torn down after ``idle_timeout_s`` of silence to return the
-100–800 MB of resident memory to the LLM.
+The GraphHopper process only runs while the user is actively routing.
+The process is cold-started on the first
+:meth:`RouterLifecycle.ensure_started` call, kept warm while requests
+keep arriving (``touch()`` resets the clock), and torn down after
+``idle_timeout_s`` of silence to return the resident memory to the LLM.
 
-This module deliberately contains no Valhalla-specific spawn logic —
-the HEF paths, config JSON, and health probe live in
-:mod:`lokidoki.maps.routing.valhalla`. The lifecycle drives that
+This module deliberately contains no GraphHopper-specific spawn logic —
+the config templating and health probe live in
+:mod:`lokidoki.maps.routing.graphhopper`. The lifecycle drives that
 router's ``_spawn_locked`` / ``_stop_locked`` / ``_wait_healthy``
 helpers under a single :class:`asyncio.Lock` so concurrent first-callers
 share one cold-start.
@@ -29,24 +29,26 @@ _WATCHDOG_INTERVAL_S = 60.0
 def _resolve_idle_timeout() -> int:
     """Read the idle ceiling from env, falling back to 15 minutes.
 
-    ``LOKIDOKI_VALHALLA_IDLE_S`` is ops-only — exposed for test harnesses
-    and operators who want to pin a lower / higher number on a specific
-    box without editing settings JSON.
+    ``LOKIDOKI_ROUTER_IDLE_S`` is the current env var. The old
+    ``LOKIDOKI_VALHALLA_IDLE_S`` name stays as a one-release fallback so
+    in-flight configs do not break.
     """
-    env = os.environ.get("LOKIDOKI_VALHALLA_IDLE_S")
+    env = os.environ.get("LOKIDOKI_ROUTER_IDLE_S")
+    if env is None:
+        env = os.environ.get("LOKIDOKI_VALHALLA_IDLE_S")
     if env is None:
         return _DEFAULT_IDLE_S
     try:
         return max(1, int(env))
     except ValueError:
         log.warning(
-            "invalid LOKIDOKI_VALHALLA_IDLE_S=%r; falling back to %ss",
+            "invalid router idle timeout env=%r; falling back to %ss",
             env, _DEFAULT_IDLE_S,
         )
         return _DEFAULT_IDLE_S
 
 
-class ValhallaLifecycle:
+class RouterLifecycle:
     """Owns the spawn lock, idle clock, and watchdog for one router."""
 
     def __init__(
@@ -79,7 +81,7 @@ class ValhallaLifecycle:
         self._last_request_at = time.monotonic()
 
     async def ensure_started(self, region_id: str) -> None:
-        """Spawn (or respawn) Valhalla for ``region_id``.
+        """Spawn (or respawn) the local router for ``region_id``.
 
         Cheap when the sidecar is already up and serving ``region_id``.
         Concurrent first-callers serialise on ``self._lock`` so only
@@ -92,7 +94,7 @@ class ValhallaLifecycle:
                 self._ensure_watchdog_running()
                 return
             if self._router_process() is not None:
-                # Region switch — Valhalla can't swap tile_dir at runtime.
+                # Region switch — GraphHopper can't swap graph.location at runtime.
                 await self._router._stop_locked()
             self._router._spawn_locked(region_id)
             try:
@@ -131,7 +133,7 @@ class ValhallaLifecycle:
         rc = poll()
         if rc is not None:
             log.warning(
-                "valhalla crashed (returncode=%s); next request will respawn",
+                "router sidecar crashed (returncode=%s); next request will respawn",
                 rc,
             )
             self._router._process = None
@@ -163,7 +165,7 @@ class ValhallaLifecycle:
                 idle = time.monotonic() - self._last_request_at
                 if idle > self._idle_timeout_s:
                     log.info(
-                        "valhalla idle %.1fs > %ss; shutting down to free RAM",
+                        "router idle %.1fs > %ss; shutting down to free RAM",
                         idle, self._idle_timeout_s,
                     )
                     await self.shutdown()
@@ -172,4 +174,7 @@ class ValhallaLifecycle:
             return
 
 
-__all__ = ["ValhallaLifecycle"]
+ValhallaLifecycle = RouterLifecycle
+
+
+__all__ = ["RouterLifecycle", "ValhallaLifecycle"]

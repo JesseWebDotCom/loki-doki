@@ -131,6 +131,17 @@ PLANETILER = {
 }
 
 
+GRAPHHOPPER = {
+    "version": "10.1",
+    "filename": "graphhopper-web-10.1.jar",
+    "sha256": "5419ff22309f4f584f6ae7eb03e6457589038ddd71ba50e62c927c8380986231",
+    "url_template": (
+        "https://repo1.maven.org/maven2/com/graphhopper/graphhopper-web/"
+        "{version}/{filename}"
+    ),
+}
+
+
 # Piper voice models — synthesis uses the piper-tts Python package
 # in-process (no CLI binary needed).
 PIPER_VOICES: dict[str, dict[str, tuple[str, str]]] = {

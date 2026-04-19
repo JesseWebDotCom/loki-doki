@@ -12,6 +12,7 @@ import re
 import pytest
 
 from lokidoki.bootstrap.versions import (
+    GRAPHHOPPER,
     NODE,
     PLANETILER,
     PIPER_VOICES,
@@ -108,3 +109,15 @@ def test_planetiler_pin_shape() -> None:
     url = PLANETILER["url_template"].format(version=PLANETILER["version"])
     assert url.startswith("https://")
     assert url.endswith("/planetiler.jar")
+
+
+def test_graphhopper_pin_shape() -> None:
+    assert GRAPHHOPPER["version"] == "10.1"
+    assert GRAPHHOPPER["filename"] == "graphhopper-web-10.1.jar"
+    assert _SHA_RE.match(GRAPHHOPPER["sha256"])
+    url = GRAPHHOPPER["url_template"].format(
+        version=GRAPHHOPPER["version"],
+        filename=GRAPHHOPPER["filename"],
+    )
+    assert url.startswith("https://")
+    assert url.endswith("/graphhopper-web-10.1.jar")

@@ -1,9 +1,9 @@
-"""Async subprocess wrappers for local PMTiles + Valhalla tile builds.
+"""Async subprocess wrappers for local PMTiles + GraphHopper builds.
 
 Chunk 3 of the maps-local-build plan: no remote CDN. Once a region's
-``.osm.pbf`` has landed on disk, :func:`run_tippecanoe` turns it into
-``streets.pmtiles`` and :func:`run_valhalla` turns it into the routing
-tile tree under ``valhalla/``.
+``.osm.pbf`` has landed on disk, :func:`run_planetiler` turns it into
+``streets.pmtiles`` and :func:`run_graphhopper_import` turns it into the
+local routing graph under ``valhalla/graph-cache``.
 
 Both wrappers:
 
@@ -30,7 +30,6 @@ forwards to the admin UI.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import platform
@@ -81,20 +80,14 @@ _PLANETILER_HEAP_MB: dict[str, int] = {
     "windows": 4096,
 }
 
-# Valhalla's discrete build stages — the binary logs one of these
-# names as it transitions. Order matters: it drives the step counter
-# we report back over SSE.
-_VALHALLA_STAGES = (
-    "parse",
-    "construct",
-    "enhance",
-    "hierarchy",
-    "shortcuts",
-    "restrictions",
-    "transit",
-    "bss",
-    "elevation",
-    "cleanup",
+_GRAPHHOPPER_PHASES: dict[str, tuple[int, int]] = {
+    "datareaderosm": (0, 40),
+    "graphstorage": (40, 80),
+    "chpreparation": (80, 100),
+}
+_GRAPHHOPPER_LOG = re.compile(
+    r"INFO\s+.*?(DataReaderOSM|GraphStorage|CHPreparation).*?(?:(\d{1,3})%)?",
+    re.IGNORECASE,
 )
 
 
@@ -176,7 +169,7 @@ async def run_planetiler(
     ))
 
 
-async def run_valhalla(
+async def run_graphhopper_import(
     pbf: Path,
     out_dir: Path,
     *,
@@ -184,73 +177,69 @@ async def run_valhalla(
     emit: _EmitFn,
     cancel_event: asyncio.Event,
 ) -> None:
-    """Build the Valhalla routing tile tree under ``out_dir`` from ``pbf``.
-
-    ``valhalla_build_tiles`` reads a JSON config; we synthesise a
-    minimal one on the fly (same shape as
-    :mod:`lokidoki.maps.routing.build_tiles`) that points the tile
-    output at ``out_dir`` and pins concurrency to 1 — keeps peak RAM
-    bounded on the Pi.
-    """
-    binary = _require_binary("valhalla_build_tiles")
-
+    """Build the GraphHopper routing graph under ``out_dir`` from ``pbf``."""
+    java_bin = _resolve_java_binary()
+    jar_path = _require_file(
+        _embedded_tool_path("graphhopper", "graphhopper.jar"),
+        label="graphhopper.jar",
+    )
+    heap_mb = _PLANETILER_HEAP_MB[_runtime_profile()]
     scratch = out_dir.with_suffix(".partial")
     if scratch.exists():
         shutil.rmtree(scratch, ignore_errors=True)
     scratch.mkdir(parents=True, exist_ok=True)
 
-    config_path = scratch.parent / f"{scratch.name}.json"
-    config_path.write_text(
-        json.dumps({
-            "mjolnir": {
-                "tile_dir": str(scratch),
-                "concurrency": 1,
-            },
-        }, indent=2),
-        encoding="utf-8",
+    config_path = scratch / "graphhopper-config.yml"
+    _write_graphhopper_config(
+        config_path=config_path,
+        pbf_path=pbf,
+        graph_cache_dir=scratch / "graph-cache",
     )
 
-    cmd = [binary, "-c", str(config_path), str(pbf)]
+    cmd = [
+        java_bin,
+        f"-Xmx{heap_mb}m",
+        "-jar",
+        str(jar_path),
+        "import",
+        str(config_path),
+    ]
 
-    state = {"stage": 0}
-    total_stages = len(_VALHALLA_STAGES)
+    state = {"pct": 0}
 
     async def _on_line(line: bytes) -> None:
-        text = line.decode("utf-8", errors="replace").lower()
-        for idx, stage in enumerate(_VALHALLA_STAGES, start=1):
-            if stage in text and idx > state["stage"]:
-                state["stage"] = idx
-                await emit(MapInstallProgress(
-                    region_id=region_id, artifact="valhalla",
-                    bytes_done=idx, bytes_total=total_stages,
-                    phase="building_routing",
-                ))
-                return
+        pct = _parse_graphhopper_progress(line.decode("utf-8", errors="replace"))
+        if pct <= state["pct"]:
+            return
+        state["pct"] = pct
+        await emit(MapInstallProgress(
+            region_id=region_id, artifact="valhalla",
+            bytes_done=pct, bytes_total=100,
+            phase="building_routing",
+        ))
 
     await emit(MapInstallProgress(
         region_id=region_id, artifact="valhalla",
-        bytes_done=0, bytes_total=total_stages,
+        bytes_done=0, bytes_total=100,
         phase="building_routing",
     ))
 
     try:
         await _run_subprocess(
-            cmd, tool="valhalla_build_tiles", on_line=_on_line,
+            cmd, tool="graphhopper", on_line=_on_line,
             cancel_event=cancel_event,
         )
     except (asyncio.CancelledError, BuildFailed, BuildOutOfMemory):
         shutil.rmtree(scratch, ignore_errors=True)
-        config_path.unlink(missing_ok=True)
         raise
 
-    config_path.unlink(missing_ok=True)
     if out_dir.exists():
         shutil.rmtree(out_dir, ignore_errors=True)
     scratch.replace(out_dir)
 
     await emit(MapInstallProgress(
         region_id=region_id, artifact="valhalla",
-        bytes_done=total_stages, bytes_total=total_stages,
+        bytes_done=100, bytes_total=100,
         phase="ready",
     ))
 
@@ -284,6 +273,39 @@ def _resolve_java_binary() -> str:
     if embedded.is_file():
         return str(embedded.resolve())
     return _require_binary("java")
+
+
+def _write_graphhopper_config(
+    *,
+    config_path: Path,
+    pbf_path: Path,
+    graph_cache_dir: Path,
+) -> None:
+    template_path = Path(__file__).parent / "routing" / "graphhopper_config_template.yml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        template_path.read_text(encoding="utf-8").format(
+            pbf_path=str(pbf_path),
+            graph_cache_dir=str(graph_cache_dir),
+        ),
+        encoding="utf-8",
+    )
+
+
+def _parse_graphhopper_progress(text: str) -> int:
+    match = _GRAPHHOPPER_LOG.search(text)
+    if match is None:
+        return 0
+    phase = match.group(1).lower()
+    start, end = _GRAPHHOPPER_PHASES.get(phase, (0, 0))
+    raw = match.group(2)
+    if raw is None:
+        return start
+    try:
+        raw_pct = max(0, min(100, int(raw)))
+    except ValueError:
+        return start
+    return start + int((raw_pct / 100) * (end - start))
 
 
 def _runtime_profile() -> str:
@@ -404,6 +426,6 @@ __all__ = [
     "BuildFailed",
     "BuildOutOfMemory",
     "ToolchainMissing",
-    "run_tippecanoe",
-    "run_valhalla",
+    "run_graphhopper_import",
+    "run_planetiler",
 ]

@@ -1,0 +1,18 @@
+graphhopper:
+  datareader.file: "{pbf_path}"
+  graph.location: "{graph_cache_dir}"
+  profiles:
+    - name: car
+      vehicle: car
+      weighting: fastest
+    - name: bike
+      vehicle: bike
+      weighting: fastest
+    - name: foot
+      vehicle: foot
+      weighting: shortest
+server:
+  application_connectors:
+    - type: http
+      port: 8002
+      bind_host: 127.0.0.1

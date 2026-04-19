@@ -1,16 +1,16 @@
-"""Offline routing subsystem — Valhalla sidecar per region (Chunk 6).
+"""Offline routing subsystem — local sidecar per region.
 
-This package wraps a local Valhalla runtime that serves driving /
-walking / cycling directions against the prebuilt routing tiles Chunk 2
-downloads into ``data/maps/<region>/valhalla/``. The rest of the app
-only imports the dataclasses and :class:`RouterProtocol` from this
-module; concrete routers live in :mod:`.valhalla` and
-:mod:`.online_fallback`.
+This package wraps the local GraphHopper runtime that serves driving /
+walking / cycling directions against the on-device routing graph under
+``data/maps/<region>/valhalla/graph-cache``. The rest of the app only
+imports the dataclasses and :class:`RouterProtocol` from this module;
+concrete routers live in :mod:`.graphhopper`, :mod:`.valhalla`
+(compatibility shim), and :mod:`.online_fallback`.
 
 Return shape is intentionally a superset of the OSRM response the
-navigation skill used to consume, so `get_directions()` / `get_eta()`
-can swap from remote OSRM to local Valhalla without changing the
-downstream prompt / TTS templates.
+navigation skill used to consume, so ``get_directions()`` /
+``get_eta()`` can swap from remote OSRM to the local sidecar without
+changing downstream prompt or TTS templates.
 """
 from __future__ import annotations
 
@@ -29,12 +29,15 @@ class LocalRouterUnavailable(Exception):
     """
 
 
-class ValhallaUnavailable(LocalRouterUnavailable):
-    """Raised when the Valhalla sidecar cannot be spawned or reached.
+class RouterUnavailable(LocalRouterUnavailable):
+    """Raised when the local routing sidecar cannot be spawned or reached.
 
     Subclass of :class:`LocalRouterUnavailable` so the skill's try /
     except can treat every local-runtime failure uniformly.
     """
+
+
+ValhallaUnavailable = RouterUnavailable
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +65,7 @@ class RouteRequest:
 
 @dataclass(frozen=True, slots=True)
 class Maneuver:
-    """One turn-by-turn instruction — Valhalla's maneuver, normalised.
+    """One turn-by-turn instruction — local router maneuver, normalised.
 
     Indices point into the encoded polyline so the frontend can draw
     a per-step highlight without re-geocoding.
@@ -89,8 +92,8 @@ class RouteResponse:
 
     ``legs`` mirrors OSRM's ``routes[0].legs[0].steps[]`` shape so the
     navigation skill's formatter keeps working unchanged. ``maneuvers``
-    is the richer Valhalla-native list the Directions panel renders.
-    ``instructions_text`` is flattened Valhalla narrative for a one-shot
+    is the richer local-router-native list the Directions panel renders.
+    ``instructions_text`` is flattened maneuver narrative for a one-shot
     TTS readout.
     """
 
@@ -120,16 +123,16 @@ class RouterProtocol(Protocol):
 
 
 def __getattr__(name: str):
-    """Lazy re-export of :class:`ValhallaLifecycle`.
+    """Lazy re-export of :class:`RouterLifecycle`.
 
     Importing the lifecycle eagerly would create a cycle — ``lifecycle``
     doesn't import from this package, but keeping the import lazy lets
     downstream callers grab the symbol via ``from lokidoki.maps.routing
-    import ValhallaLifecycle`` without paying the cost on every import.
+    import RouterLifecycle`` without paying the cost on every import.
     """
-    if name == "ValhallaLifecycle":
-        from lokidoki.maps.routing.lifecycle import ValhallaLifecycle
-        return ValhallaLifecycle
+    if name in {"RouterLifecycle", "ValhallaLifecycle"}:
+        from lokidoki.maps.routing.lifecycle import RouterLifecycle
+        return RouterLifecycle
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -143,6 +146,8 @@ __all__ = [
     "RouteResponse",
     "RouterProfile",
     "RouterProtocol",
+    "RouterLifecycle",
+    "RouterUnavailable",
     "ValhallaLifecycle",
     "ValhallaUnavailable",
 ]

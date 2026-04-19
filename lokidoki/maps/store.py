@@ -14,8 +14,8 @@ local build pipeline for a region:
      are still going).
   3. ``building_streets``   — shell out to ``planetiler`` and produce
      ``streets.pmtiles``.
-  4. ``building_routing``   — shell out to ``valhalla_build_tiles`` and
-     produce the Valhalla tile tree.
+  4. ``building_routing``   — shell out to GraphHopper import and
+     produce the local routing graph.
 
 Every phase emits :class:`MapInstallProgress` events on an
 :class:`asyncio.Queue` drained by the SSE endpoint, every phase is
@@ -377,20 +377,20 @@ async def _build_streets_step(
     state.bytes_on_disk["street"] = out.stat().st_size
 
 
-async def _build_valhalla_step(
+async def _build_graphhopper_step(
     region_id: str,
     state: MapRegionState,
     emit,
     cancel_event: asyncio.Event,
 ) -> None:
-    """Run ``valhalla_build_tiles`` to produce the routing tile tree.
+    """Run GraphHopper import to produce the routing graph cache.
 
     On success, flips ``state.valhalla_installed`` and records the
-    recursive byte size of the tile directory.
+    recursive byte size of the routing directory.
     """
     pbf_path = _final_path_for(region_id, "pbf")
     out_dir = _final_path_for(region_id, "valhalla")
-    await _build.run_valhalla(
+    await _build.run_graphhopper_import(
         pbf_path, out_dir,
         region_id=region_id, emit=emit, cancel_event=cancel_event,
     )
@@ -403,7 +403,7 @@ async def _build_valhalla_step(
 
 
 def _cleanup_partial_artifacts(region_id: str, state: MapRegionState) -> None:
-    """Remove any half-written streets/valhalla outputs.
+    """Remove any half-written streets/routing outputs.
 
     Called from the error / cancel path so a failed install never
     leaves the impression in ``data/maps/<region>/`` that an artifact
@@ -461,7 +461,7 @@ async def install_region(
     """Run the four-phase local install pipeline for ``region_id``.
 
     Phase 1 (``downloading_pbf``) always runs. Phases 2–4 (geocoder,
-    planetiler, valhalla) only run when ``need_pbf`` is True — that
+    planetiler, routing) only run when ``need_pbf`` is True — that
     keeps the PBF-only test harness cheap while letting the API
     caller opt into the full build.
 
@@ -548,7 +548,7 @@ async def install_region(
 
             if cancel_event.is_set():
                 raise asyncio.CancelledError()
-            await _build_valhalla_step(region_id, state, _emit, cancel_event)
+            await _build_graphhopper_step(region_id, state, _emit, cancel_event)
 
             # Drop the source PBF unless the dev override says to keep it.
             pbf_path = _final_path_for(region_id, "pbf")

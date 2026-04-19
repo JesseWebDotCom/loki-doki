@@ -215,13 +215,13 @@ def _stub_geocoder(monkeypatch) -> None:
 
 
 def _stub_build_steps(monkeypatch) -> dict:
-    """Replace ``run_planetiler`` and ``run_valhalla`` with file-drop stubs.
+    """Replace ``run_planetiler`` and ``run_graphhopper_import`` with stubs.
 
     Returns a dict the caller can inspect to assert the stubs were
     actually hit (a regression in the store plumbing would silently
     skip them otherwise).
     """
-    calls = {"planetiler": 0, "valhalla": 0}
+    calls = {"planetiler": 0, "graphhopper": 0}
 
     async def _fake_planetiler(pbf, out_pmtiles, *, region_id, emit, cancel_event):
         calls["planetiler"] += 1
@@ -235,21 +235,22 @@ def _stub_build_steps(monkeypatch) -> dict:
             bytes_done=100, bytes_total=100, phase="ready",
         ))
 
-    async def _fake_valhalla(pbf, out_dir, *, region_id, emit, cancel_event):
-        calls["valhalla"] += 1
-        out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / "tile-0.gph").write_bytes(b"fake-tile")
+    async def _fake_graphhopper(pbf, out_dir, *, region_id, emit, cancel_event):
+        calls["graphhopper"] += 1
+        graph_cache = out_dir / "graph-cache"
+        graph_cache.mkdir(parents=True, exist_ok=True)
+        (graph_cache / "properties").write_text("graph.bytes_for_flags: 8\n")
         await emit(MapInstallProgress(
             region_id=region_id, artifact="valhalla",
-            bytes_done=0, bytes_total=10, phase="building_routing",
+            bytes_done=0, bytes_total=100, phase="building_routing",
         ))
         await emit(MapInstallProgress(
             region_id=region_id, artifact="valhalla",
-            bytes_done=10, bytes_total=10, phase="ready",
+            bytes_done=100, bytes_total=100, phase="ready",
         ))
 
     monkeypatch.setattr(store._build, "run_planetiler", _fake_planetiler)
-    monkeypatch.setattr(store._build, "run_valhalla", _fake_valhalla)
+    monkeypatch.setattr(store._build, "run_graphhopper_import", _fake_graphhopper)
     return calls
 
 
@@ -283,7 +284,7 @@ def test_install_region_runs_local_build(monkeypatch):
     assert events[-1].phase == "complete"
 
     # Stub build steps were actually invoked.
-    assert calls == {"planetiler": 1, "valhalla": 1}
+    assert calls == {"planetiler": 1, "graphhopper": 1}
 
     # State reflects every artifact the pipeline produced.
     assert state.geocoder_installed is True
@@ -294,7 +295,7 @@ def test_install_region_runs_local_build(monkeypatch):
 
     region_dir = store.region_dir("us-ct")
     assert (region_dir / "streets.pmtiles").exists()
-    assert (region_dir / "valhalla").is_dir()
+    assert (region_dir / "valhalla" / "graph-cache").is_dir()
     assert not (region_dir / "region.osm.pbf").exists()
 
 
@@ -309,10 +310,10 @@ def test_install_region_planetiler_failure_cleans_partial(monkeypatch):
         raise store._build.BuildFailed("planetiler failed (exit 3): oom-ish")
 
     async def _unreachable(*args, **kwargs):
-        raise AssertionError("valhalla must not run after a streets failure")
+        raise AssertionError("graphhopper must not run after a streets failure")
 
     monkeypatch.setattr(store._build, "run_planetiler", _boom)
-    monkeypatch.setattr(store._build, "run_valhalla", _unreachable)
+    monkeypatch.setattr(store._build, "run_graphhopper_import", _unreachable)
 
     queue: asyncio.Queue = asyncio.Queue()
 

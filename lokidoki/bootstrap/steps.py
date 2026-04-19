@@ -21,6 +21,7 @@ from .events import StepLog
 from .preflight import (
     build_frontend,
     ensure_embedded_python,
+    ensure_graphhopper,
     ensure_node,
     ensure_planetiler,
     ensure_temurin_jre,
@@ -118,6 +119,7 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "install-uv": ensure_uv,
     "install-jre": ensure_temurin_jre,
     "install-planetiler": ensure_planetiler,
+    "install-graphhopper": ensure_graphhopper,
     "sync-python-deps": sync_python_deps,
     "embed-node": ensure_node,
     "install-frontend-deps": install_frontend_deps,
@@ -162,6 +164,7 @@ _STEP_CATEGORY: dict[str, str] = {
     "install-uv": "system",
     "install-jre": "system",
     "install-planetiler": "system",
+    "install-graphhopper": "system",
     "sync-python-deps": "system",
     "check-hailo-runtime": "system",
     "embed-node": "frontend",
@@ -220,6 +223,7 @@ _MAPS_ENABLED_PROFILES: frozenset[str] = frozenset()
 _PRE_MAPS_TOOLS: list[tuple[str, str, bool, int | None]] = [
     ("install-jre", "Install Temurin JRE", False, 45),
     ("install-planetiler", "Install planetiler", False, 30),
+    ("install-graphhopper", "Install GraphHopper", False, 30),
 ]
 
 

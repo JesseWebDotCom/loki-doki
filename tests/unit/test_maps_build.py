@@ -1,4 +1,4 @@
-"""Tests for :mod:`lokidoki.maps.build` — the planetiler + valhalla
+"""Tests for :mod:`lokidoki.maps.build` — the planetiler + GraphHopper
 async subprocess wrappers introduced by maps-local-build chunk 3.
 
 The tests avoid the real binaries: they install tiny shell stubs on
@@ -45,6 +45,18 @@ def _install_stub(tmp_path, monkeypatch, name, script) -> None:
 def _patch_planetiler_paths(tmp_path, monkeypatch) -> None:
     tool_root = tmp_path / ".lokidoki" / "tools"
     jar_path = tool_root / "planetiler" / "planetiler.jar"
+    jar_path.parent.mkdir(parents=True, exist_ok=True)
+    jar_path.write_bytes(b"fake-jar")
+
+    def _fake_embedded(tool_dir: str, filename: str):
+        return tool_root / tool_dir / filename
+
+    monkeypatch.setattr(build, "_embedded_tool_path", _fake_embedded)
+
+
+def _patch_graphhopper_paths(tmp_path, monkeypatch) -> None:
+    tool_root = tmp_path / ".lokidoki" / "tools"
+    jar_path = tool_root / "graphhopper" / "graphhopper.jar"
     jar_path.parent.mkdir(parents=True, exist_ok=True)
     jar_path.write_bytes(b"fake-jar")
 
@@ -267,34 +279,32 @@ def test_run_planetiler_cancel_cleans_partial(tmp_path, monkeypatch):
     assert not out.with_suffix(out.suffix + ".partial").exists()
 
 
-# ── run_valhalla ──────────────────────────────────────────────────
+# ── run_graphhopper_import ────────────────────────────────────────
 
-_VALHALLA_STUB = textwrap.dedent("""\
+_GRAPHHOPPER_STUB = textwrap.dedent("""\
     #!/bin/sh
-    # Ignore all args; emit a few stage-like markers and a tile file.
-    CONFIG=""
-    while [ "$#" -gt 0 ]; do
-        case "$1" in
-            -c) shift; CONFIG="$1" ;;
-        esac
-        shift
-    done
-    echo "parse stage beginning"
-    echo "construct phase running"
-    echo "cleanup done"
-    # Pull the tile dir out of the minimal JSON config the wrapper wrote.
-    TILE_DIR=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['mjolnir']['tile_dir'])" "$CONFIG")
-    mkdir -p "$TILE_DIR/0"
-    echo tile > "$TILE_DIR/0/0.gph"
+    for last; do :; done
+    CONFIG="$last"
+    GRAPH_DIR="$(dirname "$CONFIG")/graph-cache"
+    echo "INFO  c.g.reader.osm.DataReaderOSM - 25%"
+    echo "INFO  c.g.storage.GraphStorage - 50%"
+    echo "INFO  c.g.routing.ch.CHPreparation - 100%"
+    mkdir -p "$GRAPH_DIR"
+    echo "graph.bytes_for_flags: 8" > "$GRAPH_DIR/properties"
 """)
 
 
-def test_run_valhalla_missing_binary(monkeypatch, tmp_path):
+def test_run_graphhopper_import_missing_binary(monkeypatch, tmp_path):
     monkeypatch.setattr(build.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        build,
+        "_embedded_tool_path",
+        lambda tool_dir, filename: tmp_path / ".missing-tools" / tool_dir / filename,
+    )
 
     async def _run():
         _events, emit = await _collect()
-        await build.run_valhalla(
+        await build.run_graphhopper_import(
             tmp_path / "foo.pbf", tmp_path / "valhalla",
             region_id="us-ct", emit=emit, cancel_event=asyncio.Event(),
         )
@@ -303,8 +313,9 @@ def test_run_valhalla_missing_binary(monkeypatch, tmp_path):
         asyncio.run(_run())
 
 
-def test_run_valhalla_emits_stage_progress_and_writes_tiles(tmp_path, monkeypatch):
-    _install_stub(tmp_path, monkeypatch, "valhalla_build_tiles", _VALHALLA_STUB)
+def test_run_graphhopper_import_emits_progress_and_writes_tiles(tmp_path, monkeypatch):
+    _install_stub(tmp_path, monkeypatch, "java", _GRAPHHOPPER_STUB)
+    _patch_graphhopper_paths(tmp_path, monkeypatch)
     pbf = tmp_path / "region.osm.pbf"
     pbf.write_text("unused")
     out_dir = tmp_path / "valhalla"
@@ -315,7 +326,7 @@ def test_run_valhalla_emits_stage_progress_and_writes_tiles(tmp_path, monkeypatc
         events.append(progress)
 
     async def _run():
-        await build.run_valhalla(
+        await build.run_graphhopper_import(
             pbf, out_dir, region_id="us-ct",
             emit=emit, cancel_event=asyncio.Event(),
         )
@@ -323,28 +334,28 @@ def test_run_valhalla_emits_stage_progress_and_writes_tiles(tmp_path, monkeypatc
     asyncio.run(_run())
 
     assert out_dir.is_dir()
-    assert any(out_dir.rglob("*.gph"))
+    assert (out_dir / "graph-cache" / "properties").exists()
     assert events[0].phase == "building_routing"
     assert events[-1].phase == "ready"
-    # Saw at least two of the three stages in the stub output.
-    stages_seen = [e.bytes_done for e in events if e.phase == "building_routing"]
-    assert max(stages_seen) >= 2
+    percents = [e.bytes_done for e in events if e.phase == "building_routing"]
+    assert max(percents) >= 60
 
 
-def test_run_valhalla_failed_exit_cleans_partial(tmp_path, monkeypatch):
+def test_run_graphhopper_import_failed_exit_cleans_partial(tmp_path, monkeypatch):
     script = textwrap.dedent("""\
         #!/bin/sh
         echo "boom 1>&2" 1>&2
         exit 3
     """)
-    _install_stub(tmp_path, monkeypatch, "valhalla_build_tiles", script)
+    _install_stub(tmp_path, monkeypatch, "java", script)
+    _patch_graphhopper_paths(tmp_path, monkeypatch)
     pbf = tmp_path / "region.osm.pbf"
     pbf.write_text("unused")
     out_dir = tmp_path / "valhalla"
 
     async def _run():
         _events, emit = await _collect()
-        await build.run_valhalla(
+        await build.run_graphhopper_import(
             pbf, out_dir, region_id="us-ct",
             emit=emit, cancel_event=asyncio.Event(),
         )
