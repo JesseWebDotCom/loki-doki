@@ -22,6 +22,7 @@ from .preflight import (
     build_frontend,
     ensure_embedded_python,
     ensure_node,
+    ensure_planetiler,
     ensure_temurin_jre,
     ensure_tts_voice,
     ensure_uv,
@@ -116,6 +117,7 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "embed-python": ensure_embedded_python,
     "install-uv": ensure_uv,
     "install-jre": ensure_temurin_jre,
+    "install-planetiler": ensure_planetiler,
     "sync-python-deps": sync_python_deps,
     "embed-node": ensure_node,
     "install-frontend-deps": install_frontend_deps,
@@ -159,6 +161,7 @@ _STEP_CATEGORY: dict[str, str] = {
     "embed-python": "system",
     "install-uv": "system",
     "install-jre": "system",
+    "install-planetiler": "system",
     "sync-python-deps": "system",
     "check-hailo-runtime": "system",
     "embed-node": "frontend",
@@ -202,7 +205,7 @@ _PRE_FRONTEND: list[tuple[str, str, bool, int | None]] = [
 ]
 
 
-# Maps toolchain — pinned tippecanoe + Valhalla build CLIs. Gated by
+# Maps toolchain — pinned JRE + Java JARs. Gated by
 # :data:`_MAPS_ENABLED_PROFILES` so ``pi_hailo`` (and any future
 # server-only profile) skips the ~1-minute download entirely. Runs
 # after the frontend block so a maps-disabled profile still gets the
@@ -213,6 +216,11 @@ _PRE_FRONTEND: list[tuple[str, str, bool, int | None]] = [
 # so enabling them would 404 every bootstrap. ``--maps-tools-only``
 # still runs them on demand for CI + dev testing.
 _MAPS_ENABLED_PROFILES: frozenset[str] = frozenset()
+
+_PRE_MAPS_TOOLS: list[tuple[str, str, bool, int | None]] = [
+    ("install-jre", "Install Temurin JRE", False, 45),
+    ("install-planetiler", "Install planetiler", False, 30),
+]
 
 
 _COMMON_LLM: list[tuple[str, str, bool, int | None]] = [
@@ -315,8 +323,5 @@ def build_steps(profile: str) -> list[Step]:
 
 def build_maps_tools_only_steps(profile: str) -> list[Step]:
     """Return the standalone maps-runtime preflight path."""
-    specs = [
-        ("detect-profile", "Detect host profile", False, 2),
-        ("install-jre", "Install Temurin JRE", False, 45),
-    ]
+    specs = [("detect-profile", "Detect host profile", False, 2), *_PRE_MAPS_TOOLS]
     return _to_steps(specs, profile)

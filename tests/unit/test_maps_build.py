@@ -1,4 +1,4 @@
-"""Tests for :mod:`lokidoki.maps.build` — the tippecanoe + valhalla
+"""Tests for :mod:`lokidoki.maps.build` — the planetiler + valhalla
 async subprocess wrappers introduced by maps-local-build chunk 3.
 
 The tests avoid the real binaries: they install tiny shell stubs on
@@ -8,7 +8,7 @@ exercised end-to-end without a gigabyte download.
 
 Unix-only: the stubs use ``/bin/sh``. Windows maps support is
 explicitly unsupported in bootstrap today (see
-``lokidoki/bootstrap/preflight/tippecanoe.py``) so the skip is safe.
+``lokidoki/bootstrap/preflight/planetiler.py``) so the skip is safe.
 """
 from __future__ import annotations
 
@@ -40,6 +40,18 @@ def _install_stub(tmp_path, monkeypatch, name, script) -> None:
         return None
 
     monkeypatch.setattr(build.shutil, "which", _which)
+
+
+def _patch_planetiler_paths(tmp_path, monkeypatch) -> None:
+    tool_root = tmp_path / ".lokidoki" / "tools"
+    jar_path = tool_root / "planetiler" / "planetiler.jar"
+    jar_path.parent.mkdir(parents=True, exist_ok=True)
+    jar_path.write_bytes(b"fake-jar")
+
+    def _fake_embedded(tool_dir: str, filename: str):
+        return tool_root / tool_dir / filename
+
+    monkeypatch.setattr(build, "_embedded_tool_path", _fake_embedded)
 
 
 async def _collect():
@@ -143,32 +155,37 @@ def test_run_subprocess_oom_exit_raises_build_out_of_memory():
         asyncio.run(_run())
 
 
-# ── run_tippecanoe ────────────────────────────────────────────────
+# ── run_planetiler ────────────────────────────────────────────────
 
-_TIPPECANOE_STUB = textwrap.dedent("""\
+_PLANETILER_STUB = textwrap.dedent("""\
     #!/bin/sh
     OUT=""
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            -o) shift; OUT="$1" ;;
+            --output=*) OUT="${1#--output=}" ;;
         esac
         shift
     done
-    echo "  25.0% complete"
-    echo "  50.0% complete"
-    echo " 100.0% complete"
+    echo "[main] osm_pass1 progress=10%"
+    echo "[main] osm_pass2 progress=80%"
+    echo "[main] archive progress=100%"
     if [ -n "$OUT" ]; then
         touch "$OUT"
     fi
 """)
 
 
-def test_run_tippecanoe_missing_binary(monkeypatch, tmp_path):
+def test_run_planetiler_missing_binary(monkeypatch, tmp_path):
     monkeypatch.setattr(build.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        build,
+        "_embedded_tool_path",
+        lambda tool_dir, filename: tmp_path / ".missing-tools" / tool_dir / filename,
+    )
 
     async def _run():
         _events, emit = await _collect()
-        await build.run_tippecanoe(
+        await build.run_planetiler(
             tmp_path / "foo.pbf", tmp_path / "out.pmtiles",
             region_id="us-ct", emit=emit, cancel_event=asyncio.Event(),
         )
@@ -177,8 +194,9 @@ def test_run_tippecanoe_missing_binary(monkeypatch, tmp_path):
         asyncio.run(_run())
 
 
-def test_run_tippecanoe_emits_progress_and_writes_output(tmp_path, monkeypatch):
-    _install_stub(tmp_path, monkeypatch, "tippecanoe", _TIPPECANOE_STUB)
+def test_run_planetiler_emits_progress_and_writes_output(tmp_path, monkeypatch):
+    _install_stub(tmp_path, monkeypatch, "java", _PLANETILER_STUB)
+    _patch_planetiler_paths(tmp_path, monkeypatch)
     pbf = tmp_path / "region.osm.pbf"
     pbf.write_text("unused")
     out = tmp_path / "streets.pmtiles"
@@ -189,14 +207,14 @@ def test_run_tippecanoe_emits_progress_and_writes_output(tmp_path, monkeypatch):
         events.append(progress)
 
     async def _run():
-        await build.run_tippecanoe(
+        await build.run_planetiler(
             pbf, out, region_id="us-ct",
             emit=emit, cancel_event=asyncio.Event(),
         )
 
     asyncio.run(_run())
 
-    assert out.exists(), "tippecanoe stub should have produced the output"
+    assert out.exists(), "planetiler stub should have produced the output"
     assert not out.with_suffix(out.suffix + ".partial").exists()
     # Opening + closing events.
     assert events[0].phase == "building_streets"
@@ -208,22 +226,23 @@ def test_run_tippecanoe_emits_progress_and_writes_output(tmp_path, monkeypatch):
     assert max(percents) >= 50
 
 
-def test_run_tippecanoe_cancel_cleans_partial(tmp_path, monkeypatch):
+def test_run_planetiler_cancel_cleans_partial(tmp_path, monkeypatch):
     script = textwrap.dedent("""\
         #!/bin/sh
         OUT=""
         while [ "$#" -gt 0 ]; do
             case "$1" in
-                -o) shift; OUT="$1" ;;
+                --output=*) OUT="${1#--output=}" ;;
             esac
             shift
         done
         touch "$OUT"
-        echo "  10.0% complete"
+        echo "[main] osm_pass1 progress=10%"
         sleep 5
         echo "done"
     """)
-    _install_stub(tmp_path, monkeypatch, "tippecanoe", script)
+    _install_stub(tmp_path, monkeypatch, "java", script)
+    _patch_planetiler_paths(tmp_path, monkeypatch)
     pbf = tmp_path / "region.osm.pbf"
     pbf.write_text("unused")
     out = tmp_path / "streets.pmtiles"
@@ -236,7 +255,7 @@ def test_run_tippecanoe_cancel_cleans_partial(tmp_path, monkeypatch):
             # stub gets SIGTERM'd before it can complete.
             cancel.set()
 
-        await build.run_tippecanoe(
+        await build.run_planetiler(
             pbf, out, region_id="us-ct",
             emit=emit, cancel_event=cancel,
         )

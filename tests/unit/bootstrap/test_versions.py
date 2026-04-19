@@ -13,6 +13,7 @@ import pytest
 
 from lokidoki.bootstrap.versions import (
     NODE,
+    PLANETILER,
     PIPER_VOICES,
     PYTHON_BUILD_STANDALONE,
     PYTHON_MIN_VERSION,
@@ -98,3 +99,12 @@ def test_os_arch_key_normalisation() -> None:
 def test_temurin_jre_version_tag_is_lts_build() -> None:
     assert TEMURIN_JRE["version"] == "21.0.5+11"
     assert "+" in TEMURIN_JRE["version"]
+
+
+def test_planetiler_pin_shape() -> None:
+    assert PLANETILER["version"] == "0.8.4"
+    assert PLANETILER["filename"] == "planetiler.jar"
+    assert _SHA_RE.match(PLANETILER["sha256"])
+    url = PLANETILER["url_template"].format(version=PLANETILER["version"])
+    assert url.startswith("https://")
+    assert url.endswith("/planetiler.jar")

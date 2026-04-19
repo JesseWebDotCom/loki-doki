@@ -120,6 +120,17 @@ TEMURIN_JRE = {
 }
 
 
+PLANETILER = {
+    "version": "0.8.4",
+    "filename": "planetiler.jar",
+    "sha256": "75ff1de32b104facfe2a9c5b1b396967de2f06fa4fd2b63d1c8b94cf14bbccb0",
+    "url_template": (
+        "https://github.com/onthegomap/planetiler/releases/download/"
+        "v{version}/planetiler.jar"
+    ),
+}
+
+
 # Piper voice models — synthesis uses the piper-tts Python package
 # in-process (no CLI binary needed).
 PIPER_VOICES: dict[str, dict[str, tuple[str, str]]] = {

@@ -7,6 +7,7 @@ build, and the CPU-only audio stack (Piper, Whisper, openWakeWord).
 """
 from .frontend import build_frontend, install_frontend_deps
 from .node_runtime import ensure_node
+from .planetiler import ensure_planetiler
 from .piper_runtime import ensure_tts_voice
 from .python_deps import sync_python_deps
 from .python_runtime import ensure_embedded_python
@@ -19,6 +20,7 @@ __all__ = [
     "build_frontend",
     "ensure_embedded_python",
     "ensure_node",
+    "ensure_planetiler",
     "ensure_temurin_jre",
     "ensure_tts_voice",
     "ensure_uv",

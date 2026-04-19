@@ -53,6 +53,7 @@ _LAYOUT: dict[str, dict[str, str]] = {
     "uv":           {"unix": "uv/bin/uv",              "win": "uv/uv.exe"},
     "node":         {"unix": "node/bin/node",          "win": "node/node.exe"},
     "java":         {"unix": "tools/jre/bin/java",     "win": "tools/jre/bin/java.exe"},
+    "planetiler_jar": {"unix": "tools/planetiler/planetiler.jar", "win": "tools/planetiler/planetiler.jar"},
     "llama_server": {"unix": "llama.cpp/llama-server", "win": "llama.cpp/llama-server.exe"},
     "piper":        {"unix": "piper/piper",            "win": "piper/piper.exe"},
 }

@@ -215,16 +215,16 @@ def _stub_geocoder(monkeypatch) -> None:
 
 
 def _stub_build_steps(monkeypatch) -> dict:
-    """Replace ``run_tippecanoe`` and ``run_valhalla`` with file-drop stubs.
+    """Replace ``run_planetiler`` and ``run_valhalla`` with file-drop stubs.
 
     Returns a dict the caller can inspect to assert the stubs were
     actually hit (a regression in the store plumbing would silently
     skip them otherwise).
     """
-    calls = {"tippecanoe": 0, "valhalla": 0}
+    calls = {"planetiler": 0, "valhalla": 0}
 
-    async def _fake_tippecanoe(pbf, out_pmtiles, *, region_id, emit, cancel_event):
-        calls["tippecanoe"] += 1
+    async def _fake_planetiler(pbf, out_pmtiles, *, region_id, emit, cancel_event):
+        calls["planetiler"] += 1
         out_pmtiles.write_bytes(b"fake-pmtiles")
         await emit(MapInstallProgress(
             region_id=region_id, artifact="street",
@@ -248,7 +248,7 @@ def _stub_build_steps(monkeypatch) -> dict:
             bytes_done=10, bytes_total=10, phase="ready",
         ))
 
-    monkeypatch.setattr(store._build, "run_tippecanoe", _fake_tippecanoe)
+    monkeypatch.setattr(store._build, "run_planetiler", _fake_planetiler)
     monkeypatch.setattr(store._build, "run_valhalla", _fake_valhalla)
     return calls
 
@@ -283,7 +283,7 @@ def test_install_region_runs_local_build(monkeypatch):
     assert events[-1].phase == "complete"
 
     # Stub build steps were actually invoked.
-    assert calls == {"tippecanoe": 1, "valhalla": 1}
+    assert calls == {"planetiler": 1, "valhalla": 1}
 
     # State reflects every artifact the pipeline produced.
     assert state.geocoder_installed is True
@@ -298,20 +298,20 @@ def test_install_region_runs_local_build(monkeypatch):
     assert not (region_dir / "region.osm.pbf").exists()
 
 
-def test_install_region_tippecanoe_failure_cleans_partial(monkeypatch):
-    """A tippecanoe failure surfaces as an error event and leaves no half-file."""
+def test_install_region_planetiler_failure_cleans_partial(monkeypatch):
+    """A planetiler failure surfaces as an error event and leaves no half-file."""
     _patch_download(monkeypatch, payload=b"fake-pbf")
     _stub_geocoder(monkeypatch)
 
     async def _boom(pbf, out_pmtiles, *, region_id, emit, cancel_event):
         # The real wrapper would clean its own .partial file; simulate
         # that and raise the same way.
-        raise store._build.BuildFailed("tippecanoe failed (exit 3): oom-ish")
+        raise store._build.BuildFailed("planetiler failed (exit 3): oom-ish")
 
     async def _unreachable(*args, **kwargs):
         raise AssertionError("valhalla must not run after a streets failure")
 
-    monkeypatch.setattr(store._build, "run_tippecanoe", _boom)
+    monkeypatch.setattr(store._build, "run_planetiler", _boom)
     monkeypatch.setattr(store._build, "run_valhalla", _unreachable)
 
     queue: asyncio.Queue = asyncio.Queue()
@@ -331,7 +331,7 @@ def test_install_region_tippecanoe_failure_cleans_partial(monkeypatch):
     terminal = events[-1]
     assert terminal.artifact == "error"
     assert terminal.phase == "complete"
-    assert "tippecanoe" in (terminal.error or "")
+    assert "planetiler" in (terminal.error or "")
 
     region_dir = store.region_dir("us-ri")
     assert not (region_dir / "streets.pmtiles").exists()
@@ -345,10 +345,10 @@ def test_install_region_toolchain_missing_surfaces_code(monkeypatch):
 
     async def _missing(*args, **kwargs):
         raise store._build.ToolchainMissing(
-            "tippecanoe not on PATH — re-run ./run.sh --maps-tools-only",
+            "planetiler not available — re-run ./run.sh --maps-tools-only",
         )
 
-    monkeypatch.setattr(store._build, "run_tippecanoe", _missing)
+    monkeypatch.setattr(store._build, "run_planetiler", _missing)
 
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -375,7 +375,7 @@ def test_install_region_oom_surfaces_code(monkeypatch):
     async def _oom(*args, **kwargs):
         raise store._build.BuildOutOfMemory("killed by OS")
 
-    monkeypatch.setattr(store._build, "run_tippecanoe", _oom)
+    monkeypatch.setattr(store._build, "run_planetiler", _oom)
 
     queue: asyncio.Queue = asyncio.Queue()
 

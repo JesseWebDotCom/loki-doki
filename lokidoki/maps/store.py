@@ -12,7 +12,7 @@ local build pipeline for a region:
   2. ``building_geocoder``  — build the FTS5 address index (runs first
      after the download so search is usable while the heavier builds
      are still going).
-  3. ``building_streets``   — shell out to ``tippecanoe`` and produce
+  3. ``building_streets``   — shell out to ``planetiler`` and produce
      ``streets.pmtiles``.
   4. ``building_routing``   — shell out to ``valhalla_build_tiles`` and
      produce the Valhalla tile tree.
@@ -360,16 +360,16 @@ async def _build_streets_step(
     emit,
     cancel_event: asyncio.Event,
 ) -> None:
-    """Run tippecanoe to produce ``streets.pmtiles`` from the PBF on disk.
+    """Run planetiler to produce ``streets.pmtiles`` from the PBF on disk.
 
     On success, flips ``state.street_installed`` and records the file
-    size. On failure / cancellation, :func:`lokidoki.maps.build.run_tippecanoe`
+    size. On failure / cancellation, :func:`lokidoki.maps.build.run_planetiler`
     cleans its scratch file; this helper re-raises so the outer
     try/except in :func:`install_region` can emit the terminal event.
     """
     pbf_path = _final_path_for(region_id, "pbf")
     out = _final_path_for(region_id, "street")
-    await _build.run_tippecanoe(
+    await _build.run_planetiler(
         pbf_path, out,
         region_id=region_id, emit=emit, cancel_event=cancel_event,
     )
@@ -416,7 +416,7 @@ def _cleanup_partial_artifacts(region_id: str, state: MapRegionState) -> None:
             street.unlink()
         except OSError:
             pass
-    # tippecanoe's own scratch file.
+    # planetiler's own scratch file.
     scratch_street = street.with_suffix(street.suffix + ".partial")
     if scratch_street.exists():
         try:
@@ -461,7 +461,7 @@ async def install_region(
     """Run the four-phase local install pipeline for ``region_id``.
 
     Phase 1 (``downloading_pbf``) always runs. Phases 2–4 (geocoder,
-    tippecanoe, valhalla) only run when ``need_pbf`` is True — that
+    planetiler, valhalla) only run when ``need_pbf`` is True — that
     keeps the PBF-only test harness cheap while letting the API
     caller opt into the full build.
 

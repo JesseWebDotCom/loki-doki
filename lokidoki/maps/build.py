@@ -32,11 +32,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import platform
 import re
 import shutil
 import signal
 from pathlib import Path
 from typing import Awaitable, Callable
+
+from lokidoki.core.platform import UnsupportedPlatform, detect_profile
 
 from .models import MapInstallProgress
 
@@ -59,8 +63,23 @@ class BuildFailed(RuntimeError):
 
 _EmitFn = Callable[[MapInstallProgress], Awaitable[None]]
 
-# Percent patterns tippecanoe prints — e.g. "  91.9%  12345/13000".
-_TIPPECANOE_PCT = re.compile(rb"(\d{1,3}(?:\.\d+)?)\s*%")
+_PLANETILER_PHASES: dict[str, tuple[int, int]] = {
+    "osm_pass1": (0, 30),
+    "osm_pass2": (30, 70),
+    "archive": (70, 100),
+}
+_PLANETILER_PROGRESS = re.compile(
+    r"(?P<phase>osm_pass1|osm_pass2|archive).*progress=(?P<pct>\d{1,3})%",
+    re.IGNORECASE,
+)
+_PLANETILER_OOM = "Exception in thread \"main\" java.lang.OutOfMemoryError"
+_PLANETILER_HEAP_MB: dict[str, int] = {
+    "pi_cpu": 2048,
+    "pi_hailo": 2048,
+    "mac": 6144,
+    "linux": 4096,
+    "windows": 4096,
+}
 
 # Valhalla's discrete build stages — the binary logs one of these
 # names as it transitions. Order matters: it drives the step counter
@@ -81,7 +100,7 @@ _VALHALLA_STAGES = (
 
 # ── Public entry points ───────────────────────────────────────────
 
-async def run_tippecanoe(
+async def run_planetiler(
     pbf: Path,
     out_pmtiles: Path,
     *,
@@ -89,14 +108,13 @@ async def run_tippecanoe(
     emit: _EmitFn,
     cancel_event: asyncio.Event,
 ) -> None:
-    """Build ``streets.pmtiles`` from ``pbf`` via tippecanoe.
-
-    The ``-y`` flags preserve the OSM ``building`` / ``height`` /
-    ``min_height`` / ``building:levels`` attributes so the 3D-buildings
-    layer (chunk 5) can render heights from the vector tiles — without
-    them tippecanoe drops unknown tags and every building renders flat.
-    """
-    binary = _require_binary("tippecanoe")
+    """Build ``streets.pmtiles`` from ``pbf`` via planetiler."""
+    java_bin = _resolve_java_binary()
+    jar_path = _require_file(
+        _embedded_tool_path("planetiler", "planetiler.jar"),
+        label="planetiler.jar",
+    )
+    heap_mb = _PLANETILER_HEAP_MB[_runtime_profile()]
 
     out_pmtiles.parent.mkdir(parents=True, exist_ok=True)
     scratch = out_pmtiles.with_suffix(out_pmtiles.suffix + ".partial")
@@ -104,26 +122,27 @@ async def run_tippecanoe(
         scratch.unlink()
 
     cmd = [
-        binary,
-        "-z14",
-        "--drop-densest-as-needed",
+        java_bin,
+        f"-Xmx{heap_mb}m",
+        "-jar",
+        str(jar_path),
+        f"--osm-path={pbf}",
+        f"--output={scratch}",
         "--force",
-        "-y", "building",
-        "-y", "building:levels",
-        "-y", "height",
-        "-y", "min_height",
-        "-o", str(scratch),
-        str(pbf),
     ]
 
     async def _on_line(line: bytes) -> None:
-        match = _TIPPECANOE_PCT.search(line)
+        text = line.decode("utf-8", errors="replace")
+        match = _PLANETILER_PROGRESS.search(text)
         if match is None:
             return
         try:
-            pct = int(float(match.group(1)))
+            phase = match.group("phase").lower()
+            raw_pct = int(match.group("pct"))
         except ValueError:  # pragma: no cover — regex guarantees digits
             return
+        start, end = _PLANETILER_PHASES[phase]
+        pct = start + int((max(0, min(100, raw_pct)) / 100) * (end - start))
         pct = max(0, min(100, pct))
         await emit(MapInstallProgress(
             region_id=region_id, artifact="street",
@@ -139,7 +158,7 @@ async def run_tippecanoe(
 
     try:
         await _run_subprocess(
-            cmd, tool="tippecanoe", on_line=_on_line,
+            cmd, tool="planetiler", on_line=_on_line,
             cancel_event=cancel_event,
         )
     except (asyncio.CancelledError, BuildFailed, BuildOutOfMemory):
@@ -248,6 +267,38 @@ def _require_binary(name: str) -> str:
     return path
 
 
+def _require_file(path: Path, *, label: str) -> Path:
+    if not path.is_file():
+        raise ToolchainMissing(
+            f"{label} not available — re-run ./run.sh --maps-tools-only",
+        )
+    return path
+
+
+def _embedded_tool_path(tool_dir: str, filename: str) -> Path:
+    return Path(".lokidoki") / "tools" / tool_dir / filename
+
+
+def _resolve_java_binary() -> str:
+    embedded = _embedded_tool_path("jre/bin", "java.exe" if os.name == "nt" else "java")
+    if embedded.is_file():
+        return str(embedded.resolve())
+    return _require_binary("java")
+
+
+def _runtime_profile() -> str:
+    try:
+        return detect_profile()
+    except UnsupportedPlatform:
+        pass
+    system = platform.system()
+    if system == "Windows":
+        return "windows"
+    if system == "Darwin":
+        return "mac"
+    return "linux"
+
+
 async def _run_subprocess(
     cmd: list[str],
     *,
@@ -270,6 +321,7 @@ async def _run_subprocess(
     assert proc.stdout is not None and proc.stderr is not None
 
     stderr_tail: list[bytes] = []
+    stderr_text: list[str] = []
     _STDERR_TAIL_MAX = 10  # last N lines — enough to surface a root cause.
 
     async def _drain(stream: asyncio.StreamReader, is_stderr: bool) -> None:
@@ -279,8 +331,11 @@ async def _run_subprocess(
                 return
             if is_stderr:
                 stderr_tail.append(line)
+                stderr_text.append(line.decode("utf-8", errors="replace"))
                 if len(stderr_tail) > _STDERR_TAIL_MAX:
                     del stderr_tail[: len(stderr_tail) - _STDERR_TAIL_MAX]
+                if len(stderr_text) > _STDERR_TAIL_MAX:
+                    del stderr_text[: len(stderr_text) - _STDERR_TAIL_MAX]
             try:
                 await on_line(line)
             except Exception:  # noqa: BLE001 — progress parsing must not kill build
@@ -318,6 +373,10 @@ async def _run_subprocess(
     if rc in (137, -9) or rc == -signal.SIGKILL:
         raise BuildOutOfMemory(
             f"{tool} killed by OS (exit {rc}); region likely exceeds device RAM",
+        )
+    if any(_PLANETILER_OOM in line for line in stderr_text):
+        raise BuildOutOfMemory(
+            f"{tool} ran out of memory; region likely exceeds device RAM",
         )
 
     last = _last_stderr_line(stderr_tail)
