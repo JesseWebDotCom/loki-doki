@@ -328,6 +328,50 @@ async def get_glyph_pbf(fontstack: str, range_suffix: str):
     )
 
 
+_OVERVIEW_PMTILES_PATH = Path(".lokidoki/tools/planetiler/world-overview.pmtiles")
+
+
+def _overview_pmtiles_path() -> Path:
+    """Resolve the on-disk world-overview pmtiles path.
+
+    Split out so tests can monkeypatch the path — runtime value is the
+    fixed bootstrap artifact location. The app process intentionally
+    does not import bootstrap's ``StepContext`` here; the path is a
+    plain relative ``Path`` resolved against the process cwd, same as
+    the glyph root.
+    """
+    return _OVERVIEW_PMTILES_PATH
+
+
+@router.get("/tiles/_overview/streets.pmtiles")
+async def get_overview_pmtiles():
+    """Serve the global z0–z7 overview basemap built by bootstrap.
+
+    Sibling of :func:`get_streets_pmtiles` — same ``FileResponse`` shape
+    and cache headers, but reads from the bootstrap artifact directory
+    (``.lokidoki/tools/planetiler/``) rather than any per-region
+    install directory. The ``_overview`` path segment can never collide
+    with a real ``region_id`` (catalog IDs have no leading underscore
+    and :func:`_validate_region_id` rejects them anyway), so this route
+    is registered before the parameterised tile route to win path
+    matching in the Starlette router.
+    """
+    path = _overview_pmtiles_path()
+    if not path.is_file():
+        raise HTTPException(
+            404,
+            "world-overview.pmtiles not built — run ./run.sh --maps-tools-only",
+        )
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": _TILE_CACHE_CONTROL,
+        },
+    )
+
+
 @router.get("/tiles/{region_id}/streets.pmtiles")
 async def get_streets_pmtiles(region_id: str):
     """Serve the region's vector basemap as a static PMTiles file.

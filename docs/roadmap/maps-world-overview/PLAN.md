@@ -79,7 +79,7 @@ to a later chunk.
 | # | Chunk                                                                         | Status  | Commit |
 |---|-------------------------------------------------------------------------------|---------|--------|
 | 1 | [Bootstrap: build world-overview.pmtiles](chunk-1-build-overview-pmtiles.md)  | done    | e4df4ed |
-| 2 | [Backend: serve the overview tile file](chunk-2-overview-tile-route.md)       | pending |        |
+| 2 | [Backend: serve the overview tile file](chunk-2-overview-tile-route.md)       | done    |        |
 | 3 | [Frontend: dual-source style + wiring](chunk-3-dual-source-style.md)          | pending |        |
 
 ---

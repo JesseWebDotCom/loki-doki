@@ -7,8 +7,14 @@ Covers:
 * 404 when the region has been selected but not yet installed.
 * Directory-traversal rejection — ``region_id`` must match the static
   catalog, not a filesystem path.
+* World-overview tile route (``/tiles/_overview/streets.pmtiles``) —
+  404 when the bootstrap artifact is missing, 200 + Range support when
+  present. The literal ``_overview`` segment must win over the
+  parameterised ``/tiles/{region_id}/`` route.
 """
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -97,3 +103,50 @@ def test_directory_traversal_rejected():
     # Non-traversal but not-in-catalog ids go straight to our validator.
     r2 = client.get("/api/v1/maps/tiles/not-a-real-region/streets.pmtiles")
     assert r2.status_code == 400
+
+
+# ── world-overview pmtiles ────────────────────────────────────────
+
+@pytest.fixture
+def overview_pmtiles_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    path = tmp_path / "tools" / "planetiler" / "world-overview.pmtiles"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(maps_routes, "_overview_pmtiles_path", lambda: path)
+    return path
+
+
+def test_overview_pmtiles_404_when_missing(overview_pmtiles_path: Path):
+    # Fixture only prepares the directory; no file on disk.
+    client = _client()
+    r = client.get("/api/v1/maps/tiles/_overview/streets.pmtiles")
+    assert r.status_code == 404, r.text
+    assert "--maps-tools-only" in r.json()["detail"]
+
+
+def test_overview_pmtiles_served_full_body(overview_pmtiles_path: Path):
+    payload = (b"\xDE\xAD\xBE\xEF" * 256)
+    overview_pmtiles_path.write_bytes(payload)
+    client = _client()
+    r = client.get("/api/v1/maps/tiles/_overview/streets.pmtiles")
+    assert r.status_code == 200, r.text
+    assert r.content == payload
+    assert r.headers.get("accept-ranges") == "bytes"
+    assert r.headers.get("content-type") == "application/octet-stream"
+    assert "immutable" in r.headers.get("cache-control", "")
+
+
+def test_overview_pmtiles_served_with_range_support(
+    overview_pmtiles_path: Path,
+):
+    payload = bytes(range(256)) * 16  # 4 KB of deterministic bytes.
+    overview_pmtiles_path.write_bytes(payload)
+    client = _client()
+    r = client.get(
+        "/api/v1/maps/tiles/_overview/streets.pmtiles",
+        headers={"Range": "bytes=0-15"},
+    )
+    assert r.status_code == 206, r.text
+    assert r.content == payload[:16]
+    assert r.headers.get("content-range", "").startswith("bytes 0-15/")
