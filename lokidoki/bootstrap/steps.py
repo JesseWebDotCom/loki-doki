@@ -216,9 +216,12 @@ _PRE_MAPS_TOOLS: list[tuple[str, str, bool, int | None]] = [
 ]
 
 
-_MAPS_ENABLED_PROFILES: frozenset[str] = frozenset(
-    {"mac", "windows", "linux", "pi_cpu"}
-)
+# Disabled for all profiles until the maps-java-stack rewrite lands
+# (docs/roadmap/maps-java-stack/PLAN.md). The current tippecanoe +
+# Valhalla preflights point at GitHub Release assets that don't exist,
+# so enabling them would 404 every bootstrap. ``--maps-tools-only``
+# still runs them on demand for CI + dev testing.
+_MAPS_ENABLED_PROFILES: frozenset[str] = frozenset()
 
 
 _COMMON_LLM: list[tuple[str, str, bool, int | None]] = [
