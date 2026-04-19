@@ -70,7 +70,7 @@ to a later chunk.
 | 4 | [Frontend cleanup — new progress phases, remove stub-dist banner](chunk-4-frontend.md)  | done    | cf43c81 |
 | 5 | [3D buildings + pitch/tilt control (replaces satellite)](chunk-5-3d-buildings.md)       | done    | aea42fd |
 | 6 | [Lazy Valhalla sidecar lifecycle](chunk-6-lazy-router.md)                               | done    | 8a4e20c |
-| 7 | [Documentation + supersede offline-maps chunk 8a](chunk-7-docs.md)                      | pending |        |
+| 7 | [Documentation + supersede offline-maps chunk 8a](chunk-7-docs.md)                      | done    | a956c7f |
 
 ---
 
