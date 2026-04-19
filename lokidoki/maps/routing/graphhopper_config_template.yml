@@ -3,14 +3,14 @@ graphhopper:
   graph.location: "{graph_cache_dir}"
   profiles:
     - name: car
-      vehicle: car
-      weighting: fastest
+      custom_model_files: [car.json]
     - name: bike
-      vehicle: bike
-      weighting: fastest
+      custom_model_files: [bike.json]
     - name: foot
-      vehicle: foot
-      weighting: shortest
+      custom_model_files: [foot.json]
+  graph.encoded_values: car_access, car_average_speed, bike_priority, mtb_rating, hike_rating, bike_access, roundabout, bike_average_speed, foot_access, foot_priority, foot_average_speed
+  import.osm.ignored_highways: ''
+  graph.dataaccess.default_type: RAM_STORE
 server:
   application_connectors:
     - type: http

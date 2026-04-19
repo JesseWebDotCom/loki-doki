@@ -79,6 +79,8 @@ _PLANETILER_HEAP_MB: dict[str, int] = {
     "linux": 4096,
     "windows": 4096,
 }
+_PLANETILER_HEAP_ENV = "LOKIDOKI_PLANETILER_HEAP_MB"
+_GRAPHHOPPER_HEAP_ENV = "LOKIDOKI_GRAPHHOPPER_HEAP_MB"
 
 _GRAPHHOPPER_PHASES: dict[str, tuple[int, int]] = {
     "datareaderosm": (0, 40),
@@ -107,10 +109,10 @@ async def run_planetiler(
         _embedded_tool_path("planetiler", "planetiler.jar"),
         label="planetiler.jar",
     )
-    heap_mb = _PLANETILER_HEAP_MB[_runtime_profile()]
+    heap_mb = _heap_mb_for(_PLANETILER_HEAP_ENV)
 
     out_pmtiles.parent.mkdir(parents=True, exist_ok=True)
-    scratch = out_pmtiles.with_suffix(out_pmtiles.suffix + ".partial")
+    scratch = out_pmtiles.with_name(f"{out_pmtiles.stem}.partial{out_pmtiles.suffix}")
     if scratch.exists():
         scratch.unlink()
 
@@ -121,6 +123,7 @@ async def run_planetiler(
         str(jar_path),
         f"--osm-path={pbf}",
         f"--output={scratch}",
+        "--download",
         "--force",
     ]
 
@@ -183,7 +186,7 @@ async def run_graphhopper_import(
         _embedded_tool_path("graphhopper", "graphhopper.jar"),
         label="graphhopper.jar",
     )
-    heap_mb = _PLANETILER_HEAP_MB[_runtime_profile()]
+    heap_mb = _heap_mb_for(_GRAPHHOPPER_HEAP_ENV)
     scratch = out_dir.with_suffix(".partial")
     if scratch.exists():
         shutil.rmtree(scratch, ignore_errors=True)
@@ -319,6 +322,21 @@ def _runtime_profile() -> str:
     if system == "Darwin":
         return "mac"
     return "linux"
+
+
+def _heap_mb_for(env_var: str) -> int:
+    """Return the Java heap size for the current profile, honoring env overrides."""
+    raw = os.environ.get(env_var, "").strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            log.warning("ignoring invalid %s=%r", env_var, raw)
+        else:
+            if value > 0:
+                return value
+            log.warning("ignoring non-positive %s=%r", env_var, raw)
+    return _PLANETILER_HEAP_MB[_runtime_profile()]
 
 
 async def _run_subprocess(

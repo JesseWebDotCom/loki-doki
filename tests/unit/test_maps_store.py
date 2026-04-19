@@ -205,13 +205,64 @@ def _stub_geocoder(monkeypatch) -> None:
     """
     from lokidoki.maps.geocode.fts_index import IndexStats
 
-    def _fake(pbf_path, db_path, region_id):
+    def _fake(pbf_path, db_path, region_id, progress_cb=None):
         db_path.write_bytes(b"fake-geocoder-db")
+        if progress_cb is not None:
+            progress_cb(1, "indexing")
         return IndexStats(addresses=1, settlements=2, postcodes=3)
 
     monkeypatch.setattr(
         "lokidoki.maps.geocode.fts_index.build_index", _fake,
     )
+
+
+def test_build_geocoder_step_emits_row_progress(monkeypatch):
+    from lokidoki.maps.models import MapRegionState
+    from lokidoki.maps.store import _build_geocoder_step
+    from lokidoki.maps.geocode.fts_index import IndexStats
+
+    region_dir = store.region_dir("us-ct")
+    region_dir.mkdir(parents=True, exist_ok=True)
+    pbf_path = region_dir / "region.osm.pbf"
+    pbf_path.write_bytes(b"fake-pbf")
+
+    def _fake_build_index(pbf_path_arg, db_path, region_id, progress_cb=None):
+        assert pbf_path_arg == pbf_path
+        assert region_id == "us-ct"
+        db_path.write_bytes(b"fake-geocoder-db")
+        if progress_cb is not None:
+            progress_cb(1500, "indexing")
+            progress_cb(3200, "indexing")
+        return IndexStats(addresses=3200, settlements=2, postcodes=1)
+
+    monkeypatch.setattr(
+        "lokidoki.maps.geocode.fts_index.build_index",
+        _fake_build_index,
+    )
+
+    events: list[MapInstallProgress] = []
+
+    async def _emit(progress: MapInstallProgress) -> None:
+        events.append(progress)
+
+    state = MapRegionState(region_id="us-ct")
+    asyncio.run(
+        _build_geocoder_step(
+            "us-ct",
+            state,
+            _emit,
+            asyncio.Event(),
+        )
+    )
+
+    assert [e.phase for e in events] == [
+        "building_geocoder",
+        "building_geocoder",
+        "building_geocoder",
+        "ready",
+    ]
+    assert [e.bytes_done for e in events[:3]] == [0, 1500, 3200]
+    assert state.geocoder_installed is True
 
 
 def _stub_build_steps(monkeypatch) -> dict:
@@ -276,7 +327,7 @@ def test_install_region_runs_local_build(monkeypatch):
 
     # All four top-level phases are visible in the event stream.
     assert "downloading" in phases
-    assert "indexing" in phases
+    assert "building_geocoder" in phases
     assert "building_streets" in phases
     assert "building_routing" in phases
     # The install ends with a terminal "complete" event (artifact="done").

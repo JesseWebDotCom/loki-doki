@@ -28,7 +28,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
 import { Download, Globe, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { buildDarkStyle, type LayerMode } from './maps/style-dark';
+import { buildDarkStyle, type ColorTheme, type LayerMode } from './maps/style-dark';
 import LayerModeChip from './maps/LayerModeChip';
 import {
   fetchInstalledRegions,
@@ -51,6 +51,7 @@ import {
   boundsForAlts,
   clearRoutes,
 } from './maps/route-layer';
+import { MANAGE_MAPS_ROUTE } from './maps/routes';
 import { loadRecents, pushRecent } from './maps/recents';
 import type { ActivePanel, PlaceResult, Recent } from './maps/types';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
@@ -151,6 +152,25 @@ const MapsPage: React.FC = () => {
   // iff the user hasn't tilted it themselves in the meantime.
   const [mode, setMode] = useState<LayerMode>('map');
 
+  // Track the active app theme so the map palette follows dark/light.
+  // ThemeProvider toggles the ``dark`` class on <html>; MutationObserver
+  // keeps us in sync when the user flips the theme while the map is open.
+  const [colorTheme, setColorTheme] = useState<ColorTheme>(() =>
+    typeof document !== 'undefined' &&
+    document.documentElement.classList.contains('dark')
+      ? 'dark'
+      : 'light',
+  );
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      setColorTheme(root.classList.contains('dark') ? 'dark' : 'light');
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
   // Coverage resolution — carried over from Chunk 3.
   const [regions, setRegions] = useState<InstalledRegion[]>([]);
   const [regionsLoaded, setRegionsLoaded] = useState(false);
@@ -212,7 +232,24 @@ const MapsPage: React.FC = () => {
       const c = map.getCenter();
       setViewportCenter({ lng: c.lng, lat: c.lat });
       void resolveTileSource({ lng: c.lng, lat: c.lat }, regionsRef.current)
-        .then((next) => setResolution(next));
+        .then((next) => {
+          // Skip redundant updates. `setStyle` re-paints the entire
+          // canvas, so if the tile source hasn't actually changed we
+          // must NOT rebuild — otherwise every moveend flashes tiles
+          // back to blank while they re-decode.
+          setResolution((prev) => {
+            if (prev && prev.kind === next.kind) {
+              if (prev.kind === 'local' && next.kind === 'local') {
+                if (prev.region === next.region) return prev;
+              } else if (prev.kind === 'online' && next.kind === 'online') {
+                if (prev.streetUrl === next.streetUrl) return prev;
+              } else if (prev.kind === 'none' && next.kind === 'none') {
+                return prev;
+              }
+            }
+            return next;
+          });
+        });
     });
 
     const canvas = map.getCanvas();
@@ -248,6 +285,18 @@ const MapsPage: React.FC = () => {
       const initial = await resolveTileSource(undefined, fetched);
       if (cancelled) return;
       setResolution(initial);
+      // Auto-fit to the first installed region's bbox (unless the user
+      // arrived via a deep link that already specifies a location). The
+      // map is initialised centered on the US at zoom 3 — without this
+      // jump the initial viewport sits outside every installed bbox and
+      // tile panning near the coverage edge churns the source.
+      if (!deepLink && fetched.length > 0 && mapRef.current) {
+        const [minLon, minLat, maxLon, maxLat] = fetched[0].bbox;
+        mapRef.current.fitBounds(
+          [[minLon, minLat], [maxLon, maxLat]],
+          { padding: 40, duration: 0, maxZoom: 12 },
+        );
+      }
     })();
 
     return () => {
@@ -284,8 +333,8 @@ const MapsPage: React.FC = () => {
       return;
     }
 
-    map.setStyle(buildDarkStyle(resolution.streetUrl, { mode }));
-  }, [resolution, mode]);
+    map.setStyle(buildDarkStyle(resolution.streetUrl, { mode, theme: colorTheme }));
+  }, [resolution, mode, colorTheme]);
 
   // ── Auto-pitch when flipping layer mode ──────────────────────
   // Flat ➜ 3D with a pitch of 0 gets a one-time 45° nudge so the
@@ -586,7 +635,7 @@ const NoRegionsEmptyState: React.FC<{ onContinue: () => void }> = ({
       </div>
       <div className="flex w-full flex-col gap-2">
         <Link
-          to="/settings?section=maps"
+          to={MANAGE_MAPS_ROUTE}
           className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-m2 transition-colors hover:bg-primary/90"
         >
           <Download size={14} />

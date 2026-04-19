@@ -59,6 +59,9 @@ LokiDoki is a local AI assistant for Raspberry Pi 5 (and mac for development). I
 - All platform behavior is profile-driven: `mac` / `pi_cpu` / `pi_hailo`
 - Blacklist `hailo_pci` before using `hailo1x_pci`
 - Validate Hailo in Phase 2 before building subsystems that depend on it
+- **Never install dependencies directly.** No `pip install`, `uv pip install`, `uv add`, `npm install`, `npm i`, `pnpm add`, `yarn add`, `brew install`, `apt install`, `port install`, `cargo install`, `go install`, `curl | sh`, or any other package-manager invocation from the agent shell. Every runtime binary, Python package, Node package, model file, and system tool MUST be added through the bootstrap pipeline (`lokidoki/bootstrap/preflight/` + `lokidoki/bootstrap/versions.py` + `lokidoki/bootstrap/steps.py`) or through `pyproject.toml` + `scripts/build_offline_bundle.py`. Bootstrap is the single install surface — if the user doesn't have it, bootstrap installs it; if bootstrap can't install it, it's not a supported dependency yet.
+- **Never vendor third-party artifacts into the repo.** Do not commit prebuilt binaries, compiled libraries (`.so`, `.dylib`, `.dll`, `.a`, `.exe`), JARs, WARs, wheels, `node_modules/`, tarballs, zips, model weights (`.gguf`, `.safetensors`, `.onnx`, `.hef`, `.bin`), datasets, font files from vendors, or vendored upstream source trees. If the choice is "check a precompiled binary into the repo" vs "have the bootstrap download or compile it at install time," bootstrap wins — always. The repo holds source + pins + install recipes; the bootstrap materializes the artifacts on the target machine (or reads them from the offline bundle). Exceptions are limited to tiny first-party assets the app itself ships (icons, LokiDoki UI images, sample persona JSON).
+- **Offline-first at runtime — bootstrap is the only network boundary.** After `./run.sh` finishes, LokiDoki MUST run with the network cable unplugged. No CDN script tags, no CDN stylesheets, no remote web-font imports, no remote map-tile servers, no unsolicited analytics, no remote model APIs, no "call-home" telemetry, no remote icon fonts. Every asset the running app reaches for — JS, CSS, fonts, icons, map tiles, routing graphs, model weights, sample data — must resolve to a file bootstrap already placed on disk. If a new feature needs upstream data (map tiles, routing graph, TTS voices, reference corpus), add a bootstrap step that pulls it during install (and mirrors it into the offline bundle); do not have the runtime fetch it on demand.
 
 ---
 
@@ -97,6 +100,102 @@ scripts/
 - Intel Macs are not supported. `detect_profile()` raises `UnsupportedPlatform`; the shell launcher exits with a one-line message.
 - LLM engines: MLX on `mac`, llama.cpp (Vulkan) on `windows` + `linux`, llama.cpp (CPU ARM NEON) on `pi_cpu`, hailo-ollama on `pi_hailo`. No stock Ollama anywhere in the codebase.
 - Offline installs: `scripts/build_offline_bundle.py` pre-downloads every pinned artifact + HF snapshot; the wizard auto-detects a sibling `lokidoki-offline-bundle/` directory (or `--offline-bundle=<path>`) and runs without network.
+
+---
+
+## Dependency Installation (Bootstrap-Only)
+
+Bootstrap owns every install. The agent shell does not. This rule is absolute and has no "just this once" exemptions.
+
+**Never run from the agent shell:**
+- `pip install`, `pip3 install`, `uv pip install`, `uv add`, `uv tool install`, `pipx install`
+- `npm install`, `npm i`, `npm ci`, `pnpm add`, `pnpm install`, `yarn add`, `yarn install`
+- `brew install`, `brew reinstall`, `brew upgrade`
+- `apt install`, `apt-get install`, `dpkg -i`
+- `port install`, `cargo install`, `go install`, `gem install`
+- `curl … | sh`, `curl … | bash`, `wget … | sh`, or any `sh`/`bash` piped remote installer
+- `huggingface-cli download`, `hf download`, or other ad-hoc model pulls
+
+**Where dependencies actually go:**
+- **Python runtime packages** → `pyproject.toml` (managed by `uv`, resolved during bootstrap's `uv sync` step). Do NOT add them with `uv add` from your shell — edit `pyproject.toml` and let the bootstrap install it.
+- **Runtime binaries** (llama.cpp, MLX engines, Piper, whisper.cpp, tippecanoe, Valhalla, Temurin JRE, etc.) → pinned in `lokidoki/bootstrap/versions.py` with an entry in `lokidoki/bootstrap/steps.py` and a preflight module in `lokidoki/bootstrap/preflight/<tool>.py`.
+- **Frontend packages** → `frontend/package.json`, installed by the bootstrap's Node preflight step.
+- **Model weights** → `lokidoki/core/platform.py::PLATFORM_MODELS`, downloaded by bootstrap into the configured model cache.
+- **Offline mirror** → every pinned artifact must also be listed in `scripts/build_offline_bundle.py` so an offline Pi install stays reproducible.
+
+**If a tool or package is missing during dev:**
+1. Add/extend the preflight module under `lokidoki/bootstrap/preflight/` (one file per toolchain).
+2. Pin its version + SHA in `lokidoki/bootstrap/versions.py`.
+3. Wire it into `lokidoki/bootstrap/steps.py` for the relevant profile(s).
+4. Add it to `scripts/build_offline_bundle.py`.
+5. Re-run `./run.sh` (or `run.bat`) so the bootstrap pipeline installs it the correct way on your machine.
+
+**Why:** end users install LokiDoki by running `./run.sh` once. If the agent installs a dependency out-of-band, the user's machine will never get it, CI will never get it, the Pi image will never get it, and the offline bundle will silently be missing it. Every "quick" manual install is a time bomb for the install wizard. The only correct install is a bootstrap install.
+
+### No Vendored Third-Party Artifacts
+
+The repo is source + pins + install recipes. It is NOT a binary distribution channel. Third-party artifacts get materialized at install time by the bootstrap — either downloaded from a pinned upstream release or compiled locally from pinned source.
+
+**Never check into the repo:**
+- Prebuilt binaries or executables (`.exe`, Mach-O, ELF, static binaries with no extension)
+- Compiled native libraries (`.so`, `.dylib`, `.dll`, `.a`, `.lib`)
+- Language-ecosystem build outputs (`.jar`, `.war`, `.whl`, `.egg`, `.deb`, `.rpm`, `.pkg`, `.dmg`, `.msi`)
+- Installed dependency trees (`node_modules/`, `.venv/`, `vendor/`, `target/`, `site-packages/`)
+- Upstream source trees vendored into our tree (git-subtree / copy-paste of other projects' code)
+- Tarballs / zips / archives of upstream releases (`.tar.gz`, `.tgz`, `.zip`, `.7z`)
+- Model weights of any kind (`.gguf`, `.safetensors`, `.onnx`, `.hef`, `.pt`, `.ckpt`, `.bin` weight files)
+- Voice models, wake-word models, STT/TTS weights, speaker-embedding files
+- Datasets, corpora, large CSV/Parquet reference files
+
+**The binary-vendoring decision rule:** when the choice is "commit a precompiled binary into the repo" vs "have the bootstrap download it (or compile it from pinned source)," bootstrap wins every time. No exceptions for convenience, CI speed, or "it's only 2 MB."
+
+**How bootstrap materializes a third-party artifact:**
+1. **Download path** — preflight fetches a pinned release URL, verifies the `sha256` from `versions.py`, and extracts it into the user's bootstrap-managed tool directory.
+2. **Compile path** — preflight clones a pinned source tag, runs a pinned build command, and installs the output into the tool directory. Use this when upstream does not ship a prebuilt for our profile (common for `pi_cpu` / `pi_hailo`).
+3. **Offline path** — `scripts/build_offline_bundle.py` stages the same artifact into the sibling `lokidoki-offline-bundle/` so an air-gapped Pi gets the identical file.
+
+**The only things that may live in the repo:**
+- First-party source we wrote (Python, TS, HTML, CSS, shell).
+- Small first-party UI assets the app itself ships (`assets/` icons, LokiDoki logos, sample persona JSON content).
+- Configuration, manifests, and pin files (`pyproject.toml`, `package.json`, `versions.py`, `PLATFORM_MODELS`).
+- Docs and tests.
+
+If you find yourself typing `git add` on a binary, stop. The answer is a preflight module plus a `versions.py` entry, not a checked-in file.
+
+### Offline-First Runtime (Network Boundary = Bootstrap Only)
+
+LokiDoki runs on a Raspberry Pi that may be deployed in homes, vehicles, boats, RVs, off-grid cabins, or air-gapped environments. **The running app must function with the network cable unplugged.** Bootstrap is the one-and-only moment network access is permitted — and even that is optional when an offline bundle is present.
+
+**Never ship runtime code that reaches out to:**
+- CDN `<script src>` / `<link href>` tags (unpkg, jsdelivr, cdnjs, Google Fonts, cloudflare, etc.)
+- Remote web-font providers (`fonts.googleapis.com`, Adobe Fonts, Typekit, Bunny Fonts)
+- Remote icon fonts (Font Awesome CDN, Material Icons via Google Fonts)
+- Remote map-tile servers (OpenStreetMap public tile server, Mapbox, Stadia, Stamen, Thunderforest, Carto)
+- Remote routing / geocoding APIs (Mapbox Directions, Google Maps, Nominatim public instance, OpenRouteService public)
+- Remote model APIs (OpenAI, Anthropic, Google, Groq, Together, Replicate, HuggingFace Inference API)
+- Remote speech services (Google STT/TTS, Azure Speech, AWS Polly, ElevenLabs)
+- Remote analytics / telemetry / error reporting (Segment, Mixpanel, PostHog cloud, Sentry cloud)
+- Cloud storage or databases (S3, GCS, Firebase, Supabase cloud) for core data paths
+- Auto-update checks that call a remote server on launch
+
+**Positive rule — every runtime asset resolves to a local file:**
+- JS / CSS → bundled by Vite into our own `frontend/dist/` and served by FastAPI.
+- Fonts → checked into `assets/fonts/` (first-party) or downloaded by bootstrap into the app's asset directory; served locally, `@font-face` with local URLs only.
+- Icons → `lucide-react` (bundled) or local SVG; never a CDN icon font.
+- Map tiles → bootstrap downloads the user's region as `.mbtiles` / `.pmtiles`; runtime reads from that file via a local tile server we run ourselves.
+- Routing graph → bootstrap builds/downloads the Valhalla tiles for the user's region into a local directory; runtime queries our local Valhalla sidecar.
+- LLM / vision / STT / TTS / wake-word weights → downloaded by bootstrap per `PLATFORM_MODELS` / `versions.py`; runtime loads from disk.
+- Reference data (Wikipedia snapshots, docs corpora, etc.) → same pattern: bootstrap pulls, runtime reads local.
+
+**Decision rule for new features that "just need to fetch X":**
+1. Does the user's machine need X to use the feature? → Then bootstrap must install X.
+2. Is X region-specific or user-specific (maps, routing, persona)? → The wizard asks during install and bootstrap fetches the right subset.
+3. Is X too large to ship by default? → Make it an optional bootstrap step (checkbox in the wizard), not a runtime download.
+4. Does X update often and the user wants fresh data? → Add an explicit, user-initiated "Update X" action that re-runs the bootstrap step for X. Never auto-fetch at app startup or on first use.
+
+**The map-tiles lesson:** the first pass of map functionality used a public tile CDN at runtime. That is a violation — it breaks offline, leaks the user's viewing activity to a third party, and makes the Pi-in-an-RV use case impossible. The correct shape is: bootstrap asks the user for their region, downloads `.pmtiles` for that region, installs a local tile server, and the frontend points at the local server. Apply the same reasoning to every future feature before writing the first line.
+
+**When you're unsure:** assume offline. Design the feature to work with the network unplugged, then decide which preflight step materializes the data. Retrofitting offline support is always harder than designing for it up front.
 
 ---
 

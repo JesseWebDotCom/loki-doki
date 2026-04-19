@@ -1,202 +1,173 @@
-# How LokiDoki Maps actually work offline
+# How LokiDoki Maps work offline on the Java stack
 
-LokiDoki's Maps page is fully offline once a region is installed. There
-is no CDN for pre-built map artifacts — everything is built on the
-user's own device from a single public raw input: the Geofabrik
-OpenStreetMap `.osm.pbf` for that region.
+LokiDoki's Maps page is fully offline once a region is installed. The
+only network download during region install is the Geofabrik
+OpenStreetMap `.osm.pbf`. Every runtime artifact after that is built or
+served locally from disk.
 
-This page walks the full data flow, the per-region footprint, where
-the toolchain binaries live on disk, why the Valhalla routing process
-starts and stops on demand, and the most common install failures.
+The current maps stack is:
 
----
+- Temurin JRE 21 LTS for a pinned local Java runtime.
+- `planetiler.jar` to turn the region PBF into `streets.pmtiles`.
+- `graphhopper.jar` to import and serve the local routing graph.
+- The existing FTS5 geocoder for search.
 
-## What happens when you click Install
-
-Settings → Maps → pick a region → Install. The admin panel opens an
-SSE stream so every phase below reports real progress; the UI never
-sits on a silent spinner.
-
-1. **`downloading_pbf`** — stream the region's `.osm.pbf` from
-   Geofabrik onto disk under `data/maps/<region>/.tmp/source.osm.pbf`.
-   This is the only network call the install makes. Progress is
-   reported in bytes against `region.pbf_size_mb`.
-
-2. **`building_geocoder`** — run the FTS5 indexer over the PBF and
-   write `data/maps/<region>/geocoder.sqlite`. This phase is first
-   after the download (not last) on purpose: the address index is the
-   fastest artifact to build, so search works in the UI while the
-   heavier tippecanoe and Valhalla builds are still running.
-
-3. **`building_streets`** — shell out to `tippecanoe`:
-
-   ```
-   tippecanoe -o streets.pmtiles -z14 --drop-densest-as-needed --force \
-     -y height -y min_height -y building:levels -y building \
-     source.osm.pbf
-   ```
-
-   The `-y` flags preserve OSM building attributes so the 3D buildings
-   layer (Map / 3D toggle in the chip) can extrude them with real
-   heights. Without those flags tippecanoe drops unknown tags and
-   every building would render as a flat 1-story box.
-
-4. **`building_routing`** — shell out to `valhalla_build_tiles` with
-   a minimal on-the-fly `valhalla.json`, producing the tile tree under
-   `data/maps/<region>/valhalla/`. Valhalla logs discrete phases
-   (`initialize`, `parse ways`, `build graph`, …) which are forwarded
-   to the SSE stream as sub-progress.
-
-5. **`complete`** — the source PBF is deleted (it's no longer needed),
-   `MapRegionState.streets_installed` / `geocoder_installed` /
-   `routing_installed` flip to `True`, and `bytes_on_disk` is recorded
-   per artifact.
-
-Every phase is cancellable. Clicking Cancel sends SIGTERM to the
-active subprocess, waits briefly for graceful exit, and deletes the
-partial output. Nothing half-built ever lands in the final
-`data/maps/<region>/` tree.
-
-On-disk layout after a successful install:
-
-```
-data/maps/
-  <region_id>/
-    streets.pmtiles       # vector basemap (MapLibre reads via pmtiles://)
-    geocoder.sqlite       # FTS5 address + place index
-    valhalla/             # Valhalla routing tile tree
-  catalog.json            # installed regions + their artifact sizes
-```
+Bootstrap installs the JRE and both JARs under `.lokidoki/tools/`, and
+the FastAPI app uses those embedded tools rather than the system Java.
 
 ---
 
-## Per-region sizes and build times
+## What's in the stack
 
-These numbers come from the plan's authoritative footprint table
-(`docs/roadmap/maps-local-build/PLAN.md`). Update that table, not
-this one, if a measurement changes.
+Bootstrap fetches three upstream-pinned artifacts during the maps block:
 
-| Region           | PBF download | Build RAM peak | Build time (mac m-series) | Build time (Pi 5) | Final disk (streets + routing + geocoder) |
-|------------------|-------------:|---------------:|--------------------------:|------------------:|------------------------------------------:|
-| Small state (CT) | ~25 MB       | ~2 GB          | ~1–2 min                  | ~5–8 min          | ~160 MB                                   |
-| Large state (CA) | ~300 MB      | ~4 GB          | ~5 min                    | ~20 min           | ~850 MB                                   |
-| UK               | ~1.4 GB      | ~6 GB          | ~15 min                   | —                 | ~1.2 GB                                   |
-| US (contig.)     | ~10 GB       | ~16 GB         | ~1 h                      | —                 | ~15 GB                                    |
-
-A "—" in the Pi 5 column means the build won't fit in the Pi's 8 GB
-of RAM. Those regions are gated in the catalog via the
-`pi_local_build_ok` flag — attempting to install them on `pi_cpu` or
-`pi_hailo` surfaces a clear error in the admin panel rather than
-silently OOM-killing the build partway through.
-
-The 3D buildings layer adds zero extra disk. It renders client-side
-from the `building` source-layer already inside `streets.pmtiles`.
-
----
-
-## Where the tools live
-
-The installer never calls `apt` / `brew` / `choco`. Both toolchain
-binaries arrive as pinned prebuilt archives fetched during bootstrap,
-same pattern as Python / uv / Node / llama.cpp:
-
-```
-data/tools/
-  tippecanoe/
-    bin/tippecanoe
-  valhalla/
-    bin/valhalla_build_tiles
-    bin/valhalla_service
+```text
+.lokidoki/tools/
+  jre/
+    bin/java
+  planetiler/
+    planetiler.jar
+  graphhopper/
+    graphhopper.jar
 ```
 
-Pins (URL template, per-`(os, arch)` filename, sha256) live in
-`lokidoki/bootstrap/versions.py` under `TIPPECANOE` and
-`VALHALLA_TOOLS`. The two preflight modules
-(`lokidoki/bootstrap/preflight/tippecanoe.py` and
-`lokidoki/bootstrap/preflight/valhalla_tools.py`) download, verify,
-extract, smoke-test (`--version`), and prepend the `bin/` dirs to
-`PATH` for the FastAPI process the same way `llama-cli` is patched
-in.
+The preflight pins live in `lokidoki/bootstrap/versions.py`, and the
+maps block is part of the normal bootstrap flow on `mac`, `windows`,
+`linux`, and `pi_cpu`.
 
-Supported profiles: `mac` (darwin/arm64), `linux` (x86_64 and
-aarch64). Windows x86_64 best-effort (tippecanoe upstream is flaky
-there; the preflight skips with a clear message if no archive is
-pinned).
-
-To fetch just the map toolchain without re-running the full
-bootstrap:
+To fetch only the maps stack during local development or CI:
 
 ```bash
 ./run.sh --maps-tools-only
 ```
 
+That path installs only the embedded JRE, `planetiler.jar`, and
+`graphhopper.jar`, then exits.
+
 ---
 
-## Why Valhalla turns on and off
+## Install phases
 
-Valhalla is a sidecar process. Keeping it resident always would cost
-100 MB – 800 MB of RSS (depending on how many regions you have
-installed) — RAM that on a Pi 5 is better spent on the LLM. So
-Valhalla is **lazy**:
+Settings → Maps → pick a region → Install. The admin panel opens an SSE
+stream so each phase reports live progress:
 
-- **Cold start** on the first `POST /api/v1/maps/route` request.
-  Concurrent first-callers share a single spawn via an async lock.
-  There is no silent warm-up on `/maps` page open — the start is
-  driven by actual routing traffic.
-- **Stay warm** while `/route` requests keep arriving. Every
-  successful route call calls `lifecycle.touch()`, resetting the
-  idle timer.
-- **Shut down** after 15 minutes of no routing traffic. A background
-  asyncio watchdog polls every 60 s, sends SIGTERM when idle, waits
-  10 s, then SIGKILL if needed.
+1. `downloading_pbf` downloads the region's Geofabrik `.osm.pbf` into
+   `data/maps/<region>/.tmp/`.
+2. `building_geocoder` builds `data/maps/<region>/geocoder.sqlite` so
+   local search is available before the longer map/routing builds end.
+3. `building_streets` runs `planetiler.jar` and writes
+   `data/maps/<region>/streets.pmtiles`.
+4. `building_routing` runs `graphhopper.jar import` and writes
+   `data/maps/<region>/valhalla/graph-cache/`.
+5. `complete` records final bytes-on-disk and deletes the source PBF
+   unless `LOKIDOKI_KEEP_PBF=1` is set.
 
-This lifecycle is driven by request traffic, not frontend UI state,
-so the navigation skill's chat-triggered routes (e.g., the user
-asking "directions from A to B" from the chat) also keep the process
-warm and trigger a respawn on demand.
+Every phase is cancellable. If the install fails or is cancelled,
+partial outputs are removed so `data/maps/<region>/` never contains a
+half-built PMTiles file or routing graph.
 
-The default timeout is 900 s (15 min). `LOKIDOKI_VALHALLA_IDLE_S=N`
-overrides it — useful for tests and for ops tuning.
+On-disk layout after a successful install:
 
-Lifecycle implementation lives in
-`lokidoki/maps/routing/lifecycle.py`; the Valhalla wrapper in
-`lokidoki/maps/routing/valhalla.py` uses it transparently — API
-callers see a normal `.route(req)` method.
+```text
+data/maps/
+  <region_id>/
+    streets.pmtiles
+    geocoder.sqlite
+    valhalla/
+      graph-cache/
+```
+
+The `valhalla/` directory name is a compatibility holdover in the data
+layout; the contents are now GraphHopper graph-cache files.
+
+---
+
+## Per-region footprint
+
+These numbers come from the authoritative table in
+`docs/roadmap/maps-java-stack/PLAN.md`.
+
+| Region           | PBF download | planetiler RAM | planetiler time (mac m-series) | planetiler time (Pi 5) | GH import RAM | GH import time (Pi 5) | Final disk |
+|------------------|-------------:|---------------:|-------------------------------:|----------------------:|--------------:|---------------------:|-----------:|
+| Small state (CT) | ~25 MB       | ~1.5 GB        | ~1 min                         | ~4 min                | ~1 GB         | ~3 min               | ~150 MB    |
+| Large state (CA) | ~300 MB      | ~3 GB          | ~3 min                         | ~15 min               | ~3 GB         | ~12 min              | ~800 MB    |
+| UK               | ~1.4 GB      | ~5 GB          | ~10 min                        | — (too big)           | ~4 GB         | — (too big)          | ~1.1 GB    |
+| US (contig.)     | ~10 GB       | ~12 GB         | ~45 min                        | — (OOM)               | ~12 GB        | — (OOM)              | ~14 GB     |
+
+A `—` in the Pi column means the build does not fit on Pi 5 hardware.
+The catalog's `pi_local_build_ok` flag remains the source of truth for
+what the Pi is allowed to build locally.
+
+The 3D buildings layer adds no extra disk footprint. It renders from
+building attributes already preserved inside `streets.pmtiles`.
+
+---
+
+## Windows support
+
+The Java stack is the first maps toolchain in LokiDoki that is meant to
+work end-to-end on Windows. `tippecanoe` and Valhalla never had a
+reliable Windows bootstrap story; the current stack avoids that by
+using:
+
+- Temurin JRE 21 for the Java runtime.
+- `planetiler.jar` for PMTiles generation.
+- `graphhopper.jar` for import and routing service.
+
+The same bootstrap path is used on macOS, Linux, and Windows, with the
+platform-specific JRE archive pinned in `versions.py`.
+
+---
+
+## Lazy routing sidecar
+
+GraphHopper is run as a lazy sidecar on port `8002`.
+
+- It starts on the first `POST /api/v1/maps/route` request for an
+  installed region.
+- It stays warm while route traffic continues.
+- It shuts down after an idle window to avoid pinning routing RSS in
+  memory when the user is not navigating.
+
+This preserves the old lazy-router behavior while swapping the backend
+runtime from Valhalla to GraphHopper.
 
 ---
 
 ## Troubleshooting
 
 **Toolchain missing**
-The install stream emits `error="toolchain_missing"` and the admin
-panel shows "Re-run bootstrap — tippecanoe not on PATH" (or
-`valhalla_build_tiles`). Run `./run.sh --maps-tools-only` to re-fetch
-just the map tool archives, or `./run.sh` for the full bootstrap.
-The binaries land under `data/tools/tippecanoe/bin/` and
-`data/tools/valhalla/bin/`.
+If the install stream ends with `error="toolchain_missing"`, re-run:
+
+```bash
+./run.sh --maps-tools-only
+```
+
+That restores the embedded JRE plus both maps JARs under
+`.lokidoki/tools/`.
 
 **Out of memory**
-Exit code 137 from either build means the kernel's OOM killer fired.
-The installer reports `error="out_of_memory"` and the admin panel
-renders "Region too large for this device's RAM". The build left
-nothing behind in `data/maps/<region>/` — the `.tmp/` dir was cleaned
-up on exit. Pick a smaller region, or build on a beefier host and
-sideload the artifacts.
+If `planetiler` or GraphHopper import is killed by the OS, lower the
+Java heap and retry with a smaller region if needed:
 
-**Build stuck**
-tippecanoe and Valhalla both emit to stderr continuously; a "stuck"
-install is almost always swap-thrashing near the RAM ceiling. Check
-`top` / `htop`: if the tippecanoe or `valhalla_build_tiles` process
-is consuming near-total memory and I/O wait is high, treat it as
-out-of-memory even if the kernel hasn't killed it yet. Cancel from
-the admin panel (clean exit, removes `.tmp/`) and either wait for a
-moment when the LLM isn't loaded or pick a smaller region.
+```bash
+export LOKIDOKI_PLANETILER_HEAP_MB=1536
+export LOKIDOKI_GRAPHHOPPER_HEAP_MB=1024
+```
+
+If the region still OOMs on Pi 5, it is too large for local build on
+that profile.
 
 **Cancelled install**
-Clicking Cancel SIGTERMs the active subprocess, waits briefly, and
-deletes the `.tmp/` directory for the region. The final
-`data/maps/<region>/` tree is left untouched unless all artifacts
-completed before the cancel. `MapRegionState` flags accurately
-reflect what made it to disk; re-clicking Install resumes from the
-next-needed phase (the PBF re-downloads since it was cleaned on
-cancel).
+Cancel removes the active `.tmp/` directory and any partial PMTiles or
+routing output. Re-running Install starts from the next artifact that is
+still missing.
+
+**No routing after install**
+Check that `data/maps/<region>/valhalla/graph-cache/` exists and that
+bootstrap installed:
+
+```bash
+.lokidoki/tools/jre/bin/java -version
+.lokidoki/tools/jre/bin/java -jar .lokidoki/tools/graphhopper/graphhopper.jar --help
+```

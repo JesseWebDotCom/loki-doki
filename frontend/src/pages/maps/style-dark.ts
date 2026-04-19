@@ -1,187 +1,578 @@
 /**
- * Protomaps dark basemap style for MapLibre GL.
+ * MapLibre style targeting the OpenMapTiles vector schema that
+ * planetiler produces into ``streets.pmtiles``. The schema uses source
+ * layers like ``transportation`` / ``place`` / ``boundary`` / ``building``
+ * / ``transportation_name`` / ``housenumber`` / ``poi`` / ``water_name``
+ * with ``class`` as the kind discriminator — notably different from the
+ * Protomaps basemap schema (``roads`` / ``places`` / ``boundaries`` /
+ * ``buildings``) an earlier draft of this file targeted. Mismatched
+ * source-layer names render silently as blank tiles — hence the style
+ * must match the producer.
  *
- * Two modes:
- *  - ``map`` (default): classic flat vector basemap.
- *  - ``3d``: everything from ``map`` plus a ``fill-extrusion`` layer
- *    that renders OSM ``building=*`` features from the vector tiles
- *    we build locally (chunk 3 preserves ``height`` /
- *    ``building:levels`` / ``min_height`` attributes). No extra
- *    downloads — the extrusion paint reads attributes already in the
- *    installed PMTiles.
- *
- * The ``tileUrl`` string must already carry the ``pmtiles://`` prefix —
- * the caller picks between the online Protomaps demo and a locally
- * served region file.
+ * Supports two themes and two modes:
+ *  - ``theme: 'dark' | 'light'`` — palette swap. Default 'dark'.
+ *  - ``mode: 'map' | '3d'`` — 3D flips on a building fill-extrusion
+ *    layer that reads ``render_height`` / ``render_min_height`` from
+ *    the tiles (OpenMapTiles already resolves OSM ``height`` /
+ *    ``building:levels`` into these at build time).
  */
 import type maplibregl from 'maplibre-gl';
 
 export type LayerMode = 'map' | '3d';
+export type ColorTheme = 'dark' | 'light';
 
-// Onyx palette (mirrors the CSS tokens --elevation-1..4 and the
-// purple accent). Kept as string literals here instead of reading from
-// CSS custom properties because MapLibre's style spec expects plain
-// hex / hsl strings and resolving `var(--…)` at runtime would require
-// a second paint after getComputedStyle — not worth the complexity.
-const COLOR = {
-  earth: '#14161c',       // base land fill — matches --elevation-1
-  water: '#0b1220',       // rivers, lakes, ocean
-  park: '#18221a',        // greenspace — subtle tint above earth
-  road_minor: '#262a33',  // tertiary/residential
-  road_medium: '#313744', // secondary/primary
-  road_major: '#3d4660',  // motorways/trunks
-  boundary: '#4a3a6a',    // purple accent for admin borders
-  place_label: '#d7dae3',
-  place_label_halo: '#14161c',
-  building: '#3a3f4a',    // extrusion fill for the 3D buildings layer
-} as const;
+interface Palette {
+  background: string;
+  water: string;
+  park: string;
+  residential: string;
+  road_minor: string;
+  road_medium: string;
+  road_major: string;
+  road_casing: string;
+  building: string;
+  building_outline: string;
+  boundary_country: string;
+  boundary_state: string;
+  place_label: string;
+  place_label_halo: string;
+  street_label: string;
+  street_label_halo: string;
+  water_label: string;
+  water_label_halo: string;
+  poi_label: string;
+  housenumber: string;
+}
+
+const DARK: Palette = {
+  background: '#141518',
+  water: '#16304d',
+  park: '#1b2d1e',
+  residential: '#1e2128',
+  road_minor: '#5a6578',
+  road_medium: '#8892ab',
+  road_major: '#b5bed4',
+  road_casing: '#0a0c10',
+  building: '#363b48',
+  building_outline: '#4a5060',
+  boundary_country: '#b49bff',
+  boundary_state: '#7d6da8',
+  place_label: '#f0f2f7',
+  place_label_halo: '#0a0c10',
+  street_label: '#c7cddd',
+  street_label_halo: '#0a0c10',
+  water_label: '#7aa8d8',
+  water_label_halo: '#0a0c10',
+  poi_label: '#a5adbf',
+  housenumber: '#8892ab',
+};
+
+const LIGHT: Palette = {
+  background: '#f3f1ea',
+  water: '#a8cfe8',
+  park: '#c8e0c4',
+  residential: '#ebe8e0',
+  road_minor: '#ffffff',
+  road_medium: '#fff8d4',
+  road_major: '#ffd96d',
+  road_casing: '#c0b9a8',
+  building: '#e3ddcb',
+  building_outline: '#c9c2ac',
+  boundary_country: '#7c5aa6',
+  boundary_state: '#aa92c8',
+  place_label: '#1a1d22',
+  place_label_halo: '#ffffff',
+  street_label: '#2a2e38',
+  street_label_halo: '#ffffff',
+  water_label: '#3c6a9a',
+  water_label_halo: '#ffffff',
+  poi_label: '#54595f',
+  housenumber: '#6a7080',
+};
+
+const PALETTES: Record<ColorTheme, Palette> = { dark: DARK, light: LIGHT };
 
 export interface DarkStyleOptions {
   mode?: LayerMode;
+  theme?: ColorTheme;
 }
 
-// Layer-builder helpers ───────────────────────────────────────────
+// ── Layer builders ────────────────────────────────────────────────
 
-const vectorLayers = (
-  haloColor: string,
-): maplibregl.LayerSpecification[] => [
+const fillLayers = (p: Palette): maplibregl.LayerSpecification[] => [
+  // Parks & greenspace.
   {
-    id: 'earth',
+    id: 'park',
     type: 'fill',
     source: 'protomaps',
-    'source-layer': 'earth',
-    paint: { 'fill-color': COLOR.earth },
+    'source-layer': 'park',
+    paint: { 'fill-color': p.park, 'fill-opacity': 0.8 },
   },
+  // Residential/urban fill.
   {
-    id: 'landuse_park',
+    id: 'landuse_residential',
     type: 'fill',
     source: 'protomaps',
     'source-layer': 'landuse',
-    filter: ['in', 'kind', 'park', 'forest', 'nature_reserve', 'wood'],
-    paint: { 'fill-color': COLOR.park, 'fill-opacity': 0.6 },
+    filter: ['==', ['get', 'class'], 'residential'],
+    paint: { 'fill-color': p.residential, 'fill-opacity': 0.7 },
   },
+  // Additional greenspace from landcover.
+  {
+    id: 'landcover_green',
+    type: 'fill',
+    source: 'protomaps',
+    'source-layer': 'landcover',
+    filter: ['in', ['get', 'class'], ['literal', ['wood', 'grass', 'farmland']]],
+    paint: { 'fill-color': p.park, 'fill-opacity': 0.5 },
+  },
+  // Water polygons.
   {
     id: 'water',
     type: 'fill',
     source: 'protomaps',
     'source-layer': 'water',
-    paint: { 'fill-color': COLOR.water },
+    paint: { 'fill-color': p.water },
   },
+  // Waterway lines.
   {
-    id: 'roads_minor',
+    id: 'waterway',
     type: 'line',
     source: 'protomaps',
-    'source-layer': 'roads',
-    filter: ['in', 'kind', 'minor_road', 'path'],
-    minzoom: 12,
+    'source-layer': 'waterway',
     paint: {
-      'line-color': COLOR.road_minor,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.3, 18, 2],
-    },
-  },
-  {
-    id: 'roads_medium',
-    type: 'line',
-    source: 'protomaps',
-    'source-layer': 'roads',
-    filter: ['==', 'kind', 'medium_road'],
-    paint: {
-      'line-color': COLOR.road_medium,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 18, 4],
-    },
-  },
-  {
-    id: 'roads_major',
-    type: 'line',
-    source: 'protomaps',
-    'source-layer': 'roads',
-    filter: ['in', 'kind', 'major_road', 'highway'],
-    paint: {
-      'line-color': COLOR.road_major,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.8, 18, 6],
-    },
-  },
-  {
-    id: 'boundaries',
-    type: 'line',
-    source: 'protomaps',
-    'source-layer': 'boundaries',
-    paint: {
-      'line-color': COLOR.boundary,
-      'line-width': 0.6,
-      'line-dasharray': [2, 2],
-    },
-  },
-  {
-    id: 'places',
-    type: 'symbol',
-    source: 'protomaps',
-    'source-layer': 'places',
-    filter: ['in', 'kind', 'country', 'state', 'city', 'town', 'village', 'locality', 'neighbourhood'],
-    layout: {
-      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
-      'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 10, 10, 14],
-      'text-anchor': 'center',
-    },
-    paint: {
-      'text-color': COLOR.place_label,
-      'text-halo-color': haloColor,
-      'text-halo-width': 1.4,
+      'line-color': p.water,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 16, 2.5],
     },
   },
 ];
 
-// The 3D buildings extrusion layer. Height resolves from the first
-// available OSM tag: explicit ``height`` (metres), then ``building:levels``
-// × 3 m per storey, then a conservative 8 m fallback. ``min_height``
-// lifts sections that sit on top of another structure (rooftop plant,
-// elevated walkways). Inserted after the road lines but before place
-// labels so labels stay readable when tilted.
-const buildings3dLayer = (): maplibregl.LayerSpecification => ({
+const roadLayers = (p: Palette): maplibregl.LayerSpecification[] => [
+  // Casings (dark outline under major/medium roads).
+  {
+    id: 'roads_casing',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'transportation',
+    filter: [
+      'in',
+      ['get', 'class'],
+      ['literal', ['motorway', 'trunk', 'primary', 'secondary']],
+    ],
+    minzoom: 7,
+    paint: {
+      'line-color': p.road_casing,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 7, 1.2, 18, 11],
+      'line-opacity': 0.6,
+    },
+  },
+  // Paths / tracks — only visible close up.
+  {
+    id: 'roads_path',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'transportation',
+    filter: ['in', ['get', 'class'], ['literal', ['path', 'track']]],
+    minzoom: 13,
+    paint: {
+      'line-color': p.road_minor,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.4, 18, 1.5],
+      'line-dasharray': [2, 2],
+      'line-opacity': 0.7,
+    },
+  },
+  // Minor roads (residential, service, minor).
+  {
+    id: 'roads_minor',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'transportation',
+    filter: ['in', ['get', 'class'], ['literal', ['minor', 'service']]],
+    minzoom: 10,
+    paint: {
+      'line-color': p.road_minor,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 18, 4],
+    },
+  },
+  // Tertiary.
+  {
+    id: 'roads_tertiary',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'transportation',
+    filter: ['==', ['get', 'class'], 'tertiary'],
+    minzoom: 8,
+    paint: {
+      'line-color': p.road_minor,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 18, 5],
+    },
+  },
+  // Secondary / Primary.
+  {
+    id: 'roads_medium',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'transportation',
+    filter: ['in', ['get', 'class'], ['literal', ['secondary', 'primary']]],
+    minzoom: 6,
+    paint: {
+      'line-color': p.road_medium,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 18, 7],
+    },
+  },
+  // Motorway / Trunk.
+  {
+    id: 'roads_major',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'transportation',
+    filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]],
+    minzoom: 4,
+    paint: {
+      'line-color': p.road_major,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.8, 18, 9],
+    },
+  },
+];
+
+const boundaryLayers = (p: Palette): maplibregl.LayerSpecification[] => [
+  {
+    id: 'boundary_state',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'boundary',
+    filter: ['==', ['get', 'admin_level'], 4],
+    paint: {
+      'line-color': p.boundary_state,
+      'line-width': 0.7,
+      'line-dasharray': [3, 2],
+    },
+  },
+  {
+    id: 'boundary_country',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'boundary',
+    filter: ['<=', ['get', 'admin_level'], 2],
+    paint: {
+      'line-color': p.boundary_country,
+      'line-width': 1.4,
+    },
+  },
+];
+
+// Street name labels follow the road centerline. The ``class`` filter
+// scopes each sub-layer so motorways stay legible at low zoom and
+// residential street labels don't swamp the view until close in.
+const transportationNameLayers = (
+  p: Palette,
+): maplibregl.LayerSpecification[] => [
+  {
+    id: 'street_label_major',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'transportation_name',
+    filter: [
+      'in',
+      ['get', 'class'],
+      ['literal', ['motorway', 'trunk', 'primary']],
+    ],
+    minzoom: 10,
+    layout: {
+      'symbol-placement': 'line',
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 10, 12, 18, 18],
+      'text-letter-spacing': 0.05,
+      'text-max-angle': 30,
+    },
+    paint: {
+      'text-color': p.street_label,
+      'text-halo-color': p.street_label_halo,
+      'text-halo-width': 1.4,
+    },
+  },
+  {
+    id: 'street_label_medium',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'transportation_name',
+    filter: ['in', ['get', 'class'], ['literal', ['secondary', 'tertiary']]],
+    minzoom: 12,
+    layout: {
+      'symbol-placement': 'line',
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 18, 16],
+      'text-letter-spacing': 0.03,
+      'text-max-angle': 30,
+    },
+    paint: {
+      'text-color': p.street_label,
+      'text-halo-color': p.street_label_halo,
+      'text-halo-width': 1.2,
+    },
+  },
+  {
+    id: 'street_label_minor',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'transportation_name',
+    filter: [
+      'in',
+      ['get', 'class'],
+      ['literal', ['minor', 'service', 'residential']],
+    ],
+    minzoom: 14,
+    layout: {
+      'symbol-placement': 'line',
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 18, 15],
+      'text-max-angle': 30,
+    },
+    paint: {
+      'text-color': p.street_label,
+      'text-halo-color': p.street_label_halo,
+      'text-halo-width': 1,
+    },
+  },
+];
+
+// Place labels staged by class so each level appears at its own zoom
+// band — mirrors how Google / Apple Maps decide which name to show.
+const placeLabelLayers = (p: Palette): maplibregl.LayerSpecification[] => [
+  {
+    id: 'place_country',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'place',
+    filter: ['==', ['get', 'class'], 'country'],
+    minzoom: 1,
+    maxzoom: 7,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 1, 12, 5, 22],
+      'text-transform': 'uppercase',
+      'text-letter-spacing': 0.15,
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1.6,
+    },
+  },
+  {
+    id: 'place_state',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'place',
+    filter: ['==', ['get', 'class'], 'state'],
+    minzoom: 3,
+    maxzoom: 9,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 12, 8, 18],
+      'text-transform': 'uppercase',
+      'text-letter-spacing': 0.1,
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1.5,
+    },
+  },
+  {
+    id: 'place_city',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'place',
+    filter: ['==', ['get', 'class'], 'city'],
+    minzoom: 4,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 4, 13, 14, 24],
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1.5,
+    },
+  },
+  {
+    id: 'place_town',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'place',
+    filter: ['==', ['get', 'class'], 'town'],
+    minzoom: 7,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 7, 12, 14, 20],
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1.3,
+    },
+  },
+  {
+    id: 'place_village',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'place',
+    filter: ['in', ['get', 'class'], ['literal', ['village', 'hamlet']]],
+    minzoom: 10,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 10, 12, 16, 17],
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1.2,
+    },
+  },
+  {
+    id: 'place_neighborhood',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'place',
+    filter: ['in', ['get', 'class'], ['literal', ['suburb', 'neighbourhood']]],
+    minzoom: 12,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 16, 15],
+      'text-transform': 'uppercase',
+      'text-letter-spacing': 0.08,
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1,
+      'text-opacity': 0.85,
+    },
+  },
+];
+
+const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
+  // Water feature names (oceans, lakes, rivers).
+  {
+    id: 'water_name',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'water_name',
+    minzoom: 9,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 9, 12, 16, 17],
+      'text-transform': 'uppercase',
+      'text-letter-spacing': 0.1,
+      'text-max-width': 8,
+    },
+    paint: {
+      'text-color': p.water_label,
+      'text-halo-color': p.water_label_halo,
+      'text-halo-width': 1.2,
+    },
+  },
+  // Points of interest — shops, restaurants, transit stops, etc.
+  {
+    id: 'poi',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'poi',
+    minzoom: 14,
+    layout: {
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 12, 18, 15],
+      'text-offset': [0, 0.8],
+      'text-anchor': 'top',
+      'text-max-width': 8,
+    },
+    paint: {
+      'text-color': p.poi_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1,
+    },
+  },
+  // House numbers — only at the very closest zooms. Overzoom from z14
+  // data is fine here since numbers don't need sub-tile detail.
+  {
+    id: 'housenumber',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'housenumber',
+    minzoom: 17,
+    layout: {
+      'text-field': ['get', 'housenumber'],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 17, 11, 20, 14],
+    },
+    paint: {
+      'text-color': p.housenumber,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 0.8,
+    },
+  },
+];
+
+// 3D buildings extrusion.
+const buildings3dLayer = (p: Palette): maplibregl.LayerSpecification => ({
   id: 'buildings-3d',
   type: 'fill-extrusion',
   source: 'protomaps',
-  'source-layer': 'buildings',
+  'source-layer': 'building',
   minzoom: 13,
   paint: {
-    'fill-extrusion-color': COLOR.building,
+    'fill-extrusion-color': p.building,
     'fill-extrusion-height': [
       'interpolate',
       ['linear'],
       ['zoom'],
       13, 0,
-      14, [
-        'coalesce',
-        ['to-number', ['get', 'height']],
-        ['*', ['to-number', ['get', 'building:levels']], 3],
-        8,
-      ],
+      14, ['coalesce', ['to-number', ['get', 'render_height']], 8],
     ],
     'fill-extrusion-base': [
       'coalesce',
-      ['to-number', ['get', 'min_height']],
+      ['to-number', ['get', 'render_min_height']],
       0,
     ],
     'fill-extrusion-opacity': 0.85,
   },
 });
 
+// Flat 2D building footprints for non-3D mode.
+const buildings2dLayer = (p: Palette): maplibregl.LayerSpecification => ({
+  id: 'buildings-2d',
+  type: 'fill',
+  source: 'protomaps',
+  'source-layer': 'building',
+  minzoom: 14,
+  paint: {
+    'fill-color': p.building,
+    'fill-outline-color': p.building_outline,
+    'fill-opacity': 0.9,
+  },
+});
+
 // ── Public builder ────────────────────────────────────────────────
 
-/**
- * Build a MapLibre style document.
- *
- * @param tileUrl The pmtiles URL to use for the vector source. May be
- *                the online Protomaps demo or a backend sendfile route.
- * @param opts    Style options — currently only ``mode`` to switch
- *                between the flat map and the 3D-buildings view.
- */
 export function buildDarkStyle(
   tileUrl: string,
   opts: DarkStyleOptions = {},
 ): maplibregl.StyleSpecification {
   const mode: LayerMode = opts.mode ?? 'map';
+  const theme: ColorTheme = opts.theme ?? 'dark';
+  const p = PALETTES[theme];
 
   const sources: maplibregl.StyleSpecification['sources'] = {
     protomaps: {
@@ -192,22 +583,16 @@ export function buildDarkStyle(
     },
   };
 
-  const base = vectorLayers(COLOR.place_label_halo);
-  // Splice the extrusion layer in after the roads/boundaries but
-  // before the place-label symbols (last entry in vectorLayers).
-  const placesIdx = base.findIndex((l) => l.id === 'places');
-  const layersBeforePlaces = placesIdx === -1 ? base : base.slice(0, placesIdx);
-  const layersPlaces = placesIdx === -1 ? [] : base.slice(placesIdx);
-
+  // Layer order matters — MapLibre paints bottom-up.
   const layers: maplibregl.LayerSpecification[] = [
-    {
-      id: 'bg',
-      type: 'background',
-      paint: { 'background-color': COLOR.earth },
-    },
-    ...layersBeforePlaces,
-    ...(mode === '3d' ? [buildings3dLayer()] : []),
-    ...layersPlaces,
+    { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
+    ...fillLayers(p),
+    ...boundaryLayers(p),
+    ...(mode === '3d' ? [buildings3dLayer(p)] : [buildings2dLayer(p)]),
+    ...roadLayers(p),
+    ...transportationNameLayers(p),
+    ...water_and_poi_labels(p),
+    ...placeLabelLayers(p),
   ];
 
   return {

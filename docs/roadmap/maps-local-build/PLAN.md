@@ -1,3 +1,8 @@
+> [!WARNING]
+> SUPERSEDED by [docs/roadmap/maps-java-stack/PLAN.md](../maps-java-stack/PLAN.md).
+> This plan remains for historical context around the local-build rollout,
+> the lazy routing sidecar rationale, and the Geofabrik integration notes.
+
 # Offline Maps via Local Build — Execution Plan
 
 Goal: `./run.sh` produces a working LokiDoki in which the Maps page is

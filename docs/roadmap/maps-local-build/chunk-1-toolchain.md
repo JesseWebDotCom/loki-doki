@@ -73,6 +73,10 @@ Refs docs/roadmap/maps-local-build/PLAN.md chunk 1.
 
 ## Deferrals section (append as you discover)
 
+- Deferred indefinitely — superseded by `maps-java-stack` chunks 1–3.
+  The `maps-tools-v1` GitHub Release was never cut; the stub SHAs were
+  removed in the Java-stack replacement.
+
 - **Windows tippecanoe support** — if upstream doesn't ship a
   reliable Windows build by chunk-1 execution, skip the Windows key
   in `versions.py` and file a follow-up. Windows maps install stays

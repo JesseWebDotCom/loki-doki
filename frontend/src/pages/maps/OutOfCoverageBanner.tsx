@@ -9,6 +9,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { MapPinOff, ArrowRight } from 'lucide-react';
+import { MANAGE_MAPS_ROUTE } from './routes';
 
 const OutOfCoverageBanner: React.FC = () => (
   <div
@@ -19,7 +20,7 @@ const OutOfCoverageBanner: React.FC = () => (
     <MapPinOff size={14} className="text-muted-foreground" />
     <span className="text-foreground">No tiles here — install a larger region</span>
     <Link
-      to="/settings?section=maps"
+      to={MANAGE_MAPS_ROUTE}
       className="flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-0.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/25"
     >
       Open Settings <ArrowRight size={11} />

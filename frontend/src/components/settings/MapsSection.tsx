@@ -63,6 +63,12 @@ function detectPlatform(): "mac" | "pi" | "unknown" {
   return "unknown";
 }
 
+function formatIndexRows(rows: number): string {
+  if (rows < 1000) return `${rows} rows`;
+  if (rows < 1_000_000) return `${(rows / 1000).toFixed(0)}k rows`;
+  return `${(rows / 1_000_000).toFixed(1)}M rows`;
+}
+
 const MapsSection: React.FC = () => {
   const [tree, setTree] = useState<CatalogRegion[]>([]);
   const [installed, setInstalled] = useState<Record<string, RegionStatus>>({});
@@ -207,6 +213,14 @@ const MapsSection: React.FC = () => {
   const streamProgress = (regionId: string) => {
     const es = new EventSource(`${API}/regions/${regionId}/progress`);
     let sawAnyEvent = false;
+    const finishInstall = () => {
+      setInstalling((prev) => {
+        const next = new Set(prev);
+        next.delete(regionId);
+        return next;
+      });
+      void reload();
+    };
     es.onmessage = (ev) => {
       sawAnyEvent = true;
       try {
@@ -218,33 +232,26 @@ const MapsSection: React.FC = () => {
           }
           if (p.phase === "complete" && (p.artifact === "done" || p.error)) {
             es.close();
-            setInstalling((prev) => {
-              const next = new Set(prev);
-              next.delete(regionId);
-              return next;
-            });
-            void reload();
+            finishInstall();
           }
         } else {
           es.close();
+          finishInstall();
         }
       } catch {
         es.close();
+        finishInstall();
       }
     };
     es.onerror = () => {
       es.close();
-      setInstalling((prev) => {
-        const next = new Set(prev);
-        next.delete(regionId);
-        return next;
-      });
       if (!sawAnyEvent) {
         setErrors((prev) => ({
           ...prev,
           [regionId]: "progress stream disconnected before the install started",
         }));
       }
+      finishInstall();
     };
   };
 
@@ -353,6 +360,9 @@ const RegionRow: React.FC<RegionRowProps> = ({
   const eta = progress
     ? estimateForPhase(progress.phase, region.sizes_mb.pbf, platform)
     : "";
+  const detail = progress?.phase === "building_geocoder" && progress.bytes_done > 0
+    ? formatIndexRows(progress.bytes_done)
+    : "";
 
   return (
     <div
@@ -385,6 +395,14 @@ const RegionRow: React.FC<RegionRowProps> = ({
           style={{ paddingLeft: "1.5rem" }}
         >
           {eta}
+        </div>
+      )}
+      {detail && (
+        <div
+          className="text-[10px] text-muted-foreground"
+          style={{ paddingLeft: "1.5rem" }}
+        >
+          {detail}
         </div>
       )}
       {error && (

@@ -46,7 +46,7 @@ class MapInstallProgress:
     ``phase`` values after maps-local-build chunk 3:
 
       * ``"resolving"`` / ``"downloading"`` / ``"verifying"`` — PBF fetch.
-      * ``"indexing"`` — FTS geocoder build.
+      * ``"building_geocoder"`` — FTS geocoder build.
       * ``"building_streets"`` — tippecanoe producing ``streets.pmtiles``.
       * ``"building_routing"`` — ``valhalla_build_tiles`` producing the
         routing tile tree.

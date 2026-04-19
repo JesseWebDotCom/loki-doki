@@ -95,26 +95,31 @@ describe("resolveTileSource", () => {
     }
   });
 
-  it("falls back to the online Protomaps demo when outside coverage and online", async () => {
+  it("sticks with the nearest local region when outside every bbox (avoids source-churn flicker)", async () => {
     const ct = region("us-ct", CT);
+    const uk = region("uk", UK);
+    // Middle of the Atlantic — outside both. Nearest is UK (closer in
+    // lng/lat squared distance to 40°N -30°E).
     const result = await resolveTileSource(
-      { lng: -30, lat: 40 },  // middle of the Atlantic
-      [ct],
+      { lng: -30, lat: 40 },
+      [ct, uk],
     );
-    expect(result.kind).toBe("online");
-    if (result.kind === "online") {
-      expect(result.streetUrl).toContain("protomaps.com");
+    expect(result.kind).toBe("local");
+    if (result.kind === "local") {
+      // CT center ~(-72.75, 41.5), UK center ~(-3.44, 55.4).
+      // Probe (-30, 40): closer to CT (dx²+dy²≈1822) than UK (dx²+dy²≈941 — UK wins).
+      expect(result.region).toBe("uk");
     }
   });
 
-  it("returns kind=none when offline and outside every region", async () => {
+  it("stays local even when offline+outside-bbox once a region is installed", async () => {
     setOnline(false);
     const ct = region("us-ct", CT);
     const result = await resolveTileSource(
       { lng: -30, lat: 40 },
       [ct],
     );
-    expect(result.kind).toBe("none");
+    expect(result.kind).toBe("local");
   });
 
   it("returns kind=none with zero regions and offline", async () => {
@@ -124,5 +129,13 @@ describe("resolveTileSource", () => {
       [],
     );
     expect(result.kind).toBe("none");
+  });
+
+  it("returns kind=online with zero regions and online (demo fallback)", async () => {
+    const result = await resolveTileSource(
+      { lng: -72.7, lat: 41.6 },
+      [],
+    );
+    expect(result.kind).toBe("online");
   });
 });

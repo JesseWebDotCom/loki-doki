@@ -1,19 +1,27 @@
-"""Maps router stub tests — Chunk 1 of the offline-maps plan.
+"""Maps router surface-shape tests.
 
-The stub contract is narrow: GET /api/v1/maps/regions returns a 200 with
-an empty JSON array. Chunk 2 replaces the body with installed regions
-read from disk.
-
-We mount the router on a bare FastAPI app so these tests exercise the
-route itself, not the app-wide bootstrap gate (which would otherwise
-return 409 when the users table is empty).
+Originally the Chunk 1 stub contract was narrow: ``GET /api/v1/maps/regions``
+returned a hard-coded empty array. Chunk 2 replaced that stub with real
+disk-backed region state, so these tests now pin the route to an isolated
+empty data directory to preserve the "no regions installed" smoke.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lokidoki.api.routes import maps
+from lokidoki.maps import store
+
+
+@pytest.fixture(autouse=True)
+def _isolated_data_dir(tmp_path: Path):
+    store.set_data_dir(tmp_path)
+    yield
+    store.set_data_dir(None)
 
 
 def _client() -> TestClient:

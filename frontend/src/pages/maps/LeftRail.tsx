@@ -29,6 +29,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
+import { MANAGE_MAPS_ROUTE } from './routes';
 import type { ActivePanel, PlaceResult, Recent } from './types';
 
 export interface LeftRailProps {
@@ -194,7 +195,7 @@ const LeftRail: React.FC<LeftRailProps> = ({
       <div className={cn('mt-auto border-t border-border/30 p-3', collapsed && 'px-2')}>
         {!collapsed && (
           <Link
-            to="/settings?section=maps"
+            to={MANAGE_MAPS_ROUTE}
             className="mb-2 flex items-center justify-between rounded-xl border border-border/30 bg-card/60 px-3 py-2.5 text-xs text-foreground transition-colors hover:bg-card"
           >
             <div className="flex flex-col">

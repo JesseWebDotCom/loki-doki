@@ -208,19 +208,16 @@ _PRE_FRONTEND: list[tuple[str, str, bool, int | None]] = [
 ]
 
 
-# Maps toolchain — pinned JRE + Java JARs. Gated by
+# Maps stack — pinned JRE + Java JARs. Gated by
 # :data:`_MAPS_ENABLED_PROFILES` so ``pi_hailo`` (and any future
-# server-only profile) skips the ~1-minute download entirely. Runs
-# after the frontend block so a maps-disabled profile still gets the
-# app up quickly even if the maps-tools mirror is down.
-# Disabled for all profiles until the maps-java-stack rewrite lands
-# (docs/roadmap/maps-java-stack/PLAN.md). The current tippecanoe +
-# Valhalla preflights point at GitHub Release assets that don't exist,
-# so enabling them would 404 every bootstrap. ``--maps-tools-only``
-# still runs them on demand for CI + dev testing.
-_MAPS_ENABLED_PROFILES: frozenset[str] = frozenset()
+# server-only profile) skips the download entirely. Runs after the
+# frontend block so a maps failure doesn't block a mostly-working
+# non-maps boot until after the UI bundle is ready.
+_MAPS_ENABLED_PROFILES: frozenset[str] = frozenset(
+    {"mac", "windows", "linux", "pi_cpu"}
+)
 
-_PRE_MAPS_TOOLS: list[tuple[str, str, bool, int | None]] = [
+_PRE_MAPS_STACK: list[tuple[str, str, bool, int | None]] = [
     ("install-jre", "Install Temurin JRE", False, 45),
     ("install-planetiler", "Install planetiler", False, 30),
     ("install-graphhopper", "Install GraphHopper", False, 30),
@@ -315,17 +312,21 @@ def build_steps(profile: str) -> list[Step]:
 
     ``pi_hailo`` swaps in Hailo-specific runners and reorders the
     pre-toolchain block so the HAT is verified before slow steps run.
-    Every other profile shares a single linear ordering. Maps-tools
-    preflights only run on profiles in :data:`_MAPS_ENABLED_PROFILES`.
+    Every other profile shares a single linear ordering. Profiles in
+    :data:`_MAPS_ENABLED_PROFILES` insert the JRE + planetiler +
+    GraphHopper block after the frontend steps and before the LLM/media
+    downloads.
     """
     if profile == "pi_hailo":
         return _to_steps(_hailo_specs(), profile)
     specs = _PRE_TOOLCHAIN + _PRE_FRONTEND
+    if profile in _MAPS_ENABLED_PROFILES:
+        specs += _PRE_MAPS_STACK
     specs += _COMMON_LLM + _COMMON_MEDIA
     return _to_steps(specs, profile)
 
 
 def build_maps_tools_only_steps(profile: str) -> list[Step]:
     """Return the standalone maps-runtime preflight path."""
-    specs = [("detect-profile", "Detect host profile", False, 2), *_PRE_MAPS_TOOLS]
+    specs = [("detect-profile", "Detect host profile", False, 2), *_PRE_MAPS_STACK]
     return _to_steps(specs, profile)

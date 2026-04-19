@@ -143,13 +143,34 @@ function isBrowserOnline(): boolean {
   return navigator.onLine !== false;
 }
 
+/** Squared great-circle-ish distance between two lng/lat points. */
+function centerDist2(a: LngLat, b: { lat: number; lon: number }): number {
+  const dx = a.lng - b.lon;
+  const dy = a.lat - b.lat;
+  return dx * dx + dy * dy;
+}
+
+function asLocal(r: InstalledRegion): ResolveResult {
+  return {
+    kind: 'local',
+    region: r.region_id,
+    label: r.label,
+    streetUrl: `pmtiles:///api/v1/maps/tiles/${r.region_id}/streets.pmtiles`,
+    bbox: r.bbox,
+  };
+}
+
 /**
  * Pick the tile source for a given viewport centre.
  *
- * If `center` is omitted we behave like initial load and treat a single
- * installed region as "covering" — useful before the map has reported a
- * centre. When multiple regions exist we require an explicit centre to
- * disambiguate.
+ * Invariant: once at least one region is installed, the source is ALWAYS
+ * the local pmtiles route — we never flip back to the online CDN fallback
+ * mid-session. Flipping sources would call `map.setStyle()` which clears
+ * rendered tiles and causes a visible "flash → blank" every time the
+ * viewport crossed an installed bbox boundary. When the viewport is
+ * outside every bbox we fall back to the *nearest* installed region
+ * rather than going online; the source URL is stable, MapLibre keeps the
+ * cached tiles rendered, and out-of-coverage is surfaced by the banner.
  */
 export async function resolveTileSource(
   center?: LngLat,
@@ -163,25 +184,26 @@ export async function resolveTileSource(
       : { kind: 'none' };
   }
 
-  // With no centre, bias toward the first installed region so the map
-  // initialises on something renderable.
   const probe: LngLat =
     center ?? { lng: regions[0].center.lon, lat: regions[0].center.lat };
 
-  const match = regions.find((r) => bboxContains(r.bbox, probe));
-  if (match) {
-    return {
-      kind: 'local',
-      region: match.region_id,
-      label: match.label,
-      streetUrl: `pmtiles:///api/v1/maps/tiles/${match.region_id}/streets.pmtiles`,
-      bbox: match.bbox,
-    };
-  }
+  const covering = regions.find((r) => bboxContains(r.bbox, probe));
+  if (covering) return asLocal(covering);
 
-  return isBrowserOnline()
-    ? { kind: 'online', streetUrl: ONLINE_DEMO_URL }
-    : { kind: 'none' };
+  // Outside every bbox: stick with the nearest installed region so the
+  // tile source doesn't churn. The user sees empty space outside the
+  // region's coverage area (correct offline behavior) without a full
+  // style rebuild on every pan.
+  let nearest = regions[0];
+  let best = centerDist2(probe, regions[0].center);
+  for (let i = 1; i < regions.length; i++) {
+    const d = centerDist2(probe, regions[i].center);
+    if (d < best) {
+      best = d;
+      nearest = regions[i];
+    }
+  }
+  return asLocal(nearest);
 }
 
 // Re-export the fetch helper so the page can hydrate once and reuse.

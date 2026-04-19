@@ -305,10 +305,11 @@ async def _build_geocoder_step(
     """Build the FTS5 geocoder index for ``region_id`` from the PBF on disk.
 
     Runs in a thread so the pyosmium stream does not block the event loop.
-    Emits ``{artifact: "geocoder", phase: "indexing"|"ready"}`` events so
-    the admin-panel SSE stream surfaces progress. The PBF is left on
-    disk for subsequent phases; :func:`install_region` drops it at the
-    end of the pipeline.
+    Emits ``{artifact: "geocoder", phase: "building_geocoder"|"ready"}``
+    events so the admin-panel SSE stream surfaces progress. During the
+    build, ``bytes_done`` is repurposed as "rows indexed so far". The
+    PBF is left on disk for subsequent phases; :func:`install_region`
+    drops it at the end of the pipeline.
     """
     from .geocode.fts_index import build_index, region_db_path
 
@@ -323,11 +324,28 @@ async def _build_geocoder_step(
     await emit(MapInstallProgress(
         region_id=region_id, artifact="geocoder",
         bytes_done=0, bytes_total=0,
-        phase="indexing",
+        phase="building_geocoder",
     ))
 
+    def _progress(rows_written: int, phase: str) -> None:
+        if phase != "indexing":
+            return
+        loop.call_soon_threadsafe(
+            asyncio.create_task,
+            emit(MapInstallProgress(
+                region_id=region_id,
+                artifact="geocoder",
+                bytes_done=rows_written,
+                bytes_total=0,
+                phase="building_geocoder",
+            )),
+        )
+
     def _run() -> int:
-        stats = build_index(pbf_path, db_path, region_id)
+        stats = build_index(
+            pbf_path, db_path, region_id,
+            progress_cb=_progress,
+        )
         return stats.total
 
     loop = asyncio.get_event_loop()
@@ -417,7 +435,7 @@ def _cleanup_partial_artifacts(region_id: str, state: MapRegionState) -> None:
         except OSError:
             pass
     # planetiler's own scratch file.
-    scratch_street = street.with_suffix(street.suffix + ".partial")
+    scratch_street = street.with_name(f"{street.stem}.partial{street.suffix}")
     if scratch_street.exists():
         try:
             scratch_street.unlink()
@@ -483,8 +501,15 @@ async def install_region(
     cancel_event = cancel_event or asyncio.Event()
 
     async def _emit(progress: MapInstallProgress) -> None:
-        if queue is not None:
-            await queue.put(progress)
+        if queue is None:
+            return
+        try:
+            queue.put_nowait(progress)
+        except asyncio.QueueFull:
+            log.warning(
+                "progress queue full for %s; dropping %s/%s event",
+                region_id, progress.artifact, progress.phase,
+            )
 
     plan = _artifact_plan(region, config)
 

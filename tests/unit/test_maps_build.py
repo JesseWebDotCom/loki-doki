@@ -94,6 +94,18 @@ def test_require_binary_found_returns_path(monkeypatch):
     assert build._require_binary("tippecanoe") == "/opt/tools/tippecanoe"
 
 
+def test_heap_mb_for_uses_env_override(monkeypatch):
+    monkeypatch.setattr(build, "_runtime_profile", lambda: "mac")
+    monkeypatch.setenv("LOKIDOKI_PLANETILER_HEAP_MB", "1536")
+    assert build._heap_mb_for("LOKIDOKI_PLANETILER_HEAP_MB") == 1536
+
+
+def test_heap_mb_for_falls_back_on_invalid_env(monkeypatch):
+    monkeypatch.setattr(build, "_runtime_profile", lambda: "linux")
+    monkeypatch.setenv("LOKIDOKI_GRAPHHOPPER_HEAP_MB", "nope")
+    assert build._heap_mb_for("LOKIDOKI_GRAPHHOPPER_HEAP_MB") == 4096
+
+
 # ── _run_subprocess primitives ────────────────────────────────────
 
 def test_run_subprocess_streams_lines_to_callback():
