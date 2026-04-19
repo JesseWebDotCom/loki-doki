@@ -1,23 +1,23 @@
 /**
  * MapsSection — admin panel for picking and installing offline map regions.
  *
- * Two tabs: Street maps, Satellite imagery. Each tab shows the region
- * tree with per-row checkboxes. The running-total pill at the bottom
- * updates live. Install opens a confirm modal; on confirm, PUTs fire
- * for each changed region and a single horizontal progress bar tracks
- * bytes downloaded across the combined plan.
- *
- * Satellite requires street — enforced both here and at the API.
+ * Single-artifact flow: one checkbox per region selects the street
+ * basemap + routing graph (built locally from the Geofabrik PBF).
+ * Install opens a confirm modal; on confirm, PUTs fire for each
+ * changed region and per-row progress chips stream phase + percent
+ * over the SSE endpoint so the admin can see the multi-minute
+ * tippecanoe / valhalla stages make progress.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { HardDrive, AlertTriangle, MapPin, Globe, Image as ImageIcon } from "lucide-react";
+import { HardDrive, AlertTriangle, Globe } from "lucide-react";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import {
   aggregateSize,
   changedRegions,
+  estimateForPhase,
   flattenTree,
   formatMB,
-  validateSelection,
+  labelForPhase,
   type CatalogRegion,
   type SelectionMap,
 } from "./MapsSection.helpers";
@@ -27,11 +27,10 @@ const API = "/api/v1/maps";
 interface RegionStatus {
   region_id: string;
   label: string;
-  config: { region_id: string; street: boolean; satellite: boolean } | null;
+  config: { region_id: string; street: boolean } | null;
   state: {
     region_id: string;
     street_installed: boolean;
-    satellite_installed: boolean;
     valhalla_installed: boolean;
     bytes_on_disk: Record<string, number>;
   };
@@ -53,29 +52,34 @@ const authHeaders = (): HeadersInit => {
     : { "Content-Type": "application/json" };
 };
 
-type Tab = "street" | "satellite";
+// Coarse platform hint for the time-estimate helper. The backend
+// catalog doesn't currently surface the active profile here, so infer
+// from the UA — m-series mac is the only meaningful "fast" bucket and
+// everything else inherits the conservative Pi-5 timing.
+function detectPlatform(): "mac" | "pi" | "unknown" {
+  if (typeof navigator === "undefined") return "unknown";
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes("mac os") || ua.includes("macintosh")) return "mac";
+  return "unknown";
+}
 
 const MapsSection: React.FC = () => {
   const [tree, setTree] = useState<CatalogRegion[]>([]);
   const [installed, setInstalled] = useState<Record<string, RegionStatus>>({});
   const [selection, setSelection] = useState<SelectionMap>({});
-  const [tab, setTab] = useState<Tab>("street");
   const [loading, setLoading] = useState(true);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [progress, setProgress] = useState<Record<string, InstallProgress>>({});
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [distBase, setDistBase] = useState<string>("");
-  const [isStubDist, setIsStubDist] = useState<boolean>(false);
+
+  const platform = useMemo(() => detectPlatform(), []);
 
   const reload = useCallback(async () => {
     try {
-      const [catRes, regionsRes, storageRes] = await Promise.all([
+      const [catRes, regionsRes] = await Promise.all([
         fetch(`${API}/catalog`, { headers: authHeaders() }).then((r) => r.json()),
         fetch(`${API}/regions`, { headers: authHeaders() }).then((r) => r.json()),
-        fetch(`${API}/storage`, { headers: authHeaders() })
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null),
       ]);
       setTree(catRes?.regions ?? []);
       const byId: Record<string, RegionStatus> = {};
@@ -84,15 +88,10 @@ const MapsSection: React.FC = () => {
         byId[row.region_id] = row;
         initial[row.region_id] = {
           street: Boolean(row.config?.street ?? row.state?.street_installed),
-          satellite: Boolean(row.config?.satellite ?? row.state?.satellite_installed),
         };
       }
       setInstalled(byId);
       setSelection(initial);
-      if (storageRes) {
-        setDistBase(String(storageRes.dist_base ?? ""));
-        setIsStubDist(Boolean(storageRes.is_stub_dist));
-      }
     } finally {
       setLoading(false);
     }
@@ -104,13 +103,10 @@ const MapsSection: React.FC = () => {
   const downloadable = useMemo(() => flat.filter((r) => r.downloadable), [flat]);
   const totals = useMemo(() => aggregateSize(downloadable, selection), [downloadable, selection]);
 
-  const toggle = (regionId: string, field: keyof SelectionMap[string]) => {
+  const toggle = (regionId: string) => {
     setSelection((prev) => {
-      const current = prev[regionId] ?? { street: false, satellite: false };
-      const next = { ...current, [field]: !current[field] };
-      // If street is off, satellite must be off too.
-      if (field === "street" && !next.street) next.satellite = false;
-      return { ...prev, [regionId]: next };
+      const current = prev[regionId] ?? { street: false };
+      return { ...prev, [regionId]: { street: !current.street } };
     });
   };
 
@@ -122,7 +118,7 @@ const MapsSection: React.FC = () => {
       for (const r of downloadable) {
         if (r.region_id === "us" || r.region_id.startsWith("us-") ||
             r.region_id === "ca" || r.region_id === "mx") {
-          next[r.region_id] = { ...(next[r.region_id] ?? { satellite: false }), street: true };
+          next[r.region_id] = { street: true };
         }
       }
       return next;
@@ -143,14 +139,14 @@ const MapsSection: React.FC = () => {
           if (kind === "country" && code) {
             for (const r of downloadable) {
               if (r.region_id === code) {
-                next[r.region_id] = { ...(next[r.region_id] ?? { satellite: false }), street: true };
+                next[r.region_id] = { street: true };
               }
             }
           }
           if (kind === "region" && code === "us" && state) {
             const stateId = findUsStateId(downloadable, state);
             if (stateId) {
-              next[stateId] = { ...(next[stateId] ?? { satellite: false }), street: true };
+              next[stateId] = { street: true };
             }
           }
           return next;
@@ -162,17 +158,12 @@ const MapsSection: React.FC = () => {
   const changed = useMemo(() => {
     const before: SelectionMap = {};
     for (const [id, st] of Object.entries(installed)) {
-      before[id] = {
-        street: Boolean(st.config?.street),
-        satellite: Boolean(st.config?.satellite),
-      };
+      before[id] = { street: Boolean(st.config?.street) };
     }
     return changedRegions(before, selection);
   }, [installed, selection]);
 
   const onInstallClick = () => {
-    const bad = validateSelection(selection);
-    if (bad !== null) return;
     if (changed.length === 0) return;
     setConfirmOpen(true);
   };
@@ -182,11 +173,11 @@ const MapsSection: React.FC = () => {
     setErrors({});
     const nextInstalling = new Set(installing);
     for (const regionId of changed) {
-      const sel = selection[regionId] ?? { street: false, satellite: false };
+      const sel = selection[regionId] ?? { street: false };
       const res = await fetch(`${API}/regions/${regionId}`, {
-        method: sel.street || sel.satellite ? "PUT" : "DELETE",
+        method: sel.street ? "PUT" : "DELETE",
         headers: authHeaders(),
-        body: sel.street || sel.satellite ? JSON.stringify(sel) : undefined,
+        body: sel.street ? JSON.stringify(sel) : undefined,
       });
       if (!res.ok) {
         const msg = await res.text().catch(() => "");
@@ -196,7 +187,7 @@ const MapsSection: React.FC = () => {
         }));
         continue;
       }
-      if (sel.street || sel.satellite) {
+      if (sel.street) {
         nextInstalling.add(regionId);
         streamProgress(regionId);
       }
@@ -261,57 +252,13 @@ const MapsSection: React.FC = () => {
     return <div className="text-muted-foreground text-sm p-4">Loading…</div>;
   }
 
-  const showSatellite = tab === "satellite";
-
-  const anyInstalled = Object.values(installed).some(
-    (r) => r.state.street_installed || r.state.satellite_installed,
-  );
-  const showStubBanner = isStubDist && !anyInstalled;
-
   return (
     <div className="space-y-5">
       <p className="text-xs text-muted-foreground">
-        Pick the regions you want usable offline. Maps work without the internet
-        once their region artifacts are installed.
+        Pick the regions you want usable offline. The first install downloads
+        the OpenStreetMap extract for the region and then builds the vector
+        tiles and routing graph on this device — no internet needed after.
       </p>
-
-      {showStubBanner && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-100">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <div className="flex-1 space-y-1">
-            <p>
-              <strong>Install source is the stub default.</strong> The built-in
-              host <code>{distBase}</code> is not live yet, so downloads will
-              fail. Point <code>LOKIDOKI_MAPS_DIST_BASE</code> at your own
-              artifact bucket before installing.
-            </p>
-            <p className="text-[11px] opacity-80">
-              See <code>docs/maps-dist.md</code> for the artifact layout and a
-              one-command build via{" "}
-              <code>scripts/build_offline_bundle.py --maps &lt;region&gt;</code>.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-border/40">
-        <TabButton active={tab === "street"} onClick={() => setTab("street")}
-                   icon={<MapPin size={14} />} label="Street maps" />
-        <TabButton active={tab === "satellite"} onClick={() => setTab("satellite")}
-                   icon={<ImageIcon size={14} />} label="Satellite imagery" />
-      </div>
-
-      {showSatellite && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-100">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <p>
-            <strong>Satellite imagery is 10–20× larger than street maps.</strong>{" "}
-            Pick only the regions you actually need photography for. A state's
-            satellite bundle can exceed 40&nbsp;GB.
-          </p>
-        </div>
-      )}
 
       {/* Presets */}
       <div className="flex flex-wrap gap-2">
@@ -329,14 +276,13 @@ const MapsSection: React.FC = () => {
               key={region.region_id}
               region={region}
               depth={depthOf(region, flat)}
-              tab={tab}
               selection={selection[region.region_id]}
-              onToggleStreet={() => toggle(region.region_id, "street")}
-              onToggleSatellite={() => toggle(region.region_id, "satellite")}
+              onToggle={() => toggle(region.region_id)}
               progress={progress[region.region_id]}
               installing={installing.has(region.region_id)}
               error={errors[region.region_id]}
               onDismissError={() => clearRegionError(region.region_id)}
+              platform={platform}
             />
           ))}
         </div>
@@ -346,10 +292,6 @@ const MapsSection: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/30 bg-card/40 p-3">
         <div className="flex items-center gap-2 text-xs">
           <HardDrive size={13} />
-          <span>Street: <strong>{formatMB(totals.street)}</strong></span>
-          <span className="text-muted-foreground">·</span>
-          <span>Satellite: <strong>{formatMB(totals.satellite)}</strong></span>
-          <span className="text-muted-foreground">·</span>
           <span>Total: <strong>{formatMB(totals.total)}</strong></span>
         </div>
         <button
@@ -364,7 +306,7 @@ const MapsSection: React.FC = () => {
       <ConfirmDialog
         open={confirmOpen}
         title="Install selected regions"
-        description={`This will download ${formatMB(totals.total)} across ${changed.length} region${changed.length === 1 ? "" : "s"}. The download can be cancelled per-region once it starts.`}
+        description={`This will download ${formatMB(totals.total)} of source data across ${changed.length} region${changed.length === 1 ? "" : "s"}, then build tiles + routing on-device. Cancellable per-region once it starts.`}
         confirmLabel="Install"
         onConfirm={runInstall}
         onCancel={() => setConfirmOpen(false)}
@@ -374,19 +316,6 @@ const MapsSection: React.FC = () => {
 };
 
 // ── Subcomponents ────────────────────────────────────────────────
-
-const TabButton: React.FC<{ active: boolean; onClick: () => void; icon: React.ReactNode; label: string }>
-    = ({ active, onClick, icon, label }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center gap-1.5 px-3 py-2 text-xs border-b-2 transition-colors ${
-      active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-    }`}
-  >
-    {icon}
-    {label}
-  </button>
-);
 
 const PresetButton: React.FC<{ onClick: () => void; label: string }>
     = ({ onClick, label }) => (
@@ -402,41 +331,40 @@ const PresetButton: React.FC<{ onClick: () => void; label: string }>
 interface RegionRowProps {
   region: CatalogRegion;
   depth: number;
-  tab: Tab;
-  selection: { street: boolean; satellite: boolean } | undefined;
-  onToggleStreet: () => void;
-  onToggleSatellite: () => void;
+  selection: { street: boolean } | undefined;
+  onToggle: () => void;
   progress: InstallProgress | undefined;
   installing: boolean;
   error?: string;
   onDismissError: () => void;
+  platform: "mac" | "pi" | "unknown";
 }
 
 const RegionRow: React.FC<RegionRowProps> = ({
-  region, depth, tab, selection, onToggleStreet, onToggleSatellite,
-  progress, installing, error, onDismissError,
+  region, depth, selection, onToggle,
+  progress, installing, error, onDismissError, platform,
 }) => {
-  const sel = selection ?? { street: false, satellite: false };
-  const satDisabled = tab === "satellite" && !sel.street;
-  const onSelect = tab === "street" ? onToggleStreet : onToggleSatellite;
-  const checked = tab === "street" ? sel.street : sel.satellite;
-  const size = tab === "street"
-    ? region.sizes_mb.street + region.sizes_mb.valhalla
-    : region.sizes_mb.satellite;
+  const sel = selection ?? { street: false };
+  const size = region.sizes_mb.street + region.sizes_mb.valhalla;
+  const pct = progress && progress.bytes_total > 0
+    ? Math.round((progress.bytes_done / progress.bytes_total) * 100)
+    : null;
+  const phaseLabel = progress ? labelForPhase(progress.phase) : null;
+  const eta = progress
+    ? estimateForPhase(progress.phase, region.sizes_mb.pbf, platform)
+    : "";
 
   return (
     <div
-      className={`flex flex-col gap-1 px-2 py-1.5 text-xs ${
-        satDisabled ? "opacity-40" : ""
-      }`}
+      className="flex flex-col gap-1 px-2 py-1.5 text-xs"
       style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}
     >
       <div className="flex items-center gap-2">
         <input
           type="checkbox"
-          checked={checked}
-          disabled={!region.downloadable || satDisabled || installing}
-          onChange={onSelect}
+          checked={sel.street}
+          disabled={!region.downloadable || installing}
+          onChange={onToggle}
         />
         <span className="flex-1 truncate">{region.label}</span>
         {region.downloadable && (
@@ -445,12 +373,20 @@ const RegionRow: React.FC<RegionRowProps> = ({
         {installing && !progress && (
           <span className="text-[10px] text-muted-foreground">starting…</span>
         )}
-        {progress && progress.bytes_total > 0 && (
+        {progress && phaseLabel && (
           <span className="text-[10px] text-primary">
-            {Math.round((progress.bytes_done / progress.bytes_total) * 100)}%
+            {phaseLabel}{pct !== null ? ` · ${pct}%` : ""}
           </span>
         )}
       </div>
+      {eta && (
+        <div
+          className="text-[10px] text-muted-foreground"
+          style={{ paddingLeft: "1.5rem" }}
+        >
+          {eta}
+        </div>
+      )}
       {error && (
         <div
           role="alert"

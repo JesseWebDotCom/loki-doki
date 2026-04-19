@@ -1,8 +1,6 @@
 /**
  * Resolve the tile source MapLibre should render from.
  *
- * Chunk 3 replaces the stub with a real multi-region resolver:
- *
  *  1. Fetches the installed-region list from the backend.
  *  2. Merges every region's bbox into a coverage polygon.
  *  3. Picks the first region whose bbox contains the current viewport
@@ -22,7 +20,6 @@ export interface InstalledRegion {
   label: string;
   bbox: BBox;
   center: { lat: number; lon: number };
-  has_satellite: boolean;
 }
 
 export type ResolveResult =
@@ -31,7 +28,6 @@ export type ResolveResult =
       region: string;
       label: string;
       streetUrl: string;
-      satUrlTemplate: string | null;
       bbox: BBox;
     }
   | { kind: 'online'; streetUrl: string }
@@ -47,7 +43,7 @@ interface RawRegion {
   label?: string;
   bbox?: BBox;
   center?: { lat: number; lon: number };
-  state?: { satellite_installed?: boolean; street_installed?: boolean };
+  state?: { street_installed?: boolean };
 }
 
 async function fetchInstalledRegions(): Promise<InstalledRegion[]> {
@@ -59,8 +55,6 @@ async function fetchInstalledRegions(): Promise<InstalledRegion[]> {
       .filter(
         (r): r is RawRegion & Required<Pick<RawRegion, 'bbox' | 'center'>> =>
           Array.isArray(r.bbox) && r.bbox.length === 4 && r.center != null &&
-          // Only surface regions whose vector basemap is actually on disk —
-          // a partial install (satellite only) should not claim coverage.
           Boolean(r.state?.street_installed),
       )
       .map((r) => ({
@@ -68,7 +62,6 @@ async function fetchInstalledRegions(): Promise<InstalledRegion[]> {
         label: r.label ?? r.region_id,
         bbox: r.bbox,
         center: r.center,
-        has_satellite: Boolean(r.state?.satellite_installed),
       }));
   } catch {
     return [];
@@ -182,9 +175,6 @@ export async function resolveTileSource(
       region: match.region_id,
       label: match.label,
       streetUrl: `pmtiles:///api/v1/maps/tiles/${match.region_id}/streets.pmtiles`,
-      satUrlTemplate: match.has_satellite
-        ? `/api/v1/maps/tiles/${match.region_id}/sat/{z}/{x}/{y}.jpg`
-        : null,
       bbox: match.bbox,
     };
   }

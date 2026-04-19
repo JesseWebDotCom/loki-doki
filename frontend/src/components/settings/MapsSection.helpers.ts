@@ -1,7 +1,8 @@
 /**
  * Pure helpers for MapsSection — kept side-effect-free so vitest can
  * exercise them without jsdom or mocks. Covers tree flattening,
- * aggregate-size math, and the satellite-requires-street validator.
+ * aggregate-size math, selection diffing, and install-phase label /
+ * time-estimate helpers.
  */
 
 export interface CatalogRegion {
@@ -12,7 +13,6 @@ export interface CatalogRegion {
   bbox: [number, number, number, number];
   sizes_mb: {
     street: number;
-    satellite: number;
     valhalla: number;
     pbf: number;
   };
@@ -23,7 +23,6 @@ export interface CatalogRegion {
 
 export interface RegionSelection {
   street: boolean;
-  satellite: boolean;
 }
 
 export type SelectionMap = Record<string, RegionSelection>;
@@ -51,27 +50,14 @@ export function flattenTree(roots: CatalogRegion[]): CatalogRegion[] {
 export function aggregateSize(
   regions: CatalogRegion[],
   selection: SelectionMap,
-): { street: number; satellite: number; total: number } {
+): { street: number; total: number } {
   let street = 0;
-  let satellite = 0;
   for (const region of regions) {
     const s = selection[region.region_id];
     if (!s) continue;
     if (s.street) street += region.sizes_mb.street + region.sizes_mb.valhalla;
-    if (s.satellite) satellite += region.sizes_mb.satellite;
   }
-  return { street, satellite, total: street + satellite };
-}
-
-/**
- * Returns the first region_id that violates satellite-requires-street,
- * or ``null`` if the selection is internally consistent.
- */
-export function validateSelection(selection: SelectionMap): string | null {
-  for (const [regionId, sel] of Object.entries(selection)) {
-    if (sel.satellite && !sel.street) return regionId;
-  }
-  return null;
+  return { street, total: street };
 }
 
 /**
@@ -86,8 +72,7 @@ export function formatMB(mb: number): string {
 
 /**
  * Diff two selection maps and return the region ids whose ``street``
- * or ``satellite`` flag changed. Used to decide which PUTs to fire
- * on install.
+ * flag changed. Used to decide which PUTs to fire on install.
  */
 export function changedRegions(
   before: SelectionMap,
@@ -96,9 +81,59 @@ export function changedRegions(
   const ids = new Set([...Object.keys(before), ...Object.keys(after)]);
   const out: string[] = [];
   for (const id of ids) {
-    const a = before[id] ?? { street: false, satellite: false };
-    const b = after[id] ?? { street: false, satellite: false };
-    if (a.street !== b.street || a.satellite !== b.satellite) out.push(id);
+    const a = before[id] ?? { street: false };
+    const b = after[id] ?? { street: false };
+    if (a.street !== b.street) out.push(id);
   }
   return out;
+}
+
+/**
+ * Human label for the install-pipeline phase emitted by the backend.
+ * Falls through to the raw phase string when unknown so the UI still
+ * surfaces *something* meaningful even if the backend adds a phase.
+ */
+export function labelForPhase(phase: string): string {
+  switch (phase) {
+    case "downloading_pbf":
+      return "Downloading OSM data";
+    case "building_geocoder":
+      return "Indexing addresses";
+    case "building_streets":
+      return "Building vector tiles";
+    case "building_routing":
+      return "Building road graph";
+    case "complete":
+      return "Done";
+    default:
+      return phase;
+  }
+}
+
+/**
+ * Rough human-readable time estimate for the long tippecanoe /
+ * valhalla stages. Values are the Pi-5 timings from
+ * ``docs/roadmap/maps-local-build/PLAN.md``'s footprint table —
+ * conservative by design so users don't abandon mid-build.
+ *
+ * ``platform = "mac"`` multiplies by 0.3 to reflect the ~3× speedup
+ * on m-series silicon; anything else assumes the worst-case Pi timing.
+ */
+export function estimateForPhase(
+  phase: string,
+  pbfSizeMb: number,
+  platform: "mac" | "pi" | "unknown" = "unknown",
+): string {
+  const scale = platform === "mac" ? 0.3 : 1;
+  let minutes = 0;
+  if (phase === "building_streets") {
+    // ~5 min for a small state (~25 MB PBF), ~20 min for ~300 MB.
+    minutes = Math.max(2, Math.round((pbfSizeMb / 25) * 5));
+  } else if (phase === "building_routing") {
+    minutes = Math.max(3, Math.round((pbfSizeMb / 25) * 7));
+  } else {
+    return "";
+  }
+  const scaled = Math.max(1, Math.round(minutes * scale));
+  return `~${scaled} min remaining`;
 }

@@ -10,13 +10,11 @@ import {
 const region = (
   id: string,
   bbox: BBox,
-  opts: { satellite?: boolean } = {},
 ): InstalledRegion => ({
   region_id: id,
   label: id.toUpperCase(),
   bbox,
   center: { lat: (bbox[1] + bbox[3]) / 2, lon: (bbox[0] + bbox[2]) / 2 },
-  has_satellite: opts.satellite ?? false,
 });
 
 const CT: BBox = [-73.73, 40.95, -71.78, 42.05];
@@ -95,18 +93,6 @@ describe("resolveTileSource", () => {
         "pmtiles:///api/v1/maps/tiles/us-ct/streets.pmtiles",
       );
     }
-  });
-
-  it("includes a satellite url template when the region has imagery", async () => {
-    const ct = region("us-ct", CT, { satellite: true });
-    const result = await resolveTileSource(
-      { lng: -72.7, lat: 41.6 },
-      [ct],
-    );
-    if (result.kind !== "local") throw new Error("expected local");
-    expect(result.satUrlTemplate).toBe(
-      "/api/v1/maps/tiles/us-ct/sat/{z}/{x}/{y}.jpg",
-    );
   });
 
   it("falls back to the online Protomaps demo when outside coverage and online", async () => {

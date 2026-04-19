@@ -1,22 +1,17 @@
 /**
  * Protomaps dark basemap style for MapLibre GL.
  *
- * Chunk 3 extends the Chunk 1 vector-only style with an optional raster
- * satellite source and three rendering modes:
- *
- *  - ``map``       — the Protomaps vector basemap (default).
- *  - ``satellite`` — Esri-compatible raster imagery only.
- *  - ``hybrid``    — satellite imagery with place labels + boundary
- *                    lines from the vector style painted on top.
+ * Vector-only — chunk 5 will re-introduce a second mode that renders
+ * the 3D buildings layer from the vector `building` features already
+ * in the PMTiles we ship.
  *
  * The ``tileUrl`` string must already carry the ``pmtiles://`` prefix —
  * the caller picks between the online Protomaps demo and a locally
- * served region file. Satellite templates follow MapLibre's
- * ``{z}/{x}/{y}`` convention and are passed through verbatim.
+ * served region file.
  */
 import type maplibregl from 'maplibre-gl';
 
-export type LayerMode = 'map' | 'satellite' | 'hybrid';
+export type LayerMode = 'map';
 
 // Onyx palette (mirrors the CSS tokens --elevation-1..4 and the
 // purple accent). Kept as string literals here instead of reading from
@@ -33,13 +28,10 @@ const COLOR = {
   boundary: '#4a3a6a',    // purple accent for admin borders
   place_label: '#d7dae3',
   place_label_halo: '#14161c',
-  place_label_halo_bright: '#000000', // stronger halo over imagery
 } as const;
 
 export interface DarkStyleOptions {
   mode?: LayerMode;
-  /** MapLibre raster URL template, e.g. ``/api/v1/maps/tiles/us-ct/sat/{z}/{x}/{y}.jpg``. */
-  satelliteUrlTemplate?: string | null;
 }
 
 // Layer-builder helpers ───────────────────────────────────────────
@@ -134,13 +126,6 @@ const vectorLayers = (
   },
 ];
 
-const satelliteRasterLayer = (): maplibregl.LayerSpecification => ({
-  id: 'satellite',
-  type: 'raster',
-  source: 'satellite',
-  paint: { 'raster-opacity': 1.0 },
-});
-
 // ── Public builder ────────────────────────────────────────────────
 
 /**
@@ -148,17 +133,11 @@ const satelliteRasterLayer = (): maplibregl.LayerSpecification => ({
  *
  * @param tileUrl The pmtiles URL to use for the vector source. May be
  *                the online Protomaps demo or a backend sendfile route.
- * @param opts    Mode + optional satellite template. When omitted the
- *                style matches the Chunk-1 vector-only output.
  */
 export function buildDarkStyle(
   tileUrl: string,
-  opts: DarkStyleOptions = {},
+  _opts: DarkStyleOptions = {},
 ): maplibregl.StyleSpecification {
-  const mode: LayerMode = opts.mode ?? 'map';
-  const hasSatellite = Boolean(opts.satelliteUrlTemplate);
-  const effectiveMode: LayerMode = hasSatellite ? mode : 'map';
-
   const sources: maplibregl.StyleSpecification['sources'] = {
     protomaps: {
       type: 'vector',
@@ -168,42 +147,14 @@ export function buildDarkStyle(
     },
   };
 
-  if (hasSatellite) {
-    sources.satellite = {
-      type: 'raster',
-      tiles: [opts.satelliteUrlTemplate as string],
-      tileSize: 256,
-      attribution: '© Esri World Imagery',
-    };
-  }
-
   const layers: maplibregl.LayerSpecification[] = [
     {
       id: 'bg',
       type: 'background',
-      paint: {
-        'background-color':
-          effectiveMode === 'satellite' || effectiveMode === 'hybrid'
-            ? '#000'
-            : COLOR.earth,
-      },
+      paint: { 'background-color': COLOR.earth },
     },
+    ...vectorLayers(COLOR.place_label_halo),
   ];
-
-  if (effectiveMode === 'satellite') {
-    layers.push(satelliteRasterLayer());
-  } else if (effectiveMode === 'hybrid') {
-    layers.push(satelliteRasterLayer());
-    // Only the subset of vector layers that read well on top of
-    // imagery — boundaries + place labels. Full road/earth fills would
-    // obscure the photography.
-    const overlay = vectorLayers(COLOR.place_label_halo_bright).filter(
-      (l) => l.id === 'boundaries' || l.id === 'places',
-    );
-    layers.push(...overlay);
-  } else {
-    layers.push(...vectorLayers(COLOR.place_label_halo));
-  }
 
   return {
     version: 8,

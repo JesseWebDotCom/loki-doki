@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateSize,
   changedRegions,
+  estimateForPhase,
   flattenTree,
   formatMB,
-  validateSelection,
+  labelForPhase,
   type CatalogRegion,
   type SelectionMap,
 } from "./MapsSection.helpers";
@@ -13,8 +14,8 @@ const region = (
   id: string,
   parent: string | null,
   street = 0,
-  satellite = 0,
   valhalla = 0,
+  pbf = 0,
   children: CatalogRegion[] = [],
 ): CatalogRegion => ({
   region_id: id,
@@ -22,7 +23,7 @@ const region = (
   parent_id: parent,
   center: { lat: 0, lon: 0 },
   bbox: [-1, -1, 1, 1],
-  sizes_mb: { street, satellite, valhalla, pbf: 0 },
+  sizes_mb: { street, valhalla, pbf },
   downloadable: true,
   pi_local_build_ok: true,
   children,
@@ -42,55 +43,30 @@ describe("flattenTree", () => {
 
 describe("aggregateSize", () => {
   it("sums streets + valhalla for street-selected regions", () => {
-    const ct = region("us-ct", "us", 80, 1600, 40);
-    const ri = region("us-ri", "us", 30, 600, 15);
+    const ct = region("us-ct", "us", 80, 40);
+    const ri = region("us-ri", "us", 30, 15);
     const selection: SelectionMap = {
-      "us-ct": { street: true, satellite: false },
-      "us-ri": { street: true, satellite: true },
+      "us-ct": { street: true },
+      "us-ri": { street: true },
     };
     const totals = aggregateSize([ct, ri], selection);
     expect(totals.street).toBe(80 + 40 + 30 + 15);
-    expect(totals.satellite).toBe(600);
-    expect(totals.total).toBe(totals.street + totals.satellite);
+    expect(totals.total).toBe(totals.street);
   });
 
   it("handles nested selections via flattenTree", () => {
-    const ct = region("us-ct", "us", 80, 1600, 40);
-    const us = region("us", "na", 2000, 40000, 1000, [ct]);
+    const ct = region("us-ct", "us", 80, 40);
+    const us = region("us", "na", 2000, 1000, 0, [ct]);
     const selection: SelectionMap = {
-      "us-ct": { street: true, satellite: false },
+      "us-ct": { street: true },
     };
     const totals = aggregateSize(flattenTree([us]), selection);
     expect(totals.street).toBe(80 + 40);
-    expect(totals.satellite).toBe(0);
   });
 
   it("returns zero when nothing is selected", () => {
-    const ct = region("us-ct", "us", 80, 1600, 40);
-    expect(aggregateSize([ct], {})).toEqual({ street: 0, satellite: 0, total: 0 });
-  });
-});
-
-describe("validateSelection", () => {
-  it("rejects satellite-only selections", () => {
-    const selection: SelectionMap = {
-      "us-ct": { street: false, satellite: true },
-    };
-    expect(validateSelection(selection)).toBe("us-ct");
-  });
-
-  it("accepts satellite when street is also selected", () => {
-    const selection: SelectionMap = {
-      "us-ct": { street: true, satellite: true },
-    };
-    expect(validateSelection(selection)).toBeNull();
-  });
-
-  it("ignores fully-unselected rows", () => {
-    const selection: SelectionMap = {
-      "us-ct": { street: false, satellite: false },
-    };
-    expect(validateSelection(selection)).toBeNull();
+    const ct = region("us-ct", "us", 80, 40);
+    expect(aggregateSize([ct], {})).toEqual({ street: 0, total: 0 });
   });
 });
 
@@ -103,16 +79,49 @@ describe("formatMB", () => {
 });
 
 describe("changedRegions", () => {
-  it("returns only regions whose flags changed", () => {
+  it("returns only regions whose street flag changed", () => {
     const before: SelectionMap = {
-      "us-ct": { street: true, satellite: false },
-      "us-ri": { street: false, satellite: false },
+      "us-ct": { street: true },
+      "us-ri": { street: false },
     };
     const after: SelectionMap = {
-      "us-ct": { street: true, satellite: true },
-      "us-ri": { street: false, satellite: false },
-      "us-ca": { street: true, satellite: false },
+      "us-ct": { street: false },
+      "us-ri": { street: false },
+      "us-ca": { street: true },
     };
     expect(changedRegions(before, after).sort()).toEqual(["us-ca", "us-ct"]);
+  });
+});
+
+describe("labelForPhase", () => {
+  it("maps each known install phase to a human label", () => {
+    expect(labelForPhase("downloading_pbf")).toBe("Downloading OSM data");
+    expect(labelForPhase("building_geocoder")).toBe("Indexing addresses");
+    expect(labelForPhase("building_streets")).toBe("Building vector tiles");
+    expect(labelForPhase("building_routing")).toBe("Building road graph");
+    expect(labelForPhase("complete")).toBe("Done");
+  });
+
+  it("falls through to the raw phase when unknown", () => {
+    expect(labelForPhase("mystery")).toBe("mystery");
+  });
+});
+
+describe("estimateForPhase", () => {
+  it("returns a '~N min remaining' string for build_streets on Pi", () => {
+    expect(estimateForPhase("building_streets", 25, "pi")).toBe("~5 min remaining");
+  });
+
+  it("scales down ~3× for mac", () => {
+    // Pi gives ~35 min for a 175 MB pbf; mac should land near ~11 min.
+    const pi = estimateForPhase("building_streets", 175, "pi");
+    const mac = estimateForPhase("building_streets", 175, "mac");
+    expect(pi).toBe("~35 min remaining");
+    expect(mac).toBe("~11 min remaining");
+  });
+
+  it("returns empty string for phases without an estimate", () => {
+    expect(estimateForPhase("downloading_pbf", 25, "pi")).toBe("");
+    expect(estimateForPhase("complete", 25, "pi")).toBe("");
   });
 });

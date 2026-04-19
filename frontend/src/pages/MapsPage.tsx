@@ -28,14 +28,13 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
 import { Download, Globe, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { buildDarkStyle, type LayerMode } from './maps/style-dark';
+import { buildDarkStyle } from './maps/style-dark';
 import {
   fetchInstalledRegions,
   resolveTileSource,
   type InstalledRegion,
   type ResolveResult,
 } from './maps/tile-source';
-import LayerModeChip from './maps/LayerModeChip';
 import OutOfCoverageBanner from './maps/OutOfCoverageBanner';
 import LeftRail from './maps/LeftRail';
 import SearchPanel from './maps/panels/SearchPanel';
@@ -146,8 +145,7 @@ const MapsPage: React.FC = () => {
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
 
-  // Layer mode + coverage resolution — carried over from Chunk 3.
-  const [mode, setMode] = useState<LayerMode>('map');
+  // Coverage resolution — carried over from Chunk 3.
   const [regions, setRegions] = useState<InstalledRegion[]>([]);
   const [regionsLoaded, setRegionsLoaded] = useState(false);
   const [resolution, setResolution] = useState<ResolveResult | null>(null);
@@ -156,11 +154,6 @@ const MapsPage: React.FC = () => {
   // "Use online preview anyway" dismissal — session-scoped so the
   // empty state returns on next page load until a region is installed.
   const [emptyAck, setEmptyAck] = useState(false);
-
-  const satelliteAvailable = useMemo(
-    () => regions.some((r) => r.has_satellite),
-    [regions],
-  );
 
   // ── Initialize the map ───────────────────────────────────────
   useEffect(() => {
@@ -282,13 +275,8 @@ const MapsPage: React.FC = () => {
       return;
     }
 
-    const streetUrl = resolution.streetUrl;
-    const satUrlTemplate =
-      resolution.kind === 'local' ? resolution.satUrlTemplate : null;
-    map.setStyle(
-      buildDarkStyle(streetUrl, { mode, satelliteUrlTemplate: satUrlTemplate }),
-    );
-  }, [mode, resolution]);
+    map.setStyle(buildDarkStyle(resolution.streetUrl));
+  }, [resolution]);
 
   // ── Place selection ──────────────────────────────────────────
   const pinAndFly = useCallback((place: PlaceResult) => {
@@ -515,15 +503,6 @@ const MapsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Top-right layer chip */}
-          <div className="absolute right-4 top-32 z-10 pointer-events-auto">
-            <LayerModeChip
-              mode={mode}
-              onChange={setMode}
-              satelliteAvailable={satelliteAvailable}
-            />
-          </div>
-
           {/* Out-of-coverage banner */}
           {resolution?.kind === 'none' && (
             <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 pointer-events-none">
@@ -593,12 +572,8 @@ const NoRegionsEmptyState: React.FC<{ onContinue: () => void }> = ({
         </button>
       </div>
       <p className="text-[11px] text-muted-foreground/80">
-        Self-hosting? Point{' '}
-        <code className="rounded bg-card px-1 py-0.5">
-          LOKIDOKI_MAPS_DIST_BASE
-        </code>{' '}
-        at your artifact bucket. See{' '}
-        <code className="rounded bg-card px-1 py-0.5">docs/maps-dist.md</code>.
+        First install downloads ~25 MB for a small state, then builds tiles
+        on-device (2–8 min). No internet needed after.
       </p>
     </div>
   </div>
