@@ -76,7 +76,7 @@ to a later chunk.
 
 | # | Chunk                                                                           | Status  | Commit |
 |---|---------------------------------------------------------------------------------|---------|--------|
-| 1 | [Local glyph PBFs + FastAPI route + style swap](chunk-1-glyphs.md)              | pending |        |
+| 1 | [Local glyph PBFs + FastAPI route + style swap](chunk-1-glyphs.md)              | done    | a00809e |
 | 2 | [planetiler offline data sources + drop --download](chunk-2-planetiler-data.md) | pending |        |
 
 ---
