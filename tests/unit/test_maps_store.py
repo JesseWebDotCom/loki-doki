@@ -1,10 +1,10 @@
-"""Store + install-pipeline tests — offline-maps Chunk 2, maps-local-build Chunk 2.
+"""Store + install-pipeline tests — offline-maps Chunk 2, maps-local-build Chunk 3.
 
 Downloads are monkey-patched with an in-process stub that writes a
 fixed payload, so these tests never hit the network and run quickly.
-After the maps-local-build switch the install pipeline is PBF-only —
-every other artefact is produced by the local build steps added in
-later chunks.
+``install_region`` now runs the full four-phase local build pipeline
+when ``need_pbf=True`` — the download-only path (``need_pbf=False``)
+stays for cheap tests that only care about the network stage.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import hashlib
 import pytest
 
 from lokidoki.maps import catalog, store
-from lokidoki.maps.models import MapArchiveConfig
+from lokidoki.maps.models import MapArchiveConfig, MapInstallProgress
 
 
 @pytest.fixture(autouse=True)
@@ -185,3 +185,231 @@ def test_cleanup_stale_tmp():
     assert not (region_dir / ".tmp").exists()
     # Installed artifacts must never be touched.
     assert (region_dir / "region.osm.pbf").exists()
+
+
+# ── Chunk 3: full local-build pipeline ───────────────────────────
+
+def _drain(queue: asyncio.Queue) -> list[MapInstallProgress]:
+    events: list[MapInstallProgress] = []
+    while not queue.empty():
+        events.append(queue.get_nowait())
+    return events
+
+
+def _stub_geocoder(monkeypatch) -> None:
+    """Replace the pyosmium-backed geocoder build with a file-dropping stub.
+
+    The real :func:`lokidoki.maps.geocode.fts_index.build_index` requires
+    a parseable ``.osm.pbf`` and a working pyosmium install. For store-
+    level tests we only care that the step runs and records a file size.
+    """
+    from lokidoki.maps.geocode.fts_index import IndexStats
+
+    def _fake(pbf_path, db_path, region_id):
+        db_path.write_bytes(b"fake-geocoder-db")
+        return IndexStats(addresses=1, settlements=2, postcodes=3)
+
+    monkeypatch.setattr(
+        "lokidoki.maps.geocode.fts_index.build_index", _fake,
+    )
+
+
+def _stub_build_steps(monkeypatch) -> dict:
+    """Replace ``run_tippecanoe`` and ``run_valhalla`` with file-drop stubs.
+
+    Returns a dict the caller can inspect to assert the stubs were
+    actually hit (a regression in the store plumbing would silently
+    skip them otherwise).
+    """
+    calls = {"tippecanoe": 0, "valhalla": 0}
+
+    async def _fake_tippecanoe(pbf, out_pmtiles, *, region_id, emit, cancel_event):
+        calls["tippecanoe"] += 1
+        out_pmtiles.write_bytes(b"fake-pmtiles")
+        await emit(MapInstallProgress(
+            region_id=region_id, artifact="street",
+            bytes_done=0, bytes_total=100, phase="building_streets",
+        ))
+        await emit(MapInstallProgress(
+            region_id=region_id, artifact="street",
+            bytes_done=100, bytes_total=100, phase="ready",
+        ))
+
+    async def _fake_valhalla(pbf, out_dir, *, region_id, emit, cancel_event):
+        calls["valhalla"] += 1
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "tile-0.gph").write_bytes(b"fake-tile")
+        await emit(MapInstallProgress(
+            region_id=region_id, artifact="valhalla",
+            bytes_done=0, bytes_total=10, phase="building_routing",
+        ))
+        await emit(MapInstallProgress(
+            region_id=region_id, artifact="valhalla",
+            bytes_done=10, bytes_total=10, phase="ready",
+        ))
+
+    monkeypatch.setattr(store._build, "run_tippecanoe", _fake_tippecanoe)
+    monkeypatch.setattr(store._build, "run_valhalla", _fake_valhalla)
+    return calls
+
+
+def test_install_region_runs_local_build(monkeypatch):
+    """The four phases fire in order and every artefact flag flips on success."""
+    _patch_download(monkeypatch, payload=b"fake-pbf")
+    _stub_geocoder(monkeypatch)
+    calls = _stub_build_steps(monkeypatch)
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        return await store.install_region(
+            "us-ct",
+            MapArchiveConfig(region_id="us-ct", street=True),
+            queue=queue,
+            need_pbf=True,
+        )
+
+    state = asyncio.run(_run())
+    events = _drain(queue)
+    phases = [e.phase for e in events]
+
+    # All four top-level phases are visible in the event stream.
+    assert "downloading" in phases
+    assert "indexing" in phases
+    assert "building_streets" in phases
+    assert "building_routing" in phases
+    # The install ends with a terminal "complete" event (artifact="done").
+    assert events[-1].artifact == "done"
+    assert events[-1].phase == "complete"
+
+    # Stub build steps were actually invoked.
+    assert calls == {"tippecanoe": 1, "valhalla": 1}
+
+    # State reflects every artifact the pipeline produced.
+    assert state.geocoder_installed is True
+    assert state.street_installed is True
+    assert state.valhalla_installed is True
+    # PBF is dropped post-build by default (keeps disk bounded).
+    assert state.pbf_installed is False
+
+    region_dir = store.region_dir("us-ct")
+    assert (region_dir / "streets.pmtiles").exists()
+    assert (region_dir / "valhalla").is_dir()
+    assert not (region_dir / "region.osm.pbf").exists()
+
+
+def test_install_region_tippecanoe_failure_cleans_partial(monkeypatch):
+    """A tippecanoe failure surfaces as an error event and leaves no half-file."""
+    _patch_download(monkeypatch, payload=b"fake-pbf")
+    _stub_geocoder(monkeypatch)
+
+    async def _boom(pbf, out_pmtiles, *, region_id, emit, cancel_event):
+        # The real wrapper would clean its own .partial file; simulate
+        # that and raise the same way.
+        raise store._build.BuildFailed("tippecanoe failed (exit 3): oom-ish")
+
+    async def _unreachable(*args, **kwargs):
+        raise AssertionError("valhalla must not run after a streets failure")
+
+    monkeypatch.setattr(store._build, "run_tippecanoe", _boom)
+    monkeypatch.setattr(store._build, "run_valhalla", _unreachable)
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        await store.install_region(
+            "us-ri",
+            MapArchiveConfig(region_id="us-ri", street=True),
+            queue=queue,
+            need_pbf=True,
+        )
+
+    with pytest.raises(store._build.BuildFailed):
+        asyncio.run(_run())
+
+    events = _drain(queue)
+    terminal = events[-1]
+    assert terminal.artifact == "error"
+    assert terminal.phase == "complete"
+    assert "tippecanoe" in (terminal.error or "")
+
+    region_dir = store.region_dir("us-ri")
+    assert not (region_dir / "streets.pmtiles").exists()
+    assert not (region_dir / "valhalla").exists()
+
+
+def test_install_region_toolchain_missing_surfaces_code(monkeypatch):
+    """Missing binary maps onto the ``toolchain_missing`` error code."""
+    _patch_download(monkeypatch, payload=b"fake-pbf")
+    _stub_geocoder(monkeypatch)
+
+    async def _missing(*args, **kwargs):
+        raise store._build.ToolchainMissing(
+            "tippecanoe not on PATH — re-run ./run.sh --maps-tools-only",
+        )
+
+    monkeypatch.setattr(store._build, "run_tippecanoe", _missing)
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        await store.install_region(
+            "us-de",
+            MapArchiveConfig(region_id="us-de", street=True),
+            queue=queue,
+            need_pbf=True,
+        )
+
+    with pytest.raises(store._build.ToolchainMissing):
+        asyncio.run(_run())
+
+    events = _drain(queue)
+    assert events[-1].error == "toolchain_missing"
+
+
+def test_install_region_oom_surfaces_code(monkeypatch):
+    """OOM errors get the dedicated ``out_of_memory`` code."""
+    _patch_download(monkeypatch, payload=b"fake-pbf")
+    _stub_geocoder(monkeypatch)
+
+    async def _oom(*args, **kwargs):
+        raise store._build.BuildOutOfMemory("killed by OS")
+
+    monkeypatch.setattr(store._build, "run_tippecanoe", _oom)
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        await store.install_region(
+            "us-nh",
+            MapArchiveConfig(region_id="us-nh", street=True),
+            queue=queue,
+            need_pbf=True,
+        )
+
+    with pytest.raises(store._build.BuildOutOfMemory):
+        asyncio.run(_run())
+
+    events = _drain(queue)
+    assert events[-1].error == "out_of_memory"
+
+
+def test_install_region_keeps_pbf_when_env_set(monkeypatch):
+    """``LOKIDOKI_KEEP_PBF=1`` preserves the source file for rebuilds."""
+    monkeypatch.setenv("LOKIDOKI_KEEP_PBF", "1")
+    _patch_download(monkeypatch, payload=b"fake-pbf")
+    _stub_geocoder(monkeypatch)
+    _stub_build_steps(monkeypatch)
+
+    async def _run():
+        return await store.install_region(
+            "us-vt",
+            MapArchiveConfig(region_id="us-vt", street=True),
+            need_pbf=True,
+        )
+
+    state = asyncio.run(_run())
+
+    region_dir = store.region_dir("us-vt")
+    assert (region_dir / "region.osm.pbf").exists()
+    assert state.pbf_installed is True

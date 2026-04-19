@@ -5,13 +5,23 @@ Two JSON files under the data directory:
   - ``maps_config.json`` — per-region admin selection.
   - ``maps_state.json``  — per-region on-disk reality (artifact flags + bytes).
 
-``install_region`` is an async coroutine that downloads the source
-OpenStreetMap PBF for a region (the only real network download), with
-sha256 verification when the catalog carries one, and atomically
-renames it into ``data/maps/<region_id>/``. Progress is published
-through an :class:`asyncio.Queue` the SSE endpoint drains. Later
-chunks layer local builds (PMTiles, routing graph, FTS geocoder) on
-top of the downloaded PBF.
+``install_region`` is an async coroutine that runs the full four-phase
+local build pipeline for a region:
+
+  1. ``downloading_pbf``    — stream the Geofabrik ``.osm.pbf`` onto disk.
+  2. ``building_geocoder``  — build the FTS5 address index (runs first
+     after the download so search is usable while the heavier builds
+     are still going).
+  3. ``building_streets``   — shell out to ``tippecanoe`` and produce
+     ``streets.pmtiles``.
+  4. ``building_routing``   — shell out to ``valhalla_build_tiles`` and
+     produce the Valhalla tile tree.
+
+Every phase emits :class:`MapInstallProgress` events on an
+:class:`asyncio.Queue` drained by the SSE endpoint, every phase is
+cancellable, and any partial on-disk state is cleaned up on failure so
+the final ``data/maps/<region>/`` tree never contains a half-built
+artifact.
 
 Follows the shape of :mod:`lokidoki.archives.store` — different content,
 same lightweight JSON-file pattern.
@@ -31,6 +41,7 @@ from typing import Iterable
 
 import httpx
 
+from . import build as _build
 from .catalog import MapRegion, get_region
 from .models import MapArchiveConfig, MapInstallProgress, MapRegionState
 
@@ -40,15 +51,15 @@ _DATA_DIR: Path | None = None
 _CHUNK_SIZE = 1024 * 1024  # 1 MB download chunks
 _USER_AGENT = "LokiDoki/0.1 (offline-maps)"
 
-# After the FTS5 geocoder index is built, the source .osm.pbf is
-# multiple times larger than the index we just produced. Delete it by
-# default to reclaim disk (users); keep it with LOKIDOKI_KEEP_PBF=1 so
-# developers can rebuild without re-downloading.
+# After the full local build lands, the source .osm.pbf is many times
+# larger than the artifacts we produced from it. Delete it by default
+# to reclaim disk; keep it with LOKIDOKI_KEEP_PBF=1 so developers can
+# rebuild without re-downloading.
 _KEEP_PBF_ENV = "LOKIDOKI_KEEP_PBF"
 
 
 def _keep_pbf() -> bool:
-    """Return True if the source .osm.pbf should be retained post-index."""
+    """Return True if the source .osm.pbf should be retained post-build."""
     return os.environ.get(_KEEP_PBF_ENV, "").strip() in {"1", "true", "yes"}
 
 
@@ -208,6 +219,8 @@ def _final_path_for(region_id: str, artifact: str) -> Path:
     d = region_dir(region_id)
     return {
         "pbf": d / "region.osm.pbf",
+        "street": d / "streets.pmtiles",
+        "valhalla": d / "valhalla",
     }[artifact]
 
 
@@ -293,7 +306,9 @@ async def _build_geocoder_step(
 
     Runs in a thread so the pyosmium stream does not block the event loop.
     Emits ``{artifact: "geocoder", phase: "indexing"|"ready"}`` events so
-    the admin-panel SSE stream surfaces progress.
+    the admin-panel SSE stream surfaces progress. The PBF is left on
+    disk for subsequent phases; :func:`install_region` drops it at the
+    end of the pipeline.
     """
     from .geocode.fts_index import build_index, region_db_path
 
@@ -318,14 +333,10 @@ async def _build_geocoder_step(
     loop = asyncio.get_event_loop()
     try:
         total_rows = await loop.run_in_executor(None, _run)
-    except Exception as exc:  # noqa: BLE001 — surfaced via SSE
+    except Exception:
         log.exception("geocoder build failed for %s", region_id)
         if db_path.exists():
             db_path.unlink()
-        await emit(MapInstallProgress(
-            region_id=region_id, artifact="geocoder",
-            phase="complete", error=str(exc),
-        ))
         raise
 
     if cancel_event.is_set():
@@ -336,17 +347,108 @@ async def _build_geocoder_step(
     state.geocoder_installed = True
     state.bytes_on_disk["geocoder"] = db_path.stat().st_size
 
-    # Optional disk cleanup — default is to reclaim the PBF.
-    if not _keep_pbf() and pbf_path.exists():
-        pbf_path.unlink()
-        state.pbf_installed = False
-        state.bytes_on_disk.pop("pbf", None)
-
     await emit(MapInstallProgress(
         region_id=region_id, artifact="geocoder",
         bytes_done=total_rows, bytes_total=total_rows,
         phase="ready",
     ))
+
+
+async def _build_streets_step(
+    region_id: str,
+    state: MapRegionState,
+    emit,
+    cancel_event: asyncio.Event,
+) -> None:
+    """Run tippecanoe to produce ``streets.pmtiles`` from the PBF on disk.
+
+    On success, flips ``state.street_installed`` and records the file
+    size. On failure / cancellation, :func:`lokidoki.maps.build.run_tippecanoe`
+    cleans its scratch file; this helper re-raises so the outer
+    try/except in :func:`install_region` can emit the terminal event.
+    """
+    pbf_path = _final_path_for(region_id, "pbf")
+    out = _final_path_for(region_id, "street")
+    await _build.run_tippecanoe(
+        pbf_path, out,
+        region_id=region_id, emit=emit, cancel_event=cancel_event,
+    )
+    state.street_installed = True
+    state.bytes_on_disk["street"] = out.stat().st_size
+
+
+async def _build_valhalla_step(
+    region_id: str,
+    state: MapRegionState,
+    emit,
+    cancel_event: asyncio.Event,
+) -> None:
+    """Run ``valhalla_build_tiles`` to produce the routing tile tree.
+
+    On success, flips ``state.valhalla_installed`` and records the
+    recursive byte size of the tile directory.
+    """
+    pbf_path = _final_path_for(region_id, "pbf")
+    out_dir = _final_path_for(region_id, "valhalla")
+    await _build.run_valhalla(
+        pbf_path, out_dir,
+        region_id=region_id, emit=emit, cancel_event=cancel_event,
+    )
+    total = 0
+    for path in out_dir.rglob("*"):
+        if path.is_file():
+            total += path.stat().st_size
+    state.valhalla_installed = True
+    state.bytes_on_disk["valhalla"] = total
+
+
+def _cleanup_partial_artifacts(region_id: str, state: MapRegionState) -> None:
+    """Remove any half-written streets/valhalla outputs.
+
+    Called from the error / cancel path so a failed install never
+    leaves the impression in ``data/maps/<region>/`` that an artifact
+    is ready. ``state`` is mutated so subsequent callers (SSE error
+    event, caller's state inspection) see a consistent story.
+    """
+    street = _final_path_for(region_id, "street")
+    if street.exists() and not state.street_installed:
+        try:
+            street.unlink()
+        except OSError:
+            pass
+    # tippecanoe's own scratch file.
+    scratch_street = street.with_suffix(street.suffix + ".partial")
+    if scratch_street.exists():
+        try:
+            scratch_street.unlink()
+        except OSError:
+            pass
+
+    valhalla = _final_path_for(region_id, "valhalla")
+    if valhalla.exists() and not state.valhalla_installed:
+        shutil.rmtree(valhalla, ignore_errors=True)
+    scratch_valhalla = valhalla.with_suffix(".partial")
+    if scratch_valhalla.exists():
+        shutil.rmtree(scratch_valhalla, ignore_errors=True)
+    scratch_valhalla_json = valhalla.parent / f"{valhalla.name}.partial.json"
+    if scratch_valhalla_json.exists():
+        try:
+            scratch_valhalla_json.unlink()
+        except OSError:
+            pass
+
+
+def _error_code(exc: BaseException) -> str:
+    """Map a raised exception onto the string the admin UI surfaces.
+
+    Kept narrow on purpose: the UI branches on three codes, everything
+    else is ``<tool> failed: <last-stderr-line>`` verbatim.
+    """
+    if isinstance(exc, _build.ToolchainMissing):
+        return "toolchain_missing"
+    if isinstance(exc, _build.BuildOutOfMemory):
+        return "out_of_memory"
+    return str(exc)
 
 
 async def install_region(
@@ -356,16 +458,19 @@ async def install_region(
     cancel_event: asyncio.Event | None = None,
     need_pbf: bool = False,
 ) -> MapRegionState:
-    """Download the region's source PBF into ``data/maps/<region_id>/``.
+    """Run the four-phase local install pipeline for ``region_id``.
 
-    Files land first in ``data/maps/<region_id>/.tmp/`` then are
-    ``os.replace``-d into the final path. Emits one
-    :class:`MapInstallProgress` per chunk-size step on ``queue``.
+    Phase 1 (``downloading_pbf``) always runs. Phases 2–4 (geocoder,
+    tippecanoe, valhalla) only run when ``need_pbf`` is True — that
+    keeps the PBF-only test harness cheap while letting the API
+    caller opt into the full build.
 
-    Later chunks add the local build steps that turn the PBF into a
-    basemap, a routing graph, and an FTS geocoder. ``need_pbf`` is
-    accepted for forward-compat with callers that will trigger the
-    geocoder build once it is wired in.
+    Emits one :class:`MapInstallProgress` per phase transition on
+    ``queue``. On any failure the ``.tmp/`` dir is wiped, any
+    partially-written final artifacts are removed, and a terminal
+    ``{artifact: "error", phase: "complete", error: <code>}`` event is
+    emitted before the exception re-raises. ``cancel_event`` honours
+    cancellation between phases and inside each build subprocess.
     """
     region = get_region(region_id)
     if region is None:
@@ -389,6 +494,7 @@ async def install_region(
     state = get_state(region_id) or MapRegionState(region_id=region_id)
 
     try:
+        # ── Phase 1: downloading_pbf ────────────────────────────
         for artifact, url, size_hint, sha in plan:
             final = _final_path_for(region_id, artifact)
             tmp_path = tmp / final.name
@@ -412,17 +518,9 @@ async def install_region(
                 phase="resolving",
             ))
 
-            try:
-                bytes_written = await _download_to(
-                    url, tmp_path, sha, _cb, cancel_event,
-                )
-            except asyncio.CancelledError:
-                await _emit(MapInstallProgress(
-                    region_id=region_id, artifact=artifact,
-                    phase="complete", error="cancelled",
-                ))
-                shutil.rmtree(tmp, ignore_errors=True)
-                raise
+            bytes_written = await _download_to(
+                url, tmp_path, sha, _cb, cancel_event,
+            )
 
             await _emit(MapInstallProgress(
                 region_id=region_id, artifact=artifact,
@@ -436,20 +534,28 @@ async def install_region(
             setattr(state, f"{artifact}_installed", True)
             state.bytes_on_disk[artifact] = bytes_written
 
-            await _emit(MapInstallProgress(
-                region_id=region_id, artifact=artifact,
-                bytes_done=bytes_written, bytes_total=bytes_written,
-                phase="complete",
-            ))
-
-        # Drop the .tmp dir once every artifact landed.
         shutil.rmtree(tmp, ignore_errors=True)
 
-        # Build the FTS5 address index if the PBF is on disk and the
-        # caller asked for it. Later chunks fold PMTiles + Valhalla
-        # builds in alongside this step.
+        # ── Phases 2–4: local builds on top of the PBF ──────────
         if need_pbf and state.pbf_installed:
+            if cancel_event.is_set():
+                raise asyncio.CancelledError()
             await _build_geocoder_step(region_id, state, _emit, cancel_event)
+
+            if cancel_event.is_set():
+                raise asyncio.CancelledError()
+            await _build_streets_step(region_id, state, _emit, cancel_event)
+
+            if cancel_event.is_set():
+                raise asyncio.CancelledError()
+            await _build_valhalla_step(region_id, state, _emit, cancel_event)
+
+            # Drop the source PBF unless the dev override says to keep it.
+            pbf_path = _final_path_for(region_id, "pbf")
+            if not _keep_pbf() and pbf_path.exists():
+                pbf_path.unlink()
+                state.pbf_installed = False
+                state.bytes_on_disk.pop("pbf", None)
 
         state.installed_at = datetime.now(timezone.utc).isoformat()
         upsert_state(state)
@@ -462,13 +568,20 @@ async def install_region(
 
     except asyncio.CancelledError:
         log.info("install for %s cancelled", region_id)
+        shutil.rmtree(tmp, ignore_errors=True)
+        _cleanup_partial_artifacts(region_id, state)
+        await _emit(MapInstallProgress(
+            region_id=region_id, artifact="cancelled",
+            phase="complete", error="cancelled",
+        ))
         raise
     except Exception as exc:  # noqa: BLE001 — we surface via SSE error
         log.exception("install failed for %s", region_id)
         shutil.rmtree(tmp, ignore_errors=True)
+        _cleanup_partial_artifacts(region_id, state)
         await _emit(MapInstallProgress(
             region_id=region_id, artifact="error",
-            phase="complete", error=str(exc),
+            phase="complete", error=_error_code(exc),
         ))
         raise
 

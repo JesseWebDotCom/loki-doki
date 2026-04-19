@@ -42,11 +42,26 @@ class MapInstallProgress:
 
     ``artifact`` values: ``"street"``, ``"pbf"``, ``"valhalla"``,
     ``"geocoder"``, ``"done"``, ``"error"``, ``"cancelled"``.
+
+    ``phase`` values after maps-local-build chunk 3:
+
+      * ``"resolving"`` / ``"downloading"`` / ``"verifying"`` — PBF fetch.
+      * ``"indexing"`` — FTS geocoder build.
+      * ``"building_streets"`` — tippecanoe producing ``streets.pmtiles``.
+      * ``"building_routing"`` — ``valhalla_build_tiles`` producing the
+        routing tile tree.
+      * ``"ready"`` — per-artifact success.
+      * ``"complete"`` — end-of-install event (carries ``error`` on failure).
+
+    For the two build phases, ``bytes_done`` / ``bytes_total`` are
+    repurposed as ``step_done`` / ``step_total`` (typically 0..100 for
+    tippecanoe percent, or stage counters for valhalla) so the admin
+    UI's existing percent render keeps working without a new field.
     """
 
     region_id: str
     artifact: str
     bytes_done: int = 0
     bytes_total: int = 0
-    phase: str = "downloading"   # "resolving" | "downloading" | "verifying" | "extracting" | "complete"
+    phase: str = "downloading"
     error: str | None = None
