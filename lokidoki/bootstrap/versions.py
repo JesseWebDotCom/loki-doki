@@ -93,6 +93,33 @@ NODE = {
 }
 
 
+TEMURIN_JRE = {
+    "version": "21.0.5+11",
+    "artifacts": {
+        ("darwin", "arm64"): (
+            "OpenJDK21U-jre_aarch64_mac_hotspot_21.0.5_11.tar.gz",
+            "12249a1c5386957c93fc372260c483ae921b1ec6248a5136725eabd0abc07f93",
+        ),
+        ("windows", "x86_64"): (
+            "OpenJDK21U-jre_x64_windows_hotspot_21.0.5_11.zip",
+            "1749b36cfac273cee11802bf3e90caada5062de6a3fef1a3814c0568b25fd654",
+        ),
+        ("linux", "aarch64"): (
+            "OpenJDK21U-jre_aarch64_linux_hotspot_21.0.5_11.tar.gz",
+            "e4d02c33aeaf8e1148c1c505e129a709c5bc1889e855d4fb4f001b1780db42b4",
+        ),
+        ("linux", "x86_64"): (
+            "OpenJDK21U-jre_x64_linux_hotspot_21.0.5_11.tar.gz",
+            "553dda64b3b1c3c16f8afe402377ffebe64fb4a1721a46ed426a91fd18185e62",
+        ),
+    },
+    "url_template": (
+        "https://github.com/adoptium/temurin21-binaries/releases/download/"
+        "jdk-{version}/{filename}"
+    ),
+}
+
+
 # Piper voice models — synthesis uses the piper-tts Python package
 # in-process (no CLI binary needed).
 PIPER_VOICES: dict[str, dict[str, tuple[str, str]]] = {
@@ -181,84 +208,6 @@ VISION_MMPROJ: dict[str, dict[str, str]] = {
         "weights_filename": "Qwen2-VL-2B-Instruct-Q4_K_M.gguf",
         "mmproj_filename": "mmproj-Qwen2-VL-2B-Instruct-f16.gguf",
     },
-}
-
-
-# Valhalla routing engine. Upstream ships no official static binaries,
-# so our offline-bundle pipeline compiles Valhalla once per profile on a
-# beefy build host and mirrors the resulting tarballs next to the rest
-# of the pinned artefacts. The tarball contains ``valhalla_service`` +
-# ``valhalla_build_*`` CLIs; the runtime serves 127.0.0.1:8002.
-#
-# URLs + SHAs below are stubs until the bundle pipeline publishes real
-# builds. Until then the routing endpoint raises ``ValhallaUnavailable``
-# and the navigation skill falls back to remote OSRM. There is no
-# Docker fallback — LokiDoki does not depend on Docker on any profile.
-# tippecanoe is the Mapbox CT-tile compiler. The maps subsystem builds
-# a PMTiles vector basemap for every installed region locally from the
-# upstream Geofabrik PBF — no remote CDN for prebuilt tiles — so this
-# binary has to be on disk for any maps-enabled profile. Upstream ships
-# no official static builds, so the loki-doki maintainer compiles them
-# once per (os, arch) on a build host and mirrors the tarballs as
-# assets on the ``maps-tools-v1`` GitHub Release, same pattern as
-# llama.cpp's pinned release artefacts.
-#
-# Windows tippecanoe builds are historically flaky against MSVC, so the
-# Windows key is pinned to ``None`` until a reliable static build
-# exists; :mod:`preflight.tippecanoe` no-ops with a clear log line on
-# that path and the maps page surfaces the unsupported-host state.
-TIPPECANOE = {
-    "version": "maps-tools-v1",
-    "artifacts": {
-        ("darwin", "arm64"): (
-            "tippecanoe-darwin-arm64.tar.gz",
-            "0" * 64,
-        ),
-        ("linux", "x86_64"): (
-            "tippecanoe-linux-x86_64.tar.gz",
-            "0" * 64,
-        ),
-        ("linux", "aarch64"): (
-            "tippecanoe-linux-aarch64.tar.gz",
-            "0" * 64,
-        ),
-        ("windows", "x86_64"): None,
-    },
-    "url_template": (
-        "https://github.com/JesseWebDotCom/loki-doki/releases/download/"
-        "{version}/{filename}"
-    ),
-}
-
-
-# Valhalla build CLIs + the ``valhalla_service`` HTTP routing daemon.
-# Tarball contains ``valhalla_build_tiles``, ``valhalla_build_admins``,
-# ``valhalla_build_elevations``, and ``valhalla_service``; chunk 3
-# consumes the build_* CLIs during per-region install, chunk 6 spawns
-# the service daemon lazily. Same maps-tools-v1 release assets as
-# :data:`TIPPECANOE`. This entry supersedes :data:`VALHALLA_RUNTIME` —
-# chunk 6 will collapse the two.
-VALHALLA_TOOLS = {
-    "version": "maps-tools-v1",
-    "artifacts": {
-        ("darwin", "arm64"): (
-            "valhalla-tools-darwin-arm64.tar.gz",
-            "0" * 64,
-        ),
-        ("linux", "x86_64"): (
-            "valhalla-tools-linux-x86_64.tar.gz",
-            "0" * 64,
-        ),
-        ("linux", "aarch64"): (
-            "valhalla-tools-linux-aarch64.tar.gz",
-            "0" * 64,
-        ),
-        ("windows", "x86_64"): None,
-    },
-    "url_template": (
-        "https://github.com/JesseWebDotCom/loki-doki/releases/download/"
-        "{version}/{filename}"
-    ),
 }
 
 

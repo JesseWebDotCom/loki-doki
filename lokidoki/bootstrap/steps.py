@@ -22,6 +22,7 @@ from .preflight import (
     build_frontend,
     ensure_embedded_python,
     ensure_node,
+    ensure_temurin_jre,
     ensure_tts_voice,
     ensure_uv,
     ensure_wake_word,
@@ -38,8 +39,6 @@ from .preflight.llm_engine import (
     warm_resident_llm,
 )
 from .preflight.archive_favicons import ensure_archive_favicons
-from .preflight.tippecanoe import ensure_tippecanoe
-from .preflight.valhalla_tools import ensure_valhalla_tools
 from .preflight.vision import ensure_vision
 from .run_app import spawn_fastapi_app
 
@@ -116,6 +115,7 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "detect-profile": _detect_profile_run,
     "embed-python": ensure_embedded_python,
     "install-uv": ensure_uv,
+    "install-jre": ensure_temurin_jre,
     "sync-python-deps": sync_python_deps,
     "embed-node": ensure_node,
     "install-frontend-deps": install_frontend_deps,
@@ -132,8 +132,6 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "warm-resident-llm": warm_resident_llm,
     "install-vision": ensure_vision,
     "pull-vision-model": ensure_vision,
-    "install-tippecanoe": ensure_tippecanoe,
-    "install-valhalla-tools": ensure_valhalla_tools,
     "fetch-archive-icons": ensure_archive_favicons,
     "spawn-app": spawn_fastapi_app,
 }
@@ -160,6 +158,7 @@ _STEP_CATEGORY: dict[str, str] = {
     "detect-profile": "system",
     "embed-python": "system",
     "install-uv": "system",
+    "install-jre": "system",
     "sync-python-deps": "system",
     "check-hailo-runtime": "system",
     "embed-node": "frontend",
@@ -178,8 +177,6 @@ _STEP_CATEGORY: dict[str, str] = {
     "install-wake-word": "audio",
     "install-detectors": "audio",
     "install-image-gen": "audio",
-    "install-tippecanoe": "system",
-    "install-valhalla-tools": "system",
     "fetch-archive-icons": "finalize",
     "seed-database": "finalize",
     "spawn-app": "finalize",
@@ -210,12 +207,6 @@ _PRE_FRONTEND: list[tuple[str, str, bool, int | None]] = [
 # server-only profile) skips the ~1-minute download entirely. Runs
 # after the frontend block so a maps-disabled profile still gets the
 # app up quickly even if the maps-tools mirror is down.
-_PRE_MAPS_TOOLS: list[tuple[str, str, bool, int | None]] = [
-    ("install-tippecanoe", "Install tippecanoe (map compiler)", False, 45),
-    ("install-valhalla-tools", "Install Valhalla routing tools", False, 60),
-]
-
-
 # Disabled for all profiles until the maps-java-stack rewrite lands
 # (docs/roadmap/maps-java-stack/PLAN.md). The current tippecanoe +
 # Valhalla preflights point at GitHub Release assets that don't exist,
@@ -318,21 +309,14 @@ def build_steps(profile: str) -> list[Step]:
     if profile == "pi_hailo":
         return _to_steps(_hailo_specs(), profile)
     specs = _PRE_TOOLCHAIN + _PRE_FRONTEND
-    if profile in _MAPS_ENABLED_PROFILES:
-        specs += _PRE_MAPS_TOOLS
     specs += _COMMON_LLM + _COMMON_MEDIA
     return _to_steps(specs, profile)
 
 
 def build_maps_tools_only_steps(profile: str) -> list[Step]:
-    """Return just the maps-tools preflights — the ``--maps-tools-only``
-    CI / developer path.
-
-    Includes ``detect-profile`` so the event stream records the host
-    metadata before the downloads, then the two maps-tools steps. Skips
-    every other step in the wizard.
-    """
+    """Return the standalone maps-runtime preflight path."""
     specs = [
         ("detect-profile", "Detect host profile", False, 2),
-    ] + _PRE_MAPS_TOOLS
+        ("install-jre", "Install Temurin JRE", False, 45),
+    ]
     return _to_steps(specs, profile)
