@@ -241,8 +241,6 @@ const MapsPage: React.FC = () => {
             if (prev && prev.kind === next.kind) {
               if (prev.kind === 'local' && next.kind === 'local') {
                 if (prev.region === next.region) return prev;
-              } else if (prev.kind === 'online' && next.kind === 'online') {
-                if (prev.streetUrl === next.streetUrl) return prev;
               } else if (prev.kind === 'none' && next.kind === 'none') {
                 return prev;
               }
