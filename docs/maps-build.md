@@ -19,7 +19,11 @@ the FastAPI app uses those embedded tools rather than the system Java.
 
 ## What's in the stack
 
-Bootstrap fetches three upstream-pinned artifacts during the maps block:
+Bootstrap fetches the maps toolchain plus the planetiler source
+archives (Natural Earth + OSM water polygons) during the maps block.
+The source archives are what planetiler's `--download` flag normally
+pulls at build time — pre-seeding them here keeps `building_streets`
+offline:
 
 ```text
 .lokidoki/tools/
@@ -27,6 +31,9 @@ Bootstrap fetches three upstream-pinned artifacts during the maps block:
     bin/java
   planetiler/
     planetiler.jar
+    sources/
+      natural_earth_vector.sqlite.zip
+      water-polygons-split-3857.zip
   graphhopper/
     graphhopper.jar
 ```
@@ -41,8 +48,8 @@ To fetch only the maps stack during local development or CI:
 ./run.sh --maps-tools-only
 ```
 
-That path installs only the embedded JRE, `planetiler.jar`, and
-`graphhopper.jar`, then exits.
+That path installs the embedded JRE, `planetiler.jar`, the
+planetiler source archives, and `graphhopper.jar`, then exits.
 
 ---
 

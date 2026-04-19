@@ -131,6 +131,32 @@ PLANETILER = {
 }
 
 
+# planetiler's ``--download`` flag fetches these two archives at build
+# time; the ``install-planetiler-data`` preflight pre-seeds them into
+# ``.lokidoki/tools/planetiler/sources/`` so ``building_streets`` runs
+# offline. Upstream serves mutable URLs (no per-version release tag) so
+# the sha256 is the only reliable integrity pin — if it drifts, the
+# preflight fails loudly and the operator refreshes the pin deliberately.
+NATURAL_EARTH = {
+    "version": "5.1.2",
+    "filename": "natural_earth_vector.sqlite.zip",
+    "sha256": "375da61836d4779dffa8b87887bc4faa94dac77745ba0ee3914bd7cbedf40a02",
+    "url_template": (
+        "https://naciscdn.org/naturalearth/packages/{filename}"
+    ),
+}
+
+
+OSM_WATER_POLYGONS = {
+    "version": "2025-01-30",
+    "filename": "water-polygons-split-3857.zip",
+    "sha256": "1711c438e8fefd9162e2aa9db566188445d72bfec25ac4cff9a1e23849df3382",
+    "url_template": (
+        "https://osmdata.openstreetmap.de/download/{filename}"
+    ),
+}
+
+
 GRAPHHOPPER = {
     "version": "10.1",
     "filename": "graphhopper-web-10.1.jar",

@@ -25,6 +25,7 @@ from .preflight import (
     ensure_graphhopper,
     ensure_node,
     ensure_planetiler,
+    ensure_planetiler_data,
     ensure_temurin_jre,
     ensure_tts_voice,
     ensure_uv,
@@ -121,6 +122,7 @@ _REAL_RUNNERS: dict[str, RunFn] = {
     "install-jre": ensure_temurin_jre,
     "install-glyphs": ensure_glyphs,
     "install-planetiler": ensure_planetiler,
+    "install-planetiler-data": ensure_planetiler_data,
     "install-graphhopper": ensure_graphhopper,
     "sync-python-deps": sync_python_deps,
     "embed-node": ensure_node,
@@ -167,6 +169,7 @@ _STEP_CATEGORY: dict[str, str] = {
     "install-jre": "system",
     "install-glyphs": "system",
     "install-planetiler": "system",
+    "install-planetiler-data": "system",
     "install-graphhopper": "system",
     "sync-python-deps": "system",
     "check-hailo-runtime": "system",
@@ -224,6 +227,7 @@ _PRE_MAPS_STACK: list[tuple[str, str, bool, int | None]] = [
     ("install-jre", "Install Temurin JRE", False, 45),
     ("install-glyphs", "Install map glyph fonts", False, 15),
     ("install-planetiler", "Install planetiler", False, 30),
+    ("install-planetiler-data", "Install planetiler sources", False, 180),
     ("install-graphhopper", "Install GraphHopper", False, 30),
 ]
 

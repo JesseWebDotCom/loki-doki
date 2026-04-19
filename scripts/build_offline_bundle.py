@@ -114,6 +114,26 @@ def _pinned_fetch_specs(profiles: Iterable[str], cache: Path) -> list[FetchSpec]
             )
         )
 
+        # planetiler source archives — Natural Earth (~414 MiB) +
+        # OSM water polygons (~880 MiB). Pre-seeded so ``building_streets``
+        # runs offline; planetiler reads both zips directly.
+        for pin, label in (
+            (V.NATURAL_EARTH, "natural-earth"),
+            (V.OSM_WATER_POLYGONS, "water-polygons"),
+        ):
+            specs.append(
+                FetchSpec(
+                    url=pin["url_template"].format(filename=pin["filename"]),
+                    dest=cache / pin["filename"],
+                    sha256=pin["sha256"],
+                    label=label,
+                )
+            )
+        _log.info(
+            "planetiler sources queued (~1.3 GB: natural earth ~414 MiB + "
+            "water polygons ~880 MiB)"
+        )
+
     # Engine binaries: llama.cpp ships prebuilt on win/linux/pi_cpu; mac uses
     # MLX (pip package, no prebuilt); pi_hailo uses hailo-ollama.
     for profile in profiles:

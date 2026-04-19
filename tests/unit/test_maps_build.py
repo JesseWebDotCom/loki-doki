@@ -47,6 +47,8 @@ def _patch_planetiler_paths(tmp_path, monkeypatch) -> None:
     jar_path = tool_root / "planetiler" / "planetiler.jar"
     jar_path.parent.mkdir(parents=True, exist_ok=True)
     jar_path.write_bytes(b"fake-jar")
+    sources_dir = tool_root / "planetiler" / "sources"
+    sources_dir.mkdir(parents=True, exist_ok=True)
 
     def _fake_embedded(tool_dir: str, filename: str):
         return tool_root / tool_dir / filename
@@ -248,6 +250,84 @@ def test_run_planetiler_emits_progress_and_writes_output(tmp_path, monkeypatch):
     # Progress saw meaningful values in between.
     percents = [e.bytes_done for e in events if e.phase == "building_streets"]
     assert max(percents) >= 50
+
+
+def test_run_planetiler_cmd_carries_download_dir_and_no_download(
+    tmp_path, monkeypatch,
+):
+    """The planetiler command must point at the embedded sources dir
+    via ``--download_dir`` and must NOT carry ``--download``. That
+    combination is what keeps ``building_streets`` air-gapped.
+    """
+    _install_stub(tmp_path, monkeypatch, "java", _PLANETILER_STUB)
+    _patch_planetiler_paths(tmp_path, monkeypatch)
+    pbf = tmp_path / "region.osm.pbf"
+    pbf.write_text("unused")
+    out = tmp_path / "streets.pmtiles"
+
+    captured_cmd: list[list[str]] = []
+
+    async def _spy_run(cmd, *, tool, on_line, cancel_event):
+        captured_cmd.append(list(cmd))
+        # Simulate a successful no-op build so the caller completes.
+        out_path = None
+        for arg in cmd:
+            if isinstance(arg, str) and arg.startswith("--output="):
+                out_path = arg.split("=", 1)[1]
+        if out_path:
+            open(out_path, "wb").close()
+
+    monkeypatch.setattr(build, "_run_subprocess", _spy_run)
+
+    async def emit(_progress):
+        return None
+
+    async def _run():
+        await build.run_planetiler(
+            pbf, out, region_id="us-ct",
+            emit=emit, cancel_event=asyncio.Event(),
+        )
+
+    asyncio.run(_run())
+
+    assert captured_cmd, "planetiler command never invoked"
+    cmd = captured_cmd[0]
+    sources_dir = tmp_path / ".lokidoki" / "tools" / "planetiler" / "sources"
+    assert f"--natural_earth_path={sources_dir / 'natural_earth_vector.sqlite.zip'}" in cmd
+    assert f"--water_polygons_path={sources_dir / 'water-polygons-split-3857.zip'}" in cmd
+    # The bare ``--download`` flag must be gone and the command must not
+    # contain any ``--download`` substring (``--download_dir`` included).
+    assert "--download" not in cmd
+    assert not any("--download" in a for a in cmd)
+
+
+def test_run_planetiler_missing_sources_dir_raises(tmp_path, monkeypatch):
+    """If the ``install-planetiler-data`` preflight never ran, the
+    sources directory will not exist — refuse to start rather than
+    silently fall back to an upstream fetch."""
+    _install_stub(tmp_path, monkeypatch, "java", _PLANETILER_STUB)
+    tool_root = tmp_path / ".lokidoki" / "tools"
+    jar_path = tool_root / "planetiler" / "planetiler.jar"
+    jar_path.parent.mkdir(parents=True, exist_ok=True)
+    jar_path.write_bytes(b"fake-jar")
+    # Intentionally do NOT create the sources directory.
+
+    def _fake_embedded(tool_dir: str, filename: str):
+        return tool_root / tool_dir / filename
+
+    monkeypatch.setattr(build, "_embedded_tool_path", _fake_embedded)
+
+    async def emit(_progress):
+        return None
+
+    async def _run():
+        await build.run_planetiler(
+            tmp_path / "region.osm.pbf", tmp_path / "streets.pmtiles",
+            region_id="us-ct", emit=emit, cancel_event=asyncio.Event(),
+        )
+
+    with pytest.raises(build.ToolchainMissing):
+        asyncio.run(_run())
 
 
 def test_run_planetiler_cancel_cleans_partial(tmp_path, monkeypatch):

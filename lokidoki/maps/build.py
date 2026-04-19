@@ -109,6 +109,10 @@ async def run_planetiler(
         _embedded_tool_path("planetiler", "planetiler.jar"),
         label="planetiler.jar",
     )
+    sources_dir = _require_dir(
+        _embedded_tool_path("planetiler", "sources"),
+        label="planetiler sources",
+    )
     heap_mb = _heap_mb_for(_PLANETILER_HEAP_ENV)
 
     out_pmtiles.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +120,10 @@ async def run_planetiler(
     if scratch.exists():
         scratch.unlink()
 
+    # Point each source-file arg at the pre-seeded ``sources_dir`` so
+    # planetiler reads them locally instead of fetching from upstream.
+    natural_earth = sources_dir / "natural_earth_vector.sqlite.zip"
+    water_polygons = sources_dir / "water-polygons-split-3857.zip"
     cmd = [
         java_bin,
         f"-Xmx{heap_mb}m",
@@ -123,7 +131,8 @@ async def run_planetiler(
         str(jar_path),
         f"--osm-path={pbf}",
         f"--output={scratch}",
-        "--download",
+        f"--natural_earth_path={natural_earth}",
+        f"--water_polygons_path={water_polygons}",
         "--force",
     ]
 
@@ -261,6 +270,14 @@ def _require_binary(name: str) -> str:
 
 def _require_file(path: Path, *, label: str) -> Path:
     if not path.is_file():
+        raise ToolchainMissing(
+            f"{label} not available — re-run ./run.sh --maps-tools-only",
+        )
+    return path
+
+
+def _require_dir(path: Path, *, label: str) -> Path:
+    if not path.is_dir():
         raise ToolchainMissing(
             f"{label} not available — re-run ./run.sh --maps-tools-only",
         )

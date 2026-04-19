@@ -10,6 +10,7 @@ from .glyphs import ensure_glyphs
 from .graphhopper import ensure_graphhopper
 from .node_runtime import ensure_node
 from .planetiler import ensure_planetiler
+from .planetiler_data import ensure_planetiler_data
 from .piper_runtime import ensure_tts_voice
 from .python_deps import sync_python_deps
 from .python_runtime import ensure_embedded_python
@@ -25,6 +26,7 @@ __all__ = [
     "ensure_graphhopper",
     "ensure_node",
     "ensure_planetiler",
+    "ensure_planetiler_data",
     "ensure_temurin_jre",
     "ensure_tts_voice",
     "ensure_uv",

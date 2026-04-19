@@ -14,7 +14,9 @@ import pytest
 from lokidoki.bootstrap.versions import (
     GLYPHS_ASSETS,
     GRAPHHOPPER,
+    NATURAL_EARTH,
     NODE,
+    OSM_WATER_POLYGONS,
     PLANETILER,
     PIPER_VOICES,
     PYTHON_BUILD_STANDALONE,
@@ -122,6 +124,24 @@ def test_graphhopper_pin_shape() -> None:
     )
     assert url.startswith("https://")
     assert url.endswith("/graphhopper-web-10.1.jar")
+
+
+def test_natural_earth_pin_shape() -> None:
+    assert NATURAL_EARTH["filename"] == "natural_earth_vector.sqlite.zip"
+    assert _SHA_RE.match(NATURAL_EARTH["sha256"]), NATURAL_EARTH["sha256"]
+    url = NATURAL_EARTH["url_template"].format(filename=NATURAL_EARTH["filename"])
+    assert url.startswith("https://"), url
+    assert url.endswith("/natural_earth_vector.sqlite.zip")
+
+
+def test_osm_water_polygons_pin_shape() -> None:
+    assert OSM_WATER_POLYGONS["filename"] == "water-polygons-split-3857.zip"
+    assert _SHA_RE.match(OSM_WATER_POLYGONS["sha256"]), OSM_WATER_POLYGONS["sha256"]
+    url = OSM_WATER_POLYGONS["url_template"].format(
+        filename=OSM_WATER_POLYGONS["filename"]
+    )
+    assert url.startswith("https://"), url
+    assert url.endswith("/water-polygons-split-3857.zip")
 
 
 def test_glyphs_assets_pin_shape() -> None:

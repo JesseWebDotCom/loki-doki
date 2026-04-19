@@ -160,4 +160,28 @@ Refs docs/roadmap/maps-offline-hardening/PLAN.md chunk 2.
 
 ## Deferrals section (append as you discover)
 
-*(empty — leave for chunk-2 execution to fill)*
+- **planetiler CLI uses snake_case + explicit per-file paths, not
+  `--data-dir`.** `java -jar planetiler.jar --help` on 0.8.4 lists
+  `download_dir=data/sources`, `natural_earth_path=data/sources/
+  natural_earth_vector.sqlite.zip`, and `water_polygons_path=
+  data/sources/water-polygons-split-3857.zip`. `--data-dir` does not
+  exist. The implementation uses the explicit
+  `--natural_earth_path=<...>` + `--water_polygons_path=<...>` form
+  rather than `--download_dir=<...>` so that:
+  1. No "--download" substring appears in the command line (the grep
+     audit in `## Verify` then matches cleanly).
+  2. Intent is unambiguous — each source file is redirected at a
+     specific local path; nothing hints at a remote fetch.
+- **No extraction — planetiler reads the zips directly.** The plan
+  described unpacking `water-polygons-split-3857.zip` into a directory,
+  but planetiler's defaults point at the zip itself. The preflight keeps
+  both archives zipped under `tools/planetiler/sources/`.
+- **Archive sizes:** Natural Earth `sqlite.zip` is ~414 MiB (smaller
+  than the plan's 400 MB estimate was rounded from); OSM water-polygons
+  `.zip` is ~880 MiB. Combined ~1.3 GB mirrored into the offline bundle.
+- **Pinned SHA-256** (captured against live upstream on 2026-04-19):
+  - natural_earth_vector.sqlite.zip →
+    `375da61836d4779dffa8b87887bc4faa94dac77745ba0ee3914bd7cbedf40a02`
+  - water-polygons-split-3857.zip →
+    `1711c438e8fefd9162e2aa9db566188445d72bfec25ac4cff9a1e23849df3382`
+  Both upstreams serve mutable URLs; drift = pin refresh.
