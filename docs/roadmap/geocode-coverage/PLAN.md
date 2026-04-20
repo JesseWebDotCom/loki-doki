@@ -71,7 +71,7 @@ session. The execution rules are non-negotiable:
 | 11 | [Dark theme tuning + light theme + system-theme toggle](chunk-11-theme-tuning.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
 | 12 | [Serve nested static dirs (`/sprites`) from FastAPI](chunk-12-serve-nested-static.md) | done | 1ae3c1e |
 | 13 | [Install Noto Sans Bold + Italic glyph stacks](chunk-13-glyphs-bold-italic.md) | done | 6849cc3 |
-| 14 | [Map theme follows site ThemeProvider by default](chunk-14-map-theme-follow-site.md) | pending | |
+| 14 | [Map theme follows site ThemeProvider by default](chunk-14-map-theme-follow-site.md) | done | d751a58 |
 | 15 | [Global admin-1 boundaries in world-overview pmtiles](chunk-15-global-admin1-overview.md) | pending | |
 | 16 | [Hover-preview PlaceDetailsCard on POI icons](chunk-16-poi-hover-preview.md) | pending | |
 
