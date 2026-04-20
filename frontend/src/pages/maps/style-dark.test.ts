@@ -165,6 +165,18 @@ describe('buildDarkStyle', () => {
     expect((state as { maxzoom?: number }).maxzoom).toBeUndefined();
   });
 
+  it('anchors world place labels as polygon-backed point symbols', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const country = style.layers.find((l) => l.id === 'world_place_country') as {
+      layout: Record<string, unknown>;
+    };
+    const state = style.layers.find((l) => l.id === 'world_place_state') as {
+      layout: Record<string, unknown>;
+    };
+    expect(country.layout['symbol-placement']).toBe('point');
+    expect(state.layout['symbol-placement']).toBe('point');
+  });
+
   it('paints world-overview fills beneath the per-region fills', () => {
     const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const ids = style.layers.map((l) => l.id);

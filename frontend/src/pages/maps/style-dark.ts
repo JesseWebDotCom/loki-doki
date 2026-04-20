@@ -324,6 +324,7 @@ const worldOverviewPlaceLayers = (
     ],
     minzoom: 1,
     layout: {
+      'symbol-placement': 'point',
       'text-field': ['get', 'name'],
       'text-font': ['Noto Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 1, 10, 5, 20, 9, 16, 14, 14],
@@ -331,6 +332,8 @@ const worldOverviewPlaceLayers = (
       'text-letter-spacing': 0.15,
       'text-max-width': 9,
       'text-padding': 2,
+      'text-variable-anchor': ['center', 'top', 'bottom', 'left', 'right'],
+      'text-justify': 'auto',
     },
     paint: {
       'text-color': p.place_label,
@@ -350,6 +353,7 @@ const worldOverviewPlaceLayers = (
     ],
     minzoom: 3,
     layout: {
+      'symbol-placement': 'point',
       'text-field': ['get', 'name'],
       'text-font': ['Noto Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 3, 10, 7, 15, 9, 12, 14, 11],
@@ -357,6 +361,8 @@ const worldOverviewPlaceLayers = (
       'text-letter-spacing': 0.1,
       'text-max-width': 8,
       'text-padding': 2,
+      'text-variable-anchor': ['center', 'top', 'bottom', 'left', 'right'],
+      'text-justify': 'auto',
     },
     paint: {
       'text-color': p.place_label,

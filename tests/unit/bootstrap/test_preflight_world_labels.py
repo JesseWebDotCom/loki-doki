@@ -1,28 +1,10 @@
-"""``ensure_world_labels`` emits a static NE-derived label GeoJSON.
-
-The preflight reads the pinned Natural Earth sqlite (already staged on
-disk by ``install-planetiler-data``) and writes a FeatureCollection of
-country + state centroids to ``world-labels.geojson``. These tests drive
-a tiny in-memory-ish NE database laid out to match the real table shape,
-so the preflight never has to shell out, unzip the 1+ GB real archive,
-or touch the network.
-
-Cases:
-
-* **Happy path** — two countries + two states land in the geojson,
-  correctly shaped, with ``kind`` / ``name`` / ``min_zoom`` / ``max_zoom``.
-* **Skip-when-present** — existing above-threshold file short-circuits
-  the build (no sqlite access).
-* **Tiny-output-fails** — forcing empty query results leaves the scratch
-  below the smoke floor; preflight raises + removes the partial.
-* **Missing Natural Earth archive** — preflight raises with a message
-  pointing at ``--maps-tools-only``.
-"""
+"""Tests for the Natural-Earth-backed world label preflight."""
 from __future__ import annotations
 
 import asyncio
 import json
 import sqlite3
+import struct
 import zipfile
 from pathlib import Path
 
@@ -31,11 +13,10 @@ import pytest
 from lokidoki.bootstrap.context import StepContext
 from lokidoki.bootstrap.events import Event
 from lokidoki.bootstrap.preflight.world_labels import (
-    _SKIP_MIN_BYTES,
     _SMOKE_MIN_FEATURES,
     ensure_world_labels,
 )
-from lokidoki.bootstrap.versions import NATURAL_EARTH
+from lokidoki.bootstrap.versions import NATURAL_EARTH, WORLD_LABELS_VERSION
 
 
 def _ctx(tmp_path: Path, events: list[Event]) -> StepContext:
@@ -66,27 +47,27 @@ def _seed_ne_archive(
     con.execute(
         """
         CREATE TABLE ne_10m_admin_0_countries (
+            GEOMETRY BLOB,
             name TEXT, name_en TEXT, iso_a2 TEXT,
-            labelrank INTEGER, min_label REAL, max_label REAL,
-            label_x REAL, label_y REAL
+            labelrank INTEGER, min_label REAL, max_label REAL
         )
         """
     )
     con.executemany(
-        "INSERT INTO ne_10m_admin_0_countries VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO ne_10m_admin_0_countries VALUES (?,?,?,?,?,?,?)",
         countries,
     )
     con.execute(
         """
         CREATE TABLE ne_10m_admin_1_states_provinces (
+            GEOMETRY BLOB,
             name TEXT, name_en TEXT, iso_a2 TEXT, admin TEXT,
-            labelrank INTEGER, min_label REAL, max_label REAL,
-            latitude REAL, longitude REAL
+            labelrank INTEGER, min_label REAL, max_label REAL
         )
         """
     )
     con.executemany(
-        "INSERT INTO ne_10m_admin_1_states_provinces VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO ne_10m_admin_1_states_provinces VALUES (?,?,?,?,?,?,?,?)",
         states,
     )
     con.commit()
@@ -101,23 +82,92 @@ def _seed_ne_archive(
     return zip_path
 
 
+def _polygon_blob(*rings: list[tuple[float, float]]) -> bytes:
+    blob = bytearray(struct.pack("<BI", 1, 3))
+    blob.extend(struct.pack("<I", len(rings)))
+    for ring in rings:
+        blob.extend(struct.pack("<I", len(ring)))
+        for x, y in ring:
+            blob.extend(struct.pack("<dd", x, y))
+    return bytes(blob)
+
+
+def _multipolygon_blob(*polygons: list[list[tuple[float, float]]]) -> bytes:
+    blob = bytearray(struct.pack("<BI", 1, 6))
+    blob.extend(struct.pack("<I", len(polygons)))
+    for poly in polygons:
+        blob.extend(_polygon_blob(*poly))
+    return bytes(blob)
+
+
 def test_happy_path_emits_country_and_state_features(tmp_path: Path):
     sources_dir = tmp_path / "tools" / "planetiler" / "sources"
     _seed_ne_archive(
         sources_dir,
         countries=[
-            # name, name_en, iso_a2, labelrank, min_label, max_label, label_x, label_y
-            ("United States of America", "United States of America", "US", 1, 2.0, 7.0, -97.48, 39.53),
-            ("Canada", "Canada", "CA", 1, 2.0, 7.0, -101.91, 60.32),
+            (
+                _multipolygon_blob(
+                    [[(-125.0, 25.0), (-66.0, 25.0), (-66.0, 49.0), (-125.0, 49.0), (-125.0, 25.0)]],
+                ),
+                "United States of America",
+                "United States of America",
+                "US",
+                1,
+                2.0,
+                7.0,
+            ),
+            (
+                _polygon_blob([(-141.0, 49.0), (-52.0, 49.0), (-52.0, 83.0), (-141.0, 83.0), (-141.0, 49.0)]),
+                "Canada",
+                "Canada",
+                "CA",
+                1,
+                2.0,
+                7.0,
+            ),
             # Skipped — min_label above the cap.
-            ("Tiny Island", "Tiny Island", "TI", 5, 9.0, 11.0, 0.0, 0.0),
+            (
+                _polygon_blob([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]),
+                "Tiny Island",
+                "Tiny Island",
+                "TI",
+                5,
+                9.0,
+                11.0,
+            ),
         ],
         states=[
-            # name, name_en, iso_a2, admin, labelrank, min_label, max_label, latitude, longitude
-            ("Connecticut", "Connecticut", "US", "United States of America", 4, 5.0, 7.0, 41.52, -72.76),
-            ("California", "California", "US", "United States of America", 2, 3.0, 7.0, 36.17, -119.75),
+            (
+                _polygon_blob([(-73.73, 40.98), (-71.78, 40.98), (-71.78, 42.05), (-73.73, 42.05), (-73.73, 40.98)]),
+                "Connecticut",
+                "Connecticut",
+                "US",
+                "United States of America",
+                4,
+                5.0,
+                7.0,
+            ),
+            (
+                _polygon_blob([(-124.48, 32.53), (-114.13, 32.53), (-114.13, 42.01), (-124.48, 42.01), (-124.48, 32.53)]),
+                "California",
+                "California",
+                "US",
+                "United States of America",
+                2,
+                3.0,
+                7.0,
+            ),
             # Included now that the state min_label cap is lifted to 10.
-            ("Unimportant County", "Unimportant County", "US", "United States of America", 7, 10.0, 11.0, 0.0, 0.0),
+            (
+                _polygon_blob([(0.0, 0.0), (3.0, 0.0), (3.0, 3.0), (0.0, 3.0), (0.0, 0.0)]),
+                "Unimportant County",
+                "Unimportant County",
+                "US",
+                "United States of America",
+                7,
+                10.0,
+                11.0,
+            ),
         ],
     )
 
@@ -130,6 +180,7 @@ def test_happy_path_emits_country_and_state_features(tmp_path: Path):
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert len(payload["features"]) >= _SMOKE_MIN_FEATURES
     assert payload["type"] == "FeatureCollection"
+    assert payload["version"] == WORLD_LABELS_VERSION
     feats = payload["features"]
     kinds = [f["properties"]["kind"] for f in feats]
     names = [f["properties"]["name"] for f in feats]
@@ -143,12 +194,13 @@ def test_happy_path_emits_country_and_state_features(tmp_path: Path):
     assert "Tiny Island" not in names  # excluded by min_label cap
     assert "Unimportant County" in names
 
-    # Point geometry + lon/lat order.
+    geometry_types = {feat["geometry"]["type"] for feat in feats}
+    assert geometry_types & {"Polygon", "MultiPolygon"}
     for feat in feats:
-        assert feat["geometry"]["type"] == "Point"
-        lon, lat = feat["geometry"]["coordinates"]
-        assert -180 <= lon <= 180
-        assert -90 <= lat <= 90
+        assert "label_x" not in feat["properties"]
+        assert "label_y" not in feat["properties"]
+        assert "latitude" not in feat["properties"]
+        assert "longitude" not in feat["properties"]
 
     # min_zoom + max_zoom land as plain ints after rounding.
     for feat in feats:
@@ -159,11 +211,21 @@ def test_happy_path_emits_country_and_state_features(tmp_path: Path):
         assert 0 <= props["max_zoom"] <= 15
 
 
-def test_skip_when_present_above_threshold(tmp_path: Path):
-    """An existing healthy file short-circuits — no NE zip access needed."""
+def test_skip_when_present_at_current_version(tmp_path: Path):
+    """An existing current-version file short-circuits — no NE zip access needed."""
     out = tmp_path / "tools" / "planetiler" / "world-labels.geojson"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(b"{" + b" " * (_SKIP_MIN_BYTES + 10) + b"}")
+    out.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "version": WORLD_LABELS_VERSION,
+                "features": [],
+                "padding": "x" * 5000,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     # Deliberately do NOT stage an NE archive — if the preflight tried
     # to use it, the test would raise RuntimeError. The skip path must
@@ -176,6 +238,48 @@ def test_skip_when_present_above_threshold(tmp_path: Path):
 
     assert out.read_bytes().startswith(b"{")
     assert out.stat().st_mtime_ns == mtime_before
+
+
+def test_rebuilds_when_existing_file_has_old_version(tmp_path: Path):
+    out = tmp_path / "tools" / "planetiler" / "world-labels.geojson"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps({"type": "FeatureCollection", "version": "point-1", "features": []}),
+        encoding="utf-8",
+    )
+    sources_dir = tmp_path / "tools" / "planetiler" / "sources"
+    _seed_ne_archive(
+        sources_dir,
+        countries=[
+            (
+                _polygon_blob([(60.0, 41.0), (75.0, 41.0), (75.0, 55.0), (60.0, 55.0), (60.0, 41.0)]),
+                "Russia",
+                "Russia",
+                "RU",
+                1,
+                2.0,
+                7.0,
+            )
+        ],
+        states=[
+            (
+                _polygon_blob([(30.0, 59.0), (40.0, 59.0), (40.0, 65.0), (30.0, 65.0), (30.0, 59.0)]),
+                "Karelia",
+                "Karelia",
+                "RU",
+                "Russia",
+                4,
+                5.0,
+                7.0,
+            )
+        ],
+    )
+
+    asyncio.run(ensure_world_labels(_ctx(tmp_path, [])))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["version"] == WORLD_LABELS_VERSION
+    assert payload["features"][0]["properties"]["name"] == "Russia"
 
 
 def test_tiny_output_is_treated_as_corrupt(tmp_path: Path):

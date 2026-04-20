@@ -147,6 +147,9 @@ NATURAL_EARTH = {
 }
 
 
+WORLD_LABELS_VERSION = "polygon-1"
+
+
 OSM_WATER_POLYGONS = {
     "version": "2025-01-30",
     "filename": "water-polygons-split-3857.zip",

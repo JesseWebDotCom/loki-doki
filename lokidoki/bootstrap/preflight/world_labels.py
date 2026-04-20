@@ -1,46 +1,11 @@
-"""Build the static ``world-labels.geojson`` from Natural Earth.
-
-Why this exists
----------------
-The ``build-world-overview`` preflight (chunk 1 of the world-overview
-plan) produces a global z0–z7 vector tileset. That file carries Natural
-Earth's **boundaries** and **water polygons** globally — but planetiler's
-OpenMapTiles profile sources the ``place`` source-layer (country / state
-/ city labels) from **OSM**, not Natural Earth. Because we feed it a
-tiny Monaco PBF to satisfy its OSM-input requirement, the only country
-label that survives into the tileset is Monaco. No USA, no Canada, no
-anything else.
-
-Rather than swap the OSM input for a 20+ GB planet file (impossible
-offline), we sidestep the planetiler pipeline entirely for labels:
-query the NE sqlite directly for country + state centroids + names,
-write them to a single static GeoJSON FeatureCollection, and let
-MapLibre render it as a ``geojson`` source. ~300 KB total, loads once.
-
-Layout after install::
-
-    .lokidoki/tools/planetiler/
-        world-labels.geojson        # ~300 KB FeatureCollection
-
-Schema — each feature is a ``Point`` with properties:
-    kind:       "country" | "state"
-    name:       primary label text (prefers ``name_en``)
-    name_local: fallback local name
-    iso_a2:     two-letter country code (when available)
-    admin:      parent country name (``state`` features only)
-    rank:       Natural Earth ``labelrank`` (1=most important, 10=least)
-    min_zoom:   lowest zoom the label may paint at (from NE ``min_label``)
-    max_zoom:   highest zoom the label may paint at (from NE ``max_label``)
-
-The MapLibre style filters on ``kind`` + ``min_zoom``/``max_zoom`` to
-stage labels across zooms 0–7 without having to re-generate the file.
-"""
+"""Build the static ``world-labels.geojson`` from Natural Earth."""
 from __future__ import annotations
 
 import json
 import logging
 import shutil
 import sqlite3
+import struct
 import tempfile
 import zipfile
 from pathlib import Path
@@ -48,14 +13,11 @@ from typing import Iterable
 
 from ..context import StepContext
 from ..events import StepLog
-from ..versions import NATURAL_EARTH
+from ..versions import NATURAL_EARTH, WORLD_LABELS_VERSION
 
 
 _log = logging.getLogger(__name__)
 _STEP_ID = "build-world-labels"
-
-# Skip the rebuild if an existing file is above this size. Any smaller
-# means a prior run aborted mid-write — re-generate.
 _SKIP_MIN_BYTES = 4 * 1024
 
 # Fresh-build smoke floor is feature-count-based rather than byte-count:
@@ -80,7 +42,7 @@ _COUNTRY_MIN_LABEL_CAP = 8
 async def ensure_world_labels(ctx: StepContext) -> None:
     """Emit ``world-labels.geojson`` from the Natural Earth sqlite."""
     out_path = ctx.binary_path("world_labels_geojson")
-    if _present_above(out_path, _SKIP_MIN_BYTES):
+    if _present_current(out_path):
         ctx.emit(
             StepLog(
                 step_id=_STEP_ID,
@@ -140,7 +102,11 @@ async def ensure_world_labels(ctx: StepContext) -> None:
     if scratch.exists():
         scratch.unlink()
 
-    payload = {"type": "FeatureCollection", "features": features}
+    payload = {
+        "type": "FeatureCollection",
+        "version": WORLD_LABELS_VERSION,
+        "features": features,
+    }
     scratch.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
     if out_path.exists():
@@ -191,14 +157,13 @@ def _collect_features(sqlite_path: Path) -> Iterable[dict]:
 
 
 def _country_features(con: sqlite3.Connection) -> Iterable[dict]:
-    """Build one Point feature per country with a label_x/label_y."""
+    """Build one polygon feature per country from the NE geometry blob."""
     cur = con.execute(
         """
         SELECT name, name_en, iso_a2, labelrank, min_label, max_label,
-               label_x, label_y
+               GEOMETRY
         FROM ne_10m_admin_0_countries
-        WHERE label_x IS NOT NULL
-          AND label_y IS NOT NULL
+        WHERE GEOMETRY IS NOT NULL
           AND min_label <= ?
         """,
         (_COUNTRY_MIN_LABEL_CAP,),
@@ -209,10 +174,7 @@ def _country_features(con: sqlite3.Connection) -> Iterable[dict]:
             continue
         yield {
             "type": "Feature",
-            "geometry": {
-                "type": "Point",
-                "coordinates": [float(row["label_x"]), float(row["label_y"])],
-            },
+            "geometry": _decode_wkb(row["GEOMETRY"]),
             "properties": {
                 "kind": "country",
                 "name": name,
@@ -226,14 +188,13 @@ def _country_features(con: sqlite3.Connection) -> Iterable[dict]:
 
 
 def _state_features(con: sqlite3.Connection) -> Iterable[dict]:
-    """Build one Point feature per admin-1 state with usable coords."""
+    """Build one polygon feature per admin-1 state from the NE geometry blob."""
     cur = con.execute(
         """
         SELECT name, name_en, iso_a2, admin, labelrank, min_label, max_label,
-               latitude, longitude
+               GEOMETRY
         FROM ne_10m_admin_1_states_provinces
-        WHERE latitude IS NOT NULL
-          AND longitude IS NOT NULL
+        WHERE GEOMETRY IS NOT NULL
           AND min_label <= ?
         """,
         (_STATE_MIN_LABEL_CAP,),
@@ -244,10 +205,7 @@ def _state_features(con: sqlite3.Connection) -> Iterable[dict]:
             continue
         yield {
             "type": "Feature",
-            "geometry": {
-                "type": "Point",
-                "coordinates": [float(row["longitude"]), float(row["latitude"])],
-            },
+            "geometry": _decode_wkb(row["GEOMETRY"]),
             "properties": {
                 "kind": "state",
                 "name": name,
@@ -276,5 +234,63 @@ def _zoom_floor(value, *, default: int) -> int:
     return n
 
 
-def _present_above(path: Path, threshold: int) -> bool:
-    return path.exists() and path.is_file() and path.stat().st_size >= threshold
+def _decode_wkb(blob: bytes) -> dict:
+    order = "<" if blob[0] == 1 else ">"
+    gtype, offset = _read(blob, f"{order}I", 1)
+    if gtype == 3:
+        return {"type": "Polygon", "coordinates": _read_polygon(blob, offset, order)}
+    if gtype == 6:
+        count, offset = _read(blob, f"{order}I", offset)
+        polys = []
+        for _ in range(count):
+            polys.append(_decode_wkb(blob[offset:])["coordinates"])
+            offset += _geometry_size(blob[offset:])
+        return {"type": "MultiPolygon", "coordinates": polys}
+    raise RuntimeError(f"unsupported Natural Earth WKB geometry type {gtype}")
+
+
+def _read_polygon(blob: bytes, offset: int, order: str) -> list[list[list[float]]]:
+    rings_n, offset = _read(blob, f"{order}I", offset)
+    rings = []
+    for _ in range(rings_n):
+        points_n, offset = _read(blob, f"{order}I", offset)
+        ring = []
+        for _ in range(points_n):
+            x, y = struct.unpack_from(f"{order}dd", blob, offset)
+            offset += 16
+            ring.append([x, y])
+        rings.append(ring)
+    return rings
+
+
+def _geometry_size(blob: bytes) -> int:
+    order = "<" if blob[0] == 1 else ">"
+    gtype, offset = _read(blob, f"{order}I", 1)
+    if gtype == 3:
+        rings_n, offset = _read(blob, f"{order}I", offset)
+        for _ in range(rings_n):
+            points_n, offset = _read(blob, f"{order}I", offset)
+            offset += points_n * 16
+        return offset
+    if gtype == 6:
+        polys_n, offset = _read(blob, f"{order}I", offset)
+        for _ in range(polys_n):
+            size = _geometry_size(blob[offset:])
+            offset += size
+        return offset
+    raise RuntimeError(f"unsupported Natural Earth WKB geometry type {gtype}")
+
+
+def _read(blob: bytes, fmt: str, offset: int) -> tuple[int, int]:
+    size = struct.calcsize(fmt)
+    return struct.unpack_from(fmt, blob, offset)[0], offset + size
+
+
+def _present_current(path: Path) -> bool:
+    if not path.exists() or not path.is_file() or path.stat().st_size < _SKIP_MIN_BYTES:
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return payload.get("version") == WORLD_LABELS_VERSION
