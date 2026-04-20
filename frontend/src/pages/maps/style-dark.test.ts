@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { buildDarkStyle } from './style-dark';
+import { buildLightStyle } from './style-light';
 
 const TILE_URL = 'pmtiles:///maps/regions/us-ct/streets.pmtiles';
 const OVERVIEW_URL = 'pmtiles:///api/v1/maps/tiles/_overview/streets.pmtiles';
 const LABELS_URL = '/api/v1/maps/tiles/_overview/labels.geojson';
+
+function parseHex(hex: string): [number, number, number] {
+  const value = hex.replace('#', '');
+  return [
+    parseInt(value.slice(0, 2), 16),
+    parseInt(value.slice(2, 4), 16),
+    parseInt(value.slice(4, 6), 16),
+  ];
+}
+
+function luminance(hex: string): number {
+  const [r, g, b] = parseHex(hex);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
 
 describe('buildDarkStyle', () => {
   it('omits the 3D-buildings extrusion layer in flat map mode (default)', () => {
@@ -65,12 +80,65 @@ describe('buildDarkStyle', () => {
     }
   });
 
+  it('renders interstate shields above motorways', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const shields = style.layers.filter((l) => /^route_shield_/.test(l.id));
+    expect(shields.length).toBeGreaterThan(0);
+    for (const layer of shields) {
+      expect((layer as { 'source-layer': string })['source-layer']).toBe('transportation_name');
+      expect(layer.type).toBe('symbol');
+      expect(
+        (layer as { layout: { 'text-font': string[] } }).layout['text-font'],
+      ).toEqual(['Noto Sans Medium']);
+    }
+  });
+
+  it('renders waterway names along stream lines', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const waterway = style.layers.find((l) => l.id === 'waterway_label') as
+      | { layout: { 'symbol-placement': string } }
+      | undefined;
+    expect(waterway).toBeDefined();
+    expect(waterway?.layout['symbol-placement']).toBe('line');
+  });
+
+  it('motorway lines are brighter than residential', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const motorway = style.layers.find((l) => l.id === 'roads_major') as
+      | { paint: { 'line-color': string } }
+      | undefined;
+    const residential = style.layers.find((l) => l.id === 'roads_minor') as
+      | { paint: { 'line-color': string } }
+      | undefined;
+    expect(motorway).toBeDefined();
+    expect(residential).toBeDefined();
+    expect(luminance(motorway?.paint['line-color'] ?? '#000000')).toBeGreaterThan(
+      luminance(residential?.paint['line-color'] ?? '#000000'),
+    );
+  });
+
   it('includes a housenumber layer gated to close zoom', () => {
     const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const hn = style.layers.find((l) => l.id === 'housenumber');
     expect(hn).toBeDefined();
     expect((hn as { 'source-layer': string })['source-layer']).toBe('housenumber');
     expect((hn as { minzoom?: number }).minzoom ?? 0).toBeGreaterThanOrEqual(16);
+  });
+
+  it('renders POIs as icon + label layers instead of bare text only', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const poiIcon = style.layers.find((l) => l.id === 'poi_icon') as
+      | { layout: Record<string, unknown>; paint: Record<string, unknown> }
+      | undefined;
+    const poiLabel = style.layers.find((l) => l.id === 'poi_label') as
+      | { layout: Record<string, unknown> }
+      | undefined;
+    expect(poiIcon).toBeDefined();
+    expect(poiLabel).toBeDefined();
+    expect(JSON.stringify(poiIcon?.layout['icon-image'])).toContain('fast_food');
+    expect(JSON.stringify(poiIcon?.paint['icon-color'])).toContain('#f59e0b');
+    expect(poiLabel?.layout['text-anchor']).toBe('top');
+    expect(JSON.stringify(poiLabel?.layout['text-offset'])).toContain('1');
   });
 
   it('uses the supplied tile URL on the protomaps vector source', () => {
@@ -100,13 +168,43 @@ describe('buildDarkStyle', () => {
   });
 
   it('swaps the palette between dark and light themes', () => {
-    const dark = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { theme: 'dark' });
-    const light = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { theme: 'light' });
+    const dark = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const light = buildLightStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const bgOf = (s: typeof dark) =>
       (s.layers.find((l) => l.id === 'bg') as {
         paint: { 'background-color': string };
       }).paint['background-color'];
     expect(bgOf(dark)).not.toBe(bgOf(light));
+  });
+
+  it('emits landuse fills with subtle dark tints', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const ids = style.layers.map((layer) => layer.id);
+    expect(ids).toContain('landuse_park');
+    expect(ids).toContain('landuse_wood');
+    expect(ids).toContain('landuse_residential');
+    expect(ids).toContain('landuse_commercial');
+    expect(ids).toContain('landuse_industrial');
+
+    const bg = style.layers.find((layer) => layer.id === 'bg') as {
+      paint: { 'background-color': string };
+    };
+    const park = style.layers.find((layer) => layer.id === 'landuse_park') as {
+      paint: { 'fill-color': string };
+    };
+    const commercial = style.layers.find((layer) => layer.id === 'landuse_commercial') as {
+      paint: { 'fill-color': string };
+    };
+    expect(
+      Math.abs(
+        luminance(park.paint['fill-color']) - luminance(bg.paint['background-color']),
+      ),
+    ).toBeLessThan(18);
+    expect(
+      Math.abs(
+        luminance(commercial.paint['fill-color']) - luminance(bg.paint['background-color']),
+      ),
+    ).toBeLessThan(22);
   });
 
   // ── Dual-source / world overview assertions ─────────────────────
@@ -175,6 +273,65 @@ describe('buildDarkStyle', () => {
     };
     expect(country.layout['symbol-placement']).toBe('point');
     expect(state.layout['symbol-placement']).toBe('point');
+  });
+
+  it('renders world_admin1_boundary as a line layer over the world_labels source', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const layer = style.layers.find((l) => l.id === 'world_admin1_boundary') as
+      | {
+          type: string;
+          source: string;
+          filter: unknown;
+          minzoom?: number;
+          maxzoom?: number;
+        }
+      | undefined;
+    expect(layer).toBeDefined();
+    expect(layer?.type).toBe('line');
+    // GeoJSON-backed source — Natural Earth admin-1 polygons live in
+    // world-labels.geojson today; rendering polygons through a line
+    // layer paints their outlines as boundary edges globally.
+    expect(layer?.source).toBe('world_labels');
+    expect(JSON.stringify(layer?.filter)).toContain('state');
+    // Hands off to the per-region streets pmtiles (which carries OSM
+    // admin_level=4 boundaries) above z8 so the two never stack.
+    expect(layer?.maxzoom).toBe(8);
+    expect(layer?.minzoom).toBeLessThanOrEqual(5);
+  });
+
+  it('renders world_admin1_label as a symbol layer with admin-1 names', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const layer = style.layers.find((l) => l.id === 'world_admin1_label') as
+      | {
+          type: string;
+          source: string;
+          filter: unknown;
+          layout: Record<string, unknown>;
+        }
+      | undefined;
+    expect(layer).toBeDefined();
+    expect(layer?.type).toBe('symbol');
+    expect(layer?.source).toBe('world_labels');
+    expect(JSON.stringify(layer?.filter)).toContain('state');
+    expect(layer?.layout['text-field']).toBeDefined();
+    expect(JSON.stringify(layer?.layout['text-font'])).toContain('Noto Sans Regular');
+    expect(layer?.layout['text-transform']).toBe('uppercase');
+  });
+
+  it('admin-1 boundary + label paint above country boundary, below street boundary', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const ids = style.layers.map((l) => l.id);
+    const country = ids.indexOf('world_boundary_country');
+    const admin1Boundary = ids.indexOf('world_admin1_boundary');
+    const admin1Label = ids.indexOf('world_admin1_label');
+    const street = ids.indexOf('boundary_state');
+    expect(country).toBeGreaterThan(-1);
+    expect(admin1Boundary).toBeGreaterThan(-1);
+    expect(admin1Label).toBeGreaterThan(-1);
+    expect(street).toBeGreaterThan(-1);
+    expect(country).toBeLessThan(admin1Boundary);
+    expect(admin1Boundary).toBeLessThan(admin1Label);
+    expect(admin1Label).toBeLessThan(street);
   });
 
   it('paints world-overview fills beneath the per-region fills', () => {

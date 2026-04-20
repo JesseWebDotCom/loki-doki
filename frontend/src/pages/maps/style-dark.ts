@@ -19,13 +19,18 @@
 import type maplibregl from 'maplibre-gl';
 
 export type LayerMode = 'map' | '3d';
-export type ColorTheme = 'dark' | 'light';
 
-interface Palette {
+export interface Palette {
   background: string;
   water: string;
+  water_shadow: string;
   park: string;
   residential: string;
+  landuse_park: string;
+  landuse_wood: string;
+  landuse_residential: string;
+  landuse_commercial: string;
+  landuse_industrial: string;
   road_minor: string;
   road_medium: string;
   road_major: string;
@@ -46,12 +51,18 @@ interface Palette {
 
 const DARK: Palette = {
   background: '#141518',
-  water: '#16304d',
+  water: '#0f2944',
+  water_shadow: '#173754',
   park: '#1b2d1e',
   residential: '#1e2128',
-  road_minor: '#5a6578',
-  road_medium: '#8892ab',
-  road_major: '#b5bed4',
+  landuse_park: '#1c2620',
+  landuse_wood: '#1a221c',
+  landuse_residential: '#1f1d22',
+  landuse_commercial: '#221f25',
+  landuse_industrial: '#1d2128',
+  road_minor: '#3a3f47',
+  road_medium: '#6e7887',
+  road_major: '#9aa3ad',
   road_casing: '#0a0c10',
   building: '#363b48',
   building_outline: '#4a5060',
@@ -67,64 +78,159 @@ const DARK: Palette = {
   housenumber: '#8892ab',
 };
 
-const LIGHT: Palette = {
-  background: '#f3f1ea',
-  water: '#a8cfe8',
-  park: '#c8e0c4',
-  residential: '#ebe8e0',
-  road_minor: '#ffffff',
-  road_medium: '#fff8d4',
-  road_major: '#ffd96d',
-  road_casing: '#c0b9a8',
-  building: '#e3ddcb',
-  building_outline: '#c9c2ac',
-  boundary_country: '#7c5aa6',
-  boundary_state: '#aa92c8',
-  place_label: '#1a1d22',
-  place_label_halo: '#ffffff',
-  street_label: '#2a2e38',
-  street_label_halo: '#ffffff',
-  water_label: '#3c6a9a',
-  water_label_halo: '#ffffff',
-  poi_label: '#54595f',
-  housenumber: '#6a7080',
-};
-
-const PALETTES: Record<ColorTheme, Palette> = { dark: DARK, light: LIGHT };
+export { DARK };
 
 export interface DarkStyleOptions {
   mode?: LayerMode;
-  theme?: ColorTheme;
+  palette?: Palette;
 }
+
+export const POI_COLORS: Record<string, string> = {
+  restaurant: '#f59e0b',
+  cafe: '#f97316',
+  fast_food: '#ef4444',
+  bar: '#a855f7',
+  pub: '#7c3aed',
+  grocery: '#22c55e',
+  shop: '#38bdf8',
+  convenience: '#10b981',
+  pharmacy: '#ec4899',
+  bank: '#3b82f6',
+  atm: '#2563eb',
+  gas: '#f97316',
+  parking: '#94a3b8',
+  school: '#facc15',
+  hospital: '#ef4444',
+  clinic: '#fb7185',
+  library: '#eab308',
+  museum: '#c084fc',
+  hotel: '#06b6d4',
+  lodging: '#0891b2',
+  transit_bus: '#14b8a6',
+  transit_train: '#10b981',
+  transit_subway: '#22c55e',
+  airport: '#8b5cf6',
+  park: '#16a34a',
+  place_of_worship: '#f43f5e',
+  post: '#fb7185',
+  police: '#60a5fa',
+  fire_station: '#dc2626',
+  default: '#cbd5e1',
+};
+
+const POI_ICON_BY_KEY: Record<string, string> = {
+  restaurant: 'restaurant',
+  cafe: 'cafe',
+  fast_food: 'fast_food',
+  food_court: 'fast_food',
+  bar: 'bar',
+  pub: 'pub',
+  grocery: 'grocery',
+  supermarket: 'grocery',
+  shop: 'shop',
+  mall: 'shop',
+  convenience: 'convenience',
+  pharmacy: 'pharmacy',
+  bank: 'bank',
+  atm: 'atm',
+  fuel: 'gas',
+  gas: 'gas',
+  parking: 'parking',
+  school: 'school',
+  college: 'school',
+  university: 'school',
+  hospital: 'hospital',
+  clinic: 'clinic',
+  doctors: 'clinic',
+  dentist: 'clinic',
+  library: 'library',
+  museum: 'museum',
+  hotel: 'hotel',
+  motel: 'lodging',
+  guest_house: 'lodging',
+  hostel: 'lodging',
+  lodging: 'lodging',
+  bus: 'transit_bus',
+  bus_stop: 'transit_bus',
+  railway: 'transit_train',
+  station: 'transit_train',
+  halt: 'transit_train',
+  subway: 'transit_subway',
+  train_station: 'transit_train',
+  airport: 'airport',
+  aerodrome: 'airport',
+  park: 'park',
+  playground: 'park',
+  place_of_worship: 'place_of_worship',
+  post: 'post',
+  post_office: 'post',
+  police: 'police',
+  fire_station: 'fire_station',
+};
+
+const POI_COLOR_BY_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(POI_ICON_BY_KEY).map(([key, icon]) => [key, POI_COLORS[icon] ?? POI_COLORS.default]),
+);
+
+const poiMatchExpression = (
+  mapping: Record<string, string>,
+  fallback: string,
+): maplibregl.ExpressionSpecification => {
+  const pairs = Object.entries(mapping).flatMap(([key, value]) => [key, value]);
+  return [
+    'match',
+    ['coalesce', ['get', 'subclass'], ['get', 'class']],
+    ...pairs,
+    fallback,
+  ] as unknown as maplibregl.ExpressionSpecification;
+};
 
 // ── Layer builders ────────────────────────────────────────────────
 
 const fillLayers = (p: Palette): maplibregl.LayerSpecification[] => [
-  // Parks & greenspace.
+  // Parks and protected greenspace from planetiler's dedicated park layer.
   {
-    id: 'park',
+    id: 'landuse_park',
     type: 'fill',
     source: 'protomaps',
     'source-layer': 'park',
-    paint: { 'fill-color': p.park, 'fill-opacity': 0.8 },
+    paint: { 'fill-color': p.landuse_park, 'fill-opacity': 0.55 },
   },
-  // Residential/urban fill.
+  // Residential neighborhoods.
   {
     id: 'landuse_residential',
     type: 'fill',
     source: 'protomaps',
     'source-layer': 'landuse',
     filter: ['==', ['get', 'class'], 'residential'],
-    paint: { 'fill-color': p.residential, 'fill-opacity': 0.7 },
+    paint: { 'fill-color': p.landuse_residential, 'fill-opacity': 0.5 },
   },
-  // Additional greenspace from landcover.
+  // Commercial cores and shopping districts.
   {
-    id: 'landcover_green',
+    id: 'landuse_commercial',
+    type: 'fill',
+    source: 'protomaps',
+    'source-layer': 'landuse',
+    filter: ['==', ['get', 'class'], 'commercial'],
+    paint: { 'fill-color': p.landuse_commercial, 'fill-opacity': 0.5 },
+  },
+  // Industrial areas lean slightly cooler so the road hierarchy stands out.
+  {
+    id: 'landuse_industrial',
+    type: 'fill',
+    source: 'protomaps',
+    'source-layer': 'landuse',
+    filter: ['==', ['get', 'class'], 'industrial'],
+    paint: { 'fill-color': p.landuse_industrial, 'fill-opacity': 0.52 },
+  },
+  // Woodlands and broader greenspace from landcover.
+  {
+    id: 'landuse_wood',
     type: 'fill',
     source: 'protomaps',
     'source-layer': 'landcover',
     filter: ['in', ['get', 'class'], ['literal', ['wood', 'grass', 'farmland']]],
-    paint: { 'fill-color': p.park, 'fill-opacity': 0.5 },
+    paint: { 'fill-color': p.landuse_wood, 'fill-opacity': 0.45 },
   },
   // Water polygons.
   {
@@ -132,7 +238,22 @@ const fillLayers = (p: Palette): maplibregl.LayerSpecification[] => [
     type: 'fill',
     source: 'protomaps',
     'source-layer': 'water',
-    paint: { 'fill-color': p.water },
+    paint: {
+      'fill-color': p.water,
+      'fill-outline-color': p.water_shadow,
+    },
+  },
+  // Faint outline so coastlines and large lakes read cleanly in both themes.
+  {
+    id: 'water_shadow',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'water',
+    paint: {
+      'line-color': p.water_shadow,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.4, 12, 1.1],
+      'line-opacity': 0.5,
+    },
   },
   // Waterway lines.
   {
@@ -187,11 +308,11 @@ const roadLayers = (p: Palette): maplibregl.LayerSpecification[] => [
     type: 'line',
     source: 'protomaps',
     'source-layer': 'transportation',
-    filter: ['in', ['get', 'class'], ['literal', ['minor', 'service']]],
-    minzoom: 10,
+    filter: ['in', ['get', 'class'], ['literal', ['minor', 'service', 'residential']]],
+    minzoom: 13,
     paint: {
       'line-color': p.road_minor,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 18, 4],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.4, 16, 1.6, 18, 3],
     },
   },
   // Tertiary.
@@ -217,7 +338,7 @@ const roadLayers = (p: Palette): maplibregl.LayerSpecification[] => [
     minzoom: 6,
     paint: {
       'line-color': p.road_medium,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 18, 7],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.8, 12, 2, 16, 5],
     },
   },
   // Motorway / Trunk.
@@ -230,7 +351,7 @@ const roadLayers = (p: Palette): maplibregl.LayerSpecification[] => [
     minzoom: 4,
     paint: {
       'line-color': p.road_major,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.8, 18, 9],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 12, 3, 16, 8],
     },
   },
 ];
@@ -373,6 +494,70 @@ const worldOverviewPlaceLayers = (
   },
 ];
 
+// Global admin-1 (state / province / land / oblast) boundaries + labels.
+// Reads polygons from the same Natural Earth-derived `world_labels`
+// GeoJSON source the country/state symbol layers already use; a
+// `line` layer over polygon geometry renders the outlines, and a
+// separate `symbol` layer places admin-1 names at polygon centroids.
+//
+// The previous `world_boundary_state` layer (filter admin_level=4 on
+// the planetiler `boundary` source-layer) only carried features for
+// the US, because OpenMapTiles seeds NE admin-1 only for adm0_a3=USA
+// and our world-overview build feeds planetiler a Monaco-only OSM
+// extract. Sourcing from the GeoJSON closes that gap globally —
+// Mexico's Aguascalientes / Jalisco / Querétaro, Canada's Ontario /
+// Quebec, German Länder, Indian states, etc — without a planetiler
+// schema rewrite.
+const worldOverviewAdmin1BoundaryLayers = (
+  p: Palette,
+): maplibregl.LayerSpecification[] => [
+  {
+    id: 'world_admin1_boundary',
+    type: 'line',
+    source: 'world_labels',
+    filter: ['==', ['get', 'kind'], 'state'],
+    minzoom: 4,
+    maxzoom: 8,
+    paint: {
+      'line-color': p.boundary_state,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.4, 8, 0.9],
+      'line-dasharray': [2, 3],
+      'line-opacity': 0.65,
+    },
+  },
+];
+
+const worldOverviewAdmin1LabelLayers = (
+  p: Palette,
+): maplibregl.LayerSpecification[] => [
+  {
+    id: 'world_admin1_label',
+    type: 'symbol',
+    source: 'world_labels',
+    filter: ['==', ['get', 'kind'], 'state'],
+    minzoom: 4,
+    maxzoom: 8,
+    layout: {
+      'symbol-placement': 'point',
+      'text-field': ['get', 'name'],
+      'text-font': ['Noto Sans Regular'],
+      'text-letter-spacing': 0.08,
+      'text-transform': 'uppercase',
+      'text-size': ['interpolate', ['linear'], ['zoom'], 4, 9, 7, 12],
+      'text-padding': 2,
+      'text-max-width': 8,
+      'text-variable-anchor': ['center', 'top', 'bottom', 'left', 'right'],
+      'text-justify': 'auto',
+    },
+    paint: {
+      'text-color': p.place_label,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 1.3,
+      'text-opacity': 0.85,
+    },
+  },
+];
+
 const boundaryLayers = (p: Palette): maplibregl.LayerSpecification[] => [
   {
     id: 'boundary_state',
@@ -474,6 +659,82 @@ const transportationNameLayers = (
       'text-halo-color': p.street_label_halo,
       'text-halo-width': 1,
     },
+  },
+];
+
+const routeShieldLayers = (): maplibregl.LayerSpecification[] => [
+  {
+    id: 'route_shield_motorway',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'transportation_name',
+    filter: [
+      'all',
+      ['==', ['get', 'class'], 'motorway'],
+      ['has', 'ref'],
+    ],
+    minzoom: 9,
+    layout: {
+      'symbol-placement': 'line',
+      'symbol-spacing': 350,
+      'icon-image': 'shield_interstate',
+      'icon-text-fit': 'both',
+      'icon-text-fit-padding': [2, 4, 2, 4],
+      'text-field': ['get', 'ref'],
+      'text-font': ['Noto Sans Medium'],
+      'text-size': 11,
+      'text-allow-overlap': false,
+    },
+    paint: { 'text-color': '#ffffff' },
+  },
+  {
+    id: 'route_shield_us',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'transportation_name',
+    filter: [
+      'all',
+      ['==', ['get', 'class'], 'trunk'],
+      ['has', 'ref'],
+    ],
+    minzoom: 9,
+    layout: {
+      'symbol-placement': 'line',
+      'symbol-spacing': 350,
+      'icon-image': 'shield_us',
+      'icon-text-fit': 'both',
+      'icon-text-fit-padding': [2, 4, 2, 4],
+      'text-field': ['get', 'ref'],
+      'text-font': ['Noto Sans Medium'],
+      'text-size': 11,
+      'text-allow-overlap': false,
+    },
+    paint: { 'text-color': '#1f232b' },
+  },
+  {
+    id: 'route_shield_state',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'transportation_name',
+    filter: [
+      'all',
+      ['==', ['get', 'class'], 'primary'],
+      ['has', 'ref'],
+      ['>=', ['index-of', 'us-state:', ['coalesce', ['get', 'network'], '']], 0],
+    ],
+    minzoom: 10,
+    layout: {
+      'symbol-placement': 'line',
+      'symbol-spacing': 300,
+      'icon-image': 'shield_state',
+      'icon-text-fit': 'both',
+      'icon-text-fit-padding': [2, 4, 2, 4],
+      'text-field': ['get', 'ref'],
+      'text-font': ['Noto Sans Medium'],
+      'text-size': 10,
+      'text-allow-overlap': false,
+    },
+    paint: { 'text-color': '#3b3628' },
   },
 ];
 
@@ -621,9 +882,48 @@ const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
       'text-halo-width': 1.2,
     },
   },
+  {
+    id: 'waterway_label',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'waterway',
+    filter: ['has', 'name'],
+    minzoom: 12,
+    layout: {
+      'symbol-placement': 'line',
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Italic'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 18, 13],
+      'text-letter-spacing': 0.05,
+    },
+    paint: {
+      'text-color': p.water_label,
+      'text-halo-color': p.water_label_halo,
+      'text-halo-width': 1,
+    },
+  },
   // Points of interest — shops, restaurants, transit stops, etc.
   {
-    id: 'poi',
+    id: 'poi_icon',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'poi',
+    minzoom: 14,
+    layout: {
+      'icon-image': poiMatchExpression(POI_ICON_BY_KEY, 'default'),
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.9, 18, 1.1],
+      'icon-allow-overlap': false,
+      'icon-ignore-placement': false,
+      'text-optional': true,
+    },
+    paint: {
+      'icon-color': poiMatchExpression(POI_COLOR_BY_KEY, POI_COLORS.default),
+      'icon-halo-color': p.place_label_halo,
+      'icon-halo-width': 0.6,
+    },
+  },
+  {
+    id: 'poi_label',
     type: 'symbol',
     source: 'protomaps',
     'source-layer': 'poi',
@@ -632,7 +932,7 @@ const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
       'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
       'text-font': ['Noto Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 14, 12, 18, 15],
-      'text-offset': [0, 0.8],
+      'text-offset': [0, 1.0],
       'text-anchor': 'top',
       'text-max-width': 8,
     },
@@ -711,8 +1011,7 @@ export function buildDarkStyle(
   opts: DarkStyleOptions = {},
 ): maplibregl.StyleSpecification {
   const mode: LayerMode = opts.mode ?? 'map';
-  const theme: ColorTheme = opts.theme ?? 'dark';
-  const p = PALETTES[theme];
+  const p = opts.palette ?? DARK;
 
   const sources: maplibregl.StyleSpecification['sources'] = {
     protomaps: {
@@ -745,10 +1044,13 @@ export function buildDarkStyle(
     ...worldOverviewFillLayers(p),
     ...fillLayers(p),
     ...worldOverviewBoundaryLayers(p),
+    ...worldOverviewAdmin1BoundaryLayers(p),
+    ...worldOverviewAdmin1LabelLayers(p),
     ...boundaryLayers(p),
     ...(mode === '3d' ? [buildings3dLayer(p)] : [buildings2dLayer(p)]),
     ...roadLayers(p),
     ...transportationNameLayers(p),
+    ...routeShieldLayers(),
     ...water_and_poi_labels(p),
     ...worldOverviewPlaceLayers(p),
     ...placeLabelLayers(p),
@@ -761,3 +1063,5 @@ export function buildDarkStyle(
     layers,
   };
 }
+
+export default buildDarkStyle;

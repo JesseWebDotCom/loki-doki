@@ -298,6 +298,86 @@ def test_tiny_output_is_treated_as_corrupt(tmp_path: Path):
     assert not out.exists()
 
 
+def test_admin1_polygons_emitted_for_non_us_countries(tmp_path: Path):
+    """Mexico / Canada / German / Indian admin-1 polygons must land in the
+    geojson so the global ``world_admin1_boundary`` + ``world_admin1_label``
+    style layers can render their outlines + names. Regression guard for
+    chunk 15 — pre-fix the overview map showed only country outlines outside
+    the US because OpenMapTiles seeds NE admin-1 only for ``adm0_a3=USA``.
+    """
+    sources_dir = tmp_path / "tools" / "planetiler" / "sources"
+    _seed_ne_archive(
+        sources_dir,
+        countries=[
+            (
+                _polygon_blob(
+                    [(-118.4, 14.5), (-86.7, 14.5), (-86.7, 32.7), (-118.4, 32.7), (-118.4, 14.5)]
+                ),
+                "Mexico",
+                "Mexico",
+                "MX",
+                2,
+                3.0,
+                7.0,
+            ),
+        ],
+        states=[
+            (
+                _polygon_blob(
+                    [(-105.7, 18.9), (-101.5, 18.9), (-101.5, 22.7), (-105.7, 22.7), (-105.7, 18.9)]
+                ),
+                "Jalisco",
+                "Jalisco",
+                "MX",
+                "Mexico",
+                4,
+                5.0,
+                8.0,
+            ),
+            (
+                _polygon_blob(
+                    [(-95.0, 41.7), (-74.3, 41.7), (-74.3, 56.9), (-95.0, 56.9), (-95.0, 41.7)]
+                ),
+                "Ontario",
+                "Ontario",
+                "CA",
+                "Canada",
+                3,
+                4.0,
+                7.0,
+            ),
+            (
+                _polygon_blob(
+                    [(8.97, 47.27), (13.84, 47.27), (13.84, 50.56), (8.97, 50.56), (8.97, 47.27)]
+                ),
+                "Bavaria",
+                "Bavaria",
+                "DE",
+                "Germany",
+                3,
+                5.0,
+                7.0,
+            ),
+        ],
+    )
+
+    asyncio.run(ensure_world_labels(_ctx(tmp_path, [])))
+
+    out = tmp_path / "tools" / "planetiler" / "world-labels.geojson"
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    state_feats = [f for f in payload["features"] if f["properties"]["kind"] == "state"]
+    state_names = {f["properties"]["name"] for f in state_feats}
+
+    assert {"Jalisco", "Ontario", "Bavaria"}.issubset(state_names), (
+        f"non-US admin-1 polygons must survive into the geojson; got {state_names}"
+    )
+
+    # Geometry must be polygon / multipolygon — line + symbol layers in the
+    # MapLibre style depend on that to render outlines + centroid labels.
+    for feat in state_feats:
+        assert feat["geometry"]["type"] in {"Polygon", "MultiPolygon"}
+
+
 def test_missing_ne_archive_raises_with_pointer(tmp_path: Path):
     sources_dir = tmp_path / "tools" / "planetiler" / "sources"
     sources_dir.mkdir(parents=True, exist_ok=True)
