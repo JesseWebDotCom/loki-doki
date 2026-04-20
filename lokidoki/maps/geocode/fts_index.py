@@ -360,6 +360,10 @@ __all__ = [
     "build_index",
     "region_db_path",
     "row_counts",
+    "_CREATE_SCHEMA",
+    "_Row",
+    "_flush",
+    "_open_db",
 ]
 
 

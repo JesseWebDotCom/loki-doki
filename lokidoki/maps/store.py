@@ -316,6 +316,7 @@ async def _build_geocoder_step(
     drops it at the end of the pipeline.
     """
     from .geocode.fts_index import build_index, region_db_path
+    from .geocode.oa_ingest import ingest_openaddresses
 
     pbf_path = _final_path_for(region_id, "pbf")
     if not pbf_path.exists():
@@ -345,12 +346,58 @@ async def _build_geocoder_step(
             )),
         )
 
+    def _oa_path() -> Path | None:
+        pin = OPENADDRESSES_REGIONS.get(region_id)
+        if pin is not None:
+            candidate = region_dir(region_id) / str(pin["filename"])
+            if candidate.exists():
+                return candidate
+        generic = region_dir(region_id) / "openaddresses.zip"
+        if generic.exists():
+            return generic
+        return None
+
     def _run() -> int:
         stats = build_index(
             pbf_path, db_path, region_id,
             progress_cb=_progress,
         )
-        return stats.total
+        total_rows = stats.total
+        oa_zip = _oa_path()
+        if oa_zip is None:
+            return total_rows
+
+        def _oa_progress(rows_written: int, phase: str) -> None:
+            if phase != "indexing":
+                return
+            loop.call_soon_threadsafe(
+                asyncio.create_task,
+                emit(MapInstallProgress(
+                    region_id=region_id,
+                    artifact="geocoder",
+                    bytes_done=rows_written,
+                    bytes_total=0,
+                    phase="building_geocoder_oa",
+                )),
+            )
+
+        loop.call_soon_threadsafe(
+            asyncio.create_task,
+            emit(MapInstallProgress(
+                region_id=region_id,
+                artifact="geocoder",
+                bytes_done=0,
+                bytes_total=0,
+                phase="building_geocoder_oa",
+            )),
+        )
+        total_rows += ingest_openaddresses(
+            oa_zip,
+            db_path,
+            region_id,
+            progress_cb=_oa_progress,
+        ).rows
+        return total_rows
 
     loop = asyncio.get_event_loop()
     try:
