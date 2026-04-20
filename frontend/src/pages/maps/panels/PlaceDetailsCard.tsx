@@ -11,11 +11,13 @@ import React, { useCallback, useState } from 'react';
 import { ArrowUpRight, Copy, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { PlaceResult } from '../types';
+import { poiCategoryIconId } from './poi-icons';
 
 export interface PlaceDetailsCardProps {
   place: PlaceResult;
   onDirections: (place: PlaceResult) => void;
   onRegionLink?: (region: string) => void;
+  category?: string;
   onClose: () => void;
 }
 
@@ -23,11 +25,13 @@ const PlaceDetailsCard: React.FC<PlaceDetailsCardProps> = ({
   place,
   onDirections,
   onRegionLink,
+  category,
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
 
   const addressText = place.address_lines.join('\n');
+  const iconId = poiCategoryIconId(category);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -47,9 +51,19 @@ const PlaceDetailsCard: React.FC<PlaceDetailsCardProps> = ({
     >
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-2xl font-semibold tracking-tight">
-            {place.title}
-          </h2>
+          <div className="flex items-center gap-2">
+            {iconId ? (
+              <img
+                src={`/sprites/source/${iconId}.svg`}
+                alt=""
+                aria-hidden="true"
+                className="h-5 w-5 shrink-0 opacity-80"
+              />
+            ) : null}
+            <h2 className="truncate text-2xl font-semibold tracking-tight">
+              {place.title}
+            </h2>
+          </div>
           {place.subtitle && (
             <div className="mt-1 truncate text-sm text-muted-foreground">
               Address ·{' '}

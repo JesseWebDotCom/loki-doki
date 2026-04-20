@@ -28,7 +28,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
 import { Download, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { buildDarkStyle, type ColorTheme, type LayerMode } from './maps/style-dark';
+import { type LayerMode } from './maps/style-dark';
+import { buildStyle } from './maps/style-factory';
 import LayerModeChip from './maps/LayerModeChip';
 import {
   fetchInstalledRegions,
@@ -40,6 +41,7 @@ import OutOfCoverageBanner from './maps/OutOfCoverageBanner';
 import LeftRail from './maps/LeftRail';
 import SearchPanel from './maps/panels/SearchPanel';
 import PlaceDetailsCard from './maps/panels/PlaceDetailsCard';
+import PoiHoverPreview from './maps/panels/PoiHoverPreview';
 import GuidesPanel from './maps/panels/GuidesPanel';
 import DirectionsPanel from './maps/panels/DirectionsPanel';
 import type {
@@ -52,8 +54,10 @@ import {
   clearRoutes,
 } from './maps/route-layer';
 import { MANAGE_MAPS_ROUTE } from './maps/routes';
-import { loadRecents, pushRecent } from './maps/recents';
+import { fitMapToCoords } from './maps/fit-coords';
+import { loadRecents, pushRecent, removeRecent } from './maps/recents';
 import type { ActivePanel, PlaceResult, Recent } from './maps/types';
+import { useMapTheme } from './maps/use-map-theme';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 
 // Global z0–z7 Natural Earth basemap served by bootstrap. Paired with
@@ -69,6 +73,8 @@ const OVERVIEW_PMTILES_URL =
 // Monaco as its OSM input — so only Monaco labels flow through that
 // path). Loading this file gives us country/state names globally.
 const WORLD_LABELS_URL = '/api/v1/maps/tiles/_overview/labels.geojson';
+const REVERSE_GEOCODE_URL = '/api/v1/maps/geocode/reverse';
+const CLICKABLE_LAYER_IDS = ['poi_icon', 'buildings-3d', 'buildings-2d'] as const;
 
 // Register the pmtiles:// protocol globally, once per module load.
 // Guarded so Vite HMR doesn't stack duplicate handlers (MapLibre throws
@@ -131,6 +137,73 @@ if (typeof document !== 'undefined' && !document.getElementById('ld-maplibre-dar
   document.head.appendChild(style);
 }
 
+type MapFeatureProperties = Record<string, unknown> & {
+  name?: string;
+  'name:en'?: string;
+  class?: string;
+  subclass?: string;
+  street?: string;
+  housenumber?: string;
+  ['addr:street']?: string;
+  ['addr:housenumber']?: string;
+  city?: string;
+  state?: string;
+  postcode?: string;
+};
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function subtitleFromProps(props: MapFeatureProperties): string {
+  const number = asString(props.housenumber) || asString(props['addr:housenumber']);
+  const street = asString(props.street) || asString(props['addr:street']);
+  const locality = [asString(props.city), asString(props.state), asString(props.postcode)]
+    .filter(Boolean)
+    .join(', ');
+  const address = [number, street].filter(Boolean).join(' ').trim();
+  return address || locality || asString(props.subclass) || asString(props.class);
+}
+
+function titleFromProps(props: MapFeatureProperties): string {
+  return asString(props['name:en']) || asString(props.name);
+}
+
+function categoryFromProps(props: MapFeatureProperties): string | undefined {
+  return asString(props.subclass) || asString(props.class) || undefined;
+}
+
+async function reverseGeocode(lat: number, lon: number): Promise<PlaceResult | null> {
+  const url = new URL(REVERSE_GEOCODE_URL, window.location.origin);
+  url.searchParams.set('lat', String(lat));
+  url.searchParams.set('lon', String(lon));
+  const res = await fetch(url.toString());
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    throw new Error(`Reverse geocoder ${res.status}`);
+  }
+  const body = await res.json() as {
+    place_id: string;
+    title: string;
+    subtitle: string;
+    lat: number;
+    lon: number;
+    source: string;
+  };
+  const lines = [body.title, body.subtitle].filter(Boolean);
+  return {
+    place_id: body.place_id,
+    title: body.title,
+    subtitle: body.subtitle,
+    address_lines: lines.length > 0 ? lines : [body.place_id],
+    lat: body.lat,
+    lon: body.lon,
+    kind: 'address',
+  };
+}
+
 // ── Component ──────────────────────────────────────────────────
 
 const MapsPage: React.FC = () => {
@@ -161,29 +234,19 @@ const MapsPage: React.FC = () => {
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
 
+  const [hoverTarget, setHoverTarget] = useState<{
+    name: string;
+    subtitle: string;
+    category?: string;
+    screenX: number;
+    screenY: number;
+  } | null>(null);
+
   // Layer mode — flat ``map`` or ``3d`` (fill-extrusion buildings).
   // Flipping to 3D auto-pitches the camera; flipping back resets pitch
   // iff the user hasn't tilted it themselves in the meantime.
   const [mode, setMode] = useState<LayerMode>('map');
-
-  // Track the active app theme so the map palette follows dark/light.
-  // ThemeProvider toggles the ``dark`` class on <html>; MutationObserver
-  // keeps us in sync when the user flips the theme while the map is open.
-  const [colorTheme, setColorTheme] = useState<ColorTheme>(() =>
-    typeof document !== 'undefined' &&
-    document.documentElement.classList.contains('dark')
-      ? 'dark'
-      : 'light',
-  );
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const root = document.documentElement;
-    const observer = new MutationObserver(() => {
-      setColorTheme(root.classList.contains('dark') ? 'dark' : 'light');
-    });
-    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
+  const { theme } = useMapTheme();
 
   // Coverage resolution — carried over from Chunk 3.
   const [regions, setRegions] = useState<InstalledRegion[]>([]);
@@ -345,15 +408,16 @@ const MapsPage: React.FC = () => {
       return;
     }
 
-    map.setStyle(
-      buildDarkStyle(
-        resolution.streetUrl,
-        OVERVIEW_PMTILES_URL,
-        WORLD_LABELS_URL,
-        { mode, theme: colorTheme },
-      ),
+    const style = buildStyle(
+      theme,
+      resolution.streetUrl,
+      OVERVIEW_PMTILES_URL,
+      WORLD_LABELS_URL,
+      { mode },
     );
-  }, [resolution, mode, colorTheme]);
+    style.sprite = '/sprites/maps-sprite';
+    map.setStyle(style);
+  }, [mode, resolution, theme]);
 
   // ── Auto-pitch when flipping layer mode ──────────────────────
   // Flat ➜ 3D with a pitch of 0 gets a one-time 45° nudge so the
@@ -424,9 +488,135 @@ const MapsPage: React.FC = () => {
     setActivePanel(null);
   }, [pinAndFly]);
 
+  const handleRemoveRecent = useCallback((placeId: string) => {
+    setRecents(removeRecent(placeId));
+  }, []);
+
   const handleDirections = useCallback((_place: PlaceResult) => {
     setActivePanel('directions');
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    const handleMapClick = async (event: maplibregl.MapMouseEvent) => {
+      const layers = CLICKABLE_LAYER_IDS.filter((id) => map.getLayer(id));
+      if (layers.length === 0) return;
+      const hits = map.queryRenderedFeatures(event.point, { layers });
+      const top = hits[0];
+      if (!top) return;
+      const props = (top.properties ?? {}) as MapFeatureProperties;
+      const title = titleFromProps(props);
+      if (title) {
+        const place: PlaceResult = {
+          place_id: String(top.id ?? `${event.lngLat.lat},${event.lngLat.lng}`),
+          title,
+          subtitle: subtitleFromProps(props),
+          address_lines: [title, subtitleFromProps(props)].filter(Boolean),
+          lat: event.lngLat.lat,
+          lon: event.lngLat.lng,
+          kind: categoryFromProps(props),
+        };
+        handleSelect(place);
+        return;
+      }
+      try {
+        const place = await reverseGeocode(event.lngLat.lat, event.lngLat.lng);
+        if (place) {
+          handleSelect(place);
+        }
+      } catch (error) {
+        setMapError(
+          error instanceof Error ? error.message : 'Reverse geocode failed',
+        );
+      }
+    };
+
+    map.on('click', handleMapClick);
+    return () => {
+      map.off('click', handleMapClick);
+    };
+  }, [handleSelect, mapReady]);
+
+  // ── Hover preview on POI icons ────────────────────────────────
+  // rAF-throttled mousemove so hover-dragging across many pins
+  // doesn't re-render the preview every pointer event.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    let rafId: number | null = null;
+    let pending: { feature: unknown; x: number; y: number } | null = null;
+
+    const flush = () => {
+      rafId = null;
+      if (!pending) return;
+      const { feature, x, y } = pending;
+      pending = null;
+      const props = ((feature as { properties?: MapFeatureProperties }).properties
+        ?? {}) as MapFeatureProperties;
+      const name = titleFromProps(props);
+      if (!name) {
+        setHoverTarget(null);
+        return;
+      }
+      setHoverTarget({
+        name,
+        subtitle: subtitleFromProps(props),
+        category: categoryFromProps(props),
+        screenX: x,
+        screenY: y,
+      });
+    };
+
+    const handleMove = (event: unknown) => {
+      const evt = event as {
+        features?: { properties?: MapFeatureProperties }[];
+        originalEvent?: { clientX: number; clientY: number };
+        point?: { x: number; y: number };
+      };
+      const feat = evt.features?.[0];
+      if (!feat) return;
+      const x = evt.originalEvent?.clientX ?? evt.point?.x ?? 0;
+      const y = evt.originalEvent?.clientY ?? evt.point?.y ?? 0;
+      map.getCanvas().style.cursor = 'pointer';
+      pending = { feature: feat, x, y };
+      if (rafId === null) {
+        rafId = typeof requestAnimationFrame === 'function'
+          ? requestAnimationFrame(flush)
+          : (setTimeout(flush, 33) as unknown as number);
+      }
+    };
+
+    const handleLeave = () => {
+      pending = null;
+      if (rafId !== null) {
+        if (typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(rafId);
+        } else {
+          clearTimeout(rafId as unknown as ReturnType<typeof setTimeout>);
+        }
+        rafId = null;
+      }
+      map.getCanvas().style.cursor = '';
+      setHoverTarget(null);
+    };
+
+    map.on('mousemove', 'poi_icon', handleMove);
+    map.on('mouseleave', 'poi_icon', handleLeave);
+    return () => {
+      map.off('mousemove', 'poi_icon', handleMove);
+      map.off('mouseleave', 'poi_icon', handleLeave);
+      if (rafId !== null) {
+        if (typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(rafId);
+        } else {
+          clearTimeout(rafId as unknown as ReturnType<typeof setTimeout>);
+        }
+      }
+    };
+  }, [mapReady]);
 
   const handleRoutesChanged = useCallback(
     (alts: RouteAlt[], selectedIdx: number) => {
@@ -438,18 +628,8 @@ const MapsPage: React.FC = () => {
 
   const handleFitToCoords = useCallback((coords: [number, number][]) => {
     const map = mapRef.current;
-    if (!map || coords.length === 0) return;
-    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
-    for (const [lng, lat] of coords) {
-      if (lng < minLng) minLng = lng;
-      if (lng > maxLng) maxLng = lng;
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-    }
-    map.fitBounds(
-      [[minLng, minLat], [maxLng, maxLat]],
-      { padding: 80, duration: 600, maxZoom: 17 },
-    );
+    if (!map) return;
+    fitMapToCoords(map, coords);
   }, []);
 
   const handleSelectPanel = useCallback((panel: Exclude<ActivePanel, null>) => {
@@ -527,6 +707,7 @@ const MapsPage: React.FC = () => {
       return (
         <PlaceDetailsCard
           place={selectedPlace}
+          category={selectedPlace.kind}
           onDirections={handleDirections}
           onClose={closePanel}
         />
@@ -567,6 +748,7 @@ const MapsPage: React.FC = () => {
         onSelectPanel={handleSelectPanel}
         recents={recents}
         onSelectRecent={handleSelectRecent}
+        onRemoveRecent={handleRemoveRecent}
         collapsed={railCollapsed}
         onToggleCollapsed={() => setRailCollapsed((v) => !v)}
       />
@@ -586,6 +768,19 @@ const MapsPage: React.FC = () => {
 
           {regionsLoaded && regions.length === 0 && !emptyAck && (
             <NoRegionsEmptyState onContinue={() => setEmptyAck(true)} />
+          )}
+
+          {/* Hover-preview card — ephemeral, cursor-anchored. Does NOT
+              swap the active panel or selection; the click path still
+              owns the full PlaceDetailsCard. */}
+          {hoverTarget && (
+            <PoiHoverPreview
+              name={hoverTarget.name}
+              subtitle={hoverTarget.subtitle}
+              category={hoverTarget.category}
+              screenX={hoverTarget.screenX}
+              screenY={hoverTarget.screenY}
+            />
           )}
 
           {/* Floating panel sheet — lives inside the map surface, pinned

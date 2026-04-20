@@ -73,7 +73,7 @@ session. The execution rules are non-negotiable:
 | 13 | [Install Noto Sans Bold + Italic glyph stacks](chunk-13-glyphs-bold-italic.md) | done | 6849cc3 |
 | 14 | [Map theme follows site ThemeProvider by default](chunk-14-map-theme-follow-site.md) | done | d751a58 |
 | 15 | [Global admin-1 boundaries in world-overview pmtiles](chunk-15-global-admin1-overview.md) | done | 4350e1a |
-| 16 | [Hover-preview PlaceDetailsCard on POI icons](chunk-16-poi-hover-preview.md) | pending | |
+| 16 | [Hover-preview PlaceDetailsCard on POI icons](chunk-16-poi-hover-preview.md) | done | PENDING |
 
 ## Global context
 
