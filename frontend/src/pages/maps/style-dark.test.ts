@@ -153,9 +153,16 @@ describe('buildDarkStyle', () => {
     // feature in the NE-backed geojson.
     expect(JSON.stringify((country as { filter: unknown }).filter)).toContain('country');
     expect(JSON.stringify((state as { filter: unknown }).filter)).toContain('state');
-    // And must still carry maxzoom=7 so they stop before region tiles.
-    expect((country as { maxzoom?: number }).maxzoom).toBe(7);
-    expect((state as { maxzoom?: number }).maxzoom).toBe(7);
+  });
+
+  it('keeps world place labels visible at all zooms', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const country = style.layers.find((l) => l.id === 'world_place_country');
+    const state = style.layers.find((l) => l.id === 'world_place_state');
+    expect(country).toBeDefined();
+    expect(state).toBeDefined();
+    expect((country as { maxzoom?: number }).maxzoom).toBeUndefined();
+    expect((state as { maxzoom?: number }).maxzoom).toBeUndefined();
   });
 
   it('paints world-overview fills beneath the per-region fills', () => {

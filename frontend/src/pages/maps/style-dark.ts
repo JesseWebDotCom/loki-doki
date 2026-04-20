@@ -307,7 +307,8 @@ const worldOverviewBoundaryLayers = (
 //
 // Each feature carries ``min_zoom`` / ``max_zoom`` / ``rank`` properties
 // extracted from Natural Earth's ``min_label`` / ``max_label`` /
-// ``labelrank`` columns — the filters below stage labels across z0–z7.
+// ``labelrank`` columns — the filters below stage labels across all
+// zooms without re-generating the style.
 const worldOverviewPlaceLayers = (
   p: Palette,
 ): maplibregl.LayerSpecification[] => [
@@ -322,11 +323,10 @@ const worldOverviewPlaceLayers = (
       ['<=', ['zoom'], ['get', 'max_zoom']],
     ],
     minzoom: 1,
-    maxzoom: 7,
     layout: {
       'text-field': ['get', 'name'],
       'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 1, 10, 5, 20],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 1, 10, 5, 20, 9, 16, 14, 14],
       'text-transform': 'uppercase',
       'text-letter-spacing': 0.15,
       'text-max-width': 9,
@@ -349,11 +349,10 @@ const worldOverviewPlaceLayers = (
       ['<=', ['zoom'], ['get', 'max_zoom']],
     ],
     minzoom: 3,
-    maxzoom: 7,
     layout: {
       'text-field': ['get', 'name'],
       'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 10, 7, 15],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 10, 7, 15, 9, 12, 14, 11],
       'text-transform': 'uppercase',
       'text-letter-spacing': 0.1,
       'text-max-width': 8,

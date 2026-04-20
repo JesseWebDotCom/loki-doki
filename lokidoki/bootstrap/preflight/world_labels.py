@@ -66,15 +66,15 @@ _SKIP_MIN_BYTES = 4 * 1024
 _SMOKE_MIN_FEATURES = 2
 
 # Only include states whose NE ``min_label`` is at or below this zoom.
-# NE labels states with min_label 3–10; capping at 7 includes the
-# ~500–800 most significant states/provinces globally and trims the
-# output from ~1.5 MB to ~300 KB without visibly losing US / Canadian /
-# European admin-1 coverage at z0–z7.
-_STATE_MIN_LABEL_CAP = 7
+# NE labels states with min_label 3–10; capping at 10 keeps the long
+# tail of smaller admin-1 regions available when users zoom into a
+# region and still trims obvious noise.
+_STATE_MIN_LABEL_CAP = 10
 
-# Upper bound for country min_zoom we accept. Anything above 5 means
-# the country is so small its label never paints at z0–z7 anyway.
-_COUNTRY_MIN_LABEL_CAP = 6
+# Upper bound for country min_zoom we accept. Anything above 8 stays
+# too small to matter for this overlay; lower-ranked countries still
+# get a chance to paint when their per-feature min/max allows it.
+_COUNTRY_MIN_LABEL_CAP = 8
 
 
 async def ensure_world_labels(ctx: StepContext) -> None:
@@ -220,7 +220,7 @@ def _country_features(con: sqlite3.Connection) -> Iterable[dict]:
                 "iso_a2": (row["iso_a2"] or "").strip() or None,
                 "rank": int(row["labelrank"]) if row["labelrank"] is not None else 10,
                 "min_zoom": _zoom_floor(row["min_label"], default=1),
-                "max_zoom": _zoom_floor(row["max_label"], default=7),
+                "max_zoom": _zoom_floor(row["max_label"], default=22),
             },
         }
 
@@ -256,7 +256,7 @@ def _state_features(con: sqlite3.Connection) -> Iterable[dict]:
                 "admin": (row["admin"] or "").strip() or None,
                 "rank": int(row["labelrank"]) if row["labelrank"] is not None else 10,
                 "min_zoom": _zoom_floor(row["min_label"], default=3),
-                "max_zoom": _zoom_floor(row["max_label"], default=7),
+                "max_zoom": _zoom_floor(row["max_label"], default=22),
             },
         }
 

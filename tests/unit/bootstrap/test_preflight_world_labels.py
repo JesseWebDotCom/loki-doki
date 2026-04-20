@@ -116,7 +116,7 @@ def test_happy_path_emits_country_and_state_features(tmp_path: Path):
             # name, name_en, iso_a2, admin, labelrank, min_label, max_label, latitude, longitude
             ("Connecticut", "Connecticut", "US", "United States of America", 4, 5.0, 7.0, 41.52, -72.76),
             ("California", "California", "US", "United States of America", 2, 3.0, 7.0, 36.17, -119.75),
-            # Skipped — min_label above the cap.
+            # Included now that the state min_label cap is lifted to 10.
             ("Unimportant County", "Unimportant County", "US", "United States of America", 7, 10.0, 11.0, 0.0, 0.0),
         ],
     )
@@ -135,13 +135,13 @@ def test_happy_path_emits_country_and_state_features(tmp_path: Path):
     names = [f["properties"]["name"] for f in feats]
 
     assert kinds.count("country") == 2
-    assert kinds.count("state") == 2
+    assert kinds.count("state") == 3
     assert "United States of America" in names
     assert "Canada" in names
     assert "Connecticut" in names
     assert "California" in names
     assert "Tiny Island" not in names  # excluded by min_label cap
-    assert "Unimportant County" not in names
+    assert "Unimportant County" in names
 
     # Point geometry + lon/lat order.
     for feat in feats:
