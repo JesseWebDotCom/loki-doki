@@ -64,7 +64,7 @@ session. The execution rules are non-negotiable:
 | 4 | [Search tokenizer hardening](chunk-4-search-tokens.md) | done | d7733f5 |
 | 5 | [World labels visible at all zooms](chunk-5-world-labels-zoom.md) | done | 7c2e222 |
 | 6 | [Install resilience: atomic indexer + skip-if-hash + UI clear](chunk-6-install-resilience.md) | done | f525cfd |
-| 7 | [Polygon-based world labels](chunk-7-polygon-world-labels.md) | pending | |
+| 7 | [Polygon-based world labels](chunk-7-polygon-world-labels.md) | done | 67de599 |
 | 8 | [Directions UX: step-click map blank + delete recent](chunk-8-directions-ux.md) | pending | |
 | 9 | [Style polish: route shields, stream labels, road hierarchy](chunk-9-style-polish.md) | pending | |
 | 10 | [POI icon sprite + click-to-popup PlaceDetailsCard](chunk-10-poi-icons-popup.md) | pending | |
