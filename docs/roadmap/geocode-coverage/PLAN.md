@@ -33,7 +33,10 @@ This is a **chunked plan**. Each chunk is one fresh Claude Code
 session. The execution rules are non-negotiable:
 
 1. Open this `PLAN.md`. Pick the first row in the status table whose
-   `Status` is `pending`. Open ONLY that chunk doc.
+   `Status` is `pending`. Open ONLY that chunk doc. Before doing
+   substantive work, send a short announcement naming the chunk you
+   are starting (for example: *"Starting chunk 4 — Search tokenizer
+   hardening."*).
 2. Read the global context section once. Read the chunk doc top to
    bottom. Do **not** open other chunk docs in this session.
 3. Execute every step in the chunk's `## Actions` block. Only touch
@@ -44,8 +47,11 @@ session. The execution rules are non-negotiable:
    pass.
 5. On pass, stage **only** the chunk's files and commit using the
    chunk's `## Commit message`. Flip the row in this `PLAN.md` to
-   `done` and paste the SHA in the `Commit` column. Do NOT push, open
-   a PR, or merge unless the user types "push".
+   `done` and paste the SHA in the `Commit` column. Immediately after
+   the commit, send a short completion note naming the chunk you
+   processed and the commit SHA (for example: *"Processed chunk 4 —
+   committed as abc1234."*). Do NOT push, open a PR, or merge unless
+   the user types "push".
 6. **STOP. Do not begin the next chunk in the same session.**
 
 ## Status
@@ -54,10 +60,10 @@ session. The execution rules are non-negotiable:
 |---|-------|--------|--------|
 | 1 | [OpenAddresses preflight + pin](chunk-1-openaddresses-preflight.md) | done | 50267c7 |
 | 2 | [Ingest OpenAddresses CSV into FTS](chunk-2-openaddresses-ingest.md) | done | 0c5f1d3 |
-| 3 | [Index named OSM POIs / buildings](chunk-3-osm-named-pois.md) | pending | |
-| 4 | [Search tokenizer hardening](chunk-4-search-tokens.md) | done | |
-| 5 | [World labels visible at all zooms](chunk-5-world-labels-zoom.md) | pending | |
-| 6 | [Install resilience: atomic indexer + skip-if-hash + UI clear](chunk-6-install-resilience.md) | pending | |
+| 3 | [Index named OSM POIs / buildings](chunk-3-osm-named-pois.md) | done | cb64e53 |
+| 4 | [Search tokenizer hardening](chunk-4-search-tokens.md) | done | d7733f5 |
+| 5 | [World labels visible at all zooms](chunk-5-world-labels-zoom.md) | done | 7c2e222 |
+| 6 | [Install resilience: atomic indexer + skip-if-hash + UI clear](chunk-6-install-resilience.md) | done | f525cfd |
 | 7 | [Polygon-based world labels](chunk-7-polygon-world-labels.md) | pending | |
 | 8 | [Directions UX: step-click map blank + delete recent](chunk-8-directions-ux.md) | pending | |
 | 9 | [Style polish: route shields, stream labels, road hierarchy](chunk-9-style-polish.md) | pending | |
