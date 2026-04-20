@@ -43,6 +43,19 @@ _SETTLEMENT_PLACES = {
     "neighbourhood": 1,
 }
 
+# Top-level OSM keys whose presence + a ``name`` tag makes a feature
+# worth surfacing in the geocoder.
+_POI_KEYS = (
+    "amenity",
+    "office",
+    "shop",
+    "tourism",
+    "leisure",
+    "healthcare",
+    "craft",
+    "building",
+)
+
 _BATCH_SIZE = 1000
 
 _CREATE_SCHEMA = """
@@ -70,10 +83,11 @@ class IndexStats:
     addresses: int = 0
     settlements: int = 0
     postcodes: int = 0
+    pois: int = 0
 
     @property
     def total(self) -> int:
-        return self.addresses + self.settlements + self.postcodes
+        return self.addresses + self.settlements + self.postcodes + self.pois
 
 
 @dataclass(frozen=True)
@@ -229,6 +243,43 @@ def _postcode_row(
     )
 
 
+def _poi_row(
+    osm_id: str,
+    tags: dict[str, str],
+    lat: float,
+    lon: float,
+) -> _Row | None:
+    name = (tags.get("name") or "").strip()
+    if not name:
+        return None
+    for key in _POI_KEYS:
+        value = (tags.get(key) or "").strip().lower()
+        if not value or value == "no":
+            continue
+        if key == "building" and value in {
+            "yes",
+            "house",
+            "residential",
+            "apartments",
+            "garage",
+            "shed",
+        }:
+            continue
+        return _Row(
+            osm_id=osm_id,
+            name=name,
+            housenumber=(tags.get("addr:housenumber") or "").strip(),
+            street=(tags.get("addr:street") or "").strip(),
+            city=(tags.get("addr:city") or "").strip(),
+            postcode=(tags.get("addr:postcode") or "").strip(),
+            admin1="",
+            lat=lat,
+            lon=lon,
+            klass=f"poi:{key}",
+        )
+    return None
+
+
 def _way_centroid(way) -> tuple[float, float] | None:
     """Return the first valid node location for a way.
 
@@ -305,6 +356,11 @@ def build_index(
                     if row is not None:
                         batch.append(row)
                         stats.postcodes += 1
+                    else:
+                        row = _poi_row(osm_id, tags, lat, lon)
+                        if row is not None:
+                            batch.append(row)
+                            stats.pois += 1
 
             if len(batch) >= _BATCH_SIZE:
                 _flush(conn, region_id, batch)
@@ -316,8 +372,12 @@ def build_index(
             progress_cb(stats.total, "ready")
 
         log.info(
-            "FTS index built for %s: %d addresses, %d settlements, %d postcodes",
-            region_id, stats.addresses, stats.settlements, stats.postcodes,
+            "FTS index built for %s: %d addresses, %d settlements, %d postcodes, %d pois",
+            region_id,
+            stats.addresses,
+            stats.settlements,
+            stats.postcodes,
+            stats.pois,
         )
         return stats
 
@@ -350,6 +410,8 @@ def row_counts(db_path: Path) -> IndexStats:
                 stats.postcodes = count
             elif isinstance(klass, str) and klass.startswith("place:"):
                 stats.settlements += count
+            elif isinstance(klass, str) and klass.startswith("poi:"):
+                stats.pois += count
         return stats
     finally:
         conn.close()
