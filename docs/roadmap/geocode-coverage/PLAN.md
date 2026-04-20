@@ -55,7 +55,7 @@ session. The execution rules are non-negotiable:
 | 1 | [OpenAddresses preflight + pin](chunk-1-openaddresses-preflight.md) | done | 50267c7 |
 | 2 | [Ingest OpenAddresses CSV into FTS](chunk-2-openaddresses-ingest.md) | done | 0c5f1d3 |
 | 3 | [Index named OSM POIs / buildings](chunk-3-osm-named-pois.md) | pending | |
-| 4 | [Search tokenizer hardening](chunk-4-search-tokens.md) | pending | |
+| 4 | [Search tokenizer hardening](chunk-4-search-tokens.md) | done | |
 | 5 | [World labels visible at all zooms](chunk-5-world-labels-zoom.md) | pending | |
 | 6 | [Install resilience: atomic indexer + skip-if-hash + UI clear](chunk-6-install-resilience.md) | pending | |
 | 7 | [Polygon-based world labels](chunk-7-polygon-world-labels.md) | pending | |

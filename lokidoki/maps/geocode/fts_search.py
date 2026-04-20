@@ -26,9 +26,59 @@ _PROXIMITY_WEIGHT = 0.02    # score -= weight * distance_km
 _PROXIMITY_CAP = 3.0        # max distance penalty magnitude
 _PER_REGION_LIMIT = 25      # raw rows pulled per region before merge
 _MIN_TOKEN_LEN = 2          # avoid 1-char FTS tokens ("a*") exploding
+_DEDUP_RADIUS_KM = 0.025
 # Reserved FTS5 punctuation that would break MATCH — drop from user
 # tokens before concatenating.
 _FTS_STRIP = set('"()*:')
+_US_STATE_ABBREV = frozenset({
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
+    "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms",
+    "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok",
+    "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
+    "wi", "wy", "dc",
+})
+_ADDRESS_STOPWORDS = frozenset({"in", "at", "on", "near", "by", "of", "the"})
+
+
+def _is_openaddresses_result(result: GeocodeResult) -> bool:
+    return ":oa:" in result.place_id
+
+
+def _address_key(result: GeocodeResult) -> tuple[str, str] | None:
+    parts = result.title.lower().split()
+    if len(parts) < 2 or not any(ch.isdigit() for ch in parts[0]):
+        return None
+    return (parts[0], " ".join(parts[1:]).strip())
+
+
+def _prefer_result(candidate: GeocodeResult, incumbent: GeocodeResult) -> bool:
+    if candidate.score != incumbent.score:
+        return candidate.score > incumbent.score
+    if _is_openaddresses_result(candidate) != _is_openaddresses_result(incumbent):
+        return _is_openaddresses_result(candidate)
+    return False
+
+
+def _dedup_results(results: list[GeocodeResult]) -> list[GeocodeResult]:
+    best: dict[tuple[str, str], list[GeocodeResult]] = {}
+    passthrough: list[GeocodeResult] = []
+    for row in sorted(results, key=lambda r: r.score, reverse=True):
+        key = _address_key(row)
+        if key is None:
+            passthrough.append(row)
+            continue
+        group = best.setdefault(key, [])
+        for idx, existing in enumerate(group):
+            distance = haversine_km((row.lat, row.lon), (existing.lat, existing.lon))
+            if distance > _DEDUP_RADIUS_KM:
+                continue
+            if _prefer_result(row, existing):
+                group[idx] = row
+            break
+        else:
+            group.append(row)
+    deduped = passthrough + [item for group in best.values() for item in group]
+    return sorted(deduped, key=lambda r: r.score, reverse=True)
 
 
 def _tokenise(query: str) -> list[str]:
@@ -37,6 +87,9 @@ def _tokenise(query: str) -> list[str]:
     for raw in query.replace(",", " ").split():
         cleaned = "".join(c for c in raw if c not in _FTS_STRIP)
         cleaned = cleaned.strip()
+        low = cleaned.lower()
+        if low in _US_STATE_ABBREV or low in _ADDRESS_STOPWORDS:
+            continue
         if len(cleaned) >= _MIN_TOKEN_LEN:
             out.append(cleaned)
     return out
@@ -165,7 +218,8 @@ async def search(
         for region_id in regions
     ]
     groups = await asyncio.gather(*tasks)
-    return merge_results(list(groups), limit=limit)
+    merged = merge_results(list(groups), limit=max(limit, _PER_REGION_LIMIT * len(regions)))
+    return _dedup_results(merged)[:limit]
 
 
-__all__ = ["search"]
+__all__ = ["search", "_dedup_results", "_tokenise"]
