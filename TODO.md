@@ -1,13 +1,7 @@
 # LokiDoki TODO
 
 ## 1. Fix existing mac install issues
-- Audit bootstrap installer flow on macOS and resolve current failure modes.
-- Verify `run.py` → bootstrap → FastAPI handoff on a clean mac environment.
-
-## 2. Create installers for Pi and Windows
-- **Pi**: installer covering `pi_cpu` and `pi_hailo` profiles (Hailo detection, `hailo_pci` blacklist, HEF checks, graceful fallback).
-- **Windows**: bootstrap installer parity with mac/Pi (plain HTML/CSS/JS UI, no framework).
-- Keep all three installers driven by the same browser bootstrap — no `setup.sh`, no systemd/launchd during development.
+When setting up parent/child nodes, create/use a system like lmlink where the LLM procesing is happenign remotely over tailscale
 
 ## 3. Multi-user presence & cross-session interaction
 Allow users to see other members' characters, whether they are active, and interact with them.
