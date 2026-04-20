@@ -125,20 +125,24 @@ describe('buildDarkStyle', () => {
     expect((hn as { minzoom?: number }).minzoom ?? 0).toBeGreaterThanOrEqual(16);
   });
 
-  it('renders POIs as icon + label layers instead of bare text only', () => {
+  it('renders POIs as a single badge layer carrying icon + label together', () => {
     const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const poiIcon = style.layers.find((l) => l.id === 'poi_icon') as
-      | { layout: Record<string, unknown>; paint: Record<string, unknown> }
-      | undefined;
-    const poiLabel = style.layers.find((l) => l.id === 'poi_label') as
-      | { layout: Record<string, unknown> }
+      | { filter?: unknown[]; layout: Record<string, unknown>; paint: Record<string, unknown> }
       | undefined;
     expect(poiIcon).toBeDefined();
-    expect(poiLabel).toBeDefined();
+    // Icon image + color pull from the category-mapped expression.
     expect(JSON.stringify(poiIcon?.layout['icon-image'])).toContain('fast_food');
     expect(JSON.stringify(poiIcon?.paint['icon-color'])).toContain('#f59e0b');
-    expect(poiLabel?.layout['text-anchor']).toBe('top');
-    expect(JSON.stringify(poiLabel?.layout['text-offset'])).toContain('1');
+    // Label is on the same layer so collision keeps icon+text grouped
+    // (Apple/Google-style business badge).
+    expect(poiIcon?.layout['text-anchor']).toBe('top');
+    expect(JSON.stringify(poiIcon?.layout['text-offset'])).toContain('1');
+    expect(JSON.stringify(poiIcon?.layout['text-field'])).toContain('name');
+    // Icons must always paint even when a road label crosses them.
+    expect(poiIcon?.layout['icon-allow-overlap']).toBe(true);
+    // Only named POIs render — unnamed clutter is hidden.
+    expect(JSON.stringify(poiIcon?.filter)).toContain('name');
   });
 
   it('uses the supplied tile URL on the protomaps vector source', () => {

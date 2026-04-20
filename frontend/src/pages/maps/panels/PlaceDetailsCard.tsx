@@ -121,7 +121,7 @@ const PlaceDetailsCard: React.FC<PlaceDetailsCardProps> = ({
           <button
             type="button"
             onClick={handleCopy}
-            className="ml-2 inline-flex items-center gap-1 text-primary-foreground/80 hover:text-primary-foreground"
+            className="ml-2 inline-flex items-center gap-1 text-primary hover:text-foreground"
           >
             <ArrowUpRight size={10} /> share
           </button>

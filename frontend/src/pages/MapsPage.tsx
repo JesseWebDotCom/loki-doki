@@ -273,7 +273,7 @@ const MapsPage: React.FC = () => {
         style: { version: 8, sources: {}, layers: [] },
         center: [-98.5, 39.8],
         zoom: 3,
-        attributionControl: { compact: true },
+        attributionControl: false,
       });
     } catch (exc) {
       setMapError(
@@ -810,17 +810,10 @@ const MapsPage: React.FC = () => {
             </div>
           )}
 
-        {/* Layer-mode chip — top-right beneath the MapLibre controls. */}
-        <div className="absolute top-28 right-3 z-10">
+        {/* Layer-mode chip — bottom-right, clear of the MapLibre
+            navigation controls stacked in the top-right corner. */}
+        <div className="absolute bottom-4 right-3 z-10">
           <LayerModeChip mode={mode} onChange={setMode} />
-        </div>
-
-        {/* Attribution pill */}
-        <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
-          <div className="rounded-full bg-card/80 backdrop-blur px-3 py-1 text-[10px] text-muted-foreground flex items-center gap-1.5">
-            <MapPin size={10} />
-            OpenStreetMap · Nominatim
-          </div>
         </div>
       </main>
     </div>

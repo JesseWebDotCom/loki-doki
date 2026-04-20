@@ -600,19 +600,19 @@ const transportationNameLayers = (
       ['get', 'class'],
       ['literal', ['motorway', 'trunk', 'primary']],
     ],
-    minzoom: 10,
+    minzoom: 9,
     layout: {
       'symbol-placement': 'line',
       'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
-      'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 10, 12, 18, 18],
-      'text-letter-spacing': 0.05,
+      'text-font': ['Noto Sans Medium'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 9, 12, 14, 15, 18, 20],
+      'text-letter-spacing': 0.04,
       'text-max-angle': 30,
     },
     paint: {
       'text-color': p.street_label,
       'text-halo-color': p.street_label_halo,
-      'text-halo-width': 1.4,
+      'text-halo-width': 1.8,
     },
   },
   {
@@ -621,19 +621,19 @@ const transportationNameLayers = (
     source: 'protomaps',
     'source-layer': 'transportation_name',
     filter: ['in', ['get', 'class'], ['literal', ['secondary', 'tertiary']]],
-    minzoom: 12,
+    minzoom: 11,
     layout: {
       'symbol-placement': 'line',
       'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
       'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 18, 16],
-      'text-letter-spacing': 0.03,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 11, 11, 14, 13, 18, 17],
+      'text-letter-spacing': 0.02,
       'text-max-angle': 30,
     },
     paint: {
       'text-color': p.street_label,
       'text-halo-color': p.street_label_halo,
-      'text-halo-width': 1.2,
+      'text-halo-width': 1.4,
     },
   },
   {
@@ -651,13 +651,13 @@ const transportationNameLayers = (
       'symbol-placement': 'line',
       'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
       'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 18, 15],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 18, 16],
       'text-max-angle': 30,
     },
     paint: {
       'text-color': p.street_label,
       'text-halo-color': p.street_label_halo,
-      'text-halo-width': 1,
+      'text-halo-width': 1.2,
     },
   },
 ];
@@ -903,43 +903,41 @@ const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
     },
   },
   // Points of interest — shops, restaurants, transit stops, etc.
+  //
+  // Rendered as an Apple/Google-style "business badge": a filled
+  // category-colored circle holds the icon, with the business name set
+  // alongside in the matching tone. Collision is set to `allow-overlap`
+  // for the icon so pins always appear even when a road label crosses;
+  // the text uses `text-optional` so labels drop out of dense clusters
+  // before icons do. Requiring `name` hides unnamed clutter.
   {
     id: 'poi_icon',
     type: 'symbol',
     source: 'protomaps',
     'source-layer': 'poi',
+    filter: ['has', 'name'],
     minzoom: 14,
     layout: {
       'icon-image': poiMatchExpression(POI_ICON_BY_KEY, 'default'),
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.9, 18, 1.1],
-      'icon-allow-overlap': false,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.85, 18, 1.25],
+      'icon-allow-overlap': true,
       'icon-ignore-placement': false,
+      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+      'text-font': ['Noto Sans Medium'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 18, 14],
+      'text-offset': [0, 1.1],
+      'text-anchor': 'top',
+      'text-max-width': 9,
       'text-optional': true,
+      'text-padding': 2,
     },
     paint: {
       'icon-color': poiMatchExpression(POI_COLOR_BY_KEY, POI_COLORS.default),
       'icon-halo-color': p.place_label_halo,
-      'icon-halo-width': 0.6,
-    },
-  },
-  {
-    id: 'poi_label',
-    type: 'symbol',
-    source: 'protomaps',
-    'source-layer': 'poi',
-    minzoom: 14,
-    layout: {
-      'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
-      'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 12, 18, 15],
-      'text-offset': [0, 1.0],
-      'text-anchor': 'top',
-      'text-max-width': 8,
-    },
-    paint: {
-      'text-color': p.poi_label,
+      'icon-halo-width': 1.2,
+      'text-color': poiMatchExpression(POI_COLOR_BY_KEY, POI_COLORS.default),
       'text-halo-color': p.place_label_halo,
-      'text-halo-width': 1,
+      'text-halo-width': 1.2,
     },
   },
   // House numbers — only at the very closest zooms. Overzoom from z14
@@ -1039,6 +1037,12 @@ export function buildDarkStyle(
   // tiles fully cover them at street zoom; world-overview labels
   // paint alongside region place labels (both maxzoom-gated so they
   // hand off cleanly).
+  // In 3D mode, buildings paint AFTER roads so extrusions occlude the
+  // road lines passing under them (roads going "through" buildings was
+  // the flat-2D-style ordering leaking into the 3D view). Flat 2D mode
+  // keeps buildings under roads so footprints don't hide the road grid.
+  const buildings2d = buildings2dLayer(p);
+  const buildings3d = buildings3dLayer(p);
   const layers: maplibregl.LayerSpecification[] = [
     { id: 'bg', type: 'background', paint: { 'background-color': p.background } },
     ...worldOverviewFillLayers(p),
@@ -1047,8 +1051,9 @@ export function buildDarkStyle(
     ...worldOverviewAdmin1BoundaryLayers(p),
     ...worldOverviewAdmin1LabelLayers(p),
     ...boundaryLayers(p),
-    ...(mode === '3d' ? [buildings3dLayer(p)] : [buildings2dLayer(p)]),
+    ...(mode === '3d' ? [] : [buildings2d]),
     ...roadLayers(p),
+    ...(mode === '3d' ? [buildings3d] : []),
     ...transportationNameLayers(p),
     ...routeShieldLayers(),
     ...water_and_poi_labels(p),

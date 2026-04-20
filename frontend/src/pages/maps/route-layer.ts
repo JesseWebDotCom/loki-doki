@@ -165,6 +165,7 @@ function badgeLayer(): SymbolLayerSpecification {
     layout: {
       'symbol-placement': 'line-center',
       'text-field': ['get', 'label'],
+      'text-font': ['Noto Sans Medium'],
       'text-size': 12,
       'text-padding': 2,
       'text-allow-overlap': false,
