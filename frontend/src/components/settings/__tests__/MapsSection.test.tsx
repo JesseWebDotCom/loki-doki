@@ -118,4 +118,76 @@ describe("MapsSection", () => {
       expect(screen.queryByRole("button", { name: "Installing…" })).toBeNull();
     });
   });
+
+  it("clears stale progress when install task disappears", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/v1/maps/catalog")) {
+        return new Response(JSON.stringify({
+          regions: [{
+            region_id: "us-ct",
+            label: "Connecticut",
+            parent_id: "us",
+            center: { lat: 41.6, lon: -72.7 },
+            bbox: [-73.7, 40.9, -71.7, 42.1],
+            sizes_mb: { street: 97, valhalla: 93, pbf: 134 },
+            downloadable: true,
+            pi_local_build_ok: true,
+            children: [],
+          }],
+        }), { status: 200 });
+      }
+      if (url.endsWith("/api/v1/maps/regions")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.endsWith("/api/v1/maps/regions/us-ct") && init?.method === "PUT") {
+        return new Response(JSON.stringify({ ok: true, installing: true }), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    });
+
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<MapsSection />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Connecticut")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: /Install 1 change/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+
+    act(() => {
+      MockEventSource.instances[0].onmessage?.({
+        data: JSON.stringify({
+          region_id: "us-ct",
+          artifact: "geocoder",
+          bytes_done: 29000,
+          bytes_total: 0,
+          phase: "building_geocoder",
+          error: null,
+        }),
+      } as MessageEvent<string>);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Indexing addresses")).toBeTruthy();
+      expect(screen.getByText("29k rows")).toBeTruthy();
+    });
+
+    act(() => {
+      MockEventSource.instances[0].onerror?.();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Indexing addresses")).toBeNull();
+      expect(screen.queryByText("29k rows")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Installing…" })).toBeNull();
+    });
+  });
 });

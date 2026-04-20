@@ -146,6 +146,33 @@ def _flush(conn: sqlite3.Connection, region_id: str, batch: list[_Row]) -> None:
     batch.clear()
 
 
+def _partial_db_path(output_db: Path) -> Path:
+    return output_db.with_suffix(f"{output_db.suffix}.partial")
+
+
+def _db_artifacts(path: Path) -> tuple[Path, Path, Path]:
+    return (
+        path,
+        path.with_suffix(f"{path.suffix}-wal"),
+        path.with_suffix(f"{path.suffix}-shm"),
+    )
+
+
+def _remove_db_artifacts(path: Path) -> None:
+    for artifact in _db_artifacts(path):
+        if artifact.exists():
+            artifact.unlink()
+
+
+def _close_db(conn: sqlite3.Connection | None) -> None:
+    if conn is None:
+        return
+    try:
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
 def _address_row(
     osm_id: str,
     tags: dict[str, str],
@@ -312,7 +339,9 @@ def build_index(
     if not pbf_path.exists():
         raise FileNotFoundError(f"pbf not found: {pbf_path}")
 
-    conn = _open_db(output_db)
+    partial_db = _partial_db_path(output_db)
+    _remove_db_artifacts(partial_db)
+    conn: sqlite3.Connection | None = _open_db(partial_db)
     stats = IndexStats()
     batch: list[_Row] = []
 
@@ -379,10 +408,21 @@ def build_index(
             stats.postcodes,
             stats.pois,
         )
+        _close_db(conn)
+        conn = None
+        if output_db.exists():
+            output_db.unlink()
+        partial_db.replace(output_db)
+        _remove_db_artifacts(partial_db)
         return stats
 
+    except BaseException:
+        _close_db(conn)
+        conn = None
+        _remove_db_artifacts(partial_db)
+        raise
     finally:
-        conn.close()
+        _close_db(conn)
 
 
 def region_db_path(data_root: Path, region_id: str) -> Path:

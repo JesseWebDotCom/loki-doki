@@ -147,3 +147,31 @@ def test_row_counts_matches_build(ct_pbf, tmp_path):
     assert observed.addresses == stats.addresses
     assert observed.settlements == stats.settlements
     assert observed.postcodes == stats.postcodes
+
+
+def test_build_index_atomic_on_failure(ct_pbf, tmp_path, monkeypatch):
+    db = tmp_path / "geocoder.sqlite"
+    original = b"preexisting-geocoder-db"
+    db.write_bytes(original)
+
+    flush_calls = 0
+    real_flush = build_index.__globals__["_flush"]
+
+    def _fail_on_second_flush(conn, region_id, batch):
+        nonlocal flush_calls
+        flush_calls += 1
+        if flush_calls == 2:
+            raise RuntimeError("flush failed")
+        real_flush(conn, region_id, batch)
+
+    monkeypatch.setitem(build_index.__globals__, "_BATCH_SIZE", 1)
+    monkeypatch.setitem(build_index.__globals__, "_flush", _fail_on_second_flush)
+
+    with pytest.raises(RuntimeError, match="flush failed"):
+        build_index(ct_pbf, db, region_id="us-ct")
+
+    assert db.read_bytes() == original
+    partial = tmp_path / "geocoder.sqlite.partial"
+    assert not partial.exists()
+    assert not (tmp_path / "geocoder.sqlite.partial-wal").exists()
+    assert not (tmp_path / "geocoder.sqlite.partial-shm").exists()

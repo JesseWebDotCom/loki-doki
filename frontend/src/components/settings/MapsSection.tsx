@@ -8,7 +8,7 @@
  * over the SSE endpoint so the admin can see the multi-minute
  * tippecanoe / valhalla stages make progress.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HardDrive, AlertTriangle, Globe } from "lucide-react";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import {
@@ -69,6 +69,37 @@ function formatIndexRows(rows: number): string {
   return `${(rows / 1_000_000).toFixed(1)}M rows`;
 }
 
+function clearProgressForRegion(
+  regionId: string,
+  setInstalling: React.Dispatch<React.SetStateAction<Set<string>>>,
+  setProgress: React.Dispatch<React.SetStateAction<Record<string, InstallProgress>>>,
+): void {
+  setInstalling((prev) => {
+    const next = new Set(prev);
+    next.delete(regionId);
+    return next;
+  });
+  setProgress((prev) => {
+    if (!(regionId in prev)) return prev;
+    const next = { ...prev };
+    delete next[regionId];
+    return next;
+  });
+}
+
+function parseProgressProbe(body: string): InstallProgress | { status: string } | null {
+  const line = body
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith("data:"));
+  if (!line) return null;
+  try {
+    return JSON.parse(line.slice(5).trim()) as InstallProgress | { status: string };
+  } catch {
+    return null;
+  }
+}
+
 const MapsSection: React.FC = () => {
   const [tree, setTree] = useState<CatalogRegion[]>([]);
   const [installed, setInstalled] = useState<Record<string, RegionStatus>>({});
@@ -78,6 +109,7 @@ const MapsSection: React.FC = () => {
   const [progress, setProgress] = useState<Record<string, InstallProgress>>({});
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const didProbeStaleProgress = useRef(false);
 
   const platform = useMemo(() => detectPlatform(), []);
 
@@ -104,6 +136,43 @@ const MapsSection: React.FC = () => {
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  useEffect(() => {
+    if (loading || didProbeStaleProgress.current) return;
+    didProbeStaleProgress.current = true;
+    const staleIds = [
+      ...new Set([...installing, ...Object.keys(progress)]),
+    ].filter((regionId) => {
+      const phase = progress[regionId]?.phase;
+      return phase == null || phase !== "complete";
+    });
+    if (staleIds.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      for (const regionId of staleIds) {
+        try {
+          const res = await fetch(`${API}/regions/${regionId}/progress`, {
+            method: "GET",
+            headers: authHeaders(),
+          });
+          const body = await res.text();
+          const parsed = parseProgressProbe(body);
+          if (cancelled || !parsed || !("status" in parsed) || parsed.status !== "idle") {
+            continue;
+          }
+          clearProgressForRegion(regionId, setInstalling, setProgress);
+          await reload();
+        } catch {
+          // Leave the optimistic UI state alone on transient probe failures.
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [installing, loading, progress, reload]);
 
   const flat = useMemo(() => flattenTree(tree), [tree]);
   const downloadable = useMemo(() => flat.filter((r) => r.downloadable), [flat]);
@@ -214,11 +283,7 @@ const MapsSection: React.FC = () => {
     const es = new EventSource(`${API}/regions/${regionId}/progress`);
     let sawAnyEvent = false;
     const finishInstall = () => {
-      setInstalling((prev) => {
-        const next = new Set(prev);
-        next.delete(regionId);
-        return next;
-      });
+      clearProgressForRegion(regionId, setInstalling, setProgress);
       void reload();
     };
     es.onmessage = (ev) => {

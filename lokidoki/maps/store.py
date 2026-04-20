@@ -248,6 +248,14 @@ def _artifact_plan(
     )]
 
 
+def _sha256_of(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as fh:
+        while chunk := fh.read(_CHUNK_SIZE):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 async def _download_to(
     url: str,
     dest: Path,
@@ -261,6 +269,15 @@ async def _download_to(
     file is deleted and a ``ValueError`` is raised.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if expected_sha256 and dest.exists():
+        try:
+            existing = _sha256_of(dest)
+        except OSError:
+            existing = ""
+        if existing.lower() == expected_sha256.lower():
+            size = dest.stat().st_size
+            progress_cb(size, size)
+            return size
     hasher = hashlib.sha256()
     downloaded = 0
 
@@ -323,8 +340,6 @@ async def _build_geocoder_step(
         return
 
     db_path = region_db_path(_data_dir(), region_id)
-    if db_path.exists():
-        db_path.unlink()
 
     await emit(MapInstallProgress(
         region_id=region_id, artifact="geocoder",
@@ -404,13 +419,9 @@ async def _build_geocoder_step(
         total_rows = await loop.run_in_executor(None, _run)
     except Exception:
         log.exception("geocoder build failed for %s", region_id)
-        if db_path.exists():
-            db_path.unlink()
         raise
 
     if cancel_event.is_set():
-        if db_path.exists():
-            db_path.unlink()
         raise asyncio.CancelledError()
 
     state.geocoder_installed = True
