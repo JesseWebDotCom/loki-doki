@@ -1,10 +1,10 @@
 """``ensure_glyphs`` downloads basemaps-assets and extracts glyph PBFs.
 
 Builds a fake tarball in-process that matches the upstream archive
-layout (``basemaps-assets-<sha>/fonts/Noto Sans Regular/<range>.pbf``)
-so the test never touches the network. Asserts SHA-256 verification
-fires, only the Noto Sans Regular PBFs survive extraction, and the
-bootstrap-visible path is registered via ``ctx.binary_path``.
+layout so the test never touches the network. Asserts SHA-256
+verification fires, the required Noto Sans fontstacks survive
+extraction, and the bootstrap-visible path is registered via
+``ctx.binary_path``.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from lokidoki.bootstrap.versions import GLYPHS_ASSETS
 
 
 _INNER = "basemaps-assets-deadbeef"
+_STACKS = ("Noto Sans Regular", "Noto Sans Bold", "Noto Sans Italic")
 
 
 def _ctx(tmp_path: Path, events: list[Event]) -> StepContext:
@@ -39,19 +40,12 @@ def _fake_tarball() -> bytes:
     """Tarball with glyph PBFs plus unrelated files that must be filtered out."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        # Three glyph ranges under the expected fontstack.
-        for rng in ("0-255", "256-511", "65280-65535"):
-            payload = f"glyph-{rng}".encode("utf-8") + b"\x00" * 16
-            info = tarfile.TarInfo(name=f"{_INNER}/fonts/Noto Sans Regular/{rng}.pbf")
-            info.size = len(payload)
-            tar.addfile(info, io.BytesIO(payload))
-        # A PBF under a DIFFERENT fontstack — must be ignored.
-        other = b"other-fontstack"
-        other_info = tarfile.TarInfo(
-            name=f"{_INNER}/fonts/Noto Sans Italic/0-255.pbf"
-        )
-        other_info.size = len(other)
-        tar.addfile(other_info, io.BytesIO(other))
+        for stack in _STACKS:
+            for rng in ("0-255", "256-511", "65280-65535"):
+                payload = f"{stack}-{rng}".encode("utf-8") + b"\x00" * 16
+                info = tarfile.TarInfo(name=f"{_INNER}/fonts/{stack}/{rng}.pbf")
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
         # A non-PBF file in the right fontstack dir — must be ignored.
         readme = b"ignored"
         readme_info = tarfile.TarInfo(
@@ -76,7 +70,7 @@ def _patch_pin(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
     )
 
 
-def test_ensure_glyphs_downloads_and_extracts_noto_sans(
+def test_ensure_glyphs_downloads_and_extracts_required_fontstacks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -99,16 +93,16 @@ def test_ensure_glyphs_downloads_and_extracts_noto_sans(
     glyphs_root = tmp_path / "tools" / "glyphs"
     assert ctx.binary_path("glyphs") == glyphs_root
 
-    noto_dir = glyphs_root / "Noto Sans Regular"
-    assert noto_dir.is_dir()
-    pbfs = sorted(p.name for p in noto_dir.iterdir())
-    assert pbfs == ["0-255.pbf", "256-511.pbf", "65280-65535.pbf"]
-    assert (noto_dir / "0-255.pbf").stat().st_size > 0
+    for stack in _STACKS:
+        noto_dir = glyphs_root / stack
+        assert noto_dir.is_dir()
+        pbfs = sorted(p.name for p in noto_dir.iterdir())
+        assert pbfs == ["0-255.pbf", "256-511.pbf", "65280-65535.pbf"]
+        assert (noto_dir / "0-255.pbf").stat().st_size > 0
 
-    # The italic fontstack and the sprites subtree must not leak in.
-    assert not (glyphs_root / "Noto Sans Italic").exists()
+    # The sprites subtree must not leak in.
     assert not (glyphs_root / "sprites").exists()
-    assert not (noto_dir / "README.md").exists()
+    assert not (glyphs_root / "Noto Sans Regular" / "README.md").exists()
 
     # Exactly one download happened, with the pinned sha256.
     assert len(download_calls) == 1
@@ -124,9 +118,10 @@ def test_ensure_glyphs_skips_when_already_installed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Pre-populate the install dir so the preflight short-circuits.
-    noto_dir = tmp_path / "tools" / "glyphs" / "Noto Sans Regular"
-    noto_dir.mkdir(parents=True, exist_ok=True)
-    (noto_dir / "0-255.pbf").write_bytes(b"\x00\x01\x02\x03")
+    for stack in _STACKS:
+        noto_dir = tmp_path / "tools" / "glyphs" / stack
+        noto_dir.mkdir(parents=True, exist_ok=True)
+        (noto_dir / "0-255.pbf").write_bytes(b"\x00\x01\x02\x03")
 
     download_calls: list[tuple] = []
 
@@ -146,8 +141,8 @@ def test_ensure_glyphs_fails_when_archive_missing_fontstack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Tarball contains zero Noto Sans Regular entries — preflight must
-    # refuse to silently install an empty glyph tree.
+    # Tarball contains zero required fontstack entries — preflight must
+    # refuse to silently install an incomplete glyph tree.
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         payload = b"no-fonts"
@@ -165,5 +160,5 @@ def test_ensure_glyphs_fails_when_archive_missing_fontstack(
 
     events: list[Event] = []
     ctx = _ctx(tmp_path, events)
-    with pytest.raises(RuntimeError, match="no glyph PBFs"):
+    with pytest.raises(RuntimeError, match="Noto Sans Italic"):
         asyncio.run(ensure_glyphs(ctx))

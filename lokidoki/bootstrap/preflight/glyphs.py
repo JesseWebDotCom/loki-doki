@@ -1,10 +1,7 @@
 """Install Protomaps basemaps-assets glyph PBFs under ``.lokidoki/tools/glyphs/``.
 
-Extracts only the ``fonts/Noto Sans Regular/*.pbf`` range files from the
-upstream tarball — the rest of the archive (sprites, icons, alternate
-font stacks) is discarded. The MapLibre style in
-``frontend/src/pages/maps/style-dark.ts`` references ``Noto Sans Regular``
-exclusively, so that single fontstack covers every text layer we render.
+Extracts the required ``Noto Sans`` fontstacks from the upstream tarball
+and discards the rest of the archive (sprites, icons, alternate stacks).
 """
 from __future__ import annotations
 
@@ -20,14 +17,17 @@ from ..versions import GLYPHS_ASSETS
 
 _log = logging.getLogger(__name__)
 _STEP_ID = "install-glyphs"
-_FONTSTACK = "Noto Sans Regular"
+_FONTSTACKS: tuple[str, ...] = (
+    "Noto Sans Regular",
+    "Noto Sans Bold",
+    "Noto Sans Italic",
+)
 
 
 async def ensure_glyphs(ctx: StepContext) -> None:
     """Download the pinned basemaps-assets tarball and extract glyph PBFs."""
     target = ctx.binary_path("glyphs")
-    first_pbf = target / _FONTSTACK / "0-255.pbf"
-    if first_pbf.exists() and first_pbf.stat().st_size > 0:
+    if not _missing_fontstacks(target):
         ctx.emit(
             StepLog(step_id=_STEP_ID, line=f"glyphs already present at {target}")
         )
@@ -47,9 +47,12 @@ async def ensure_glyphs(ctx: StepContext) -> None:
         raise RuntimeError(
             f"no glyph PBFs extracted from {archive} — archive layout changed?"
         )
-    if not first_pbf.exists() or first_pbf.stat().st_size == 0:
+    missing = _missing_fontstacks(target)
+    if missing:
+        missing_names = ", ".join(missing)
         raise RuntimeError(
-            f"extraction completed but {first_pbf} is missing or empty"
+            "extraction completed but required glyph PBFs are missing or empty: "
+            f"{missing_names}"
         )
     ctx.emit(
         StepLog(step_id=_STEP_ID, line=f"installed {count} glyph PBFs at {target}")
@@ -57,23 +60,32 @@ async def ensure_glyphs(ctx: StepContext) -> None:
 
 
 def _extract_glyphs(archive: Path, target: Path) -> int:
-    """Extract ``fonts/<fontstack>/*.pbf`` into ``<target>/<fontstack>/``.
-
-    Returns the number of PBF files written.
-    """
+    """Extract ``fonts/<fontstack>/*.pbf`` into ``<target>/<fontstack>/``."""
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
-    dest = target / _FONTSTACK
-    dest.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for stack in _FONTSTACKS:
+        dest = target / stack
+        dest.mkdir(parents=True, exist_ok=True)
+        count += _extract_fontstack(archive, stack, dest)
+    missing = _missing_fontstacks(target)
+    if missing:
+        missing_names = ", ".join(missing)
+        raise RuntimeError(
+            f"archive {archive} is missing required glyph fontstacks: {missing_names}"
+        )
+    _log.info("extracted %d glyph PBFs into %s", count, target)
+    return count
 
-    needle = f"fonts/{_FONTSTACK}/"
+
+def _extract_fontstack(archive: Path, stack: str, dest: Path) -> int:
+    """Extract all PBF files for one fontstack."""
+    needle = f"fonts/{stack}/"
     count = 0
     with tarfile.open(archive, "r:gz") as tar:
         for member in tar.getmembers():
-            if not member.isfile():
-                continue
-            if needle not in member.name:
+            if not member.isfile() or needle not in member.name:
                 continue
             basename = Path(member.name).name
             if not basename.endswith(".pbf"):
@@ -83,5 +95,14 @@ def _extract_glyphs(archive: Path, target: Path) -> int:
                 continue
             (dest / basename).write_bytes(src.read())
             count += 1
-    _log.info("extracted %d glyph PBFs into %s", count, dest)
     return count
+
+
+def _missing_fontstacks(target: Path) -> list[str]:
+    """Return required fontstacks whose primary range file is absent or empty."""
+    missing: list[str] = []
+    for stack in _FONTSTACKS:
+        first_pbf = target / stack / "0-255.pbf"
+        if not first_pbf.exists() or first_pbf.stat().st_size == 0:
+            missing.append(stack)
+    return missing
