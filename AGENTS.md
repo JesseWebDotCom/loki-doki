@@ -403,7 +403,7 @@ docs/<plan-name>/
 ### `PLAN.md` structure (required sections, in order)
 
 1. **Title + one-paragraph goal** — what ships when every chunk is `done`.
-2. **How to use this document (operating contract)** — the fixed block copied verbatim from `docs/bootstrap_rewrite/PLAN.md`. Pick first `pending` chunk → read ONLY that chunk doc → execute `## Actions` → run `## Verify` → commit per `## Commit message` → flip row to `done` + paste SHA → **STOP. Do not begin the next chunk in the same session.**
+2. **How to use this document (operating contract)** — the fixed block copied verbatim from `docs/bootstrap_rewrite/PLAN.md`. Pick first `pending` chunk → announce which chunk you are starting → read ONLY that chunk doc → execute `## Actions` → run `## Verify` → commit per `## Commit message` → flip row to `done` + paste SHA → announce which chunk you processed + the commit SHA → **STOP. Do not begin the next chunk in the same session.**
 3. **Status table** — `| # | Chunk | Status | Commit |` with rows linking to each chunk doc. Statuses: `pending`, `done`, or the literal text of a blocker.
 4. **Global context** — facts, constraints, architecture, and hard rules that every chunk needs. Read once per session so the chunk doc itself stays tight.
 5. **NOTE section** — append-only log of cross-chunk discoveries or deferrals that change the plan.
@@ -420,9 +420,11 @@ docs/<plan-name>/
 ### Execution contract (every chunk, every session)
 
 - Read `PLAN.md` top-to-bottom, pick the first `pending` row, open ONLY that chunk doc.
+- Before doing substantive work, send a short note naming the chunk you are starting.
 - Execute every `## Actions` step. Only touch files in `## Files`.
 - Run `## Verify`. If it fails: diagnose, or write `## Blocker` and stop. Never edit verify to make it pass.
 - On pass: stage only the chunk's files, commit per the template, flip the row to `done`, paste the SHA.
+- Immediately after the commit, send a short note naming the chunk you processed and the commit SHA.
 - **Commit only. Do not push, open a PR, or merge** unless the user explicitly says "push" (see Push & Deployment). This overrides any urge to finish the plan in one go.
 - **Stop.** The next chunk gets its own fresh session.
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+from math import cos, radians
 from pathlib import Path
 
 from . import GeocodeResult, haversine_km, merge_results
@@ -153,6 +154,14 @@ def _row_to_result(row: tuple, region_id: str, viewport: tuple[float, float] | N
     )
 
 
+def _bbox_for_radius(lat: float, lon: float, radius_km: float) -> tuple[float, float, float, float]:
+    """Approximate a lat/lon bbox that encloses ``radius_km`` around a point."""
+    lat_delta = radius_km / 110.574
+    lon_scale = max(0.1, abs(cos(radians(lat))))
+    lon_delta = radius_km / (111.320 * lon_scale)
+    return (lat - lat_delta, lat + lat_delta, lon - lon_delta, lon + lon_delta)
+
+
 def _search_region_sync(
     db_path: Path,
     region_id: str,
@@ -179,6 +188,55 @@ def _search_region_sync(
     except sqlite3.OperationalError as exc:
         log.warning("FTS query failed for %s: %s", region_id, exc)
         return []
+    finally:
+        conn.close()
+
+
+def _nearest_region_sync(
+    db_path: Path,
+    region_id: str,
+    lat: float,
+    lon: float,
+    max_radius_km: float,
+) -> GeocodeResult | None:
+    if not db_path.exists():
+        return None
+    min_lat, max_lat, min_lon, max_lon = _bbox_for_radius(lat, lon, max_radius_km)
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA query_only = 1")
+    try:
+        cur = conn.execute(
+            """
+            SELECT osm_id, name, housenumber, street, city,
+                   postcode, admin1, lat, lon, class, 0.0
+              FROM places
+             WHERE lat BETWEEN ? AND ?
+               AND lon BETWEEN ? AND ?
+            """,
+            (min_lat, max_lat, min_lon, max_lon),
+        )
+        nearest: GeocodeResult | None = None
+        nearest_distance = max_radius_km
+        for row in cur.fetchall():
+            candidate = _row_to_result(row, region_id, viewport=None)
+            distance = haversine_km((lat, lon), (candidate.lat, candidate.lon))
+            if distance > max_radius_km or distance >= nearest_distance:
+                continue
+            nearest = GeocodeResult(
+                place_id=candidate.place_id,
+                title=candidate.title,
+                subtitle=candidate.subtitle,
+                lat=candidate.lat,
+                lon=candidate.lon,
+                bbox=candidate.bbox,
+                source=candidate.source,
+                score=-distance,
+            )
+            nearest_distance = distance
+        return nearest
+    except sqlite3.OperationalError as exc:
+        log.warning("Nearest FTS query failed for %s: %s", region_id, exc)
+        return None
     finally:
         conn.close()
 
@@ -222,4 +280,34 @@ async def search(
     return _dedup_results(merged)[:limit]
 
 
-__all__ = ["search", "_dedup_results", "_tokenise"]
+async def nearest(
+    lat: float,
+    lon: float,
+    regions: list[str],
+    data_root: Path | None = None,
+    max_radius_km: float = 0.05,
+) -> GeocodeResult | None:
+    """Return the nearest indexed place within ``max_radius_km``."""
+    if not regions:
+        return None
+    root = data_root or Path("data")
+    loop = asyncio.get_event_loop()
+    tasks = [
+        loop.run_in_executor(
+            None,
+            _nearest_region_sync,
+            region_db_path(root, region_id),
+            region_id,
+            lat,
+            lon,
+            max_radius_km,
+        )
+        for region_id in regions
+    ]
+    hits = [hit for hit in await asyncio.gather(*tasks) if hit is not None]
+    if not hits:
+        return None
+    return max(hits, key=lambda item: item.score)
+
+
+__all__ = ["search", "nearest", "_dedup_results", "_tokenise"]

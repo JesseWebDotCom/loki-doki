@@ -43,7 +43,18 @@ interface RouteCall {
 }
 
 function installRouteMock(
-  opts: { alternates?: number; emptyRoutes?: boolean } = {},
+  opts: {
+    alternates?: number;
+    emptyRoutes?: boolean;
+    steps?: Array<{
+      instruction: string;
+      distance_m: number;
+      duration_s: number;
+      type: number;
+      begin_shape_index: number;
+      end_shape_index: number;
+    }>;
+  } = {},
 ): { calls: RouteCall[] } {
   const calls: RouteCall[] = [];
   const alternates = opts.alternates ?? 2;
@@ -56,7 +67,7 @@ function installRouteMock(
             distance_m: 18000,
             geometry: '_p~iF~ps|U_ulLnnqC',
             profile: 'auto',
-            legs: [{ steps: [] }],
+            legs: [{ steps: opts.steps ?? [] }],
           },
         ],
         instructions_text: ['Head north', 'Arrive at destination'],
@@ -208,5 +219,43 @@ describe('DirectionsPanel', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeTruthy();
     });
+  });
+
+  it('passes a single-coordinate slice when a degenerate step is clicked', async () => {
+    installRouteMock({
+      steps: [
+        {
+          instruction: 'Continue straight',
+          distance_m: 25,
+          duration_s: 8,
+          type: 10,
+          begin_shape_index: 0,
+          end_shape_index: 0,
+        },
+      ],
+    });
+    const onFitToCoords = vi.fn();
+    render(
+      <DirectionsPanel
+        toPlace={destination}
+        fromPlace={origin}
+        viewportCenter={null}
+        onClose={() => {}}
+        onRoutesChanged={() => {}}
+        onFitToCoords={onFitToCoords}
+      />,
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    const step = await screen.findByRole('button', { name: /continue straight/i });
+    fireEvent.click(step);
+
+    await waitFor(() => {
+      expect(onFitToCoords).toHaveBeenCalledTimes(1);
+    });
+    expect(onFitToCoords.mock.calls[0][0]).toHaveLength(1);
   });
 });

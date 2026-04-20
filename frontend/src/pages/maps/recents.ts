@@ -67,6 +67,19 @@ export function pushRecent(place: PlaceResult): Recent[] {
   return next;
 }
 
+export function removeRecent(placeId: string): Recent[] {
+  const store = safeStorage();
+  const next = loadRecents().filter((r) => r.place_id !== placeId);
+  if (store) {
+    try {
+      store.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Quota / private-mode — degrade to in-memory only for this session.
+    }
+  }
+  return next;
+}
+
 export function clearRecents(): void {
   const store = safeStorage();
   if (!store) return;
@@ -129,4 +142,3 @@ export function pushDirectionsRecent(args: {
   }
   return next;
 }
-

@@ -31,6 +31,7 @@ describe("maps manage-region links", () => {
           onSelectPanel={() => {}}
           recents={[]}
           onSelectRecent={() => {}}
+          onRemoveRecent={() => {}}
           collapsed={false}
           onToggleCollapsed={() => {}}
         />

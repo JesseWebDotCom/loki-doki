@@ -21,6 +21,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  X,
 } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import {
@@ -37,6 +38,7 @@ export interface LeftRailProps {
   onSelectPanel: (panel: Exclude<ActivePanel, null>) => void;
   recents: Recent[];
   onSelectRecent: (place: PlaceResult) => void;
+  onRemoveRecent: (placeId: string) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }
@@ -66,6 +68,7 @@ const LeftRail: React.FC<LeftRailProps> = ({
   onSelectPanel,
   recents,
   onSelectRecent,
+  onRemoveRecent,
   collapsed,
   onToggleCollapsed,
 }) => {
@@ -161,27 +164,37 @@ const LeftRail: React.FC<LeftRailProps> = ({
               ) : (
                 <ul className="flex flex-col gap-0.5">
                   {recents.slice(0, 5).map((r) => (
-                    <li key={r.place_id}>
-                      <button
-                        type="button"
-                        onClick={() => onSelectRecent(r)}
-                        className="flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-card transition-colors cursor-pointer"
-                      >
-                        <MapPin
-                          size={13}
-                          className="mt-0.5 shrink-0 text-destructive"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm text-foreground">
-                            {r.title}
-                          </div>
-                          {r.subtitle && (
-                            <div className="truncate text-[11px] text-muted-foreground">
-                              {r.subtitle}
+                    <li key={r.place_id} className="group">
+                      <div className="flex items-start gap-1 rounded-lg transition-colors hover:bg-card focus-within:bg-card">
+                        <button
+                          type="button"
+                          onClick={() => onSelectRecent(r)}
+                          className="flex min-w-0 flex-1 items-start gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors cursor-pointer"
+                        >
+                          <MapPin
+                            size={13}
+                            className="mt-0.5 shrink-0 text-destructive"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm text-foreground">
+                              {r.title}
                             </div>
-                          )}
-                        </div>
-                      </button>
+                            {r.subtitle && (
+                              <div className="truncate text-[11px] text-muted-foreground">
+                                {r.subtitle}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${r.title}`}
+                          onClick={() => onRemoveRecent(r.place_id)}
+                          className="mt-1 mr-1 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity cursor-pointer hover:bg-card/80 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>

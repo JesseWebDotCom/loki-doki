@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { clearRecents, loadRecents, pushRecent } from './recents';
+import { clearRecents, loadRecents, pushRecent, removeRecent } from './recents';
 import type { PlaceResult } from './types';
 
 const place = (id: string, title: string): PlaceResult => ({
@@ -81,5 +81,16 @@ describe('recents', () => {
     );
     const list = loadRecents();
     expect(list.map((r) => r.place_id)).toEqual(['ok']);
+  });
+
+  it('removes a single recent by id, leaves others intact', () => {
+    pushRecent(place('a', 'A'));
+    pushRecent(place('b', 'B'));
+    pushRecent(place('c', 'C'));
+
+    const list = removeRecent('b');
+
+    expect(list.map((r) => r.place_id)).toEqual(['c', 'a']);
+    expect(loadRecents().map((r) => r.place_id)).toEqual(['c', 'a']);
   });
 });

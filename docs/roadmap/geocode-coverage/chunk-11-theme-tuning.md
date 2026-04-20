@@ -145,3 +145,12 @@ Refs docs/roadmap/geocode-coverage/PLAN.md chunk 11.
 ## Deferrals
 
 (Empty.)
+
+## Blocker
+
+- 2026-04-19 — `cd frontend && npx tsc --noEmit` fails before chunk 11
+  can be marked done because `frontend/tsconfig.json` still raises
+  `TS5101: Option 'baseUrl' is deprecated` and this chunk's file scope
+  does not include `frontend/tsconfig.json`. Targeted vitest checks for
+  this chunk pass; full verify is blocked on the repo-level TypeScript
+  config issue already recorded against chunks 8–10.

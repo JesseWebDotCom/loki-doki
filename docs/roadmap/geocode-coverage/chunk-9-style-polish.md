@@ -200,6 +200,17 @@ Sprite assets are first-party UI PNGs at frontend/public/sprites/.
 Refs docs/roadmap/geocode-coverage/PLAN.md chunk 9.
 ```
 
+## Blocker
+
+- 2026-04-19 — `frontend/src/pages/maps/style-dark.test.ts` passes and
+  the sprite assets are present, but the required verify command still
+  fails at `npx tsc --noEmit` before chunk-specific typing is fully
+  evaluated because `frontend/tsconfig.json` triggers `TS5101`:
+  Option `baseUrl` is deprecated and now requires
+  `"ignoreDeprecations": "6.0"` (or a config migration). That config
+  file is outside chunk 9's declared scope, so this chunk cannot be
+  committed until the repo-level TypeScript config issue is cleared.
+
 ## Deferrals
 
 (Empty.)

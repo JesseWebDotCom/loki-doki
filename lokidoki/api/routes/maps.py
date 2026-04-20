@@ -515,6 +515,22 @@ async def geocode(
     }
 
 
+@router.get("/geocode/reverse")
+async def reverse_geocode(lat: float, lon: float) -> dict:
+    """Return the nearest indexed place within 50 m of ``(lat, lon)``."""
+    region_ids = _regions_for_viewport(lat, lon)
+    hit = await fts_search.nearest(
+        lat,
+        lon,
+        region_ids,
+        data_root=store.data_dir(),
+        max_radius_km=0.05,
+    )
+    if hit is None:
+        raise HTTPException(404, "No nearby place found")
+    return _geocode_payload(hit)
+
+
 def _geocode_payload(result) -> dict:
     """Serialise a :class:`GeocodeResult` for the API response."""
     return {

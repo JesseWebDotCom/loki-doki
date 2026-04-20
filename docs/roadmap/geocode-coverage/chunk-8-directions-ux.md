@@ -120,6 +120,16 @@ nuking the whole list.
 Refs docs/roadmap/geocode-coverage/PLAN.md chunk 8.
 ```
 
+## Blocker
+
+- 2026-04-19 — `frontend` targeted vitest suite passes, but the chunk
+  verify command still fails at `npx tsc --noEmit` before chunk-specific
+  typing is evaluated because `frontend/tsconfig.json` triggers
+  `TS5101`: Option `baseUrl` is deprecated and now requires
+  `"ignoreDeprecations": "6.0"` (or a config migration). This file is
+  outside chunk 8's declared scope, so the chunk cannot be committed
+  until that repo-level TypeScript config issue is cleared.
+
 ## Deferrals
 
 (Empty.)
