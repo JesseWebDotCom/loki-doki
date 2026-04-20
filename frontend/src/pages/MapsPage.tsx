@@ -288,7 +288,18 @@ const MapsPage: React.FC = () => {
     try {
       map = new maplibregl.Map({
         container,
-        style: { version: 8, sources: {}, layers: [] },
+        // Sprite is preloaded on the initial empty style so MapLibre
+        // caches the image atlas before the first real setStyle swap.
+        // Without this, the diff'd setStyle that follows sometimes
+        // skips a fresh sprite fetch and every icon-image reference
+        // logs "could not be loaded" in the console.
+        style: {
+          version: 8,
+          sprite: '/sprites/maps-sprite',
+          glyphs: '/api/v1/maps/glyphs/{fontstack}/{range}.pbf',
+          sources: {},
+          layers: [],
+        },
         center: [-98.5, 39.8],
         zoom: 3,
         attributionControl: false,
@@ -321,6 +332,32 @@ const MapsPage: React.FC = () => {
     map.on('error', (e) => {
       // eslint-disable-next-line no-console
       console.warn('MapLibre error', e);
+    });
+
+    // Defensive sprite fallback: if MapLibre asks for an icon the
+    // current sprite atlas doesn't know about, fetch the matching
+    // SVG and register it by hand. Covers the edge cases where
+    // setStyle diff'ing skips a sprite refresh or the sprite request
+    // lands after the first render pass.
+    const loadedIcons = new Set<string>();
+    map.on('styleimagemissing', (event: { id?: string } & Record<string, unknown>) => {
+      const id = event.id;
+      if (!id || loadedIcons.has(id)) return;
+      loadedIcons.add(id);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        if (!map || !map.getStyle()) return;
+        try {
+          if (!map.hasImage(id)) {
+            map.addImage(id, img, { sdf: !id.startsWith('shield_') });
+          }
+        } catch {
+          /* style may have swapped under us */
+        }
+      };
+      img.onerror = () => { loadedIcons.delete(id); };
+      img.src = `/sprites/source/${id}.svg`;
     });
 
     map.on('moveend', () => {
@@ -445,7 +482,11 @@ const MapsPage: React.FC = () => {
       { mode },
     );
     style.sprite = '/sprites/maps-sprite';
-    map.setStyle(style);
+    // diff=false forces a full style rebuild so the sprite atlas is
+    // (re)fetched and every icon-image reference resolves on first
+    // render. Diffing was silently skipping the sprite refresh,
+    // leaving POI badges and highway shields unrendered.
+    map.setStyle(style, { diff: false });
   }, [mode, resolution, theme]);
 
   // ── Auto-pitch when flipping layer mode ──────────────────────
