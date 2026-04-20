@@ -52,7 +52,7 @@ session. The execution rules are non-negotiable:
 
 | # | Chunk | Status | Commit |
 |---|-------|--------|--------|
-| 1 | [OpenAddresses preflight + pin](chunk-1-openaddresses-preflight.md) | pending | |
+| 1 | [OpenAddresses preflight + pin](chunk-1-openaddresses-preflight.md) | done | 50267c7 |
 | 2 | [Ingest OpenAddresses CSV into FTS](chunk-2-openaddresses-ingest.md) | pending | |
 | 3 | [Index named OSM POIs / buildings](chunk-3-osm-named-pois.md) | pending | |
 | 4 | [Search tokenizer hardening](chunk-4-search-tokens.md) | pending | |
