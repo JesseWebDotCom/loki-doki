@@ -65,10 +65,15 @@ session. The execution rules are non-negotiable:
 | 5 | [World labels visible at all zooms](chunk-5-world-labels-zoom.md) | done | 7c2e222 |
 | 6 | [Install resilience: atomic indexer + skip-if-hash + UI clear](chunk-6-install-resilience.md) | done | f525cfd |
 | 7 | [Polygon-based world labels](chunk-7-polygon-world-labels.md) | done | 67de599 |
-| 8 | [Directions UX: step-click map blank + delete recent](chunk-8-directions-ux.md) | pending | |
-| 9 | [Style polish: route shields, stream labels, road hierarchy](chunk-9-style-polish.md) | pending | |
-| 10 | [POI icon sprite + click-to-popup PlaceDetailsCard](chunk-10-poi-icons-popup.md) | pending | |
-| 11 | [Dark theme tuning + light theme + system-theme toggle](chunk-11-theme-tuning.md) | pending | |
+| 8 | [Directions UX: step-click map blank + delete recent](chunk-8-directions-ux.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
+| 9 | [Style polish: route shields, stream labels, road hierarchy](chunk-9-style-polish.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
+| 10 | [POI icon sprite + click-to-popup PlaceDetailsCard](chunk-10-poi-icons-popup.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
+| 11 | [Dark theme tuning + light theme + system-theme toggle](chunk-11-theme-tuning.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
+| 12 | [Serve nested static dirs (`/sprites`) from FastAPI](chunk-12-serve-nested-static.md) | done | |
+| 13 | [Install Noto Sans Bold + Italic glyph stacks](chunk-13-glyphs-bold-italic.md) | pending | |
+| 14 | [Map theme follows site ThemeProvider by default](chunk-14-map-theme-follow-site.md) | pending | |
+| 15 | [Global admin-1 boundaries in world-overview pmtiles](chunk-15-global-admin1-overview.md) | pending | |
+| 16 | [Hover-preview PlaceDetailsCard on POI icons](chunk-16-poi-hover-preview.md) | pending | |
 
 ## Global context
 
@@ -179,3 +184,22 @@ feature for the POI keys (`office`, `amenity`, `building+name`,
   and there's no light-mode toggle (chunk 11). All four were
   triaged from a side-by-side LokiDoki vs Google Maps screenshot
   comparison of 150 Stiles St, Milford CT.
+- 2026-04-19 — Post-8–11 browser QA on `./run.sh` build surfaced
+  cross-cutting failures that unit tests didn't catch, driving the
+  chunks 12–16 addendum. Root causes, each its own chunk:
+  (12) FastAPI catch-all at `lokidoki/main.py:248` only serves
+  single-segment root files, so `GET /sprites/maps-sprite.png`
+  returned the SPA shell as `text/html`; MapLibre silently failed
+  every `icon-image` lookup. Chunks 9 + 10 sprite work was invisible
+  at runtime. (13) `install-glyphs` preflight hard-codes
+  `Noto Sans Regular`; chunk 9 added `['Noto Sans Bold']` for shield
+  text + `['Noto Sans Italic']` for waterway labels, both 404. (14)
+  `useMapTheme` resolves `'system'` against `matchMedia`, ignoring
+  the app's existing `ThemeProvider`; map stays dark even when site
+  is light. (15) World-overview pmtiles carries admin-1 only for the
+  US — panning to Mexico / Canada shows country outlines but no
+  state/province boundaries or labels. (16) Chunk 10 shipped
+  click-to-open PlaceDetailsCard but no hover preview, which is the
+  Apple-Maps pattern the user expected. Chunk 8 step-click blank
+  is very likely downstream of (12)+(13) — re-verify after those
+  land before reopening chunk 8.

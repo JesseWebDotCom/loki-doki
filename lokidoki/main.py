@@ -60,6 +60,8 @@ app.mount("/media", StaticFiles(directory="data/media"), name="media")
 # Mount frontend assets if they exist
 if os.path.exists("frontend/dist/assets"):
     app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+if os.path.exists("frontend/dist/sprites"):
+    app.mount("/sprites", StaticFiles(directory="frontend/dist/sprites"), name="sprites")
 
 async def run_command_with_logs(cmd: str, cwd: str = "."):
     """Runs a command and streams its stdout/stderr to the bootstrap queue."""
@@ -238,7 +240,7 @@ async def root():
 async def catch_all(full_path: str):
     """Catch-all for SPA routing."""
     # Never return index.html for missing static assets
-    if full_path.startswith(("assets/", "static/", "media/")):
+    if full_path.startswith(("assets/", "static/", "media/", "sprites/")):
         return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
 
     # Serve root-level files from frontend/dist (favicon.svg, favicon.ico,
