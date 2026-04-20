@@ -9,8 +9,9 @@
  * tippecanoe / valhalla stages make progress.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HardDrive, AlertTriangle, Globe } from "lucide-react";
+import { HardDrive, AlertTriangle, Globe, Monitor, Moon, Sun } from "lucide-react";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import { useMapTheme, type MapThemePreference } from "@/pages/maps/use-map-theme";
 import {
   aggregateSize,
   changedRegions,
@@ -101,6 +102,7 @@ function parseProgressProbe(body: string): InstallProgress | { status: string } 
 }
 
 const MapsSection: React.FC = () => {
+  const { preference: mapTheme, setTheme: setMapTheme } = useMapTheme();
   const [tree, setTree] = useState<CatalogRegion[]>([]);
   const [installed, setInstalled] = useState<Record<string, RegionStatus>>({});
   const [selection, setSelection] = useState<SelectionMap>({});
@@ -332,6 +334,44 @@ const MapsSection: React.FC = () => {
         tiles and routing graph on this device — no internet needed after.
       </p>
 
+      <div className="rounded-xl border border-border/30 bg-card/40 p-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Map theme</p>
+            <p className="text-xs text-muted-foreground">
+              Follow your system appearance by default, or lock Maps to light or dark.
+            </p>
+          </div>
+        </div>
+        <div
+          role="radiogroup"
+          aria-label="Map theme"
+          className="inline-flex flex-wrap gap-2"
+        >
+          <ThemeOption
+            checked={mapTheme === "system"}
+            icon={<Monitor size={13} />}
+            label="Follow site theme"
+            onSelect={() => setMapTheme("system")}
+            value="system"
+          />
+          <ThemeOption
+            checked={mapTheme === "light"}
+            icon={<Sun size={13} />}
+            label="Light"
+            onSelect={() => setMapTheme("light")}
+            value="light"
+          />
+          <ThemeOption
+            checked={mapTheme === "dark"}
+            icon={<Moon size={13} />}
+            label="Dark"
+            onSelect={() => setMapTheme("dark")}
+            value="dark"
+          />
+        </div>
+      </div>
+
       {/* Presets */}
       <div className="flex flex-wrap gap-2">
         <PresetButton onClick={() => geoPreset("region")}     label="My region" />
@@ -398,6 +438,42 @@ const PresetButton: React.FC<{ onClick: () => void; label: string }>
     <Globe size={11} />
     {label}
   </button>
+);
+
+interface ThemeOptionProps {
+  checked: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onSelect: () => void;
+  value: MapThemePreference;
+}
+
+const ThemeOption: React.FC<ThemeOptionProps> = ({
+  checked,
+  icon,
+  label,
+  onSelect,
+  value,
+}) => (
+  <label
+    className={[
+      "inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors",
+      checked
+        ? "border-primary/60 bg-primary/10 text-foreground"
+        : "border-border/50 bg-card/50 text-muted-foreground hover:text-foreground",
+    ].join(" ")}
+  >
+    <input
+      checked={checked}
+      className="sr-only"
+      name="map-theme"
+      onChange={onSelect}
+      type="radio"
+      value={value}
+    />
+    {icon}
+    <span>{label}</span>
+  </label>
 );
 
 interface RegionRowProps {
