@@ -31,6 +31,7 @@ class MapRegionState:
     valhalla_installed: bool = False
     pbf_installed: bool = False
     geocoder_installed: bool = False
+    openaddresses_installed: bool = False
     # Per-artifact bytes on disk — used by the /storage aggregate.
     bytes_on_disk: dict[str, int] = field(default_factory=dict)
     installed_at: str | None = None        # ISO timestamp of last completed install.

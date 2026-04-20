@@ -203,6 +203,25 @@ GLYPHS_ASSETS = {
 }
 
 
+# OpenAddresses per-US-state parcel data. Each pin is an immutable run
+# artifact consumed by the maps installer and mirrored into the offline
+# bundle under ``openaddresses/<region_id>.openaddresses.zip``.
+OPENADDRESSES_REGIONS: dict[str, dict[str, str | int]] = {
+    "us-ct": {
+        "url": "https://data.openaddresses.io/runs/1194851/us/ct/statewide.zip",
+        "sha256": "50bf90a701c1356e76715d7e172139d6a094d7fd705762f032c31411f5a4839d",
+        "size_bytes": 23264486,
+        "filename": "us-ct.openaddresses.zip",
+    },
+    "us-fl": {
+        "url": "https://data.openaddresses.io/runs/1195001/us/fl/statewide.zip",
+        "sha256": "e41da2c8f61793e6376367b127cb930e63d862afc9894171862196e76ef3ed53",
+        "size_bytes": 267550591,
+        "filename": "us-fl.openaddresses.zip",
+    },
+}
+
+
 # Piper voice models — synthesis uses the piper-tts Python package
 # in-process (no CLI binary needed).
 PIPER_VOICES: dict[str, dict[str, tuple[str, str]]] = {

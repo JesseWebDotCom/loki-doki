@@ -41,6 +41,10 @@ from typing import Iterable
 
 import httpx
 
+from lokidoki.bootstrap.context import StepContext
+from lokidoki.bootstrap.preflight.openaddresses import ensure_openaddresses_for
+from lokidoki.bootstrap.versions import OPENADDRESSES_REGIONS
+
 from . import build as _build
 from .catalog import MapRegion, get_region
 from .models import MapArchiveConfig, MapInstallProgress, MapRegionState
@@ -420,6 +424,46 @@ async def _build_graphhopper_step(
     state.bytes_on_disk["valhalla"] = total
 
 
+async def _download_openaddresses_step(
+    region_id: str,
+    state: MapRegionState,
+    emit,
+    cancel_event: asyncio.Event,
+) -> None:
+    """Download the pinned OpenAddresses ZIP for ``region_id`` if configured."""
+    if cancel_event.is_set():
+        raise asyncio.CancelledError()
+    if region_id not in OPENADDRESSES_REGIONS:
+        return
+
+    await emit(MapInstallProgress(
+        region_id=region_id,
+        artifact="openaddresses",
+        phase="downloading_openaddresses",
+    ))
+
+    ctx = StepContext(
+        data_dir=_data_dir(),
+        profile="maps-install",
+        arch="unknown",
+        os_name="Linux",
+        emit=lambda _event: None,
+    )
+    path = await ensure_openaddresses_for(region_id, ctx)
+    if cancel_event.is_set():
+        raise asyncio.CancelledError()
+
+    state.openaddresses_installed = True
+    state.bytes_on_disk["openaddresses"] = path.stat().st_size
+    await emit(MapInstallProgress(
+        region_id=region_id,
+        artifact="openaddresses",
+        bytes_done=path.stat().st_size,
+        bytes_total=path.stat().st_size,
+        phase="ready",
+    ))
+
+
 def _cleanup_partial_artifacts(region_id: str, state: MapRegionState) -> None:
     """Remove any half-written streets/routing outputs.
 
@@ -567,6 +611,19 @@ async def install_region(
                 raise asyncio.CancelledError()
             await _build_geocoder_step(region_id, state, _emit, cancel_event)
 
+            if region_id.startswith("us-") and region_id in OPENADDRESSES_REGIONS:
+                if cancel_event.is_set():
+                    raise asyncio.CancelledError()
+                try:
+                    await _download_openaddresses_step(
+                        region_id, state, _emit, cancel_event,
+                    )
+                except Exception:  # noqa: BLE001 - OA is additive only
+                    log.exception(
+                        "openaddresses download failed for %s; continuing",
+                        region_id,
+                    )
+
             if cancel_event.is_set():
                 raise asyncio.CancelledError()
             await _build_streets_step(region_id, state, _emit, cancel_event)
@@ -616,6 +673,7 @@ def aggregate_storage(states: Iterable[MapRegionState]) -> dict[str, int]:
     totals: dict[str, int] = {
         "street": 0, "valhalla": 0,
         "pbf": 0, "geocoder": 0,
+        "openaddresses": 0,
     }
     for st in states:
         for artifact, size in st.bytes_on_disk.items():

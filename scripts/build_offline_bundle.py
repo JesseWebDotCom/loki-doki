@@ -191,6 +191,22 @@ def _pinned_fetch_specs(profiles: Iterable[str], cache: Path) -> list[FetchSpec]
     return list(seen.values())
 
 
+def _openaddresses_fetch_specs(output: Path) -> list[FetchSpec]:
+    """Return offline-bundle fetch specs for pinned OpenAddresses regions."""
+    specs: list[FetchSpec] = []
+    dest_root = output / "openaddresses"
+    for region_id, pin in sorted(V.OPENADDRESSES_REGIONS.items()):
+        specs.append(
+            FetchSpec(
+                url=str(pin["url"]),
+                dest=dest_root / str(pin["filename"]),
+                sha256=str(pin["sha256"]),
+                label=f"openaddresses:{region_id}",
+            )
+        )
+    return specs
+
+
 def _hf_snapshots(profiles: Iterable[str]) -> list[str]:
     """Return the HF repo slugs whose snapshots must be downloaded."""
     slugs: set[str] = set()
@@ -348,6 +364,7 @@ def main(argv: list[str] | None = None) -> int:
     hf_dir.mkdir(parents=True, exist_ok=True)
 
     specs = _pinned_fetch_specs(profiles, cache)
+    specs.extend(_openaddresses_fetch_specs(output))
     _log.info("bundle profiles=%s artifacts=%d", profiles, len(specs))
     skipped_zero_sha: list[str] = []
     for spec in specs:
