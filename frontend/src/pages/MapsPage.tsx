@@ -238,9 +238,27 @@ const MapsPage: React.FC = () => {
     name: string;
     subtitle: string;
     category?: string;
+    lat: number;
+    lon: number;
     screenX: number;
     screenY: number;
   } | null>(null);
+  // Grace timer so cursor can cross the gap from POI icon into the
+  // hover card without the card collapsing under it.
+  const hoverDismissTimer = useRef<number | null>(null);
+  const cancelHoverDismiss = useCallback(() => {
+    if (hoverDismissTimer.current !== null) {
+      window.clearTimeout(hoverDismissTimer.current);
+      hoverDismissTimer.current = null;
+    }
+  }, []);
+  const scheduleHoverDismiss = useCallback(() => {
+    cancelHoverDismiss();
+    hoverDismissTimer.current = window.setTimeout(() => {
+      hoverDismissTimer.current = null;
+      setHoverTarget(null);
+    }, 180);
+  }, [cancelHoverDismiss]);
 
   // Layer mode — flat ``map`` or ``3d`` (fill-extrusion buildings).
   // Flipping to 3D auto-pitches the camera; flipping back resets pitch
@@ -360,17 +378,28 @@ const MapsPage: React.FC = () => {
       const initial = await resolveTileSource(undefined, fetched);
       if (cancelled) return;
       setResolution(initial);
-      // Auto-fit to the first installed region's bbox (unless the user
-      // arrived via a deep link that already specifies a location). The
-      // map is initialised centered on the US at zoom 3 — without this
-      // jump the initial viewport sits outside every installed bbox and
-      // tile panning near the coverage edge churns the source.
-      if (!deepLink && fetched.length > 0 && mapRef.current) {
-        const [minLon, minLat, maxLon, maxLat] = fetched[0].bbox;
-        mapRef.current.fitBounds(
-          [[minLon, minLat], [maxLon, maxLat]],
-          { padding: 40, duration: 0, maxZoom: 12 },
-        );
+      // Auto-fit to the first installed region's bbox unless the user
+      // arrived via a deep link. The map starts centered on the US at
+      // zoom 3 — without this jump the initial viewport sits outside
+      // every installed bbox, so tile panning near the coverage edge
+      // churns the source and nothing renders where the user is
+      // actually looking.
+      if (fetched.length > 0 && mapRef.current) {
+        if (deepLink?.toPlace) {
+          // Deep link supplies the target point: fly straight there so
+          // the directions panel opens over a real map, not a blank
+          // out-of-coverage canvas.
+          mapRef.current.jumpTo({
+            center: [deepLink.toPlace.lon, deepLink.toPlace.lat],
+            zoom: 14,
+          });
+        } else if (!deepLink) {
+          const [minLon, minLat, maxLon, maxLat] = fetched[0].bbox;
+          mapRef.current.fitBounds(
+            [[minLon, minLat], [maxLon, maxLat]],
+            { padding: 40, duration: 0, maxZoom: 12 },
+          );
+        }
       }
     })();
 
@@ -547,12 +576,18 @@ const MapsPage: React.FC = () => {
     if (!map || !mapReady) return;
 
     let rafId: number | null = null;
-    let pending: { feature: unknown; x: number; y: number } | null = null;
+    let pending: {
+      feature: unknown;
+      x: number;
+      y: number;
+      lng: number;
+      lat: number;
+    } | null = null;
 
     const flush = () => {
       rafId = null;
       if (!pending) return;
-      const { feature, x, y } = pending;
+      const { feature, x, y, lng, lat } = pending;
       pending = null;
       const props = ((feature as { properties?: MapFeatureProperties }).properties
         ?? {}) as MapFeatureProperties;
@@ -565,6 +600,8 @@ const MapsPage: React.FC = () => {
         name,
         subtitle: subtitleFromProps(props),
         category: categoryFromProps(props),
+        lat,
+        lon: lng,
         screenX: x,
         screenY: y,
       });
@@ -575,13 +612,17 @@ const MapsPage: React.FC = () => {
         features?: { properties?: MapFeatureProperties }[];
         originalEvent?: { clientX: number; clientY: number };
         point?: { x: number; y: number };
+        lngLat?: { lng: number; lat: number };
       };
       const feat = evt.features?.[0];
       if (!feat) return;
       const x = evt.originalEvent?.clientX ?? evt.point?.x ?? 0;
       const y = evt.originalEvent?.clientY ?? evt.point?.y ?? 0;
+      const lng = evt.lngLat?.lng ?? 0;
+      const lat = evt.lngLat?.lat ?? 0;
+      cancelHoverDismiss();
       map.getCanvas().style.cursor = 'pointer';
-      pending = { feature: feat, x, y };
+      pending = { feature: feat, x, y, lng, lat };
       if (rafId === null) {
         rafId = typeof requestAnimationFrame === 'function'
           ? requestAnimationFrame(flush)
@@ -600,7 +641,8 @@ const MapsPage: React.FC = () => {
         rafId = null;
       }
       map.getCanvas().style.cursor = '';
-      setHoverTarget(null);
+      // Delay clear so cursor can move into the preview card.
+      scheduleHoverDismiss();
     };
 
     map.on('mousemove', 'poi_icon', handleMove);
@@ -615,8 +657,9 @@ const MapsPage: React.FC = () => {
           clearTimeout(rafId as unknown as ReturnType<typeof setTimeout>);
         }
       }
+      cancelHoverDismiss();
     };
-  }, [mapReady]);
+  }, [cancelHoverDismiss, mapReady, scheduleHoverDismiss]);
 
   const handleRoutesChanged = useCallback(
     (alts: RouteAlt[], selectedIdx: number) => {
@@ -676,17 +719,34 @@ const MapsPage: React.FC = () => {
         })),
         routeSelectedIdx,
       );
-      // First paint after alternates arrive → fit to the union bounds.
+      // First paint after alternates arrive → fit to the union bounds,
+      // but guard against degenerate bounds (e.g. geolocation returned
+      // [0,0] or a bogus far-away start). If the span is wider than a
+      // reasonable trip (10° ≈ 700 mi) we fall back to centering on the
+      // to-place instead of fitting a world-wide rectangle.
       if (routeSelectedIdx === 0) {
         const bounds = boundsForAlts(routeAlts);
         if (bounds) {
-          map.fitBounds(bounds, { padding: 80, duration: 600, maxZoom: 15 });
+          const [[minLng, minLat], [maxLng, maxLat]] = bounds;
+          const spanLng = Math.abs(maxLng - minLng);
+          const spanLat = Math.abs(maxLat - minLat);
+          if (spanLng > 10 || spanLat > 10) {
+            if (selectedPlace) {
+              map.flyTo({
+                center: [selectedPlace.lon, selectedPlace.lat],
+                zoom: 13,
+                duration: 600,
+              });
+            }
+          } else {
+            map.fitBounds(bounds, { padding: 80, duration: 600, maxZoom: 15 });
+          }
         }
       }
     } catch {
       // Safe no-op if the style swap is mid-flight.
     }
-  }, [mapReady, routeAlts, routeSelectedIdx]);
+  }, [mapReady, routeAlts, routeSelectedIdx, selectedPlace]);
 
   // Choose which panel body to render inside the floating sheet.
   const panelBody = useMemo(() => {
@@ -780,6 +840,31 @@ const MapsPage: React.FC = () => {
               category={hoverTarget.category}
               screenX={hoverTarget.screenX}
               screenY={hoverTarget.screenY}
+              onMouseEnter={cancelHoverDismiss}
+              onMouseLeave={scheduleHoverDismiss}
+              onDirections={() => {
+                const place: PlaceResult = {
+                  place_id: `poi:${hoverTarget.lat.toFixed(5)},${hoverTarget.lon.toFixed(5)}`,
+                  title: hoverTarget.name,
+                  subtitle: hoverTarget.subtitle,
+                  address_lines: [hoverTarget.name, hoverTarget.subtitle].filter(Boolean),
+                  lat: hoverTarget.lat,
+                  lon: hoverTarget.lon,
+                  kind: hoverTarget.category,
+                };
+                handleSelect(place);
+                setHoverTarget(null);
+                setActivePanel('directions');
+              }}
+              onShare={() => {
+                const text = [
+                  hoverTarget.name,
+                  hoverTarget.subtitle,
+                  `${hoverTarget.lat.toFixed(5)}, ${hoverTarget.lon.toFixed(5)}`,
+                ].filter(Boolean).join(' — ');
+                void navigator.clipboard?.writeText(text).catch(() => {});
+                setHoverTarget(null);
+              }}
             />
           )}
 

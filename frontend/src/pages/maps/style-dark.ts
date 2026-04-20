@@ -662,6 +662,10 @@ const transportationNameLayers = (
   },
 ];
 
+// Highway shields follow the road centerline. Each class gets its own
+// colored shield sprite; text-fit expands the sprite to wrap the `ref`
+// (e.g., "95", "US 1", "CT 121"). Shields scale with zoom so they stay
+// legible on motorways without dominating the view at city scale.
 const routeShieldLayers = (): maplibregl.LayerSpecification[] => [
   {
     id: 'route_shield_motorway',
@@ -673,16 +677,17 @@ const routeShieldLayers = (): maplibregl.LayerSpecification[] => [
       ['==', ['get', 'class'], 'motorway'],
       ['has', 'ref'],
     ],
-    minzoom: 9,
+    minzoom: 8,
     layout: {
       'symbol-placement': 'line',
-      'symbol-spacing': 350,
+      'symbol-spacing': 280,
       'icon-image': 'shield_interstate',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.9, 14, 1.15, 18, 1.4],
       'icon-text-fit': 'both',
-      'icon-text-fit-padding': [2, 4, 2, 4],
+      'icon-text-fit-padding': [3, 6, 3, 6],
       'text-field': ['get', 'ref'],
       'text-font': ['Noto Sans Medium'],
-      'text-size': 11,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11, 14, 13, 18, 16],
       'text-allow-overlap': false,
     },
     paint: { 'text-color': '#ffffff' },
@@ -700,13 +705,14 @@ const routeShieldLayers = (): maplibregl.LayerSpecification[] => [
     minzoom: 9,
     layout: {
       'symbol-placement': 'line',
-      'symbol-spacing': 350,
+      'symbol-spacing': 280,
       'icon-image': 'shield_us',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.85, 14, 1.1, 18, 1.35],
       'icon-text-fit': 'both',
-      'icon-text-fit-padding': [2, 4, 2, 4],
+      'icon-text-fit-padding': [3, 6, 3, 6],
       'text-field': ['get', 'ref'],
       'text-font': ['Noto Sans Medium'],
-      'text-size': 11,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 14, 12, 18, 15],
       'text-allow-overlap': false,
     },
     paint: { 'text-color': '#1f232b' },
@@ -716,22 +722,26 @@ const routeShieldLayers = (): maplibregl.LayerSpecification[] => [
     type: 'symbol',
     source: 'protomaps',
     'source-layer': 'transportation_name',
+    // Any primary/secondary route carrying a `ref` gets a state shield.
+    // Older filter only matched OpenMapTiles' `network='us-state:*'`
+    // which planetiler rarely populates — so most state routes lost
+    // their badge. Falling back to plain class+ref catches them all.
     filter: [
       'all',
-      ['==', ['get', 'class'], 'primary'],
+      ['in', ['get', 'class'], ['literal', ['primary', 'secondary']]],
       ['has', 'ref'],
-      ['>=', ['index-of', 'us-state:', ['coalesce', ['get', 'network'], '']], 0],
     ],
     minzoom: 10,
     layout: {
       'symbol-placement': 'line',
-      'symbol-spacing': 300,
+      'symbol-spacing': 260,
       'icon-image': 'shield_state',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 14, 1.05, 18, 1.3],
       'icon-text-fit': 'both',
-      'icon-text-fit-padding': [2, 4, 2, 4],
+      'icon-text-fit-padding': [3, 6, 3, 6],
       'text-field': ['get', 'ref'],
       'text-font': ['Noto Sans Medium'],
-      'text-size': 10,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 14, 12, 18, 14],
       'text-allow-overlap': false,
     },
     paint: { 'text-color': '#3b3628' },

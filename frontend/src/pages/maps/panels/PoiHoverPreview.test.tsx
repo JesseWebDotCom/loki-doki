@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import PoiHoverPreview from './PoiHoverPreview';
 
 describe('PoiHoverPreview', () => {
@@ -27,7 +27,8 @@ describe('PoiHoverPreview', () => {
     expect(card.style.position).toBe('fixed');
     expect(card.style.left).toBe('132px');
     expect(card.style.top).toBe('60px');
-    expect(card.getAttribute('role')).toBe('tooltip');
+    // Interactive card (has buttons) so the role is dialog, not tooltip.
+    expect(card.getAttribute('role')).toBe('dialog');
   });
 
   it('renders the sprite image when the category is a known POI icon', () => {
@@ -59,5 +60,38 @@ describe('PoiHoverPreview', () => {
     const card = screen.getByTestId('poi-hover-preview');
     expect(card.querySelector('img')).toBeNull();
     expect(card.querySelector('span[aria-hidden="true"]')).toBeTruthy();
+  });
+
+  it('shows Directions + Share buttons when handlers are provided', () => {
+    const onDirections = vi.fn();
+    const onShare = vi.fn();
+    render(
+      <PoiHoverPreview
+        name="CVS Pharmacy"
+        subtitle="989 Boston Post Rd, Milford, CT"
+        category="pharmacy"
+        screenX={0}
+        screenY={0}
+        onDirections={onDirections}
+        onShare={onShare}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /directions/i }));
+    expect(onDirections).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole('button', { name: /share/i }));
+    expect(onShare).toHaveBeenCalledOnce();
+  });
+
+  it('omits action bar when no handlers are provided', () => {
+    render(
+      <PoiHoverPreview
+        name="Quiet Spot"
+        screenX={0}
+        screenY={0}
+      />,
+    );
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });
