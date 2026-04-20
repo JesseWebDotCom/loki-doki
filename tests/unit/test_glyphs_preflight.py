@@ -11,7 +11,7 @@ from lokidoki.bootstrap.preflight.glyphs import _extract_glyphs
 
 
 _INNER = "basemaps-assets-deadbeef"
-_STACKS = ("Noto Sans Regular", "Noto Sans Bold", "Noto Sans Italic")
+_STACKS = ("Noto Sans Regular", "Noto Sans Medium", "Noto Sans Italic")
 
 
 def _tarball_bytes(stacks: tuple[str, ...]) -> bytes:
@@ -45,7 +45,7 @@ def test_extracts_all_three_fontstacks(tmp_path: Path) -> None:
 def test_raises_when_required_stack_missing_from_archive(tmp_path: Path) -> None:
     archive = _write_tarball(
         tmp_path / "glyphs.tar.gz",
-        ("Noto Sans Regular", "Noto Sans Bold"),
+        ("Noto Sans Regular", "Noto Sans Medium"),
     )
 
     with pytest.raises(RuntimeError, match="Noto Sans Italic"):

@@ -19,7 +19,7 @@ _log = logging.getLogger(__name__)
 _STEP_ID = "install-glyphs"
 _FONTSTACKS: tuple[str, ...] = (
     "Noto Sans Regular",
-    "Noto Sans Bold",
+    "Noto Sans Medium",
     "Noto Sans Italic",
 )
 

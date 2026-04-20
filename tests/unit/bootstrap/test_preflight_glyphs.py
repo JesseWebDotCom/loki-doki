@@ -23,7 +23,7 @@ from lokidoki.bootstrap.versions import GLYPHS_ASSETS
 
 
 _INNER = "basemaps-assets-deadbeef"
-_STACKS = ("Noto Sans Regular", "Noto Sans Bold", "Noto Sans Italic")
+_STACKS = ("Noto Sans Regular", "Noto Sans Medium", "Noto Sans Italic")
 
 
 def _ctx(tmp_path: Path, events: list[Event]) -> StepContext:
