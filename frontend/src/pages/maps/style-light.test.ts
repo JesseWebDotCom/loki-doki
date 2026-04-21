@@ -40,4 +40,17 @@ describe('buildLightStyle', () => {
       }).paint['fill-color'];
     expect(luminance(waterOf(light))).toBeGreaterThan(luminance(waterOf(dark)));
   });
+
+  it('keeps motorway and trunk roads vivid in light mode', () => {
+    const style = buildLightStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const major = style.layers.find((layer) => layer.id === 'roads_major') as
+      | { paint: { 'line-color': unknown } }
+      | undefined;
+    const medium = style.layers.find((layer) => layer.id === 'roads_medium_colored') as
+      | { paint: { 'line-color': unknown } }
+      | undefined;
+    expect(JSON.stringify(major?.paint['line-color'])).toContain('#2378f7');
+    expect(JSON.stringify(major?.paint['line-color'])).toContain('#5aa6f5');
+    expect(JSON.stringify(medium?.paint['line-color'])).toContain('#f0b24e');
+  });
 });

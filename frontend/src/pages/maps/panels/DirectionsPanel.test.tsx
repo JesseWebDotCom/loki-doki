@@ -258,4 +258,44 @@ describe('DirectionsPanel', () => {
     });
     expect(onFitToCoords.mock.calls[0][0]).toHaveLength(1);
   });
+
+  it('normalizes reversed maneuver shape indexes before fitting the map', async () => {
+    installRouteMock({
+      steps: [
+        {
+          instruction: 'Turn right',
+          distance_m: 25,
+          duration_s: 8,
+          type: 16,
+          begin_shape_index: 1,
+          end_shape_index: 0,
+        },
+      ],
+    });
+    const onFitToCoords = vi.fn();
+    render(
+      <DirectionsPanel
+        toPlace={destination}
+        fromPlace={origin}
+        viewportCenter={null}
+        onClose={() => {}}
+        onRoutesChanged={() => {}}
+        onFitToCoords={onFitToCoords}
+      />,
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    const step = await screen.findByRole('button', { name: /turn right/i });
+    fireEvent.click(step);
+
+    await waitFor(() => {
+      expect(onFitToCoords).toHaveBeenCalledTimes(1);
+    });
+    const coords = onFitToCoords.mock.calls[0][0] as [number, number][];
+    expect(coords).toHaveLength(2);
+    expect(coords.every(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat))).toBe(true);
+  });
 });

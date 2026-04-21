@@ -16,6 +16,7 @@ import { poiCategoryIconId } from './poi-icons';
 export interface PoiHoverPreviewProps {
   name: string;
   subtitle?: string;
+  addressLines?: string[];
   category?: string;
   screenX: number;
   screenY: number;
@@ -28,6 +29,7 @@ export interface PoiHoverPreviewProps {
 const PoiHoverPreview: React.FC<PoiHoverPreviewProps> = ({
   name,
   subtitle,
+  addressLines,
   category,
   screenX,
   screenY,
@@ -37,6 +39,7 @@ const PoiHoverPreview: React.FC<PoiHoverPreviewProps> = ({
   onMouseLeave,
 }) => {
   const iconId = poiCategoryIconId(category);
+  const detailLines = addressLines?.filter(Boolean) ?? [];
   return (
     <div
       role="dialog"
@@ -55,12 +58,17 @@ const PoiHoverPreview: React.FC<PoiHoverPreviewProps> = ({
     >
       <div className="flex items-start gap-2">
         {iconId ? (
-          <img
-            src={`/sprites/source/${iconId}.svg`}
-            alt=""
+          <div
+            data-testid="poi-hover-badge"
             aria-hidden="true"
-            className="mt-0.5 h-5 w-5 shrink-0 opacity-80"
-          />
+            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-background/80 bg-primary shadow-sm"
+          >
+            <img
+              src={`/sprites/source/${iconId}.svg`}
+              alt=""
+              className="h-4 w-4 brightness-0 invert"
+            />
+          </div>
         ) : (
           <span
             aria-hidden="true"
@@ -71,7 +79,15 @@ const PoiHoverPreview: React.FC<PoiHoverPreviewProps> = ({
           <div className="truncate text-sm font-semibold tracking-tight text-foreground">
             {name}
           </div>
-          {subtitle && (
+          {detailLines.length > 0 ? (
+            <div className="mt-0.5 space-y-0.5 text-[11px] leading-snug text-muted-foreground">
+              {detailLines.map((line) => (
+                <div key={line} className="line-clamp-1">
+                  {line}
+                </div>
+              ))}
+            </div>
+          ) : subtitle && (
             <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
               {subtitle}
             </div>

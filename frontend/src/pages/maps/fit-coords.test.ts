@@ -52,4 +52,19 @@ describe('fit-coords', () => {
     });
     expect(fitBounds).not.toHaveBeenCalled();
   });
+
+  it('drops invalid coordinates before choosing the map action', () => {
+    expect(
+      getFitCoordsAction([
+        [-73.06, 41.22],
+        [Number.NaN, 41.23],
+        [-73.0600004, 41.2200004],
+        [999, 999],
+      ]),
+    ).toEqual({
+      kind: 'fly',
+      center: [-73.06, 41.22],
+      zoom: 17,
+    });
+  });
 });

@@ -45,6 +45,7 @@ describe('PoiHoverPreview', () => {
     const img = card.querySelector('img');
     expect(img).toBeTruthy();
     expect(img?.getAttribute('src')).toBe('/sprites/source/cafe.svg');
+    expect(card.querySelector('[data-testid="poi-hover-badge"]')).toBeTruthy();
   });
 
   it('falls back to a dot marker when the category is unknown', () => {
@@ -60,6 +61,22 @@ describe('PoiHoverPreview', () => {
     const card = screen.getByTestId('poi-hover-preview');
     expect(card.querySelector('img')).toBeNull();
     expect(card.querySelector('span[aria-hidden="true"]')).toBeTruthy();
+  });
+
+  it('renders the full address block when multiple lines are provided', () => {
+    render(
+      <PoiHoverPreview
+        name="CVS Pharmacy"
+        subtitle="Milford, CT"
+        addressLines={['989 Boston Post Rd', 'Milford, CT 06460']}
+        category="pharmacy"
+        screenX={0}
+        screenY={0}
+      />,
+    );
+
+    expect(screen.getByText('989 Boston Post Rd')).toBeTruthy();
+    expect(screen.getByText('Milford, CT 06460')).toBeTruthy();
   });
 
   it('shows Directions + Share buttons when handlers are provided', () => {

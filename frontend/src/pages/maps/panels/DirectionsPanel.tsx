@@ -130,7 +130,12 @@ const DirectionsPanel: React.FC<DirectionsPanelProps> = ({
       const step = selected?.maneuvers[idx];
       if (!step || !selected) return;
       setActiveStepIdx(idx);
-      const slice = selected.coords.slice(step.begin_shape_index, step.end_shape_index + 1);
+      const start = Math.max(0, Math.min(step.begin_shape_index, step.end_shape_index));
+      const end = Math.min(
+        selected.coords.length - 1,
+        Math.max(step.begin_shape_index, step.end_shape_index),
+      );
+      const slice = selected.coords.slice(start, end + 1);
       if (slice.length > 0) onFitToCoords(slice);
     },
     [onFitToCoords, selected],

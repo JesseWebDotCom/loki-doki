@@ -19,12 +19,23 @@ export type FitCoordsAction = FlyAction | FitAction;
 const NEARBY_EPSILON = 1e-6;
 const FOCUS_ZOOM = 17;
 
+function isValidCoord(coord: RouteCoord): boolean {
+  const [lng, lat] = coord;
+  return (
+    Number.isFinite(lng)
+    && Number.isFinite(lat)
+    && Math.abs(lng) <= 180
+    && Math.abs(lat) <= 90
+  );
+}
+
 export function dedupeNearby(
   coords: RouteCoord[],
   epsilon = NEARBY_EPSILON,
 ): RouteCoord[] {
   const distinct: RouteCoord[] = [];
   for (const coord of coords) {
+    if (!isValidCoord(coord)) continue;
     const last = distinct[distinct.length - 1];
     if (
       !last ||

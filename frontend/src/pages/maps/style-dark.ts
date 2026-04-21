@@ -32,9 +32,14 @@ export interface Palette {
   landuse_commercial: string;
   landuse_industrial: string;
   road_minor: string;
+  road_secondary: string;
+  road_primary: string;
+  road_trunk: string;
+  road_motorway: string;
   road_medium: string;
   road_major: string;
   road_casing: string;
+  road_major_label: string;
   building: string;
   building_outline: string;
   boundary_country: string;
@@ -61,9 +66,14 @@ const DARK: Palette = {
   landuse_commercial: '#221f25',
   landuse_industrial: '#1d2128',
   road_minor: '#3a3f47',
+  road_secondary: '#8f96a3',
+  road_primary: '#f1b45a',
+  road_trunk: '#3f92f5',
+  road_motorway: '#1c6ff2',
   road_medium: '#6e7887',
   road_major: '#9aa3ad',
-  road_casing: '#0a0c10',
+  road_casing: '#101827',
+  road_major_label: '#1b4b9b',
   building: '#363b48',
   building_outline: '#4a5060',
   boundary_country: '#b49bff',
@@ -283,8 +293,8 @@ const roadLayers = (p: Palette): maplibregl.LayerSpecification[] => [
     minzoom: 7,
     paint: {
       'line-color': p.road_casing,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 7, 1.2, 18, 11],
-      'line-opacity': 0.6,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 7, 1.6, 12, 3.4, 18, 13],
+      'line-opacity': 0.78,
     },
   },
   // Paths / tracks — only visible close up.
@@ -350,8 +360,36 @@ const roadLayers = (p: Palette): maplibregl.LayerSpecification[] => [
     filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk']]],
     minzoom: 4,
     paint: {
-      'line-color': p.road_major,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 12, 3, 16, 8],
+      'line-color': [
+        'match',
+        ['get', 'class'],
+        'motorway', p.road_motorway,
+        'trunk', p.road_trunk,
+        p.road_major,
+      ],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.3, 8, 2.2, 12, 4.4, 16, 9.2],
+      'line-opacity': 0.98,
+    },
+  },
+  // Primary and secondary routes get their own brighter color split so
+  // the highway hierarchy stays legible even before shields appear.
+  {
+    id: 'roads_medium_colored',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'transportation',
+    filter: ['in', ['get', 'class'], ['literal', ['secondary', 'primary']]],
+    minzoom: 8,
+    paint: {
+      'line-color': [
+        'match',
+        ['get', 'class'],
+        'primary', p.road_primary,
+        'secondary', p.road_secondary,
+        p.road_medium,
+      ],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.9, 12, 2.2, 16, 5.4],
+      'line-opacity': 0.95,
     },
   },
 ];
@@ -610,7 +648,7 @@ const transportationNameLayers = (
       'text-max-angle': 30,
     },
     paint: {
-      'text-color': p.street_label,
+      'text-color': p.road_major_label,
       'text-halo-color': p.street_label_halo,
       'text-halo-width': 1.8,
     },
@@ -681,14 +719,17 @@ const routeShieldLayers = (): maplibregl.LayerSpecification[] => [
     layout: {
       'symbol-placement': 'line',
       'symbol-spacing': 280,
+      'icon-pitch-alignment': 'viewport',
+      'text-pitch-alignment': 'viewport',
       'icon-image': 'shield_interstate',
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.9, 14, 1.15, 18, 1.4],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 1.05, 14, 1.3, 18, 1.55],
+      'icon-allow-overlap': true,
       'icon-text-fit': 'both',
-      'icon-text-fit-padding': [3, 6, 3, 6],
+      'icon-text-fit-padding': [4, 8, 4, 8],
       'text-field': ['get', 'ref'],
       'text-font': ['Noto Sans Medium'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11, 14, 13, 18, 16],
-      'text-allow-overlap': false,
+      'text-allow-overlap': true,
     },
     paint: { 'text-color': '#ffffff' },
   },
@@ -706,14 +747,17 @@ const routeShieldLayers = (): maplibregl.LayerSpecification[] => [
     layout: {
       'symbol-placement': 'line',
       'symbol-spacing': 280,
+      'icon-pitch-alignment': 'viewport',
+      'text-pitch-alignment': 'viewport',
       'icon-image': 'shield_us',
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.85, 14, 1.1, 18, 1.35],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 1.0, 14, 1.25, 18, 1.5],
+      'icon-allow-overlap': true,
       'icon-text-fit': 'both',
-      'icon-text-fit-padding': [3, 6, 3, 6],
+      'icon-text-fit-padding': [4, 8, 4, 8],
       'text-field': ['get', 'ref'],
       'text-font': ['Noto Sans Medium'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 14, 12, 18, 15],
-      'text-allow-overlap': false,
+      'text-allow-overlap': true,
     },
     paint: { 'text-color': '#1f232b' },
   },
@@ -735,14 +779,17 @@ const routeShieldLayers = (): maplibregl.LayerSpecification[] => [
     layout: {
       'symbol-placement': 'line',
       'symbol-spacing': 260,
+      'icon-pitch-alignment': 'viewport',
+      'text-pitch-alignment': 'viewport',
       'icon-image': 'shield_state',
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 14, 1.05, 18, 1.3],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.95, 14, 1.2, 18, 1.45],
+      'icon-allow-overlap': true,
       'icon-text-fit': 'both',
-      'icon-text-fit-padding': [3, 6, 3, 6],
+      'icon-text-fit-padding': [4, 8, 4, 8],
       'text-field': ['get', 'ref'],
       'text-font': ['Noto Sans Medium'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 14, 12, 18, 14],
-      'text-allow-overlap': false,
+      'text-allow-overlap': true,
     },
     paint: { 'text-color': '#3b3628' },
   },
@@ -912,14 +959,33 @@ const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
       'text-halo-width': 1,
     },
   },
+  // Badge container behind the POI icon so businesses read as a marker
+  // first and a label second, closer to Tesla / in-car nav styling.
+  {
+    id: 'poi_badge',
+    type: 'circle',
+    source: 'protomaps',
+    'source-layer': 'poi',
+    filter: ['has', 'name'],
+    minzoom: 14,
+    paint: {
+      'circle-pitch-scale': 'viewport',
+      'circle-pitch-alignment': 'viewport',
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 7.5, 18, 11.5],
+      'circle-color': poiMatchExpression(POI_COLOR_BY_KEY, POI_COLORS.default),
+      'circle-stroke-color': p.place_label_halo,
+      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 14, 1.6, 18, 2.2],
+      'circle-opacity': 0.98,
+      'circle-blur': 0.05,
+    },
+  },
   // Points of interest — shops, restaurants, transit stops, etc.
   //
-  // Rendered as an Apple/Google-style "business badge": a filled
-  // category-colored circle holds the icon, with the business name set
-  // alongside in the matching tone. Collision is set to `allow-overlap`
-  // for the icon so pins always appear even when a road label crosses;
-  // the text uses `text-optional` so labels drop out of dense clusters
-  // before icons do. Requiring `name` hides unnamed clutter.
+  // Rendered as an in-car style badge: a strong circular marker contains
+  // the icon and the business name rides beside it. Collision is set to
+  // `allow-overlap` for the icon so pins always appear even when a road
+  // label crosses; the text uses `text-optional` so labels drop out of
+  // dense clusters before icons do. Requiring `name` hides unnamed clutter.
   {
     id: 'poi_icon',
     type: 'symbol',
@@ -929,25 +995,27 @@ const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
     minzoom: 14,
     layout: {
       'icon-image': poiMatchExpression(POI_ICON_BY_KEY, 'default'),
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.85, 18, 1.25],
+      'icon-pitch-alignment': 'viewport',
+      'text-pitch-alignment': 'viewport',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.7, 18, 0.92],
       'icon-allow-overlap': true,
-      'icon-ignore-placement': false,
+      'icon-ignore-placement': true,
       'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
       'text-font': ['Noto Sans Medium'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 18, 14],
-      'text-offset': [0, 1.1],
-      'text-anchor': 'top',
+      'text-offset': [1.15, 0],
+      'text-anchor': 'left',
       'text-max-width': 9,
       'text-optional': true,
-      'text-padding': 2,
+      'text-padding': 4,
     },
     paint: {
-      'icon-color': poiMatchExpression(POI_COLOR_BY_KEY, POI_COLORS.default),
-      'icon-halo-color': p.place_label_halo,
-      'icon-halo-width': 1.2,
+      'icon-color': p.place_label_halo,
+      'icon-halo-color': 'rgba(0, 0, 0, 0)',
+      'icon-halo-width': 0,
       'text-color': poiMatchExpression(POI_COLOR_BY_KEY, POI_COLORS.default),
       'text-halo-color': p.place_label_halo,
-      'text-halo-width': 1.2,
+      'text-halo-width': 2.1,
     },
   },
   // House numbers — only at the very closest zooms. Overzoom from z14
@@ -979,7 +1047,14 @@ const buildings3dLayer = (p: Palette): maplibregl.LayerSpecification => ({
   'source-layer': 'building',
   minzoom: 13,
   paint: {
-    'fill-extrusion-color': p.building,
+    'fill-extrusion-color': [
+      'interpolate',
+      ['linear'],
+      ['coalesce', ['to-number', ['get', 'render_height']], 8],
+      8, p.building,
+      40, p.building_outline,
+      120, '#7d869b',
+    ],
     'fill-extrusion-height': [
       'interpolate',
       ['linear'],
@@ -992,7 +1067,8 @@ const buildings3dLayer = (p: Palette): maplibregl.LayerSpecification => ({
       ['to-number', ['get', 'render_min_height']],
       0,
     ],
-    'fill-extrusion-opacity': 0.85,
+    'fill-extrusion-opacity': 0.92,
+    'fill-extrusion-vertical-gradient': true,
   },
 });
 
@@ -1064,9 +1140,9 @@ export function buildDarkStyle(
     ...(mode === '3d' ? [] : [buildings2d]),
     ...roadLayers(p),
     ...(mode === '3d' ? [buildings3d] : []),
+    ...water_and_poi_labels(p),
     ...transportationNameLayers(p),
     ...routeShieldLayers(),
-    ...water_and_poi_labels(p),
     ...worldOverviewPlaceLayers(p),
     ...placeLabelLayers(p),
   ];

@@ -35,6 +35,8 @@ beforeEach(() => {
 
 const mapHandlers = new Map<string, ((event?: unknown) => void | Promise<void>)[]>();
 const queryRenderedFeatures = vi.fn();
+const markerSetPopup = vi.fn();
+const markerTogglePopup = vi.fn();
 const canvasStyle = { cursor: '' };
 const mockMap = {
   addControl: vi.fn(),
@@ -99,9 +101,9 @@ vi.mock('maplibre-gl', () => {
 
   class Marker {
     setLngLat() { return this; }
-    setPopup() { return this; }
+    setPopup(...args: unknown[]) { markerSetPopup(...args); return this; }
     addTo() { return this; }
-    togglePopup() { return this; }
+    togglePopup() { markerTogglePopup(); return this; }
     remove() { return this; }
   }
 
@@ -158,6 +160,8 @@ describe('MapsPage', () => {
     mapHandlers.clear();
     canvasStyle.cursor = '';
     queryRenderedFeatures.mockReset();
+    markerSetPopup.mockReset();
+    markerTogglePopup.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -198,6 +202,44 @@ describe('MapsPage', () => {
       expect(screen.getByText('Bridgewater Associates')).toBeTruthy();
     });
     expect(screen.getByRole('tabpanel', { name: 'Place details' })).toBeTruthy();
+    expect(markerSetPopup).not.toHaveBeenCalled();
+    expect(markerTogglePopup).not.toHaveBeenCalled();
+  });
+
+  it('humanizes raw POI category text in the place card subtitle', async () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    queryRenderedFeatures.mockReturnValue([
+      {
+        id: 'poi-2',
+        properties: {
+          name: 'Burger Spot',
+          class: 'fast_food',
+        },
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <MapsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mapHandlers.get('click')?.length).toBeGreaterThan(0);
+    });
+
+    const clickHandler = mapHandlers.get('click')?.[0];
+    await clickHandler?.({
+      point: { x: 10, y: 20 },
+      lngLat: { lng: -73.3644, lat: 41.1187 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Fast Food')).toBeTruthy();
+    });
   });
 
   it('shows a hover preview when cursor enters a POI icon', async () => {
@@ -245,6 +287,7 @@ describe('MapsPage', () => {
       expect(screen.getByTestId('poi-hover-preview')).toBeTruthy();
     });
     expect(screen.getByText('Cafe Picolo')).toBeTruthy();
+    expect(screen.getByText('Milford, CT')).toBeTruthy();
     expect(canvasStyle.cursor).toBe('pointer');
 
     const leaveHandler = mapHandlers.get('mouseleave:poi_icon')?.[0];

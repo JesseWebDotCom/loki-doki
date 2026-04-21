@@ -68,6 +68,17 @@ describe('buildDarkStyle', () => {
     expect(extrusionIdx).toBeLessThan(cityIdx);
   });
 
+  it('keeps POI badges above the 3D extrusion layer', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL, { mode: '3d' });
+    const ids = style.layers.map((l) => l.id);
+    const extrusionIdx = ids.indexOf('buildings-3d');
+    const poiBadgeIdx = ids.indexOf('poi_badge');
+    const poiIconIdx = ids.indexOf('poi_icon');
+    expect(extrusionIdx).toBeGreaterThan(-1);
+    expect(poiBadgeIdx).toBeGreaterThan(extrusionIdx);
+    expect(poiIconIdx).toBeGreaterThan(extrusionIdx);
+  });
+
   it('includes street-name labels on transportation_name source-layer', () => {
     const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const streetLabels = style.layers.filter(
@@ -90,6 +101,12 @@ describe('buildDarkStyle', () => {
       expect(
         (layer as { layout: { 'text-font': string[] } }).layout['text-font'],
       ).toEqual(['Noto Sans Medium']);
+      expect(
+        (layer as { layout: { 'icon-pitch-alignment'?: string } }).layout['icon-pitch-alignment'],
+      ).toBe('viewport');
+      expect(
+        (layer as { layout: { 'icon-allow-overlap'?: boolean } }).layout['icon-allow-overlap'],
+      ).toBe(true);
     }
   });
 
@@ -112,8 +129,9 @@ describe('buildDarkStyle', () => {
       | undefined;
     expect(motorway).toBeDefined();
     expect(residential).toBeDefined();
-    expect(luminance(motorway?.paint['line-color'] ?? '#000000')).toBeGreaterThan(
-      luminance(residential?.paint['line-color'] ?? '#000000'),
+    expect(JSON.stringify(motorway?.paint['line-color'])).toContain('#1c6ff2');
+    expect(luminance(residential?.paint['line-color'] ?? '#000000')).toBeLessThan(
+      luminance('#1c6ff2'),
     );
   });
 
@@ -125,24 +143,44 @@ describe('buildDarkStyle', () => {
     expect((hn as { minzoom?: number }).minzoom ?? 0).toBeGreaterThanOrEqual(16);
   });
 
-  it('renders POIs as a single badge layer carrying icon + label together', () => {
+  it('renders POIs with a badge container plus grouped icon + label', () => {
     const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const poiBadge = style.layers.find((l) => l.id === 'poi_badge') as
+      | { paint: Record<string, unknown>; filter?: unknown[] }
+      | undefined;
     const poiIcon = style.layers.find((l) => l.id === 'poi_icon') as
       | { filter?: unknown[]; layout: Record<string, unknown>; paint: Record<string, unknown> }
       | undefined;
+    expect(poiBadge).toBeDefined();
+    expect(JSON.stringify(poiBadge?.paint['circle-color'])).toContain('#f59e0b');
+    expect(poiBadge?.paint['circle-pitch-alignment']).toBe('viewport');
+    expect(JSON.stringify(poiBadge?.filter)).toContain('name');
     expect(poiIcon).toBeDefined();
-    // Icon image + color pull from the category-mapped expression.
+    // Icon image pulls from the category-mapped expression.
     expect(JSON.stringify(poiIcon?.layout['icon-image'])).toContain('fast_food');
-    expect(JSON.stringify(poiIcon?.paint['icon-color'])).toContain('#f59e0b');
-    // Label is on the same layer so collision keeps icon+text grouped
-    // (Apple/Google-style business badge).
-    expect(poiIcon?.layout['text-anchor']).toBe('top');
-    expect(JSON.stringify(poiIcon?.layout['text-offset'])).toContain('1');
+    // Label is on the same layer so collision keeps icon+text grouped.
+    expect(poiIcon?.paint['icon-color']).toBe('#0a0c10');
+    expect(poiIcon?.layout['icon-pitch-alignment']).toBe('viewport');
+    expect(poiIcon?.layout['text-anchor']).toBe('left');
+    expect(JSON.stringify(poiIcon?.layout['text-offset'])).toContain('1.15');
     expect(JSON.stringify(poiIcon?.layout['text-field'])).toContain('name');
     // Icons must always paint even when a road label crosses them.
     expect(poiIcon?.layout['icon-allow-overlap']).toBe(true);
+    expect(poiIcon?.layout['icon-ignore-placement']).toBe(true);
     // Only named POIs render — unnamed clutter is hidden.
     expect(JSON.stringify(poiIcon?.filter)).toContain('name');
+  });
+
+  it('colors major highways more strongly than local streets', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const motorway = style.layers.find((l) => l.id === 'roads_major') as
+      | { paint: { 'line-color': unknown } }
+      | undefined;
+    const primary = style.layers.find((l) => l.id === 'roads_medium_colored') as
+      | { paint: { 'line-color': unknown } }
+      | undefined;
+    expect(JSON.stringify(motorway?.paint['line-color'])).toContain('#1c6ff2');
+    expect(JSON.stringify(primary?.paint['line-color'])).toContain('#f1b45a');
   });
 
   it('uses the supplied tile URL on the protomaps vector source', () => {

@@ -44,6 +44,7 @@ import PlaceDetailsCard from './maps/panels/PlaceDetailsCard';
 import PoiHoverPreview from './maps/panels/PoiHoverPreview';
 import GuidesPanel from './maps/panels/GuidesPanel';
 import DirectionsPanel from './maps/panels/DirectionsPanel';
+import { formatPoiCategoryLabel } from './maps/panels/poi-icons';
 import type {
   ModeId,
   RouteAlt,
@@ -87,28 +88,8 @@ if (typeof window !== 'undefined' && !window.__ldPmtilesRegistered) {
   window.__ldPmtilesRegistered = true;
 }
 
-// Dark-theme override for MapLibre's default popup + controls.
+// Dark-theme override for MapLibre controls.
 const MAPLIBRE_DARK_CSS = `
-.maplibregl-popup { max-width: 320px; }
-.maplibregl-popup-content {
-  background: hsl(220 15% 14%) !important;
-  color: hsl(210 20% 92%) !important;
-  border: 1px solid hsl(220 10% 28%) !important;
-  border-radius: 10px !important;
-  padding: 10px 14px !important;
-  font-size: 12px;
-  line-height: 1.4;
-  box-shadow: 0 6px 24px -8px rgba(0,0,0,0.6);
-}
-.maplibregl-popup-close-button {
-  color: hsl(210 20% 70%) !important;
-  font-size: 18px;
-  padding: 0 6px;
-}
-.maplibregl-popup-tip {
-  border-top-color: hsl(220 15% 14%) !important;
-  border-bottom-color: hsl(220 15% 14%) !important;
-}
 .maplibregl-ctrl-group {
   background: hsl(220 15% 14%) !important;
   border: 1px solid hsl(220 10% 28%) !important;
@@ -156,13 +137,23 @@ function asString(value: unknown): string {
 }
 
 function subtitleFromProps(props: MapFeatureProperties): string {
+  const [address, locality] = addressLinesFromProps(props);
+  return (
+    address
+    || locality
+    || formatPoiCategoryLabel(asString(props.subclass))
+    || formatPoiCategoryLabel(asString(props.class))
+  );
+}
+
+function addressLinesFromProps(props: MapFeatureProperties): string[] {
   const number = asString(props.housenumber) || asString(props['addr:housenumber']);
   const street = asString(props.street) || asString(props['addr:street']);
+  const address = [number, street].filter(Boolean).join(' ').trim();
   const locality = [asString(props.city), asString(props.state), asString(props.postcode)]
     .filter(Boolean)
     .join(', ');
-  const address = [number, street].filter(Boolean).join(' ').trim();
-  return address || locality || asString(props.subclass) || asString(props.class);
+  return [address, locality].filter(Boolean);
 }
 
 function titleFromProps(props: MapFeatureProperties): string {
@@ -237,6 +228,7 @@ const MapsPage: React.FC = () => {
   const [hoverTarget, setHoverTarget] = useState<{
     name: string;
     subtitle: string;
+    addressLines: string[];
     category?: string;
     lat: number;
     lon: number;
@@ -513,9 +505,7 @@ const MapsPage: React.FC = () => {
     markerRef.current?.remove();
     markerRef.current = new maplibregl.Marker({ color: '#a855f7' })
       .setLngLat([place.lon, place.lat])
-      .setPopup(new maplibregl.Popup({ offset: 25 }).setText(place.title))
       .addTo(map);
-    markerRef.current.togglePopup();
 
     const zoom =
       place.kind === 'country' ? 4 :
@@ -579,11 +569,12 @@ const MapsPage: React.FC = () => {
       const props = (top.properties ?? {}) as MapFeatureProperties;
       const title = titleFromProps(props);
       if (title) {
+        const addressLines = addressLinesFromProps(props);
         const place: PlaceResult = {
           place_id: String(top.id ?? `${event.lngLat.lat},${event.lngLat.lng}`),
           title,
           subtitle: subtitleFromProps(props),
-          address_lines: [title, subtitleFromProps(props)].filter(Boolean),
+          address_lines: addressLines.length > 0 ? addressLines : [title],
           lat: event.lngLat.lat,
           lon: event.lngLat.lng,
           kind: categoryFromProps(props),
@@ -640,6 +631,7 @@ const MapsPage: React.FC = () => {
       setHoverTarget({
         name,
         subtitle: subtitleFromProps(props),
+        addressLines: addressLinesFromProps(props),
         category: categoryFromProps(props),
         lat,
         lon: lng,
@@ -878,6 +870,7 @@ const MapsPage: React.FC = () => {
             <PoiHoverPreview
               name={hoverTarget.name}
               subtitle={hoverTarget.subtitle}
+              addressLines={hoverTarget.addressLines}
               category={hoverTarget.category}
               screenX={hoverTarget.screenX}
               screenY={hoverTarget.screenY}
@@ -888,7 +881,7 @@ const MapsPage: React.FC = () => {
                   place_id: `poi:${hoverTarget.lat.toFixed(5)},${hoverTarget.lon.toFixed(5)}`,
                   title: hoverTarget.name,
                   subtitle: hoverTarget.subtitle,
-                  address_lines: [hoverTarget.name, hoverTarget.subtitle].filter(Boolean),
+                  address_lines: hoverTarget.addressLines,
                   lat: hoverTarget.lat,
                   lon: hoverTarget.lon,
                   kind: hoverTarget.category,
