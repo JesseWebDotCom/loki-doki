@@ -46,7 +46,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 11 | [SourceSurface + structured citations + offline trust chip](chunk-11-source-surface.md) | done | 618a11c |
 | 12 | [Response mode derivation (planner backend)](chunk-12-planner-mode-backend.md) | done | f5c56db |
 | 13 | [Mode toggle UI + `/deep` slash command](chunk-13-mode-selection-frontend.md) | done | e2a4c86 |
-| 14 | [`key_facts` / `steps` / `comparison` block renderers + enrichment budgets](chunk-14-blocks-text.md) | pending | |
+| 14 | [`key_facts` / `steps` / `comparison` block renderers + enrichment budgets](chunk-14-blocks-text.md) | done | 62d3df2 |
 | 15 | [`follow_ups` / `clarification` / `status` block renderers](chunk-15-blocks-meta.md) | pending | |
 | 16 | [Voice parity — one-call synthesis + barge-in](chunk-16-voice-parity.md) | pending | |
 | 17 | [Adaptive document handling (small inline / large RAG)](chunk-17-doc-strategy.md) | pending | |
