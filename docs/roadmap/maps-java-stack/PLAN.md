@@ -64,7 +64,7 @@ to a later chunk.
 | 1 | [Adoptium Temurin JRE preflight](chunk-1-jre-preflight.md)                                         | done    | d1dcebc |
 | 2 | [planetiler preflight + replace tippecanoe in install flow](chunk-2-planetiler.md)                 | done | 0572220 |
 | 3 | [GraphHopper preflight + replace Valhalla in routing + lazy sidecar rewire](chunk-3-graphhopper.md)| done | efd7069 |
-| 4 | [Re-enable maps profiles + end-to-end verify + docs update](chunk-4-enable-and-docs.md)            | pending |        |
+| 4 | [Re-enable maps profiles + end-to-end verify + docs update](chunk-4-enable-and-docs.md)            | done | 02998ca |
 
 ---
 

@@ -204,10 +204,17 @@ function hoverCategoryLabel(category: string | undefined, subtitle?: string): st
   return fallback ?? '';
 }
 
-async function reverseGeocode(lat: number, lon: number): Promise<PlaceResult | null> {
+async function reverseGeocode(
+  lat: number,
+  lon: number,
+  radiusKm?: number,
+): Promise<PlaceResult | null> {
   const url = new URL(REVERSE_GEOCODE_URL, window.location.origin);
   url.searchParams.set('lat', String(lat));
   url.searchParams.set('lon', String(lon));
+  if (typeof radiusKm === 'number' && Number.isFinite(radiusKm)) {
+    url.searchParams.set('radius_km', String(radiusKm));
+  }
   const res = await fetch(url.toString());
   if (res.status === 404) {
     return null;
@@ -567,11 +574,15 @@ const MapsPage: React.FC = () => {
   const hydrateHoverAddress = useCallback(
     async (name: string, lat: number, lon: number, requestId: number) => {
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-      const cacheKey = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+      // Widen the search radius: POI coordinates often sit hundreds of
+      // metres from their parcel centroid, so the default 50 m cap
+      // returns the POI itself (no street address) instead of a
+      // neighbouring OpenAddresses row.
+      const cacheKey = `hover:${lat.toFixed(5)},${lon.toFixed(5)}`;
       let place = hoverReverseCacheRef.current.get(cacheKey);
       if (place === undefined) {
         try {
-          place = await reverseGeocode(lat, lon);
+          place = await reverseGeocode(lat, lon, 0.2);
         } catch {
           place = null;
         }
@@ -592,6 +603,47 @@ const MapsPage: React.FC = () => {
         return {
           ...current,
           addressLines,
+        };
+      });
+    },
+    [],
+  );
+
+  // Building hover: the building layer has no `name` (residential
+  // footprints in OpenMapTiles carry only `render_height`), so we
+  // synthesize the hover target from a tight reverse-geocode.
+  const hydrateBuildingHover = useCallback(
+    async (
+      lat: number,
+      lon: number,
+      screenX: number,
+      screenY: number,
+      requestId: number,
+    ) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      const cacheKey = `building:${lat.toFixed(5)},${lon.toFixed(5)}`;
+      let place = hoverReverseCacheRef.current.get(cacheKey);
+      if (place === undefined) {
+        try {
+          place = await reverseGeocode(lat, lon, 0.05);
+        } catch {
+          place = null;
+        }
+        hoverReverseCacheRef.current.set(cacheKey, place);
+      }
+      if (!place) return;
+      setHoverTarget((current) => {
+        if (hoverRequestIdRef.current !== requestId) return current;
+        const addressLines = buildHoverAddressLines(place.title, place.address_lines);
+        return {
+          name: place.title,
+          categoryLabel: place.subtitle || '',
+          addressLines,
+          category: place.kind,
+          lat,
+          lon,
+          screenX,
+          screenY,
         };
       });
     },
@@ -743,11 +795,75 @@ const MapsPage: React.FC = () => {
       scheduleHoverDismiss();
     };
 
+    // Buildings never expose a name in OpenMapTiles' `building`
+    // source-layer, so we can't reuse `flush` — it early-returns on
+    // missing name. We rAF-throttle building moves independently and
+    // hand them to `hydrateBuildingHover` which synthesises the card
+    // from a tight reverse-geocode.
+    let bRafId: number | null = null;
+    let bPending: { x: number; y: number; lng: number; lat: number } | null = null;
+    const bFlush = () => {
+      bRafId = null;
+      if (!bPending) return;
+      const { x, y, lng, lat } = bPending;
+      bPending = null;
+      const requestId = hoverRequestIdRef.current + 1;
+      hoverRequestIdRef.current = requestId;
+      void hydrateBuildingHover(lat, lng, x, y, requestId);
+    };
+    const handleBuildingMove = (event: unknown) => {
+      const evt = event as {
+        features?: { properties?: MapFeatureProperties }[];
+        originalEvent?: { clientX: number; clientY: number };
+        point?: { x: number; y: number };
+        lngLat?: { lng: number; lat: number };
+      };
+      const feat = evt.features?.[0];
+      if (!feat) return;
+      const props = (feat.properties ?? {}) as MapFeatureProperties;
+      // If the building carries a name (shops, labelled landmarks), the
+      // POI-icon handler already covers the hover — don't double-fire.
+      if (titleFromProps(props)) return;
+      const x = evt.originalEvent?.clientX ?? evt.point?.x ?? 0;
+      const y = evt.originalEvent?.clientY ?? evt.point?.y ?? 0;
+      const lng = evt.lngLat?.lng ?? 0;
+      const lat = evt.lngLat?.lat ?? 0;
+      cancelHoverDismiss();
+      map.getCanvas().style.cursor = 'pointer';
+      bPending = { x, y, lng, lat };
+      if (bRafId === null) {
+        bRafId = typeof requestAnimationFrame === 'function'
+          ? requestAnimationFrame(bFlush)
+          : (setTimeout(bFlush, 33) as unknown as number);
+      }
+    };
+    const handleBuildingLeave = () => {
+      bPending = null;
+      if (bRafId !== null) {
+        if (typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(bRafId);
+        } else {
+          clearTimeout(bRafId as unknown as ReturnType<typeof setTimeout>);
+        }
+        bRafId = null;
+      }
+      map.getCanvas().style.cursor = '';
+      scheduleHoverDismiss();
+    };
+
     map.on('mousemove', 'poi_icon', handleMove);
     map.on('mouseleave', 'poi_icon', handleLeave);
+    map.on('mousemove', 'buildings-3d', handleBuildingMove);
+    map.on('mouseleave', 'buildings-3d', handleBuildingLeave);
+    map.on('mousemove', 'buildings-2d', handleBuildingMove);
+    map.on('mouseleave', 'buildings-2d', handleBuildingLeave);
     return () => {
       map.off('mousemove', 'poi_icon', handleMove);
       map.off('mouseleave', 'poi_icon', handleLeave);
+      map.off('mousemove', 'buildings-3d', handleBuildingMove);
+      map.off('mouseleave', 'buildings-3d', handleBuildingLeave);
+      map.off('mousemove', 'buildings-2d', handleBuildingMove);
+      map.off('mouseleave', 'buildings-2d', handleBuildingLeave);
       if (rafId !== null) {
         if (typeof cancelAnimationFrame === 'function') {
           cancelAnimationFrame(rafId);
@@ -755,9 +871,22 @@ const MapsPage: React.FC = () => {
           clearTimeout(rafId as unknown as ReturnType<typeof setTimeout>);
         }
       }
+      if (bRafId !== null) {
+        if (typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(bRafId);
+        } else {
+          clearTimeout(bRafId as unknown as ReturnType<typeof setTimeout>);
+        }
+      }
       cancelHoverDismiss();
     };
-  }, [cancelHoverDismiss, hydrateHoverAddress, mapReady, scheduleHoverDismiss]);
+  }, [
+    cancelHoverDismiss,
+    hydrateBuildingHover,
+    hydrateHoverAddress,
+    mapReady,
+    scheduleHoverDismiss,
+  ]);
 
   const handleRoutesChanged = useCallback(
     (alts: RouteAlt[], selectedIdx: number) => {

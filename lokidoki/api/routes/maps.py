@@ -516,15 +516,26 @@ async def geocode(
 
 
 @router.get("/geocode/reverse")
-async def reverse_geocode(lat: float, lon: float) -> dict:
-    """Return the nearest indexed place within 50 m of ``(lat, lon)``."""
+async def reverse_geocode(
+    lat: float,
+    lon: float,
+    radius_km: float = 0.05,
+) -> dict:
+    """Return the nearest indexed place within ``radius_km`` of ``(lat, lon)``.
+
+    Default 50 m keeps click-on-blank-ground tight to the cursor; the
+    POI-hover hydration path passes a wider value (e.g. 0.2 km) because a
+    named POI feature often sits hundreds of metres from its parcel
+    centroid, and we want to surface the street address in the card.
+    """
+    max_r = max(0.01, min(radius_km, 0.5))
     region_ids = _regions_for_viewport(lat, lon)
     hit = await fts_search.nearest(
         lat,
         lon,
         region_ids,
         data_root=store.data_dir(),
-        max_radius_km=0.05,
+        max_radius_km=max_r,
     )
     if hit is None:
         raise HTTPException(404, "No nearby place found")

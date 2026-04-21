@@ -17,6 +17,7 @@
  *    ``building:levels`` into these at build time).
  */
 import type maplibregl from 'maplibre-gl';
+import { POI_CATEGORY_ICON } from './panels/poi-icons';
 
 export type LayerMode = 'map' | '3d';
 
@@ -128,55 +129,12 @@ export const POI_COLORS: Record<string, string> = {
   default: '#cbd5e1',
 };
 
-const POI_ICON_BY_KEY: Record<string, string> = {
-  restaurant: 'restaurant',
-  cafe: 'cafe',
-  fast_food: 'fast_food',
-  food_court: 'fast_food',
-  bar: 'bar',
-  pub: 'pub',
-  grocery: 'grocery',
-  supermarket: 'grocery',
-  shop: 'shop',
-  mall: 'shop',
-  convenience: 'convenience',
-  pharmacy: 'pharmacy',
-  bank: 'bank',
-  atm: 'atm',
-  fuel: 'gas',
-  gas: 'gas',
-  parking: 'parking',
-  school: 'school',
-  college: 'school',
-  university: 'school',
-  hospital: 'hospital',
-  clinic: 'clinic',
-  doctors: 'clinic',
-  dentist: 'clinic',
-  library: 'library',
-  museum: 'museum',
-  hotel: 'hotel',
-  motel: 'lodging',
-  guest_house: 'lodging',
-  hostel: 'lodging',
-  lodging: 'lodging',
-  bus: 'transit_bus',
-  bus_stop: 'transit_bus',
-  railway: 'transit_train',
-  station: 'transit_train',
-  halt: 'transit_train',
-  subway: 'transit_subway',
-  train_station: 'transit_train',
-  airport: 'airport',
-  aerodrome: 'airport',
-  park: 'park',
-  playground: 'park',
-  place_of_worship: 'place_of_worship',
-  post: 'post',
-  post_office: 'post',
-  police: 'police',
-  fire_station: 'fire_station',
-};
+// Sprite mapping is the single source of truth in `panels/poi-icons`.
+// Drop the trailing `default` entry because the `match` expression
+// below consumes its own fallback argument.
+const POI_ICON_BY_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(POI_CATEGORY_ICON).filter(([key]) => key !== 'default'),
+);
 
 const POI_COLOR_BY_KEY: Record<string, string> = Object.fromEntries(
   Object.entries(POI_ICON_BY_KEY).map(([key, icon]) => [key, POI_COLORS[icon] ?? POI_COLORS.default]),

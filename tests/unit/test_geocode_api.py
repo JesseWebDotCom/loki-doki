@@ -162,3 +162,45 @@ def test_geocode_without_viewport_still_searches_installed_regions(tmp_path):
     body = r.json()
     assert len(body["results"]) >= 1
     assert body["results"][0]["source"] == "fts"
+
+
+# ── Reverse geocode ────────────────────────────────────────────────
+
+def test_reverse_geocode_http_returns_nearest(tmp_path):
+    _seed_ct_index(tmp_path)
+    client = _client()
+    r = client.get(
+        "/api/v1/maps/geocode/reverse",
+        params={"lat": 41.242964, "lon": -73.069},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body.keys()) >= {
+        "place_id", "title", "subtitle", "lat", "lon", "source",
+    }
+    assert body["title"] == "150 Stiles St"
+    assert body["source"] == "fts"
+
+
+def test_reverse_geocode_http_404_when_nothing_within_radius(tmp_path):
+    _seed_ct_index(tmp_path)
+    client = _client()
+    # ~500 m away from the only seeded address at default 50 m radius.
+    r = client.get(
+        "/api/v1/maps/geocode/reverse",
+        params={"lat": 41.25, "lon": -73.07},
+    )
+    assert r.status_code == 404
+
+
+def test_reverse_geocode_http_respects_radius_param(tmp_path):
+    _seed_ct_index(tmp_path)
+    client = _client()
+    # Same ~500 m-away point that 404s at default radius; pass a wider
+    # radius so the hit comes back. Models the POI-hover hydration call.
+    r = client.get(
+        "/api/v1/maps/geocode/reverse",
+        params={"lat": 41.247, "lon": -73.069, "radius_km": 0.5},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "150 Stiles St"

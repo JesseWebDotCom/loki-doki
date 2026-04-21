@@ -5,7 +5,14 @@
  * for a given feature class/subclass.
  */
 
-const CATEGORY_ICON_ID: Record<string, string> = {
+/**
+ * Feature class/subclass → sprite-icon id. The map is the single
+ * source of truth for both style-dark.ts (the MapLibre `icon-image`
+ * match expression) and the React card / hover preview components.
+ * Keep a trailing `default` entry so consumers can use the same table
+ * with a fallback.
+ */
+export const POI_CATEGORY_ICON: Record<string, string> = {
   restaurant: 'restaurant',
   cafe: 'cafe',
   fast_food: 'fast_food',
@@ -58,7 +65,7 @@ const CATEGORY_ICON_ID: Record<string, string> = {
 
 export function poiCategoryIconId(category: string | undefined | null): string | null {
   if (!category) return null;
-  return CATEGORY_ICON_ID[category] ?? null;
+  return POI_CATEGORY_ICON[category] ?? null;
 }
 
 export function formatPoiCategoryLabel(category: string | undefined | null): string {
