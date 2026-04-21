@@ -634,10 +634,13 @@ const MapsPage: React.FC = () => {
       if (!place) return;
       setHoverTarget((current) => {
         if (hoverRequestIdRef.current !== requestId) return current;
+        // The title is already the street address; address_lines carries
+        // the locality. Leaving categoryLabel empty avoids rendering the
+        // locality twice (once as the category chip, once in the body).
         const addressLines = buildHoverAddressLines(place.title, place.address_lines);
         return {
           name: place.title,
-          categoryLabel: place.subtitle || '',
+          categoryLabel: '',
           addressLines,
           category: place.kind,
           lat,
@@ -678,17 +681,50 @@ const MapsPage: React.FC = () => {
       const props = (top.properties ?? {}) as MapFeatureProperties;
       const title = titleFromProps(props);
       if (title) {
-        const addressLines = addressLinesFromProps(props);
+        const tileAddress = addressLinesFromProps(props);
         const place: PlaceResult = {
           place_id: String(top.id ?? `${event.lngLat.lat},${event.lngLat.lng}`),
           title,
           subtitle: subtitleFromProps(props),
-          address_lines: addressLines.length > 0 ? addressLines : [title],
+          address_lines: tileAddress.length > 0 ? tileAddress : [title],
           lat: event.lngLat.lat,
           lon: event.lngLat.lng,
           kind: categoryFromProps(props),
         };
         handleSelect(place);
+        // Tile features rarely carry addr:housenumber/street. Fire a
+        // background reverse-geocode (wider radius than the click-on-
+        // ground default because the POI centroid may sit hundreds of
+        // metres from its parcel row) and patch the selected place with
+        // the authoritative address.
+        if (tileAddress.length === 0) {
+          void (async () => {
+            try {
+              const hit = await reverseGeocode(
+                event.lngLat.lat,
+                event.lngLat.lng,
+                0.2,
+              );
+              if (!hit) return;
+              setSelectedPlace((current) => {
+                if (!current || current.place_id !== place.place_id) {
+                  return current;
+                }
+                const merged = [title, hit.subtitle, ...hit.address_lines];
+                const address_lines = uniqueUsefulLines(title, merged);
+                return {
+                  ...current,
+                  subtitle: hit.subtitle || current.subtitle,
+                  address_lines: address_lines.length > 0
+                    ? address_lines
+                    : current.address_lines,
+                };
+              });
+            } catch {
+              // Non-fatal — tile-level data already populated the card.
+            }
+          })();
+        }
         return;
       }
       try {

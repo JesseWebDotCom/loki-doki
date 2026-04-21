@@ -129,8 +129,18 @@ def _row_to_result(row: tuple, region_id: str, viewport: tuple[float, float] | N
         postcode, admin1, lat, lon, klass, bm25,
     ) = row
 
-    title = name.strip() or f"{housenumber} {street}".strip()
-    subtitle = _format_subtitle(city, admin1, postcode, region_id)
+    street_line = f"{housenumber} {street}".strip()
+    title = name.strip() or street_line
+    locality = _format_subtitle(city, admin1, postcode, region_id)
+    # For a named POI whose OSM tags carry an addr:housenumber+addr:street
+    # pair, surface the street address in the subtitle so hover cards and
+    # search rows show "500 Nyala Farms Road, Westport, CT, 06880" instead
+    # of just the locality. The title == street_line case (plain address
+    # row with no name) is already handled by `locality` alone.
+    if name.strip() and street_line and street_line != title:
+        subtitle = f"{street_line}, {locality}" if locality else street_line
+    else:
+        subtitle = locality
 
     # BM25 in FTS5 is "lower is better"; invert so higher == better.
     # Typical BM25 values for short queries are 2-15. Invert + offset so

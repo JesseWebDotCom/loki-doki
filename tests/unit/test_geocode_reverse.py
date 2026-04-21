@@ -109,6 +109,44 @@ async def test_nearest_returns_none_outside_radius(reverse_region_db: Path, tmp_
 
 
 @pytest.mark.anyio
+async def test_named_poi_with_addr_tags_exposes_street_in_subtitle(tmp_path: Path):
+    """A named POI that also carries addr:housenumber/street must surface the
+    street address in the result's subtitle — otherwise the hover card and
+    PlaceDetailsCard have no way to show the user where the business is."""
+    pbf = tmp_path / "poi_with_addr.osm.pbf"
+    if pbf.exists():
+        pbf.unlink()
+    writer = osmium.SimpleWriter(str(pbf), overwrite=True)
+    writer.add_node(osmium.osm.mutable.Node(
+        id=1,
+        location=(-73.36440, 41.11870),
+        tags={
+            "office": "company",
+            "name": "Bridgewater Associates",
+            "addr:housenumber": "500",
+            "addr:street": "Nyala Farms Road",
+            "addr:city": "Westport",
+            "addr:state": "CT",
+            "addr:postcode": "06880",
+        },
+    ))
+    writer.close()
+
+    build_index(pbf, region_db_path(tmp_path, "us-ct"), "us-ct")
+    hit = await nearest(
+        41.11870,
+        -73.36440,
+        ["us-ct"],
+        data_root=tmp_path,
+        max_radius_km=0.1,
+    )
+    assert hit is not None
+    assert hit.title == "Bridgewater Associates"
+    assert "500 Nyala Farms Road" in hit.subtitle
+    assert "Westport" in hit.subtitle
+
+
+@pytest.mark.anyio
 async def test_nearest_fans_out_across_regions(reverse_region_db: Path, tmp_path: Path):
     hit = await nearest(
         42.65261,
