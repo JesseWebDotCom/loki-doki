@@ -82,6 +82,7 @@ const mockMap = {
   triggerRepaint: vi.fn(),
   queryRenderedFeatures,
   getLayer: vi.fn((id: string) => ({ id })),
+  project: vi.fn(() => ({ x: 0, y: 0 })),
 };
 
 vi.mock('pmtiles', () => ({
@@ -364,6 +365,63 @@ describe('MapsPage', () => {
     });
     expect(screen.getByText('Dentist')).toBeTruthy();
     expect(screen.getByText('Bethany, CT 06524')).toBeTruthy();
+  });
+
+  it('renders a subclass icon + label when hovering an unlabelled building that reverse-geocodes to a POI', async () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      (cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      },
+    );
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          place_id: 'rev-3',
+          title: 'Barosa Indian Kitchen',
+          subtitle: '157 Cherry St, Milford, CT 06460',
+          lat: 41.2429,
+          lon: -73.069,
+          source: 'reverse',
+          category: 'poi:amenity:restaurant',
+        }),
+      })),
+    );
+
+    render(
+      <MemoryRouter>
+        <MapsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mapHandlers.get('mousemove:buildings-3d')?.length).toBeGreaterThan(0);
+    });
+
+    const moveHandler = mapHandlers.get('mousemove:buildings-3d')?.[0];
+    await moveHandler?.({
+      features: [{ properties: { render_height: 8 } }],
+      originalEvent: { clientX: 300, clientY: 220 },
+      point: { x: 300, y: 220 },
+      lngLat: { lng: -73.069, lat: 41.2429 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Barosa Indian Kitchen')).toBeTruthy();
+    });
+    expect(screen.getByText('Restaurant')).toBeTruthy();
+    const badge = screen.getByTestId('poi-hover-badge');
+    const img = badge.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('/sprites/source/restaurant.svg');
   });
 
   it('falls back to the category when reverse geocode only returns a duplicate POI name and region code', async () => {

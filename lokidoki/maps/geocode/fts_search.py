@@ -116,11 +116,18 @@ def _format_subtitle(
     postcode: str,
     region_id: str,
 ) -> str:
-    """Build the muted subtitle line from the row's address bits."""
+    """Build the muted subtitle line from the row's address bits.
+
+    Returns the empty string — not the raw region id — when every
+    locality field is missing. Surfacing machine region codes like
+    ``us-ct`` in a user-visible subtitle leaks an internal id into the
+    hover / details card instead of a readable address.
+    """
+    del region_id  # kept for call-site compatibility; no longer a fallback
     parts = [p for p in (city, admin1, postcode) if p]
     if parts:
         return ", ".join(parts)
-    return region_id
+    return ""
 
 
 def _row_to_result(row: tuple, region_id: str, viewport: tuple[float, float] | None) -> GeocodeResult:
@@ -161,6 +168,7 @@ def _row_to_result(row: tuple, region_id: str, viewport: tuple[float, float] | N
         bbox=None,
         source="fts",
         score=score,
+        category=str(klass) if klass else None,
     )
 
 
@@ -173,10 +181,16 @@ def _bbox_for_radius(lat: float, lon: float, radius_km: float) -> tuple[float, f
 
 
 def _nearest_rank(klass: str, distance_km: float) -> tuple[int, float]:
-    """Rank reverse-geocode candidates by usefulness, then distance."""
-    if klass == "address":
-        return (3, -distance_km)
+    """Rank reverse-geocode candidates by usefulness, then distance.
+
+    Named POIs outrank plain addresses so a hover over a shop-row
+    building surfaces ``Barosa Indian Kitchen`` (with its category) rather
+    than the bare ``157 Cherry St`` address. POI rows already carry
+    ``addr:*`` fields when present, so no address information is lost.
+    """
     if klass.startswith("poi:"):
+        return (3, -distance_km)
+    if klass == "address":
         return (2, -distance_km)
     if klass == "postcode":
         return (1, -distance_km)
@@ -287,15 +301,24 @@ def _nearest_region_sync(
         # R-Tree companion turns an O(n) bbox scan into an O(log n)
         # spatial lookup. Older indexes (built before the rtree
         # schema landed) fall back to the linear scan.
+        #
+        # NB: SQLite's planner picks the wrong leading table when the
+        # rtree is JOINed against an FTS5 virtual table — it scans the
+        # million-row `places` index first and probes the rtree per row
+        # (~600 ms on us-ct). Wrapping the rtree in an IN subquery
+        # pins it as the constraint source so `places` is looked up by
+        # rowid. Drops the query from ~600 ms to <1 ms on us-ct.
         if rtree_ready:
             cur = conn.execute(
                 """
-                SELECT p.osm_id, p.name, p.housenumber, p.street, p.city,
-                       p.postcode, p.admin1, p.lat, p.lon, p.class, 0.0
-                  FROM places_rtree AS r
-                  JOIN places AS p ON p.rowid = r.id
-                 WHERE r.min_lat <= ? AND r.max_lat >= ?
-                   AND r.min_lon <= ? AND r.max_lon >= ?
+                SELECT osm_id, name, housenumber, street, city,
+                       postcode, admin1, lat, lon, class, 0.0
+                  FROM places
+                 WHERE rowid IN (
+                   SELECT id FROM places_rtree
+                    WHERE min_lat <= ? AND max_lat >= ?
+                      AND min_lon <= ? AND max_lon >= ?
+                 )
                 """,
                 (max_lat, min_lat, max_lon, min_lon),
             )
@@ -330,6 +353,7 @@ def _nearest_region_sync(
                 bbox=candidate.bbox,
                 source=candidate.source,
                 score=-distance,
+                category=candidate.category,
             )
             nearest_rank = candidate_rank
         return nearest

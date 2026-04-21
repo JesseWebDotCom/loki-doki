@@ -36,6 +36,10 @@ class GeocodeResult:
     bbox: tuple[float, float, float, float] | None
     source: str  # "fts" | "nominatim"
     score: float  # higher = better. BM25 − distance penalty.
+    # FTS ``class`` column, e.g. ``"address"``, ``"postcode"``,
+    # ``"place:city"``, or ``"poi:amenity:restaurant"``. Optional because
+    # Nominatim hits and legacy call sites may omit it.
+    category: str | None = None
 
 
 class GeocoderProtocol(Protocol):

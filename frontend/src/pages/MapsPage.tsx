@@ -229,8 +229,16 @@ async function reverseGeocode(
     lat: number;
     lon: number;
     source: string;
+    category?: string | null;
   };
   const lines = [body.title, body.subtitle].filter(Boolean);
+  // ``category`` on the wire is the raw FTS class — ``address``,
+  // ``postcode``, or ``poi:<key>[:<value>]``. Keep the raw form on the
+  // PlaceResult so the hover card + details card can resolve both an
+  // icon id and a human label from a single field.
+  const kind = typeof body.category === 'string' && body.category.length > 0
+    ? body.category
+    : 'address';
   return {
     place_id: body.place_id,
     title: body.title,
@@ -238,7 +246,7 @@ async function reverseGeocode(
     address_lines: lines.length > 0 ? lines : [body.place_id],
     lat: body.lat,
     lon: body.lon,
-    kind: 'address',
+    kind,
   };
 }
 
@@ -574,15 +582,15 @@ const MapsPage: React.FC = () => {
   const hydrateHoverAddress = useCallback(
     async (name: string, lat: number, lon: number, requestId: number) => {
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-      // Widen the search radius: POI coordinates often sit hundreds of
-      // metres from their parcel centroid, so the default 50 m cap
-      // returns the POI itself (no street address) instead of a
-      // neighbouring OpenAddresses row.
+      // Tight radius: the hover handler now passes the POI feature's own
+      // coordinate (not the cursor's), so 25 m comfortably covers the
+      // POI's own parcel row while avoiding neighboring storefronts in
+      // dense rows like strip malls.
       const cacheKey = `hover:${lat.toFixed(5)},${lon.toFixed(5)}`;
       let place = hoverReverseCacheRef.current.get(cacheKey);
       if (place === undefined) {
         try {
-          place = await reverseGeocode(lat, lon, 0.2);
+          place = await reverseGeocode(lat, lon, 0.025);
         } catch {
           place = null;
         }
@@ -634,13 +642,16 @@ const MapsPage: React.FC = () => {
       if (!place) return;
       setHoverTarget((current) => {
         if (hoverRequestIdRef.current !== requestId) return current;
-        // The title is already the street address; address_lines carries
-        // the locality. Leaving categoryLabel empty avoids rendering the
-        // locality twice (once as the category chip, once in the body).
         const addressLines = buildHoverAddressLines(place.title, place.address_lines);
+        // For POI hits surface the subclass-level label (``Restaurant``,
+        // ``Fitness Centre``…). Plain addresses / postcodes stay label-less
+        // so the chip doesn't echo the locality that's already in the body.
+        const categoryLabel = place.kind && place.kind.startsWith('poi:')
+          ? hoverCategoryLabel(place.kind)
+          : '';
         return {
           name: place.title,
-          categoryLabel: '',
+          categoryLabel,
           addressLines,
           category: place.kind,
           lat,
@@ -760,6 +771,12 @@ const MapsPage: React.FC = () => {
       lng: number;
       lat: number;
     } | null = null;
+    // Identity of the POI the card is currently showing. Stops us from
+    // re-issuing the reverse-geocode hydration every rAF (which was
+    // invalidating each in-flight response and leaving the card stuck
+    // with no address). Cursor drift within the SAME pin only updates
+    // screenX/screenY — it does NOT rebuild the card or bump requestId.
+    let lastTargetKey: string | null = null;
 
     const flush = () => {
       rafId = null;
@@ -770,9 +787,24 @@ const MapsPage: React.FC = () => {
         ?? {}) as MapFeatureProperties;
       const name = titleFromProps(props);
       if (!name) {
+        lastTargetKey = null;
         setHoverTarget(null);
         return;
       }
+      const targetKey = `${name}|${lat.toFixed(6)},${lng.toFixed(6)}`;
+      if (targetKey === lastTargetKey) {
+        // Same POI — only the cursor moved. Update anchor so the card
+        // follows the mouse (Apple Maps-like) without re-rendering the
+        // icon / label / addressLines or cancelling hydration.
+        setHoverTarget((current) => {
+          if (!current) return current;
+          if (current.screenX === x && current.screenY === y) return current;
+          return { ...current, screenX: x, screenY: y };
+        });
+        return;
+      }
+      lastTargetKey = targetKey;
+
       const category = categoryFromProps(props);
       const nextTarget = {
         name,
@@ -794,7 +826,10 @@ const MapsPage: React.FC = () => {
 
     const handleMove = (event: unknown) => {
       const evt = event as {
-        features?: { properties?: MapFeatureProperties }[];
+        features?: {
+          properties?: MapFeatureProperties;
+          geometry?: { type?: string; coordinates?: unknown };
+        }[];
         originalEvent?: { clientX: number; clientY: number };
         point?: { x: number; y: number };
         lngLat?: { lng: number; lat: number };
@@ -803,8 +838,17 @@ const MapsPage: React.FC = () => {
       if (!feat) return;
       const x = evt.originalEvent?.clientX ?? evt.point?.x ?? 0;
       const y = evt.originalEvent?.clientY ?? evt.point?.y ?? 0;
-      const lng = evt.lngLat?.lng ?? 0;
-      const lat = evt.lngLat?.lat ?? 0;
+      // POI-icon features are Points in the vector tile. Use the
+      // feature's own coordinate — not the cursor's — for identity +
+      // reverse-geocode anchor. Cursor-based lookup was pulling whichever
+      // neighboring business happened to be closest to the mouse, which
+      // is how "Edible Arrangements" ended up with Kid Sense's address.
+      const coords = feat.geometry?.coordinates as
+        | [number, number]
+        | undefined;
+      const lng = Array.isArray(coords) ? Number(coords[0]) : evt.lngLat?.lng ?? 0;
+      const lat = Array.isArray(coords) ? Number(coords[1]) : evt.lngLat?.lat ?? 0;
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
       cancelHoverDismiss();
       map.getCanvas().style.cursor = 'pointer';
       pending = { feature: feat, x, y, lng, lat };
@@ -818,6 +862,7 @@ const MapsPage: React.FC = () => {
     const handleLeave = () => {
       hoverRequestIdRef.current += 1;
       pending = null;
+      lastTargetKey = null;
       if (rafId !== null) {
         if (typeof cancelAnimationFrame === 'function') {
           cancelAnimationFrame(rafId);

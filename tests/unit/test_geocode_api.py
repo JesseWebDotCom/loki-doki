@@ -176,10 +176,51 @@ def test_reverse_geocode_http_returns_nearest(tmp_path):
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body.keys()) >= {
-        "place_id", "title", "subtitle", "lat", "lon", "source",
+        "place_id", "title", "subtitle", "lat", "lon", "source", "category",
     }
     assert body["title"] == "150 Stiles St"
     assert body["source"] == "fts"
+    # Plain addresses keep the ``address`` class so the frontend knows to
+    # skip the category chip and icon badge.
+    assert body["category"] == "address"
+
+
+def test_reverse_geocode_exposes_poi_subclass_category(tmp_path):
+    """A named POI must surface its ``poi:<key>:<value>`` class so the
+    hover card can resolve a subclass icon (``restaurant``) and label.
+    """
+    pbf = tmp_path / "_ct_poi.osm.pbf"
+    w = osmium.SimpleWriter(str(pbf), overwrite=True)
+    w.add_node(osmium.osm.mutable.Node(
+        id=99, location=(-73.069, 41.242964),
+        tags={
+            "name": "Barosa Indian Kitchen",
+            "amenity": "restaurant",
+            "addr:housenumber": "157", "addr:street": "Cherry St",
+            "addr:city": "Milford", "addr:state": "CT",
+            "addr:postcode": "06460",
+        },
+    ))
+    w.close()
+
+    db = region_db_path(tmp_path, "us-ct")
+    build_index(pbf, db, "us-ct")
+    store.upsert_state(MapRegionState(
+        region_id="us-ct",
+        street_installed=True,
+        geocoder_installed=True,
+        bytes_on_disk={"street": 1, "geocoder": db.stat().st_size},
+    ))
+
+    client = _client()
+    r = client.get(
+        "/api/v1/maps/geocode/reverse",
+        params={"lat": 41.242964, "lon": -73.069},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["title"] == "Barosa Indian Kitchen"
+    assert body["category"] == "poi:amenity:restaurant"
 
 
 def test_reverse_geocode_http_404_when_nothing_within_radius(tmp_path):

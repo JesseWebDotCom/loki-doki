@@ -60,21 +60,65 @@ export const POI_CATEGORY_ICON: Record<string, string> = {
   post_office: 'post',
   police: 'police',
   fire_station: 'fire_station',
+  // Top-level OSM key fallbacks — used when the FTS ``class`` column
+  // is legacy-coarse (``poi:amenity``) and carries no subclass value.
+  // ``shop`` already maps to the ``shop`` sprite above, so it's the
+  // natural fallback for ``craft`` too.
+  amenity: 'default',
+  leisure: 'park',
+  healthcare: 'clinic',
+  tourism: 'lodging',
+  office: 'default',
+  craft: 'shop',
+  building: 'default',
   default: 'default',
 };
 
 export function poiCategoryIconId(category: string | undefined | null): string | null {
   if (!category) return null;
-  return POI_CATEGORY_ICON[category] ?? null;
+  const direct = POI_CATEGORY_ICON[category];
+  if (direct) return direct;
+  // FTS-class shapes: ``poi:<key>`` / ``poi:<key>:<value>``. The value
+  // carries the OSM subclass (``restaurant``, ``fitness_centre``…) which
+  // is what ``POI_CATEGORY_ICON`` keys on; fall back to the top-level key
+  // for legacy indices that don't store the value segment.
+  const parsed = parseFtsPoiClass(category);
+  if (!parsed) return null;
+  return (
+    POI_CATEGORY_ICON[parsed.value ?? '']
+    ?? POI_CATEGORY_ICON[parsed.key]
+    ?? null
+  );
 }
 
 export function formatPoiCategoryLabel(category: string | undefined | null): string {
   if (!category) return '';
-  const normalized = category.trim().toLowerCase();
+  const parsed = parseFtsPoiClass(category);
+  const source = parsed ? (parsed.value || parsed.key) : category;
+  const normalized = source.trim().toLowerCase();
   if (!normalized) return '';
   return normalized
     .split('_')
     .filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(' ');
+}
+
+/**
+ * Parse an FTS ``class`` value. Returns ``null`` for non-POI classes
+ * (``address`` / ``postcode`` / ``place:*``) so callers know to skip
+ * the icon badge; returns ``{ key, value }`` for ``poi:<key>[:<value>]``
+ * so consumers can pick between subclass-level and key-level fallbacks.
+ */
+export function parseFtsPoiClass(
+  category: string | undefined | null,
+): { key: string; value: string | null } | null {
+  if (!category) return null;
+  const raw = category.trim();
+  if (!raw.startsWith('poi:')) return null;
+  const segments = raw.split(':');
+  const key = (segments[1] ?? '').trim();
+  if (!key) return null;
+  const value = segments.slice(2).join(':').trim();
+  return { key, value: value.length > 0 ? value : null };
 }

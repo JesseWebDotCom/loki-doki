@@ -302,6 +302,10 @@ def _poi_row(
             "shed",
         }:
             continue
+        # Store class as ``poi:<key>:<value>`` (e.g. ``poi:amenity:restaurant``)
+        # so hover cards can resolve a subclass-level icon + label. Consumers
+        # that still expect the coarser ``poi:<key>`` format just parse the
+        # prefix — the extra trailing segment is additive.
         return _Row(
             osm_id=osm_id,
             name=name,
@@ -312,7 +316,7 @@ def _poi_row(
             admin1="",
             lat=lat,
             lon=lon,
-            klass=f"poi:{key}",
+            klass=f"poi:{key}:{value}",
         )
     return None
 
@@ -381,25 +385,32 @@ def build_index(
                 continue
             lat, lon = coords
 
-            row = _address_row(osm_id, tags, lat, lon)
+            # Check POI first: ``_poi_row`` only succeeds when ``name``
+            # is set, so named businesses with ``addr:*`` tags land as
+            # ``poi:<key>:<value>`` (the class the hover card needs to
+            # pick a subclass icon), while unnamed residential rows fall
+            # through to ``_address_row``. ``_poi_row`` already carries
+            # ``addr:*`` fields when present, so address search still
+            # hits the same row.
+            row = _poi_row(osm_id, tags, lat, lon)
             if row is not None:
                 batch.append(row)
-                stats.addresses += 1
+                stats.pois += 1
             else:
-                row = _settlement_row(osm_id, tags, lat, lon)
+                row = _address_row(osm_id, tags, lat, lon)
                 if row is not None:
                     batch.append(row)
-                    stats.settlements += 1
+                    stats.addresses += 1
                 else:
-                    row = _postcode_row(osm_id, tags, lat, lon)
+                    row = _settlement_row(osm_id, tags, lat, lon)
                     if row is not None:
                         batch.append(row)
-                        stats.postcodes += 1
+                        stats.settlements += 1
                     else:
-                        row = _poi_row(osm_id, tags, lat, lon)
+                        row = _postcode_row(osm_id, tags, lat, lon)
                         if row is not None:
                             batch.append(row)
-                            stats.pois += 1
+                            stats.postcodes += 1
 
             if len(batch) >= _BATCH_SIZE:
                 _flush(conn, region_id, batch)

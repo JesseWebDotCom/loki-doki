@@ -78,14 +78,20 @@ async def test_nearest_returns_exact_coord_hit(reverse_region_db: Path, tmp_path
     )
     assert hit is not None
     assert hit.place_id.startswith("us-ct:osm:")
-    assert hit.title == "500 Nyala Farms Road"
+    # Named POI and plain-address rows share the coordinate; the POI
+    # wins under the current ``_nearest_rank`` order so hover cards
+    # surface the business name + category.
+    assert hit.title == "Bridgewater Associates"
+    assert hit.category == "poi:office:company"
 
 
 @pytest.mark.anyio
-async def test_nearest_prefers_address_over_poi_at_same_coord(
+async def test_nearest_prefers_poi_over_address_at_same_coord(
     reverse_region_db: Path,
     tmp_path: Path,
 ):
+    """Hover cards need a business + category, not the underlying street
+    address, when both rows live at the same coordinate."""
     hit = await nearest(
         41.11870,
         -73.36440,
@@ -93,8 +99,9 @@ async def test_nearest_prefers_address_over_poi_at_same_coord(
         data_root=tmp_path,
     )
     assert hit is not None
-    assert hit.title == "500 Nyala Farms Road"
-    assert "Bridgewater Associates" not in hit.title
+    assert hit.title == "Bridgewater Associates"
+    assert hit.category is not None
+    assert hit.category.startswith("poi:")
 
 
 @pytest.mark.anyio

@@ -552,6 +552,7 @@ def _geocode_payload(result) -> dict:
         "lon": result.lon,
         "bbox": list(result.bbox) if result.bbox else None,
         "source": result.source,
+        "category": getattr(result, "category", None),
     }
 
 

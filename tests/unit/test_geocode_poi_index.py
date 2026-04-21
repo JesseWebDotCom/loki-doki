@@ -74,7 +74,11 @@ def _write_poi_fixture(path: Path) -> None:
     writer.close()
 
 
-def test_build_index_includes_named_pois_and_suppresses_poi_shadow(tmp_path):
+def test_build_index_classifies_named_pois_with_subclass_and_absorbs_address_shadow(tmp_path):
+    """Named POIs (including those that also carry ``addr:*`` tags) must
+    land as ``poi:<key>:<value>`` rows so hover cards can resolve a
+    subclass icon + label. Nameless / unkeyed nodes still fall through
+    to the address / unindexed paths."""
     pbf = tmp_path / "poi_sample.osm.pbf"
     db = tmp_path / "geocoder.sqlite"
     _write_poi_fixture(pbf)
@@ -91,16 +95,20 @@ def test_build_index_includes_named_pois_and_suppresses_poi_shadow(tmp_path):
             "SELECT COUNT(*) FROM places WHERE name = ?",
             ("Keyless Landmark",),
         ).fetchone()[0]
-        address_rows = conn.execute(
+        n30_rows = conn.execute(
             "SELECT class, COUNT(*) FROM places WHERE osm_id = ? GROUP BY class",
             ("n30",),
         ).fetchall()
     finally:
         conn.close()
 
-    assert ("n1", "Bridgewater Associates", "poi:office") in poi_rows
-    assert ("n2", "Sherwood Diner", "poi:amenity") in poi_rows
-    assert ("w100", "Yale Satellite Office", "poi:building") in poi_rows
+    assert ("n1", "Bridgewater Associates", "poi:office:company") in poi_rows
+    assert ("n2", "Sherwood Diner", "poi:amenity:restaurant") in poi_rows
+    assert ("w100", "Yale Satellite Office", "poi:building:office") in poi_rows
     assert keyless == 0
-    assert address_rows == [("address", 1)]
-    assert stats.pois == 3
+    # n30 has both ``name`` + POI tags AND ``addr:*`` tags; the POI row
+    # absorbs the address shadow so there's exactly one row, class
+    # ``poi:office:company``.
+    assert n30_rows == [("poi:office:company", 1)]
+    assert stats.pois == 4
+    assert stats.addresses == 0
