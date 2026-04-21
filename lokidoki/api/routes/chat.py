@@ -28,6 +28,7 @@ from lokidoki.core.model_manager import ModelPolicy
 from lokidoki.core.providers.client import HTTPProvider
 from lokidoki.core.providers.spec import ProviderSpec
 from lokidoki.orchestrator.core.config import CONFIG
+from lokidoki.orchestrator.response.mode import VALID_MODES
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,11 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[int] = None
     project_id: Optional[int] = None
+    # Chunk 13: explicit response-mode override from the compose-bar
+    # toggle or ``/deep``-style slash command. ``None`` means "let the
+    # planner derive via ``derive_response_mode``"; a value must be one
+    # of ``VALID_MODES`` or the endpoint returns 400.
+    user_mode_override: Optional[str] = None
 
     @field_validator("message")
     @classmethod
@@ -58,6 +64,21 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("message must not be empty")
         return v
+
+    @field_validator("user_mode_override")
+    @classmethod
+    def user_mode_override_normalized(cls, v: Optional[str]) -> Optional[str]:
+        """Collapse empty strings to ``None`` so downstream checks simplify.
+
+        The UI may send ``""`` when the toggle sits at ``auto``.
+        Semantic validation (must be a known mode) runs in the endpoint
+        so we can return a 400 with a clear message — Pydantic would
+        otherwise raise 422 from this same check.
+        """
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped or None
 
 
 @router.post("")
@@ -68,6 +89,19 @@ async def chat(
 ):
     """Process a chat message through the pipeline, streaming SSE events."""
     from lokidoki.orchestrator.core.streaming import stream_pipeline_sse
+
+    # Chunk 13: validate the explicit mode override BEFORE spawning the
+    # pipeline so bad input short-circuits with a clear 400 instead of
+    # silently degrading to auto-derivation.
+    user_mode_override = request.user_mode_override
+    if user_mode_override is not None and user_mode_override not in VALID_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"user_mode_override {user_mode_override!r} is not a known mode; "
+                f"expected one of {sorted(VALID_MODES)}"
+            ),
+        )
 
     user_id = user.id
     session_id = request.session_id or await memory.create_session(
@@ -120,6 +154,10 @@ async def chat(
         "character_name": character_name,
         "character_id": str(character_id),
         "conversation_history": conversation_history,
+        # Chunk 13: threaded through to ``_build_envelope`` where
+        # ``derive_response_mode`` consumes it as ``user_override``.
+        # ``None`` means "let the planner derive".
+        "user_mode_override": user_mode_override,
     }
 
     async def event_stream():

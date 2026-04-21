@@ -41,7 +41,17 @@ def run_pipeline(raw_text: str, context: dict[str, Any] | None = None) -> Pipeli
 async def run_pipeline_async(
     raw_text: str, context: dict[str, Any] | None = None,
 ) -> PipelineResult:
-    """Run the pipeline end-to-end."""
+    """Run the pipeline end-to-end.
+
+    Recognized ``context`` keys (non-exhaustive):
+
+    * ``user_mode_override`` — chunk 13. String literal from
+      :data:`lokidoki.orchestrator.response.mode.VALID_MODES`, or
+      ``None`` to let the planner derive. Flows unmodified through
+      :func:`_init_trace` into ``safe_context`` and is read by
+      :func:`~lokidoki.orchestrator.core.pipeline_phases._build_envelope`
+      when it calls :func:`derive_response_mode`.
+    """
     trace, runtime, ctx = _init_trace(context)
     ensure_session(ctx)
     bridge_session_state_to_recent_entities(ctx)

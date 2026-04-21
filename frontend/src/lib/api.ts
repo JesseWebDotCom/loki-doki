@@ -139,7 +139,12 @@ export async function sendChatMessage(
   onEvent: (event: PipelineEvent) => void,
   sessionId?: number,
   projectId?: number,
+  userModeOverride?: string | null,
 ): Promise<void> {
+  // ``user_mode_override`` is the chunk-13 compose-bar / slash-command
+  // plumbing. ``null`` means the backend derives a mode itself via
+  // ``derive_response_mode``; a string must be one of VALID_MODES or
+  // the backend rejects with 400.
   const response = await apiFetch(`${API_BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -147,6 +152,7 @@ export async function sendChatMessage(
       message,
       session_id: sessionId ?? null,
       project_id: projectId ?? null,
+      user_mode_override: userModeOverride ?? null,
     }),
   });
   if (!response.ok || !response.body) {

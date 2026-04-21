@@ -12,6 +12,11 @@ import ChatWelcomeView from '../components/chat/ChatWelcomeView';
 import ProjectLandingView from '../components/projects/ProjectLandingView';
 import ProjectModal from '../components/sidebar/ProjectModal';
 import SourceSurface from '../components/chat/SourceSurface';
+import ModeToggle, {
+  toggleModeToOverride,
+  type ToggleMode,
+} from '../components/chat/ModeToggle';
+import { parseSlash } from '../components/chat/SlashCommandParser';
 import type { StructuredSource } from '../components/chat/SourceCard';
 import {
   sendChatMessage,
@@ -195,6 +200,10 @@ const ChatPage: React.FC = () => {
   useDocumentTitle(chatTitle);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  // Chunk 13 — compose-bar mode toggle. Sticky across turns (user
+  // explicitly picks a mode for a stretch of the conversation). Slash
+  // commands are per-turn and reset this back to ``auto`` after send.
+  const [modeToggle, setModeToggle] = useState<ToggleMode>('auto');
   const [pipeline, setPipeline] = useState<PipelineState>(INITIAL_PIPELINE);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
@@ -499,9 +508,23 @@ const ChatPage: React.FC = () => {
       return;
     }
 
-    const userMsg: Message = { role: 'user', content: input, timestamp: createMessageTimestamp() };
+    // Chunk 13 — slash-command parsing. When the user typed e.g.
+    // ``/deep tell me about X``, this strips the prefix and flips the
+    // override for THIS turn only. The persistent ``modeToggle`` value
+    // applies when no slash command was used.
+    const { override: slashOverride, cleanedInput } = parseSlash(input);
+    const outgoingMessage = slashOverride ? cleanedInput : input;
+    const userOverride = slashOverride ?? toggleModeToOverride(modeToggle);
+
+    const userMsg: Message = { role: 'user', content: outgoingMessage, timestamp: createMessageTimestamp() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    // Slash is per-turn; reset the toggle back to ``auto`` so the next
+    // message doesn't silently inherit the slash choice. Explicit toggle
+    // selections stay sticky.
+    if (slashOverride) {
+      setModeToggle('auto');
+    }
     setIsProcessing(true);
     envelopeRef.current = undefined;
     setPipeline({
@@ -512,7 +535,13 @@ const ChatPage: React.FC = () => {
     });
 
     try {
-      await sendChatMessage(input, handleEvent, currentSessionId ? Number(currentSessionId) : undefined, activeProjectId || undefined);
+      await sendChatMessage(
+        outgoingMessage,
+        handleEvent,
+        currentSessionId ? Number(currentSessionId) : undefined,
+        activeProjectId || undefined,
+        userOverride,
+      );
 
       setPipeline(prev => {
         // Always emit a message at the end of a turn, even if synthesis
@@ -600,7 +629,16 @@ const ChatPage: React.FC = () => {
         streamingResponse: '',
         renderTimings: { t0: performance.now() },
       });
-      sendChatMessage(userInput, handleEvent, currentSessionId ? Number(currentSessionId) : undefined, activeProjectId || undefined)
+      sendChatMessage(
+        userInput,
+        handleEvent,
+        currentSessionId ? Number(currentSessionId) : undefined,
+        activeProjectId || undefined,
+        // Retry re-uses the current toggle — the original slash (if
+        // any) was consumed when the turn was first sent, and the
+        // retried message text no longer carries the prefix.
+        toggleModeToOverride(modeToggle),
+      )
         .then(() => {
           setPipeline(prev => {
             const finalText =
@@ -642,7 +680,7 @@ const ChatPage: React.FC = () => {
         })
         .finally(() => setIsProcessing(false));
     }, 0);
-  }, [messages, handleEvent, currentSessionId, activeProjectId, tts]);
+  }, [messages, handleEvent, currentSessionId, activeProjectId, tts, modeToggle]);
 
   const handleNewSession = (projectId?: number) => {
     setMessages([]);
@@ -803,6 +841,13 @@ const ChatPage: React.FC = () => {
                 LokiDoki cannot reach the local backend right now. You can keep typing, but sending is paused until the service reconnects.
               </div>
             )}
+            <div className="mb-2 flex justify-end">
+              <ModeToggle
+                value={modeToggle}
+                onChange={setModeToggle}
+                disabled={isProcessing}
+              />
+            </div>
             <input
               ref={inputRef}
               autoFocus
