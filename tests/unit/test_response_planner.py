@@ -1,9 +1,10 @@
 """Tests for :mod:`lokidoki.orchestrator.response.planner` and the
 chunk-7 envelope persistence round-trip.
 
-The minimal chunk-7 planner only allocates summary / sources / media
-block slots. Later chunks expand the planner; their tests will live
-alongside their planner additions.
+Chunk 12 replaced the minimal chunk-7 planner with mode-aware block
+allocation (``direct`` / ``standard`` / ``rich`` / ``deep`` /
+``search`` / ``artifact``). The block-family assertions here track
+the new contract; per-mode coverage lives in ``test_response_mode``.
 
 The persistence round-trip test writes a serialized envelope through
 ``MemoryProvider.add_message`` and reads it back raw from the
@@ -31,32 +32,32 @@ from lokidoki.orchestrator.response.planner import plan_initial_blocks
 
 
 # ---------------------------------------------------------------------------
-# Planner — minimal shape
+# Planner — default (``standard``) mode shape
 # ---------------------------------------------------------------------------
 
 
-def test_planner_emits_only_summary_when_no_adapter_outputs() -> None:
+def test_planner_standard_emits_summary_and_follow_ups_when_no_adapter_outputs() -> None:
     blocks = plan_initial_blocks([])
 
-    assert [b.id for b in blocks] == ["summary"]
+    assert [b.id for b in blocks] == ["summary", "follow_ups"]
     assert blocks[0].type is BlockType.summary
     assert blocks[0].state is BlockState.loading
     assert blocks[0].seq == 0
 
 
-def test_planner_emits_only_summary_when_adapter_outputs_are_empty() -> None:
+def test_planner_standard_emits_summary_when_adapter_outputs_are_empty() -> None:
     blocks = plan_initial_blocks([AdapterOutput(), AdapterOutput()])
 
-    assert [b.id for b in blocks] == ["summary"]
+    assert [b.id for b in blocks] == ["summary", "follow_ups"]
 
 
 def test_planner_ignores_none_entries() -> None:
     blocks = plan_initial_blocks([None, AdapterOutput(), None])
 
-    assert [b.id for b in blocks] == ["summary"]
+    assert [b.id for b in blocks] == ["summary", "follow_ups"]
 
 
-def test_planner_adds_sources_block_when_any_output_has_sources() -> None:
+def test_planner_standard_adds_sources_block_when_any_output_has_sources() -> None:
     outputs = [
         AdapterOutput(),
         AdapterOutput(
@@ -67,12 +68,12 @@ def test_planner_adds_sources_block_when_any_output_has_sources() -> None:
     blocks = plan_initial_blocks(outputs)
 
     ids = [b.id for b in blocks]
-    assert ids == ["summary", "sources"]
+    assert ids == ["summary", "sources", "follow_ups"]
     assert blocks[1].type is BlockType.sources
     assert blocks[1].state is BlockState.loading
 
 
-def test_planner_adds_media_block_when_any_output_has_media() -> None:
+def test_planner_standard_adds_media_block_when_any_output_has_media() -> None:
     outputs = [
         AdapterOutput(media=({"kind": "video", "url": "file:///offline/luke.mp4"},)),
     ]
@@ -80,11 +81,11 @@ def test_planner_adds_media_block_when_any_output_has_media() -> None:
     blocks = plan_initial_blocks(outputs)
 
     ids = [b.id for b in blocks]
-    assert ids == ["summary", "media"]
+    assert ids == ["summary", "media", "follow_ups"]
     assert blocks[1].type is BlockType.media
 
 
-def test_planner_emits_all_three_when_many_outputs_contribute() -> None:
+def test_planner_standard_emits_all_three_when_many_outputs_contribute() -> None:
     outputs = [
         AdapterOutput(
             sources=(Source(title="Padme dossier", url="file:///offline/padme.html"),),
@@ -100,16 +101,17 @@ def test_planner_emits_all_three_when_many_outputs_contribute() -> None:
 
     blocks = plan_initial_blocks(outputs)
 
-    assert [b.id for b in blocks] == ["summary", "sources", "media"]
+    assert [b.id for b in blocks] == ["summary", "sources", "media", "follow_ups"]
     for block in blocks:
         assert block.state is BlockState.loading
         assert block.seq == 0
 
 
-def test_planner_does_not_emit_other_block_families() -> None:
-    """Minimal shape only emits the three canonical block families.
+def test_planner_standard_block_types_within_allowed_families() -> None:
+    """Chunk 12's ``standard`` mode emits summary / sources / media / follow_ups.
 
-    Chunks 14 / 15 expand this; the guard here prevents drift.
+    Chunks 14 / 15 will add renderer coverage for follow_ups; this
+    guard tracks the shape.
     """
     outputs = [
         AdapterOutput(
@@ -122,14 +124,19 @@ def test_planner_does_not_emit_other_block_families() -> None:
 
     blocks = plan_initial_blocks(outputs)
 
-    allowed = {BlockType.summary, BlockType.sources, BlockType.media}
+    allowed = {
+        BlockType.summary,
+        BlockType.sources,
+        BlockType.media,
+        BlockType.follow_ups,
+    }
     assert all(b.type in allowed for b in blocks)
 
 
-def test_planner_accepts_mode_parameter() -> None:
-    """``mode`` is a forward-compat hook — chunk 12 switches on it."""
-    blocks = plan_initial_blocks([], mode="rich")
-    assert [b.id for b in blocks] == ["summary"]
+def test_planner_unknown_mode_falls_back_to_standard() -> None:
+    """Any unrecognized mode string drops into ``standard`` — never blows up."""
+    blocks = plan_initial_blocks([], mode="gibberish")
+    assert [b.id for b in blocks] == ["summary", "follow_ups"]
 
 
 # ---------------------------------------------------------------------------

@@ -232,13 +232,20 @@ async def test_synthesis_phase_streams_ordered_response_events(monkeypatch):
     events = _drain_queue(queue)
     phases = [e.phase for e in events]
 
-    # Core ordered sequence for a calculator turn with one source:
+    # Core ordered sequence for a calculator turn with one source
+    # under chunk 12's standard mode (summary + sources + follow_ups):
     # response_init -> block_init{summary} -> block_init{sources}
+    # -> block_init{follow_ups}
     # -> block_patch{summary,seq=1} -> source_add
     # -> block_ready{summary} -> block_ready{sources}
     # -> response_snapshot
+    #
+    # The ``follow_ups`` block sits in state=loading (no content
+    # emitted yet — chunk 15 wires that) so it appears in block_init
+    # but never reaches block_ready on this turn.
     assert phases == [
         "response_init",
+        "block_init",
         "block_init",
         "block_init",
         "block_patch",
@@ -248,27 +255,33 @@ async def test_synthesis_phase_streams_ordered_response_events(monkeypatch):
         "response_snapshot",
     ]
 
-    # response_init carries both planned block stubs.
+    # response_init carries every planned block stub in order.
     init = events[0]
     assert init.data["request_id"] == "t-9"
     assert init.data["mode"] == "standard"
-    assert [b["id"] for b in init.data["blocks"]] == ["summary", "sources"]
+    assert [b["id"] for b in init.data["blocks"]] == [
+        "summary",
+        "sources",
+        "follow_ups",
+    ]
 
     # block_inits come in the same order.
     assert events[1].data["block_id"] == "summary"
     assert events[2].data["block_id"] == "sources"
+    assert events[3].data["block_id"] == "follow_ups"
 
     # block_patch{summary,seq=1} carries the combined response prose.
-    patch_event = events[3]
+    patch_event = events[4]
     assert patch_event.data["block_id"] == "summary"
     assert patch_event.data["seq"] == 1
     assert patch_event.data["delta"] == response.output_text
 
     # source_add mirrors the single adapter source.
-    src = events[4]
+    src = events[5]
     assert src.data["source"]["url"] == "file:///offline/arith.html"
 
-    # block_ready fires for every non-omitted block.
+    # block_ready fires for every non-omitted, populated block.
+    # follow_ups stays in ``loading`` on this turn (chunk 15 populates it).
     ready_ids = [e.data["block_id"] for e in events if e.phase == "block_ready"]
     assert ready_ids == ["summary", "sources"]
 

@@ -53,6 +53,11 @@ from lokidoki.orchestrator.response import (
     validate_envelope,
 )
 from lokidoki.orchestrator.response import events as response_events
+from lokidoki.orchestrator.response.mode import (
+    PlannerInputs,
+    VALID_MODES,
+    derive_response_mode,
+)
 from lokidoki.orchestrator.response.planner import is_offline_degraded, plan_initial_blocks
 from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
@@ -520,6 +525,7 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, execu
         executions=executions,
         response=response,
         status=envelope_status,
+        safe_context=safe_context,
     )
     _emit_envelope_events(safe_context, envelope)
     return response, envelope
@@ -595,11 +601,14 @@ def _build_envelope(
     executions: list[ExecutionResult],
     response,
     status: str,
+    safe_context: dict | None = None,
 ) -> ResponseEnvelope:
     """Populate the rich-response envelope for this turn.
 
-    The planner allocates the initial block slots; we then fill the
-    summary with ``response.output_text``, the sources block + the
+    The mode is derived from structured planner inputs
+    (:func:`lokidoki.orchestrator.response.mode.derive_response_mode`),
+    then the planner allocates mode-specific block slots; we then fill
+    the summary with ``response.output_text``, the sources block + the
     source surface with the adapter-aggregated sources, and the media
     block with ``request_spec.media``. Validation runs at the end and
     only log-warns on failure — a structural hiccup must not break
@@ -609,7 +618,17 @@ def _build_envelope(
         execution.adapter_output for execution in executions
         if execution.adapter_output is not None
     ]
-    blocks: list[Block] = plan_initial_blocks(adapter_outputs, mode="standard")
+    ctx = safe_context or {}
+    planner_inputs = _build_planner_inputs(ctx, executions)
+    derived_mode = derive_response_mode(
+        planner_inputs,
+        user_override=ctx.get("user_mode_override"),
+    )
+    blocks: list[Block] = plan_initial_blocks(
+        adapter_outputs,
+        mode=derived_mode,
+        planner_inputs=planner_inputs,
+    )
     block_index = {block.id: block for block in blocks}
 
     source_items: list[dict[str, Any]] = [
@@ -646,7 +665,7 @@ def _build_envelope(
 
     envelope = ResponseEnvelope(
         request_id=getattr(trace, "trace_id", "") or "",
-        mode="standard",
+        mode=derived_mode,  # type: ignore[arg-type]
         status=status,  # type: ignore[arg-type]
         blocks=blocks,
         source_surface=list(source_items),
@@ -659,6 +678,57 @@ def _build_envelope(
     except EnvelopeValidationError as exc:
         logger.warning("envelope validation failed: %s", exc)
     return envelope
+
+
+def _build_planner_inputs(
+    safe_context: dict,
+    executions: list[ExecutionResult],
+) -> PlannerInputs:
+    """Assemble :class:`PlannerInputs` from already-derived pipeline state.
+
+    Sources (no regex over user text — all signals are structured):
+
+    * :class:`~lokidoki.orchestrator.decomposer.types.RouteDecomposition`
+      on ``safe_context["route_decomposition"]`` — carries
+      ``capability_need``.
+    * ``safe_context["response_shape"]`` — set by
+      :func:`lokidoki.orchestrator.pipeline.derivations._derive_response_shape`.
+    * ``safe_context["user_mode_override"]`` — reserved; chunk 13 wires
+      the compose-bar toggle + ``/deep`` slash, and chunks 18 / 16
+      wire the explicit deep opt-in. Until then this stays ``None``.
+    * Multi-skill fan-out — counted from ``executions`` success flags.
+    """
+    decomposition = safe_context.get("route_decomposition")
+    capability_need = str(
+        getattr(decomposition, "capability_need", "") or ""
+    )
+
+    successful = sum(1 for execution in executions if execution.success)
+    override = safe_context.get("user_mode_override")
+    user_override = override if isinstance(override, str) else None
+    deep_opt_in = user_override == "deep"
+
+    return PlannerInputs(
+        intent=str(safe_context.get("intent", "") or ""),
+        response_shape=str(safe_context.get("response_shape", "") or ""),
+        reasoning_complexity=str(
+            safe_context.get("reasoning_complexity", "") or ""
+        ),
+        capability_need=capability_need,
+        requires_current_data=bool(
+            safe_context.get("requires_current_data", False)
+        ),
+        multiple_skills_fired=successful > 1,
+        has_artifact_output=bool(safe_context.get("has_artifact_output", False)),
+        deep_opt_in=deep_opt_in,
+    )
+
+
+# Re-export the valid mode set for callers that need to validate a
+# raw string (e.g. the chat endpoint accepting ``user_mode_override``
+# from the request body in chunk 13). Kept next to the other response
+# imports so the pipeline layer has one place to reach for it.
+_VALID_RESPONSE_MODES = VALID_MODES
 
 
 async def _handle_knowledge_gap(trace, safe_context, raw_text, request_spec, executions, initial_response, runtime):
