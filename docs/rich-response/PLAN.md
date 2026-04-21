@@ -43,7 +43,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 8 | [Frontend block registry + summary/sources/media renderers](chunk-8-block-registry-frontend.md) | done | bd4fffa |
 | 9 | [Emit `response_*` / `block_*` SSE events](chunk-9-response-events.md) | done | 682ede4 |
 | 10 | [Frontend consumes new events + progressive rendering + history replay](chunk-10-progressive-rendering.md) | done | fab1f17 |
-| 11 | [SourceSurface + structured citations + offline trust chip](chunk-11-source-surface.md) | pending | |
+| 11 | [SourceSurface + structured citations + offline trust chip](chunk-11-source-surface.md) | done | 618a11c |
 | 12 | [Response mode derivation (planner backend)](chunk-12-planner-mode-backend.md) | pending | |
 | 13 | [Mode toggle UI + `/deep` slash command](chunk-13-mode-selection-frontend.md) | pending | |
 | 14 | [`key_facts` / `steps` / `comparison` block renderers + enrichment budgets](chunk-14-blocks-text.md) | pending | |
