@@ -59,6 +59,10 @@ from lokidoki.orchestrator.response.mode import (
     derive_response_mode,
 )
 from lokidoki.orchestrator.response.planner import is_offline_degraded, plan_initial_blocks
+from lokidoki.orchestrator.response.status_strings import (
+    FINISHING_PHRASE,
+    phrase_for as status_phrase_for,
+)
 from lokidoki.orchestrator.response.synthesis_blocks import populate_text_blocks
 from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
@@ -66,8 +70,65 @@ from lokidoki.orchestrator.signals.interaction_signals import detect_interaction
 logger = logging.getLogger("lokidoki.orchestrator.core.pipeline")
 
 
+_STATUS_TRANSITIONS_KEY = "_status_transitions"
+_CLARIFICATION_KEY = "clarification_question_text"
+
+
+def emit_status_patch(safe_context: dict, phase_key: str) -> None:
+    """Record a phase transition for the live ``status`` block.
+
+    Chunk 15 wiring. The canonical ``status`` block is pre-allocated
+    by the planner (see
+    :mod:`lokidoki.orchestrator.response.planner`). Here we just
+    capture the phrase on ``safe_context`` so
+    :func:`_emit_envelope_events` can replay the phrase trajectory as
+    ``block_patch`` events after ``response_init`` lands.
+
+    Why buffer instead of emitting inline? ``response_init`` is the
+    SSE event that bootstraps the frontend envelope; the reducer
+    drops every ``block_*`` event that arrives before it. Early
+    phase transitions (``augmentation``, ``decomposition``,
+    ``routing``) fire long before synthesis runs, so their patches
+    would be discarded if emitted inline. Buffering keeps the
+    history intact so the final snapshot — and any replay — still
+    reflects the phase trajectory.
+
+    Unknown phase keys are silently ignored so we don't drop a
+    previous phrase by accident.
+    """
+    phrase = status_phrase_for(phase_key)
+    if phrase is None:
+        return
+    transitions = safe_context.setdefault(_STATUS_TRANSITIONS_KEY, [])
+    # Collapse consecutive duplicates — if two sub-steps both roll
+    # up to the same user-visible phase (e.g. ``parse`` /
+    # ``extract`` both live under "decomposition"), we only want one
+    # patch.
+    if transitions and transitions[-1] == phrase:
+        return
+    transitions.append(phrase)
+
+
+def mark_status_finishing(safe_context: dict) -> None:
+    """Swap the live status phrase to :data:`FINISHING_PHRASE`.
+
+    Called when any block in the turn fails — the design doc is
+    explicit that the status line shouldn't double-report errors
+    (failures surface on the failing block itself).
+    """
+    transitions = safe_context.setdefault(_STATUS_TRANSITIONS_KEY, [])
+    if transitions and transitions[-1] == FINISHING_PHRASE:
+        return
+    transitions.append(FINISHING_PHRASE)
+
+
 def run_pre_parse_phase(trace, safe_context, raw_text):
     """Run normalize -> signals -> fast_lane."""
+    # Chunk 15: first user-visible phase is "decomposition" (the
+    # user's ask is being understood). Record so the ``status``
+    # block eventually gets the right leading phrase.
+    emit_status_patch(safe_context, "decomposition")
+
     finish = trace.timed("normalize")
     normalized = normalize_text(raw_text)
     finish(cleaned_text=normalized.cleaned_text)
@@ -123,6 +184,9 @@ def run_initial_phase(trace, safe_context, raw_text, normalized):
     memory_write_result = run_memory_write_path(parsed, chunks, safe_context)
     finish(accepted=len(memory_write_result.accepted),
            rejected=len(memory_write_result.rejected))
+    # Chunk 15 status patch — memory work rolls up into the user-visible
+    # "augmentation" phase (rendered as "Looking up context").
+    emit_status_patch(safe_context, "augmentation")
     return parsed, chunks, extractions, constraints, memory_write_result
 
 
@@ -136,6 +200,11 @@ async def run_routing_phase(trace, safe_context, routable, runtime, routable_ext
     out or errors, its result is a no-op fallback and routing proceeds
     on MiniLM alone.
     """
+    # Chunk 15: user-visible phase flips to "routing" here. The
+    # decomposer fires below but rolls up into the routing bucket
+    # from the user's point of view.
+    emit_status_patch(safe_context, "routing")
+
     # Combine routable chunk text for one decomposer call. The
     # decomposer operates on user intent, which is usually unified
     # across a multi-sentence utterance; per-chunk calls would just
@@ -257,6 +326,10 @@ async def run_resolve_phase(trace, safe_context, routable, routable_extractions,
 
 async def run_execute_phase(trace, safe_context, runtime, routable, routes, implementations, resolutions):
     """Run the execute step."""
+    # Chunk 15: user-visible phase flips to "execute" (rendered as
+    # "Checking sources" for skill/web execution).
+    emit_status_patch(safe_context, "execute")
+
     finish = trace.timed("execute")
     budgets = [
         (runtime.capabilities.get(r.capability) or {}).get("max_chunk_budget_ms")
@@ -401,7 +474,7 @@ def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
 _MEDIA_AUGMENT_TIMEOUT_S = 6.0
 
 
-async def run_media_augmentation_phase(trace, chunks, routes, executions, raw_text=""):
+async def run_media_augmentation_phase(trace, chunks, routes, executions, raw_text="", safe_context=None):
     """Collect media cards for the turn — adapter-first, augmentor-fallback.
 
     Pass 1 (canonical): flatten ``execution.adapter_output.media`` across
@@ -418,6 +491,12 @@ async def run_media_augmentation_phase(trace, chunks, routes, executions, raw_te
     Runs best-effort — failures and the 6s timeout both degrade to an
     empty list rather than breaking the turn.
     """
+    # Chunk 15: user-visible phase is "media_augment" (rendered as
+    # "Looking for visuals"). ``safe_context`` is optional so tests
+    # that exercise this helper standalone don't have to wire it.
+    if safe_context is not None:
+        emit_status_patch(safe_context, "media_augment")
+
     finish = trace.timed("media_augment")
     cards = _media_cards_from_adapters(executions)
     used_fallback = False
@@ -471,6 +550,19 @@ def _media_cards_from_adapters(executions: list[ExecutionResult]) -> list[dict[s
 
 async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime):
     """Read memory slots, decide LLM usage, produce final response.
+    """
+    # Chunk 15: user-visible phase flips to "synthesis" for the
+    # final summarization step.
+    emit_status_patch(safe_context, "synthesis")
+    return await _run_synthesis_phase_impl(
+        trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime,
+    )
+
+
+async def _run_synthesis_phase_impl(trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime):
+    """Body of :func:`run_synthesis_phase` — split so the status
+    emission above stays at the top without disturbing the long
+    docstring that the original function carried.
 
     Returns a ``(ResponseObject, ResponseEnvelope)`` tuple. The envelope
     rides alongside the legacy ``ResponseObject``; chunk 9 also streams
@@ -572,12 +664,62 @@ def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> Non
         elif block.type is BlockType.media and block.items:
             for card in block.items:
                 queue.put_nowait(response_events.media_add(card))
+        elif block.type is BlockType.clarification and block.content:
+            # Clarification arrives ready — one patch carries the
+            # whole question so replay / reducer don't need a
+            # bespoke path.
+            seq_by_block[block.id] = seq_by_block.get(block.id, 0) + 1
+            queue.put_nowait(response_events.block_patch(
+                block.id, seq_by_block[block.id], delta=block.content,
+            ))
+
+    # Chunk 15: replay buffered status phrases as sequential
+    # ``block_patch`` events. The reducer dedupes by seq, so replays
+    # from the snapshot remain idempotent.
+    _flush_status_transitions(queue, safe_context, envelope)
 
     for block in envelope.blocks:
         if block.state is BlockState.ready:
             queue.put_nowait(response_events.block_ready(block.id))
 
     queue.put_nowait(response_events.response_snapshot(envelope))
+
+
+def _flush_status_transitions(
+    queue,
+    safe_context: dict,
+    envelope: ResponseEnvelope,
+) -> None:
+    """Emit ``block_patch`` events for every recorded phase transition.
+
+    The envelope's ``status`` block was pre-allocated by the planner
+    (or injected in a follow-up pass). Before emitting we flip its
+    state to :attr:`BlockState.omitted` so the final snapshot
+    reflects the design-doc contract: the status block is live-only
+    and disappears from the finished envelope.
+    """
+    transitions = safe_context.get(_STATUS_TRANSITIONS_KEY) or []
+    status_block = next(
+        (b for b in envelope.blocks if b.type is BlockType.status),
+        None,
+    )
+    if status_block is None:
+        return
+
+    # Replay transitions as sequential delta patches. Seq starts at 1
+    # (0 is "no patch applied yet" in the frontend reducer's guard).
+    for idx, phrase in enumerate(transitions, start=1):
+        queue.put_nowait(response_events.block_patch(
+            status_block.id, idx, delta=phrase,
+        ))
+
+    # Finalize: the status block never renders in the snapshot. Flip
+    # it to omitted so history replay + validators see the live-only
+    # contract the design doc requires.
+    status_block.state = BlockState.omitted
+    # ``content`` is intentionally cleared — the live stream already
+    # carried every phrase via patches.
+    status_block.content = None
 
 
 def _emit_synthesis_failure_events(safe_context: dict, trace, exc: BaseException) -> None:
@@ -587,11 +729,16 @@ def _emit_synthesis_failure_events(safe_context: dict, trace, exc: BaseException
     :func:`_run_pipeline_task` once the pipeline task unwinds — that
     way both the raise path *and* a non-synthesis crash reach the same
     wire shape.
+
+    Chunk 15: also flip the ``status`` block to the neutral
+    :data:`FINISHING_PHRASE` instead of dwelling on the crash — the
+    failing block already tells the user what went wrong.
     """
     queue = safe_context.get("_sse_queue")
     if queue is None:
         return
     reason = str(exc) or exc.__class__.__name__
+    mark_status_finishing(safe_context)
     queue.put_nowait(response_events.block_failed("summary", reason))
 
 
@@ -625,10 +772,12 @@ def _build_envelope(
         planner_inputs,
         user_override=ctx.get("user_mode_override"),
     )
+    clarification_text = _collect_clarification_text(ctx, executions)
     blocks: list[Block] = plan_initial_blocks(
         adapter_outputs,
         mode=derived_mode,
         planner_inputs=planner_inputs,
+        clarification_text=clarification_text,
     )
     block_index = {block.id: block for block in blocks}
 
@@ -691,6 +840,43 @@ def _build_envelope(
     except EnvelopeValidationError as exc:
         logger.warning("envelope validation failed: %s", exc)
     return envelope
+
+
+def _collect_clarification_text(
+    safe_context: dict,
+    executions: list[ExecutionResult],
+) -> str | None:
+    """Pull clarification text from structured pipeline signals.
+
+    Chunk 15 wiring. Priority:
+
+    1. ``safe_context[_CLARIFICATION_KEY]`` — any pipeline component
+       that emits a ``clarification_question`` event can also stash
+       the question text here for the envelope planner to consume.
+       This is the DESIGN.md §III.b path.
+    2. Adapter ``raw["clarification_prompt"]`` — today only the
+       ``people_lookup`` skill surfaces this. Acts as a belt-and-
+       suspenders fallback so the clarification UI works even if the
+       side-channel event wasn't wired for a given skill.
+
+    Never inspects raw user text — no regex / keyword path.
+    """
+    explicit = safe_context.get(_CLARIFICATION_KEY)
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    for execution in executions:
+        adapter_output: AdapterOutput | None = execution.adapter_output
+        if adapter_output is None:
+            continue
+        raw = adapter_output.raw or {}
+        if not isinstance(raw, dict):
+            continue
+        if not raw.get("needs_clarification"):
+            continue
+        prompt = str(raw.get("clarification_prompt") or "").strip()
+        if prompt:
+            return prompt
+    return None
 
 
 def _comparison_subjects(

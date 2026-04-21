@@ -78,6 +78,7 @@ async def run_pipeline_async(
     # for this ordering.
     spec.media = await run_media_augmentation_phase(
         trace, routable, routes, executions, raw_text=raw_text,
+        safe_context=ctx,
     )
     response, envelope = await run_synthesis_phase(
         trace, ctx, raw_text, spec, executions, mw, runtime,

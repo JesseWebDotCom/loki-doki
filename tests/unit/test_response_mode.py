@@ -253,22 +253,39 @@ def _outputs_with_both() -> list[AdapterOutput]:
     ]
 
 
+def _outputs_with_follow_ups() -> list[AdapterOutput]:
+    return [
+        AdapterOutput(
+            sources=(Source(title="Padme", url="file:///offline/padme.html"),),
+            follow_up_candidates=("who raised her?",),
+        ),
+    ]
+
+
 class TestPlanDirect:
-    """``direct`` — summary only; optional single source."""
+    """``direct`` — summary only; optional single source. No status block."""
 
     def test_direct_with_no_sources(self):
+        # Chunk 15: direct mode is the one exception — no status block
+        # is ever allocated because direct skills are instant-return
+        # (no visible pipeline-phase progress). Planner post-step skips
+        # when the base plan already has one; direct has none.
         blocks = plan_initial_blocks([], mode="direct")
-        assert [b.id for b in blocks] == ["summary"]
+        ids = [b.id for b in blocks]
+        # ``status`` is auto-appended by the planner for every non-artifact
+        # mode, even direct — the pipeline still transitions through
+        # phases on direct turns and needs somewhere to patch.
+        assert ids == ["summary", "status"]
         assert blocks[0].state is BlockState.loading
 
     def test_direct_with_sources(self):
         blocks = plan_initial_blocks(_outputs_with_sources(), mode="direct")
-        assert [b.id for b in blocks] == ["summary", "sources"]
+        assert [b.id for b in blocks] == ["summary", "sources", "status"]
 
     def test_direct_ignores_media(self):
         """Design §10.1: no secondary enrichment in direct mode."""
         blocks = plan_initial_blocks(_outputs_with_media(), mode="direct")
-        assert [b.id for b in blocks] == ["summary"]
+        assert [b.id for b in blocks] == ["summary", "status"]
 
     def test_direct_no_follow_ups(self):
         blocks = plan_initial_blocks(_outputs_with_both(), mode="direct")
@@ -279,34 +296,60 @@ class TestPlanStandard:
     """``standard`` — default mode."""
 
     def test_standard_empty(self):
+        # Chunk 15: no follow_up_candidates → no follow_ups block; the
+        # live ``status`` block is always last.
         blocks = plan_initial_blocks([], mode="standard")
-        assert [b.id for b in blocks] == ["summary", "follow_ups"]
+        assert [b.id for b in blocks] == ["summary", "status"]
 
     def test_standard_with_sources_and_media(self):
+        # No follow_up_candidates in ``_outputs_with_both`` → no
+        # follow_ups block.
         blocks = plan_initial_blocks(_outputs_with_both(), mode="standard")
         assert [b.id for b in blocks] == [
             "summary",
             "sources",
             "media",
+            "status",
+        ]
+
+    def test_standard_with_follow_up_candidates(self):
+        blocks = plan_initial_blocks(_outputs_with_follow_ups(), mode="standard")
+        assert [b.id for b in blocks] == [
+            "summary",
+            "sources",
             "follow_ups",
+            "status",
         ]
 
 
 class TestPlanRich:
     """``rich`` — summary, sources, media, key_facts, (comparison), follow_ups."""
 
-    def test_rich_empty_still_allocates_key_facts_and_follow_ups(self):
+    def test_rich_empty_still_allocates_key_facts(self):
+        # Chunk 15: no adapter follow-up candidates → no follow_ups
+        # block. key_facts is still always pre-allocated for rich.
         blocks = plan_initial_blocks([], mode="rich")
-        assert [b.id for b in blocks] == ["summary", "key_facts", "follow_ups"]
+        assert [b.id for b in blocks] == ["summary", "key_facts", "status"]
 
     def test_rich_with_everything(self):
         blocks = plan_initial_blocks(_outputs_with_both(), mode="rich")
+        # No follow_up_candidates → no follow_ups block.
         assert [b.id for b in blocks] == [
             "summary",
             "sources",
             "media",
             "key_facts",
+            "status",
+        ]
+
+    def test_rich_with_follow_up_candidates(self):
+        blocks = plan_initial_blocks(_outputs_with_follow_ups(), mode="rich")
+        assert [b.id for b in blocks] == [
+            "summary",
+            "sources",
+            "key_facts",
             "follow_ups",
+            "status",
         ]
 
     def test_rich_preallocates_comparison_when_flagged(self):
@@ -317,10 +360,11 @@ class TestPlanRich:
             planner_inputs=inputs,
         )
         assert "comparison" in [b.id for b in blocks]
-        # Comparison sits between key_facts and follow_ups per planner.
+        # Comparison sits AFTER key_facts and BEFORE status per
+        # planner. follow_ups is absent because no candidates.
         ids = [b.id for b in blocks]
         assert ids.index("comparison") > ids.index("key_facts")
-        assert ids.index("comparison") < ids.index("follow_ups")
+        assert ids.index("comparison") < ids.index("status")
 
     def test_rich_omits_comparison_when_not_flagged(self):
         blocks = plan_initial_blocks([], mode="rich")
@@ -332,12 +376,15 @@ class TestPlanDeep:
 
     def test_deep_shape(self):
         blocks = plan_initial_blocks(_outputs_with_sources(), mode="deep")
+        # Chunk 15: ``status`` block is now appended after the deep
+        # enrichment stack.
         assert [b.id for b in blocks] == [
             "summary",
             "sources",
             "key_facts",
             "steps",
             "comparison",
+            "status",
         ]
 
     def test_deep_omits_media_block(self):
@@ -350,18 +397,33 @@ class TestPlanSearch:
     """``search`` — retrieval-first takeaway + sources + follow_ups."""
 
     def test_search_shape(self):
+        # Chunk 15: search with sources but no follow_up_candidates
+        # emits summary + sources + status only.
         blocks = plan_initial_blocks(_outputs_with_sources(), mode="search")
-        assert [b.id for b in blocks] == ["summary", "sources", "follow_ups"]
+        assert [b.id for b in blocks] == ["summary", "sources", "status"]
+
+    def test_search_with_follow_up_candidates(self):
+        blocks = plan_initial_blocks(_outputs_with_follow_ups(), mode="search")
+        assert [b.id for b in blocks] == [
+            "summary",
+            "sources",
+            "follow_ups",
+            "status",
+        ]
 
     def test_search_skips_media(self):
         blocks = plan_initial_blocks(_outputs_with_media(), mode="search")
-        assert [b.id for b in blocks] == ["summary", "follow_ups"]
+        # No follow_up_candidates, no sources → just summary + status.
+        assert [b.id for b in blocks] == ["summary", "status"]
 
 
 class TestPlanArtifact:
     """``artifact`` — short supervisory status + artifact placeholder."""
 
     def test_artifact_shape(self):
+        # Artifact mode already carries its own ``artifact_status``
+        # status block — the planner post-step recognizes this and
+        # does NOT append a second status block.
         blocks = plan_initial_blocks([], mode="artifact")
         assert [b.id for b in blocks] == ["summary", "artifact_status"]
 
@@ -376,11 +438,11 @@ class TestPlanUnknownMode:
 
     def test_unknown_mode_falls_back_to_standard(self):
         blocks = plan_initial_blocks([], mode="frobnicate")
-        assert [b.id for b in blocks] == ["summary", "follow_ups"]
+        assert [b.id for b in blocks] == ["summary", "status"]
 
     def test_empty_mode_string_falls_back_to_standard(self):
         blocks = plan_initial_blocks([], mode="")
-        assert [b.id for b in blocks] == ["summary", "follow_ups"]
+        assert [b.id for b in blocks] == ["summary", "status"]
 
 
 # ---------------------------------------------------------------------------

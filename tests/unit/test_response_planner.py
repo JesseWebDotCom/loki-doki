@@ -36,25 +36,46 @@ from lokidoki.orchestrator.response.planner import plan_initial_blocks
 # ---------------------------------------------------------------------------
 
 
-def test_planner_standard_emits_summary_and_follow_ups_when_no_adapter_outputs() -> None:
+def test_planner_standard_emits_summary_and_status_when_no_adapter_outputs() -> None:
+    """Chunk 15: ``follow_ups`` is suppressed when no adapter surfaced
+    candidates (no fabrication). A live ``status`` block is always
+    pre-allocated in ``loading`` so phase patches land somewhere."""
     blocks = plan_initial_blocks([])
 
-    assert [b.id for b in blocks] == ["summary", "follow_ups"]
+    assert [b.id for b in blocks] == ["summary", "status"]
     assert blocks[0].type is BlockType.summary
     assert blocks[0].state is BlockState.loading
     assert blocks[0].seq == 0
+    assert blocks[1].type is BlockType.status
+    assert blocks[1].state is BlockState.loading
 
 
 def test_planner_standard_emits_summary_when_adapter_outputs_are_empty() -> None:
     blocks = plan_initial_blocks([AdapterOutput(), AdapterOutput()])
 
-    assert [b.id for b in blocks] == ["summary", "follow_ups"]
+    # No follow_up_candidates → no follow_ups block. Status is
+    # always present.
+    assert [b.id for b in blocks] == ["summary", "status"]
 
 
 def test_planner_ignores_none_entries() -> None:
     blocks = plan_initial_blocks([None, AdapterOutput(), None])
 
-    assert [b.id for b in blocks] == ["summary", "follow_ups"]
+    assert [b.id for b in blocks] == ["summary", "status"]
+
+
+def test_planner_standard_adds_follow_ups_only_when_candidates_present() -> None:
+    """Follow-up candidates from ANY adapter flip the block on."""
+    outputs = [
+        AdapterOutput(),
+        AdapterOutput(follow_up_candidates=("what about her sister?",)),
+    ]
+
+    blocks = plan_initial_blocks(outputs)
+
+    ids = [b.id for b in blocks]
+    # follow_ups appears AFTER sources/media slots but BEFORE status.
+    assert ids == ["summary", "follow_ups", "status"]
 
 
 def test_planner_standard_adds_sources_block_when_any_output_has_sources() -> None:
@@ -68,7 +89,8 @@ def test_planner_standard_adds_sources_block_when_any_output_has_sources() -> No
     blocks = plan_initial_blocks(outputs)
 
     ids = [b.id for b in blocks]
-    assert ids == ["summary", "sources", "follow_ups"]
+    # No follow_up_candidates → no follow_ups block; status is always last.
+    assert ids == ["summary", "sources", "status"]
     assert blocks[1].type is BlockType.sources
     assert blocks[1].state is BlockState.loading
 
@@ -81,7 +103,7 @@ def test_planner_standard_adds_media_block_when_any_output_has_media() -> None:
     blocks = plan_initial_blocks(outputs)
 
     ids = [b.id for b in blocks]
-    assert ids == ["summary", "media", "follow_ups"]
+    assert ids == ["summary", "media", "status"]
     assert blocks[1].type is BlockType.media
 
 
@@ -89,6 +111,7 @@ def test_planner_standard_emits_all_three_when_many_outputs_contribute() -> None
     outputs = [
         AdapterOutput(
             sources=(Source(title="Padme dossier", url="file:///offline/padme.html"),),
+            follow_up_candidates=("who raised her?",),
         ),
         AdapterOutput(
             media=({"kind": "image", "url": "/assets/naboo.png"},),
@@ -101,18 +124,24 @@ def test_planner_standard_emits_all_three_when_many_outputs_contribute() -> None
 
     blocks = plan_initial_blocks(outputs)
 
-    assert [b.id for b in blocks] == ["summary", "sources", "media", "follow_ups"]
+    assert [b.id for b in blocks] == [
+        "summary",
+        "sources",
+        "media",
+        "follow_ups",
+        "status",
+    ]
     for block in blocks:
+        # Summary + sources + media + follow_ups all start ``loading``;
+        # status starts ``loading`` too (patched later by pipeline).
         assert block.state is BlockState.loading
         assert block.seq == 0
 
 
 def test_planner_standard_block_types_within_allowed_families() -> None:
-    """Chunk 12's ``standard`` mode emits summary / sources / media / follow_ups.
-
-    Chunks 14 / 15 will add renderer coverage for follow_ups; this
-    guard tracks the shape.
-    """
+    """Chunk 15: ``standard`` mode emits summary / sources / media /
+    follow_ups / status. Status is always pre-allocated for live
+    activity text."""
     outputs = [
         AdapterOutput(
             sources=(Source(title="Padme", url="file:///offline/padme.html"),),
@@ -129,6 +158,7 @@ def test_planner_standard_block_types_within_allowed_families() -> None:
         BlockType.sources,
         BlockType.media,
         BlockType.follow_ups,
+        BlockType.status,
     }
     assert all(b.type in allowed for b in blocks)
 
@@ -136,7 +166,28 @@ def test_planner_standard_block_types_within_allowed_families() -> None:
 def test_planner_unknown_mode_falls_back_to_standard() -> None:
     """Any unrecognized mode string drops into ``standard`` — never blows up."""
     blocks = plan_initial_blocks([], mode="gibberish")
-    assert [b.id for b in blocks] == ["summary", "follow_ups"]
+    assert [b.id for b in blocks] == ["summary", "status"]
+
+
+def test_planner_inserts_clarification_block_when_question_provided() -> None:
+    """Chunk 15: a non-empty ``clarification_text`` lands as a
+    ``ready`` block immediately after summary."""
+    blocks = plan_initial_blocks(
+        [AdapterOutput(follow_up_candidates=("which place?",))],
+        clarification_text="Which coffee shop — the one near the park or downtown?",
+    )
+
+    ids = [b.id for b in blocks]
+    assert ids == ["summary", "clarification", "follow_ups", "status"]
+    clar = next(b for b in blocks if b.type is BlockType.clarification)
+    assert clar.state is BlockState.ready
+    assert clar.content == "Which coffee shop — the one near the park or downtown?"
+
+
+def test_planner_clarification_empty_string_is_ignored() -> None:
+    blocks = plan_initial_blocks([], clarification_text="   ")
+    ids = [b.id for b in blocks]
+    assert "clarification" not in ids
 
 
 # ---------------------------------------------------------------------------

@@ -168,6 +168,7 @@ def plan_initial_blocks(
     adapter_outputs: Iterable[AdapterOutput | None],
     mode: str = "standard",
     planner_inputs: PlannerInputs | None = None,
+    clarification_text: str | None = None,
 ) -> list[Block]:
     """Allocate the initial block list for a turn.
 
@@ -184,14 +185,24 @@ def plan_initial_blocks(
         planner_inputs: Optional structured planner inputs. Only the
             comparison-intent derivation currently consults this — and
             only for ``rich`` mode. ``None`` is safe.
+        clarification_text: Optional clarification question already
+            emitted by the pipeline's ``clarification_question`` event
+            (see ``docs/DESIGN.md`` §III.b). When non-empty the planner
+            allocates a :attr:`BlockType.clarification` block in the
+            ``ready`` state with the given content. Chunk 15 wires
+            this through :mod:`lokidoki.orchestrator.core.pipeline_phases`;
+            callers that don't track clarification can leave it
+            ``None``.
 
     Returns:
-        A list of :class:`Block` instances, each in
-        :attr:`BlockState.loading` with ``seq=0``. Order is
-        mode-specific; the summary block is always first.
+        A list of :class:`Block` instances. Most are in
+        :attr:`BlockState.loading` with ``seq=0``; the summary block
+        is always first and a ``clarification`` block (when
+        allocated) is second and already ``ready``.
     """
     has_sources = False
     has_media = False
+    has_follow_ups = False
     for output in adapter_outputs:
         if output is None:
             continue
@@ -199,25 +210,49 @@ def plan_initial_blocks(
             has_sources = True
         if output.media:
             has_media = True
+        # Chunk 15: follow_ups are only allocated when an adapter
+        # actually produced candidates. No fabrication — the planner
+        # refuses to emit an empty chips row the frontend would have
+        # to hide.
+        if output.follow_up_candidates:
+            has_follow_ups = True
 
     # Normalise unknown / empty modes to ``standard``. ``mode`` is a
     # runtime string because callers may pass values read off the wire;
     # the ``ResponseMode`` literal keeps typed sites honest.
     normalized: ResponseMode = _normalize_mode(mode)
     inputs = planner_inputs or PlannerInputs()
+    clarification = (clarification_text or "").strip() or None
 
     if normalized == "direct":
-        return _plan_direct(has_sources)
-    if normalized == "rich":
-        return _plan_rich(has_sources, has_media, inputs)
-    if normalized == "deep":
-        return _plan_deep(has_sources)
-    if normalized == "search":
-        return _plan_search(has_sources)
-    if normalized == "artifact":
-        return _plan_artifact()
-    # Fallthrough: standard.
-    return _plan_standard(has_sources, has_media, inputs)
+        blocks = _plan_direct(has_sources)
+    elif normalized == "rich":
+        blocks = _plan_rich(has_sources, has_media, inputs, has_follow_ups)
+    elif normalized == "deep":
+        blocks = _plan_deep(has_sources)
+    elif normalized == "search":
+        blocks = _plan_search(has_sources, has_follow_ups)
+    elif normalized == "artifact":
+        blocks = _plan_artifact()
+    else:
+        # Fallthrough: standard.
+        blocks = _plan_standard(has_sources, has_media, inputs, has_follow_ups)
+
+    if clarification is not None:
+        # Clarification is the second block (right after summary) so
+        # the user reads the question before the answer the synthesis
+        # LLM may have hedged with.
+        blocks.insert(1, _clarification_block(clarification))
+
+    # Chunk 15: always pre-allocate the live status block. The pipeline
+    # patches it at phase transitions and flips it to ``omitted`` on
+    # ``response_done`` so it disappears from the final envelope.
+    # Artifact mode already owns an ``artifact_status`` placeholder —
+    # don't double-allocate a second status block there.
+    if not any(block.type is BlockType.status for block in blocks):
+        blocks.append(_status_block())
+
+    return blocks
 
 
 def _normalize_mode(mode: str) -> ResponseMode:
@@ -291,6 +326,39 @@ def _follow_ups() -> Block:
     )
 
 
+def _clarification_block(question: str) -> Block:
+    """Build a ready-state clarification block.
+
+    Unlike the other planner slots, clarification arrives already
+    resolved — the ``clarification_question`` event carries the full
+    prompt text, so we don't need a ``loading`` window. Placing it in
+    ``ready`` immediately keeps the frontend from flashing a skeleton
+    for a block that will never receive a delta.
+    """
+    return Block(
+        id="clarification",
+        type=BlockType.clarification,
+        state=BlockState.ready,
+        seq=0,
+        content=question,
+    )
+
+
+def _status_block() -> Block:
+    """Pre-allocate the live status block in ``loading``.
+
+    Populated by :func:`lokidoki.orchestrator.core.pipeline_phases.emit_status_patch`
+    as phases transition; flipped to :attr:`BlockState.omitted` when
+    the turn ends so it disappears from the final rendered envelope.
+    """
+    return Block(
+        id="status",
+        type=BlockType.status,
+        state=BlockState.loading,
+        seq=0,
+    )
+
+
 def _artifact_placeholder() -> Block:
     # Artifacts are rendered on the envelope's ``artifact_surface``
     # (chunks 19-20). A single ``status`` block inside the stack
@@ -315,14 +383,18 @@ def _plan_standard(
     has_sources: bool,
     has_media: bool,
     inputs: PlannerInputs,
+    has_follow_ups: bool,
 ) -> list[Block]:
-    """Default mode: summary + sources/media + ≤1 text block + follow_ups.
+    """Default mode: summary + sources/media + ≤1 text block + follow_ups (when candidates exist).
 
     Design §10.2 / §15. At most ONE of ``key_facts`` / ``steps`` /
     ``comparison`` is allocated — the most relevant shape. The
     selection order (comparison > steps > key_facts) matches the design
     doc: structure wins over bullets when the user asked for a
     comparison, and a procedure wins when they asked "how do I…".
+
+    ``follow_ups`` is only allocated when at least one adapter
+    surfaced ``follow_up_candidates`` (chunk 15 — no fabrication).
     """
     blocks: list[Block] = [_summary()]
     if has_sources:
@@ -332,7 +404,8 @@ def _plan_standard(
     text_block = _select_standard_text_block(inputs)
     if text_block is not None:
         blocks.append(text_block)
-    blocks.append(_follow_ups())
+    if has_follow_ups:
+        blocks.append(_follow_ups())
     return blocks
 
 
@@ -340,6 +413,7 @@ def _plan_rich(
     has_sources: bool,
     has_media: bool,
     inputs: PlannerInputs,
+    has_follow_ups: bool,
 ) -> list[Block]:
     """Structured answer: summary + sources/media + key_facts [+steps] [+comparison] + follow_ups.
 
@@ -368,7 +442,8 @@ def _plan_rich(
     # regex over ``user_input`` needed.
     if inputs.response_shape == "comparison":
         blocks.append(_comparison())
-    blocks.append(_follow_ups())
+    if has_follow_ups:
+        blocks.append(_follow_ups())
     return blocks
 
 
@@ -423,12 +498,18 @@ def _select_standard_text_block(inputs: PlannerInputs) -> Block | None:
     return None
 
 
-def _plan_search(has_sources: bool) -> list[Block]:
-    """Retrieval-first: short takeaway + sources list + follow_ups. Design §16.2."""
+def _plan_search(has_sources: bool, has_follow_ups: bool) -> list[Block]:
+    """Retrieval-first: short takeaway + sources list + (optional) follow_ups. Design §16.2.
+
+    ``follow_ups`` is only emitted when the adapter surfaced real
+    candidates (chunk 15 — the planner refuses to allocate empty
+    chips rows the frontend would hide).
+    """
     blocks: list[Block] = [_summary()]
     if has_sources:
         blocks.append(_sources())
-    blocks.append(_follow_ups())
+    if has_follow_ups:
+        blocks.append(_follow_ups())
     return blocks
 
 
@@ -532,9 +613,22 @@ def enforce_text_block_budget(blocks: list[Block], mode: str) -> bool:
     return True
 
 
+def build_status_block() -> Block:
+    """Public factory for the live ``status`` block (chunk 15).
+
+    Exposed so the pipeline phases module can insert a fresh status
+    block into an envelope that was planned before the clarification /
+    status wiring was available (e.g. in tests or the fast-lane path).
+    Most callers get the status block from :func:`plan_initial_blocks`
+    already — chunk 15 always pre-allocates it.
+    """
+    return _status_block()
+
+
 __all__ = [
     "plan_initial_blocks",
     "is_offline_degraded",
     "text_block_budget",
     "enforce_text_block_budget",
+    "build_status_block",
 ]
