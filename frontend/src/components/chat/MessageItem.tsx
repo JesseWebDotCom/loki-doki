@@ -12,13 +12,14 @@ import {
 } from '../ui/tooltip';
 import { formatMessageDateTime, formatMessageTime } from '../../lib/chatTimestamp';
 import type { SourceInfo, MediaCard, SilentConfirmation } from '../../lib/api';
+import type { Block } from '../../lib/response-types';
 import type { PipelineState } from '../../pages/ChatPage';
 import { FeedbackDialog } from './FeedbackDialog';
 import SourceChip from './SourceChip';
 import { getSourcePresentation } from './sourcePresentation';
 import FaviconImage from './FaviconImage';
-import MediaBar from './MediaBar';
 import PipelineInfoPopover from './PipelineInfoPopover';
+import { BlockContextProvider, renderBlock } from './blocks';
 
 interface MentionedPerson {
   id: number;
@@ -91,6 +92,39 @@ const MessageItem: React.FC<MessageProps> = ({
 
   const processedContent = useMemo(() => isUser ? content : preprocessContent(content), [content, isUser]);
   const primarySource = sources[0] ? getSourcePresentation(sources[0]) : null;
+
+  // Client-side block derivation. Chunk 10 will switch this to consume
+  // the streamed ``ResponseEnvelope`` directly; until then we keep the
+  // renderer on the block path by fabricating the envelope locally from
+  // the existing synthesis payload. Order must match the legacy inline
+  // render order (media before prose) so the pixel behavior is
+  // unchanged.
+  const assistantBlocks: Block[] = useMemo(() => {
+    if (isUser) return [];
+    return [
+      {
+        id: 'media',
+        type: 'media',
+        state: media.length > 0 ? 'ready' : 'omitted',
+        seq: 0,
+        items: media,
+      },
+      {
+        id: 'summary',
+        type: 'summary',
+        state: 'ready',
+        seq: 0,
+        content,
+      },
+      {
+        id: 'sources',
+        type: 'sources',
+        state: sources.length > 0 ? 'ready' : 'omitted',
+        seq: 0,
+        items: sources,
+      },
+    ];
+  }, [isUser, content, media, sources]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
@@ -245,8 +279,9 @@ const MessageItem: React.FC<MessageProps> = ({
                 </div>
               )}
               <div data-testid="message-bubble" className="w-full text-foreground relative">
-                {media.length > 0 && <MediaBar media={media} />}
-                {contentMarkup}
+                <BlockContextProvider sources={sources} mentionedPeople={mentionedPeople}>
+                  {assistantBlocks.map((block) => renderBlock(block))}
+                </BlockContextProvider>
 
                 {confirmations.length > 0 && (
                   <div className="mt-5 border-t border-border/10 pt-4 space-y-1.5">

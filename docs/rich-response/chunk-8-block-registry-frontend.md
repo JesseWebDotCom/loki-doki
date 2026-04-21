@@ -123,3 +123,9 @@ Refs docs/rich-response/PLAN.md chunk 8.
 ## Deferrals
 
 <!-- Append specifics here if this chunk surfaced work that belongs in a later chunk. -->
+
+- Chunk 8 added two shadcn primitives (`frontend/src/components/ui/card.tsx`, `frontend/src/components/ui/skeleton.tsx`) because the repo did not ship them yet and `BlockShell` / future block cards require them. Pure-React files, no new dependency added. Chunks 14/15 will consume `Card` when wrapping richer block types.
+- `SourcesBlock` currently renders a visually-empty structural marker (`data-slot="sources-block"`) rather than an inline chip row. Current UX already surfaces sources two ways — inline `SourceChip`s inside the summary markdown and the side-drawer `SourcesPanel` opened from the action bar — and chunk 8's contract is "refactor is intentionally invisible." Chunk 11 (`SourceSurface + structured citations + offline trust chip`) replaces the marker with the real inline surface.
+- Pre-existing test failures in `chatDensity.test.tsx` (asserts `px-7`/`py-5` on the assistant bubble — the assistant bubble has never carried those classes) and `MessageItem.test.tsx` (relies on DOM shape chunks 6/7 already changed) were left alone. They existed on `main` before chunk 8 started and are out of scope; they will be rewritten against the envelope-driven render in chunk 10.
+- Per-block `{ block }`-only renderer signature cannot carry envelope-adjacent state (sources, mentioned people) that today's inline citations need. Added a small `BlockContext` inside `blocks/index.ts` for this; chunk 11 can graduate it to full envelope context if richer needs appear.
+- Intentionally did not create a shared `AssistantMarkdown` helper to avoid touching a file outside the chunk's `## Files` list; the markdown render config is duplicated between `MessageItem.tsx` (user branch) and `blocks/SummaryBlock.tsx` (assistant branch). If a future chunk needs to edit markdown rendering in one place, consolidate then.
