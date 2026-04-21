@@ -65,10 +65,10 @@ session. The execution rules are non-negotiable:
 | 5 | [World labels visible at all zooms](chunk-5-world-labels-zoom.md) | done | 7c2e222 |
 | 6 | [Install resilience: atomic indexer + skip-if-hash + UI clear](chunk-6-install-resilience.md) | done | f525cfd |
 | 7 | [Polygon-based world labels](chunk-7-polygon-world-labels.md) | done | 67de599 |
-| 8 | [Directions UX: step-click map blank + delete recent](chunk-8-directions-ux.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
-| 9 | [Style polish: route shields, stream labels, road hierarchy](chunk-9-style-polish.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
-| 10 | [POI icon sprite + click-to-popup PlaceDetailsCard](chunk-10-poi-icons-popup.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
-| 11 | [Dark theme tuning + light theme + system-theme toggle](chunk-11-theme-tuning.md) | blocked: `frontend/tsconfig.json` TS5101 `baseUrl` deprecation trips `npx tsc --noEmit` | |
+| 8 | [Directions UX: step-click map blank + delete recent](chunk-8-directions-ux.md) | done | 2e5473c |
+| 9 | [Style polish: route shields, stream labels, road hierarchy](chunk-9-style-polish.md) | done | 2e5473c |
+| 10 | [POI icon sprite + click-to-popup PlaceDetailsCard](chunk-10-poi-icons-popup.md) | done | 2e5473c |
+| 11 | [Dark theme tuning + light theme + system-theme toggle](chunk-11-theme-tuning.md) | done | 2e5473c |
 | 12 | [Serve nested static dirs (`/sprites`) from FastAPI](chunk-12-serve-nested-static.md) | done | 1ae3c1e |
 | 13 | [Install Noto Sans Bold + Italic glyph stacks](chunk-13-glyphs-bold-italic.md) | done | 6849cc3 |
 | 14 | [Map theme follows site ThemeProvider by default](chunk-14-map-theme-follow-site.md) | done | d751a58 |
@@ -184,6 +184,12 @@ feature for the POI keys (`office`, `amenity`, `building+name`,
   and there's no light-mode toggle (chunk 11). All four were
   triaged from a side-by-side LokiDoki vs Google Maps screenshot
   comparison of 150 Stiles St, Milford CT.
+- 2026-04-20 — TS blocker resolved: `frontend/tsconfig.json` now sets
+  `"ignoreDeprecations": "6.0"`, so `npx tsc --noEmit` exits cleanly.
+  Chunks 8–11 all shipped their implementation under `2e5473c`
+  (plus follow-up polish in `22573cb`, `44526c3`, `3f6274d`,
+  `c1e536c`). Per-chunk `## Verify` commands pass locally; status
+  rows flipped to `done` referencing `2e5473c`.
 - 2026-04-19 — Post-8–11 browser QA on `./run.sh` build surfaced
   cross-cutting failures that unit tests didn't catch, driving the
   chunks 12–16 addendum. Root causes, each its own chunk:

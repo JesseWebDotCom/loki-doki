@@ -15,7 +15,7 @@ import { poiCategoryIconId } from './poi-icons';
 
 export interface PoiHoverPreviewProps {
   name: string;
-  subtitle?: string;
+  categoryLabel?: string;
   addressLines?: string[];
   category?: string;
   screenX: number;
@@ -28,7 +28,7 @@ export interface PoiHoverPreviewProps {
 
 const PoiHoverPreview: React.FC<PoiHoverPreviewProps> = ({
   name,
-  subtitle,
+  categoryLabel,
   addressLines,
   category,
   screenX,
@@ -39,7 +39,7 @@ const PoiHoverPreview: React.FC<PoiHoverPreviewProps> = ({
   onMouseLeave,
 }) => {
   const iconId = poiCategoryIconId(category);
-  const detailLines = addressLines?.filter(Boolean) ?? [];
+  const visibleAddressLines = addressLines?.filter(Boolean) ?? [];
   return (
     <div
       role="dialog"
@@ -79,19 +79,20 @@ const PoiHoverPreview: React.FC<PoiHoverPreviewProps> = ({
           <div className="truncate text-sm font-semibold tracking-tight text-foreground">
             {name}
           </div>
-          {detailLines.length > 0 ? (
+          {categoryLabel ? (
+            <div className="mt-0.5 text-[11px] font-medium leading-snug text-foreground/80">
+              {categoryLabel}
+            </div>
+          ) : null}
+          {visibleAddressLines.length > 0 ? (
             <div className="mt-0.5 space-y-0.5 text-[11px] leading-snug text-muted-foreground">
-              {detailLines.map((line) => (
-                <div key={line} className="line-clamp-1">
+              {visibleAddressLines.map((line) => (
+                <div key={line}>
                   {line}
                 </div>
               ))}
             </div>
-          ) : subtitle && (
-            <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
-              {subtitle}
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
 

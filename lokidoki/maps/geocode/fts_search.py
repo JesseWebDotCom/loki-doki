@@ -162,6 +162,17 @@ def _bbox_for_radius(lat: float, lon: float, radius_km: float) -> tuple[float, f
     return (lat - lat_delta, lat + lat_delta, lon - lon_delta, lon + lon_delta)
 
 
+def _nearest_rank(klass: str, distance_km: float) -> tuple[int, float]:
+    """Rank reverse-geocode candidates by usefulness, then distance."""
+    if klass == "address":
+        return (3, -distance_km)
+    if klass.startswith("poi:"):
+        return (2, -distance_km)
+    if klass == "postcode":
+        return (1, -distance_km)
+    return (0, -distance_km)
+
+
 def _search_region_sync(
     db_path: Path,
     region_id: str,
@@ -216,11 +227,15 @@ def _nearest_region_sync(
             (min_lat, max_lat, min_lon, max_lon),
         )
         nearest: GeocodeResult | None = None
-        nearest_distance = max_radius_km
+        nearest_rank: tuple[int, float] | None = None
         for row in cur.fetchall():
+            klass = str(row[9] or "")
             candidate = _row_to_result(row, region_id, viewport=None)
             distance = haversine_km((lat, lon), (candidate.lat, candidate.lon))
-            if distance > max_radius_km or distance >= nearest_distance:
+            if distance > max_radius_km:
+                continue
+            candidate_rank = _nearest_rank(klass, distance)
+            if nearest_rank is not None and candidate_rank <= nearest_rank:
                 continue
             nearest = GeocodeResult(
                 place_id=candidate.place_id,
@@ -232,7 +247,7 @@ def _nearest_region_sync(
                 source=candidate.source,
                 score=-distance,
             )
-            nearest_distance = distance
+            nearest_rank = candidate_rank
         return nearest
     except sqlite3.OperationalError as exc:
         log.warning("Nearest FTS query failed for %s: %s", region_id, exc)

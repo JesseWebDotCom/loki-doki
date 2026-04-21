@@ -182,11 +182,3 @@ Refs docs/roadmap/geocode-coverage/PLAN.md chunk 10.
 ## Deferrals
 
 (Empty.)
-
-## Blocker
-
-- 2026-04-19 — The chunk-local pytest, vitest, and sprite checks pass,
-  but the required `cd frontend && npx tsc --noEmit` step fails before
-  chunk completion because `frontend/tsconfig.json` still carries the
-  repo-wide TS5101 `baseUrl` deprecation warning. This is the same
-  blocker already recorded on chunks 8 and 9.

@@ -27,7 +27,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
 
 log = logging.getLogger(__name__)
 
@@ -467,10 +467,3 @@ __all__ = [
     "_flush",
     "_open_db",
 ]
-
-
-# Small re-export so tests can spin through the streamer without
-# having to know the pyosmium-specific signature.
-def _iter_entities(pbf_path: Path) -> Iterable:
-    import osmium
-    yield from osmium.FileProcessor(str(pbf_path)).with_locations()

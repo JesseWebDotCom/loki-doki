@@ -31,6 +31,7 @@ import { Link } from 'react-router-dom';
 import { type LayerMode } from './maps/style-dark';
 import { buildStyle } from './maps/style-factory';
 import LayerModeChip from './maps/LayerModeChip';
+import { installMissingImageLoader } from './maps/missing-image-loader';
 import {
   fetchInstalledRegions,
   resolveTileSource,
@@ -127,6 +128,9 @@ type MapFeatureProperties = Record<string, unknown> & {
   housenumber?: string;
   ['addr:street']?: string;
   ['addr:housenumber']?: string;
+  ['addr:city']?: string;
+  ['addr:state']?: string;
+  ['addr:postcode']?: string;
   city?: string;
   state?: string;
   postcode?: string;
@@ -150,9 +154,10 @@ function addressLinesFromProps(props: MapFeatureProperties): string[] {
   const number = asString(props.housenumber) || asString(props['addr:housenumber']);
   const street = asString(props.street) || asString(props['addr:street']);
   const address = [number, street].filter(Boolean).join(' ').trim();
-  const locality = [asString(props.city), asString(props.state), asString(props.postcode)]
-    .filter(Boolean)
-    .join(', ');
+  const city = asString(props.city) || asString(props['addr:city']);
+  const state = asString(props.state) || asString(props['addr:state']);
+  const postcode = asString(props.postcode) || asString(props['addr:postcode']);
+  const locality = [city, [state, postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   return [address, locality].filter(Boolean);
 }
 
@@ -162,6 +167,41 @@ function titleFromProps(props: MapFeatureProperties): string {
 
 function categoryFromProps(props: MapFeatureProperties): string | undefined {
   return asString(props.subclass) || asString(props.class) || undefined;
+}
+
+function normalizeLabel(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+}
+
+function isMachineRegionCode(value: string): boolean {
+  return /^[a-z]{2}(?:-[a-z]{2,})+$/i.test(value.trim());
+}
+
+function uniqueUsefulLines(name: string, lines: string[]): string[] {
+  const seen = new Set<string>([normalizeLabel(name)]);
+  const cleaned: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || isMachineRegionCode(line)) continue;
+    const normalized = normalizeLabel(line);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    cleaned.push(line);
+  }
+  return cleaned;
+}
+
+function buildHoverAddressLines(name: string, addressLines: string[]): string[] {
+  return uniqueUsefulLines(name, addressLines).slice(0, 2);
+}
+
+function hoverCategoryLabel(category: string | undefined, subtitle?: string): string {
+  const formattedCategory = formatPoiCategoryLabel(category);
+  if (formattedCategory) {
+    return formattedCategory;
+  }
+  const fallback = uniqueUsefulLines('', [subtitle ?? ''])[0];
+  return fallback ?? '';
 }
 
 async function reverseGeocode(lat: number, lon: number): Promise<PlaceResult | null> {
@@ -227,7 +267,7 @@ const MapsPage: React.FC = () => {
 
   const [hoverTarget, setHoverTarget] = useState<{
     name: string;
-    subtitle: string;
+    categoryLabel: string;
     addressLines: string[];
     category?: string;
     lat: number;
@@ -235,6 +275,8 @@ const MapsPage: React.FC = () => {
     screenX: number;
     screenY: number;
   } | null>(null);
+  const hoverReverseCacheRef = useRef<Map<string, PlaceResult | null>>(new Map());
+  const hoverRequestIdRef = useRef(0);
   // Grace timer so cursor can cross the gap from POI icon into the
   // hover card without the card collapsing under it.
   const hoverDismissTimer = useRef<number | null>(null);
@@ -328,29 +370,9 @@ const MapsPage: React.FC = () => {
 
     // Defensive sprite fallback: if MapLibre asks for an icon the
     // current sprite atlas doesn't know about, fetch the matching
-    // SVG and register it by hand. Covers the edge cases where
-    // setStyle diff'ing skips a sprite refresh or the sprite request
-    // lands after the first render pass.
-    const loadedIcons = new Set<string>();
-    map.on('styleimagemissing', (event: { id?: string } & Record<string, unknown>) => {
-      const id = event.id;
-      if (!id || loadedIcons.has(id)) return;
-      loadedIcons.add(id);
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        if (!map || !map.getStyle()) return;
-        try {
-          if (!map.hasImage(id)) {
-            map.addImage(id, img, { sdf: !id.startsWith('shield_') });
-          }
-        } catch {
-          /* style may have swapped under us */
-        }
-      };
-      img.onerror = () => { loadedIcons.delete(id); };
-      img.src = `/sprites/source/${id}.svg`;
-    });
+    // SVG and register it by hand. Keep the guard scoped to in-flight
+    // loads only so style swaps can re-register the same ids.
+    const removeMissingImageLoader = installMissingImageLoader(map);
 
     map.on('moveend', () => {
       const c = map.getCenter();
@@ -436,6 +458,7 @@ const MapsPage: React.FC = () => {
       cancelled = true;
       ro?.disconnect();
       removeCtxListeners?.();
+      removeMissingImageLoader();
       markerRef.current?.remove();
       markerRef.current = null;
       hoverMarkerRef.current?.remove();
@@ -541,6 +564,40 @@ const MapsPage: React.FC = () => {
     }
   }, []);
 
+  const hydrateHoverAddress = useCallback(
+    async (name: string, lat: number, lon: number, requestId: number) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      const cacheKey = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+      let place = hoverReverseCacheRef.current.get(cacheKey);
+      if (place === undefined) {
+        try {
+          place = await reverseGeocode(lat, lon);
+        } catch {
+          place = null;
+        }
+        hoverReverseCacheRef.current.set(cacheKey, place);
+      }
+      if (!place?.address_lines.length) return;
+      setHoverTarget((current) => {
+        if (!current) return current;
+        if (hoverRequestIdRef.current !== requestId) return current;
+        if (current.name !== name || current.lat !== lat || current.lon !== lon) {
+          return current;
+        }
+        const addressLines = buildHoverAddressLines(name, place.address_lines);
+        if (addressLines.length === 0) return current;
+        if (JSON.stringify(current.addressLines) === JSON.stringify(addressLines)) {
+          return current;
+        }
+        return {
+          ...current,
+          addressLines,
+        };
+      });
+    },
+    [],
+  );
+
   const handleSelectRecent = useCallback((place: PlaceResult) => {
     pinAndFly(place);
     setSelectedPlace(place);
@@ -628,16 +685,23 @@ const MapsPage: React.FC = () => {
         setHoverTarget(null);
         return;
       }
-      setHoverTarget({
+      const category = categoryFromProps(props);
+      const nextTarget = {
         name,
-        subtitle: subtitleFromProps(props),
-        addressLines: addressLinesFromProps(props),
-        category: categoryFromProps(props),
+        categoryLabel: hoverCategoryLabel(category, subtitleFromProps(props)),
+        addressLines: buildHoverAddressLines(name, addressLinesFromProps(props)),
+        category,
         lat,
         lon: lng,
         screenX: x,
         screenY: y,
-      });
+      };
+      const requestId = hoverRequestIdRef.current + 1;
+      hoverRequestIdRef.current = requestId;
+      setHoverTarget(nextTarget);
+      if (nextTarget.addressLines.length === 0) {
+        void hydrateHoverAddress(name, lat, lng, requestId);
+      }
     };
 
     const handleMove = (event: unknown) => {
@@ -664,6 +728,7 @@ const MapsPage: React.FC = () => {
     };
 
     const handleLeave = () => {
+      hoverRequestIdRef.current += 1;
       pending = null;
       if (rafId !== null) {
         if (typeof cancelAnimationFrame === 'function') {
@@ -692,7 +757,7 @@ const MapsPage: React.FC = () => {
       }
       cancelHoverDismiss();
     };
-  }, [cancelHoverDismiss, mapReady, scheduleHoverDismiss]);
+  }, [cancelHoverDismiss, hydrateHoverAddress, mapReady, scheduleHoverDismiss]);
 
   const handleRoutesChanged = useCallback(
     (alts: RouteAlt[], selectedIdx: number) => {
@@ -869,7 +934,7 @@ const MapsPage: React.FC = () => {
           {hoverTarget && (
             <PoiHoverPreview
               name={hoverTarget.name}
-              subtitle={hoverTarget.subtitle}
+              categoryLabel={hoverTarget.categoryLabel}
               addressLines={hoverTarget.addressLines}
               category={hoverTarget.category}
               screenX={hoverTarget.screenX}
@@ -880,7 +945,7 @@ const MapsPage: React.FC = () => {
                 const place: PlaceResult = {
                   place_id: `poi:${hoverTarget.lat.toFixed(5)},${hoverTarget.lon.toFixed(5)}`,
                   title: hoverTarget.name,
-                  subtitle: hoverTarget.subtitle,
+                  subtitle: hoverTarget.categoryLabel,
                   address_lines: hoverTarget.addressLines,
                   lat: hoverTarget.lat,
                   lon: hoverTarget.lon,
@@ -893,7 +958,8 @@ const MapsPage: React.FC = () => {
               onShare={() => {
                 const text = [
                   hoverTarget.name,
-                  hoverTarget.subtitle,
+                  hoverTarget.categoryLabel,
+                  ...hoverTarget.addressLines,
                   `${hoverTarget.lat.toFixed(5)}, ${hoverTarget.lon.toFixed(5)}`,
                 ].filter(Boolean).join(' — ');
                 void navigator.clipboard?.writeText(text).catch(() => {});

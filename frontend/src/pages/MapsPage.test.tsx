@@ -274,8 +274,11 @@ describe('MapsPage', () => {
             name: 'Cafe Picolo',
             class: 'cafe',
             subclass: 'cafe',
-            city: 'Milford',
-            state: 'CT',
+            'addr:housenumber': '989',
+            'addr:street': 'Boston Post Rd',
+            'addr:city': 'Milford',
+            'addr:state': 'CT',
+            'addr:postcode': '06460',
           },
         },
       ],
@@ -287,7 +290,9 @@ describe('MapsPage', () => {
       expect(screen.getByTestId('poi-hover-preview')).toBeTruthy();
     });
     expect(screen.getByText('Cafe Picolo')).toBeTruthy();
-    expect(screen.getByText('Milford, CT')).toBeTruthy();
+    expect(screen.getByText('Cafe')).toBeTruthy();
+    expect(screen.getByText('989 Boston Post Rd')).toBeTruthy();
+    expect(screen.getByText('Milford, CT 06460')).toBeTruthy();
     expect(canvasStyle.cursor).toBe('pointer');
 
     const leaveHandler = mapHandlers.get('mouseleave:poi_icon')?.[0];
@@ -297,5 +302,128 @@ describe('MapsPage', () => {
       expect(screen.queryByTestId('poi-hover-preview')).toBeNull();
     });
     expect(canvasStyle.cursor).toBe('');
+  });
+
+  it('backfills the hover preview with reverse-geocoded address lines when the POI lacks them', async () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      (cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      },
+    );
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          place_id: 'rev-1',
+          title: '194 Amity Rd',
+          subtitle: 'Bethany, CT 06524',
+          lat: 41.4216,
+          lon: -72.9971,
+          source: 'reverse',
+        }),
+      })),
+    );
+
+    render(
+      <MemoryRouter>
+        <MapsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mapHandlers.get('mousemove:poi_icon')?.length).toBeGreaterThan(0);
+    });
+
+    const moveHandler = mapHandlers.get('mousemove:poi_icon')?.[0];
+    await moveHandler?.({
+      features: [
+        {
+          properties: {
+            name: 'Family Dental Care',
+            class: 'clinic',
+            subclass: 'dentist',
+          },
+        },
+      ],
+      originalEvent: { clientX: 220, clientY: 140 },
+      point: { x: 220, y: 140 },
+      lngLat: { lng: -72.9971, lat: 41.4216 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('194 Amity Rd')).toBeTruthy();
+    });
+    expect(screen.getByText('Dentist')).toBeTruthy();
+    expect(screen.getByText('Bethany, CT 06524')).toBeTruthy();
+  });
+
+  it('falls back to the category when reverse geocode only returns a duplicate POI name and region code', async () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      (cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      },
+    );
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          place_id: 'rev-2',
+          title: 'Foodland',
+          subtitle: 'us-ct',
+          lat: 41.2317,
+          lon: -73.0457,
+          source: 'reverse',
+        }),
+      })),
+    );
+
+    render(
+      <MemoryRouter>
+        <MapsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mapHandlers.get('mousemove:poi_icon')?.length).toBeGreaterThan(0);
+    });
+
+    const moveHandler = mapHandlers.get('mousemove:poi_icon')?.[0];
+    await moveHandler?.({
+      features: [
+        {
+          properties: {
+            name: 'Foodland',
+            class: 'grocery',
+          },
+        },
+      ],
+      originalEvent: { clientX: 240, clientY: 160 },
+      point: { x: 240, y: 160 },
+      lngLat: { lng: -73.0457, lat: 41.2317 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Grocery')).toBeTruthy();
+    });
+    expect(screen.queryByText('us-ct')).toBeNull();
+    expect(screen.getAllByText('Foodland')).toHaveLength(1);
   });
 });

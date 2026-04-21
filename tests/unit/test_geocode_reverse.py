@@ -40,6 +40,14 @@ def reverse_region_db(tmp_path: Path) -> Path:
                 "addr:postcode": "06880",
             },
         ),
+        osmium.osm.mutable.Node(
+            id=102,
+            location=(-73.36440, 41.11870),
+            tags={
+                "name": "Bridgewater Associates",
+                "office": "company",
+            },
+        ),
     ])
     _emit(ny_pbf, [
         osmium.osm.mutable.Node(
@@ -71,6 +79,22 @@ async def test_nearest_returns_exact_coord_hit(reverse_region_db: Path, tmp_path
     assert hit is not None
     assert hit.place_id.startswith("us-ct:osm:")
     assert hit.title == "500 Nyala Farms Road"
+
+
+@pytest.mark.anyio
+async def test_nearest_prefers_address_over_poi_at_same_coord(
+    reverse_region_db: Path,
+    tmp_path: Path,
+):
+    hit = await nearest(
+        41.11870,
+        -73.36440,
+        ["us-ct"],
+        data_root=tmp_path,
+    )
+    assert hit is not None
+    assert hit.title == "500 Nyala Farms Road"
+    assert "Bridgewater Associates" not in hit.title
 
 
 @pytest.mark.anyio

@@ -143,6 +143,17 @@ describe('buildDarkStyle', () => {
     expect((hn as { minzoom?: number }).minzoom ?? 0).toBeGreaterThanOrEqual(16);
   });
 
+  it('keeps housenumbers below POI badges and icons so addresses do not replace marker glyphs', () => {
+    const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
+    const ids = style.layers.map((layer) => layer.id);
+    const housenumberIdx = ids.indexOf('housenumber');
+    const poiBadgeIdx = ids.indexOf('poi_badge');
+    const poiIconIdx = ids.indexOf('poi_icon');
+    expect(housenumberIdx).toBeGreaterThan(-1);
+    expect(poiBadgeIdx).toBeGreaterThan(housenumberIdx);
+    expect(poiIconIdx).toBeGreaterThan(housenumberIdx);
+  });
+
   it('renders POIs with a badge container plus grouped icon + label', () => {
     const style = buildDarkStyle(TILE_URL, OVERVIEW_URL, LABELS_URL);
     const poiBadge = style.layers.find((l) => l.id === 'poi_badge') as
@@ -167,6 +178,9 @@ describe('buildDarkStyle', () => {
     // Icons must always paint even when a road label crosses them.
     expect(poiIcon?.layout['icon-allow-overlap']).toBe(true);
     expect(poiIcon?.layout['icon-ignore-placement']).toBe(true);
+    // Keep POI names visible at close zoom instead of dropping them
+    // during collision resolution when nearby labels densify.
+    expect(poiIcon?.layout['text-allow-overlap']).toBe(true);
     // Only named POIs render — unnamed clutter is hidden.
     expect(JSON.stringify(poiIcon?.filter)).toContain('name');
   });

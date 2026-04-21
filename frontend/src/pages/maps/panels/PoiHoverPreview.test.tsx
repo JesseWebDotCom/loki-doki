@@ -7,11 +7,12 @@ describe('PoiHoverPreview', () => {
     cleanup();
   });
 
-  it('renders the name and subtitle at the given screen coords', () => {
+  it('renders the name and detail lines at the given screen coords', () => {
     render(
       <PoiHoverPreview
         name="Bridgewater Associates"
-        subtitle="One Nyala Farms Rd, Westport, CT"
+        categoryLabel="Office"
+        addressLines={['One Nyala Farms Rd, Westport, CT']}
         category="office"
         screenX={120}
         screenY={48}
@@ -19,6 +20,7 @@ describe('PoiHoverPreview', () => {
     );
 
     expect(screen.getByText('Bridgewater Associates')).toBeTruthy();
+    expect(screen.getByText('Office')).toBeTruthy();
     expect(
       screen.getByText('One Nyala Farms Rd, Westport, CT'),
     ).toBeTruthy();
@@ -67,7 +69,7 @@ describe('PoiHoverPreview', () => {
     render(
       <PoiHoverPreview
         name="CVS Pharmacy"
-        subtitle="Milford, CT"
+        categoryLabel="Pharmacy"
         addressLines={['989 Boston Post Rd', 'Milford, CT 06460']}
         category="pharmacy"
         screenX={0}
@@ -75,6 +77,7 @@ describe('PoiHoverPreview', () => {
       />,
     );
 
+    expect(screen.getByText('Pharmacy')).toBeTruthy();
     expect(screen.getByText('989 Boston Post Rd')).toBeTruthy();
     expect(screen.getByText('Milford, CT 06460')).toBeTruthy();
   });
@@ -85,7 +88,8 @@ describe('PoiHoverPreview', () => {
     render(
       <PoiHoverPreview
         name="CVS Pharmacy"
-        subtitle="989 Boston Post Rd, Milford, CT"
+        categoryLabel="Pharmacy"
+        addressLines={['989 Boston Post Rd', 'Milford, CT 06460']}
         category="pharmacy"
         screenX={0}
         screenY={0}
@@ -110,5 +114,20 @@ describe('PoiHoverPreview', () => {
       />,
     );
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('renders only the business name when no detail lines exist', () => {
+    render(
+      <PoiHoverPreview
+        name="Quiet Spot"
+        categoryLabel="Park"
+        screenX={0}
+        screenY={0}
+      />,
+    );
+
+    expect(screen.getByText('Quiet Spot')).toBeTruthy();
+    expect(screen.getByText('Park')).toBeTruthy();
+    expect(screen.queryByText(/westport|milford|address/i)).toBeNull();
   });
 });

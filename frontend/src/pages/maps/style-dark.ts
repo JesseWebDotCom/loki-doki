@@ -959,6 +959,27 @@ const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
       'text-halo-width': 1,
     },
   },
+  // House numbers — only at the very closest zooms. Overzoom from z14
+  // data is fine here since numbers don't need sub-tile detail. Keep
+  // them below POI badges/icons so an address number never replaces
+  // the business glyph at the same coordinate.
+  {
+    id: 'housenumber',
+    type: 'symbol',
+    source: 'protomaps',
+    'source-layer': 'housenumber',
+    minzoom: 17,
+    layout: {
+      'text-field': ['get', 'housenumber'],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 17, 11, 20, 14],
+    },
+    paint: {
+      'text-color': p.housenumber,
+      'text-halo-color': p.place_label_halo,
+      'text-halo-width': 0.8,
+    },
+  },
   // Badge container behind the POI icon so businesses read as a marker
   // first and a label second, closer to Tesla / in-car nav styling.
   {
@@ -1006,6 +1027,7 @@ const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
       'text-offset': [1.15, 0],
       'text-anchor': 'left',
       'text-max-width': 9,
+      'text-allow-overlap': true,
       'text-optional': true,
       'text-padding': 4,
     },
@@ -1016,25 +1038,6 @@ const water_and_poi_labels = (p: Palette): maplibregl.LayerSpecification[] => [
       'text-color': poiMatchExpression(POI_COLOR_BY_KEY, POI_COLORS.default),
       'text-halo-color': p.place_label_halo,
       'text-halo-width': 2.1,
-    },
-  },
-  // House numbers — only at the very closest zooms. Overzoom from z14
-  // data is fine here since numbers don't need sub-tile detail.
-  {
-    id: 'housenumber',
-    type: 'symbol',
-    source: 'protomaps',
-    'source-layer': 'housenumber',
-    minzoom: 17,
-    layout: {
-      'text-field': ['get', 'housenumber'],
-      'text-font': ['Noto Sans Regular'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 17, 11, 20, 14],
-    },
-    paint: {
-      'text-color': p.housenumber,
-      'text-halo-color': p.place_label_halo,
-      'text-halo-width': 0.8,
     },
   },
 ];

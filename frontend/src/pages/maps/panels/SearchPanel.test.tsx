@@ -11,27 +11,23 @@ import SearchPanel from './SearchPanel';
 import type { PlaceResult } from '../types';
 
 const nominatimHit = {
-  place_id: 101,
-  display_name: '10 Main St, Hartford, CT, United States',
-  lat: '41.76',
-  lon: '-72.67',
-  type: 'house',
-  class: 'building',
-  address: {
-    house_number: '10',
-    road: 'Main St',
-    city: 'Hartford',
-    state: 'CT',
-    country: 'United States',
-    postcode: '06103',
-  },
+  place_id: '101',
+  title: '10 Main St',
+  subtitle: 'Hartford, CT, 06103',
+  lat: 41.76,
+  lon: -72.67,
+  bbox: null,
+  source: 'fts' as const,
 };
 
 const nominatimHit2 = {
-  ...nominatimHit,
-  place_id: 102,
-  display_name: '22 Elm St, Hartford, CT, United States',
-  address: { ...nominatimHit.address, house_number: '22', road: 'Elm St' },
+  place_id: '102',
+  title: '22 Elm St',
+  subtitle: 'Hartford, CT, 06103',
+  lat: 41.77,
+  lon: -72.68,
+  bbox: null,
+  source: 'fts' as const,
 };
 
 function mockFetchWith(results: unknown[]): void {
@@ -39,10 +35,10 @@ function mockFetchWith(results: unknown[]): void {
     'fetch',
     vi.fn(() =>
       Promise.resolve(
-        new Response(JSON.stringify(results), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({ results, fallback_used: false, offline: false }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
       ),
     ),
   );
