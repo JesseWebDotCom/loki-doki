@@ -39,7 +39,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 4 | [Retrofit media/media-heavy skills via adapters](chunk-4-adapters-media.md) | done | 6f7bde5 |
 | 5 | [Adapter cutover — remove legacy shape handling](chunk-5-adapter-cutover.md) | done | 8a92e73 |
 | 6 | [`ResponseEnvelope` + `Block` dataclasses (backend types)](chunk-6-envelope-types.md) | done | e9d22e3 |
-| 7 | [Wire envelope through synthesis + persist snapshot](chunk-7-envelope-wire.md) | pending | |
+| 7 | [Wire envelope through synthesis + persist snapshot](chunk-7-envelope-wire.md) | done | 29f2658 |
 | 8 | [Frontend block registry + summary/sources/media renderers](chunk-8-block-registry-frontend.md) | pending | |
 | 9 | [Emit `response_*` / `block_*` SSE events](chunk-9-response-events.md) | pending | |
 | 10 | [Frontend consumes new events + progressive rendering + history replay](chunk-10-progressive-rendering.md) | pending | |
