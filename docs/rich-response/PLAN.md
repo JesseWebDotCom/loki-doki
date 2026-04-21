@@ -37,7 +37,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 2 | [Retrofit simple skills via adapters](chunk-2-adapters-simple.md) | done | f0db1ad (bundled) |
 | 3 | [Retrofit sourced skills via adapters](chunk-3-adapters-sourced.md) | done | f0db1ad (bundled) |
 | 4 | [Retrofit media/media-heavy skills via adapters](chunk-4-adapters-media.md) | done | 6f7bde5 |
-| 5 | [Adapter cutover — remove legacy shape handling](chunk-5-adapter-cutover.md) | pending | |
+| 5 | [Adapter cutover — remove legacy shape handling](chunk-5-adapter-cutover.md) | done | 8a92e73 |
 | 6 | [`ResponseEnvelope` + `Block` dataclasses (backend types)](chunk-6-envelope-types.md) | pending | |
 | 7 | [Wire envelope through synthesis + persist snapshot](chunk-7-envelope-wire.md) | pending | |
 | 8 | [Frontend block registry + summary/sources/media renderers](chunk-8-block-registry-frontend.md) | pending | |
@@ -126,3 +126,4 @@ Do not rewrite prior entries. Do not delete blockers. Do not reorder.
 -->
 
 - 2026-04-21: Chunks 1–3 ran in a single codex session and landed as one combined commit (f0db1ad) instead of three. Going forward, one chunk per fresh session per commit. Resolver implementations don't carry `skill_id`, so chunks 1–3 introduced a `_HANDLER_TO_SKILL_ID` fallback map in `pipeline_phases.py`; fold this into chunk 5 (cutover). Recorded in chunk-3-adapters-sourced.md Deferrals.
+- 2026-04-21: Chunk 5 folded in the `_HANDLER_TO_SKILL_ID` deferral. `skill_id` now lives on the registry implementations for calculator / datetime_local / dictionary / unit_conversion / jokes / knowledge / search / news, so `ImplementationSelection.skill_id` drives adapter dispatch directly and the fallback map is retired. `_phase_synthesis` / `_phase_media_augmentation` test files were created from scratch (they didn't exist yet — chunk 5's doc assumed they did, mirroring chunks 1–3's phantom-file pattern).
