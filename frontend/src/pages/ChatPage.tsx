@@ -11,7 +11,8 @@ import ChatWindow from '../components/chat/ChatWindow';
 import ChatWelcomeView from '../components/chat/ChatWelcomeView';
 import ProjectLandingView from '../components/projects/ProjectLandingView';
 import ProjectModal from '../components/sidebar/ProjectModal';
-import SourcesPanel from '../components/chat/SourcesPanel';
+import SourceSurface from '../components/chat/SourceSurface';
+import type { StructuredSource } from '../components/chat/SourceCard';
 import {
   sendChatMessage,
   getSessionMessages,
@@ -113,7 +114,7 @@ export interface PipelineState {
 
 interface OpenSourcesState {
   title: string;
-  sources: SourceInfo[];
+  sources: StructuredSource[];
 }
 
 const INITIAL_PIPELINE: PipelineState = {
@@ -703,11 +704,24 @@ const ChatPage: React.FC = () => {
 
   const handleOpenSources = useCallback((messageIndex: number) => {
     const message = messages[messageIndex];
-    if (!message || message.role !== 'assistant' || !message.sources?.length) return;
+    if (!message || message.role !== 'assistant') return;
+    // Prefer the envelope's structured source_surface when present
+    // (chunk 11); fall back to the legacy ``message.sources`` column
+    // for pre-envelope rows + fast-lane turns.
+    const envelopeSources =
+      (message.envelope?.source_surface as StructuredSource[] | undefined) ?? undefined;
+    const fallbackSources: StructuredSource[] | undefined = message.sources?.map((s) => ({
+      title: s.title,
+      url: s.url,
+    }));
+    const sources = envelopeSources && envelopeSources.length > 0
+      ? envelopeSources
+      : fallbackSources ?? [];
+    if (sources.length === 0) return;
     const preview = message.content.replace(/\s+/g, ' ').trim();
     setOpenSources({
       title: preview.slice(0, 72) + (preview.length > 72 ? '…' : ''),
-      sources: message.sources,
+      sources,
     });
   }, [messages]);
 
@@ -817,11 +831,13 @@ const ChatPage: React.FC = () => {
 
         </div>
 
-        <SourcesPanel
+        <SourceSurface
           open={openSources !== null}
+          onOpenChange={(next) => {
+            if (!next) setOpenSources(null);
+          }}
           title={openSources?.title}
           sources={openSources?.sources ?? []}
-          onClose={() => setOpenSources(null)}
         />
       </main>
 

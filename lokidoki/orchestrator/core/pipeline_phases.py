@@ -53,7 +53,7 @@ from lokidoki.orchestrator.response import (
     validate_envelope,
 )
 from lokidoki.orchestrator.response import events as response_events
-from lokidoki.orchestrator.response.planner import plan_initial_blocks
+from lokidoki.orchestrator.response.planner import is_offline_degraded, plan_initial_blocks
 from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
 
@@ -651,6 +651,7 @@ def _build_envelope(
         blocks=blocks,
         source_surface=list(source_items),
         spoken_text=spoken_text,
+        offline_degraded=is_offline_degraded(executions),
     )
 
     try:

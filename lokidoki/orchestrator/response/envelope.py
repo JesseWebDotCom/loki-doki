@@ -92,6 +92,11 @@ class ResponseEnvelope:
     source_surface: list[dict[str, Any]] = field(default_factory=list)
     artifact_surface: dict[str, Any] | None = None
     spoken_text: str | None = None
+    # Chunk 11: true when at least one execution on this turn reported an
+    # "offline" failure reason (no network, DNS failure, external timeout
+    # against a URL). Drives the OfflineTrustChip in the UI so users know
+    # the answer came from local knowledge rather than live sources.
+    offline_degraded: bool = False
 
 
 def validate_envelope(envelope: ResponseEnvelope) -> None:

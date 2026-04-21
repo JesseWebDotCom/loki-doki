@@ -76,6 +76,9 @@ export interface ResponseEnvelope {
   source_surface: unknown[];
   artifact_surface?: Record<string, unknown>;
   spoken_text?: string;
+  /** Chunk 11: true when at least one execution on this turn reported
+   *  an offline failure. Drives ``OfflineTrustChip`` in ``MessageItem``. */
+  offline_degraded?: boolean;
 }
 
 /**
@@ -196,5 +199,6 @@ export function envelopeFromDict(
     source_surface: sourceSurface,
     artifact_surface: (data.artifact_surface as Record<string, unknown>) ?? undefined,
     spoken_text: (data.spoken_text as string | undefined) ?? undefined,
+    offline_degraded: Boolean(data.offline_degraded),
   };
 }

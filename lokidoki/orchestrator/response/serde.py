@@ -122,6 +122,8 @@ def envelope_to_dict(envelope: ResponseEnvelope) -> dict[str, Any]:
         data["artifact_surface"] = dict(envelope.artifact_surface)
     if envelope.spoken_text is not None:
         data["spoken_text"] = envelope.spoken_text
+    if envelope.offline_degraded:
+        data["offline_degraded"] = True
     return data
 
 
@@ -161,6 +163,7 @@ def envelope_from_dict(data: dict[str, Any]) -> ResponseEnvelope:
         source_surface=source_surface,
         artifact_surface=artifact_surface,
         spoken_text=data.get("spoken_text"),
+        offline_degraded=bool(data.get("offline_degraded", False)),
     )
 
 

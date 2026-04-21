@@ -36,11 +36,16 @@ export interface BlockContextValue {
   /** Whole-turn mentioned people — enables ``/people?focus=...`` chips
    *  inside the summary markdown. */
   mentionedPeople: MentionedPerson[];
+  /** Chunk 11: opens the ``SourceSurface`` drawer for the message.
+   *  ``SourcesBlock`` surfaces a "View all N sources" affordance when
+   *  this is provided and the list overflows the inline chip count. */
+  onOpenSources?: () => void;
 }
 
 const BlockContext = createContext<BlockContextValue>({
   sources: [],
   mentionedPeople: [],
+  onOpenSources: undefined,
 });
 
 interface BlockContextProviderProps extends BlockContextValue {
@@ -50,11 +55,12 @@ interface BlockContextProviderProps extends BlockContextValue {
 export const BlockContextProvider: React.FC<BlockContextProviderProps> = ({
   sources,
   mentionedPeople,
+  onOpenSources,
   children,
 }) => {
   return React.createElement(
     BlockContext.Provider,
-    { value: { sources, mentionedPeople } },
+    { value: { sources, mentionedPeople, onOpenSources } },
     children,
   );
 };

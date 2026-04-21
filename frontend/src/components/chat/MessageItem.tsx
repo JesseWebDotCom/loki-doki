@@ -19,6 +19,7 @@ import SourceChip from './SourceChip';
 import { getSourcePresentation } from './sourcePresentation';
 import FaviconImage from './FaviconImage';
 import PipelineInfoPopover from './PipelineInfoPopover';
+import OfflineTrustChip from './OfflineTrustChip';
 import { BlockContextProvider, renderBlock } from './blocks';
 
 interface MentionedPerson {
@@ -313,7 +314,12 @@ const MessageItem: React.FC<MessageProps> = ({
                 </div>
               )}
               <div data-testid="message-bubble" className="w-full text-foreground relative">
-                <BlockContextProvider sources={effectiveSources} mentionedPeople={mentionedPeople}>
+                {envelope?.offline_degraded ? <OfflineTrustChip /> : null}
+                <BlockContextProvider
+                  sources={effectiveSources}
+                  mentionedPeople={mentionedPeople}
+                  onOpenSources={onOpenSources}
+                >
                   {assistantBlocks.map((block) => renderBlock(block))}
                 </BlockContextProvider>
 
