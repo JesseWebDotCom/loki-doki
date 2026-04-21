@@ -2,7 +2,7 @@
 
 ## Goal
 
-Adapt the remaining eight skills — `movies_fandango`, `movies_tmdb`, `movies_wiki`, `recipes`, `tvshows`, `people_lookup`, `youtube`, plus any others present — so every skill in the codebase produces `AdapterOutput`. These are the media-heavy / multi-card skills, so they exercise the `media` and `artifact_candidates` fields. After this chunk, `resolve_adapter(skill_id)` returns a real adapter for every registered skill.
+Adapt the remaining skills — `movies_fandango`, `movies_tmdb`, `movies_wiki`, `recipes`, `tvshows`, `people_lookup`, `youtube`, `smarthome_mock`, plus any others present — so every skill in the codebase produces `AdapterOutput`. These are the media-heavy / multi-card skills, so they exercise the `media` and `artifact_candidates` fields. After this chunk, `resolve_adapter(skill_id)` returns a real adapter for every registered skill.
 
 ## Files
 
@@ -13,7 +13,8 @@ Adapt the remaining eight skills — `movies_fandango`, `movies_tmdb`, `movies_w
 - `lokidoki/orchestrator/adapters/tvshows.py` — new.
 - `lokidoki/orchestrator/adapters/people_lookup.py` — new.
 - `lokidoki/orchestrator/adapters/youtube.py` — new.
-- `lokidoki/orchestrator/adapters/__init__.py` — register the seven new adapters.
+- `lokidoki/orchestrator/adapters/smarthome_mock.py` — new (discovered during the skills-dir sweep this chunk requires).
+- `lokidoki/orchestrator/adapters/__init__.py` — register the eight new adapters.
 - `tests/unit/test_adapters_media.py` — new.
 
 Read-only: each skill's `skill.py`, `lokidoki/orchestrator/media/augmentor.py` (for the youtube media-card shape), prior adapters as reference.
