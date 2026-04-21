@@ -213,6 +213,62 @@ def _search_region_sync(
         conn.close()
 
 
+def _rtree_row_count(conn: sqlite3.Connection) -> int | None:
+    """Row count of ``places_rtree``, or None if the table does not exist."""
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM places_rtree").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return int(row[0]) if row else 0
+
+
+# Per-path memo so we only pay the backfill probe once per DB.
+_BACKFILLED_DBS: set[Path] = set()
+
+
+def _ensure_rtree(db_path: Path) -> None:
+    """Lazily materialise ``places_rtree`` for indexes built before the
+    R-Tree schema shipped. One-time write per region; subsequent opens
+    short-circuit via the module-level memo."""
+    if db_path in _BACKFILLED_DBS:
+        return
+    try:
+        conn = sqlite3.connect(str(db_path))
+    except sqlite3.Error:
+        return
+    try:
+        count = _rtree_row_count(conn)
+        places_count = conn.execute("SELECT COUNT(*) FROM places").fetchone()[0]
+        if count is None:
+            conn.execute(
+                "CREATE VIRTUAL TABLE places_rtree USING rtree("
+                "id, min_lat, max_lat, min_lon, max_lon)"
+            )
+            count = 0
+        if count < places_count:
+            conn.execute(
+                """
+                INSERT INTO places_rtree(id, min_lat, max_lat, min_lon, max_lon)
+                SELECT rowid, lat, lat, lon, lon FROM places
+                 WHERE rowid NOT IN (SELECT id FROM places_rtree)
+                """,
+            )
+            conn.commit()
+    except sqlite3.OperationalError as exc:
+        log.warning("R-Tree backfill failed for %s: %s", db_path, exc)
+    finally:
+        conn.close()
+    _BACKFILLED_DBS.add(db_path)
+
+
+def _has_rtree(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("SELECT 1 FROM places_rtree LIMIT 1").fetchone()
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
 def _nearest_region_sync(
     db_path: Path,
     region_id: str,
@@ -222,20 +278,37 @@ def _nearest_region_sync(
 ) -> GeocodeResult | None:
     if not db_path.exists():
         return None
+    _ensure_rtree(db_path)
     min_lat, max_lat, min_lon, max_lon = _bbox_for_radius(lat, lon, max_radius_km)
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA query_only = 1")
     try:
-        cur = conn.execute(
-            """
-            SELECT osm_id, name, housenumber, street, city,
-                   postcode, admin1, lat, lon, class, 0.0
-              FROM places
-             WHERE lat BETWEEN ? AND ?
-               AND lon BETWEEN ? AND ?
-            """,
-            (min_lat, max_lat, min_lon, max_lon),
-        )
+        # R-Tree companion turns an O(n) bbox scan into an O(log n)
+        # spatial lookup. Older indexes (built before the rtree
+        # schema landed) fall back to the linear scan.
+        if _has_rtree(conn):
+            cur = conn.execute(
+                """
+                SELECT p.osm_id, p.name, p.housenumber, p.street, p.city,
+                       p.postcode, p.admin1, p.lat, p.lon, p.class, 0.0
+                  FROM places_rtree AS r
+                  JOIN places AS p ON p.rowid = r.id
+                 WHERE r.min_lat <= ? AND r.max_lat >= ?
+                   AND r.min_lon <= ? AND r.max_lon >= ?
+                """,
+                (max_lat, min_lat, max_lon, min_lon),
+            )
+        else:
+            cur = conn.execute(
+                """
+                SELECT osm_id, name, housenumber, street, city,
+                       postcode, admin1, lat, lon, class, 0.0
+                  FROM places
+                 WHERE lat BETWEEN ? AND ?
+                   AND lon BETWEEN ? AND ?
+                """,
+                (min_lat, max_lat, min_lon, max_lon),
+            )
         nearest: GeocodeResult | None = None
         nearest_rank: tuple[int, float] | None = None
         for row in cur.fetchall():

@@ -73,6 +73,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS places USING fts5(
     class UNINDEXED,
     tokenize = "unicode61 remove_diacritics 2"
 );
+
+-- Spatial companion: FTS5 doesn't index numeric columns, so bbox
+-- scans (reverse-geocode, viewport filter) would otherwise walk every
+-- row in the index. The R-Tree gives us O(log n) candidates for a
+-- point-in-radius query. Populated in bulk at the end of build_index.
+CREATE VIRTUAL TABLE IF NOT EXISTS places_rtree USING rtree(
+    id,
+    min_lat, max_lat,
+    min_lon, max_lon
+);
 """
 
 
@@ -397,6 +407,18 @@ def build_index(
                     progress_cb(stats.total, "indexing")
 
         _flush(conn, region_id, batch)
+
+        # Populate the R-Tree companion in one shot at the end of the
+        # build — cheap, and skipping per-batch inserts keeps the hot
+        # loop focused on FTS ingestion.
+        conn.execute(
+            """
+            INSERT INTO places_rtree(id, min_lat, max_lat, min_lon, max_lon)
+            SELECT rowid, lat, lat, lon, lon FROM places
+            """,
+        )
+        conn.commit()
+
         if progress_cb:
             progress_cb(stats.total, "ready")
 

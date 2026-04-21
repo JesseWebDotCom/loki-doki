@@ -109,6 +109,93 @@ async def test_nearest_returns_none_outside_radius(reverse_region_db: Path, tmp_
 
 
 @pytest.mark.anyio
+async def test_nearest_uses_rtree_when_present(tmp_path: Path):
+    """Nearest queries must hit the R-Tree on fresh indexes — a regression
+    here would re-introduce the 1–2 s hover delay against a million-row
+    state index."""
+    import sqlite3
+
+    pbf = tmp_path / "rtree.osm.pbf"
+    if pbf.exists():
+        pbf.unlink()
+    writer = osmium.SimpleWriter(str(pbf), overwrite=True)
+    writer.add_node(osmium.osm.mutable.Node(
+        id=1,
+        location=(-73.0690, 41.2430),
+        tags={
+            "addr:housenumber": "150",
+            "addr:street": "Stiles St",
+            "addr:city": "Milford",
+            "addr:state": "CT",
+            "addr:postcode": "06460",
+        },
+    ))
+    writer.close()
+    db = region_db_path(tmp_path, "us-ct")
+    build_index(pbf, db, "us-ct")
+
+    conn = sqlite3.connect(str(db))
+    try:
+        rtree_rows = conn.execute("SELECT COUNT(*) FROM places_rtree").fetchone()[0]
+    finally:
+        conn.close()
+    assert rtree_rows == 1, "build_index must populate places_rtree"
+
+    hit = await nearest(41.2430, -73.0690, ["us-ct"], data_root=tmp_path)
+    assert hit is not None
+    assert hit.title == "150 Stiles St"
+
+
+@pytest.mark.anyio
+async def test_nearest_backfills_rtree_for_legacy_indexes(tmp_path: Path):
+    """Upgrading users have .sqlite files from before the rtree schema.
+    The first query must lazily re-create + populate the rtree so
+    subsequent calls hit the fast path."""
+    import sqlite3
+
+    from lokidoki.maps.geocode import fts_search
+
+    pbf = tmp_path / "legacy.osm.pbf"
+    if pbf.exists():
+        pbf.unlink()
+    writer = osmium.SimpleWriter(str(pbf), overwrite=True)
+    writer.add_node(osmium.osm.mutable.Node(
+        id=1,
+        location=(-73.0690, 41.2430),
+        tags={
+            "addr:housenumber": "150",
+            "addr:street": "Stiles St",
+            "addr:city": "Milford",
+            "addr:state": "CT",
+            "addr:postcode": "06460",
+        },
+    ))
+    writer.close()
+    db = region_db_path(tmp_path, "us-ct")
+    build_index(pbf, db, "us-ct")
+
+    conn = sqlite3.connect(str(db))
+    try:
+        conn.execute("DROP TABLE places_rtree")
+        conn.commit()
+    finally:
+        conn.close()
+    # Drop the per-path memo so the backfill actually runs.
+    fts_search._BACKFILLED_DBS.discard(db)
+
+    hit = await nearest(41.2430, -73.0690, ["us-ct"], data_root=tmp_path)
+    assert hit is not None
+    assert hit.title == "150 Stiles St"
+
+    conn = sqlite3.connect(str(db))
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM places_rtree").fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1, "backfill must re-materialise the rtree for legacy DBs"
+
+
+@pytest.mark.anyio
 async def test_named_poi_with_addr_tags_exposes_street_in_subtitle(tmp_path: Path):
     """A named POI that also carries addr:housenumber/street must surface the
     street address in the result's subtitle — otherwise the hover card and
