@@ -77,4 +77,40 @@ Refs docs/rich-response/PLAN.md chunk 14.
 
 ## Deferrals
 
-<!-- Append specifics here if this chunk surfaced work that belongs in a later chunk. -->
+- **True constrained decoding** — this chunk ships a lightweight
+  JSON-island extractor (`<blocks:steps>{...}</blocks:steps>` +
+  `<blocks:comparison>{...}</blocks:comparison>`) parsed with a regex
+  over *LLM output* (permitted per CLAUDE.md for machine-generated
+  text). Actual llama.cpp grammar / MLX constraint wiring is deferred
+  to chunks 16 (voice parity — one-call synthesis with spoken shape)
+  and 18 (deep mode). The metric is already tagged
+  `source=constrained|adapter|none` + `profile=<profile>` so Open
+  Question 1 can be answered from real measurements once the engines
+  start emitting islands.
+- **Synthesis prompt** — the current combiner prompt does NOT yet
+  instruct the LLM to emit `<blocks:steps>` / `<blocks:comparison>`
+  islands for `rich` / `deep` turns, so today every comparison / how-to
+  turn falls back to the adapter path (recipes for steps, subject
+  scaffold for comparison). Teaching the synthesis prompt to emit the
+  islands belongs in chunk 16 (voice parity also tightens the
+  prompt) — add a short instruction block gated on
+  `spec.response_mode in {rich, deep}`.
+- **Dedicated `comparison_subjects` decomposer field** — the planner
+  currently derives left/right subject titles from the first two
+  distinct adapter-source titles on the turn. A structured decomposer
+  field (e.g. `subjects: [<name>, <name>]` when
+  `response_shape=="comparison"`) would produce cleaner scaffolds and
+  let the UI label things like "Wikipedia vs Wikimedia" instead of
+  "Wikipedia article vs Wikimedia Foundation page". This requires a
+  schema change against the 12-field ceiling in
+  `docs/rich-response/chunk-12-planner-mode-backend.md`; recommend
+  rolling it into the same chunk that adds the synthesis-prompt
+  instruction above.
+- **Decomposer cannot yet signal "how-to" vs "procedural" precisely**
+  — the planner uses `capability_need="howto"` (LLM-emitted) and
+  derived `response_shape="troubleshooting"` (deterministic from
+  constraints + route capability lemmas). Both are real structured
+  signals. A first-class `intent="howto"` field on the decomposer
+  would be cleaner than piggybacking on `capability_need`, but the
+  existing signals are enough for chunk 14's planner logic without
+  regex over user text. Consider consolidating during chunk 18.

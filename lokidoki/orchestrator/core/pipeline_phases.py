@@ -59,6 +59,7 @@ from lokidoki.orchestrator.response.mode import (
     derive_response_mode,
 )
 from lokidoki.orchestrator.response.planner import is_offline_degraded, plan_initial_blocks
+from lokidoki.orchestrator.response.synthesis_blocks import populate_text_blocks
 from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
 
@@ -661,6 +662,18 @@ def _build_envelope(
             media_block.items = []
             media_block.state = BlockState.omitted
 
+    # Chunk 14: populate ``key_facts`` / ``steps`` / ``comparison`` from
+    # adapter facts + synthesis output (constrained JSON if present,
+    # adapter fallback otherwise). Runs in-place on the planner-
+    # allocated blocks; planner-omitted families are untouched.
+    populate_text_blocks(
+        blocks,
+        synthesis_text=getattr(response, "output_text", None) or "",
+        adapter_outputs=adapter_outputs,
+        comparison_subjects=_comparison_subjects(ctx, executions),
+        profile=str(ctx.get("platform_profile") or ""),
+    )
+
     spoken_text = getattr(response, "spoken_text", None)
 
     envelope = ResponseEnvelope(
@@ -678,6 +691,47 @@ def _build_envelope(
     except EnvelopeValidationError as exc:
         logger.warning("envelope validation failed: %s", exc)
     return envelope
+
+
+def _comparison_subjects(
+    safe_context: dict,
+    executions: list[ExecutionResult],
+) -> tuple[str, str] | None:
+    """Best-effort pull of two distinct subjects for a comparison turn.
+
+    Priority order (all structured — never a regex over user text):
+
+    1. ``safe_context["comparison_subjects"]`` — reserved for a future
+       decomposer field (see Chunk 14 Deferral). When present, it
+       wins.
+    2. The first two distinct adapter-source titles from successful
+       executions. Comparison turns typically fan out across two
+       knowledge lookups, so this is a reasonable proxy for the
+       scaffold.
+
+    Returns ``None`` when fewer than two distinct subjects are
+    available — the synthesis_blocks helper then marks the
+    ``comparison`` block ``omitted`` rather than fabricating labels.
+    """
+    explicit = safe_context.get("comparison_subjects")
+    if isinstance(explicit, (list, tuple)) and len(explicit) >= 2:
+        left = str(explicit[0] or "").strip()
+        right = str(explicit[1] or "").strip()
+        if left and right and left != right:
+            return (left, right)
+
+    titles: list[str] = []
+    for execution in executions:
+        adapter_output: AdapterOutput | None = execution.adapter_output
+        if adapter_output is None:
+            continue
+        for source in adapter_output.sources:
+            title = str(source.title or "").strip()
+            if title and title not in titles:
+                titles.append(title)
+                if len(titles) >= 2:
+                    return (titles[0], titles[1])
+    return None
 
 
 def _build_planner_inputs(

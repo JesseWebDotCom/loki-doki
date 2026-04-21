@@ -2,9 +2,10 @@
  * Block registry.
  *
  * A ``BlockType`` → renderer component mapping plus a small
- * ``renderBlock`` helper. Unknown block types return ``null`` — chunks
- * 14 / 15 fill in the rest (key_facts, steps, comparison, cta_links,
- * clarification, follow_ups, status).
+ * ``renderBlock`` helper. Unknown block types return ``null`` — chunk
+ * 15 fills in the remaining text-shaped families (cta_links,
+ * clarification, follow_ups, status). Chunk 14 added ``key_facts``,
+ * ``steps``, and ``comparison``.
  *
  * The registry also exposes a tiny React context so per-block renderers
  * can read the envelope-adjacent props (sources, mentioned people) that
@@ -21,6 +22,9 @@ import type { SourceInfo } from "../../../lib/api";
 import SummaryBlock from "./SummaryBlock";
 import SourcesBlock from "./SourcesBlock";
 import MediaBlock from "./MediaBlock";
+import KeyFactsBlock from "./KeyFactsBlock";
+import StepsBlock from "./StepsBlock";
+import ComparisonBlock from "./ComparisonBlock";
 
 export interface MentionedPerson {
   id: number;
@@ -75,15 +79,18 @@ export const BLOCK_REGISTRY: Partial<
   summary: SummaryBlock,
   sources: SourcesBlock,
   media: MediaBlock,
+  key_facts: KeyFactsBlock,
+  steps: StepsBlock,
+  comparison: ComparisonBlock,
 };
 
 /**
  * Render one block via the registry.
  *
- * Returns ``null`` for unknown block types — chunks 14 / 15 fill in the
- * rest. Silent skip is intentional: the backend may ship a block type
- * the frontend has not learned yet, and the rest of the envelope must
- * still render.
+ * Returns ``null`` for unknown block types — chunk 15 fills in the
+ * remaining text-shaped families. Silent skip is intentional: the
+ * backend may ship a block type the frontend has not learned yet, and
+ * the rest of the envelope must still render.
  */
 export function renderBlock(block: Block): React.ReactNode {
   const Component = BLOCK_REGISTRY[block.type];

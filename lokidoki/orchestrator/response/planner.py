@@ -3,7 +3,10 @@
 Chunk 7 of the rich-response rollout (see
 ``docs/rich-response/chunk-7-envelope-wire.md``); extended by chunk 12
 (``docs/rich-response/chunk-12-planner-mode-backend.md``) to shape the
-block list per response mode.
+block list per response mode and by chunk 14
+(``docs/rich-response/chunk-14-blocks-text.md``) to pre-allocate
+``key_facts`` / ``steps`` / ``comparison`` under per-mode enrichment
+budgets.
 
 This module produces the list of :class:`Block` slots the synthesis
 phase will fill in for a given turn. The block list depends on the
@@ -13,11 +16,14 @@ or media:
 
 * ``direct``   — summary only; optional single source when the skill
   produced one. No enrichment.
-* ``standard`` — summary, plus sources / media when present, plus
-  ``follow_ups``.
-* ``rich``     — summary, sources, media, pre-allocated ``key_facts``
-  and ``follow_ups``. ``comparison`` is pre-allocated when the
-  decomposer signalled a comparison intent.
+* ``standard`` — summary, plus sources / media when present, plus at
+  most one of ``key_facts`` / ``steps`` / ``comparison`` when the
+  decomposer signalled the matching shape, plus ``follow_ups``.
+* ``rich``     — summary, sources, media, pre-allocated ``key_facts``,
+  and ``follow_ups``. ``steps`` is pre-allocated for how-to /
+  troubleshooting capabilities, and ``comparison`` is pre-allocated
+  when the decomposer signalled a comparison intent. Chunk 14
+  populates all three from synthesis output or adapter facts.
 * ``deep``     — summary, sources, pre-allocated ``key_facts``,
   ``steps``, and ``comparison``. Populated progressively in chunk 18.
 * ``search``   — short ``summary`` takeaway, ``sources`` list, and
@@ -25,10 +31,6 @@ or media:
 * ``artifact`` — short supervisory ``summary`` plus a placeholder
   ``artifact`` block (artifact surface lives on the envelope itself;
   chunks 19-20 wire the renderer).
-
-Later chunks (14, 15, 18, 19, 20) expand the content of
-``key_facts`` / ``steps`` / ``comparison`` / ``follow_ups`` /
-``artifact`` blocks. Chunk 12 only allocates the slots.
 
 No regex / keyword scanning of user text lives here — all branching
 is on structured planner inputs.
@@ -58,6 +60,89 @@ from lokidoki.orchestrator.response.mode import (
 # *user intent*. Inspecting a handler error string for network-failure
 # markers classifies an error, not user intent — narrow and explicit on
 # purpose.
+# Capability needs the decomposer emits for "walk me through a procedure"
+# questions. When one of these lands under ``rich`` (or ``standard`` with
+# a single enrichment budget) the planner pre-allocates the ``steps``
+# block. The list is sourced from
+# :mod:`lokidoki.orchestrator.decomposer.types` ``CAPABILITY_NEEDS`` —
+# each value below is a recognized decomposer capability. We do NOT
+# regex-scan user text to detect "how do I…" phrasings.
+_HOWTO_CAPABILITY_NEEDS: frozenset[str] = frozenset({
+    "howto",
+})
+
+# Response-shape markers derived deterministically by
+# :func:`lokidoki.orchestrator.pipeline.derivations._derive_response_shape`.
+# ``troubleshooting`` ("how do I fix…") is the step-shaped sibling of
+# ``comparison``; the router tags it when the matched capability lemma
+# contains "troubleshoot" / "diagnose" / "fix" or the constraint
+# extractor flagged the chunk as a troubleshooting intent.
+_STEP_RESPONSE_SHAPES: frozenset[str] = frozenset({
+    "troubleshooting",
+})
+
+
+# Per-mode enrichment budget.
+#
+# Encoded as a flat table (not scattered conditionals) per the chunk
+# 14 spec: the keys are the text-heavy block types that the planner
+# may pre-allocate on top of the base ``summary`` / ``sources`` /
+# ``media`` / ``follow_ups`` skeleton; the values are the allow-count
+# for each mode.
+#
+# ``standard`` may carry at most one of ``{key_facts, steps,
+# comparison}`` — the planner picks the most relevant shape when
+# the decomposer signalled more than one (comparison > steps >
+# key_facts, matching §15 — structure wins over bullets when the
+# user asked for a comparison, and a procedure wins over bullets
+# when they asked "how do I…").
+#
+# ``rich`` and ``deep`` allow all three. ``direct`` / ``search`` /
+# ``artifact`` allow none — they carry a summary (plus sources
+# when present) and nothing else.
+_TEXT_BLOCK_BUDGET: dict[ResponseMode, dict[BlockType, int]] = {
+    "direct": {
+        BlockType.key_facts: 0,
+        BlockType.steps: 0,
+        BlockType.comparison: 0,
+    },
+    "standard": {
+        BlockType.key_facts: 1,
+        BlockType.steps: 1,
+        BlockType.comparison: 1,
+        # Cross-type budget enforced at allocation time: at most ONE of
+        # the three may be populated per turn. See ``_apply_standard_budget``.
+    },
+    "rich": {
+        BlockType.key_facts: 1,
+        BlockType.steps: 1,
+        BlockType.comparison: 1,
+    },
+    "deep": {
+        BlockType.key_facts: 1,
+        BlockType.steps: 1,
+        BlockType.comparison: 1,
+    },
+    "search": {
+        BlockType.key_facts: 0,
+        BlockType.steps: 0,
+        BlockType.comparison: 0,
+    },
+    "artifact": {
+        BlockType.key_facts: 0,
+        BlockType.steps: 0,
+        BlockType.comparison: 0,
+    },
+}
+
+
+# Soft cap on the total number of text-heavy enrichment blocks in
+# ``standard`` mode. See design §15 — "standard" is the default
+# conversational mode, structure should land on the answer with one
+# shape, not three.
+_STANDARD_TEXT_BLOCK_CAP = 1
+
+
 _OFFLINE_ERROR_MARKERS: tuple[str, ...] = (
     "offline",
     "name or service not known",
@@ -132,7 +217,7 @@ def plan_initial_blocks(
     if normalized == "artifact":
         return _plan_artifact()
     # Fallthrough: standard.
-    return _plan_standard(has_sources, has_media)
+    return _plan_standard(has_sources, has_media, inputs)
 
 
 def _normalize_mode(mode: str) -> ResponseMode:
@@ -226,13 +311,27 @@ def _plan_direct(has_sources: bool) -> list[Block]:
     return blocks
 
 
-def _plan_standard(has_sources: bool, has_media: bool) -> list[Block]:
-    """Default mode: summary + sources/media + follow_ups. Design §10.2."""
+def _plan_standard(
+    has_sources: bool,
+    has_media: bool,
+    inputs: PlannerInputs,
+) -> list[Block]:
+    """Default mode: summary + sources/media + ≤1 text block + follow_ups.
+
+    Design §10.2 / §15. At most ONE of ``key_facts`` / ``steps`` /
+    ``comparison`` is allocated — the most relevant shape. The
+    selection order (comparison > steps > key_facts) matches the design
+    doc: structure wins over bullets when the user asked for a
+    comparison, and a procedure wins when they asked "how do I…".
+    """
     blocks: list[Block] = [_summary()]
     if has_sources:
         blocks.append(_sources())
     if has_media:
         blocks.append(_media())
+    text_block = _select_standard_text_block(inputs)
+    if text_block is not None:
+        blocks.append(text_block)
     blocks.append(_follow_ups())
     return blocks
 
@@ -242,10 +341,17 @@ def _plan_rich(
     has_media: bool,
     inputs: PlannerInputs,
 ) -> list[Block]:
-    """Structured answer: summary + sources/media + key_facts + follow_ups.
+    """Structured answer: summary + sources/media + key_facts [+steps] [+comparison] + follow_ups.
 
-    Pre-allocates a ``comparison`` block when the decomposer signalled
-    a comparison intent — populated by chunk 14.
+    ``key_facts`` is always pre-allocated (chunk 14 populates it
+    deterministically from adapter facts; empty facts land as
+    ``omitted``).
+
+    ``steps`` is pre-allocated when the decomposer signalled a how-to
+    capability or the derived response shape is ``troubleshooting``.
+    ``comparison`` is pre-allocated when the derived response shape is
+    ``comparison``. Both are populated from synthesis output /
+    adapter fallback in :mod:`lokidoki.orchestrator.response.synthesis_blocks`.
     """
     blocks: list[Block] = [_summary()]
     if has_sources:
@@ -253,6 +359,8 @@ def _plan_rich(
     if has_media:
         blocks.append(_media())
     blocks.append(_key_facts())
+    if _wants_steps(inputs):
+        blocks.append(_steps())
     # Comparison intent arrives as a structured signal — the derived
     # ``response_shape="comparison"`` flag set by
     # :func:`lokidoki.orchestrator.pipeline.derivations._derive_response_shape`.
@@ -271,6 +379,48 @@ def _plan_deep(has_sources: bool) -> list[Block]:
         blocks.append(_sources())
     blocks.extend([_key_facts(), _steps(), _comparison()])
     return blocks
+
+
+def _wants_steps(inputs: PlannerInputs) -> bool:
+    """Return True when the decomposer signalled a how-to / troubleshooting intent.
+
+    Branches strictly on structured decomposer fields — never on
+    ``user_input``. ``capability_need="howto"`` comes from the
+    decomposer LLM (see
+    :mod:`lokidoki.orchestrator.decomposer.capability_map`);
+    ``response_shape="troubleshooting"`` is derived deterministically
+    from the constraint extractor + route capability lemmas.
+    """
+    if inputs.capability_need in _HOWTO_CAPABILITY_NEEDS:
+        return True
+    if inputs.response_shape in _STEP_RESPONSE_SHAPES:
+        return True
+    return False
+
+
+def _select_standard_text_block(inputs: PlannerInputs) -> Block | None:
+    """Pick at most one text block for ``standard`` mode.
+
+    Selection priority: ``comparison`` > ``steps`` > (``key_facts``
+    intentionally NOT pre-allocated in standard — standard is the
+    default conversational mode and unconditionally attaching a
+    bullet list on every single answer is the opposite of the
+    design-doc intent). The one-block cap
+    (:data:`_STANDARD_TEXT_BLOCK_CAP`) is enforced by this function
+    returning a single block.
+
+    When no structural signal fires, ``None`` is returned and the
+    ``standard`` layout stays summary + sources/media + follow_ups.
+    """
+    budget = _TEXT_BLOCK_BUDGET.get("standard", {})
+    remaining = _STANDARD_TEXT_BLOCK_CAP
+    if remaining <= 0:
+        return None
+    if budget.get(BlockType.comparison, 0) > 0 and inputs.response_shape == "comparison":
+        return _comparison()
+    if budget.get(BlockType.steps, 0) > 0 and _wants_steps(inputs):
+        return _steps()
+    return None
 
 
 def _plan_search(has_sources: bool) -> list[Block]:
@@ -335,7 +485,56 @@ def is_offline_degraded(executions: Iterable[ExecutionResult]) -> bool:
     return False
 
 
+def text_block_budget(mode: str) -> dict[BlockType, int]:
+    """Return the per-mode text-block budget (read-only view).
+
+    Exposed so tests (and the chunk-14 populator) can assert the
+    allowance without duplicating the table. Unknown modes return
+    the ``standard`` budget — the same fallback ``plan_initial_blocks``
+    applies.
+    """
+    normalized = _normalize_mode(mode)
+    return dict(_TEXT_BLOCK_BUDGET.get(normalized, _TEXT_BLOCK_BUDGET["standard"]))
+
+
+def enforce_text_block_budget(blocks: list[Block], mode: str) -> bool:
+    """Return True when ``blocks`` obeys the per-mode text-block budget.
+
+    A belt-and-suspenders guard — the planner never emits a
+    budget-violating list on its own; this helper is for external
+    callers that mutate the block stack (e.g. chunks 18/20) and for
+    the unit tests that assert the contract.
+
+    Rules enforced:
+
+    * Each of ``key_facts`` / ``steps`` / ``comparison`` respects
+      its per-mode allow-count from :data:`_TEXT_BLOCK_BUDGET`.
+    * In ``standard`` mode, the total across all three is capped at
+      :data:`_STANDARD_TEXT_BLOCK_CAP` (1).
+    """
+    normalized = _normalize_mode(mode)
+    budget = _TEXT_BLOCK_BUDGET.get(normalized, _TEXT_BLOCK_BUDGET["standard"])
+    counts: dict[BlockType, int] = {
+        BlockType.key_facts: 0,
+        BlockType.steps: 0,
+        BlockType.comparison: 0,
+    }
+    for block in blocks:
+        if block.type in counts:
+            counts[block.type] += 1
+    for block_type, allowed in budget.items():
+        if counts.get(block_type, 0) > allowed:
+            return False
+    if normalized == "standard":
+        total = sum(counts.values())
+        if total > _STANDARD_TEXT_BLOCK_CAP:
+            return False
+    return True
+
+
 __all__ = [
     "plan_initial_blocks",
     "is_offline_degraded",
+    "text_block_budget",
+    "enforce_text_block_budget",
 ]
