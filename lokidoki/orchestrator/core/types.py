@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lokidoki.orchestrator.adapters.base import AdapterOutput
 
 
 @dataclass(slots=True)
@@ -111,6 +114,7 @@ class ExecutionResult:
     attempts: int = 1
     handler_name: str = ""
     raw_result: dict[str, Any] = field(default_factory=dict)
+    adapter_output: AdapterOutput | None = None
 
 
 @dataclass(slots=True)

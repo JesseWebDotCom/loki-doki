@@ -73,4 +73,6 @@ Refs docs/rich-response/PLAN.md chunk 3.
 
 ## Deferrals
 
-<!-- Append specifics here if this chunk surfaced work that belongs in a later chunk. -->
+- **`_HANDLER_TO_SKILL_ID` fallback map in `pipeline_phases.py` (chunks 1–3).** The current resolver/handler implementations do not carry a `skill_id` field, so chunks 1–3 introduced a per-handler-name → skill_id map at the top of `pipeline_phases.py` to keep the adapter dispatch additive. This belongs as proper metadata on the implementation/handler registry — fold into chunk 5 (adapter cutover) or a dedicated chunk before chunk 5.
+
+- **Chunks 1–3 bundled in a single codex session.** All three chunks landed in one combined commit instead of three sequential per-chunk commits. The protocol going forward (chunks 4+) is one chunk per fresh session per commit.

@@ -11,6 +11,8 @@ import logging
 import time
 from typing import Any
 
+from lokidoki.core.skill_executor import MechanismResult
+from lokidoki.orchestrator.adapters import adapt
 from lokidoki.orchestrator.core.pipeline_hooks import (
     auto_raise_need_session_context,
     record_behavior_event,
@@ -45,6 +47,18 @@ from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
 
 logger = logging.getLogger("lokidoki.orchestrator.core.pipeline")
+
+_HANDLER_TO_SKILL_ID = {
+    "core.calculator.evaluate": "calculator",
+    "core.time.location": "datetime_local",
+    "skills.dictionary.lookup": "dictionary",
+    "core.units.convert": "unit_conversion",
+    "skills.jokes.icanhazdadjoke": "jokes",
+    "core.knowledge.lookup": "knowledge",
+    "skills.search.web": "search",
+    "skills.news.google_rss": "news",
+    "skills.news.search": "news",
+}
 
 
 def run_pre_parse_phase(trace, safe_context, raw_text):
@@ -248,6 +262,12 @@ async def run_execute_phase(trace, safe_context, runtime, routable, routes, impl
         for c, r, impl, res, b in zip(routable, routes, implementations, resolutions, budgets, strict=True)
     )))
     executions = [item["execution"] for item in executed]
+    for execution, implementation in zip(executions, implementations, strict=True):
+        if not execution.success:
+            continue
+        skill_id = _response_adapter_skill_id(implementation.handler_name, implementation.skill_id)
+        mechanism_result = _mechanism_result_from_execution(execution)
+        execution.adapter_output = adapt(skill_id, mechanism_result)
     for ex in executions:
         logger.debug("[Pipeline] Executed %s (success=%s)", ex.capability, ex.success)
     finish(chunks=[
@@ -261,6 +281,25 @@ async def run_execute_phase(trace, safe_context, runtime, routable, routes, impl
         for c, item in zip(routable, executed, strict=True)
     ])
     return executions
+
+
+def _response_adapter_skill_id(handler_name: str, skill_id: str) -> str:
+    if skill_id:
+        return skill_id
+    return _HANDLER_TO_SKILL_ID.get(handler_name, "")
+
+
+def _mechanism_result_from_execution(execution) -> MechanismResult:
+    raw = execution.raw_result if isinstance(execution.raw_result, dict) else {}
+    data = raw.get("data")
+    payload = data if isinstance(data, dict) else {}
+    return MechanismResult(
+        success=execution.success,
+        data=payload,
+        error=str(raw.get("error") or execution.error or ""),
+        source_url=str(raw.get("source_url") or ""),
+        source_title=str(raw.get("source_title") or ""),
+    )
 
 
 def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,

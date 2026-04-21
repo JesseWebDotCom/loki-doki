@@ -33,9 +33,9 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 
 | # | Chunk | Status | Commit |
 |---|---|---|---|
-| 1 | [Adapter framework + shared source model + calculator pilot](chunk-1-adapter-framework.md) | pending | |
-| 2 | [Retrofit simple skills via adapters](chunk-2-adapters-simple.md) | pending | |
-| 3 | [Retrofit sourced skills via adapters](chunk-3-adapters-sourced.md) | pending | |
+| 1 | [Adapter framework + shared source model + calculator pilot](chunk-1-adapter-framework.md) | done | _bundled commit_ |
+| 2 | [Retrofit simple skills via adapters](chunk-2-adapters-simple.md) | done | _bundled commit_ |
+| 3 | [Retrofit sourced skills via adapters](chunk-3-adapters-sourced.md) | done | _bundled commit_ |
 | 4 | [Retrofit media/media-heavy skills via adapters](chunk-4-adapters-media.md) | pending | |
 | 5 | [Adapter cutover — remove legacy shape handling](chunk-5-adapter-cutover.md) | pending | |
 | 6 | [`ResponseEnvelope` + `Block` dataclasses (backend types)](chunk-6-envelope-types.md) | pending | |
