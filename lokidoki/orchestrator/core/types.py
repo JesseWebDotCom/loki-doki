@@ -159,6 +159,13 @@ class RequestSpec:
     # Spotify, images). Rendered as a MediaBar above the assistant
     # text. Never fed to the synthesis prompt — pure UI augmentation.
     media: list[dict[str, Any]] = field(default_factory=list)
+    # Canonical per-turn source list, aggregated from every successful
+    # execution's ``AdapterOutput.sources``. Populated by
+    # :func:`lokidoki.orchestrator.core.pipeline_phases.run_synthesis_phase`
+    # before the LLM decision runs. ``_collect_sources`` in the prompt
+    # builder prefers this list when present, falling back to the legacy
+    # per-chunk ``result.sources`` scrape when empty.
+    adapter_sources: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

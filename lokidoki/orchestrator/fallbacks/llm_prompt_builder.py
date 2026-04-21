@@ -73,12 +73,43 @@ def _build_confidence_guide(spec: RequestSpec) -> str:
 
 
 def _collect_sources(spec: RequestSpec) -> list[dict[str, str]]:
-    """Collect deduplicated sources from all successful primary chunks.
+    """Collect deduplicated sources for the turn.
+
+    Cutover (chunk 5): prefer ``spec.adapter_sources``, which the
+    synthesis phase populates from every successful
+    ``AdapterOutput.sources``. When it's empty — e.g. a fast-lane /
+    direct_chat turn, or a skill whose adapter isn't registered yet —
+    fall back to scraping ``chunk.result.sources`` so the LLM prompt
+    never loses a source that was visible to the old path.
 
     Returns a stable-ordered list of ``{"url": ..., "title": ...}``
     dicts. The 1-based index in this list is the ``[src:N]`` citation
     marker the LLM should emit.
     """
+    adapter_sources = list(getattr(spec, "adapter_sources", []) or [])
+    if adapter_sources:
+        cleaned: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for src in adapter_sources:
+            if not isinstance(src, dict):
+                continue
+            url = (src.get("url") or "").strip()
+            # Match the legacy path: URL is required. URL-less entries
+            # (offline snippets, search-preview rows without links) are
+            # not citable by [src:N] markers and have historically been
+            # dropped before reaching the prompt / frontend. Preserve
+            # that behavior so the event payload stays byte-compatible.
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            title = src.get("title") or url
+            entry = {**src, "url": url, "title": title}
+            cleaned.append(entry)
+        return cleaned
+
+    # Legacy fallback — kept for fast-lane / direct_chat / adapter-less
+    # skills. Will be dropped in a later chunk once adapter coverage is
+    # 100%.
     sources: list[dict[str, str]] = []
     seen_urls: set[str] = set()
     for chunk in spec.chunks:

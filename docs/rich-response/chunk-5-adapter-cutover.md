@@ -8,14 +8,15 @@ No frontend changes. No new events. Still a pure backend refactor.
 
 ## Files
 
-- `lokidoki/orchestrator/core/pipeline_phases.py` — edit `run_media_augmentation_phase` (L301) and `run_synthesis_phase` (L329) to consume `execution.adapter_output` as the source of truth for media and sources respectively.
-- `lokidoki/orchestrator/media/augmentor.py` — edit `augment_with_media` to accept and prefer adapter-provided media over its current re-derivation; keep the legacy derivation path as a fallback for ~1 chunk only (remove in the same chunk if the test matrix allows).
-- `lokidoki/orchestrator/core/types.py` — if `request_spec.media` / `request_spec.sources` typing needs to tighten, widen/narrow carefully; do not break existing consumers yet.
-- `tests/unit/test_phase_synthesis.py` — update assertions to the adapter-driven shape.
-- `tests/unit/test_phase_media_augmentation.py` — update assertions.
-- `tests/unit/test_adapter_cutover.py` — new. End-to-end check: a mock calc + wiki + search turn produces sources/media entirely from adapters, with zero references to legacy dict shapes.
+- `lokidoki/orchestrator/core/pipeline_phases.py` — edit `run_media_augmentation_phase` and `run_synthesis_phase` to consume `execution.adapter_output` as the source of truth for media and sources respectively. Drop the `_HANDLER_TO_SKILL_ID` fallback map — dispatch keys off `implementation.skill_id` now.
+- `lokidoki/orchestrator/core/types.py` — add `RequestSpec.adapter_sources` so adapter-aggregated sources are discoverable without poking at executions.
+- `lokidoki/orchestrator/fallbacks/llm_prompt_builder.py` — `_collect_sources` prefers `spec.adapter_sources`; legacy per-chunk scrape kept as a fallback.
+- `lokidoki/orchestrator/data/function_registry.json` — add `skill_id` to the calculator/datetime_local/dictionary/unit_conversion/jokes/knowledge/search/news implementations so the retired `_HANDLER_TO_SKILL_ID` map is obsolete at the registry layer (folds in the chunks 1–3 deferral).
+- `tests/unit/test_phase_synthesis.py` — new. Adapter-driven synthesis shape.
+- `tests/unit/test_phase_media_augmentation.py` — new. Adapter-first / fallback media cover.
+- `tests/unit/test_adapter_cutover.py` — new. End-to-end check: mock calc + wiki + search + YouTube adapter outputs produce sources/media entirely from adapters; registry skill_id drives adapter dispatch; no legacy dict-shape decision logic.
 
-Read-only: prior adapter files, `lokidoki/orchestrator/core/streaming.py` (confirm we don't break the event payload shape).
+Read-only: prior adapter files, `lokidoki/orchestrator/core/streaming.py` (confirm we don't break the event payload shape), `lokidoki/orchestrator/media/augmentor.py` (fallback pathway — untouched here; chunk 4 owns it).
 
 ## Actions
 

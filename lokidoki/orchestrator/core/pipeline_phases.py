@@ -13,6 +13,7 @@ from typing import Any
 
 from lokidoki.core.skill_executor import MechanismResult
 from lokidoki.orchestrator.adapters import adapt
+from lokidoki.orchestrator.adapters.base import AdapterOutput, Source
 from lokidoki.orchestrator.core.pipeline_hooks import (
     auto_raise_need_session_context,
     record_behavior_event,
@@ -31,7 +32,7 @@ from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.execution.request_spec import build_request_spec
 from lokidoki.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
 from lokidoki.orchestrator.media import augment_with_media
-from lokidoki.orchestrator.core.types import ConstraintResult
+from lokidoki.orchestrator.core.types import ConstraintResult, ExecutionResult
 from lokidoki.orchestrator.pipeline.combiner import combine_request_spec
 from lokidoki.orchestrator.pipeline.derivations import derive_need_flags, extract_structured_params
 from lokidoki.orchestrator.pipeline.constraint_extractor import extract_constraints
@@ -47,18 +48,6 @@ from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
 
 logger = logging.getLogger("lokidoki.orchestrator.core.pipeline")
-
-_HANDLER_TO_SKILL_ID = {
-    "core.calculator.evaluate": "calculator",
-    "core.time.location": "datetime_local",
-    "skills.dictionary.lookup": "dictionary",
-    "core.units.convert": "unit_conversion",
-    "skills.jokes.icanhazdadjoke": "jokes",
-    "core.knowledge.lookup": "knowledge",
-    "skills.search.web": "search",
-    "skills.news.google_rss": "news",
-    "skills.news.search": "news",
-}
 
 
 def run_pre_parse_phase(trace, safe_context, raw_text):
@@ -265,9 +254,18 @@ async def run_execute_phase(trace, safe_context, runtime, routable, routes, impl
     for execution, implementation in zip(executions, implementations, strict=True):
         if not execution.success:
             continue
-        skill_id = _response_adapter_skill_id(implementation.handler_name, implementation.skill_id)
+        if not implementation.skill_id:
+            # No adapter can run without a registered skill_id. Skill
+            # implementations missing this field are a registry bug —
+            # log once so the omission is visible in telemetry, but
+            # don't break the turn.
+            logger.debug(
+                "adapter skipped: implementation %s has no skill_id",
+                implementation.handler_name,
+            )
+            continue
         mechanism_result = _mechanism_result_from_execution(execution)
-        execution.adapter_output = adapt(skill_id, mechanism_result)
+        execution.adapter_output = adapt(implementation.skill_id, mechanism_result)
     for ex in executions:
         logger.debug("[Pipeline] Executed %s (success=%s)", ex.capability, ex.success)
     finish(chunks=[
@@ -283,10 +281,60 @@ async def run_execute_phase(trace, safe_context, runtime, routable, routes, impl
     return executions
 
 
-def _response_adapter_skill_id(handler_name: str, skill_id: str) -> str:
-    if skill_id:
-        return skill_id
-    return _HANDLER_TO_SKILL_ID.get(handler_name, "")
+def _apply_adapter_outputs_to_spec(request_spec, executions: list[ExecutionResult]) -> None:
+    """Aggregate adapter sources + facts onto the spec.
+
+    Part of chunk 5's "adapter-first" cutover. Sources flow to
+    ``request_spec.adapter_sources`` (the shape ``_collect_sources``
+    consumes); facts flow to ``request_spec.supporting_context`` so the
+    synthesis prompt can lean on them without adding a new slot.
+    ``request_spec.media`` is populated separately by
+    :func:`run_media_augmentation_phase`.
+    """
+    adapter_sources: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    extra_facts: list[str] = []
+    for execution in executions:
+        adapter_output: AdapterOutput | None = execution.adapter_output
+        if adapter_output is None:
+            continue
+        for source in adapter_output.sources:
+            entry = _source_to_dict(source)
+            url = entry.get("url") or ""
+            if url and url in seen_urls:
+                continue
+            if url:
+                seen_urls.add(url)
+            adapter_sources.append(entry)
+        for fact in adapter_output.facts:
+            text = str(fact).strip()
+            if text and text not in extra_facts:
+                extra_facts.append(text)
+    request_spec.adapter_sources = adapter_sources
+    if extra_facts:
+        existing = list(request_spec.supporting_context or [])
+        merged = list(existing)
+        for fact in extra_facts:
+            if fact not in merged:
+                merged.append(fact)
+        request_spec.supporting_context = merged
+
+
+def _source_to_dict(source: Source) -> dict[str, str]:
+    """Serialize a Source dataclass into the dict shape prompt code expects."""
+    entry: dict[str, str] = {
+        "title": source.title or "",
+        "url": source.url or "",
+    }
+    if source.kind:
+        entry["type"] = source.kind
+    if source.snippet:
+        entry["snippet"] = source.snippet
+    if source.published_at:
+        entry["published_at"] = source.published_at
+    if source.author:
+        entry["author"] = source.author
+    return entry
 
 
 def _mechanism_result_from_execution(execution) -> MechanismResult:
@@ -338,31 +386,71 @@ _MEDIA_AUGMENT_TIMEOUT_S = 6.0
 
 
 async def run_media_augmentation_phase(trace, chunks, routes, executions, raw_text=""):
-    """Fan out media-producer skills in parallel and attach cards to the spec.
+    """Collect media cards for the turn — adapter-first, augmentor-fallback.
 
-    Runs independently of the LLM synthesis path so media fetches overlap
-    with the combine step's model inference. Augmentation is best-effort:
-    any failure or a timeout past :data:`_MEDIA_AUGMENT_TIMEOUT_S` yields
-    an empty list rather than breaking the turn.
+    Pass 1 (canonical): flatten ``execution.adapter_output.media`` across
+    every successful primary-request execution. When the skill's adapter
+    already produced a ``MediaCard``-shaped dict (YouTube, TMDB movies)
+    there is no need to re-derive anything.
 
-    ``raw_text`` flows through so the augmentor can gate + query on the
-    user's original utterance instead of the post-antecedent-resolution
-    chunk text (which can be contaminated by a stale recent_entity).
+    Pass 2 (fallback): when Pass 1 produced nothing, run the legacy
+    :func:`augment_with_media` path. This is kept for one release cycle
+    so we aren't betting correctness on brand-new adapter coverage
+    alone. A warning fires when the fallback activates so we can spot
+    skills whose adapter under-populates media.
+
+    Runs best-effort — failures and the 6s timeout both degrade to an
+    empty list rather than breaking the turn.
     """
     finish = trace.timed("media_augment")
-    try:
-        cards = await asyncio.wait_for(
-            augment_with_media(chunks, routes, executions, raw_text=raw_text),
-            timeout=_MEDIA_AUGMENT_TIMEOUT_S,
+    cards = _media_cards_from_adapters(executions)
+    used_fallback = False
+    if not cards:
+        try:
+            cards = await asyncio.wait_for(
+                augment_with_media(chunks, routes, executions, raw_text=raw_text),
+                timeout=_MEDIA_AUGMENT_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("media augmentation timed out after %ss", _MEDIA_AUGMENT_TIMEOUT_S)
+            cards = []
+        except Exception:  # noqa: BLE001 - augmentation must never break pipeline
+            logger.exception("media augmentation raised")
+            cards = []
+        else:
+            used_fallback = True
+    if used_fallback and cards:
+        logger.warning(
+            "media augmentation used legacy fallback (adapter_output.media was empty); "
+            "%d card(s) surfaced",
+            len(cards),
         )
-    except asyncio.TimeoutError:
-        logger.warning("media augmentation timed out after %ss", _MEDIA_AUGMENT_TIMEOUT_S)
-        cards = []
-    except Exception:  # noqa: BLE001 - augmentation must never break pipeline
-        logger.exception("media augmentation raised")
-        cards = []
-    finish(count=len(cards), kinds=[c.get("kind") for c in cards])
+    finish(
+        count=len(cards),
+        kinds=[c.get("kind") for c in cards],
+        source="adapters" if not used_fallback else "fallback",
+    )
     return cards
+
+
+def _media_cards_from_adapters(executions: list[ExecutionResult]) -> list[dict[str, Any]]:
+    """Flatten adapter-provided media cards, deduping by url/video_id."""
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for execution in executions:
+        adapter_output: AdapterOutput | None = execution.adapter_output
+        if adapter_output is None:
+            continue
+        for card in adapter_output.media:
+            if not isinstance(card, dict):
+                continue
+            key = str(card.get("url") or card.get("video_id") or "")
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            out.append(card)
+    return out
 
 
 async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime):
@@ -373,6 +461,12 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, execu
         request_spec.context.setdefault("memory_slots", {}).update(memory_slots)
     finish(slots_assembled=sorted(memory_slots.keys()),
            **{f"{k}_chars": len(v) for k, v in memory_slots.items()})
+
+    # Cutover: sources + facts are read from execution.adapter_output
+    # now, not re-scraped from each skill's dict. Writes land on the
+    # spec so _collect_sources + synthesis prompt pick them up without
+    # per-skill branches.
+    _apply_adapter_outputs_to_spec(request_spec, executions)
 
     decision = decide_llm(request_spec)
     request_spec.llm_used = decision.needed
