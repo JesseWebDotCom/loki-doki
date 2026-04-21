@@ -19,8 +19,15 @@ import {
   getSessions,
   updateProject,
   listCharacters,
+  reduceResponse,
+  isResponseEvent,
+  RESPONSE_INIT,
+  BLOCK_READY,
+  RESPONSE_SNAPSHOT,
   type CharacterRow,
+  type ResponseEnvelope,
 } from '../lib/api';
+import { envelopeFromDict } from '../lib/response-types';
 import CharacterFrame from '../components/character/CharacterFrame';
 import FullscreenCharacterOverlay from '../components/character/FullscreenCharacterOverlay';
 import type { HeadTiltState } from '../components/character/useHeadTilt';
@@ -59,6 +66,29 @@ export interface Message {
   mentionedPeople?: MentionedPerson[];
   /** DB id of the stored message — used for feedback. */
   messageId?: number;
+  /** Chunk 10: canonical server-reconciled envelope for this turn.
+   *  When present, ``MessageItem`` renders via the block registry;
+   *  when absent (legacy rows, fast-lane turns), it falls back to
+   *  client-derived blocks from ``synthesis`` / ``content``. */
+  envelope?: ResponseEnvelope;
+}
+
+/**
+ * Chunk 10 render timings. ``performance.now()`` marks captured from
+ * the SSE stream — surfaced in ``PipelineInfoPopover`` so a dev can
+ * validate §14.6 "time-to-shell" targets on ``pi_cpu`` without a
+ * separate devtools measurement.
+ *
+ * ``t0`` is the wall-clock baseline captured when the turn kicked off
+ * (``handleSend``). The other fields store ``performance.now()``
+ * relative to the page's time origin, and the popover renders the
+ * delta ``mark - t0`` as milliseconds.
+ */
+export interface RenderTimings {
+  t0?: number;
+  shellVisible?: number;
+  firstBlockReady?: number;
+  snapshotApplied?: number;
 }
 
 export interface PipelineState {
@@ -74,6 +104,11 @@ export interface PipelineState {
   totalLatencyMs: number;
   confirmations: SilentConfirmation[];
   clarification: string | null;
+  /** Chunk 10 per-turn render-timing marks for the "Render timings"
+   *  section in ``PipelineInfoPopover``. Optional so pre-chunk-10
+   *  test fixtures (e.g. ``MessageItem.test.tsx``) and history-hydrated
+   *  rows without marks still satisfy the type. */
+  renderTimings?: RenderTimings;
 }
 
 interface OpenSourcesState {
@@ -93,6 +128,7 @@ const INITIAL_PIPELINE: PipelineState = {
   totalLatencyMs: 0,
   confirmations: [],
   clarification: null,
+  renderTimings: {},
 };
 
 function buildPipelineStateFromDb(m: any): PipelineState | undefined {
@@ -149,6 +185,7 @@ function buildPipelineStateFromDb(m: any): PipelineState | undefined {
     totalLatencyMs: Object.values(latencies).reduce((a: any, b: any) => a + (typeof b === 'number' ? b : 0), 0) as number,
     confirmations: [],
     clarification: null,
+    renderTimings: {},
   };
 }
 
@@ -177,6 +214,11 @@ const ChatPage: React.FC = () => {
   // changes — without this the user has to click back into the box
   // every turn (and after starting a new chat).
   const inputRef = useRef<HTMLInputElement>(null);
+  // Chunk 10 per-turn response envelope. Held in a ref so both the
+  // SSE event handler and the end-of-turn commit can read/write the
+  // same instance without relying on React batching. Cleared at the
+  // start of each send; written on every response-family event.
+  const envelopeRef = useRef<ResponseEnvelope | undefined>(undefined);
 
   // Idle-state ticker for the character avatar. We don't need a dense
   // requestAnimationFrame loop here — the avatar only changes between
@@ -356,6 +398,31 @@ const ChatPage: React.FC = () => {
       const sid = String(event.data.session_id);
       setCurrentSessionId((prev) => prev ?? sid);
     }
+
+    // Chunk 10: route the rich-response SSE family through the reducer.
+    // The legacy pipeline-phase events below stay on their current path
+    // so ``PipelineInfoPopover`` keeps working unchanged.
+    if (isResponseEvent(event)) {
+      envelopeRef.current = reduceResponse(envelopeRef.current, event);
+      // Mirror the reduced envelope onto PipelineState so React renders
+      // each delta. Also capture the three design-doc §14.6 timing marks.
+      setPipeline(prev => {
+        const marks: RenderTimings = { ...prev.renderTimings };
+        if (event.phase === RESPONSE_INIT && marks.shellVisible == null) {
+          marks.shellVisible = performance.now();
+        } else if (event.phase === BLOCK_READY && marks.firstBlockReady == null) {
+          marks.firstBlockReady = performance.now();
+        } else if (event.phase === RESPONSE_SNAPSHOT && marks.snapshotApplied == null) {
+          marks.snapshotApplied = performance.now();
+        }
+        // ``response_done`` terminal event is still routed here so the
+        // ``status`` flip is captured; the existing synthesis:done path
+        // below stays the authoritative source for the final text.
+        return { ...prev, renderTimings: marks };
+      });
+      return;
+    }
+
     setPipeline(prev => {
       // silent_confirmation / clarification_question are side-channel
       // events; don't mutate the pipeline phase chip for them.
@@ -435,7 +502,13 @@ const ChatPage: React.FC = () => {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsProcessing(true);
-    setPipeline({ ...INITIAL_PIPELINE, phase: 'augmentation', streamingResponse: '' });
+    envelopeRef.current = undefined;
+    setPipeline({
+      ...INITIAL_PIPELINE,
+      phase: 'augmentation',
+      streamingResponse: '',
+      renderTimings: { t0: performance.now() },
+    });
 
     try {
       await sendChatMessage(input, handleEvent, currentSessionId ? Number(currentSessionId) : undefined, activeProjectId || undefined);
@@ -449,6 +522,13 @@ const ChatPage: React.FC = () => {
           prev.streamingResponse?.trim() ||
           '⚠️ No response received. Check the backend log — Ollama may have errored.';
         const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
+        // Chunk 10: the envelope for THIS turn came in through
+        // ``envelopeRef`` during the SSE stream. Attach it to the
+        // message so MessageItem can render via the block registry.
+        // Fast-lane turns finish with ``envelopeRef.current === undefined``
+        // — MessageItem falls back to the client-derived block shape.
+        const liveEnvelope = envelopeRef.current;
+        envelopeRef.current = undefined;
         setMessages(msgs => {
           const next = [...msgs, {
             role: 'assistant' as const,
@@ -461,6 +541,7 @@ const ChatPage: React.FC = () => {
             clarification: prev.clarification ?? undefined,
             mentionedPeople: (prev.synthesis as any)?.mentioned_people ?? [],
             messageId: (prev.synthesis as any)?.assistant_message_id as number | undefined,
+            envelope: liveEnvelope,
           }];
           // Auto-play the new assistant message (no-op when muted).
           // Skills can supply a short `spoken_text` override when the
@@ -511,7 +592,13 @@ const ChatPage: React.FC = () => {
     setTimeout(() => {
       setInput('');
       setIsProcessing(true);
-      setPipeline({ ...INITIAL_PIPELINE, phase: 'augmentation', streamingResponse: '' });
+      envelopeRef.current = undefined;
+      setPipeline({
+        ...INITIAL_PIPELINE,
+        phase: 'augmentation',
+        streamingResponse: '',
+        renderTimings: { t0: performance.now() },
+      });
       sendChatMessage(userInput, handleEvent, currentSessionId ? Number(currentSessionId) : undefined, activeProjectId || undefined)
         .then(() => {
           setPipeline(prev => {
@@ -520,6 +607,8 @@ const ChatPage: React.FC = () => {
               prev.streamingResponse?.trim() ||
               '⚠️ No response received.';
             const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
+            const liveEnvelope = envelopeRef.current;
+            envelopeRef.current = undefined;
             setMessages(msgs => {
               const next = [...msgs, {
                 role: 'assistant' as const,
@@ -532,6 +621,7 @@ const ChatPage: React.FC = () => {
                 clarification: prev.clarification ?? undefined,
                 mentionedPeople: (prev.synthesis as any)?.mentioned_people ?? [],
                 messageId: (prev.synthesis as any)?.assistant_message_id as number | undefined,
+                envelope: liveEnvelope,
               }];
               const spoken = prev.synthesis?.spoken_text?.trim() || finalText;
               tts.speak(`msg-${next.length - 1}`, spoken);
@@ -577,13 +667,33 @@ const ChatPage: React.FC = () => {
     setOpenSources(null);
     try {
       const res = await getSessionMessages(sessionId);
-      const loaded: Message[] = (res.messages || []).map((m: any) => ({
-        role: m.role,
-        content: m.content,
-        timestamp: m.created_at || '',
-        messageId: m.id as number | undefined,
-        pipeline: buildPipelineStateFromDb(m),
-      }));
+      const loaded: Message[] = (res.messages || []).map((m: any) => {
+        // Chunk 10: hydrate the persisted ``response_envelope`` column
+        // (written by chat.py on the ``response_snapshot`` event) into
+        // a live ``ResponseEnvelope`` so history replay renders via
+        // the block registry without re-invoking synthesis. Accept
+        // both a pre-parsed object and the raw JSON string shape;
+        // tolerate parse failures by falling back to the legacy path.
+        let envelope: ResponseEnvelope | undefined = undefined;
+        const raw = m.response_envelope;
+        if (raw) {
+          try {
+            const data: Record<string, unknown> =
+              typeof raw === 'string' ? JSON.parse(raw) : raw;
+            envelope = envelopeFromDict(data);
+          } catch {
+            envelope = undefined;
+          }
+        }
+        return {
+          role: m.role,
+          content: m.content,
+          timestamp: m.created_at || '',
+          messageId: m.id as number | undefined,
+          pipeline: buildPipelineStateFromDb(m),
+          envelope,
+        };
+      });
       setMessages(loaded);
     } catch (err) {
       console.error('[ChatPage] failed to load session messages', sessionId, err);

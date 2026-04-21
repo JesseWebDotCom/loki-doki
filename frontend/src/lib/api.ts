@@ -46,6 +46,26 @@ export type {
   PipelineRunResponse,
 } from "./api-types";
 
+// Chunk 10: surface the response-family reducer + event phase constants
+// through the same module consumers already import for the SSE client.
+// ChatPage routes response-family events through ``reduceResponse``;
+// ``isResponseEvent`` lets callers cheaply detect the new family
+// without hardcoding the phase strings.
+export {
+  reduceResponse,
+  isResponseEvent,
+  RESPONSE_INIT,
+  BLOCK_INIT,
+  BLOCK_PATCH,
+  BLOCK_READY,
+  BLOCK_FAILED,
+  SOURCE_ADD,
+  MEDIA_ADD,
+  RESPONSE_SNAPSHOT,
+  RESPONSE_DONE,
+} from "./response-reducer";
+export type { ResponseEnvelope, Block } from "./response-types";
+
 const API_BASE = "/api/v1";
 
 async function apiFetch(input: string, init?: RequestInit): Promise<Response> {

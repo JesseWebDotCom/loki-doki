@@ -369,6 +369,57 @@ const PipelineInfoPopover: React.FC<Props> = ({ pipeline, currentPhase = 'comple
             </div>
           )}
 
+          {(() => {
+            // Chunk 10: Render timings section. Surfaces the three
+            // ``performance.now()`` marks the ChatPage SSE handler
+            // captures for each turn (design-doc §14.6 targets). Only
+            // rendered when at least one mark landed — fast-lane
+            // turns, which never emit ``response_init``, keep the
+            // section hidden.
+            const timings = pipeline.renderTimings;
+            const t0 = timings?.t0;
+            if (!timings || t0 == null) return null;
+            const rows: Array<{ label: string; target: string; ms: number | null }> = [
+              {
+                label: 'Shell visible',
+                target: '<250ms',
+                ms: timings.shellVisible != null ? timings.shellVisible - t0 : null,
+              },
+              {
+                label: 'First block ready',
+                target: '<1500ms',
+                ms: timings.firstBlockReady != null ? timings.firstBlockReady - t0 : null,
+              },
+              {
+                label: 'Snapshot applied',
+                target: '<5000ms',
+                ms: timings.snapshotApplied != null ? timings.snapshotApplied - t0 : null,
+              },
+            ];
+            if (rows.every((r) => r.ms == null)) return null;
+            return (
+              <div className="mt-4 border-t border-border/30 pt-3">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  Render timings
+                </div>
+                <div className="flex flex-col gap-1">
+                  {rows.map((row) => (
+                    <div key={row.label} className="flex items-center gap-2 text-[11px]">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400/60" />
+                      <span className="text-foreground/80">{row.label}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground/60">
+                        target {row.target}
+                      </span>
+                      <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                        {row.ms != null ? `${Math.round(row.ms)}ms` : '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="mt-4 border-t border-border/30 pt-3">
             <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
               Used

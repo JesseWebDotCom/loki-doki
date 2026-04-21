@@ -12,7 +12,7 @@ import {
 } from '../ui/tooltip';
 import { formatMessageDateTime, formatMessageTime } from '../../lib/chatTimestamp';
 import type { SourceInfo, MediaCard, SilentConfirmation } from '../../lib/api';
-import type { Block } from '../../lib/response-types';
+import type { Block, ResponseEnvelope } from '../../lib/response-types';
 import type { PipelineState } from '../../pages/ChatPage';
 import { FeedbackDialog } from './FeedbackDialog';
 import SourceChip from './SourceChip';
@@ -46,6 +46,13 @@ interface MessageProps {
   /** Retry callback — removes this message and re-sends the prior user turn. */
   onRetry?: () => void;
   onOpenSources?: () => void;
+  /** Chunk 10: canonical server-reconciled envelope. Live turns
+   *  populate this from the SSE reducer; history replay populates
+   *  it from the persisted ``response_envelope`` column. When
+   *  absent, the component falls back to client-derived blocks
+   *  (legacy rows + fast-lane turns where no ``response_init``
+   *  fired). */
+  envelope?: ResponseEnvelope;
 }
 
 /**
@@ -75,6 +82,7 @@ const MessageItem: React.FC<MessageProps> = ({
   messageId,
   onRetry,
   onOpenSources,
+  envelope,
 }) => {
   const isUser = role === 'user';
   const tts = useTTSState();
@@ -91,16 +99,27 @@ const MessageItem: React.FC<MessageProps> = ({
   const [pendingRating, setPendingRating] = useState<1 | -1 | null>(null);
 
   const processedContent = useMemo(() => isUser ? content : preprocessContent(content), [content, isUser]);
-  const primarySource = sources[0] ? getSourcePresentation(sources[0]) : null;
+  // ``primarySource`` is read AFTER ``effectiveSources`` is declared
+  // below (the useMemo ordering is lexical here); we recompute it
+  // inline at the render site so the envelope / fallback branches
+  // agree. Keeping the ``sources``-based reference around would make
+  // the favicon lag the envelope on fast-lane -> full-lane transitions.
 
-  // Client-side block derivation. Chunk 10 will switch this to consume
-  // the streamed ``ResponseEnvelope`` directly; until then we keep the
-  // renderer on the block path by fabricating the envelope locally from
-  // the existing synthesis payload. Order must match the legacy inline
-  // render order (media before prose) so the pixel behavior is
-  // unchanged.
+  // Chunk 10 dual-source rendering:
+  //   * ``envelope`` present → render the canonical server envelope
+  //     directly (live stream or history replay from the persisted
+  //     snapshot).
+  //   * ``envelope`` absent → fall back to client-derived blocks built
+  //     from the legacy ``synthesis`` payload. This preserves behavior
+  //     for pre-envelope history rows and for fast-lane turns (where
+  //     the backend skips synthesis and no ``response_init`` fires).
+  // Block order matches the legacy inline render order (media before
+  // prose) so pixel-level behavior is unchanged.
   const assistantBlocks: Block[] = useMemo(() => {
     if (isUser) return [];
+    if (envelope) {
+      return envelope.blocks;
+    }
     return [
       {
         id: 'media',
@@ -124,7 +143,22 @@ const MessageItem: React.FC<MessageProps> = ({
         items: sources,
       },
     ];
-  }, [isUser, content, media, sources]);
+  }, [isUser, content, media, sources, envelope]);
+
+  // When the envelope IS present, source chips inside the summary
+  // markdown resolve through ``source_surface`` rather than the legacy
+  // ``sources`` prop. Cast through ``unknown`` because the surface
+  // items are typed as opaque ``unknown[]`` until chunk 11.
+  const effectiveSources: SourceInfo[] = useMemo(() => {
+    if (envelope) {
+      return envelope.source_surface as unknown as SourceInfo[];
+    }
+    return sources;
+  }, [envelope, sources]);
+
+  const primarySource = effectiveSources[0]
+    ? getSourcePresentation(effectiveSources[0])
+    : null;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
@@ -162,7 +196,7 @@ const MessageItem: React.FC<MessageProps> = ({
           a: ({ href, children }) => {
             if (href?.startsWith('#cite-')) {
               const index = parseInt(href.replace('#cite-', ''), 10);
-              const source = sources[index - 1];
+              const source = effectiveSources[index - 1];
               if (!source) return null;
               return <SourceChip index={index} source={source} />;
             }
@@ -279,7 +313,7 @@ const MessageItem: React.FC<MessageProps> = ({
                 </div>
               )}
               <div data-testid="message-bubble" className="w-full text-foreground relative">
-                <BlockContextProvider sources={sources} mentionedPeople={mentionedPeople}>
+                <BlockContextProvider sources={effectiveSources} mentionedPeople={mentionedPeople}>
                   {assistantBlocks.map((block) => renderBlock(block))}
                 </BlockContextProvider>
 
@@ -436,7 +470,7 @@ const MessageItem: React.FC<MessageProps> = ({
                       </Tooltip>
                     )}
 
-                    {sources.length > 0 && onOpenSources && (
+                    {effectiveSources.length > 0 && onOpenSources && (
                       <>
                         <div className="mx-1 h-4 w-px bg-border/40" />
                         <button
