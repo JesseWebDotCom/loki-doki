@@ -147,6 +147,48 @@ async def test_nearest_uses_rtree_when_present(tmp_path: Path):
 
 
 @pytest.mark.anyio
+async def test_nearest_returns_hit_when_rtree_exists_but_is_empty(tmp_path: Path):
+    """Reproducer for the 'no address appears' bug: an empty rtree table
+    must not short-circuit the query to zero results. Either the backfill
+    repopulates it or the code falls back to the slow scan — but the hit
+    must come back either way."""
+    import sqlite3
+
+    from lokidoki.maps.geocode import fts_search
+
+    pbf = tmp_path / "empty_rtree.osm.pbf"
+    if pbf.exists():
+        pbf.unlink()
+    writer = osmium.SimpleWriter(str(pbf), overwrite=True)
+    writer.add_node(osmium.osm.mutable.Node(
+        id=1,
+        location=(-73.0690, 41.2430),
+        tags={
+            "addr:housenumber": "150",
+            "addr:street": "Stiles St",
+            "addr:city": "Milford",
+            "addr:state": "CT",
+            "addr:postcode": "06460",
+        },
+    ))
+    writer.close()
+    db = region_db_path(tmp_path, "us-ct")
+    build_index(pbf, db, "us-ct")
+
+    conn = sqlite3.connect(str(db))
+    try:
+        conn.execute("DELETE FROM places_rtree")
+        conn.commit()
+    finally:
+        conn.close()
+    fts_search._RTREE_READY.pop(db, None)
+
+    hit = await nearest(41.2430, -73.0690, ["us-ct"], data_root=tmp_path)
+    assert hit is not None
+    assert hit.title == "150 Stiles St"
+
+
+@pytest.mark.anyio
 async def test_nearest_backfills_rtree_for_legacy_indexes(tmp_path: Path):
     """Upgrading users have .sqlite files from before the rtree schema.
     The first query must lazily re-create + populate the rtree so
@@ -181,7 +223,7 @@ async def test_nearest_backfills_rtree_for_legacy_indexes(tmp_path: Path):
     finally:
         conn.close()
     # Drop the per-path memo so the backfill actually runs.
-    fts_search._BACKFILLED_DBS.discard(db)
+    fts_search._RTREE_READY.pop(db, None)
 
     hit = await nearest(41.2430, -73.0690, ["us-ct"], data_root=tmp_path)
     assert hit is not None

@@ -222,30 +222,35 @@ def _rtree_row_count(conn: sqlite3.Connection) -> int | None:
     return int(row[0]) if row else 0
 
 
-# Per-path memo so we only pay the backfill probe once per DB.
-_BACKFILLED_DBS: set[Path] = set()
+# Per-path memo: True = rtree populated and safe for fast path;
+# False = definitely not usable (backfill failed or DB too old).
+_RTREE_READY: dict[Path, bool] = {}
 
 
-def _ensure_rtree(db_path: Path) -> None:
-    """Lazily materialise ``places_rtree`` for indexes built before the
-    R-Tree schema shipped. One-time write per region; subsequent opens
-    short-circuit via the module-level memo."""
-    if db_path in _BACKFILLED_DBS:
-        return
+def _ensure_rtree(db_path: Path) -> bool:
+    """Return True iff the rtree for ``db_path`` is populated and matches
+    the FTS row count. Lazily creates + populates on the first call
+    against a pre-rtree index. Failures fall through — callers should
+    use the slow bbox scan instead of serving empty results."""
+    cached = _RTREE_READY.get(db_path)
+    if cached is not None:
+        return cached
+    ready = False
     try:
         conn = sqlite3.connect(str(db_path))
     except sqlite3.Error:
-        return
+        _RTREE_READY[db_path] = False
+        return False
     try:
-        count = _rtree_row_count(conn)
+        rtree_count = _rtree_row_count(conn)
         places_count = conn.execute("SELECT COUNT(*) FROM places").fetchone()[0]
-        if count is None:
+        if rtree_count is None:
             conn.execute(
                 "CREATE VIRTUAL TABLE places_rtree USING rtree("
                 "id, min_lat, max_lat, min_lon, max_lon)"
             )
-            count = 0
-        if count < places_count:
+            rtree_count = 0
+        if rtree_count < places_count:
             conn.execute(
                 """
                 INSERT INTO places_rtree(id, min_lat, max_lat, min_lon, max_lon)
@@ -254,19 +259,15 @@ def _ensure_rtree(db_path: Path) -> None:
                 """,
             )
             conn.commit()
+            rtree_count = _rtree_row_count(conn) or 0
+        ready = rtree_count >= places_count and places_count > 0
     except sqlite3.OperationalError as exc:
         log.warning("R-Tree backfill failed for %s: %s", db_path, exc)
+        ready = False
     finally:
         conn.close()
-    _BACKFILLED_DBS.add(db_path)
-
-
-def _has_rtree(conn: sqlite3.Connection) -> bool:
-    try:
-        conn.execute("SELECT 1 FROM places_rtree LIMIT 1").fetchone()
-        return True
-    except sqlite3.OperationalError:
-        return False
+    _RTREE_READY[db_path] = ready
+    return ready
 
 
 def _nearest_region_sync(
@@ -278,7 +279,7 @@ def _nearest_region_sync(
 ) -> GeocodeResult | None:
     if not db_path.exists():
         return None
-    _ensure_rtree(db_path)
+    rtree_ready = _ensure_rtree(db_path)
     min_lat, max_lat, min_lon, max_lon = _bbox_for_radius(lat, lon, max_radius_km)
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA query_only = 1")
@@ -286,7 +287,7 @@ def _nearest_region_sync(
         # R-Tree companion turns an O(n) bbox scan into an O(log n)
         # spatial lookup. Older indexes (built before the rtree
         # schema landed) fall back to the linear scan.
-        if _has_rtree(conn):
+        if rtree_ready:
             cur = conn.execute(
                 """
                 SELECT p.osm_id, p.name, p.housenumber, p.street, p.city,
