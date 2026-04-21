@@ -52,6 +52,7 @@ from lokidoki.orchestrator.response import (
     ResponseEnvelope,
     validate_envelope,
 )
+from lokidoki.orchestrator.response import events as response_events
 from lokidoki.orchestrator.response.planner import plan_initial_blocks
 from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
@@ -466,10 +467,13 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, execu
     """Read memory slots, decide LLM usage, produce final response.
 
     Returns a ``(ResponseObject, ResponseEnvelope)`` tuple. The envelope
-    rides alongside the legacy ``ResponseObject`` — chunk 9 begins
-    streaming envelope-level SSE events; until then the envelope is
-    only consumed by pipeline persistence (see
-    :mod:`lokidoki.api.routes.chat`).
+    rides alongside the legacy ``ResponseObject``; chunk 9 also streams
+    envelope-level SSE events (``response_init`` / ``block_init`` /
+    ``block_patch`` / ``block_ready`` / ``source_add`` / ``media_add``
+    / ``response_snapshot``) through the shared ``_sse_queue`` on the
+    context so the frontend can progressively render blocks. The
+    legacy ``synthesis`` / ``routing`` / ``decomposition`` phase events
+    are emitted unchanged.
     """
     finish = trace.timed("memory_read")
     memory_slots = run_memory_read_path(raw_text, safe_context)
@@ -490,6 +494,7 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, execu
 
     finish = trace.timed("combine")
     envelope_status: str = "complete"
+    response = None
     try:
         if decision.needed:
             response = await llm_synthesize_async(request_spec)
@@ -504,8 +509,9 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, execu
         else:
             response = combine_request_spec(request_spec)
             finish(mode="deterministic", output_text=response.output_text)
-    except Exception:
+    except Exception as exc:
         envelope_status = "failed"
+        _emit_synthesis_failure_events(safe_context, trace, exc)
         raise
 
     envelope = _build_envelope(
@@ -515,7 +521,71 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, execu
         response=response,
         status=envelope_status,
     )
+    _emit_envelope_events(safe_context, envelope)
     return response, envelope
+
+
+def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> None:
+    """Stream the rich-response events for a validated envelope.
+
+    Order (per chunk 9's ordering rules):
+
+    1. ``response_init`` announcing the planned block list.
+    2. ``block_init`` for every planned block.
+    3. ``block_patch`` (summary prose, seq=1) + ``source_add`` /
+       ``media_add`` per item, then ``block_ready`` for every
+       non-omitted block.
+    4. ``response_snapshot`` with the full serialized envelope.
+
+    No-op when no SSE queue is attached (e.g. direct unit tests that
+    exercise :func:`run_synthesis_phase` without the streaming wrapper).
+    """
+    queue = safe_context.get("_sse_queue")
+    if queue is None:
+        return
+
+    queue.put_nowait(response_events.response_init(
+        envelope.request_id, envelope.mode, envelope.blocks,
+    ))
+    for block in envelope.blocks:
+        queue.put_nowait(response_events.block_init(block))
+
+    seq_by_block: dict[str, int] = {}
+    for block in envelope.blocks:
+        if block.state is BlockState.omitted:
+            continue
+        if block.type is BlockType.summary and block.content:
+            seq_by_block["summary"] = seq_by_block.get("summary", 0) + 1
+            queue.put_nowait(response_events.block_patch(
+                block.id, seq_by_block["summary"], delta=block.content,
+            ))
+        elif block.type is BlockType.sources and block.items:
+            for source in block.items:
+                queue.put_nowait(response_events.source_add(source))
+        elif block.type is BlockType.media and block.items:
+            for card in block.items:
+                queue.put_nowait(response_events.media_add(card))
+
+    for block in envelope.blocks:
+        if block.state is BlockState.ready:
+            queue.put_nowait(response_events.block_ready(block.id))
+
+    queue.put_nowait(response_events.response_snapshot(envelope))
+
+
+def _emit_synthesis_failure_events(safe_context: dict, trace, exc: BaseException) -> None:
+    """Emit ``block_failed`` for the summary block when synthesis raises.
+
+    The terminal ``response_done`` with ``status=failed`` is emitted by
+    :func:`_run_pipeline_task` once the pipeline task unwinds — that
+    way both the raise path *and* a non-synthesis crash reach the same
+    wire shape.
+    """
+    queue = safe_context.get("_sse_queue")
+    if queue is None:
+        return
+    reason = str(exc) or exc.__class__.__name__
+    queue.put_nowait(response_events.block_failed("summary", reason))
 
 
 def _build_envelope(

@@ -90,4 +90,8 @@ Refs docs/rich-response/PLAN.md chunk 9.
 
 ## Deferrals
 
-<!-- Append specifics here if this chunk surfaced work that belongs in a later chunk. -->
+- **Token-level ``block_patch`` for the summary block.** Chunk 9 emits a single ``block_patch`` (``seq=1``) with the complete summary prose after synthesis finishes. The existing LLM token stream
+  (``lokidoki/orchestrator/fallbacks/llm_fallback.py::on_token``) still emits ``synthesis:streaming`` events with per-token deltas. Routing those deltas through ``block_patch`` (monotonic ``seq``) would
+  touch ``llm_fallback.py``, which is not in chunk 9's ``## Files`` list. Deferred to chunk 10 where the frontend is rewired to consume the new events and can drive the right UX shape for progressive rendering.
+- **Chunk 5 / Chunk 7 ``_response_envelope_json`` shared-context hack removed.** Replaced with ``response_snapshot`` SSE interception in ``lokidoki/api/routes/chat.py``. ``chat.py`` was added to ``## Files`` under the hack-removal authorization given by chunk 7's deferral list, and ``test_streaming.py`` was updated to assert the new ``response_done`` terminal-event contract (two existing tests asserted that ``synthesis:done`` was the final event).
+- **Fast-lane envelope-event emission.** Fast-lane turns bypass the synthesis phase entirely and currently emit no ``response_*`` / ``block_*`` events (only the terminal ``response_done``). Chunk 10's frontend should treat a missing ``response_init`` as the fast-lane path and render the synthesis-phase response text directly. If fast-lane parity is needed on the envelope surface, a later chunk should add a minimal ``plan_initial_blocks`` + emit path for ``_fast_lane_result``.

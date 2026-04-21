@@ -129,7 +129,28 @@ async def chat(
             yield f"data: {json.dumps(session_event, separators=(',', ':'))}\n\n"
 
             response_text = ""
+            # Captured from the `response_snapshot` SSE event (chunk 9)
+            # — this is the envelope shape persisted alongside the
+            # assistant message row for history replay. Replaces the
+            # chunk-7 `_response_envelope_json` shared-context hack.
+            envelope_json: Optional[str] = None
             async for sse_chunk in stream_pipeline_sse(request.message, context=context):
+                # Sniff response_snapshot before yielding so we can
+                # persist the serialized envelope when synthesis:done
+                # lands. The event itself is still forwarded to the
+                # client unchanged.
+                if '"response_snapshot"' in sse_chunk:
+                    try:
+                        payload = json.loads(sse_chunk.removeprefix("data: ").rstrip("\n"))
+                        if payload.get("phase") == "response_snapshot":
+                            envelope_obj = payload.get("data", {}).get("envelope")
+                            if envelope_obj is not None:
+                                envelope_json = json.dumps(
+                                    envelope_obj, separators=(",", ":")
+                                )
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+
                 # Intercept synthesis-done to capture the final response and trigger naming.
                 if '"phase"' in sse_chunk and '"synthesis"' in sse_chunk and '"status"' in sse_chunk and '"done"' in sse_chunk:
                     try:
@@ -141,11 +162,6 @@ async def chat(
                     # Persist assistant message and inject assistant_message_id.
                     asst_msg_id = None
                     if response_text:
-                        # Pick up the rich-response envelope snapshot that
-                        # the pipeline task stashed on the shared context
-                        # (chunk 7). None on fast-lane turns; chunk 9
-                        # begins streaming envelope events.
-                        envelope_json = context.get("_response_envelope_json")
                         asst_msg_id = await memory.add_message(
                             user_id=user_id,
                             session_id=session_id,

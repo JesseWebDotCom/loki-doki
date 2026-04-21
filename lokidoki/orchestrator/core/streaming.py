@@ -216,22 +216,20 @@ async def _run_pipeline_task(
     run_pipeline_async: Any,
 ) -> None:
     """Run the pipeline and push the final synthesis event (or error) onto the queue."""
+    request_id = ""
+    final_status = "failed"
     try:
         result = await run_pipeline_async(raw_text, context=safe_context)
 
-        # Stash the rich-response envelope on the shared context so the
-        # chat route handler can persist it alongside the assistant
-        # message row without unthreading the whole PipelineResult
-        # through the SSE generator. Chunk 9 starts streaming this.
         envelope = getattr(result, "envelope", None)
         if envelope is not None:
-            try:
-                from lokidoki.orchestrator.response.serde import envelope_to_dict
-                safe_context["_response_envelope_json"] = json.dumps(
-                    envelope_to_dict(envelope), separators=(",", ":")
-                )
-            except Exception:  # noqa: BLE001 — persistence is best-effort
-                logger.exception("failed to serialize response envelope")
+            request_id = getattr(envelope, "request_id", "") or ""
+            final_status = getattr(envelope, "status", "complete") or "complete"
+        else:
+            trace = getattr(result, "trace", None)
+            request_id = getattr(trace, "trace_id", "") or ""
+            # No envelope (fast-lane path) — the turn still "completed".
+            final_status = "complete"
 
         # Persist the trace to the database if a provider and message ID are available.
         # This is what makes the 'steps' sticky in the UI across reloads.
@@ -239,7 +237,7 @@ async def _run_pipeline_task(
         user_id = safe_context.get("owner_user_id")
         session_id = safe_context.get("session_id")
         user_message_id = safe_context.get("user_message_id")
-        
+
         if memory and user_id and session_id:
             try:
                 # TraceData contains the structured steps recorded during execution.
@@ -263,7 +261,14 @@ async def _run_pipeline_task(
     except Exception:
         logger.exception("pipeline crashed during SSE stream")
         queue.put_nowait(_build_error_event())
+        final_status = "failed"
     finally:
+        # Terminal rich-response event (chunk 9). Always emitted —
+        # even on fast-lane (no envelope) and on crash paths — so the
+        # frontend + chat route handler have one deterministic
+        # turn-complete signal regardless of which path ran.
+        from lokidoki.orchestrator.response import events as response_events
+        queue.put_nowait(response_events.response_done(request_id, final_status))
         queue.put_nowait(_DONE)
 
 
