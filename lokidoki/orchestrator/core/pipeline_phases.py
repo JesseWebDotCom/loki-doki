@@ -44,6 +44,15 @@ from lokidoki.orchestrator.pipeline.normalizer import normalize_text
 from lokidoki.orchestrator.pipeline.parser import parse_text
 from lokidoki.orchestrator.pipeline.splitter import split_requests
 from lokidoki.orchestrator.resolution.resolver import resolve_chunk_async
+from lokidoki.orchestrator.response import (
+    Block,
+    BlockState,
+    BlockType,
+    EnvelopeValidationError,
+    ResponseEnvelope,
+    validate_envelope,
+)
+from lokidoki.orchestrator.response.planner import plan_initial_blocks
 from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
 
@@ -454,7 +463,14 @@ def _media_cards_from_adapters(executions: list[ExecutionResult]) -> list[dict[s
 
 
 async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime):
-    """Read memory slots, decide LLM usage, produce final response."""
+    """Read memory slots, decide LLM usage, produce final response.
+
+    Returns a ``(ResponseObject, ResponseEnvelope)`` tuple. The envelope
+    rides alongside the legacy ``ResponseObject`` — chunk 9 begins
+    streaming envelope-level SSE events; until then the envelope is
+    only consumed by pipeline persistence (see
+    :mod:`lokidoki.api.routes.chat`).
+    """
     finish = trace.timed("memory_read")
     memory_slots = run_memory_read_path(raw_text, safe_context)
     if memory_slots:
@@ -473,20 +489,105 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, execu
     request_spec.llm_reason = decision.reason
 
     finish = trace.timed("combine")
-    if decision.needed:
-        response = await llm_synthesize_async(request_spec)
-        
-        # Phase 1 Loop: Check for knowledge gap marker
-        if "[[NEED_SEARCH:" in response.output_text:
-            response = await _handle_knowledge_gap(
-                trace, safe_context, raw_text, request_spec, executions, response, runtime
-            )
-            
-        finish(mode="llm", reason=decision.reason, output_text=response.output_text)
-    else:
-        response = combine_request_spec(request_spec)
-        finish(mode="deterministic", output_text=response.output_text)
-    return response
+    envelope_status: str = "complete"
+    try:
+        if decision.needed:
+            response = await llm_synthesize_async(request_spec)
+
+            # Phase 1 Loop: Check for knowledge gap marker
+            if "[[NEED_SEARCH:" in response.output_text:
+                response = await _handle_knowledge_gap(
+                    trace, safe_context, raw_text, request_spec, executions, response, runtime
+                )
+
+            finish(mode="llm", reason=decision.reason, output_text=response.output_text)
+        else:
+            response = combine_request_spec(request_spec)
+            finish(mode="deterministic", output_text=response.output_text)
+    except Exception:
+        envelope_status = "failed"
+        raise
+
+    envelope = _build_envelope(
+        trace=trace,
+        request_spec=request_spec,
+        executions=executions,
+        response=response,
+        status=envelope_status,
+    )
+    return response, envelope
+
+
+def _build_envelope(
+    *,
+    trace,
+    request_spec,
+    executions: list[ExecutionResult],
+    response,
+    status: str,
+) -> ResponseEnvelope:
+    """Populate the rich-response envelope for this turn.
+
+    The planner allocates the initial block slots; we then fill the
+    summary with ``response.output_text``, the sources block + the
+    source surface with the adapter-aggregated sources, and the media
+    block with ``request_spec.media``. Validation runs at the end and
+    only log-warns on failure — a structural hiccup must not break
+    the turn during rollout.
+    """
+    adapter_outputs = [
+        execution.adapter_output for execution in executions
+        if execution.adapter_output is not None
+    ]
+    blocks: list[Block] = plan_initial_blocks(adapter_outputs, mode="standard")
+    block_index = {block.id: block for block in blocks}
+
+    source_items: list[dict[str, Any]] = [
+        dict(item) for item in (request_spec.adapter_sources or [])
+    ]
+    media_items: list[dict[str, Any]] = [
+        dict(card) for card in (request_spec.media or [])
+    ]
+
+    summary_block = block_index.get("summary")
+    if summary_block is not None:
+        summary_block.content = response.output_text or ""
+        summary_block.state = BlockState.ready
+
+    sources_block = block_index.get("sources")
+    if sources_block is not None:
+        if source_items:
+            sources_block.items = source_items
+            sources_block.state = BlockState.ready
+        else:
+            sources_block.items = []
+            sources_block.state = BlockState.omitted
+
+    media_block = block_index.get("media")
+    if media_block is not None:
+        if media_items:
+            media_block.items = media_items
+            media_block.state = BlockState.ready
+        else:
+            media_block.items = []
+            media_block.state = BlockState.omitted
+
+    spoken_text = getattr(response, "spoken_text", None)
+
+    envelope = ResponseEnvelope(
+        request_id=getattr(trace, "trace_id", "") or "",
+        mode="standard",
+        status=status,  # type: ignore[arg-type]
+        blocks=blocks,
+        source_surface=list(source_items),
+        spoken_text=spoken_text,
+    )
+
+    try:
+        validate_envelope(envelope)
+    except EnvelopeValidationError as exc:
+        logger.warning("envelope validation failed: %s", exc)
+    return envelope
 
 
 async def _handle_knowledge_gap(trace, safe_context, raw_text, request_spec, executions, initial_response, runtime):

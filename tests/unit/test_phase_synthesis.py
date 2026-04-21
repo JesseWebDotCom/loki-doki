@@ -23,6 +23,7 @@ from lokidoki.orchestrator.core.types import (
 )
 from lokidoki.orchestrator.fallbacks.llm_prompt_builder import _collect_sources
 from lokidoki.orchestrator.registry.runtime import get_runtime
+from lokidoki.orchestrator.response import BlockState, BlockType, ResponseEnvelope
 
 
 def _exec(idx: int, capability: str, adapter_output: AdapterOutput) -> ExecutionResult:
@@ -232,8 +233,9 @@ async def test_run_synthesis_phase_stitches_adapter_sources_onto_spec(monkeypatc
         lambda s: LLMDecision(needed=False, reason="unit test"),
     )
 
-    response = await run_synthesis_phase(
-        TraceData(), {}, "who is luke", spec, executions, None, get_runtime(),
+    trace = TraceData(trace_id="t-synth-envelope")
+    response, envelope = await run_synthesis_phase(
+        trace, {}, "who is luke", spec, executions, None, get_runtime(),
     )
 
     assert response.output_text  # non-empty from deterministic combiner
@@ -245,3 +247,26 @@ async def test_run_synthesis_phase_stitches_adapter_sources_onto_spec(monkeypatc
         }
     ]
     assert "Luke trained with Yoda." in spec.supporting_context
+
+    # Envelope: planner allocated summary + sources (media absent); the
+    # summary is filled with the combined response text; sources block
+    # mirrors spec.adapter_sources; source_surface is populated too.
+    assert isinstance(envelope, ResponseEnvelope)
+    assert envelope.request_id == "t-synth-envelope"
+    assert envelope.mode == "standard"
+    assert envelope.status == "complete"
+
+    block_ids = [block.id for block in envelope.blocks]
+    assert "summary" in block_ids
+    assert "sources" in block_ids
+    assert "media" not in block_ids
+
+    summary_block = next(b for b in envelope.blocks if b.id == "summary")
+    assert summary_block.type is BlockType.summary
+    assert summary_block.state is BlockState.ready
+    assert summary_block.content == response.output_text
+
+    sources_block = next(b for b in envelope.blocks if b.id == "sources")
+    assert sources_block.state is BlockState.ready
+    assert sources_block.items == spec.adapter_sources
+    assert envelope.source_surface == spec.adapter_sources

@@ -86,3 +86,25 @@ Refs docs/rich-response/PLAN.md chunk 7.
 ## Deferrals
 
 <!-- Append specifics here if this chunk surfaced work that belongs in a later chunk. -->
+
+### Implementation notes (chunk 7)
+
+The persistence action touched four adjacent files beyond the `## Files`
+list because "persist the envelope alongside the existing message row"
+has no in-repo one-line hook today:
+
+- `lokidoki/core/memory_init.py` — added `MESSAGE_COLUMN_MIGRATIONS`
+  (the repo's migration lives here, not in `memory_schema.py`).
+- `lokidoki/core/memory_sql.py` — `add_message()` gained an optional
+  `response_envelope` parameter.
+- `lokidoki/core/memory_provider.py` — `MemoryProvider.add_message()`
+  forwards `response_envelope` to the SQL writer.
+- `lokidoki/orchestrator/core/streaming.py` — stashes the
+  envelope-serialized JSON on the shared `safe_context` under
+  `_response_envelope_json` so `chat.py` can read it after the SSE
+  generator finishes. Without this, the chat route has no handle on the
+  `PipelineResult` (it consumes SSE strings only).
+
+Chunk 9 will replace the context-stash hack with a real
+`response_snapshot` event stream; the chat route should then pull from
+that event's payload rather than the context.

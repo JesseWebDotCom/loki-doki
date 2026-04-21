@@ -69,7 +69,9 @@ async def run_pipeline_async(
     spec.media = await run_media_augmentation_phase(
         trace, routable, routes, executions, raw_text=raw_text,
     )
-    response = await run_synthesis_phase(trace, ctx, raw_text, spec, executions, mw, runtime)
+    response, envelope = await run_synthesis_phase(
+        trace, ctx, raw_text, spec, executions, mw, runtime,
+    )
     # Post-synthesis filter: drop media cards when the model still
     # punted with a clarification / deferral despite the media_hint.
     # Showing a random video next to "I'm not sure" is worse than
@@ -77,13 +79,17 @@ async def run_pipeline_async(
     if spec.media and _is_deferral_response(response.output_text):
         logger.info("[Media] suppressing %d card(s) — response looks like a deferral", len(spec.media))
         spec.media = []
+        # Keep the envelope media block in sync with the spec-level
+        # suppression so history replay matches the UI the user saw.
+        _strip_envelope_media(envelope)
     maybe_queue_session_close(ctx, mw)
     return PipelineResult(
         normalized=normalized, signals=signals, fast_lane=fast_lane,
         parsed=_strip_doc(parsed), chunks=chunks, extractions=extractions,
         routes=routes, implementations=impls, resolutions=resolutions,
         executions=executions, request_spec=spec, response=response,
-        trace=trace, trace_summary=build_trace_summary(trace))
+        trace=trace, trace_summary=build_trace_summary(trace),
+        envelope=envelope)
 
 
 def _init_trace(context):
@@ -166,3 +172,19 @@ def _is_deferral_response(text: str) -> bool:
         return False
     head = text.lstrip().lower()[:60]
     return any(head.startswith(prefix) for prefix in _DEFERRAL_PREFIXES)
+
+
+def _strip_envelope_media(envelope) -> None:
+    """Mark the envelope's media block as omitted after a deferral suppression.
+
+    Keeps the persisted envelope in sync with the spec-level media
+    wipe. Idempotent: no-op if the envelope has no media block.
+    """
+    if envelope is None:
+        return
+    from lokidoki.orchestrator.response.blocks import BlockState
+    for block in envelope.blocks:
+        if block.id == "media":
+            block.items = []
+            block.state = BlockState.omitted
+            break

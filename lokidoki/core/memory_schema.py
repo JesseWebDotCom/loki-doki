@@ -288,6 +288,10 @@ CREATE TABLE IF NOT EXISTS messages (
     owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role TEXT NOT NULL,                     -- 'user' | 'assistant'
     content TEXT NOT NULL,
+    -- Rich-response envelope snapshot (JSON) for assistant turns.
+    -- Nullable so user-role rows and legacy rows stay valid. See
+    -- docs/rich-response/chunk-7-envelope-wire.md.
+    response_envelope TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);

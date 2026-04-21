@@ -342,8 +342,22 @@ class MemoryProvider:
     # ---- messages --------------------------------------------------------
 
     async def add_message(
-        self, *, user_id: int, session_id: int, role: str, content: str
+        self,
+        *,
+        user_id: int,
+        session_id: int,
+        role: str,
+        content: str,
+        response_envelope: Optional[str] = None,
     ) -> int:
+        """Insert a message row and return its id.
+
+        Args:
+            response_envelope: Optional serialized JSON envelope snapshot
+                to persist alongside the message. Callers pass
+                ``json.dumps(envelope_to_dict(envelope))``; the SQL layer
+                writes it verbatim.
+        """
         # Embed user-role messages so the verbatim semantic search
         # ("what did we decide about auth") works. Assistant turns are
         # NOT embedded — they dilute the index with model paraphrases
@@ -368,6 +382,7 @@ class MemoryProvider:
                     role=role,
                     content=content,
                     embedding=embedding,
+                    response_envelope=response_envelope,
                 )
             )
 

@@ -141,11 +141,17 @@ async def chat(
                     # Persist assistant message and inject assistant_message_id.
                     asst_msg_id = None
                     if response_text:
+                        # Pick up the rich-response envelope snapshot that
+                        # the pipeline task stashed on the shared context
+                        # (chunk 7). None on fast-lane turns; chunk 9
+                        # begins streaming envelope events.
+                        envelope_json = context.get("_response_envelope_json")
                         asst_msg_id = await memory.add_message(
                             user_id=user_id,
                             session_id=session_id,
                             role="assistant",
                             content=response_text,
+                            response_envelope=envelope_json,
                         )
                         # Auto-name session on first turn.
                         if is_first_turn:

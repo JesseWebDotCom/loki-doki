@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from lokidoki.orchestrator.adapters.base import AdapterOutput
+    from lokidoki.orchestrator.response import ResponseEnvelope
 
 
 @dataclass(slots=True)
@@ -246,6 +247,13 @@ class PipelineResult:
     response: ResponseObject
     trace: TraceData
     trace_summary: TraceSummary
+    # Canonical rich-response envelope for this turn. Populated by
+    # :func:`lokidoki.orchestrator.core.pipeline_phases.run_synthesis_phase`
+    # alongside the legacy ``response`` object. ``None`` on fast-lane
+    # turns where the synthesis phase is bypassed entirely. Chunk 9
+    # begins streaming envelope-level SSE events; until then the
+    # envelope is only consumed by persistence and history replay.
+    envelope: ResponseEnvelope | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

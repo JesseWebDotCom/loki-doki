@@ -218,7 +218,21 @@ async def _run_pipeline_task(
     """Run the pipeline and push the final synthesis event (or error) onto the queue."""
     try:
         result = await run_pipeline_async(raw_text, context=safe_context)
-        
+
+        # Stash the rich-response envelope on the shared context so the
+        # chat route handler can persist it alongside the assistant
+        # message row without unthreading the whole PipelineResult
+        # through the SSE generator. Chunk 9 starts streaming this.
+        envelope = getattr(result, "envelope", None)
+        if envelope is not None:
+            try:
+                from lokidoki.orchestrator.response.serde import envelope_to_dict
+                safe_context["_response_envelope_json"] = json.dumps(
+                    envelope_to_dict(envelope), separators=(",", ":")
+                )
+            except Exception:  # noqa: BLE001 — persistence is best-effort
+                logger.exception("failed to serialize response envelope")
+
         # Persist the trace to the database if a provider and message ID are available.
         # This is what makes the 'steps' sticky in the UI across reloads.
         memory = safe_context.get("memory_provider")

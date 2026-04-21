@@ -87,11 +87,21 @@ def add_message(
     role: str,
     content: str,
     embedding: Optional[list] = None,
+    response_envelope: Optional[str] = None,
 ) -> int:
+    """Insert one message row.
+
+    Args:
+        response_envelope: Pre-serialized JSON string for the rich-response
+            envelope snapshot. Passed straight to the ``response_envelope``
+            column. Callers (``MemoryProvider.add_message``) handle the
+            ``envelope_to_dict`` + ``json.dumps`` step so the SQL layer
+            stays JSON-agnostic.
+    """
     cur = conn.execute(
-        "INSERT INTO messages (session_id, owner_user_id, role, content) "
-        "VALUES (?, ?, ?, ?)",
-        (session_id, user_id, role, content),
+        "INSERT INTO messages (session_id, owner_user_id, role, content, "
+        "response_envelope) VALUES (?, ?, ?, ?, ?)",
+        (session_id, user_id, role, content, response_envelope),
     )
     message_id = int(cur.lastrowid)
     # Optional vector write — only user-role messages get embedded

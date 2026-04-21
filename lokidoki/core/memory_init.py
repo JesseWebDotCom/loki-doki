@@ -80,6 +80,13 @@ FEEDBACK_COLUMN_MIGRATIONS = (
     ("trace_json", "TEXT"),
 )
 
+# Rich-response envelope snapshot persisted alongside the legacy content
+# column. Nullable JSON blob so legacy rows (no envelope) stay readable.
+# See docs/rich-response/chunk-7-envelope-wire.md.
+MESSAGE_COLUMN_MIGRATIONS = (
+    ("response_envelope", "TEXT"),
+)
+
 
 def _table_has_column(
     conn: sqlite3.Connection, table: str, column: str
@@ -237,6 +244,7 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
     # creates it idempotently above, so this ALTER is always safe.
     _add_columns(conn, "projects", PROJECT_COLUMN_MIGRATIONS)
     _add_columns(conn, "message_feedback", FEEDBACK_COLUMN_MIGRATIONS)
+    _add_columns(conn, "messages", MESSAGE_COLUMN_MIGRATIONS)
     # Indexes that depend on migrated columns must run AFTER _add_columns
     # so pre-projects DBs can upgrade without crashing on missing columns.
     conn.execute(
