@@ -41,7 +41,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 6 | [`ResponseEnvelope` + `Block` dataclasses (backend types)](chunk-6-envelope-types.md) | done | e9d22e3 |
 | 7 | [Wire envelope through synthesis + persist snapshot](chunk-7-envelope-wire.md) | done | 29f2658 |
 | 8 | [Frontend block registry + summary/sources/media renderers](chunk-8-block-registry-frontend.md) | done | bd4fffa |
-| 9 | [Emit `response_*` / `block_*` SSE events](chunk-9-response-events.md) | pending | |
+| 9 | [Emit `response_*` / `block_*` SSE events](chunk-9-response-events.md) | done | 682ede4 |
 | 10 | [Frontend consumes new events + progressive rendering + history replay](chunk-10-progressive-rendering.md) | pending | |
 | 11 | [SourceSurface + structured citations + offline trust chip](chunk-11-source-surface.md) | pending | |
 | 12 | [Response mode derivation (planner backend)](chunk-12-planner-mode-backend.md) | pending | |
