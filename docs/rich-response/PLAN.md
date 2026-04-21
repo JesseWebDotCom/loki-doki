@@ -33,9 +33,9 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 
 | # | Chunk | Status | Commit |
 |---|---|---|---|
-| 1 | [Adapter framework + shared source model + calculator pilot](chunk-1-adapter-framework.md) | done | _bundled commit_ |
-| 2 | [Retrofit simple skills via adapters](chunk-2-adapters-simple.md) | done | _bundled commit_ |
-| 3 | [Retrofit sourced skills via adapters](chunk-3-adapters-sourced.md) | done | _bundled commit_ |
+| 1 | [Adapter framework + shared source model + calculator pilot](chunk-1-adapter-framework.md) | done | f0db1ad (bundled) |
+| 2 | [Retrofit simple skills via adapters](chunk-2-adapters-simple.md) | done | f0db1ad (bundled) |
+| 3 | [Retrofit sourced skills via adapters](chunk-3-adapters-sourced.md) | done | f0db1ad (bundled) |
 | 4 | [Retrofit media/media-heavy skills via adapters](chunk-4-adapters-media.md) | pending | |
 | 5 | [Adapter cutover — remove legacy shape handling](chunk-5-adapter-cutover.md) | pending | |
 | 6 | [`ResponseEnvelope` + `Block` dataclasses (backend types)](chunk-6-envelope-types.md) | pending | |
@@ -124,3 +124,5 @@ Append entries like:
 
 Do not rewrite prior entries. Do not delete blockers. Do not reorder.
 -->
+
+- 2026-04-21: Chunks 1–3 ran in a single codex session and landed as one combined commit (f0db1ad) instead of three. Going forward, one chunk per fresh session per commit. Resolver implementations don't carry `skill_id`, so chunks 1–3 introduced a `_HANDLER_TO_SKILL_ID` fallback map in `pipeline_phases.py`; fold this into chunk 5 (cutover). Recorded in chunk-3-adapters-sourced.md Deferrals.
