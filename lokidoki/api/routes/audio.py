@@ -50,6 +50,7 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 class TTSRequest(BaseModel):
     text: str
     voice: str | None = None
+    utterance_id: str | None = None
     speech_rate: float | None = None
     sentence_pause: float | None = None
     normalize_text: bool | None = None
@@ -124,6 +125,7 @@ async def text_to_speech_stream(
 
     config = _merge_preview_overrides(_current_audio_config(), request)
     voice_id = (request.voice or config.piper_voice).strip()
+    utterance_id = (request.utterance_id or uuid.uuid4().hex).strip()
     if not voice_installed(voice_id):
         raise HTTPException(
             status_code=400,
@@ -143,14 +145,27 @@ async def text_to_speech_stream(
 
     def iter_chunks():
         try:
-            for chunk in synthesize_stream(text, voice_id, config=config, pronunciation_fixes=fixes):
+            stream = iter(
+                synthesize_stream(
+                    text,
+                    voice_id,
+                    config=config,
+                    pronunciation_fixes=fixes,
+                )
+            )
+            pending = next(stream, None)
+            while pending is not None:
+                next_chunk = next(stream, None)
                 yield json.dumps({
-                    "audio_base64": base64.b64encode(chunk["audio_pcm"]).decode("ascii"),
-                    "sample_rate": chunk["sample_rate"],
-                    "phonemes": chunk["phonemes"],
-                    "samples_per_phoneme": chunk["samples_per_phoneme"],
-                    "text": chunk.get("text", ""),
+                    "audio_base64": base64.b64encode(pending["audio_pcm"]).decode("ascii"),
+                    "sample_rate": pending["sample_rate"],
+                    "phonemes": pending["phonemes"],
+                    "samples_per_phoneme": pending["samples_per_phoneme"],
+                    "text": pending.get("text", ""),
+                    "utterance_id": utterance_id,
+                    "final": next_chunk is None,
                 }) + "\n"
+                pending = next_chunk
         except Exception as exc:
             yield json.dumps({"error": str(exc)}) + "\n"
 

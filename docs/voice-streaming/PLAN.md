@@ -35,9 +35,9 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 
 | # | Chunk | Status | Commit |
 |---|---|---|---|
-| 1 | [Design doc — architecture, contracts, invariants](chunk-1-design.md) | pending | |
-| 2 | [Piper incremental-synthesis backend endpoint](chunk-2-piper-streaming.md) | pending | |
-| 3 | [Frontend sentence/clause chunker on `block_patch`](chunk-3-sentence-chunker.md) | pending | |
+| 1 | [Design doc — architecture, contracts, invariants](chunk-1-design.md) | done | |
+| 2 | [Piper incremental-synthesis backend endpoint](chunk-2-piper-streaming.md) | done | |
+| 3 | [Frontend sentence/clause chunker on `block_patch`](chunk-3-sentence-chunker.md) | done | |
 | 4 | [TTS queue + typewriter-paced playback gate](chunk-4-pacing-gate.md) | pending | |
 | 5 | [Mid-stream barge-in](chunk-5-barge-in.md) | pending | |
 | 6 | [Kiosk status-phrase coexistence](chunk-6-kiosk-coexistence.md) | pending | |
