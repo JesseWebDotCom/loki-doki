@@ -16,7 +16,11 @@
  */
 import React, { createContext, useContext } from "react";
 
-import type { Block, BlockType } from "../../../lib/response-types";
+import type {
+  ArtifactSurfaceData,
+  Block,
+  BlockType,
+} from "../../../lib/response-types";
 import type { SourceInfo } from "../../../lib/api";
 
 import SummaryBlock from "./SummaryBlock";
@@ -28,6 +32,7 @@ import ComparisonBlock from "./ComparisonBlock";
 import ClarificationBlock from "./ClarificationBlock";
 import StatusBlock from "./StatusBlock";
 import FollowUpsBlock from "./FollowUpsBlock";
+import ArtifactPreviewBlock from "./ArtifactPreviewBlock";
 
 export interface MentionedPerson {
   id: number;
@@ -53,6 +58,10 @@ export interface BlockContextValue {
    *  When absent the chips render but are inert — useful for tests
    *  and history replay where re-sending would be wrong. */
   onFollowUp?: (text: string) => void;
+  /** Chunk 20: current artifact surface payload for this turn. */
+  artifactSurface?: ArtifactSurfaceData;
+  /** Opens the dedicated artifact surface. */
+  onOpenArtifact?: () => void;
 }
 
 const BlockContext = createContext<BlockContextValue>({
@@ -60,6 +69,8 @@ const BlockContext = createContext<BlockContextValue>({
   mentionedPeople: [],
   onOpenSources: undefined,
   onFollowUp: undefined,
+  artifactSurface: undefined,
+  onOpenArtifact: undefined,
 });
 
 interface BlockContextProviderProps extends BlockContextValue {
@@ -71,11 +82,22 @@ export const BlockContextProvider: React.FC<BlockContextProviderProps> = ({
   mentionedPeople,
   onOpenSources,
   onFollowUp,
+  artifactSurface,
+  onOpenArtifact,
   children,
 }) => {
   return React.createElement(
     BlockContext.Provider,
-    { value: { sources, mentionedPeople, onOpenSources, onFollowUp } },
+    {
+      value: {
+        sources,
+        mentionedPeople,
+        onOpenSources,
+        onFollowUp,
+        artifactSurface,
+        onOpenArtifact,
+      },
+    },
     children,
   );
 };
@@ -108,6 +130,8 @@ function getRenderer(type: BlockType): React.FC<{ block: Block }> | undefined {
       return ComparisonBlock;
     case "follow_ups":
       return FollowUpsBlock;
+    case "artifact_preview":
+      return ArtifactPreviewBlock;
     case "clarification":
       return ClarificationBlock;
     case "status":
@@ -132,6 +156,7 @@ export const BLOCK_REGISTRY: Partial<
       "summary",
       "sources",
       "media",
+      "artifact_preview",
       "key_facts",
       "steps",
       "comparison",

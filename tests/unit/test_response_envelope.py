@@ -236,10 +236,16 @@ def test_envelope_round_trip_covers_every_block_type() -> None:
     # One envelope that exercises every BlockType (respecting the single
     # summary + single sources constraint).
     blocks = [_block_for_type(bt) for bt in BlockType]
-    # Cap is 8; BlockType has 10 members. Drop two low-value families
+    # Cap is 8; BlockType now has 11 members after chunk 20 added
+    # ``artifact_preview``. Drop three low-value families for the
     # for the envelope-level round-trip while still testing each block
     # type individually via block_round_trip_for_every_type above.
-    blocks = [b for b in blocks if b.type not in {BlockType.cta_links, BlockType.status}]
+    blocks = [
+        b
+        for b in blocks
+        if b.type
+        not in {BlockType.cta_links, BlockType.follow_ups, BlockType.status}
+    ]
 
     envelope = ResponseEnvelope(
         request_id="req_rt_1",

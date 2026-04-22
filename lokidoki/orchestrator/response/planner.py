@@ -162,6 +162,7 @@ TTS_POLICY: dict[BlockType, str] = {
     BlockType.comparison: "skip",
     BlockType.sources: "skip",
     BlockType.media: "skip",
+    BlockType.artifact_preview: "skip",
     BlockType.cta_links: "skip",
     BlockType.clarification: "speak",
     BlockType.follow_ups: "skip",
@@ -270,7 +271,7 @@ def plan_initial_blocks(
     elif normalized == "search":
         blocks = _plan_search(has_sources, has_follow_ups)
     elif normalized == "artifact":
-        blocks = _plan_artifact()
+        blocks = _plan_artifact(has_sources)
     else:
         # Fallthrough: standard.
         blocks = _plan_standard(has_sources, has_media, inputs, has_follow_ups)
@@ -284,8 +285,6 @@ def plan_initial_blocks(
     # Chunk 15: always pre-allocate the live status block. The pipeline
     # patches it at phase transitions and flips it to ``omitted`` on
     # ``response_done`` so it disappears from the final envelope.
-    # Artifact mode already owns an ``artifact_status`` placeholder —
-    # don't double-allocate a second status block there.
     if not any(block.type is BlockType.status for block in blocks):
         blocks.append(_status_block())
 
@@ -396,13 +395,12 @@ def _status_block() -> Block:
     )
 
 
-def _artifact_placeholder() -> Block:
-    # Artifacts are rendered on the envelope's ``artifact_surface``
-    # (chunks 19-20). A single ``status`` block inside the stack
-    # carries the short supervisory text that accompanies it.
+def _artifact_preview() -> Block:
+    # Artifacts render in the dedicated surface plus a compact inline
+    # teaser inside the block stack.
     return Block(
-        id="artifact_status",
-        type=BlockType.status,
+        id="artifact_preview",
+        type=BlockType.artifact_preview,
         state=BlockState.loading,
         seq=0,
     )
@@ -550,14 +548,18 @@ def _plan_search(has_sources: bool, has_follow_ups: bool) -> list[Block]:
     return blocks
 
 
-def _plan_artifact() -> list[Block]:
-    """Artifact mode: short supervisory status + artifact surface (envelope-level).
+def _plan_artifact(has_sources: bool) -> list[Block]:
+    """Artifact mode: summary + optional sources + artifact preview.
 
     Chunks 19-20 render the actual artifact via
-    ``envelope.artifact_surface``; the block stack just carries the
-    short prose that accompanies the side surface.
+    ``envelope.artifact_surface``; the block stack carries a compact
+    preview card that opens the full surface.
     """
-    return [_summary(), _artifact_placeholder()]
+    blocks: list[Block] = [_summary()]
+    if has_sources:
+        blocks.append(_sources())
+    blocks.append(_artifact_preview())
+    return blocks
 
 
 def is_offline_degraded(executions: Iterable[ExecutionResult]) -> bool:

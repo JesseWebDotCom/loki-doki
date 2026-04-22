@@ -60,6 +60,7 @@ from lokidoki.orchestrator.response.mode import (
     VALID_MODES,
     derive_response_mode,
 )
+from lokidoki.orchestrator.response.artifact_trigger import should_use_artifact_mode
 from lokidoki.orchestrator.response.planner import is_offline_degraded, plan_initial_blocks
 from lokidoki.orchestrator.response.spoken import resolve_spoken_text
 from lokidoki.orchestrator.response.status_strings import (
@@ -846,7 +847,8 @@ def _build_envelope(
         if execution.adapter_output is not None
     ]
     ctx = safe_context or {}
-    planner_inputs = _build_planner_inputs(ctx, executions)
+    artifact_candidate = _first_artifact_candidate(adapter_outputs)
+    planner_inputs = _build_planner_inputs(ctx, executions, artifact_candidate)
     derived_mode = derive_response_mode(
         planner_inputs,
         user_override=ctx.get("user_mode_override"),
@@ -890,6 +892,17 @@ def _build_envelope(
             media_block.items = []
             media_block.state = BlockState.omitted
 
+    artifact_preview = block_index.get("artifact_preview")
+    artifact_surface = None
+    if derived_mode == "artifact" and artifact_candidate is not None:
+        artifact_surface = _build_artifact_surface(artifact_candidate)
+        if artifact_preview is not None:
+            artifact_preview.items = [_build_artifact_preview_item(artifact_surface)]
+            artifact_preview.state = BlockState.ready
+    elif artifact_preview is not None:
+        artifact_preview.items = []
+        artifact_preview.state = BlockState.omitted
+
     # Chunk 14: populate ``key_facts`` / ``steps`` / ``comparison`` from
     # adapter facts + synthesis output (constrained JSON if present,
     # adapter fallback otherwise). Runs in-place on the planner-
@@ -924,6 +937,7 @@ def _build_envelope(
         status=status,  # type: ignore[arg-type]
         blocks=blocks,
         source_surface=list(source_items),
+        artifact_surface=artifact_surface,
         spoken_text=explicit_spoken,
         offline_degraded=is_offline_degraded(executions),
         document_mode=document_mode,  # type: ignore[arg-type]
@@ -1046,6 +1060,7 @@ def _comparison_subjects(
 def _build_planner_inputs(
     safe_context: dict,
     executions: list[ExecutionResult],
+    artifact_candidate: dict[str, Any] | None = None,
 ) -> PlannerInputs:
     """Assemble :class:`PlannerInputs` from already-derived pipeline state.
 
@@ -1070,6 +1085,12 @@ def _build_planner_inputs(
     override = safe_context.get("user_mode_override")
     user_override = override if isinstance(override, str) else None
     deep_opt_in = user_override == "deep"
+    profile = safe_context.get("platform_profile")
+    wants_artifact = artifact_candidate is not None and should_use_artifact_mode(
+        decomposition if decomposition is not None else safe_context,
+        user_override,
+        profile=profile if isinstance(profile, str) else None,
+    )
 
     return PlannerInputs(
         intent=str(safe_context.get("intent", "") or ""),
@@ -1082,9 +1103,91 @@ def _build_planner_inputs(
             safe_context.get("requires_current_data", False)
         ),
         multiple_skills_fired=successful > 1,
-        has_artifact_output=bool(safe_context.get("has_artifact_output", False)),
+        has_artifact_output=wants_artifact,
         deep_opt_in=deep_opt_in,
     )
+
+
+def _first_artifact_candidate(
+    adapter_outputs: list[AdapterOutput],
+) -> dict[str, Any] | None:
+    """Return the first artifact candidate surfaced by any adapter."""
+    for output in adapter_outputs:
+        for candidate in output.artifact_candidates:
+            if isinstance(candidate, dict):
+                return dict(candidate)
+    return None
+
+
+def _normalize_artifact_versions(
+    candidate: dict[str, Any],
+) -> list[dict[str, Any]]:
+    versions_raw = candidate.get("versions")
+    versions: list[dict[str, Any]] = []
+    if isinstance(versions_raw, list):
+        for idx, item in enumerate(versions_raw, start=1):
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content") or "").strip()
+            if not content:
+                continue
+            versions.append(
+                {
+                    "version": int(item.get("version") or idx),
+                    "content": content,
+                    "created_at": str(item.get("created_at") or ""),
+                    "size_bytes": int(
+                        item.get("size_bytes") or len(content.encode("utf-8"))
+                    ),
+                }
+            )
+    if versions:
+        return versions
+
+    content = str(candidate.get("content") or "").strip()
+    if not content:
+        return []
+    return [{
+        "version": 1,
+        "content": content,
+        "created_at": str(candidate.get("created_at") or ""),
+        "size_bytes": len(content.encode("utf-8")),
+    }]
+
+
+def _build_artifact_surface(candidate: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize one adapter artifact candidate for the envelope surface."""
+    versions = _normalize_artifact_versions(candidate)
+    if not versions:
+        return None
+    selected_version = int(candidate.get("selected_version") or versions[-1]["version"])
+    title = str(candidate.get("title") or "Artifact").strip() or "Artifact"
+    kind = str(candidate.get("kind") or "html").strip() or "html"
+    artifact_id = str(candidate.get("artifact_id") or candidate.get("id") or "").strip()
+    if not artifact_id:
+        artifact_id = f"artifact-inline-{title.lower().replace(' ', '-')}"
+    return {
+        "artifact_id": artifact_id,
+        "title": title,
+        "kind": kind,
+        "selected_version": selected_version,
+        "versions": versions,
+    }
+
+
+def _build_artifact_preview_item(artifact_surface: dict[str, Any]) -> dict[str, Any]:
+    """Build the compact preview payload consumed by the frontend card."""
+    versions = artifact_surface.get("versions")
+    latest = versions[-1] if isinstance(versions, list) and versions else {}
+    content = str(latest.get("content") or "")
+    preview = " ".join(content.replace("\n", " ").split())[:160]
+    return {
+        "artifact_id": artifact_surface.get("artifact_id"),
+        "title": artifact_surface.get("title"),
+        "kind": artifact_surface.get("kind"),
+        "version": latest.get("version"),
+        "preview_text": preview,
+    }
 
 
 # Re-export the valid mode set for callers that need to validate a

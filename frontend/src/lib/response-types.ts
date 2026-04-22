@@ -29,6 +29,7 @@ export type BlockType =
   | "comparison"
   | "sources"
   | "media"
+  | "artifact_preview"
   | "cta_links"
   | "clarification"
   | "follow_ups"
@@ -49,6 +50,21 @@ export interface Block {
   content?: string;
   items?: unknown[];
   comparison?: ComparisonPayload;
+}
+
+export interface ArtifactVersion {
+  version: number;
+  content: string;
+  created_at: string;
+  size_bytes: number;
+}
+
+export interface ArtifactSurfaceData {
+  artifact_id: string;
+  title: string;
+  kind: string;
+  selected_version: number;
+  versions: ArtifactVersion[];
 }
 
 export interface Hero {
@@ -82,7 +98,7 @@ export interface ResponseEnvelope {
   hero?: Hero;
   blocks: Block[];
   source_surface: unknown[];
-  artifact_surface?: Record<string, unknown>;
+  artifact_surface?: ArtifactSurfaceData;
   spoken_text?: string;
   /** Chunk 11: true when at least one execution on this turn reported
    *  an offline failure. Drives ``OfflineTrustChip`` in ``MessageItem``. */
@@ -140,6 +156,7 @@ const VALID_BLOCK_TYPES: readonly BlockType[] = [
   "comparison",
   "sources",
   "media",
+  "artifact_preview",
   "cta_links",
   "clarification",
   "follow_ups",
@@ -213,7 +230,7 @@ export function envelopeFromDict(
     hero,
     blocks,
     source_surface: sourceSurface,
-    artifact_surface: (data.artifact_surface as Record<string, unknown>) ?? undefined,
+    artifact_surface: (data.artifact_surface as ArtifactSurfaceData | undefined) ?? undefined,
     spoken_text: (data.spoken_text as string | undefined) ?? undefined,
     offline_degraded: Boolean(data.offline_degraded),
     document_mode: documentMode,

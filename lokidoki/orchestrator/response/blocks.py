@@ -49,6 +49,7 @@ class BlockType(str, Enum):
     comparison = "comparison"
     sources = "sources"
     media = "media"
+    artifact_preview = "artifact_preview"
     cta_links = "cta_links"
     clarification = "clarification"
     follow_ups = "follow_ups"

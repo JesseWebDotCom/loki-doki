@@ -418,19 +418,16 @@ class TestPlanSearch:
 
 
 class TestPlanArtifact:
-    """``artifact`` — short supervisory status + artifact placeholder."""
+    """``artifact`` — summary + preview + optional sources."""
 
     def test_artifact_shape(self):
-        # Artifact mode already carries its own ``artifact_status``
-        # status block — the planner post-step recognizes this and
-        # does NOT append a second status block.
         blocks = plan_initial_blocks([], mode="artifact")
-        assert [b.id for b in blocks] == ["summary", "artifact_status"]
+        assert [b.id for b in blocks] == ["summary", "artifact_preview", "status"]
 
-    def test_artifact_status_is_status_block(self):
+    def test_artifact_preview_uses_dedicated_block_type(self):
         blocks = plan_initial_blocks([], mode="artifact")
-        artifact = next(b for b in blocks if b.id == "artifact_status")
-        assert artifact.type is BlockType.status
+        artifact = next(b for b in blocks if b.id == "artifact_preview")
+        assert artifact.type is BlockType.artifact_preview
 
 
 class TestPlanUnknownMode:

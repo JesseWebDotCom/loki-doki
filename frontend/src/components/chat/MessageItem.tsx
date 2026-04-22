@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -23,6 +23,7 @@ import OfflineTrustChip from './OfflineTrustChip';
 import DocumentChip from './DocumentChip';
 import DeepWorkFrame from './DeepWorkFrame';
 import { BlockContextProvider, renderBlock } from './blocks';
+import ArtifactSurface from './artifact/ArtifactSurface';
 
 interface MentionedPerson {
   id: number;
@@ -108,6 +109,7 @@ const MessageItem: React.FC<MessageProps> = ({
   const [feedbackState, setFeedbackState] = useState<1 | -1 | null>(null);
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [pendingRating, setPendingRating] = useState<1 | -1 | null>(null);
+  const [artifactOpen, setArtifactOpen] = useState(false);
 
   const processedContent = useMemo(() => isUser ? content : preprocessContent(content), [content, isUser]);
   // ``primarySource`` is read AFTER ``effectiveSources`` is declared
@@ -170,6 +172,12 @@ const MessageItem: React.FC<MessageProps> = ({
   const primarySource = effectiveSources[0]
     ? getSourcePresentation(effectiveSources[0])
     : null;
+
+  useEffect(() => {
+    if (!envelope?.artifact_surface) {
+      setArtifactOpen(false);
+    }
+  }, [envelope?.artifact_surface]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
@@ -333,6 +341,8 @@ const MessageItem: React.FC<MessageProps> = ({
                   mentionedPeople={mentionedPeople}
                   onOpenSources={onOpenSources}
                   onFollowUp={onFollowUp}
+                  artifactSurface={envelope?.artifact_surface}
+                  onOpenArtifact={() => setArtifactOpen(true)}
                 >
                   {envelope?.mode === 'deep' && envelope.status === 'streaming' ? (
                     <DeepWorkFrame envelope={envelope}>
@@ -342,6 +352,13 @@ const MessageItem: React.FC<MessageProps> = ({
                     assistantBlocks.map((block) => renderBlock(block))
                   )}
                 </BlockContextProvider>
+                {envelope?.artifact_surface ? (
+                  <ArtifactSurface
+                    open={artifactOpen}
+                    onOpenChange={setArtifactOpen}
+                    artifact={envelope.artifact_surface}
+                  />
+                ) : null}
 
                 {confirmations.length > 0 && (
                   <div className="mt-5 border-t border-border/10 pt-4 space-y-1.5">

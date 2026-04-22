@@ -11,9 +11,15 @@ Build the user-visible artifact surface on top of Chunk 19's secured foundation.
 - `frontend/src/components/chat/artifact/ArtifactExportMenu.tsx` — new.
 - `frontend/src/components/chat/blocks/ArtifactPreviewBlock.tsx` — new. Inline teaser that opens the surface.
 - `frontend/src/components/chat/blocks/index.ts` — register the preview renderer.
+- `frontend/src/components/chat/MessageItem.tsx` — host the dedicated artifact surface and preview-open state.
+- `frontend/src/lib/response-types.ts` — typed artifact surface payload mirrored from the backend envelope.
+- `lokidoki/orchestrator/response/blocks.py` — add `artifact_preview` block type.
 - `lokidoki/orchestrator/response/planner.py` — allocate `artifact_preview` + populate `envelope.artifact_surface` when `mode == "artifact"`.
+- `lokidoki/orchestrator/core/pipeline_phases.py` — build the artifact surface payload + preview item during envelope assembly.
 - `lokidoki/orchestrator/response/artifact_trigger.py` — new. `should_use_artifact_mode(decomposition, user_override)` — narrow decision that only returns true for explicit artifact asks.
 - `tests/unit/test_artifact_trigger.py` — new.
+- `tests/unit/test_response_envelope.py` — round-trip coverage updated for the new block family.
+- `tests/unit/test_response_mode.py` — artifact planner shape assertions.
 - `frontend/src/components/chat/__tests__/artifact-surface.test.tsx` — new.
 
 Read-only: Chunk 19 sandbox, Chunk 12 mode derivation.
