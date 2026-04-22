@@ -153,7 +153,24 @@ async def test_regression_prompt(case):
             f"{case['id']}: expected resolved person '{expected}' in {resolved_names}"
         )
 
-    if "max_step_ms" in expect:
+    # Latency ceilings were calibrated against the deterministic stub
+    # synthesizer on a pi_hailo 1.7B decomposer. Skip them when a real
+    # LLM ran on this turn, or when the routing decomposer took so long
+    # it didn't come back authoritative — both mean we're measuring
+    # model latency, not routing work, and these fixtures aren't the
+    # right place to bound model throughput.
+    _latency_bound = True
+    if result.request_spec.llm_used:
+        _latency_bound = False
+    ctx = result.request_spec.context if isinstance(result.request_spec.context, dict) else {}
+    decomp = ctx.get("route_decomposition")
+    if decomp is not None and getattr(decomp, "source", "") != "llm":
+        # Decomposer fallback (timeout / parse error / disabled) means
+        # the measured time includes the full decomposer timeout on top
+        # of real work — not a routing-precision signal.
+        _latency_bound = False
+
+    if "max_step_ms" in expect and _latency_bound:
         timings_by_step = {step.name: step.timing_ms for step in result.trace.steps}
         for step_name, ceiling_ms in expect["max_step_ms"].items():
             assert step_name in timings_by_step, (
@@ -164,7 +181,7 @@ async def test_regression_prompt(case):
                 f"{case['id']}: step '{step_name}' took {actual}ms (limit {ceiling_ms}ms)"
             )
 
-    if "max_total_ms" in expect:
+    if "max_total_ms" in expect and _latency_bound:
         actual_total = result.trace_summary.total_timing_ms
         assert actual_total <= expect["max_total_ms"], (
             f"{case['id']}: total pipeline took {actual_total}ms "

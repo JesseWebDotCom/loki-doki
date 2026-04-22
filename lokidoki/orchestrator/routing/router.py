@@ -135,17 +135,26 @@ def _best_index_match(
 ) -> tuple[str, float, str]:
     """Scan the router index and return (capability, score, text) for the best match.
 
-    ``capability_boosts`` (when supplied) adds a per-capability constant
-    to every example's cosine score before comparison — used by the
-    decomposer prior to tip borderline matches for capabilities the
-    fast LLM thinks are right.
+    ``capability_boosts`` (when supplied) does two things:
+      1. Adds a per-capability constant to every example's cosine score.
+      2. Restricts the search to the boosted capabilities. The LLM
+         decomposer has already classified the user's intent; honoring
+         that classification stops MiniLM from steering the query to
+         an unrelated skill just because of a shared rare token (e.g.
+         "who is luke skywalker" cosine-matching "when is luke's
+         birthday" over "who is satya nadella"). When every boosted
+         capability falls below :data:`ROUTE_FLOOR` the caller's
+         retrieval-fallback / direct_chat logic still catches it.
     """
     boosts = capability_boosts or {}
+    restrict_to_boosted = bool(boosts)
     for item in router_index:
         if item["capability"] == "direct_chat":
             # direct_chat is the floor-based fallback, never the
             # best-cosine winner — its examples are intentionally vague
             # and would otherwise dominate the index.
+            continue
+        if restrict_to_boosted and item["capability"] not in boosts:
             continue
         boost = boosts.get(item["capability"], 0.0)
         texts = item.get("texts") or []

@@ -89,19 +89,25 @@ def block_patch(
     *,
     delta: str | None = None,
     items_delta: list[dict[str, Any]] | None = None,
+    replace: str | None = None,
 ) -> SSEEvent:
     """Emit an incremental update for a block.
 
-    Exactly one of ``delta`` (prose) or ``items_delta`` (list of dicts)
-    is typical; both may be ``None`` for a heartbeat, but callers
-    should avoid that. ``seq`` MUST monotonically increase within a
-    given ``block_id`` so the frontend / persistence can dedupe replays.
+    Exactly one of ``delta`` (prose), ``items_delta`` (list of dicts),
+    or ``replace`` (full content replacement) is typical; all may be
+    ``None`` for a heartbeat, but callers should avoid that. ``seq``
+    MUST monotonically increase within a given ``block_id`` so the
+    frontend / persistence can dedupe replays. ``replace`` is used to
+    reset the block mid-stream (e.g. when the knowledge-gap loop
+    discards the first synthesis and starts a second pass).
     """
     data: dict[str, Any] = {"block_id": block_id, "seq": int(seq)}
     if delta is not None:
         data["delta"] = delta
     if items_delta is not None:
         data["items_delta"] = list(items_delta)
+    if replace is not None:
+        data["replace"] = replace
     return SSEEvent(phase=BLOCK_PATCH, status="data", data=data)
 
 

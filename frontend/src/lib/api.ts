@@ -142,11 +142,13 @@ export async function sendChatMessage(
   projectId?: number,
   userModeOverride?: string | null,
   activeWorkspaceId?: string | null,
+  retryOfMessageId?: number | null,
 ): Promise<void> {
   // ``user_mode_override`` is the chunk-13 compose-bar / slash-command
   // plumbing. ``null`` means the backend derives a mode itself via
   // ``derive_response_mode``; a string must be one of VALID_MODES or
-  // the backend rejects with 400.
+  // the backend rejects with 400. ``retryOfMessageId`` tells the
+  // backend to drop the stale assistant row before loading history.
   const response = await apiFetch(`${API_BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -156,6 +158,7 @@ export async function sendChatMessage(
       project_id: projectId ?? null,
       user_mode_override: userModeOverride ?? null,
       active_workspace_id: activeWorkspaceId ?? null,
+      retry_of_message_id: retryOfMessageId ?? null,
     }),
   });
   if (!response.ok || !response.body) {

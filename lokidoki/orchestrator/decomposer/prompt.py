@@ -14,6 +14,7 @@ ceiling is set with headroom to reject further bloat.
 from __future__ import annotations
 
 ROUTING_PROMPT = (
+    "/no_think\n"
     "ROLE: route user input to a capability family. Output compact JSON only.\n"
     "SHAPE: {\"capability_need\":\"X\",\"archive_hint\":\"Y\",\"resolved_query\":\"Z\"}\n"
     "\n"

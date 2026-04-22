@@ -168,6 +168,23 @@ async def startup_event():
         except Exception:
             pass
 
+    # Warm the fast LLM in the background so the first real user turn
+    # doesn't eat the cold-load cost (2–4s on mac/linux/windows with an
+    # 8B fast model). Without this, the first routing decomposer call
+    # exceeds its timeout and falls back to MiniLM-only scoring —
+    # causing name-collision mis-routes (e.g. "who is luke skywalker"
+    # lands on lookup_birthday because its "when is luke's birthday"
+    # example wins cosine).
+    async def _warm_fast_llm() -> None:
+        try:
+            from lokidoki.orchestrator.decomposer.client import (
+                decompose_for_routing,
+            )
+            await decompose_for_routing("warmup", timeout_s=30.0)
+        except Exception:
+            pass
+    asyncio.create_task(_warm_fast_llm())
+
 
 @app.get("/api/health")
 async def api_health():

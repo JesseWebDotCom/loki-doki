@@ -132,6 +132,7 @@ function patchBlock(
     seq?: number;
     delta?: string;
     items_delta?: unknown[];
+    replace?: string;
   },
 ): ResponseEnvelope {
   const id = String(data.block_id ?? "");
@@ -157,7 +158,12 @@ function patchBlock(
   }
   let content = existing.content;
   let items = existing.items;
-  if (typeof data.delta === "string") {
+  // ``replace`` wins over ``delta`` — used by the knowledge-gap loop to
+  // discard partial prose from a first synthesis pass before a second
+  // pass streams the real answer.
+  if (typeof data.replace === "string") {
+    content = data.replace;
+  } else if (typeof data.delta === "string") {
     content = (content ?? "") + data.delta;
   }
   if (Array.isArray(data.items_delta)) {

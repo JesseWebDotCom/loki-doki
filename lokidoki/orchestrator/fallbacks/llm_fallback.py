@@ -306,6 +306,13 @@ async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
     sse_queue = ctx.get("_sse_queue")
     if sse_queue is not None:
         from lokidoki.orchestrator.core.streaming import SSEEvent
+        from lokidoki.orchestrator.response import events as response_events
+
+        # Shared counter: when the pipeline pre-emits ``response_init``
+        # before synthesis starts, each streamed token becomes a
+        # ``block_patch`` on the summary block so the frontend renders
+        # prose as it arrives instead of waiting for the full envelope.
+        stream_state = ctx.setdefault("_summary_stream", {"seq": 0, "active": False})
 
         def on_token(delta: str) -> None:  # type: ignore[no-redef]
             sse_queue.put_nowait(SSEEvent(
@@ -313,6 +320,11 @@ async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
                 status="streaming",
                 data={"delta": delta},
             ))
+            if stream_state.get("active"):
+                stream_state["seq"] = int(stream_state.get("seq", 0)) + 1
+                sse_queue.put_nowait(response_events.block_patch(
+                    "summary", stream_state["seq"], delta=delta,
+                ))
 
     raw = await call_llm(prompt, on_token=on_token)
     text = strip_reasoning_blocks(raw.strip())

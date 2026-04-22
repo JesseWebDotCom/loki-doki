@@ -26,10 +26,11 @@ from lokidoki.orchestrator.decomposer.types import (
 log = logging.getLogger("lokidoki.orchestrator.decomposer")
 
 # Hard ceiling on decomposer wall-clock. If the fast model doesn't
-# respond in this time the router falls back to MiniLM-only. 800ms
-# matches the p95 of Qwen3-1.7B on Pi Hailo for a ~1.5KB prompt with
-# ~50-token JSON output.
-DECOMPOSE_TIMEOUT_S: float = 0.8
+# respond in this time the router falls back to MiniLM-only. 1500ms
+# covers the p95 of the largest fast model across profiles (Qwen3-8B
+# on mac/linux/windows) for the routing prompt's ~80-token JSON
+# output; pi_hailo's Qwen3-1.7B finishes well under this ceiling.
+DECOMPOSE_TIMEOUT_S: float = 1.5
 
 # Cap output tokens tight — a valid routing JSON is ~80 tokens. Allowing
 # more just lets a broken model babble past the closing brace and blow

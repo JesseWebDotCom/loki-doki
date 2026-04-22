@@ -31,7 +31,7 @@ CAPABILITY_BOOSTS: dict[str, tuple[str, ...]] = {
     "geographic": ("knowledge_query", "find_nearby", "get_directions"),
     "weather": ("get_weather",),
     "current_media": ("get_movie_showtimes", "lookup_movie", "search_movies"),
-    "people_lookup": ("lookup_person_birthday", "lookup_relationship", "list_family"),
+    "people_lookup": ("lookup_person_birthday", "lookup_relationship", "list_family", "search_contacts"),
     "youtube": ("get_youtube_channel", "get_video", "get_music_video"),
     "web_search": ("search_web", "knowledge_query"),
     "calendar": ("create_event", "get_events", "update_event", "delete_event"),

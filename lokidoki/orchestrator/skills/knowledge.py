@@ -176,11 +176,32 @@ async def _zim_source(
                 output_text="", success=False, error="no local article found",
             )
 
-        best = max(on_topic, key=lambda r: score_subject_coverage(query, r.snippet))
+        # Score on title + snippet so canonical articles don't lose to
+        # compound titles (e.g. "Luke Skywalker" vs "Luke Skywalker
+        # Building") just because the engine strips the repeated title
+        # off the canonical article's snippet — leaving the body with
+        # fewer query-token mentions than a sibling article that echoes
+        # the full name inside its prose.
+        #
+        # Tiebreaker: prefer the shortest title. An exact-title match
+        # ("Luke Skywalker") is strictly shorter than any "Luke
+        # Skywalker X" sibling, so it wins when snippet coverage ties.
+        _query_lower = query.strip().lower()
+        def _rank(result) -> tuple[float, int, int]:
+            combined = f"{result.title} {result.snippet}"
+            coverage = score_subject_coverage(query, combined)
+            exact = 1 if result.title.strip().lower() == _query_lower else 0
+            return (coverage, exact, -len(result.title))
+
+        best = max(on_topic, key=_rank)
         if score_subject_coverage(query, best.snippet) < MIN_SUBJECT_COVERAGE:
-            return AdapterResult(
-                output_text="", success=False, error="no local article found",
-            )
+            # The canonical article may pass title+snippet coverage but
+            # fail the snippet-only floor (leading title stripped out).
+            # Fall back to the combined-coverage ranking for the gate.
+            if score_subject_coverage(query, f"{best.title} {best.snippet}") < MIN_SUBJECT_COVERAGE:
+                return AdapterResult(
+                    output_text="", success=False, error="no local article found",
+                )
         # Populate ``data`` so the response-layer WikipediaAdapter has
         # a ``lead`` / ``title`` / ``extract`` to work with — without
         # it the adapter gets an empty dict and the rich-response

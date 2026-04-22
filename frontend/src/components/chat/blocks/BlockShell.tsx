@@ -2,6 +2,7 @@ import React from "react";
 
 import type { Block } from "../../../lib/response-types";
 import { Skeleton } from "../../ui/skeleton";
+import { useBlockContext } from "./index";
 
 interface BlockShellProps {
   block: Block;
@@ -42,6 +43,9 @@ const BlockShell: React.FC<BlockShellProps> = ({
   skeleton,
   className,
 }) => {
+  const { envelopeStatus } = useBlockContext();
+  const isStreaming = envelopeStatus === "streaming";
+
   if (block.state === "omitted") {
     return null;
   }
@@ -62,6 +66,16 @@ const BlockShell: React.FC<BlockShellProps> = ({
   }
 
   if (block.state === "loading" || (block.state === "partial" && !renderPartial)) {
+    // During a live stream the ThinkingIndicator below already tells
+    // the user progress is happening, and every skeleton we render here
+    // stacks ~88px of empty height. Multiplied across pending blocks
+    // (summary + key_facts + steps + sources + follow_ups...) that
+    // produces the large gap between the streaming text and the
+    // status indicator. Collapse to null until the block actually has
+    // something to show — the block pops in as its content arrives.
+    if (isStreaming) {
+      return null;
+    }
     return (
       <div
         data-slot="block-loading"

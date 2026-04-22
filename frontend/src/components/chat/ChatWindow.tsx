@@ -31,6 +31,7 @@ interface ChatWindowProps {
   onFindPrev?: () => void;
   onSelectFindResult?: (result: ChatSearchResult) => void;
   onRetry?: (messageIndex: number) => void;
+  onRetryWithMode?: (messageIndex: number, mode: 'rich') => void;
   onOpenSources?: (messageIndex: number) => void;
   /**
    * Chunk 16 (folds chunk 15 deferral #1). Invoked when a user taps
@@ -62,6 +63,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   onFindPrev,
   onSelectFindResult,
   onRetry,
+  onRetryWithMode,
   onOpenSources,
   onFollowUp,
 }) => {
@@ -84,6 +86,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const lastMessageCountRef = useRef(messages.length);
 
   const handleScroll = useCallback(() => {
     if (scrollRef.current) {
@@ -105,12 +108,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   useEffect(() => {
     if (scrollRef.current) {
-      // Auto-scroll to bottom on new messages or pipeline phase change
-      // UNLESS the user is manually scrolled up.
-      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-      const isAtBottom = scrollHeight - scrollTop - clientHeight < 150;
+      const messageCountChanged = messages.length !== lastMessageCountRef.current;
+      lastMessageCountRef.current = messages.length;
 
-      if (isAtBottom || (pipeline?.phase !== 'idle' && pipeline?.phase !== 'completed')) {
+      // Scroll to bottom ONLY when a new message is appended (user sent a
+      // turn, or the assistant bubble was just created). Never follow
+      // streaming tokens — the user explicitly wants to read from where
+      // the text begins and scroll manually. The floating "scroll to
+      // bottom" button handles catch-up.
+      if (messageCountChanged) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
     }
@@ -130,6 +136,27 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   }, [onOpenFind]);
 
   const isThinking = pipeline && pipeline.phase !== 'idle';
+  // When the backend pre-emits ``response_init`` before synthesis, the
+  // last assistant message is a live streaming bubble rendering the
+  // same text via block_patch deltas. Suppress the indicator's
+  // streaming-text copy so the user doesn't see two simultaneous
+  // identical responses being written.
+  const lastMessage = messages[messages.length - 1];
+  const hasInProgressBubble =
+    lastMessage?.role === 'assistant' && lastMessage.envelope?.status === 'streaming';
+  // ``pipeline.activity`` is updated by legacy phase-active events
+  // (e.g. routing → "Consulting Wikipedia"). The synthesis-active
+  // event only fires when the trace step finishes, which is AFTER
+  // the whole stream, so during streaming ``activity`` stays stuck on
+  // the routing phrase and misrepresents what's happening. Once any
+  // summary tokens land, switch the live strip to a synthesis-true
+  // label.
+  const isWritingSummary =
+    hasInProgressBubble &&
+    !!(lastMessage?.envelope?.blocks?.find((b) => b.id === 'summary')?.content ?? '').trim();
+  const liveStatusText = isWritingSummary
+    ? 'Writing response'
+    : pipeline?.activity;
 
   return (
     <div className="flex-1 min-h-0 relative flex flex-col group/chat">
@@ -169,14 +196,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   messageKey={myKey}
                   avatar={isActive ? renderAvatar(characterState ?? 'idle') : undefined}
                   assistantName={assistantName}
+                  liveStatusText={
+                    hasInProgressBubble && idx === messages.length - 1 ? liveStatusText : undefined
+                  }
                   onRetry={onRetry ? () => onRetry(idx) : undefined}
+                  onRetryWithMode={onRetryWithMode ? (mode) => onRetryWithMode(idx, mode) : undefined}
                   onOpenSources={onOpenSources ? () => onOpenSources(idx) : undefined}
                   onFollowUp={onFollowUp}
                 />
               </React.Fragment>
             );
           })}
-          {isThinking && (
+          {isThinking && !hasInProgressBubble && (
             <ThinkingIndicator
               pipeline={pipeline}
               avatar={renderAvatar(characterState ?? 'thinking')}

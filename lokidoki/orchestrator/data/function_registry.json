@@ -2247,7 +2247,9 @@
     "description": "Search contacts in the local prototype contacts store.",
     "examples": [
       "find Leia in my contacts",
-      "what is Luke's number"
+      "search my contacts for Anakin",
+      "look up Padme's number in my contacts",
+      "do I have Leia in my contacts"
     ],
     "enabled": true,
     "implementations": [
@@ -2506,9 +2508,13 @@
   },
   {
     "capability": "search_notes",
-    "description": "Search notes in the local prototype note store.",
+    "description": "Search the user's personal note store for text they previously wrote down.",
     "examples": [
-      "find my note about Paris"
+      "find my note about Paris",
+      "search my notes for meeting minutes",
+      "look up my notes about the project plan",
+      "find the note where I wrote down the wifi password",
+      "search my notes for grocery list"
     ],
     "enabled": true,
     "implementations": [

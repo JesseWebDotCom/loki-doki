@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw, Bot, Info } from 'lucide-react';
+import { Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw, Bot, Info, Sparkles } from 'lucide-react';
 import { useTTSState } from '../../utils/tts';
 import {
   Tooltip,
@@ -49,6 +49,9 @@ interface MessageProps {
   messageId?: number;
   /** Retry callback — removes this message and re-sends the prior user turn. */
   onRetry?: () => void;
+  /** Retry with an explicit mode override — used by the "upgrade to rich"
+   * action. When omitted, the Sparkles button is hidden. */
+  onRetryWithMode?: (mode: 'rich') => void;
   onOpenSources?: () => void;
   /**
    * Chunk 16 (folds chunk 15 deferral #1). Invoked when the user taps
@@ -64,6 +67,8 @@ interface MessageProps {
    *  (legacy rows + fast-lane turns where no ``response_init``
    *  fired). */
   envelope?: ResponseEnvelope;
+  /** Compact live activity label for an in-flight assistant turn. */
+  liveStatusText?: string | null;
 }
 
 /**
@@ -92,9 +97,11 @@ const MessageItem: React.FC<MessageProps> = ({
   mentionedPeople = [],
   messageId,
   onRetry,
+  onRetryWithMode,
   onOpenSources,
   onFollowUp,
   envelope,
+  liveStatusText,
 }) => {
   const isUser = role === 'user';
   const tts = useTTSState();
@@ -158,6 +165,20 @@ const MessageItem: React.FC<MessageProps> = ({
       },
     ];
   }, [isUser, content, media, sources, envelope]);
+
+  const showInlineLiveStatus =
+    envelope?.status === 'streaming' && !!liveStatusText;
+
+  const visibleAssistantBlocks = useMemo(() => {
+    if (!showInlineLiveStatus) {
+      return assistantBlocks;
+    }
+    // When the host message shell already renders the turn's live
+    // status beside the avatar, suppress the structured ``status``
+    // block so rich/deep streams don't duplicate it lower in the
+    // block stack.
+    return assistantBlocks.filter((block) => block.type !== 'status');
+  }, [assistantBlocks, showInlineLiveStatus]);
 
   // When the envelope IS present, source chips inside the summary
   // markdown resolve through ``source_surface`` rather than the legacy
@@ -323,11 +344,21 @@ const MessageItem: React.FC<MessageProps> = ({
                   <OfflineTrustChip className="mb-0" />
                 </div>
               ) : null}
-              {pipeline && pipelineOpen && (
-                <div className="px-1">
-                  <PipelineInfoPopover pipeline={pipeline} defaultExpanded />
+              {showInlineLiveStatus ? (
+                <div
+                  data-slot="assistant-live-status"
+                  className="mb-3 flex w-full items-center gap-3 rounded-[1.65rem] bg-card px-5 py-4 text-base font-semibold tracking-tight text-foreground"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <LoaderCircle
+                    size={14}
+                    className="shrink-0 animate-spin text-green-500"
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{liveStatusText}</span>
                 </div>
-              )}
+              ) : null}
               <div data-testid="message-bubble" className="w-full text-foreground relative">
                 {envelope?.document_mode ? (
                   <DocumentChip mode={envelope.document_mode} />
@@ -343,10 +374,10 @@ const MessageItem: React.FC<MessageProps> = ({
                 >
                   {envelope?.mode === 'deep' && envelope.status === 'streaming' ? (
                     <DeepWorkFrame envelope={envelope}>
-                      {assistantBlocks.map((block) => renderBlock(block))}
+                      {visibleAssistantBlocks.map((block) => renderBlock(block))}
                     </DeepWorkFrame>
                   ) : (
-                    assistantBlocks.map((block) => renderBlock(block))
+                    visibleAssistantBlocks.map((block) => renderBlock(block))
                   )}
                 </BlockContextProvider>
                 {envelope?.artifact_surface ? (
@@ -394,7 +425,7 @@ const MessageItem: React.FC<MessageProps> = ({
                   </div>
                 )}
               </div>
-
+              {envelope?.status !== 'streaming' && (
               <div className="relative z-10 min-h-10 w-full pt-3">
                 <div className={`flex items-center gap-1 transition-opacity px-2 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
                   <TooltipProvider delayDuration={300}>
@@ -510,6 +541,22 @@ const MessageItem: React.FC<MessageProps> = ({
                       </Tooltip>
                     )}
 
+                    {onRetryWithMode && envelope?.mode !== 'rich' && envelope?.mode !== 'deep' && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label="Regenerate with rich response"
+                            onClick={() => onRetryWithMode('rich')}
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-primary hover:bg-card transition cursor-pointer"
+                          >
+                            <Sparkles size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="text-xs">Regenerate with rich response</TooltipContent>
+                      </Tooltip>
+                    )}
+
                     {pipeline && (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -563,6 +610,12 @@ const MessageItem: React.FC<MessageProps> = ({
                   </TooltipProvider>
                 </div>
               </div>
+              )}
+              {pipeline && pipelineOpen && (
+                <div className="px-1">
+                  <PipelineInfoPopover pipeline={pipeline} defaultExpanded />
+                </div>
+              )}
             </div>
           </div>
         </div>

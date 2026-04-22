@@ -118,6 +118,80 @@ describe('MessageItem sources', () => {
     expect(screen.getByRole('link', { name: /Source 1: Luke - Jedi Archives/i })).toBeTruthy();
   });
 
+  it('keeps live status inline with the streaming assistant message', () => {
+    const streamingEnvelope: ResponseEnvelope = {
+      request_id: 'turn-1',
+      mode: 'standard',
+      status: 'streaming',
+      blocks: [
+        {
+          id: 'summary',
+          type: 'summary',
+          state: 'partial',
+          seq: 1,
+          content: 'Luke',
+        },
+      ],
+      source_surface: [],
+    };
+
+    render(
+      <MessageItem
+        role="assistant"
+        content=""
+        timestamp="2026-04-12T12:00:00Z"
+        envelope={streamingEnvelope}
+        liveStatusText="Consulting Wikipedia"
+      />,
+    );
+
+    const liveStatus = screen.getByRole('status');
+    expect(liveStatus.getAttribute('data-slot')).toBe('assistant-live-status');
+    expect(liveStatus.textContent).toContain('Consulting Wikipedia');
+    expect(screen.queryByLabelText('Details')).toBeNull();
+  });
+
+  it('suppresses the duplicate status block when inline live status is active', () => {
+    const streamingEnvelope: ResponseEnvelope = {
+      request_id: 'turn-1',
+      mode: 'rich',
+      status: 'streaming',
+      blocks: [
+        {
+          id: 'status',
+          type: 'status',
+          state: 'partial',
+          seq: 1,
+          content: 'Consulting Wikipedia',
+        },
+        {
+          id: 'summary',
+          type: 'summary',
+          state: 'partial',
+          seq: 2,
+          content: 'Luke Skywalker is a fictional character.',
+        },
+      ],
+      source_surface: [],
+    };
+
+    const { container } = render(
+      <MessageItem
+        role="assistant"
+        content=""
+        timestamp="2026-04-12T12:00:00Z"
+        envelope={streamingEnvelope}
+        liveStatusText="Consulting Wikipedia"
+      />,
+    );
+
+    const inlineStatuses = container.querySelectorAll('[data-slot="assistant-live-status"]');
+    expect(inlineStatuses).toHaveLength(1);
+    expect(inlineStatuses[0]?.textContent).toContain('Consulting Wikipedia');
+    expect(container.querySelector('[data-slot="status-block"]')).toBeNull();
+    expect(screen.getByText(/Luke Skywalker is a fictional character\./)).toBeTruthy();
+  });
+
   it('renders compact citation chips (source name visible, full title-dash-source in aria-label) and opens the sources panel callback', () => {
     const onOpenSources = vi.fn();
     const sources: SourceInfo[] = [

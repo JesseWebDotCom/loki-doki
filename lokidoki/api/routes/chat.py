@@ -59,6 +59,13 @@ class ChatRequest(BaseModel):
     # planner derive via ``derive_response_mode``"; a value must be one
     # of ``VALID_MODES`` or the endpoint returns 400.
     user_mode_override: Optional[str] = None
+    # When the client retries an assistant turn (Retry / Sparkle), this
+    # carries the DB id of the message being replaced. The endpoint
+    # deletes that message (and anything after it in the session) before
+    # persisting the fresh user turn, so ``conversation_history`` never
+    # carries the stale assistant response into the new synthesis — the
+    # LLM would otherwise see its own prior answer and bias the retry.
+    retry_of_message_id: Optional[int] = None
 
     @field_validator("message")
     @classmethod
@@ -161,6 +168,18 @@ async def chat(
         project_id=request.project_id,
         active_workspace_id=request.active_workspace_id,
     )
+
+    # When the client retries a turn (Retry / Sparkle), drop the stale
+    # assistant row (and anything after it) from this session BEFORE we
+    # persist the new user turn — otherwise the prior assistant answer
+    # lands in ``conversation_history`` and the LLM either parrots it
+    # back or quietly drops sections it assumes the user already saw.
+    if request.retry_of_message_id is not None:
+        await memory.delete_messages_from(
+            user_id=user_id,
+            session_id=session_id,
+            from_message_id=request.retry_of_message_id,
+        )
 
     # Check if this is the first message in the session (for auto-naming).
     existing_messages = await memory.get_messages(

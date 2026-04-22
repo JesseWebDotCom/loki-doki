@@ -343,8 +343,15 @@ class TestRouterDecomposerIntegration(unittest.TestCase):
         # knowledge_query: 0.55 + 0.15 = 0.70 ← wins
         self.assertEqual(route.capability, "knowledge_query")
 
-    def test_confident_minilm_not_overridden_by_boost(self):
-        """When MiniLM is VERY confident, decomposer boost can't flip it."""
+    def test_authoritative_decomposer_excludes_non_preferred_capabilities(self):
+        """Authoritative decomposer restricts routing to its preferred set.
+
+        A confident MiniLM hit on a capability the decomposer did not
+        name is ignored — in practice, rare shared tokens (person names
+        used across multiple personal skills) produce high cosine noise
+        on skills the LLM classifier has already ruled out. Honoring the
+        LLM intent keeps name collisions from hijacking the route.
+        """
         runtime = self._make_runtime_with_index([
             {
                 "capability": "get_weather",  # not in medical preferences
@@ -352,7 +359,7 @@ class TestRouterDecomposerIntegration(unittest.TestCase):
                 "vectors": [self._vec_for_cosine(0.95)],
             },
             {
-                "capability": "look_up_symptom",
+                "capability": "look_up_symptom",  # in medical preferences
                 "texts": ["my head hurts"],
                 "vectors": [self._vec_for_cosine(0.3)],
             },
@@ -360,9 +367,10 @@ class TestRouterDecomposerIntegration(unittest.TestCase):
         rd = RouteDecomposition(capability_need="medical", source="llm")
         chunk = RequestChunk(text="anything", index=0)
         route = route_chunk(chunk, runtime=runtime, decomposition=rd)
-        # get_weather: 0.95 + 0.0 = 0.95
-        # look_up_symptom: 0.3 + 0.15 = 0.45
-        self.assertEqual(route.capability, "get_weather")
+        # get_weather is excluded (not in medical preferences).
+        # look_up_symptom: 0.3 + 0.08 (SECONDARY_BOOST) = 0.38
+        # Below ROUTE_FLOOR (0.55) → falls through to direct_chat.
+        self.assertEqual(route.capability, "direct_chat")
 
     def test_non_authoritative_decomp_noop(self):
         """A timed-out decomposition must NOT influence routing."""

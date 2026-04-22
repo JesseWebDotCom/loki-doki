@@ -674,6 +674,8 @@ async def _run_synthesis_phase_impl(trace, safe_context, raw_text, request_spec,
     finish = trace.timed("combine")
     envelope_status: str = "complete"
     response = None
+    shell_emitted = False
+    streamed_summary = False
     try:
         planner_inputs = _build_planner_inputs(safe_context, executions)
         if should_use_structured_stub(
@@ -701,13 +703,60 @@ async def _run_synthesis_phase_impl(trace, safe_context, raw_text, request_spec,
             request_spec.llm_reason = decision.reason
 
             if decision.needed:
-                response = await llm_synthesize_async(request_spec)
+                # Pre-emit the envelope shell so the assistant bubble
+                # materializes on the frontend BEFORE the LLM runs. The
+                # summary block starts empty and fills in via
+                # ``block_patch`` events from the streaming callback in
+                # ``_call_real_llm``. Without this, the frontend waits
+                # the full LLM duration (10-25s on an 8B model) before
+                # any prose appears, because ``response_init`` fires
+                # post-synthesis.
+                preliminary = _build_envelope(
+                    trace=trace,
+                    request_spec=request_spec,
+                    executions=executions,
+                    response=ResponseObject(output_text="", spoken_text=""),
+                    status="streaming",
+                    safe_context=safe_context,
+                )
+                _emit_envelope_shell(safe_context, preliminary)
+                shell_emitted = True
+                # Tell the LLM streaming callback to mirror each delta
+                # onto the summary block_patch stream.
+                stream_state = safe_context.setdefault(
+                    "_summary_stream", {"seq": 0, "active": False},
+                )
+                stream_state["active"] = True
+
+                try:
+                    response = await llm_synthesize_async(request_spec)
+                finally:
+                    stream_state["active"] = False
+                streamed_summary = int(stream_state.get("seq", 0)) > 0
 
                 # Phase 1 Loop: Check for knowledge gap marker
                 if "[[NEED_SEARCH:" in response.output_text:
-                    response = await _handle_knowledge_gap(
-                        trace, safe_context, raw_text, request_spec, executions, response, runtime
-                    )
+                    # The first LLM's marker + any partial prose already
+                    # streamed into the summary block — clear the block
+                    # on the frontend before the second synthesis fills
+                    # it with the real answer. Bump seq past everything
+                    # the first pass emitted so the reset applies cleanly.
+                    queue = safe_context.get("_sse_queue")
+                    if queue is not None and streamed_summary:
+                        stream_state["seq"] = int(stream_state.get("seq", 0)) + 1
+                        queue.put_nowait(response_events.block_patch(
+                            "summary",
+                            stream_state["seq"],
+                            replace="",
+                        ))
+                    stream_state["active"] = True
+                    try:
+                        response = await _handle_knowledge_gap(
+                            trace, safe_context, raw_text, request_spec, executions, response, runtime
+                        )
+                    finally:
+                        stream_state["active"] = False
+                    streamed_summary = int(stream_state.get("seq", 0)) > 0
 
                 finish(mode="llm", reason=decision.reason, output_text=response.output_text)
             else:
@@ -726,11 +775,50 @@ async def _run_synthesis_phase_impl(trace, safe_context, raw_text, request_spec,
         status=envelope_status,
         safe_context=safe_context,
     )
-    _emit_envelope_events(safe_context, envelope)
+    _emit_envelope_events(
+        safe_context, envelope,
+        skip_init=shell_emitted,
+        skip_summary_patch=streamed_summary,
+    )
     return response, envelope
 
 
-def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> None:
+def _emit_envelope_shell(safe_context: dict, envelope: ResponseEnvelope) -> None:
+    """Emit the early shell events so the bubble appears before LLM runs.
+
+    Fires ``response_init`` + one ``block_init`` per planned block plus
+    any ``source_add`` / ``media_add`` items that were already known
+    before synthesis (they come from execution, not from the LLM).
+    The summary block_patch is deliberately skipped — tokens stream in
+    via the ``on_token`` callback in :func:`_call_real_llm` so prose
+    appears incrementally, and :func:`_emit_envelope_finalize` (called
+    after the LLM completes) knows to skip the redundant full-content
+    patch. No-op when no SSE queue is attached.
+    """
+    queue = safe_context.get("_sse_queue")
+    if queue is None:
+        return
+
+    queue.put_nowait(response_events.response_init(
+        envelope.request_id, envelope.mode, envelope.blocks,
+    ))
+    for block in envelope.blocks:
+        queue.put_nowait(response_events.block_init(block))
+
+    for block in envelope.blocks:
+        if block.state is BlockState.omitted:
+            continue
+        if block.type is BlockType.sources and block.items:
+            for source in block.items:
+                queue.put_nowait(response_events.source_add(source))
+        elif block.type is BlockType.media and block.items:
+            for card in block.items:
+                queue.put_nowait(response_events.media_add(card))
+
+
+def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope, *,
+                          skip_init: bool = False,
+                          skip_summary_patch: bool = False) -> None:
     """Stream the rich-response events for a validated envelope.
 
     Order (per chunk 9's ordering rules):
@@ -742,6 +830,11 @@ def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> Non
        non-omitted block.
     4. ``response_snapshot`` with the full serialized envelope.
 
+    ``skip_init`` lets the caller suppress the opening
+    ``response_init`` / ``block_init`` burst when the shell has already
+    been emitted. ``skip_summary_patch`` suppresses the summary
+    ``block_patch`` when prose was already streamed token-by-token.
+
     No-op when no SSE queue is attached (e.g. direct unit tests that
     exercise :func:`run_synthesis_phase` without the streaming wrapper).
     """
@@ -749,11 +842,12 @@ def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> Non
     if queue is None:
         return
 
-    queue.put_nowait(response_events.response_init(
-        envelope.request_id, envelope.mode, envelope.blocks,
-    ))
-    for block in envelope.blocks:
-        queue.put_nowait(response_events.block_init(block))
+    if not skip_init:
+        queue.put_nowait(response_events.response_init(
+            envelope.request_id, envelope.mode, envelope.blocks,
+        ))
+        for block in envelope.blocks:
+            queue.put_nowait(response_events.block_init(block))
 
     seq_by_block: dict[str, int] = {}
     # List-block families whose populated ``items`` must be streamed as
@@ -772,14 +866,20 @@ def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> Non
         if block.state is BlockState.omitted:
             continue
         if block.type is BlockType.summary and block.content:
+            if skip_summary_patch:
+                continue
             seq_by_block["summary"] = seq_by_block.get("summary", 0) + 1
             queue.put_nowait(response_events.block_patch(
                 block.id, seq_by_block["summary"], delta=block.content,
             ))
         elif block.type is BlockType.sources and block.items:
+            if skip_init:
+                continue  # shell already emitted source_add events
             for source in block.items:
                 queue.put_nowait(response_events.source_add(source))
         elif block.type is BlockType.media and block.items:
+            if skip_init:
+                continue  # shell already emitted media_add events
             for card in block.items:
                 queue.put_nowait(response_events.media_add(card))
         elif block.type in _LIST_ITEMS_BLOCKS and block.items:

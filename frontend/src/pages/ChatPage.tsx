@@ -414,10 +414,6 @@ const ChatPage: React.FC = () => {
   // (so replaying an old response wakes that one), or — when nothing
   // is playing — the latest assistant message. All others sleep.
   const activeAssistantKey = useMemo<string | null>(() => {
-    // While a turn is in flight, the LIVE ThinkingIndicator owns the
-    // mini character — no past message should also show one, or we'd
-    // get two avatars on screen at once.
-    if (isProcessing) return null;
     // Pending wins immediately on Play click — speakingKey only flips
     // once onPlaybackStart fires, which can lag a few hundred ms behind
     // the click while the first audio chunk arrives. Without this,
@@ -425,6 +421,15 @@ const ChatPage: React.FC = () => {
     // actually started.
     if (tts.pendingKey) return tts.pendingKey;
     if (tts.speakingKey) return tts.speakingKey;
+    const last = messages[messages.length - 1];
+    const hasInProgressBubble =
+      last?.role === 'assistant' && last?.envelope?.status === 'streaming';
+    // While a turn is in flight the avatar attaches to the in-progress
+    // streaming bubble (the MessageItem owns the live render). Before
+    // ``response_init`` lands there's no bubble yet — fall through to
+    // the ThinkingIndicator so the character doesn't pop onto a prior,
+    // already-completed assistant message in ``thinking`` state.
+    if (isProcessing && !hasInProgressBubble) return null;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant') return `msg-${i}`;
     }
@@ -1002,13 +1007,19 @@ const ChatPage: React.FC = () => {
     }
   };
 
-  const handleRetry = useCallback((messageIndex: number) => {
+  const retryAtIndex = useCallback((messageIndex: number, modeOverride?: string | null) => {
     // Find the user message that preceded this assistant message.
     // Walk backwards from the assistant message to find the user turn.
     let userInput = '';
+    let userMessageDbId: number | null = null;
     for (let i = messageIndex - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
         userInput = messages[i].content;
+        // Capture the user turn's DB id so the backend can drop the
+        // stale user+assistant pair before re-running the pipeline.
+        // Without this, conversation_history carries the prior
+        // assistant answer into the retry and biases the LLM.
+        userMessageDbId = messages[i].messageId ?? null;
         break;
       }
     }
@@ -1036,11 +1047,14 @@ const ChatPage: React.FC = () => {
         handleEvent,
         currentSessionId ? Number(currentSessionId) : undefined,
         activeProjectId || undefined,
-        // Retry re-uses the current toggle — the original slash (if
-        // any) was consumed when the turn was first sent, and the
-        // retried message text no longer carries the prefix.
-        toggleModeToOverride(modeToggle),
+        // When a caller supplies an explicit mode (e.g. the Sparkles
+        // "upgrade to rich" action), use it for this one turn. Otherwise
+        // re-use the current toggle — the original slash (if any) was
+        // consumed when the turn was first sent, and the retried message
+        // text no longer carries the prefix.
+        modeOverride !== undefined ? modeOverride : toggleModeToOverride(modeToggle),
         activeWorkspaceId,
+        userMessageDbId,
       )
         .then(() => {
           const finalTurnSession = inflightTurnSessionRef.current;
@@ -1083,6 +1097,14 @@ const ChatPage: React.FC = () => {
         });
     }, 0);
   }, [messages, handleEvent, currentSessionId, activeProjectId, modeToggle, activeWorkspaceId, commitCompletedAssistantMessage]);
+
+  const handleRetry = useCallback((messageIndex: number) => {
+    retryAtIndex(messageIndex);
+  }, [retryAtIndex]);
+
+  const handleRetryWithMode = useCallback((messageIndex: number, mode: 'rich') => {
+    retryAtIndex(messageIndex, mode);
+  }, [retryAtIndex]);
 
   const handleNewSession = (projectId?: number) => {
     setMessages([]);
@@ -1300,6 +1322,7 @@ const ChatPage: React.FC = () => {
             activeAssistantKey={activeAssistantKey}
             assistantName={activeChar?.name}
             onRetry={handleRetry}
+            onRetryWithMode={handleRetryWithMode}
             onOpenSources={handleOpenSources}
             onFollowUp={handleFollowUp}
             findOpen={findInChatOpen}

@@ -422,6 +422,20 @@ class MemoryProvider:
             results.append(d)
         return results
 
+    async def delete_messages_from(
+        self, *, user_id: int, session_id: int, from_message_id: int,
+    ) -> int:
+        """Delete messages with ``id >= from_message_id`` in the session."""
+        async with self._lock:
+            return await asyncio.to_thread(
+                lambda: sql.delete_messages_from(
+                    self._conn,
+                    user_id=user_id,
+                    session_id=session_id,
+                    from_message_id=from_message_id,
+                )
+            )
+
     async def get_message(
         self, user_id: int, message_id: int
     ) -> Optional[dict]:

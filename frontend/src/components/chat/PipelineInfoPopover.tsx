@@ -30,8 +30,8 @@ const phaseRows = [
   { key: 'synthesis', label: 'Wrapping Up', icon: Sparkles, color: 'text-green-400' },
 ] as const;
 
-function humanizeToken(value: string | null | undefined): string {
-  if (!value) return 'unknown skill';
+function humanizeToken(value: string | null | undefined, fallback: string = 'Built-in knowledge'): string {
+  if (!value) return fallback;
   return value
     .replace(/^knowledge_/, '')
     .replace(/^micro_/, '')
@@ -128,7 +128,7 @@ function buildUserSteps(pipeline: PipelineState): Array<{
   if (pipeline.routing?.latency_ms != null && pipeline.routing.routing_log.length > 0) {
     const successfulSkills = pipeline.routing.routing_log
       .filter((entry) => entry.status === 'success')
-      .map((entry) => humanizeToken(entry.skill_id ?? entry.intent));
+      .map((entry) => humanizeToken(entry.skill_id ?? entry.intent, 'Built-in knowledge'));
     steps.push({
       key: 'routing',
       label: 'Checking Sources',
@@ -450,7 +450,7 @@ const PipelineInfoPopover: React.FC<Props> = ({
                       : disabled
                         ? 'bg-amber-500'
                         : 'bg-red-500';
-                  const skillName = entry.skill_id || entry.intent || (noSkill ? 'no match' : '—');
+                  const skillName = entry.skill_id || entry.intent || (noSkill ? 'no match' : 'Built-in knowledge');
                   const statusLabel = ok
                     ? 'used'
                     : noSkill
@@ -473,8 +473,10 @@ const PipelineInfoPopover: React.FC<Props> = ({
                       </div>
                       <div className="pl-3.5 text-[12px] text-muted-foreground/70">
                         {entry.mechanism
-                          ? `Looked up through ${humanizeToken(entry.mechanism)}`
-                          : `Used for ${humanizeToken(entry.intent)}`}
+                          ? `Looked up through ${humanizeToken(entry.mechanism, 'direct answer')}`
+                          : entry.intent
+                            ? `Used for ${humanizeToken(entry.intent)}`
+                            : 'Answered directly from the model'}
                       </div>
                     </div>
                   );

@@ -225,6 +225,27 @@ def get_messages(
     return conn.execute(query + " ORDER BY m.id ASC", (user_id, session_id)).fetchall()
 
 
+def delete_messages_from(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    session_id: int,
+    from_message_id: int,
+) -> int:
+    """Delete every message in ``session_id`` with ``id >= from_message_id``.
+
+    Used by the chat endpoint when a client retries a turn — the prior
+    assistant response must not live on in ``conversation_history`` or
+    the LLM sees its own stale answer and biases the new synthesis.
+    Returns the count of deleted rows.
+    """
+    cur = conn.execute(
+        "DELETE FROM messages WHERE owner_user_id = ? AND session_id = ? AND id >= ?",
+        (user_id, session_id, from_message_id),
+    )
+    return int(cur.rowcount or 0)
+
+
 def get_message(
     conn: sqlite3.Connection,
     *,
