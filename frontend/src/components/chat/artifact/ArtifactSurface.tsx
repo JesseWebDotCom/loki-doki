@@ -114,6 +114,7 @@ export default function ArtifactSurface({
             type="button"
             variant="outline"
             size="sm"
+            className="h-11 rounded-2xl px-4"
             onClick={() => setConfirmOpen(true)}
             aria-label="Revert to this version"
           >
@@ -157,9 +158,9 @@ export default function ArtifactSurface({
   if (isWide) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent
+      <SheetContent
           side="right"
-          className="flex w-full flex-col p-0 sm:w-[720px] lg:w-[820px] lg:max-w-[820px]"
+          className="flex w-full flex-col p-0 sm:w-[680px] lg:w-[820px] lg:max-w-[820px]"
           data-slot="artifact-surface-sheet"
         >
           <SheetHeader>
@@ -177,7 +178,7 @@ export default function ArtifactSurface({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[90vh] max-w-[95vw] overflow-y-auto p-0 sm:max-w-3xl"
+        className="max-h-[90vh] max-w-[95vw] overflow-y-auto rounded-[2rem] p-0 sm:max-w-3xl"
         data-slot="artifact-surface-dialog"
       >
         <DialogHeader className="px-6 pt-6">

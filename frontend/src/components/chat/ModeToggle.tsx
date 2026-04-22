@@ -1,5 +1,5 @@
-import React, { useRef, useState } from "react";
-import { Info } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, Info } from "lucide-react";
 import {
   ToggleGroup,
   ToggleGroupItem,
@@ -9,7 +9,14 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from "../ui/popover";
-import type { ResponseMode } from "./SlashCommandParser";
+import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import { TOGGLE_MODES, type ToggleMode } from "./modeToggleOptions";
 
 /**
  * Compose-bar mode selector — chunk 13 of the rich-response rollout.
@@ -29,24 +36,6 @@ import type { ResponseMode } from "./SlashCommandParser";
  * ``toggle-group``'s primitive). Deep mode click surfaces a one-shot
  * popover explaining the latency cost so the user isn't surprised.
  */
-export type ToggleMode = "auto" | "rich" | "deep" | "search";
-
-export const TOGGLE_MODES: readonly ToggleMode[] = [
-  "auto",
-  "rich",
-  "deep",
-  "search",
-] as const;
-
-/**
- * Map a ``ToggleMode`` into the backend's ``user_mode_override`` wire
- * value. ``auto`` means "no override" and flows as ``null``.
- */
-export function toggleModeToOverride(mode: ToggleMode): ResponseMode | null {
-  if (mode === "auto") return null;
-  return mode;
-}
-
 export interface ModeToggleProps {
   value: ToggleMode;
   onChange: (next: ToggleMode) => void;
@@ -67,6 +56,7 @@ const MODE_LABEL: Record<ToggleMode, string> = {
  * only shows it once.
  */
 const DEEP_ADVISORY_KEY = "lokidoki.deep-mode-advisory-shown";
+const NARROW_QUERY = "(max-width: 639px)";
 
 function hasSeenDeepAdvisory(): boolean {
   try {
@@ -90,7 +80,19 @@ const ModeToggle: React.FC<ModeToggleProps> = ({
   disabled,
 }) => {
   const [deepAdvisoryOpen, setDeepAdvisoryOpen] = useState(false);
+  const [compact, setCompact] = useState(false);
   const deepItemRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+    const media = window.matchMedia(NARROW_QUERY);
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
 
   const handleChange = (next: string) => {
     // Radix ToggleGroup emits ``""`` when the user deselects the
@@ -108,26 +110,57 @@ const ModeToggle: React.FC<ModeToggleProps> = ({
 
   return (
     <div className="flex items-center gap-2">
-      <ToggleGroup
-        type="single"
-        value={value}
-        onValueChange={handleChange}
-        disabled={disabled}
-        aria-label="Response mode"
-        data-testid="mode-toggle"
-      >
-        {TOGGLE_MODES.map((mode) => (
-          <ToggleGroupItem
-            key={mode}
-            value={mode}
-            aria-label={`${MODE_LABEL[mode]} mode`}
-            data-testid={`mode-toggle-item-${mode}`}
-            ref={mode === "deep" ? deepItemRef : undefined}
-          >
-            {MODE_LABEL[mode]}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      {compact ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={disabled}
+              className="h-11 min-w-[9rem] justify-between rounded-2xl px-4"
+              aria-label="Response mode"
+              data-testid="mode-toggle-compact"
+            >
+              <span>{MODE_LABEL[value]}</span>
+              <ChevronDown className="ml-2 h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {TOGGLE_MODES.map((mode) => (
+              <DropdownMenuItem
+                key={mode}
+                onSelect={() => handleChange(mode)}
+                className="min-h-11 justify-between"
+              >
+                <span>{MODE_LABEL[mode]}</span>
+                {mode === value ? <Check className="h-4 w-4 text-primary" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <ToggleGroup
+          type="single"
+          value={value}
+          onValueChange={handleChange}
+          disabled={disabled}
+          aria-label="Response mode"
+          data-testid="mode-toggle"
+        >
+          {TOGGLE_MODES.map((mode) => (
+            <ToggleGroupItem
+              key={mode}
+              value={mode}
+              aria-label={`${MODE_LABEL[mode]} mode`}
+              data-testid={`mode-toggle-item-${mode}`}
+              ref={mode === "deep" ? deepItemRef : undefined}
+              className="min-h-11 min-w-11 rounded-2xl px-4"
+            >
+              {MODE_LABEL[mode]}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      )}
       <Popover open={deepAdvisoryOpen} onOpenChange={setDeepAdvisoryOpen}>
         <PopoverAnchor asChild>
           <span aria-hidden className="sr-only">

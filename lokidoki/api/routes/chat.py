@@ -15,7 +15,7 @@ import logging
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
@@ -28,6 +28,7 @@ from lokidoki.core.model_manager import ModelPolicy
 from lokidoki.core.providers.client import HTTPProvider
 from lokidoki.core.providers.spec import ProviderSpec
 from lokidoki.orchestrator.core.config import CONFIG
+from lokidoki.orchestrator.memory.chat_search import find_in_chat, search_all_chats
 from lokidoki.orchestrator.response.mode import VALID_MODES
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,56 @@ class ChatRequest(BaseModel):
             return None
         stripped = v.strip()
         return stripped or None
+
+
+def _normalize_limit(limit: int, *, default: int, maximum: int) -> int:
+    if limit <= 0:
+        return default
+    return min(limit, maximum)
+
+
+@router.get("/search")
+async def search_chat_history(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(50, ge=0),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Search all chats for the current user via local SQLite FTS."""
+    rows = await memory.run_sync(
+        lambda conn: search_all_chats(
+            conn,
+            user_id=user.id,
+            query=q,
+            limit=_normalize_limit(limit, default=50, maximum=100),
+            offset=offset,
+        )
+    )
+    return {"query": q, "results": rows}
+
+
+@router.get("/sessions/{session_id}/search")
+async def search_single_chat(
+    session_id: int,
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=0),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Search one chat session for the current user via local SQLite FTS."""
+    rows = await memory.run_sync(
+        lambda conn: find_in_chat(
+            conn,
+            user_id=user.id,
+            session_id=session_id,
+            query=q,
+            limit=_normalize_limit(limit, default=20, maximum=100),
+            offset=offset,
+        )
+    )
+    return {"query": q, "session_id": session_id, "results": rows}
 
 
 @router.post("")

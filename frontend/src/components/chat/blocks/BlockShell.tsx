@@ -51,7 +51,7 @@ const BlockShell: React.FC<BlockShellProps> = ({
       <div
         data-slot="block-failed"
         data-block-id={block.id}
-        className="my-3 inline-flex items-center gap-2 rounded-lg border border-border/40 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+        className="my-2 inline-flex items-center gap-2 rounded-lg border border-border/40 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground md:my-3"
       >
         <span className="font-mono uppercase tracking-widest text-[9px] text-muted-foreground/70">
           {block.type}

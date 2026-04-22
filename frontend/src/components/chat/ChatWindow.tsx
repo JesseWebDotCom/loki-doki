@@ -1,11 +1,14 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, Search } from 'lucide-react';
 import MessageItem from './MessageItem';
 import ThinkingIndicator from './ThinkingIndicator';
 import CharacterFrame, { type CharacterMode } from '../character/CharacterFrame';
 import type { HeadTiltState } from '../character/useHeadTilt';
 import type { CharacterRow } from '../../lib/api';
 import type { PipelineState, Message } from '../../pages/ChatPage';
+import type { ChatSearchResult } from '../../lib/api-types';
+import { Button } from '../ui/button';
+import FindInChatBar from './search/FindInChatBar';
 
 interface ChatWindowProps {
   messages: Message[];
@@ -17,6 +20,17 @@ interface ChatWindowProps {
   onCharacterShock?: () => void;
   activeAssistantKey?: string | null;
   assistantName?: string;
+  findOpen?: boolean;
+  findQuery?: string;
+  findResults?: ChatSearchResult[];
+  findActiveIndex?: number;
+  findLoading?: boolean;
+  onOpenFind?: () => void;
+  onCloseFind?: () => void;
+  onFindQueryChange?: (query: string) => void;
+  onFindNext?: () => void;
+  onFindPrev?: () => void;
+  onSelectFindResult?: (result: ChatSearchResult) => void;
   onRetry?: (messageIndex: number) => void;
   onOpenSources?: (messageIndex: number) => void;
   /**
@@ -37,6 +51,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   onCharacterShock,
   activeAssistantKey,
   assistantName,
+  findOpen = false,
+  findQuery = '',
+  findResults = [],
+  findActiveIndex = 0,
+  findLoading = false,
+  onOpenFind,
+  onCloseFind,
+  onFindQueryChange,
+  onFindNext,
+  onFindPrev,
+  onSelectFindResult,
   onRetry,
   onOpenSources,
   onFollowUp,
@@ -94,6 +119,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     handleScroll();
   }, [messages, pipeline?.phase, handleScroll]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && !event.shiftKey) {
+        event.preventDefault();
+        onOpenFind?.();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onOpenFind]);
+
   const isThinking = pipeline && pipeline.phase !== 'idle';
 
   return (
@@ -107,6 +143,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           className="mx-auto space-y-6"
           style={{ maxWidth: 'var(--app-content-max)' }}
         >
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 rounded-2xl px-4"
+              onClick={onOpenFind}
+            >
+              <Search className="mr-2 h-4 w-4" />
+              Find in chat
+            </Button>
+          </div>
+          <FindInChatBar
+            open={findOpen}
+            query={findQuery}
+            results={findResults}
+            activeIndex={findActiveIndex}
+            loading={findLoading}
+            onQueryChange={(query) => onFindQueryChange?.(query)}
+            onClose={() => onCloseFind?.()}
+            onNext={() => onFindNext?.()}
+            onPrev={() => onFindPrev?.()}
+            onSelectResult={(result) => onSelectFindResult?.(result)}
+          />
           {messages.map((msg, idx) => {
             const myKey = `msg-${idx}`;
             // Mini mode renders ONE avatar in the whole chat, attached

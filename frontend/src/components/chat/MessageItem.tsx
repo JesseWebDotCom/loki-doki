@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -173,12 +173,6 @@ const MessageItem: React.FC<MessageProps> = ({
     ? getSourcePresentation(effectiveSources[0])
     : null;
 
-  useEffect(() => {
-    if (!envelope?.artifact_surface) {
-      setArtifactOpen(false);
-    }
-  }, [envelope?.artifact_surface]);
-
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
@@ -273,7 +267,12 @@ const MessageItem: React.FC<MessageProps> = ({
   );
 
   return (
-    <div className={`group/msg mb-12 w-full ${isUser ? 'flex justify-end' : ''}`} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+    <div
+      className={`group/msg mb-10 w-full ${isUser ? 'flex justify-end' : ''} md:mb-12`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      data-message-id={messageId ?? undefined}
+    >
       {isUser ? (
         <div className="flex max-w-[92%] flex-col items-end sm:max-w-[84%]">
           <div
@@ -318,13 +317,14 @@ const MessageItem: React.FC<MessageProps> = ({
               </div>
             )}
             <div className="min-w-0 flex-1 pt-1 flex flex-col gap-1">
-               <div className="flex items-center gap-2 px-1">
+               <div className="flex flex-wrap items-center gap-2 px-1">
                 <span className="text-[10px] sm:text-[11px] font-bold tracking-widest text-muted-foreground/40 uppercase font-mono">
                   {pipeline?.synthesis?.model?.split(':')[0]?.toUpperCase() || 'LokiDoki'}
                 </span>
                 <span className="text-[10px] sm:text-[11px] font-mono text-muted-foreground/30">
                   {displayTime}
                 </span>
+                {envelope?.offline_degraded ? <OfflineTrustChip className="mb-0" /> : null}
               </div>
               {pipeline && (
                 <div className="px-1">
@@ -332,7 +332,6 @@ const MessageItem: React.FC<MessageProps> = ({
                 </div>
               )}
               <div data-testid="message-bubble" className="w-full text-foreground relative">
-                {envelope?.offline_degraded ? <OfflineTrustChip /> : null}
                 {envelope?.document_mode ? (
                   <DocumentChip mode={envelope.document_mode} />
                 ) : null}
@@ -354,7 +353,7 @@ const MessageItem: React.FC<MessageProps> = ({
                 </BlockContextProvider>
                 {envelope?.artifact_surface ? (
                   <ArtifactSurface
-                    open={artifactOpen}
+                    open={artifactOpen && Boolean(envelope?.artifact_surface)}
                     onOpenChange={setArtifactOpen}
                     artifact={envelope.artifact_surface}
                   />
@@ -519,7 +518,7 @@ const MessageItem: React.FC<MessageProps> = ({
                         <button
                           type="button"
                           onClick={onOpenSources}
-                          className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs font-semibold text-muted-foreground/60 transition-colors hover:text-foreground hover:bg-card"
+                          className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-muted-foreground/60 transition-colors hover:text-foreground hover:bg-card"
                         >
                           {primarySource ? (
                             <FaviconImage

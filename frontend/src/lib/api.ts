@@ -21,6 +21,7 @@ import {
 export type {
   PipelineEvent,
   AugmentationData,
+  ChatSearchResult,
   DecompositionData,
   MicroFastLaneData,
   RoutingData,
@@ -285,6 +286,37 @@ export async function getSessions() {
     "/memory/sessions",
   );
   return { sessions: r.sessions.map(String), details: r.details };
+}
+
+export async function findInChat(
+  sessionId: string | number,
+  query: string,
+  limit = 20,
+  offset = 0,
+) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return getJson<{ query: string; session_id: number; results: import("./api-types").ChatSearchResult[] }>(
+    `/chat/sessions/${sessionId}/search?${params.toString()}`,
+  );
+}
+
+export async function searchChats(
+  query: string,
+  limit = 50,
+  offset = 0,
+) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return getJson<{ query: string; results: import("./api-types").ChatSearchResult[] }>(
+    `/chat/search?${params.toString()}`,
+  );
 }
 
 export async function deleteSession(sessionId: string | number) {

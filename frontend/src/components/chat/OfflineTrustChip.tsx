@@ -34,7 +34,7 @@ const OfflineTrustChip: React.FC<OfflineTrustChipProps> = ({ className }) => {
     >
       <Badge
         variant="outline"
-        className="gap-1.5 border-border/50 bg-muted/30 px-2 py-1 text-muted-foreground"
+        className="min-h-11 gap-1.5 rounded-2xl border-border/50 bg-muted/30 px-3 py-2 text-muted-foreground"
       >
         <WifiOff size={11} aria-hidden="true" />
         <span>Offline — using local knowledge</span>

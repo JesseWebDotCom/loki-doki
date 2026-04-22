@@ -504,30 +504,92 @@ FTS_SCHEMA = """
 -- leave stale triggers that double-write on INSERT. This schema block
 -- now only owns the messages FTS index.
 
+DROP TRIGGER IF EXISTS messages_ai;
+DROP TRIGGER IF EXISTS messages_ad;
+DROP TRIGGER IF EXISTS messages_au;
+DROP TABLE IF EXISTS messages_fts;
+
 -- External-content FTS5 over messages.content for transcript search.
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content,
+    session_id UNINDEXED,
     role UNINDEXED,
     owner_user_id UNINDEXED,
-    content='messages',
-    content_rowid='id',
+    created_at UNINDEXED,
     tokenize='porter unicode61'
 );
 
 CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-    INSERT INTO messages_fts(rowid, content, role, owner_user_id)
-    VALUES (new.id, new.content, new.role, new.owner_user_id);
+    INSERT INTO messages_fts(rowid, content, session_id, role, owner_user_id, created_at)
+    VALUES (
+        new.id,
+        new.content,
+        CAST(new.session_id AS TEXT),
+        new.role,
+        CAST(new.owner_user_id AS TEXT),
+        new.created_at
+    );
 END;
 CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, content, role, owner_user_id)
-    VALUES('delete', old.id, old.content, old.role, old.owner_user_id);
+    INSERT INTO messages_fts(
+        messages_fts,
+        rowid,
+        content,
+        session_id,
+        role,
+        owner_user_id,
+        created_at
+    )
+    VALUES(
+        'delete',
+        old.id,
+        old.content,
+        CAST(old.session_id AS TEXT),
+        old.role,
+        CAST(old.owner_user_id AS TEXT),
+        old.created_at
+    );
 END;
 CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, content, role, owner_user_id)
-    VALUES('delete', old.id, old.content, old.role, old.owner_user_id);
-    INSERT INTO messages_fts(rowid, content, role, owner_user_id)
-    VALUES (new.id, new.content, new.role, new.owner_user_id);
+    INSERT INTO messages_fts(
+        messages_fts,
+        rowid,
+        content,
+        session_id,
+        role,
+        owner_user_id,
+        created_at
+    )
+    VALUES(
+        'delete',
+        old.id,
+        old.content,
+        CAST(old.session_id AS TEXT),
+        old.role,
+        CAST(old.owner_user_id AS TEXT),
+        old.created_at
+    );
+    INSERT INTO messages_fts(rowid, content, session_id, role, owner_user_id, created_at)
+    VALUES (
+        new.id,
+        new.content,
+        CAST(new.session_id AS TEXT),
+        new.role,
+        CAST(new.owner_user_id AS TEXT),
+        new.created_at
+    );
 END;
+
+INSERT INTO messages_fts(rowid, content, session_id, role, owner_user_id, created_at)
+SELECT
+    m.id,
+    m.content,
+    CAST(m.session_id AS TEXT),
+    m.role,
+    CAST(m.owner_user_id AS TEXT),
+    m.created_at
+FROM messages AS m
+;
 """
 
 

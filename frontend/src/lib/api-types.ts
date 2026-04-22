@@ -85,6 +85,15 @@ export interface SourceInfo {
   title: string;
 }
 
+export interface ChatSearchResult {
+  message_id: number;
+  session_id: number;
+  session_title: string;
+  role: string;
+  created_at: string;
+  snippet: string;
+}
+
 export type MediaCard =
   | {
       kind: 'youtube_video';

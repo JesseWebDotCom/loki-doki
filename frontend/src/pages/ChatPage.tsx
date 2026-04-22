@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Send } from 'lucide-react';
+import { Search, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { resolveSpokenText, ttsController, useTTSState } from '../utils/tts';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
@@ -12,16 +12,17 @@ import ChatWelcomeView from '../components/chat/ChatWelcomeView';
 import ProjectLandingView from '../components/projects/ProjectLandingView';
 import ProjectModal from '../components/sidebar/ProjectModal';
 import SourceSurface from '../components/chat/SourceSurface';
-import ModeToggle, {
-  toggleModeToOverride,
-  type ToggleMode,
-} from '../components/chat/ModeToggle';
+import ModeToggle from '../components/chat/ModeToggle';
+import type { ToggleMode } from '../components/chat/modeToggleOptions';
+import { toggleModeToOverride } from '../components/chat/modeToggleOptions';
 import WorkspacePicker from '../components/workspace/WorkspacePicker';
 import WorkspaceEditor from '../components/workspace/WorkspaceEditor';
+import SearchDialog from '../components/chat/search/SearchDialog';
 import { parseSlash } from '../components/chat/SlashCommandParser';
 import type { StructuredSource } from '../components/chat/SourceCard';
 import {
   createWorkspace,
+  findInChat,
   deleteWorkspace,
   sendChatMessage,
   getSessionMessages,
@@ -32,6 +33,7 @@ import {
   updateProject,
   updateWorkspace,
   listCharacters,
+  searchChats,
   reduceResponse,
   isResponseEvent,
   RESPONSE_INIT,
@@ -58,11 +60,13 @@ import type {
   SynthesisData,
   SourceInfo,
   MediaCard,
+  ChatSearchResult,
   RoutingData,
   ProjectRecord,
   ProjectInput,
   SilentConfirmation,
 } from '../lib/api';
+import '../styles/kiosk.css';
 
 export interface MentionedPerson {
   id: number;
@@ -133,6 +137,50 @@ interface OpenSourcesState {
   sources: StructuredSource[];
 }
 
+interface PendingSearchFocus {
+  sessionId: string;
+  messageId: number;
+}
+
+interface DbTraceExecution {
+  success?: boolean;
+  chunk_index?: number;
+  timing_ms?: number;
+}
+
+interface DbTraceResolution {
+  chunk_index?: number;
+  capability?: string;
+}
+
+interface DbSessionMessage {
+  id?: number;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at?: string;
+  response_envelope?: string | Record<string, unknown> | null;
+  phase_latencies?: Record<string, number>;
+  decomposition?: {
+    urgency?: string;
+    chunks?: string[];
+  };
+  skill_results?: {
+    executions?: DbTraceExecution[];
+    resolutions?: DbTraceResolution[];
+  };
+  response_spec_shadow?: {
+    llm_model?: string;
+  };
+  prompt_sizes?: Record<string, unknown>;
+}
+
+interface SessionSummary {
+  id: number;
+  title: string;
+  project_id?: number | null;
+  created_at?: string;
+}
+
 const INITIAL_PIPELINE: PipelineState = {
   phase: 'idle',
   activity: '',
@@ -148,7 +196,7 @@ const INITIAL_PIPELINE: PipelineState = {
   renderTimings: {},
 };
 
-function buildPipelineStateFromDb(m: any): PipelineState | undefined {
+function buildPipelineStateFromDb(m: DbSessionMessage): PipelineState | undefined {
   if (!m.phase_latencies) return undefined;
 
   const latencies = m.phase_latencies || {};
@@ -172,18 +220,20 @@ function buildPipelineStateFromDb(m: any): PipelineState | undefined {
       reasoning_complexity: decomp.urgency || 'low',
       asks: (decomp.chunks || []).map((text: string, i: number) => ({
         ask_id: `chunk_${i}`,
+        intent: 'unknown',
         distilled_query: text,
       })),
     },
     routing: {
-      skills_resolved: (skillResults.executions || []).filter((e: any) => e.success).length,
-      skills_failed: (skillResults.executions || []).filter((e: any) => e.success === false).length,
-      routing_log: (skillResults.resolutions || []).map((r: any) => {
-        const exec = (skillResults.executions || []).find((e: any) => e.chunk_index === r.chunk_index);
+      skills_resolved: (skillResults.executions || []).filter((e) => e.success).length,
+      skills_failed: (skillResults.executions || []).filter((e) => e.success === false).length,
+      routing_log: (skillResults.resolutions || []).map((r) => {
+        const exec = (skillResults.executions || []).find((e) => e.chunk_index === r.chunk_index);
         return {
           ask_id: `chunk_${r.chunk_index}`,
-          intent: r.capability,
+          intent: r.capability ?? 'unknown',
           status: exec ? (exec.success ? 'success' : 'failed') : 'no_skill',
+          mechanism: null,
           latency_ms: exec?.timing_ms || 0,
         };
       }),
@@ -199,7 +249,7 @@ function buildPipelineStateFromDb(m: any): PipelineState | undefined {
     microFastLane: null,
     activity: '',
     streamingResponse: m.content,
-    totalLatencyMs: Object.values(latencies).reduce((a: any, b: any) => a + (typeof b === 'number' ? b : 0), 0) as number,
+    totalLatencyMs: Object.values(latencies).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0),
     confirmations: [],
     clarification: null,
     renderTimings: {},
@@ -220,8 +270,18 @@ const ChatPage: React.FC = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [openSources, setOpenSources] = useState<OpenSourcesState | null>(null);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [findInChatOpen, setFindInChatOpen] = useState(false);
+  const [findInChatQuery, setFindInChatQuery] = useState('');
+  const [findInChatResults, setFindInChatResults] = useState<ChatSearchResult[]>([]);
+  const [findInChatLoading, setFindInChatLoading] = useState(false);
+  const [findInChatIndex, setFindInChatIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ChatSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [pendingSearchFocus, setPendingSearchFocus] = useState<PendingSearchFocus | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [projectChats, setProjectChats] = useState<any[]>([]);
+  const [projectChats, setProjectChats] = useState<SessionSummary[]>([]);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | undefined>();
@@ -340,6 +400,17 @@ const ChatPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setSearchDialogOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const activeProject = useMemo<ProjectRecord | null>(
     () => (activeProjectId ? projects.find((p) => p.id === activeProjectId) || null : null),
     [activeProjectId, projects],
@@ -386,7 +457,7 @@ const ChatPage: React.FC = () => {
     (async () => {
       try {
         const s = await getSessions();
-        setProjectChats((s.details || []).filter((c: any) => c.project_id === activeProjectId));
+        setProjectChats((s.details || []).filter((c: SessionSummary) => c.project_id === activeProjectId));
       } catch {
         setProjectChats([]);
       }
@@ -403,7 +474,7 @@ const ChatPage: React.FC = () => {
     (async () => {
       try {
         const s = await getSessions();
-        const match = (s.details || []).find((c: any) => String(c.id) === String(currentSessionId));
+        const match = (s.details || []).find((c: SessionSummary) => String(c.id) === String(currentSessionId));
         if (!cancelled) setChatTitle(match?.title || 'Chat');
       } catch {
         if (!cancelled) setChatTitle('Chat');
@@ -411,6 +482,76 @@ const ChatPage: React.FC = () => {
     })();
     return () => { cancelled = true; };
   }, [currentSessionId, dataVersion]);
+
+  useEffect(() => {
+    if (!findInChatOpen || !currentSessionId) return;
+    if (!findInChatQuery.trim()) {
+      setFindInChatResults([]);
+      setFindInChatIndex(0);
+      return;
+    }
+    let cancelled = false;
+    setFindInChatLoading(true);
+    void findInChat(currentSessionId, findInChatQuery, 20, 0)
+      .then((response) => {
+        if (cancelled) return;
+        setFindInChatResults(response.results);
+        setFindInChatIndex(0);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFindInChatResults([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setFindInChatLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSessionId, findInChatOpen, findInChatQuery]);
+
+  useEffect(() => {
+    if (!searchDialogOpen) return;
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    let cancelled = false;
+    setSearchLoading(true);
+    void searchChats(searchQuery, 50, 0)
+      .then((response) => {
+        if (!cancelled) {
+          setSearchResults(response.results);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSearchResults([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSearchLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchDialogOpen, searchQuery]);
+
+  useEffect(() => {
+    if (!pendingSearchFocus) return;
+    if (String(currentSessionId) !== pendingSearchFocus.sessionId) return;
+    const element = document.querySelector<HTMLElement>(
+      `[data-message-id="${pendingSearchFocus.messageId}"]`,
+    );
+    if (!element) return;
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setPendingSearchFocus(null);
+  }, [currentSessionId, messages, pendingSearchFocus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -644,8 +785,8 @@ const ChatPage: React.FC = () => {
             pipeline: completedPipeline,
             confirmations: prev.confirmations,
             clarification: prev.clarification ?? undefined,
-            mentionedPeople: (prev.synthesis as any)?.mentioned_people ?? [],
-            messageId: (prev.synthesis as any)?.assistant_message_id as number | undefined,
+            mentionedPeople: ((prev.synthesis as SynthesisData & { mentioned_people?: MentionedPerson[] } | null)?.mentioned_people) ?? [],
+            messageId: (prev.synthesis?.assistant_message_id as number | undefined),
             envelope: liveEnvelope,
           }];
           // Chunk 16: authoritative TTS input is the envelope's
@@ -740,8 +881,8 @@ const ChatPage: React.FC = () => {
                 pipeline: completedPipeline,
                 confirmations: prev.confirmations,
                 clarification: prev.clarification ?? undefined,
-                mentionedPeople: (prev.synthesis as any)?.mentioned_people ?? [],
-                messageId: (prev.synthesis as any)?.assistant_message_id as number | undefined,
+                mentionedPeople: ((prev.synthesis as SynthesisData & { mentioned_people?: MentionedPerson[] } | null)?.mentioned_people) ?? [],
+                messageId: (prev.synthesis?.assistant_message_id as number | undefined),
                 envelope: liveEnvelope,
               }];
               const spoken =
@@ -773,6 +914,9 @@ const ChatPage: React.FC = () => {
     setCurrentSessionId(undefined);
     setActiveProjectId(projectId || null);
     setOpenSources(null);
+    setFindInChatOpen(false);
+    setFindInChatQuery('');
+    setFindInChatResults([]);
     // Same reason as above — defer to the effect that watches
     // isProcessing/currentSessionId so focus lands AFTER the
     // re-render rather than before.
@@ -789,9 +933,12 @@ const ChatPage: React.FC = () => {
     setPipeline(INITIAL_PIPELINE);
     setMessages([]);
     setOpenSources(null);
+    setFindInChatOpen(false);
+    setFindInChatQuery('');
+    setFindInChatResults([]);
     try {
       const res = await getSessionMessages(sessionId);
-      const loaded: Message[] = (res.messages || []).map((m: any) => {
+      const loaded: Message[] = ((res.messages || []) as DbSessionMessage[]).map((m) => {
         // Chunk 10: hydrate the persisted ``response_envelope`` column
         // (written by chat.py on the ``response_snapshot`` event) into
         // a live ``ResponseEnvelope`` so history replay renders via
@@ -881,6 +1028,23 @@ const ChatPage: React.FC = () => {
     setCharacterMode('docked');
   }, [setCharacterMode]);
 
+  const handleSelectFindResult = useCallback((result: ChatSearchResult) => {
+    setPendingSearchFocus({
+      sessionId: String(result.session_id),
+      messageId: result.message_id,
+    });
+    void handleSelectSession(String(result.session_id));
+  }, []);
+
+  const handleSelectGlobalSearchResult = useCallback((result: ChatSearchResult) => {
+    setSearchDialogOpen(false);
+    setPendingSearchFocus({
+      sessionId: String(result.session_id),
+      messageId: result.message_id,
+    });
+    void handleSelectSession(String(result.session_id));
+  }, []);
+
   // Chunk 15 deferral #1 (folded into chunk 16). ``FollowUpsBlock`` and
   // ``ClarificationBlock`` surface chip clicks via ``onFollowUp``; until
   // now nothing set the callback, so chips rendered but were inert.
@@ -962,6 +1126,28 @@ const ChatPage: React.FC = () => {
             onRetry={handleRetry}
             onOpenSources={handleOpenSources}
             onFollowUp={handleFollowUp}
+            findOpen={findInChatOpen}
+            findQuery={findInChatQuery}
+            findResults={findInChatResults}
+            findActiveIndex={findInChatIndex}
+            findLoading={findInChatLoading}
+            onOpenFind={() => setFindInChatOpen(true)}
+            onCloseFind={() => setFindInChatOpen(false)}
+            onFindQueryChange={setFindInChatQuery}
+            onFindNext={() => {
+              if (findInChatResults.length === 0) return;
+              const nextIndex = (findInChatIndex + 1) % findInChatResults.length;
+              setFindInChatIndex(nextIndex);
+              handleSelectFindResult(findInChatResults[nextIndex]);
+            }}
+            onFindPrev={() => {
+              if (findInChatResults.length === 0) return;
+              const nextIndex =
+                (findInChatIndex - 1 + findInChatResults.length) % findInChatResults.length;
+              setFindInChatIndex(nextIndex);
+              handleSelectFindResult(findInChatResults[nextIndex]);
+            }}
+            onSelectFindResult={handleSelectFindResult}
           />
         )}
 
@@ -988,6 +1174,16 @@ const ChatPage: React.FC = () => {
                 onChange={setModeToggle}
                 disabled={isProcessing}
               />
+            </div>
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSearchDialogOpen(true)}
+                className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-border/50 bg-card/60 px-4 text-sm font-medium text-foreground shadow-m1 transition-colors hover:bg-accent"
+              >
+                <Search className="h-4 w-4" />
+                Search chats
+              </button>
             </div>
             <input
               ref={inputRef}
@@ -1046,6 +1242,15 @@ const ChatPage: React.FC = () => {
           onSave={handleSaveWorkspace}
           onCreate={handleCreateWorkspace}
           onDelete={handleDeleteWorkspace}
+        />
+        <SearchDialog
+          open={searchDialogOpen}
+          onOpenChange={setSearchDialogOpen}
+          query={searchQuery}
+          results={searchResults}
+          loading={searchLoading}
+          onQueryChange={setSearchQuery}
+          onSelectResult={handleSelectGlobalSearchResult}
         />
       </main>
 

@@ -8,6 +8,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../ui/sheet";
+import { Button } from "../ui/button";
 import SourceCard, { type StructuredSource } from "./SourceCard";
 
 interface SourceSurfaceProps {
@@ -53,7 +54,7 @@ const SourceSurface: React.FC<SourceSurfaceProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col p-0 sm:w-[380px] lg:w-[420px] lg:max-w-[420px]"
+        className="flex w-full flex-col p-0 sm:w-[340px] md:w-[360px] lg:w-[400px] lg:max-w-[400px]"
         data-slot="source-surface"
         aria-label="Cited sources"
       >
@@ -71,7 +72,7 @@ const SourceSurface: React.FC<SourceSurfaceProps> = ({
           ) : null}
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-5">
+        <div className="flex-1 overflow-y-auto px-4 py-4 md:py-5">
           {count === 0 ? (
             <p
               data-slot="source-surface-empty"
@@ -87,19 +88,21 @@ const SourceSurface: React.FC<SourceSurfaceProps> = ({
                 return (
                   <li key={key} className="relative">
                     <SourceCard source={source} />
-                    <button
-                      type="button"
+                    <Button
                       onClick={(event) => {
                         event.stopPropagation();
                         setPinnedIndex(pinned ? null : index);
                       }}
+                      type="button"
+                      variant="outline"
+                      size="sm"
                       data-slot="use-source-next"
                       data-pinned={pinned ? "true" : "false"}
-                      className="absolute bottom-3 right-3 rounded-md border border-border/40 bg-background/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground data-[pinned=true]:border-primary/60 data-[pinned=true]:bg-primary/10 data-[pinned=true]:text-primary"
+                      className="absolute bottom-3 right-3 h-11 rounded-xl border-border/40 bg-background/85 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground data-[pinned=true]:border-primary/60 data-[pinned=true]:bg-primary/10 data-[pinned=true]:text-primary"
                       aria-pressed={pinned}
                     >
                       {pinned ? "Pinned" : "Use next"}
-                    </button>
+                    </Button>
                   </li>
                 );
               })}
