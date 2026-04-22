@@ -20,13 +20,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from lokidoki.skills.knowledge.skill import WikipediaSkill
+from lokidoki.skills.knowledge.skill import HEADERS, WIKI_API_URL, WikipediaSkill
 
 from lokidoki.orchestrator.skills._runner import (
     AdapterResult,
     run_mechanisms,
     run_sources_parallel_scored,
     score_subject_coverage,
+    web_image_search_source,
     web_search_source,
 )
 
@@ -114,14 +115,22 @@ async def _zim_source(
     match. Falls back to searching all loaded archives when the hinted
     sources aren't installed or return no results.
 
-    Optimized two-pass strategy:
-    1. Search with max_results=1 (fast — title suggestion usually nails it).
-    2. If that result scores well, return immediately.
-    3. If not, widen to 3 results and pick the best scorer.
+    Each candidate is gated by title relevance (junk prefixes rejected,
+    at least one significant query token must appear in the title or a
+    literal substring for very short queries) BEFORE snippet coverage
+    is scored. Snippet-only scoring used to let wildly off-topic
+    articles win when the query words appeared inside an example
+    sentence (the "Procedural knowledge" Wikipedia article matching
+    "how do I change a flat tire" because the article cites that
+    phrase as an example of procedural knowledge).
     """
     try:
         from lokidoki.archives.hint_map import filter_to_loaded, sources_for_hint
         from lokidoki.archives.search import get_search_engine
+        from lokidoki.skills.knowledge._parse import (
+            _is_junk_title,
+            _title_substantially_matches,
+        )
 
         engine = get_search_engine()
         if engine is None or not engine.loaded_sources:
@@ -130,46 +139,189 @@ async def _zim_source(
             )
         clean = _zim_query(query)
 
+        def _title_ok(title: str) -> bool:
+            # Same relevance rule the network Wikipedia paths use —
+            # rejects junk prefixes (Portal:, Category:, …) and titles
+            # that share fewer than ⌈n/2⌉ significant tokens with the
+            # query (both tokens for 1–2 token queries).
+            return (
+                not _is_junk_title(title)
+                and _title_substantially_matches(title, query)
+            )
+
         # Resolve hint → concrete loaded source subset. Empty means
         # "search everything" (caller-side default).
         hinted = sources_for_hint(archive_hint, capability_need)
         scoped = filter_to_loaded(hinted, engine.loaded_sources) if hinted else []
 
-        # Fast path: hinted-scope single best result
-        results = await engine.search(clean, sources=scoped or None, max_results=1)
-        if results:
-            best = results[0]
-            if score_subject_coverage(query, best.snippet) >= MIN_SUBJECT_COVERAGE:
-                return AdapterResult(
-                    output_text=best.snippet,
-                    success=True,
-                    source_url=best.url,
-                    source_title=f"{best.source_label} (offline)",
-                )
-
-        # Wider search (still hint-scoped if hinted, else all loaded)
-        results = await engine.search(clean, sources=scoped or None, max_results=3)
+        # Pull a few candidates up-front so the title gate has material
+        # to work with. A single top-1 is too easy to mismatch on
+        # example-text hits.
+        results = await engine.search(clean, sources=scoped or None, max_results=8)
 
         # If hinted search came up empty, fall back to all-loaded — better
         # to surface an off-scope hit than fail entirely.
         if not results and scoped:
-            results = await engine.search(clean, max_results=3)
+            results = await engine.search(clean, max_results=8)
 
-        if not results:
+        on_topic = [r for r in results if _title_ok(r.title)]
+        if not on_topic:
             return AdapterResult(
                 output_text="", success=False, error="no local article found",
             )
-        best = max(results, key=lambda r: score_subject_coverage(query, r.snippet))
+
+        best = max(on_topic, key=lambda r: score_subject_coverage(query, r.snippet))
+        if score_subject_coverage(query, best.snippet) < MIN_SUBJECT_COVERAGE:
+            return AdapterResult(
+                output_text="", success=False, error="no local article found",
+            )
+        # Populate ``data`` so the response-layer WikipediaAdapter has
+        # a ``lead`` / ``title`` / ``extract`` to work with — without
+        # it the adapter gets an empty dict and the rich-response
+        # ``key_facts`` block stays empty.
+        media = await _zim_article_media(engine, best)
+        data: dict[str, Any] = {
+            "title": best.title,
+            "lead": best.snippet,
+            "extract": best.snippet,
+            "url": best.url,
+        }
+        if media:
+            data["media"] = media
         return AdapterResult(
             output_text=best.snippet,
             success=True,
             source_url=best.url,
             source_title=f"{best.source_label} (offline)",
+            data=data,
         )
     except Exception as exc:
         return AdapterResult(
             output_text="", success=False, error=str(exc),
         )
+
+
+_MAX_MEDIA_CARDS = 3
+
+
+async def _zim_article_media(engine, article) -> list[dict[str, Any]]:
+    """Collect up to :data:`_MAX_MEDIA_CARDS` image cards for a ZIM article.
+
+    Layered source strategy (each layer only runs if there's room left
+    in the media budget):
+
+    1. ZIM-embedded ``<img>`` tags. Maxi builds carry the image bytes
+       on disk; we rewrite the src to the local asset route so the
+       browser never reaches Commons.
+    2. MediaWiki ``pageimages`` thumbnail. Fills the canonical portrait
+       when the ZIM is a mini / nopic build but the Pi has network.
+    3. Generic web-image-search fallback. Fills remaining slots for
+       variety (3 images total) or covers articles where Wikipedia has
+       no lead image (e.g. ``Robert Z'Dar``) — and covers "what is a
+       lug nut" shape queries where visual grounding helps. Uses the
+       shared :func:`web_image_search_source` so the same plumbing
+       picks up whichever web-search skill is active.
+
+    Every layer fails silently — no layer is allowed to break the turn.
+    """
+    cards: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+
+    def _push(card: dict[str, Any]) -> bool:
+        url = str(card.get("url") or "").strip()
+        if not url or url in seen_urls:
+            return False
+        seen_urls.add(url)
+        cards.append(card)
+        return len(cards) >= _MAX_MEDIA_CARDS
+
+    # Layer 1 — embedded ZIM images.
+    try:
+        from lokidoki.skills.knowledge._parse import parse_wiki_images
+
+        html = await engine.get_article_html(article.source_id, article.path)
+        if html:
+            for img in parse_wiki_images(html, limit=_MAX_MEDIA_CARDS):
+                full = _push({
+                    "kind": "image",
+                    "url": f"/api/v1/archives/media/{article.source_id}/{img['src']}",
+                    "caption": str(img.get("alt") or article.title),
+                    "source_label": article.source_label,
+                })
+                if full:
+                    return cards
+    except Exception:  # noqa: BLE001 - image extraction must never break the turn
+        pass
+
+    # Layer 2 — Wikipedia canonical portrait (only for Wikipedia-family
+    # ZIM sources, so wikem / appropedia / osm-wiki don't get
+    # misattributed images).
+    if article.source_id.startswith("wikipedia"):
+        try:
+            thumb = await _wiki_thumbnail(article.title)
+            if thumb:
+                full = _push({
+                    "kind": "image",
+                    "url": thumb,
+                    "caption": article.title,
+                    "source_label": "Wikipedia",
+                })
+                if full:
+                    return cards
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Layer 3 — generic web image search.
+    remaining = _MAX_MEDIA_CARDS - len(cards)
+    if remaining > 0:
+        try:
+            extras = await web_image_search_source(article.title, limit=remaining)
+            for card in extras:
+                full = _push(card)
+                if full:
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+
+    return cards
+
+
+async def _wiki_thumbnail(title: str) -> str:
+    """Fetch a single thumbnail URL from MediaWiki's ``pageimages`` API.
+
+    Returns the thumbnail URL on success, empty string on any failure.
+    Timeout is aggressive (2 s) so an offline Pi never blocks a turn on
+    a DNS retry. The URL returned is Wikipedia's own CDN; the browser
+    loads it directly — same boundary the article path already uses.
+    """
+    if not title:
+        return ""
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=2.0, headers=HEADERS) as client:
+            resp = await client.get(
+                WIKI_API_URL,
+                params={
+                    "action": "query",
+                    "titles": title,
+                    "prop": "pageimages",
+                    "piprop": "thumbnail",
+                    "pithumbsize": 400,
+                    "format": "json",
+                    "redirects": 1,
+                },
+            )
+        if resp.status_code != 200:
+            return ""
+        pages = resp.json().get("query", {}).get("pages", {}) or {}
+        for page in pages.values():
+            thumb = (page.get("thumbnail") or {}).get("source") or ""
+            if thumb:
+                return str(thumb)
+    except Exception:  # noqa: BLE001 - offline / DNS failure must not break the turn
+        return ""
+    return ""
 
 
 async def _wiki_source(query: str) -> AdapterResult:
@@ -202,6 +354,7 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
     # ── Local-first: try ZIM archives before any network call ──
     zim_result = await _zim_source(query, archive_hint, capability_need)
     if zim_result.success and score(zim_result) >= MIN_SUBJECT_COVERAGE:
+        await _topup_media(zim_result, query)
         return zim_result.to_payload()
 
     # ── ZIM missed — fall back to parallel network sources ──
@@ -217,4 +370,47 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
             "neither Wikipedia nor web search returned a relevant article."
         ),
     )
+    if result.success:
+        await _topup_media(result, query)
     return result.to_payload()
+
+
+async def _topup_media(result: AdapterResult, query: str) -> None:
+    """Fill the media bar up to :data:`_MAX_MEDIA_CARDS` in place.
+
+    Whichever source answered (ZIM / MediaWiki API / DDG), this final
+    pass ensures a rich-mode turn has a populated media header as long
+    as the network is reachable. The ZIM path already does layered
+    image collection; this handles the remaining two paths where
+    media would otherwise be empty (e.g. "when did the iPhone 4 come
+    out" → DDG instant-answer text only → no images).
+
+    Fails silently. Never raises. If the active web-search skill has
+    no network, the list stays at whatever the primary source provided.
+    """
+    if not result.success:
+        return
+    data = result.data if isinstance(result.data, dict) else {}
+    existing = data.get("media") or []
+    if isinstance(existing, tuple):
+        existing = list(existing)
+    if not isinstance(existing, list):
+        existing = []
+    remaining = _MAX_MEDIA_CARDS - len(existing)
+    if remaining <= 0:
+        return
+    try:
+        extras = await web_image_search_source(query, limit=remaining)
+    except Exception:  # noqa: BLE001
+        extras = []
+    if not extras:
+        return
+    seen = {str((item or {}).get("url") or "") for item in existing if isinstance(item, dict)}
+    merged = list(existing)
+    for card in extras:
+        url = str((card or {}).get("url") or "")
+        if url and url not in seen:
+            merged.append(card)
+            seen.add(url)
+    data["media"] = merged
+    result.data = data

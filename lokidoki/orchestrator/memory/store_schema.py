@@ -178,6 +178,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     owner_user_id INTEGER NOT NULL,
     title TEXT NOT NULL DEFAULT '',
     project_id INTEGER,
+    active_workspace_id TEXT,
     started_at TEXT NOT NULL DEFAULT (datetime('now')),
     ended_at TEXT,
     session_state TEXT,

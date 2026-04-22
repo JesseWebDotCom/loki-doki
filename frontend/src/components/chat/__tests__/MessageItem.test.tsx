@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import MessageItem from '../MessageItem';
 import type { SourceInfo } from '../../../lib/api';
+import type { ResponseEnvelope } from '../../../lib/response-types';
 import type { PipelineState } from '../../../pages/ChatPage';
 
 describe('MessageItem sources', () => {
@@ -9,7 +10,115 @@ describe('MessageItem sources', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders citation chips as title-dash-source labels and opens the sources panel callback', () => {
+  it('renders streaming summary content in place and completes without swapping the bubble', () => {
+    const streamingEnvelope: ResponseEnvelope = {
+      request_id: 'turn-1',
+      mode: 'standard',
+      status: 'streaming',
+      blocks: [
+        {
+          id: 'summary',
+          type: 'summary',
+          state: 'partial',
+          seq: 1,
+          content: 'Luke',
+        },
+        {
+          id: 'sources',
+          type: 'sources',
+          state: 'loading',
+          seq: 0,
+          items: [],
+        },
+      ],
+      source_surface: [],
+    };
+
+    const { rerender } = render(
+      <MessageItem
+        role="assistant"
+        content=""
+        timestamp="2026-04-12T12:00:00Z"
+        envelope={streamingEnvelope}
+      />,
+    );
+
+    expect(screen.getAllByTestId('message-bubble')).toHaveLength(1);
+    expect(screen.getByText(/Luke/)).toBeTruthy();
+    expect(screen.getByText('▍')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /Source 1:/i })).toBeNull();
+
+    rerender(
+      <MessageItem
+        role="assistant"
+        content=""
+        timestamp="2026-04-12T12:00:00Z"
+        envelope={{
+          ...streamingEnvelope,
+          blocks: [
+            {
+              id: 'summary',
+              type: 'summary',
+              state: 'partial',
+              seq: 2,
+              content: 'Luke Skywalker',
+            },
+            streamingEnvelope.blocks[1],
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getAllByTestId('message-bubble')).toHaveLength(1);
+    expect(screen.getByText(/Luke Skywalker/)).toBeTruthy();
+    expect(screen.getByText('▍')).toBeTruthy();
+
+    rerender(
+      <MessageItem
+        role="assistant"
+        content=""
+        timestamp="2026-04-12T12:00:00Z"
+        envelope={{
+          ...streamingEnvelope,
+          status: 'complete',
+          source_surface: [
+            {
+              url: 'https://example.test/luke',
+              title: 'Luke - Jedi Archives',
+            },
+          ],
+          blocks: [
+            {
+              id: 'summary',
+              type: 'summary',
+              state: 'ready',
+              seq: 3,
+              content: 'Luke Skywalker is a Jedi Knight.',
+            },
+            {
+              id: 'sources',
+              type: 'sources',
+              state: 'ready',
+              seq: 1,
+              items: [
+                {
+                  url: 'https://example.test/luke',
+                  title: 'Luke - Jedi Archives',
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getAllByTestId('message-bubble')).toHaveLength(1);
+    expect(screen.getByText(/Luke Skywalker is a Jedi Knight\./)).toBeTruthy();
+    expect(screen.queryByText('▍')).toBeNull();
+    expect(screen.getByRole('link', { name: /Source 1: Luke - Jedi Archives/i })).toBeTruthy();
+  });
+
+  it('renders compact citation chips (source name visible, full title-dash-source in aria-label) and opens the sources panel callback', () => {
     const onOpenSources = vi.fn();
     const sources: SourceInfo[] = [
       {
@@ -28,14 +137,16 @@ describe('MessageItem sources', () => {
       />,
     );
 
-    expect(screen.getByText('Nintendo Switch 2 - Wikipedia')).toBeTruthy();
+    const chips = screen.getAllByRole('link', { name: /Source 1: Nintendo Switch 2 - Wikipedia/ });
+    expect(chips.length).toBeGreaterThan(0);
+    expect(chips[0].textContent).toContain('Wikipedia');
 
     fireEvent.click(screen.getByRole('button', { name: 'Sources' }));
 
     expect(onOpenSources).toHaveBeenCalledTimes(1);
   });
 
-  it('renders completed pipeline details as an inline accordion instead of an info hover trigger', () => {
+  it('gates pipeline details behind a hover-revealed Details toggle', () => {
     const pipeline: PipelineState = {
       phase: 'completed',
       activity: '',
@@ -85,12 +196,15 @@ describe('MessageItem sources', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: 'Pipeline details' })).toBeNull();
+    // Details are hidden by default — no accordion, no inline meta.
+    expect(screen.queryByRole('button', { name: /thought for 680ms/i })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /thought for 680ms/i }));
+    // Clicking the hover-gated Details toggle reveals the accordion
+    // already expanded (one-click UX — no second click to see contents).
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
 
-    expect(screen.getByText('What I Used')).toBeTruthy();
-    expect(screen.getByText('I checked Wikipedia')).toBeTruthy();
-    expect(screen.getByText('Wikipedia')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /thought for 680ms/i })).toBeTruthy();
+    expect(screen.getByText('Checking Sources')).toBeTruthy();
+    expect(screen.getAllByText(/Wikipedia/i).length).toBeGreaterThan(0);
   });
 });

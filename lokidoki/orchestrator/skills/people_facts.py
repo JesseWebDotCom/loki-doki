@@ -85,6 +85,18 @@ def _extract_person_and_fact(text: str) -> tuple[str, str]:
 
 
 async def _search_entity(client: httpx.AsyncClient, name: str) -> str | None:
+    """Resolve a person name to a Wikidata entity ID, strictly.
+
+    ``wbsearchentities`` is a fuzzy search — "palmer rocky" returns
+    Amanda Palmer, Robert Palmer, etc. on label token overlap. The
+    previous implementation blindly took ``results[0].id`` and fetched
+    whatever claims that entity had, so the user saw "palmer rocky's
+    occupation is singer" with Amanda Palmer's data. Gate on the same
+    substantial-title rule the knowledge skill uses so an ambiguous
+    search falls through to the LLM instead of surfacing wrong facts.
+    """
+    from lokidoki.skills.knowledge._parse import _title_substantially_matches
+
     response = await client.get(
         _SEARCH_URL,
         params={
@@ -99,7 +111,11 @@ async def _search_entity(client: httpx.AsyncClient, name: str) -> str | None:
     if response.status_code != 200:
         return None
     results = response.json().get("search") or []
-    return results[0].get("id") if results else None
+    for r in results:
+        label = str(r.get("label") or "")
+        if label and _title_substantially_matches(label, name):
+            return r.get("id")
+    return None
 
 
 async def _entity_label(client: httpx.AsyncClient, entity_id: str) -> str | None:

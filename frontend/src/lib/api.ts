@@ -21,6 +21,7 @@ import {
 export type {
   PipelineEvent,
   AugmentationData,
+  ChatSearchResult,
   DecompositionData,
   MicroFastLaneData,
   RoutingData,
@@ -45,6 +46,26 @@ export type {
   ReconcileGroup,
   PipelineRunResponse,
 } from "./api-types";
+
+// Chunk 10: surface the response-family reducer + event phase constants
+// through the same module consumers already import for the SSE client.
+// ChatPage routes response-family events through ``reduceResponse``;
+// ``isResponseEvent`` lets callers cheaply detect the new family
+// without hardcoding the phase strings.
+export {
+  reduceResponse,
+  isResponseEvent,
+  RESPONSE_INIT,
+  BLOCK_INIT,
+  BLOCK_PATCH,
+  BLOCK_READY,
+  BLOCK_FAILED,
+  SOURCE_ADD,
+  MEDIA_ADD,
+  RESPONSE_SNAPSHOT,
+  RESPONSE_DONE,
+} from "./response-reducer";
+export type { ResponseEnvelope, Block } from "./response-types";
 
 const API_BASE = "/api/v1";
 
@@ -119,7 +140,13 @@ export async function sendChatMessage(
   onEvent: (event: PipelineEvent) => void,
   sessionId?: number,
   projectId?: number,
+  userModeOverride?: string | null,
+  activeWorkspaceId?: string | null,
 ): Promise<void> {
+  // ``user_mode_override`` is the chunk-13 compose-bar / slash-command
+  // plumbing. ``null`` means the backend derives a mode itself via
+  // ``derive_response_mode``; a string must be one of VALID_MODES or
+  // the backend rejects with 400.
   const response = await apiFetch(`${API_BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -127,6 +154,8 @@ export async function sendChatMessage(
       message,
       session_id: sessionId ?? null,
       project_id: projectId ?? null,
+      user_mode_override: userModeOverride ?? null,
+      active_workspace_id: activeWorkspaceId ?? null,
     }),
   });
   if (!response.ok || !response.body) {
@@ -259,6 +288,37 @@ export async function getSessions() {
   return { sessions: r.sessions.map(String), details: r.details };
 }
 
+export async function findInChat(
+  sessionId: string | number,
+  query: string,
+  limit = 20,
+  offset = 0,
+) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return getJson<{ query: string; session_id: number; results: import("./api-types").ChatSearchResult[] }>(
+    `/chat/sessions/${sessionId}/search?${params.toString()}`,
+  );
+}
+
+export async function searchChats(
+  query: string,
+  limit = 50,
+  offset = 0,
+) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return getJson<{ query: string; results: import("./api-types").ChatSearchResult[] }>(
+    `/chat/search?${params.toString()}`,
+  );
+}
+
 export async function deleteSession(sessionId: string | number) {
   const r = await apiFetch(`${API_BASE}/chat/sessions/${sessionId}`, {
     method: "DELETE",
@@ -360,6 +420,64 @@ export async function deleteProject(id: number) {
   });
   if (!r.ok) throw new Error(`/projects/${id}: ${r.status}`);
   return (await r.json()) as { status: string };
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  name: string;
+  persona_id: string;
+  default_mode: "direct" | "standard" | "rich" | "deep" | "search" | "artifact";
+  attached_corpora: string[];
+  tone_hint: string | null;
+  memory_scope: "global" | "workspace";
+}
+
+export interface WorkspaceInput {
+  name: string;
+  persona_id: string;
+  default_mode: WorkspaceRecord["default_mode"];
+  attached_corpora: string[];
+  tone_hint?: string;
+  memory_scope: WorkspaceRecord["memory_scope"];
+}
+
+export async function listWorkspaces(sessionId?: number) {
+  const suffix = sessionId != null ? `?session_id=${sessionId}` : "";
+  return getJson<{ workspaces: WorkspaceRecord[]; active_workspace_id?: string | null }>(
+    `/workspaces${suffix}`,
+  );
+}
+
+export async function createWorkspace(workspace: WorkspaceInput) {
+  return postJson<WorkspaceRecord>("/workspaces", workspace);
+}
+
+export async function updateWorkspace(id: string, workspace: WorkspaceInput) {
+  const r = await apiFetch(`${API_BASE}/workspaces/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(workspace),
+  });
+  if (!r.ok) throw new Error(`/workspaces/${id}: ${r.status}`);
+  return (await r.json()) as WorkspaceRecord;
+}
+
+export async function deleteWorkspace(id: string) {
+  const r = await apiFetch(`${API_BASE}/workspaces/${id}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`/workspaces/${id}: ${r.status}`);
+  return (await r.json()) as { status: string };
+}
+
+export async function setSessionActiveWorkspace(sessionId: number, workspaceId: string) {
+  const r = await apiFetch(`${API_BASE}/session/active-workspace`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, workspace_id: workspaceId }),
+  });
+  if (!r.ok) throw new Error(`/session/active-workspace: ${r.status}`);
+  return (await r.json()) as { status: string; workspace: WorkspaceRecord };
 }
 
 export async function clearChatMemory() {

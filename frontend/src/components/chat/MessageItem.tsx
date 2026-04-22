@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw, Bot } from 'lucide-react';
+import { Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw, Bot, Info } from 'lucide-react';
 import { useTTSState } from '../../utils/tts';
 import {
   Tooltip,
@@ -12,13 +12,18 @@ import {
 } from '../ui/tooltip';
 import { formatMessageDateTime, formatMessageTime } from '../../lib/chatTimestamp';
 import type { SourceInfo, MediaCard, SilentConfirmation } from '../../lib/api';
+import type { Block, ResponseEnvelope } from '../../lib/response-types';
 import type { PipelineState } from '../../pages/ChatPage';
 import { FeedbackDialog } from './FeedbackDialog';
 import SourceChip from './SourceChip';
 import { getSourcePresentation } from './sourcePresentation';
 import FaviconImage from './FaviconImage';
-import MediaBar from './MediaBar';
 import PipelineInfoPopover from './PipelineInfoPopover';
+import OfflineTrustChip from './OfflineTrustChip';
+import DocumentChip from './DocumentChip';
+import DeepWorkFrame from './DeepWorkFrame';
+import { BlockContextProvider, renderBlock } from './blocks';
+import ArtifactSurface from './artifact/ArtifactSurface';
 
 interface MentionedPerson {
   id: number;
@@ -45,6 +50,20 @@ interface MessageProps {
   /** Retry callback — removes this message and re-sends the prior user turn. */
   onRetry?: () => void;
   onOpenSources?: () => void;
+  /**
+   * Chunk 16 (folds chunk 15 deferral #1). Invoked when the user taps
+   * a follow-up chip or a clarification quick-reply rendered inside
+   * this message's block stack. The text arrives as the next user
+   * turn via ``ChatPage`` / ``handleSend``.
+   */
+  onFollowUp?: (text: string) => void;
+  /** Chunk 10: canonical server-reconciled envelope. Live turns
+   *  populate this from the SSE reducer; history replay populates
+   *  it from the persisted ``response_envelope`` column. When
+   *  absent, the component falls back to client-derived blocks
+   *  (legacy rows + fast-lane turns where no ``response_init``
+   *  fired). */
+  envelope?: ResponseEnvelope;
 }
 
 /**
@@ -74,6 +93,8 @@ const MessageItem: React.FC<MessageProps> = ({
   messageId,
   onRetry,
   onOpenSources,
+  onFollowUp,
+  envelope,
 }) => {
   const isUser = role === 'user';
   const tts = useTTSState();
@@ -88,9 +109,70 @@ const MessageItem: React.FC<MessageProps> = ({
   const [feedbackState, setFeedbackState] = useState<1 | -1 | null>(null);
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [pendingRating, setPendingRating] = useState<1 | -1 | null>(null);
+  const [artifactOpen, setArtifactOpen] = useState(false);
+  const [pipelineOpen, setPipelineOpen] = useState(false);
 
   const processedContent = useMemo(() => isUser ? content : preprocessContent(content), [content, isUser]);
-  const primarySource = sources[0] ? getSourcePresentation(sources[0]) : null;
+  // ``primarySource`` is read AFTER ``effectiveSources`` is declared
+  // below (the useMemo ordering is lexical here); we recompute it
+  // inline at the render site so the envelope / fallback branches
+  // agree. Keeping the ``sources``-based reference around would make
+  // the favicon lag the envelope on fast-lane -> full-lane transitions.
+
+  // Chunk 10 dual-source rendering:
+  //   * ``envelope`` present → render the canonical server envelope
+  //     directly (live stream or history replay from the persisted
+  //     snapshot).
+  //   * ``envelope`` absent → fall back to client-derived blocks built
+  //     from the legacy ``synthesis`` payload. This preserves behavior
+  //     for pre-envelope history rows and for fast-lane turns (where
+  //     the backend skips synthesis and no ``response_init`` fires).
+  // Block order matches the legacy inline render order (media before
+  // prose) so pixel-level behavior is unchanged.
+  const assistantBlocks: Block[] = useMemo(() => {
+    if (isUser) return [];
+    if (envelope) {
+      return envelope.blocks;
+    }
+    return [
+      {
+        id: 'media',
+        type: 'media',
+        state: media.length > 0 ? 'ready' : 'omitted',
+        seq: 0,
+        items: media,
+      },
+      {
+        id: 'summary',
+        type: 'summary',
+        state: 'ready',
+        seq: 0,
+        content,
+      },
+      {
+        id: 'sources',
+        type: 'sources',
+        state: sources.length > 0 ? 'ready' : 'omitted',
+        seq: 0,
+        items: sources,
+      },
+    ];
+  }, [isUser, content, media, sources, envelope]);
+
+  // When the envelope IS present, source chips inside the summary
+  // markdown resolve through ``source_surface`` rather than the legacy
+  // ``sources`` prop. Cast through ``unknown`` because the surface
+  // items are typed as opaque ``unknown[]`` until chunk 11.
+  const effectiveSources: SourceInfo[] = useMemo(() => {
+    if (envelope) {
+      return envelope.source_surface as unknown as SourceInfo[];
+    }
+    return sources;
+  }, [envelope, sources]);
+
+  const primarySource = effectiveSources[0]
+    ? getSourcePresentation(effectiveSources[0])
+    : null;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
@@ -111,24 +193,24 @@ const MessageItem: React.FC<MessageProps> = ({
   const hoverDateTime = formatMessageDateTime(timestamp);
 
   const contentMarkup = (
-    <div className={`prose-onyx font-medium tracking-tight ${isUser ? 'text-base leading-8 text-foreground sm:text-[1.02rem]' : 'text-[1.14rem] leading-9 text-foreground/95 sm:text-[1.36rem] sm:leading-[2.45rem]'}`}>
+    <div className={`prose-onyx font-medium tracking-tight ${isUser ? 'text-base leading-7 text-foreground sm:text-[1.02rem]' : 'text-base leading-7 text-foreground/95 sm:text-[1.05rem] sm:leading-8'}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         components={{
           p: ({ children }) => (
-            <p className={`last:mb-0 ${isUser ? 'mb-4' : 'mb-5'}`}>{children}</p>
+            <p className="mb-4 last:mb-0">{children}</p>
           ),
-          ul: ({ children }) => <ul className={`ml-6 list-disc ${isUser ? 'mb-4 space-y-1.5' : 'mb-5 space-y-2'}`}>{children}</ul>,
-          ol: ({ children }) => <ol className={`ml-6 list-decimal ${isUser ? 'mb-4 space-y-1.5' : 'mb-5 space-y-2'}`}>{children}</ol>,
-          li: ({ children }) => <li className={isUser ? 'leading-8' : 'leading-9 sm:leading-[2.45rem]'}>{children}</li>,
-          h1: ({ children }) => <h1 className="mb-5 mt-1 text-[2.35rem] font-bold leading-tight tracking-[-0.04em] text-foreground sm:text-[3.7rem]">{children}</h1>,
-          h2: ({ children }) => <h2 className="mb-4 mt-1 text-[1.8rem] font-bold leading-tight tracking-[-0.03em] text-foreground sm:text-[2.6rem]">{children}</h2>,
-          h3: ({ children }) => <h3 className="mb-3 mt-1 text-[1.35rem] font-semibold leading-tight text-foreground sm:text-[1.7rem]">{children}</h3>,
+          ul: ({ children }) => <ul className="ml-6 mb-4 list-disc space-y-1.5">{children}</ul>,
+          ol: ({ children }) => <ol className="ml-6 mb-4 list-decimal space-y-1.5">{children}</ol>,
+          li: ({ children }) => <li className={isUser ? 'leading-7' : 'leading-7 sm:leading-8'}>{children}</li>,
+          h1: ({ children }) => <h1 className="mb-4 mt-1 text-[1.65rem] font-bold leading-tight tracking-[-0.02em] text-foreground sm:text-[1.95rem]">{children}</h1>,
+          h2: ({ children }) => <h2 className="mb-3 mt-1 text-[1.3rem] font-bold leading-tight tracking-[-0.01em] text-foreground sm:text-[1.5rem]">{children}</h2>,
+          h3: ({ children }) => <h3 className="mb-2 mt-1 text-[1.1rem] font-semibold leading-tight text-foreground sm:text-[1.2rem]">{children}</h3>,
           strong: ({ children }) => <strong className="font-bold text-primary/90">{children}</strong>,
           a: ({ href, children }) => {
             if (href?.startsWith('#cite-')) {
               const index = parseInt(href.replace('#cite-', ''), 10);
-              const source = sources[index - 1];
+              const source = effectiveSources[index - 1];
               if (!source) return null;
               return <SourceChip index={index} source={source} />;
             }
@@ -186,7 +268,12 @@ const MessageItem: React.FC<MessageProps> = ({
   );
 
   return (
-    <div className={`group/msg mb-12 w-full ${isUser ? 'flex justify-end' : ''}`} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+    <div
+      className={`group/msg mb-10 w-full ${isUser ? 'flex justify-end' : ''} md:mb-12`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      data-message-id={messageId ?? undefined}
+    >
       {isUser ? (
         <div className="flex max-w-[92%] flex-col items-end sm:max-w-[84%]">
           <div
@@ -231,22 +318,44 @@ const MessageItem: React.FC<MessageProps> = ({
               </div>
             )}
             <div className="min-w-0 flex-1 pt-1 flex flex-col gap-1">
-               <div className="flex items-center gap-2 px-1">
-                <span className="text-[10px] sm:text-[11px] font-bold tracking-widest text-muted-foreground/40 uppercase font-mono">
-                  {pipeline?.synthesis?.model?.split(':')[0]?.toUpperCase() || 'LokiDoki'}
-                </span>
-                <span className="text-[10px] sm:text-[11px] font-mono text-muted-foreground/30">
-                  {displayTime}
-                </span>
-              </div>
-              {pipeline && (
+              {envelope?.offline_degraded ? (
                 <div className="px-1">
-                  <PipelineInfoPopover pipeline={pipeline} />
+                  <OfflineTrustChip className="mb-0" />
+                </div>
+              ) : null}
+              {pipeline && pipelineOpen && (
+                <div className="px-1">
+                  <PipelineInfoPopover pipeline={pipeline} defaultExpanded />
                 </div>
               )}
               <div data-testid="message-bubble" className="w-full text-foreground relative">
-                {media.length > 0 && <MediaBar media={media} />}
-                {contentMarkup}
+                {envelope?.document_mode ? (
+                  <DocumentChip mode={envelope.document_mode} />
+                ) : null}
+                <BlockContextProvider
+                  sources={effectiveSources}
+                  mentionedPeople={mentionedPeople}
+                  onOpenSources={onOpenSources}
+                  onFollowUp={onFollowUp}
+                  artifactSurface={envelope?.artifact_surface}
+                  onOpenArtifact={() => setArtifactOpen(true)}
+                  envelopeStatus={envelope?.status}
+                >
+                  {envelope?.mode === 'deep' && envelope.status === 'streaming' ? (
+                    <DeepWorkFrame envelope={envelope}>
+                      {assistantBlocks.map((block) => renderBlock(block))}
+                    </DeepWorkFrame>
+                  ) : (
+                    assistantBlocks.map((block) => renderBlock(block))
+                  )}
+                </BlockContextProvider>
+                {envelope?.artifact_surface ? (
+                  <ArtifactSurface
+                    open={artifactOpen && Boolean(envelope?.artifact_surface)}
+                    onOpenChange={setArtifactOpen}
+                    artifact={envelope.artifact_surface}
+                  />
+                ) : null}
 
                 {confirmations.length > 0 && (
                   <div className="mt-5 border-t border-border/10 pt-4 space-y-1.5">
@@ -401,13 +510,35 @@ const MessageItem: React.FC<MessageProps> = ({
                       </Tooltip>
                     )}
 
-                    {sources.length > 0 && onOpenSources && (
+                    {pipeline && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={pipelineOpen ? 'Hide details' : 'Details'}
+                            onClick={() => setPipelineOpen((v) => !v)}
+                            className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
+                              pipelineOpen
+                                ? 'text-foreground bg-card'
+                                : 'text-muted-foreground/60 hover:text-foreground hover:bg-card'
+                            }`}
+                          >
+                            <Info size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="text-xs">
+                          {pipelineOpen ? 'Hide details' : 'Details'}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {effectiveSources.length > 0 && onOpenSources && (
                       <>
                         <div className="mx-1 h-4 w-px bg-border/40" />
                         <button
                           type="button"
                           onClick={onOpenSources}
-                          className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs font-semibold text-muted-foreground/60 transition-colors hover:text-foreground hover:bg-card"
+                          className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-muted-foreground/60 transition-colors hover:text-foreground hover:bg-card"
                         >
                           {primarySource ? (
                             <FaviconImage
@@ -420,6 +551,15 @@ const MessageItem: React.FC<MessageProps> = ({
                         </button>
                       </>
                     )}
+
+                    <div className="ml-auto">
+                      <span
+                        className="cursor-default font-mono text-[11px] italic text-muted-foreground/50"
+                        title={hoverDateTime}
+                      >
+                        {displayTime}
+                      </span>
+                    </div>
                   </TooltipProvider>
                 </div>
               </div>

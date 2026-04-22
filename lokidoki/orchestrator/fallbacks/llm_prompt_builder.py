@@ -27,6 +27,165 @@ _STRUCTURAL_SOURCES = frozenset({
 })
 
 
+# Injected on top of the combine prompt when the derived response mode
+# is rich or deep (i.e. the user wants a ChatGPT-style structured
+# answer, not a 1–3 sentence verbatim summary). Overrides the default
+# length rule in the template and gives the model a concrete
+# formatting contract. Kept short enough to not blow the model's
+# context budget — the COMBINE_PROMPT template itself stays untouched
+# so the decomposer-budget tests don't fire.
+_RICH_MODE_DIRECTIVE = (
+    "RICH FORMATTING — THIS TURN IS RENDERED IN RICH MODE:\n"
+    "- Override the default 1–3 sentence rule. Be thorough.\n"
+    "- Open with a 1–2 sentence overview paragraph.\n"
+    "- Organize the answer with ## H2 section headers whenever the "
+    "subject has multiple distinct aspects. Pick section names that fit "
+    "THIS subject. For a person / biography, 'Key facts', 'Notable "
+    "work', 'Why it matters' are usually correct. For a product, prefer "
+    "names like 'What it is', 'How it works', 'Trade-offs'. For a "
+    "concept, prefer 'Definition', 'Examples', 'Common pitfalls'. "
+    "Never copy a template verbatim onto a subject it doesn't suit — "
+    "match the headers to the content.\n"
+    "- Skip headers entirely only when the answer is one short "
+    "coherent thread (a definition, a direct factual reply).\n"
+    "- Bullets are for natural lists (items, steps, examples). Write "
+    "each bullet as a plain phrase or short sentence. Do NOT prefix "
+    "bullets with 'Label:' or any other uniform tag — write the fact "
+    "directly (e.g. 'Released March 2026' not 'Label: Release: March 2026'). "
+    "Bold a short lead-in only when it sharpens the fact (e.g. "
+    "'**Born** March 17, 1964 in Dayton, Ohio').\n"
+    "- If the user asked multiple questions in one turn, answer each "
+    "one explicitly — don't hide an answer inside a generic section.\n"
+    "- Keep [src:N] citations inline after the facts they support.\n"
+    "- No preamble, no meta comments about the format. Just the answer.\n"
+)
+
+
+_RICH_ROUTED_CAPABILITIES_FOR_PROMPT: frozenset[str] = frozenset({
+    "knowledge_query", "lookup_definition", "lookup_fact",
+    "define_word", "lookup_person_facts", "lookup_person_birthday",
+    "lookup_relationship", "list_family", "news_search",
+    "find_recipe", "code_assistance",
+})
+
+# Router capabilities where the rich directive would clash with the
+# skill's verbatim output. Calculator / time / unit conversion /
+# deterministic device-control etc. produce a literal answer ("2+2 is
+# 4", "5 km = 3.1 mi") that should NOT be rewritten into headers +
+# bullets. The planner picks ``direct`` mode for these; the prompt
+# builder mirrors that by skipping the directive.
+_DIRECT_SHAPED_CAPABILITIES: frozenset[str] = frozenset({
+    "compute_math", "calculator", "unit_conversion",
+    "current_time", "timer_reminder", "calendar",
+    "device_control", "home_automation",
+})
+
+
+def _derive_response_mode_for_prompt(spec: RequestSpec) -> str:
+    """Return ``"rich"`` / ``"deep"`` / ``""`` using the same signal the
+    envelope builder consumes.
+
+    Auto path mirrors the planner's rich-by-default bias
+    (``derive_response_mode`` rule 7): every non-deterministic,
+    non-search turn gets the rich directive so the LLM output matches
+    the envelope's rich mode. Deterministic skills (calculator, time,
+    unit conversion) stay unformatted because the planner picks
+    ``direct`` for them; a lone ``web_search`` route also stays plain
+    because the frontend renders a search layout, not prose.
+    """
+    ctx = spec.context if isinstance(spec.context, dict) else {}
+    override = str(ctx.get("user_mode_override") or "").strip().lower()
+    if override in {"rich", "deep"}:
+        return override
+    workspace = str(ctx.get("workspace_default_mode") or "").strip().lower()
+    if workspace in {"rich", "deep"}:
+        return workspace
+    if override in {"direct", "standard", "search", "artifact"}:
+        return ""
+
+    # Auto path — mirror the planner's rich-by-default bias.
+    primary_caps: list[str] = []
+    for chunk in spec.chunks:
+        if chunk.role == "primary_request" and chunk.success:
+            primary_caps.append(chunk.capability or "")
+
+    # Lone web-search route → keep search layout (no directive).
+    if primary_caps and all(cap == "web_search" for cap in primary_caps):
+        return ""
+
+    # Lone deterministic skill → keep direct layout (no directive).
+    if primary_caps and all(
+        cap in _DIRECT_SHAPED_CAPABILITIES for cap in primary_caps
+    ):
+        return ""
+
+    # Everything else — direct_chat, knowledge lookups, multi-skill
+    # fan-outs, rich-routed capabilities — gets the rich directive.
+    return "rich"
+
+
+# Chunk 16: one-call synthesis contract (design §20.3) — the LLM is
+# instructed to append ``<spoken_text>...</spoken_text>`` after the
+# visual reply so BOTH ``response`` and ``spoken_text`` come out of a
+# single inference pass. Parsing machine-generated text is permitted
+# (CLAUDE.md — regex salvage is fine for model output; it's NOT fine
+# for user-intent classification).
+_SPOKEN_TEXT_ISLAND = re.compile(
+    r"<spoken_text>\s*(.*?)\s*</spoken_text>",
+    re.DOTALL | re.IGNORECASE,
+)
+# Hard cap on the spoken form — matches the prompt instruction. Keeps
+# TTS latency bounded even if the LLM ignores the "≤200 chars" hint.
+SPOKEN_TEXT_MAX_CHARS = 240
+
+# Qwen3 / R1-style reasoning tokens. The fast-path prompts append
+# ``/no_think`` to keep synthesis latency bounded, but defensively strip
+# any ``<think>...</think>`` block if a model ignores the flag (or the
+# closing tag is missing). Parsing machine-generated text is permitted
+# (CLAUDE.md — regex salvage is fine for model output).
+_REASONING_BLOCK = re.compile(
+    r"<think>.*?(?:</think>|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def strip_reasoning_blocks(text: str) -> str:
+    """Drop any ``<think>...</think>`` monologue the model leaked in."""
+    if not text or "<think" not in text.lower():
+        return text
+    return _REASONING_BLOCK.sub("", text).strip()
+
+
+def extract_and_strip_spoken_text(text: str) -> tuple[str, str | None]:
+    """Pull a ``<spoken_text>...</spoken_text>`` island out of LLM output.
+
+    Returns ``(cleaned_response, spoken_text_or_none)``. The island is
+    stripped from the visible reply so the user never sees the tag in
+    the chat bubble, and any trailing whitespace left behind is
+    trimmed. Multiple islands are tolerated — only the last one wins
+    (the most recent paraphrase).
+
+    When no island is present, ``spoken_text`` is ``None`` and the
+    response is returned unchanged. The envelope-build path will then
+    fall back to a trimmed summary via
+    :func:`lokidoki.orchestrator.response.spoken.resolve_spoken_text`.
+    """
+    if not text:
+        return "", None
+    matches = list(_SPOKEN_TEXT_ISLAND.finditer(text))
+    if not matches:
+        return text, None
+    spoken_raw = matches[-1].group(1).strip()
+    # Strip every island so the response bubble stays clean even if
+    # the model emitted more than one.
+    cleaned = _SPOKEN_TEXT_ISLAND.sub("", text).strip()
+    if not spoken_raw:
+        return cleaned, None
+    if len(spoken_raw) > SPOKEN_TEXT_MAX_CHARS:
+        spoken_raw = spoken_raw[:SPOKEN_TEXT_MAX_CHARS].rstrip()
+    return cleaned, spoken_raw
+
+
 def _extract_persona(spec: RequestSpec) -> tuple[str, str]:
     """Return (character_name, behavior_prompt) from spec context.
 
@@ -73,12 +232,43 @@ def _build_confidence_guide(spec: RequestSpec) -> str:
 
 
 def _collect_sources(spec: RequestSpec) -> list[dict[str, str]]:
-    """Collect deduplicated sources from all successful primary chunks.
+    """Collect deduplicated sources for the turn.
+
+    Cutover (chunk 5): prefer ``spec.adapter_sources``, which the
+    synthesis phase populates from every successful
+    ``AdapterOutput.sources``. When it's empty — e.g. a fast-lane /
+    direct_chat turn, or a skill whose adapter isn't registered yet —
+    fall back to scraping ``chunk.result.sources`` so the LLM prompt
+    never loses a source that was visible to the old path.
 
     Returns a stable-ordered list of ``{"url": ..., "title": ...}``
     dicts. The 1-based index in this list is the ``[src:N]`` citation
     marker the LLM should emit.
     """
+    adapter_sources = list(getattr(spec, "adapter_sources", []) or [])
+    if adapter_sources:
+        cleaned: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for src in adapter_sources:
+            if not isinstance(src, dict):
+                continue
+            url = (src.get("url") or "").strip()
+            # Match the legacy path: URL is required. URL-less entries
+            # (offline snippets, search-preview rows without links) are
+            # not citable by [src:N] markers and have historically been
+            # dropped before reaching the prompt / frontend. Preserve
+            # that behavior so the event payload stays byte-compatible.
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            title = src.get("title") or url
+            entry = {**src, "url": url, "title": title}
+            cleaned.append(entry)
+        return cleaned
+
+    # Legacy fallback — kept for fast-lane / direct_chat / adapter-less
+    # skills. Will be dropped in a later chunk once adapter coverage is
+    # 100%.
     sources: list[dict[str, str]] = []
     seen_urls: set[str] = set()
     for chunk in spec.chunks:
@@ -277,7 +467,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     response_schema = _select_response_schema(spec)
 
     if _is_direct_chat_only(spec):
-        return render_prompt(
+        prompt = render_prompt(
             "direct_chat",
             user_question=spec.original_request,
             character_name=character_name,
@@ -287,21 +477,31 @@ def build_combine_prompt(spec: RequestSpec) -> str:
             response_schema=response_schema,
             **memory_slots,
         )
-    payload = build_llm_payload(spec)
-    sources = _collect_sources(spec)
-    return render_prompt(
-        "combine",
-        spec=json.dumps(payload, ensure_ascii=False),
-        character_name=character_name,
-        behavior_prompt=behavior_prompt,
-        confidence_guide=_build_confidence_guide(spec),
-        sources_list=_render_sources_list(sources),
-        media_hint=_render_media_hint(spec),
-        current_time=current_time,
-        user_name=user_name,
-        response_schema=response_schema,
-        **memory_slots,
-    )
+    else:
+        payload = build_llm_payload(spec)
+        sources = _collect_sources(spec)
+        prompt = render_prompt(
+            "combine",
+            spec=json.dumps(payload, ensure_ascii=False),
+            character_name=character_name,
+            behavior_prompt=behavior_prompt,
+            confidence_guide=_build_confidence_guide(spec),
+            sources_list=_render_sources_list(sources),
+            media_hint=_render_media_hint(spec),
+            current_time=current_time,
+            user_name=user_name,
+            response_schema=response_schema,
+            **memory_slots,
+        )
+    if _derive_response_mode_for_prompt(spec):
+        # Prepend the rich-mode directive so the model sees the
+        # override-the-length-rule instruction BEFORE the persona /
+        # default rules. Applies to BOTH combine and direct_chat paths:
+        # when the user picks Rich on the toggle for a plain LLM chat
+        # turn, the directive is what tells the model to write
+        # structured prose instead of a 1–3 sentence quip.
+        prompt = _RICH_MODE_DIRECTIVE + "\n" + prompt
+    return prompt
 
 
 def _extract_memory_slots(spec: RequestSpec) -> dict[str, str]:

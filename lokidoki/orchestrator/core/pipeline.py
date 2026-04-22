@@ -29,6 +29,7 @@ from lokidoki.orchestrator.core.types import (
 from lokidoki.orchestrator.execution.request_spec import build_request_spec
 from lokidoki.orchestrator.observability.tracing import build_trace_summary, start_trace
 from lokidoki.orchestrator.registry.runtime import get_runtime
+from lokidoki.orchestrator.workspace import resolve_active_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,21 @@ def run_pipeline(raw_text: str, context: dict[str, Any] | None = None) -> Pipeli
 async def run_pipeline_async(
     raw_text: str, context: dict[str, Any] | None = None,
 ) -> PipelineResult:
-    """Run the pipeline end-to-end."""
+    """Run the pipeline end-to-end.
+
+    Recognized ``context`` keys (non-exhaustive):
+
+    * ``user_mode_override`` — chunk 13. String literal from
+      :data:`lokidoki.orchestrator.response.mode.VALID_MODES`, or
+      ``None`` to let the planner derive. Flows unmodified through
+      :func:`_init_trace` into ``safe_context`` and is read by
+      :func:`~lokidoki.orchestrator.core.pipeline_phases._build_envelope`
+      when it calls :func:`derive_response_mode`.
+    """
     trace, runtime, ctx = _init_trace(context)
     ensure_session(ctx)
+    workspace = await resolve_active_workspace(ctx)
+    _apply_workspace_context(ctx, workspace)
     bridge_session_state_to_recent_entities(ctx)
     normalized, signals, fast_lane = run_pre_parse_phase(trace, ctx, raw_text)
     if fast_lane.matched:
@@ -68,8 +81,26 @@ async def run_pipeline_async(
     # for this ordering.
     spec.media = await run_media_augmentation_phase(
         trace, routable, routes, executions, raw_text=raw_text,
+        safe_context=ctx,
     )
-    response = await run_synthesis_phase(trace, ctx, raw_text, spec, executions, mw, runtime)
+    response, envelope = await run_synthesis_phase(
+        trace, ctx, raw_text, spec, executions, mw, runtime,
+    )
+    # Chunk 18: branch into the deep-work path when the planner /
+    # user chose deep mode. The runner mutates ``envelope`` in place,
+    # so the downstream persistence + SSE snapshot see the upgraded
+    # shape. Non-deep turns short-circuit inside ``run_deep_turn``
+    # with zero cost.
+    if envelope is not None and envelope.mode == "deep":
+        from lokidoki.orchestrator.deep import run_deep_turn
+        route_decomposition = ctx.get("route_decomposition")
+        await run_deep_turn(
+            envelope,
+            safe_context=ctx,
+            executions=executions,
+            decomposition=route_decomposition,
+            profile=ctx.get("platform_profile"),
+        )
     # Post-synthesis filter: drop media cards when the model still
     # punted with a clarification / deferral despite the media_hint.
     # Showing a random video next to "I'm not sure" is worse than
@@ -77,13 +108,17 @@ async def run_pipeline_async(
     if spec.media and _is_deferral_response(response.output_text):
         logger.info("[Media] suppressing %d card(s) — response looks like a deferral", len(spec.media))
         spec.media = []
+        # Keep the envelope media block in sync with the spec-level
+        # suppression so history replay matches the UI the user saw.
+        _strip_envelope_media(envelope)
     maybe_queue_session_close(ctx, mw)
     return PipelineResult(
         normalized=normalized, signals=signals, fast_lane=fast_lane,
         parsed=_strip_doc(parsed), chunks=chunks, extractions=extractions,
         routes=routes, implementations=impls, resolutions=resolutions,
         executions=executions, request_spec=spec, response=response,
-        trace=trace, trace_summary=build_trace_summary(trace))
+        trace=trace, trace_summary=build_trace_summary(trace),
+        envelope=envelope)
 
 
 def _init_trace(context):
@@ -166,3 +201,34 @@ def _is_deferral_response(text: str) -> bool:
         return False
     head = text.lstrip().lower()[:60]
     return any(head.startswith(prefix) for prefix in _DEFERRAL_PREFIXES)
+
+
+def _strip_envelope_media(envelope) -> None:
+    """Mark the envelope's media block as omitted after a deferral suppression.
+
+    Keeps the persisted envelope in sync with the spec-level media
+    wipe. Idempotent: no-op if the envelope has no media block.
+    """
+    if envelope is None:
+        return
+    from lokidoki.orchestrator.response.blocks import BlockState
+    for block in envelope.blocks:
+        if block.id == "media":
+            block.items = []
+            block.state = BlockState.omitted
+            break
+
+
+def _apply_workspace_context(ctx: dict[str, Any], workspace) -> None:
+    """Thread workspace-derived preferences into the safe context."""
+    ctx["workspace"] = workspace
+    ctx["active_workspace_id"] = workspace.id
+    ctx["workspace_default_mode"] = workspace.default_mode
+    ctx["workspace_persona_id"] = workspace.persona_id
+    ctx["workspace_memory_scope"] = workspace.memory_scope
+    ctx["attached_corpora"] = list(workspace.attached_corpora)
+    tone_hint = (workspace.tone_hint or "").strip()
+    if tone_hint:
+        base = str(ctx.get("behavior_prompt") or "").strip()
+        suffix = f"Tone hint: {tone_hint}"
+        ctx["behavior_prompt"] = f"{base}\n{suffix}".strip() if base else suffix

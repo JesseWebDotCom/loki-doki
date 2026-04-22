@@ -31,11 +31,15 @@ def get_or_create_user(conn: sqlite3.Connection, username: str) -> int:
 
 
 def create_session(
-    conn: sqlite3.Connection, user_id: int, title: str, project_id: Optional[int] = None
+    conn: sqlite3.Connection,
+    user_id: int,
+    title: str,
+    project_id: Optional[int] = None,
+    active_workspace_id: Optional[str] = None,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO sessions (owner_user_id, title, project_id) VALUES (?, ?, ?)",
-        (user_id, title, project_id),
+        "INSERT INTO sessions (owner_user_id, title, project_id, active_workspace_id) VALUES (?, ?, ?, ?)",
+        (user_id, title, project_id, active_workspace_id),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -46,12 +50,12 @@ def list_sessions(
 ) -> list[sqlite3.Row]:
     if project_id is not None:
         return conn.execute(
-            "SELECT id, title, project_id, created_at FROM sessions "
+            "SELECT id, title, project_id, active_workspace_id, created_at FROM sessions "
             "WHERE owner_user_id = ? AND project_id = ? ORDER BY id DESC",
             (user_id, project_id),
         ).fetchall()
     return conn.execute(
-        "SELECT id, title, project_id, created_at FROM sessions "
+        "SELECT id, title, project_id, active_workspace_id, created_at FROM sessions "
         "WHERE owner_user_id = ? ORDER BY id DESC",
         (user_id,),
     ).fetchall()
@@ -87,11 +91,21 @@ def add_message(
     role: str,
     content: str,
     embedding: Optional[list] = None,
+    response_envelope: Optional[str] = None,
 ) -> int:
+    """Insert one message row.
+
+    Args:
+        response_envelope: Pre-serialized JSON string for the rich-response
+            envelope snapshot. Passed straight to the ``response_envelope``
+            column. Callers (``MemoryProvider.add_message``) handle the
+            ``envelope_to_dict`` + ``json.dumps`` step so the SQL layer
+            stays JSON-agnostic.
+    """
     cur = conn.execute(
-        "INSERT INTO messages (session_id, owner_user_id, role, content) "
-        "VALUES (?, ?, ?, ?)",
-        (session_id, user_id, role, content),
+        "INSERT INTO messages (session_id, owner_user_id, role, content, "
+        "response_envelope) VALUES (?, ?, ?, ?, ?)",
+        (session_id, user_id, role, content, response_envelope),
     )
     message_id = int(cur.lastrowid)
     # Optional vector write — only user-role messages get embedded

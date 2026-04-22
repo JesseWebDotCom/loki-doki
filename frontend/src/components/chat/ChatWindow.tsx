@@ -6,6 +6,8 @@ import CharacterFrame, { type CharacterMode } from '../character/CharacterFrame'
 import type { HeadTiltState } from '../character/useHeadTilt';
 import type { CharacterRow } from '../../lib/api';
 import type { PipelineState, Message } from '../../pages/ChatPage';
+import type { ChatSearchResult } from '../../lib/api-types';
+import FindInChatBar from './search/FindInChatBar';
 
 interface ChatWindowProps {
   messages: Message[];
@@ -17,8 +19,25 @@ interface ChatWindowProps {
   onCharacterShock?: () => void;
   activeAssistantKey?: string | null;
   assistantName?: string;
+  findOpen?: boolean;
+  findQuery?: string;
+  findResults?: ChatSearchResult[];
+  findActiveIndex?: number;
+  findLoading?: boolean;
+  onOpenFind?: () => void;
+  onCloseFind?: () => void;
+  onFindQueryChange?: (query: string) => void;
+  onFindNext?: () => void;
+  onFindPrev?: () => void;
+  onSelectFindResult?: (result: ChatSearchResult) => void;
   onRetry?: (messageIndex: number) => void;
   onOpenSources?: (messageIndex: number) => void;
+  /**
+   * Chunk 16 (folds chunk 15 deferral #1). Invoked when a user taps
+   * a follow-up chip or a clarification quick-reply inside any
+   * message's block stack. The text arrives as the next user turn.
+   */
+  onFollowUp?: (text: string) => void;
 }
 
 const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -31,8 +50,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   onCharacterShock,
   activeAssistantKey,
   assistantName,
+  findOpen = false,
+  findQuery = '',
+  findResults = [],
+  findActiveIndex = 0,
+  findLoading = false,
+  onOpenFind,
+  onCloseFind,
+  onFindQueryChange,
+  onFindNext,
+  onFindPrev,
+  onSelectFindResult,
   onRetry,
   onOpenSources,
+  onFollowUp,
 }) => {
   // Per-message mini avatars only render in mini mode. Docked mode
   // shows the big right-column avatar instead, and rendering both at
@@ -87,6 +118,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     handleScroll();
   }, [messages, pipeline?.phase, handleScroll]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && !event.shiftKey) {
+        event.preventDefault();
+        onOpenFind?.();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onOpenFind]);
+
   const isThinking = pipeline && pipeline.phase !== 'idle';
 
   return (
@@ -100,6 +142,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           className="mx-auto space-y-6"
           style={{ maxWidth: 'var(--app-content-max)' }}
         >
+          <FindInChatBar
+            open={findOpen}
+            query={findQuery}
+            results={findResults}
+            activeIndex={findActiveIndex}
+            loading={findLoading}
+            onQueryChange={(query) => onFindQueryChange?.(query)}
+            onClose={() => onCloseFind?.()}
+            onNext={() => onFindNext?.()}
+            onPrev={() => onFindPrev?.()}
+            onSelectResult={(result) => onSelectFindResult?.(result)}
+          />
           {messages.map((msg, idx) => {
             const myKey = `msg-${idx}`;
             // Mini mode renders ONE avatar in the whole chat, attached
@@ -117,6 +171,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   assistantName={assistantName}
                   onRetry={onRetry ? () => onRetry(idx) : undefined}
                   onOpenSources={onOpenSources ? () => onOpenSources(idx) : undefined}
+                  onFollowUp={onFollowUp}
                 />
               </React.Fragment>
             );
@@ -125,7 +180,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             <ThinkingIndicator
               pipeline={pipeline}
               avatar={renderAvatar(characterState ?? 'thinking')}
-              interimText={pipeline?.streamingResponse || undefined}
             />
           )}
         </div>

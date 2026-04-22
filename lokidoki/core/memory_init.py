@@ -59,6 +59,7 @@ PEOPLE_COLUMN_MIGRATIONS = (
 
 SESSION_COLUMN_MIGRATIONS = (
     ("project_id", "INTEGER"),
+    ("active_workspace_id", "TEXT"),
 )
 
 # Projects gain icon + icon_color so the UI can render a per-project
@@ -78,6 +79,13 @@ FEEDBACK_COLUMN_MIGRATIONS = (
     ("snapshot_prompt", "TEXT"),
     ("snapshot_response", "TEXT"),
     ("trace_json", "TEXT"),
+)
+
+# Rich-response envelope snapshot persisted alongside the legacy content
+# column. Nullable JSON blob so legacy rows (no envelope) stay readable.
+# See docs/rich-response/chunk-7-envelope-wire.md.
+MESSAGE_COLUMN_MIGRATIONS = (
+    ("response_envelope", "TEXT"),
 )
 
 
@@ -237,6 +245,7 @@ def open_and_migrate(db_path: str) -> tuple[sqlite3.Connection, bool]:
     # creates it idempotently above, so this ALTER is always safe.
     _add_columns(conn, "projects", PROJECT_COLUMN_MIGRATIONS)
     _add_columns(conn, "message_feedback", FEEDBACK_COLUMN_MIGRATIONS)
+    _add_columns(conn, "messages", MESSAGE_COLUMN_MIGRATIONS)
     # Indexes that depend on migrated columns must run AFTER _add_columns
     # so pre-projects DBs can upgrade without crashing on missing columns.
     conn.execute(

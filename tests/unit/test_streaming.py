@@ -310,16 +310,29 @@ async def test_stream_ordering_decomp_before_routing():
 
 
 @pytest.mark.anyio
-async def test_stream_synthesis_is_last_event():
-    """The final event must be synthesis done."""
+async def test_stream_synthesis_done_precedes_response_done():
+    """``synthesis:done`` lands before the terminal ``response_done`` (chunk 9)."""
     events: list[str] = []
     async for chunk in stream_pipeline_sse("tell me a joke"):
         events.append(chunk)
 
     parsed = _parse_sse_events(events)
+
+    # Terminal event is response_done (chunk 9 contract).
     last = parsed[-1]
-    assert last["phase"] == "synthesis"
-    assert last["status"] == "done"
+    assert last["phase"] == "response_done"
+    assert last["data"]["status"] in ("complete", "failed")
+
+    # synthesis:done still fires and precedes response_done so the
+    # legacy popover keeps working until chunk 10 rewires the frontend.
+    synth_done_idx = max(
+        i for i, e in enumerate(parsed)
+        if e["phase"] == "synthesis" and e["status"] == "done"
+    )
+    response_done_idx = max(
+        i for i, e in enumerate(parsed) if e["phase"] == "response_done"
+    )
+    assert synth_done_idx < response_done_idx
 
 
 @pytest.mark.anyio
@@ -336,11 +349,19 @@ async def test_stream_error_path_emits_graceful_event():
 
     parsed = _parse_sse_events(events)
     assert len(parsed) >= 1
-    error = parsed[-1]
-    assert error["phase"] == "synthesis"
-    assert error["status"] == "done"
-    assert error["data"]["error"] is True
-    assert error["data"]["model"] == "error"
+
+    # synthesis:done with error shape is still streamed for legacy UI.
+    synth = next(
+        e for e in parsed
+        if e["phase"] == "synthesis" and e["status"] == "done"
+    )
+    assert synth["data"]["error"] is True
+    assert synth["data"]["model"] == "error"
+
+    # Terminal response_done carries status=failed (chunk 9).
+    terminal = parsed[-1]
+    assert terminal["phase"] == "response_done"
+    assert terminal["data"]["status"] == "failed"
 
 
 @pytest.mark.anyio

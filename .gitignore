@@ -254,7 +254,6 @@ app_config.json
 # =============================================================================
 # uv.lock                  — dependency lockfile, always committed
 # AGENTS.md                — Codex instructions, always committed
-# docs/spec.md             — full spec, always committed
 # .github/                 — Copilot instructions, always committed
 # configs/*.toml           — config profiles (no secrets), always committed
 # personas/*.toml          — persona definitions, always committed

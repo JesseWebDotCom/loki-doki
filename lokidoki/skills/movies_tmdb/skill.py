@@ -43,7 +43,24 @@ class TMDBSkill(BaseSkill):
             if not results:
                 return MechanismResult(success=False, error="No movies found")
 
-            movie = results[0]
+            # TMDB ranks by popularity, so a popular unrelated movie can
+            # outrank the one the user actually asked about. Validate
+            # title relevance before trusting the top result — reject
+            # when fewer than the required number of query tokens appear
+            # in the movie title so "who is palmer rocky" can't resolve
+            # to "Rocky (1976)" via a misrouted movie call.
+            from lokidoki.skills.knowledge._parse import _title_substantially_matches
+
+            movie = next(
+                (m for m in results
+                 if _title_substantially_matches(str(m.get("title") or ""), query)),
+                None,
+            )
+            if movie is None:
+                return MechanismResult(
+                    success=False,
+                    error="No TMDB result with matching title",
+                )
             movie_data = {
                 "title": movie.get("title", ""),
                 "release_date": movie.get("release_date", ""),

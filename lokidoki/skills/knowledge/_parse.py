@@ -75,6 +75,33 @@ def _title_matches_query(title: str, query: str) -> bool:
     return bool(q_tokens & t_tokens)
 
 
+def _title_substantially_matches(title: str, query: str) -> bool:
+    """Stricter relevance gate for person / proper-noun style queries.
+
+    Require ``min(n, 2)`` significant tokens to overlap between title
+    and query. A 1-token query needs that token in the title; every
+    query with 2+ significant tokens needs at least two of them to
+    appear. That rejects "Amanda Palmer" for "who is palmer rocky"
+    (1 overlap < 2) and "Palmer Island Light Station" for the same
+    (1 overlap), while still accepting "Corey Feldman" for "who is
+    corey feldman" (2/2) and "Dune (novel)" for "summary of the dune
+    novel by frank herbert" (2 overlap on dune+novel).
+
+    When the query has no significant tokens (every word is too short
+    or a stopword — e.g. "cpr"), fall back to substring containment on
+    words of 3+ characters so the title has to literally mention the
+    ask.
+    """
+    q_tokens = _query_tokens(query)
+    if q_tokens:
+        t_tokens = _query_tokens(title)
+        overlap = len(q_tokens & t_tokens)
+        required = min(len(q_tokens), 2)
+        return overlap >= required
+    lt = title.lower()
+    return any(w.lower() in lt for w in query.split() if len(w) >= 3)
+
+
 def _is_junk_title(title: str) -> bool:
     low = (title or "").lower()
     if not low:
@@ -204,3 +231,122 @@ def parse_wiki_html(html: str) -> tuple[str, list[str]]:
     if len(lead) > LEAD_CHAR_CAP:
         lead = lead[:LEAD_CHAR_CAP].rsplit(" ", 1)[0] + "\u2026"
     return lead, parser.sections
+
+
+# ZIM Wikipedia articles reference images via relative paths like
+# ``../I/m/Foo.jpg`` or ``I/m/Foo.jpg``. The ZIM asset HTTP route
+# (``/api/v1/archives/media/{source_id}/{path}``) expects the path
+# WITHOUT a leading ``../`` or ``./``. Small icons (flags, separators,
+# edit-pencil glyphs) live under ``I/s/`` or as data-URIs; we keep
+# only the larger image namespace ``I/m/`` plus bare-leaf ``I/`` paths.
+_REL_PREFIX = ("../", "./")
+_DATA_URI_PREFIXES = ("data:", "javascript:")
+
+
+class _ImageExtractor(HTMLParser):
+    """Collect ``<img src>`` paths in document order.
+
+    Skips tiny/icon images (explicit width or height below
+    :data:`_MIN_IMAGE_DIMENSION` on the tag) and anything inside an
+    infobox-adjacent skip region. Wikipedia's infobox portraits DO
+    live inside ``class="infobox"`` — we want those — so the skip list
+    here is narrower than :class:`_LeadExtractor`; just nav boxes,
+    edit links, and explicit hidden wrappers.
+    """
+
+    _SKIP_CLASSES = frozenset({
+        "navbox", "metadata", "mw-editsection", "noprint", "sistersitebox",
+    })
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._skip_depth = 0
+        self._skip_tags_stack: list[str] = []
+        self.images: list[dict[str, str | int]] = []
+
+    def _should_skip(self, attrs: list[tuple[str, str | None]]) -> bool:
+        cls = dict(attrs).get("class") or ""
+        return any(marker in cls for marker in self._SKIP_CLASSES)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_d = dict(attrs)
+        if tag == "div" and self._should_skip(attrs):
+            self._skip_depth += 1
+            self._skip_tags_stack.append(tag)
+            return
+        if self._skip_depth:
+            return
+        if tag != "img":
+            return
+        src = (attrs_d.get("src") or "").strip()
+        if not src or any(src.startswith(p) for p in _DATA_URI_PREFIXES):
+            return
+        # Strip ``./`` and ``../`` prefixes — the ZIM asset endpoint
+        # takes a flat path.
+        while True:
+            stripped = False
+            for prefix in _REL_PREFIX:
+                if src.startswith(prefix):
+                    src = src[len(prefix):]
+                    stripped = True
+                    break
+            if not stripped:
+                break
+        width = _int_attr(attrs_d.get("width"))
+        height = _int_attr(attrs_d.get("height"))
+        if width and width < _MIN_IMAGE_DIMENSION:
+            return
+        if height and height < _MIN_IMAGE_DIMENSION:
+            return
+        self.images.append({
+            "src": src,
+            "alt": (attrs_d.get("alt") or "").strip(),
+            "width": width or 0,
+            "height": height or 0,
+        })
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._skip_depth and self._skip_tags_stack and self._skip_tags_stack[-1] == tag:
+            self._skip_tags_stack.pop()
+            self._skip_depth -= 1
+
+
+# Minimum width/height a ZIM ``<img>`` must declare to be treated as
+# real article content. Anything smaller is almost always a decorative
+# icon (flag, external-link arrow, edit-pencil glyph).
+_MIN_IMAGE_DIMENSION = 80
+
+
+def _int_attr(value: str | None) -> int:
+    if not value:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def parse_wiki_images(html: str, *, limit: int = 3) -> list[dict[str, str | int]]:
+    """Extract up to ``limit`` content images from ZIM Wikipedia HTML.
+
+    Returns a list of dicts with ``src`` (flat path, no ``../``),
+    ``alt``, ``width``, ``height``. Paths are ZIM-relative and must be
+    composed with the source id before they resolve via the archive
+    media route.
+    """
+    parser = _ImageExtractor()
+    try:
+        parser.feed(html)
+    except Exception:
+        pass
+    seen: set[str] = set()
+    out: list[dict[str, str | int]] = []
+    for img in parser.images:
+        src = str(img.get("src") or "")
+        if not src or src in seen:
+            continue
+        seen.add(src)
+        out.append(img)
+        if len(out) >= limit:
+            break
+    return out

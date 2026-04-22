@@ -11,6 +11,11 @@ import logging
 import time
 from typing import Any
 
+from lokidoki.core.skill_executor import MechanismResult
+from lokidoki.orchestrator.adapters import adapt
+from lokidoki.orchestrator.adapters.base import AdapterOutput, Source
+from lokidoki.orchestrator.documents.extraction import estimate_tokens as _estimate_doc_tokens
+from lokidoki.orchestrator.documents.extraction import extract_text as _extract_doc_text
 from lokidoki.orchestrator.core.pipeline_hooks import (
     auto_raise_need_session_context,
     record_behavior_event,
@@ -29,7 +34,7 @@ from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.execution.request_spec import build_request_spec
 from lokidoki.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
 from lokidoki.orchestrator.media import augment_with_media
-from lokidoki.orchestrator.core.types import ConstraintResult
+from lokidoki.orchestrator.core.types import ConstraintResult, ExecutionResult
 from lokidoki.orchestrator.pipeline.combiner import combine_request_spec
 from lokidoki.orchestrator.pipeline.derivations import derive_need_flags, extract_structured_params
 from lokidoki.orchestrator.pipeline.constraint_extractor import extract_constraints
@@ -41,14 +46,93 @@ from lokidoki.orchestrator.pipeline.normalizer import normalize_text
 from lokidoki.orchestrator.pipeline.parser import parse_text
 from lokidoki.orchestrator.pipeline.splitter import split_requests
 from lokidoki.orchestrator.resolution.resolver import resolve_chunk_async
+from lokidoki.orchestrator.response import (
+    Block,
+    BlockState,
+    BlockType,
+    EnvelopeValidationError,
+    ResponseEnvelope,
+    validate_envelope,
+)
+from lokidoki.orchestrator.response import events as response_events
+from lokidoki.orchestrator.response.mode import (
+    PlannerInputs,
+    VALID_MODES,
+    derive_response_mode,
+)
+from lokidoki.orchestrator.response.artifact_trigger import should_use_artifact_mode
+from lokidoki.orchestrator.response.planner import is_offline_degraded, plan_initial_blocks
+from lokidoki.orchestrator.response.spoken import resolve_spoken_text
+from lokidoki.orchestrator.response.status_strings import (
+    FINISHING_PHRASE,
+    phrase_for as status_phrase_for,
+)
+from lokidoki.orchestrator.response.synthesis_blocks import populate_text_blocks
 from lokidoki.orchestrator.routing.router import route_chunk_async
 from lokidoki.orchestrator.signals.interaction_signals import detect_interaction_signals
 
 logger = logging.getLogger("lokidoki.orchestrator.core.pipeline")
 
 
+_STATUS_TRANSITIONS_KEY = "_status_transitions"
+_CLARIFICATION_KEY = "clarification_question_text"
+
+
+def emit_status_patch(safe_context: dict, phase_key: str) -> None:
+    """Record a phase transition for the live ``status`` block.
+
+    Chunk 15 wiring. The canonical ``status`` block is pre-allocated
+    by the planner (see
+    :mod:`lokidoki.orchestrator.response.planner`). Here we just
+    capture the phrase on ``safe_context`` so
+    :func:`_emit_envelope_events` can replay the phrase trajectory as
+    ``block_patch`` events after ``response_init`` lands.
+
+    Why buffer instead of emitting inline? ``response_init`` is the
+    SSE event that bootstraps the frontend envelope; the reducer
+    drops every ``block_*`` event that arrives before it. Early
+    phase transitions (``augmentation``, ``decomposition``,
+    ``routing``) fire long before synthesis runs, so their patches
+    would be discarded if emitted inline. Buffering keeps the
+    history intact so the final snapshot — and any replay — still
+    reflects the phase trajectory.
+
+    Unknown phase keys are silently ignored so we don't drop a
+    previous phrase by accident.
+    """
+    phrase = status_phrase_for(phase_key)
+    if phrase is None:
+        return
+    transitions = safe_context.setdefault(_STATUS_TRANSITIONS_KEY, [])
+    # Collapse consecutive duplicates — if two sub-steps both roll
+    # up to the same user-visible phase (e.g. ``parse`` /
+    # ``extract`` both live under "decomposition"), we only want one
+    # patch.
+    if transitions and transitions[-1] == phrase:
+        return
+    transitions.append(phrase)
+
+
+def mark_status_finishing(safe_context: dict) -> None:
+    """Swap the live status phrase to :data:`FINISHING_PHRASE`.
+
+    Called when any block in the turn fails — the design doc is
+    explicit that the status line shouldn't double-report errors
+    (failures surface on the failing block itself).
+    """
+    transitions = safe_context.setdefault(_STATUS_TRANSITIONS_KEY, [])
+    if transitions and transitions[-1] == FINISHING_PHRASE:
+        return
+    transitions.append(FINISHING_PHRASE)
+
+
 def run_pre_parse_phase(trace, safe_context, raw_text):
     """Run normalize -> signals -> fast_lane."""
+    # Chunk 15: first user-visible phase is "decomposition" (the
+    # user's ask is being understood). Record so the ``status``
+    # block eventually gets the right leading phrase.
+    emit_status_patch(safe_context, "decomposition")
+
     finish = trace.timed("normalize")
     normalized = normalize_text(raw_text)
     finish(cleaned_text=normalized.cleaned_text)
@@ -104,6 +188,9 @@ def run_initial_phase(trace, safe_context, raw_text, normalized):
     memory_write_result = run_memory_write_path(parsed, chunks, safe_context)
     finish(accepted=len(memory_write_result.accepted),
            rejected=len(memory_write_result.rejected))
+    # Chunk 15 status patch — memory work rolls up into the user-visible
+    # "augmentation" phase (rendered as "Looking up context").
+    emit_status_patch(safe_context, "augmentation")
     return parsed, chunks, extractions, constraints, memory_write_result
 
 
@@ -117,6 +204,11 @@ async def run_routing_phase(trace, safe_context, routable, runtime, routable_ext
     out or errors, its result is a no-op fallback and routing proceeds
     on MiniLM alone.
     """
+    # Chunk 15: user-visible phase flips to "routing" here. The
+    # decomposer fires below but rolls up into the routing bucket
+    # from the user's point of view.
+    emit_status_patch(safe_context, "routing")
+
     # Combine routable chunk text for one decomposer call. The
     # decomposer operates on user intent, which is usually unified
     # across a multi-sentence utterance; per-chunk calls would just
@@ -238,6 +330,10 @@ async def run_resolve_phase(trace, safe_context, routable, routable_extractions,
 
 async def run_execute_phase(trace, safe_context, runtime, routable, routes, implementations, resolutions):
     """Run the execute step."""
+    # Chunk 15: user-visible phase flips to "execute" (rendered as
+    # "Checking sources" for skill/web execution).
+    emit_status_patch(safe_context, "execute")
+
     finish = trace.timed("execute")
     budgets = [
         (runtime.capabilities.get(r.capability) or {}).get("max_chunk_budget_ms")
@@ -248,6 +344,21 @@ async def run_execute_phase(trace, safe_context, runtime, routable, routes, impl
         for c, r, impl, res, b in zip(routable, routes, implementations, resolutions, budgets, strict=True)
     )))
     executions = [item["execution"] for item in executed]
+    for execution, implementation in zip(executions, implementations, strict=True):
+        if not execution.success:
+            continue
+        if not implementation.skill_id:
+            # No adapter can run without a registered skill_id. Skill
+            # implementations missing this field are a registry bug —
+            # log once so the omission is visible in telemetry, but
+            # don't break the turn.
+            logger.debug(
+                "adapter skipped: implementation %s has no skill_id",
+                implementation.handler_name,
+            )
+            continue
+        mechanism_result = _mechanism_result_from_execution(execution)
+        execution.adapter_output = adapt(implementation.skill_id, mechanism_result)
     for ex in executions:
         logger.debug("[Pipeline] Executed %s (success=%s)", ex.capability, ex.success)
     finish(chunks=[
@@ -261,6 +372,145 @@ async def run_execute_phase(trace, safe_context, runtime, routable, routes, impl
         for c, item in zip(routable, executed, strict=True)
     ])
     return executions
+
+
+_DOCUMENT_CAPABILITY = "document_attachment"
+
+
+def _apply_attached_document(
+    safe_context: dict,
+    request_spec,
+    executions: list[ExecutionResult],
+    raw_text: str,
+) -> None:
+    """Run the document adapter when the turn carries an attached file.
+
+    Reads :py:`safe_context["attached_document"]` which, when present,
+    carries at minimum ``{"path": str, "kind": str}`` — extra keys
+    (``size_bytes``, ``estimated_tokens``) override the cheap
+    estimators. Stamps ``safe_context["document_mode"]`` so
+    :func:`_build_envelope` can surface it on the envelope.
+
+    No-op when the key is absent or the payload is malformed; the
+    pipeline stays additive for every non-document turn.
+    """
+    payload = safe_context.get("attached_document")
+    if not isinstance(payload, dict):
+        return
+    path = str(payload.get("path") or "").strip()
+    kind = str(payload.get("kind") or "").strip().lower().lstrip(".")
+    if not path or kind not in ("pdf", "txt", "md", "docx"):
+        return
+
+    estimated_tokens = payload.get("estimated_tokens")
+    if not isinstance(estimated_tokens, int) or estimated_tokens <= 0:
+        estimated_tokens = _estimate_doc_tokens(_extract_doc_text(path, kind))
+    size_bytes = payload.get("size_bytes")
+    if not isinstance(size_bytes, int):
+        size_bytes = 0
+
+    distilled = str(
+        (safe_context.get("route_decomposition") and
+         getattr(safe_context["route_decomposition"], "distilled_query", "")) or ""
+    ).strip()
+    query = distilled or raw_text
+
+    mechanism = MechanismResult(
+        success=True,
+        data={
+            "path": path,
+            "kind": kind,
+            "size_bytes": size_bytes,
+            "estimated_tokens": estimated_tokens,
+            "query": query,
+            "profile": safe_context.get("platform_profile"),
+        },
+    )
+    output = adapt("document", mechanism)
+    raw = output.raw if isinstance(output.raw, dict) else {}
+    mode = raw.get("document_mode")
+    if mode in ("inline", "retrieval"):
+        safe_context["document_mode"] = mode
+
+    synthetic = ExecutionResult(
+        chunk_index=-1,
+        capability=_DOCUMENT_CAPABILITY,
+        output_text="",
+        success=True,
+        handler_name="document",
+        raw_result={"data": mechanism.data},
+        adapter_output=output,
+    )
+    executions.append(synthetic)
+
+
+def _apply_adapter_outputs_to_spec(request_spec, executions: list[ExecutionResult]) -> None:
+    """Aggregate adapter sources + facts onto the spec.
+
+    Part of chunk 5's "adapter-first" cutover. Sources flow to
+    ``request_spec.adapter_sources`` (the shape ``_collect_sources``
+    consumes); facts flow to ``request_spec.supporting_context`` so the
+    synthesis prompt can lean on them without adding a new slot.
+    ``request_spec.media`` is populated separately by
+    :func:`run_media_augmentation_phase`.
+    """
+    adapter_sources: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    extra_facts: list[str] = []
+    for execution in executions:
+        adapter_output: AdapterOutput | None = execution.adapter_output
+        if adapter_output is None:
+            continue
+        for source in adapter_output.sources:
+            entry = _source_to_dict(source)
+            url = entry.get("url") or ""
+            if url and url in seen_urls:
+                continue
+            if url:
+                seen_urls.add(url)
+            adapter_sources.append(entry)
+        for fact in adapter_output.facts:
+            text = str(fact).strip()
+            if text and text not in extra_facts:
+                extra_facts.append(text)
+    request_spec.adapter_sources = adapter_sources
+    if extra_facts:
+        existing = list(request_spec.supporting_context or [])
+        merged = list(existing)
+        for fact in extra_facts:
+            if fact not in merged:
+                merged.append(fact)
+        request_spec.supporting_context = merged
+
+
+def _source_to_dict(source: Source) -> dict[str, str]:
+    """Serialize a Source dataclass into the dict shape prompt code expects."""
+    entry: dict[str, str] = {
+        "title": source.title or "",
+        "url": source.url or "",
+    }
+    if source.kind:
+        entry["type"] = source.kind
+    if source.snippet:
+        entry["snippet"] = source.snippet
+    if source.published_at:
+        entry["published_at"] = source.published_at
+    if source.author:
+        entry["author"] = source.author
+    return entry
+
+
+def _mechanism_result_from_execution(execution) -> MechanismResult:
+    raw = execution.raw_result if isinstance(execution.raw_result, dict) else {}
+    data = raw.get("data")
+    payload = data if isinstance(data, dict) else {}
+    return MechanismResult(
+        success=execution.success,
+        data=payload,
+        error=str(raw.get("error") or execution.error or ""),
+        source_url=str(raw.get("source_url") or ""),
+        source_title=str(raw.get("source_title") or ""),
+    )
 
 
 def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
@@ -298,36 +548,105 @@ def build_and_annotate_spec(trace, safe_context, raw_text, chunks, routes,
 _MEDIA_AUGMENT_TIMEOUT_S = 6.0
 
 
-async def run_media_augmentation_phase(trace, chunks, routes, executions, raw_text=""):
-    """Fan out media-producer skills in parallel and attach cards to the spec.
+async def run_media_augmentation_phase(trace, chunks, routes, executions, raw_text="", safe_context=None):
+    """Collect media cards for the turn — adapter-first, augmentor-fallback.
 
-    Runs independently of the LLM synthesis path so media fetches overlap
-    with the combine step's model inference. Augmentation is best-effort:
-    any failure or a timeout past :data:`_MEDIA_AUGMENT_TIMEOUT_S` yields
-    an empty list rather than breaking the turn.
+    Pass 1 (canonical): flatten ``execution.adapter_output.media`` across
+    every successful primary-request execution. When the skill's adapter
+    already produced a ``MediaCard``-shaped dict (YouTube, TMDB movies)
+    there is no need to re-derive anything.
 
-    ``raw_text`` flows through so the augmentor can gate + query on the
-    user's original utterance instead of the post-antecedent-resolution
-    chunk text (which can be contaminated by a stale recent_entity).
+    Pass 2 (fallback): when Pass 1 produced nothing, run the legacy
+    :func:`augment_with_media` path. This is kept for one release cycle
+    so we aren't betting correctness on brand-new adapter coverage
+    alone. A warning fires when the fallback activates so we can spot
+    skills whose adapter under-populates media.
+
+    Runs best-effort — failures and the 6s timeout both degrade to an
+    empty list rather than breaking the turn.
     """
+    # Chunk 15: user-visible phase is "media_augment" (rendered as
+    # "Looking for visuals"). ``safe_context`` is optional so tests
+    # that exercise this helper standalone don't have to wire it.
+    if safe_context is not None:
+        emit_status_patch(safe_context, "media_augment")
+
     finish = trace.timed("media_augment")
-    try:
-        cards = await asyncio.wait_for(
-            augment_with_media(chunks, routes, executions, raw_text=raw_text),
-            timeout=_MEDIA_AUGMENT_TIMEOUT_S,
+    cards = _media_cards_from_adapters(executions)
+    used_fallback = False
+    if not cards:
+        try:
+            cards = await asyncio.wait_for(
+                augment_with_media(chunks, routes, executions, raw_text=raw_text),
+                timeout=_MEDIA_AUGMENT_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("media augmentation timed out after %ss", _MEDIA_AUGMENT_TIMEOUT_S)
+            cards = []
+        except Exception:  # noqa: BLE001 - augmentation must never break pipeline
+            logger.exception("media augmentation raised")
+            cards = []
+        else:
+            used_fallback = True
+    if used_fallback and cards:
+        logger.warning(
+            "media augmentation used legacy fallback (adapter_output.media was empty); "
+            "%d card(s) surfaced",
+            len(cards),
         )
-    except asyncio.TimeoutError:
-        logger.warning("media augmentation timed out after %ss", _MEDIA_AUGMENT_TIMEOUT_S)
-        cards = []
-    except Exception:  # noqa: BLE001 - augmentation must never break pipeline
-        logger.exception("media augmentation raised")
-        cards = []
-    finish(count=len(cards), kinds=[c.get("kind") for c in cards])
+    finish(
+        count=len(cards),
+        kinds=[c.get("kind") for c in cards],
+        source="adapters" if not used_fallback else "fallback",
+    )
     return cards
 
 
+def _media_cards_from_adapters(executions: list[ExecutionResult]) -> list[dict[str, Any]]:
+    """Flatten adapter-provided media cards, deduping by url/video_id."""
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for execution in executions:
+        adapter_output: AdapterOutput | None = execution.adapter_output
+        if adapter_output is None:
+            continue
+        for card in adapter_output.media:
+            if not isinstance(card, dict):
+                continue
+            key = str(card.get("url") or card.get("video_id") or "")
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            out.append(card)
+    return out
+
+
 async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime):
-    """Read memory slots, decide LLM usage, produce final response."""
+    """Read memory slots, decide LLM usage, produce final response.
+    """
+    # Chunk 15: user-visible phase flips to "synthesis" for the
+    # final summarization step.
+    emit_status_patch(safe_context, "synthesis")
+    return await _run_synthesis_phase_impl(
+        trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime,
+    )
+
+
+async def _run_synthesis_phase_impl(trace, safe_context, raw_text, request_spec, executions, memory_write_result, runtime):
+    """Body of :func:`run_synthesis_phase` — split so the status
+    emission above stays at the top without disturbing the long
+    docstring that the original function carried.
+
+    Returns a ``(ResponseObject, ResponseEnvelope)`` tuple. The envelope
+    rides alongside the legacy ``ResponseObject``; chunk 9 also streams
+    envelope-level SSE events (``response_init`` / ``block_init`` /
+    ``block_patch`` / ``block_ready`` / ``source_add`` / ``media_add``
+    / ``response_snapshot``) through the shared ``_sse_queue`` on the
+    context so the frontend can progressively render blocks. The
+    legacy ``synthesis`` / ``routing`` / ``decomposition`` phase events
+    are emitted unchanged.
+    """
     finish = trace.timed("memory_read")
     memory_slots = run_memory_read_path(raw_text, safe_context)
     if memory_slots:
@@ -335,25 +654,573 @@ async def run_synthesis_phase(trace, safe_context, raw_text, request_spec, execu
     finish(slots_assembled=sorted(memory_slots.keys()),
            **{f"{k}_chars": len(v) for k, v in memory_slots.items()})
 
+    # Chunk 17: adaptive document handling. If the turn carried an
+    # attached document, pick inline-vs-retrieval and inject a
+    # synthetic execution so the adapter-aggregation path below picks
+    # up the document's sources alongside any skill sources.
+    _apply_attached_document(safe_context, request_spec, executions, raw_text)
+
+    # Cutover: sources + facts are read from execution.adapter_output
+    # now, not re-scraped from each skill's dict. Writes land on the
+    # spec so _collect_sources + synthesis prompt pick them up without
+    # per-skill branches.
+    _apply_adapter_outputs_to_spec(request_spec, executions)
+
     decision = decide_llm(request_spec)
     request_spec.llm_used = decision.needed
     request_spec.llm_reason = decision.reason
 
     finish = trace.timed("combine")
-    if decision.needed:
-        response = await llm_synthesize_async(request_spec)
-        
-        # Phase 1 Loop: Check for knowledge gap marker
-        if "[[NEED_SEARCH:" in response.output_text:
-            response = await _handle_knowledge_gap(
-                trace, safe_context, raw_text, request_spec, executions, response, runtime
+    envelope_status: str = "complete"
+    response = None
+    try:
+        if decision.needed:
+            response = await llm_synthesize_async(request_spec)
+
+            # Phase 1 Loop: Check for knowledge gap marker
+            if "[[NEED_SEARCH:" in response.output_text:
+                response = await _handle_knowledge_gap(
+                    trace, safe_context, raw_text, request_spec, executions, response, runtime
+                )
+
+            finish(mode="llm", reason=decision.reason, output_text=response.output_text)
+        else:
+            response = combine_request_spec(request_spec)
+            finish(mode="deterministic", output_text=response.output_text)
+    except Exception as exc:
+        envelope_status = "failed"
+        _emit_synthesis_failure_events(safe_context, trace, exc)
+        raise
+
+    envelope = _build_envelope(
+        trace=trace,
+        request_spec=request_spec,
+        executions=executions,
+        response=response,
+        status=envelope_status,
+        safe_context=safe_context,
+    )
+    _emit_envelope_events(safe_context, envelope)
+    return response, envelope
+
+
+def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> None:
+    """Stream the rich-response events for a validated envelope.
+
+    Order (per chunk 9's ordering rules):
+
+    1. ``response_init`` announcing the planned block list.
+    2. ``block_init`` for every planned block.
+    3. ``block_patch`` (summary prose, seq=1) + ``source_add`` /
+       ``media_add`` per item, then ``block_ready`` for every
+       non-omitted block.
+    4. ``response_snapshot`` with the full serialized envelope.
+
+    No-op when no SSE queue is attached (e.g. direct unit tests that
+    exercise :func:`run_synthesis_phase` without the streaming wrapper).
+    """
+    queue = safe_context.get("_sse_queue")
+    if queue is None:
+        return
+
+    queue.put_nowait(response_events.response_init(
+        envelope.request_id, envelope.mode, envelope.blocks,
+    ))
+    for block in envelope.blocks:
+        queue.put_nowait(response_events.block_init(block))
+
+    seq_by_block: dict[str, int] = {}
+    # List-block families whose populated ``items`` must be streamed as
+    # ``block_patch(items_delta=...)`` so the reducer can render them
+    # before the final snapshot arrives. Without this, the block stays
+    # in ``loading`` state through the streaming window and only
+    # materialises after ``response_snapshot`` — which for some
+    # frontends is effectively never.
+    _LIST_ITEMS_BLOCKS = {
+        BlockType.key_facts,
+        BlockType.steps,
+        BlockType.comparison,
+        BlockType.follow_ups,
+    }
+    for block in envelope.blocks:
+        if block.state is BlockState.omitted:
+            continue
+        if block.type is BlockType.summary and block.content:
+            seq_by_block["summary"] = seq_by_block.get("summary", 0) + 1
+            queue.put_nowait(response_events.block_patch(
+                block.id, seq_by_block["summary"], delta=block.content,
+            ))
+        elif block.type is BlockType.sources and block.items:
+            for source in block.items:
+                queue.put_nowait(response_events.source_add(source))
+        elif block.type is BlockType.media and block.items:
+            for card in block.items:
+                queue.put_nowait(response_events.media_add(card))
+        elif block.type in _LIST_ITEMS_BLOCKS and block.items:
+            seq_by_block[block.id] = seq_by_block.get(block.id, 0) + 1
+            queue.put_nowait(response_events.block_patch(
+                block.id,
+                seq_by_block[block.id],
+                items_delta=list(block.items),
+            ))
+        elif block.type is BlockType.clarification and block.content:
+            # Clarification arrives ready — one patch carries the
+            # whole question so replay / reducer don't need a
+            # bespoke path.
+            seq_by_block[block.id] = seq_by_block.get(block.id, 0) + 1
+            queue.put_nowait(response_events.block_patch(
+                block.id, seq_by_block[block.id], delta=block.content,
+            ))
+
+    # Chunk 15: replay buffered status phrases as sequential
+    # ``block_patch`` events. The reducer dedupes by seq, so replays
+    # from the snapshot remain idempotent.
+    _flush_status_transitions(queue, safe_context, envelope)
+
+    for block in envelope.blocks:
+        if block.state is BlockState.ready:
+            queue.put_nowait(response_events.block_ready(block.id))
+
+    queue.put_nowait(response_events.response_snapshot(envelope))
+
+
+def _flush_status_transitions(
+    queue,
+    safe_context: dict,
+    envelope: ResponseEnvelope,
+) -> None:
+    """Emit ``block_patch`` events for every recorded phase transition.
+
+    The envelope's ``status`` block was pre-allocated by the planner
+    (or injected in a follow-up pass). Before emitting we flip its
+    state to :attr:`BlockState.omitted` so the final snapshot
+    reflects the design-doc contract: the status block is live-only
+    and disappears from the finished envelope.
+    """
+    transitions = safe_context.get(_STATUS_TRANSITIONS_KEY) or []
+    status_block = next(
+        (b for b in envelope.blocks if b.type is BlockType.status),
+        None,
+    )
+    if status_block is None:
+        return
+
+    # Replay transitions as sequential delta patches. Seq starts at 1
+    # (0 is "no patch applied yet" in the frontend reducer's guard).
+    for idx, phrase in enumerate(transitions, start=1):
+        queue.put_nowait(response_events.block_patch(
+            status_block.id, idx, delta=phrase,
+        ))
+
+    # Finalize: the status block never renders in the snapshot. Flip
+    # it to omitted so history replay + validators see the live-only
+    # contract the design doc requires.
+    status_block.state = BlockState.omitted
+    # ``content`` is intentionally cleared — the live stream already
+    # carried every phrase via patches.
+    status_block.content = None
+
+
+def _emit_synthesis_failure_events(safe_context: dict, trace, exc: BaseException) -> None:
+    """Emit ``block_failed`` for the summary block when synthesis raises.
+
+    The terminal ``response_done`` with ``status=failed`` is emitted by
+    :func:`_run_pipeline_task` once the pipeline task unwinds — that
+    way both the raise path *and* a non-synthesis crash reach the same
+    wire shape.
+
+    Chunk 15: also flip the ``status`` block to the neutral
+    :data:`FINISHING_PHRASE` instead of dwelling on the crash — the
+    failing block already tells the user what went wrong.
+    """
+    queue = safe_context.get("_sse_queue")
+    if queue is None:
+        return
+    reason = str(exc) or exc.__class__.__name__
+    mark_status_finishing(safe_context)
+    queue.put_nowait(response_events.block_failed("summary", reason))
+
+
+def _build_envelope(
+    *,
+    trace,
+    request_spec,
+    executions: list[ExecutionResult],
+    response,
+    status: str,
+    safe_context: dict | None = None,
+) -> ResponseEnvelope:
+    """Populate the rich-response envelope for this turn.
+
+    The mode is derived from structured planner inputs
+    (:func:`lokidoki.orchestrator.response.mode.derive_response_mode`),
+    then the planner allocates mode-specific block slots; we then fill
+    the summary with ``response.output_text``, the sources block + the
+    source surface with the adapter-aggregated sources, and the media
+    block with ``request_spec.media``. Validation runs at the end and
+    only log-warns on failure — a structural hiccup must not break
+    the turn during rollout.
+    """
+    adapter_outputs = [
+        execution.adapter_output for execution in executions
+        if execution.adapter_output is not None
+    ]
+    ctx = safe_context or {}
+    artifact_candidate = _first_artifact_candidate(adapter_outputs)
+    planner_inputs = _build_planner_inputs(ctx, executions, artifact_candidate)
+    derived_mode = derive_response_mode(
+        planner_inputs,
+        user_override=ctx.get("user_mode_override"),
+        workspace_default=ctx.get("workspace_default_mode"),
+    )
+    clarification_text = _collect_clarification_text(ctx, executions)
+    blocks: list[Block] = plan_initial_blocks(
+        adapter_outputs,
+        mode=derived_mode,
+        planner_inputs=planner_inputs,
+        clarification_text=clarification_text,
+    )
+    block_index = {block.id: block for block in blocks}
+
+    source_items: list[dict[str, Any]] = [
+        dict(item) for item in (request_spec.adapter_sources or [])
+    ]
+    media_items: list[dict[str, Any]] = [
+        dict(card) for card in (request_spec.media or [])
+    ]
+
+    summary_block = block_index.get("summary")
+    if summary_block is not None:
+        summary_block.content = response.output_text or ""
+        summary_block.state = BlockState.ready
+
+    sources_block = block_index.get("sources")
+    if sources_block is not None:
+        if source_items:
+            sources_block.items = source_items
+            sources_block.state = BlockState.ready
+        else:
+            sources_block.items = []
+            sources_block.state = BlockState.omitted
+
+    media_block = block_index.get("media")
+    if media_block is not None:
+        if media_items:
+            media_block.items = media_items
+            media_block.state = BlockState.ready
+        else:
+            media_block.items = []
+            media_block.state = BlockState.omitted
+
+    artifact_preview = block_index.get("artifact_preview")
+    artifact_surface = None
+    if derived_mode == "artifact" and artifact_candidate is not None:
+        artifact_surface = _build_artifact_surface(artifact_candidate)
+        if artifact_preview is not None:
+            artifact_preview.items = [_build_artifact_preview_item(artifact_surface)]
+            artifact_preview.state = BlockState.ready
+    elif artifact_preview is not None:
+        artifact_preview.items = []
+        artifact_preview.state = BlockState.omitted
+
+    # Chunk 14: populate ``key_facts`` / ``steps`` / ``comparison`` from
+    # adapter facts + synthesis output (constrained JSON if present,
+    # adapter fallback otherwise). Runs in-place on the planner-
+    # allocated blocks; planner-omitted families are untouched.
+    populate_text_blocks(
+        blocks,
+        synthesis_text=getattr(response, "output_text", None) or "",
+        adapter_outputs=adapter_outputs,
+        comparison_subjects=_comparison_subjects(ctx, executions),
+        profile=str(ctx.get("platform_profile") or ""),
+    )
+
+    # Chunk 16 (design §20.3): ``spoken_text`` and the visual summary
+    # come from the SAME synthesis call — never a second LLM pass. We
+    # read whatever the synthesizer produced (``ResponseObject.spoken_text``
+    # from the one-call JSON contract; adapter-provided ``data["spoken_text"]``
+    # threaded through ``raw_result`` for skills that pre-format a
+    # spoken form). ``resolve_spoken_text`` is then the authoritative
+    # TTS input for the envelope — the same function the frontend
+    # mirror calls so voice and visual stay in sync.
+    synth_spoken = getattr(response, "spoken_text", None)
+    adapter_spoken = _adapter_spoken_text(executions)
+    explicit_spoken = (synth_spoken or adapter_spoken or "").strip() or None
+
+    document_mode = ctx.get("document_mode")
+    if document_mode not in ("inline", "retrieval"):
+        document_mode = None
+
+    envelope = ResponseEnvelope(
+        request_id=getattr(trace, "trace_id", "") or "",
+        mode=derived_mode,  # type: ignore[arg-type]
+        status=status,  # type: ignore[arg-type]
+        blocks=blocks,
+        source_surface=list(source_items),
+        artifact_surface=artifact_surface,
+        spoken_text=explicit_spoken,
+        offline_degraded=is_offline_degraded(executions),
+        document_mode=document_mode,  # type: ignore[arg-type]
+    )
+    # Resolve the authoritative spoken form now that the summary block
+    # is populated — when the synthesizer didn't emit ``spoken_text``
+    # we fall back to the trimmed summary. The envelope stores the
+    # resolved value so history replay + frontend rendering see the
+    # same snapshot (§20.4 — one utterance per turn, no retroactive
+    # edits).
+    resolved = resolve_spoken_text(envelope)
+    envelope.spoken_text = resolved or None
+
+    try:
+        validate_envelope(envelope)
+    except EnvelopeValidationError as exc:
+        logger.warning("envelope validation failed: %s", exc)
+    return envelope
+
+
+def _adapter_spoken_text(executions: list[ExecutionResult]) -> str | None:
+    """Return the first skill-provided ``spoken_text`` override, if any.
+
+    A handful of skills (e.g. ``movies_fandango``) pre-format a short
+    spoken form that's snappier than the visual reply — they surface
+    it on ``execution.raw_result["data"]["spoken_text"]``. We prefer
+    a skill-provided override over synthesis output when present so
+    long reply surfaces (showtime tables, list-heavy answers) don't
+    read every line aloud.
+    """
+    for execution in executions:
+        if not execution.success:
+            continue
+        raw = execution.raw_result if isinstance(execution.raw_result, dict) else {}
+        data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+        spoken = str(data.get("spoken_text") or raw.get("spoken_text") or "").strip()
+        if spoken:
+            return spoken
+    return None
+
+
+def _collect_clarification_text(
+    safe_context: dict,
+    executions: list[ExecutionResult],
+) -> str | None:
+    """Pull clarification text from structured pipeline signals.
+
+    Chunk 15 wiring. Priority:
+
+    1. ``safe_context[_CLARIFICATION_KEY]`` — any pipeline component
+       that emits a ``clarification_question`` event can also stash
+       the question text here for the envelope planner to consume.
+       This is the DESIGN.md §III.b path.
+    2. Adapter ``raw["clarification_prompt"]`` — today only the
+       ``people_lookup`` skill surfaces this. Acts as a belt-and-
+       suspenders fallback so the clarification UI works even if the
+       side-channel event wasn't wired for a given skill.
+
+    Never inspects raw user text — no regex / keyword path.
+    """
+    explicit = safe_context.get(_CLARIFICATION_KEY)
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    for execution in executions:
+        adapter_output: AdapterOutput | None = execution.adapter_output
+        if adapter_output is None:
+            continue
+        raw = adapter_output.raw or {}
+        if not isinstance(raw, dict):
+            continue
+        if not raw.get("needs_clarification"):
+            continue
+        prompt = str(raw.get("clarification_prompt") or "").strip()
+        if prompt:
+            return prompt
+    return None
+
+
+def _comparison_subjects(
+    safe_context: dict,
+    executions: list[ExecutionResult],
+) -> tuple[str, str] | None:
+    """Best-effort pull of two distinct subjects for a comparison turn.
+
+    Priority order (all structured — never a regex over user text):
+
+    1. ``safe_context["comparison_subjects"]`` — reserved for a future
+       decomposer field (see Chunk 14 Deferral). When present, it
+       wins.
+    2. The first two distinct adapter-source titles from successful
+       executions. Comparison turns typically fan out across two
+       knowledge lookups, so this is a reasonable proxy for the
+       scaffold.
+
+    Returns ``None`` when fewer than two distinct subjects are
+    available — the synthesis_blocks helper then marks the
+    ``comparison`` block ``omitted`` rather than fabricating labels.
+    """
+    explicit = safe_context.get("comparison_subjects")
+    if isinstance(explicit, (list, tuple)) and len(explicit) >= 2:
+        left = str(explicit[0] or "").strip()
+        right = str(explicit[1] or "").strip()
+        if left and right and left != right:
+            return (left, right)
+
+    titles: list[str] = []
+    for execution in executions:
+        adapter_output: AdapterOutput | None = execution.adapter_output
+        if adapter_output is None:
+            continue
+        for source in adapter_output.sources:
+            title = str(source.title or "").strip()
+            if title and title not in titles:
+                titles.append(title)
+                if len(titles) >= 2:
+                    return (titles[0], titles[1])
+    return None
+
+
+def _build_planner_inputs(
+    safe_context: dict,
+    executions: list[ExecutionResult],
+    artifact_candidate: dict[str, Any] | None = None,
+) -> PlannerInputs:
+    """Assemble :class:`PlannerInputs` from already-derived pipeline state.
+
+    Sources (no regex over user text — all signals are structured):
+
+    * :class:`~lokidoki.orchestrator.decomposer.types.RouteDecomposition`
+      on ``safe_context["route_decomposition"]`` — carries
+      ``capability_need``.
+    * ``safe_context["response_shape"]`` — set by
+      :func:`lokidoki.orchestrator.pipeline.derivations._derive_response_shape`.
+    * ``safe_context["user_mode_override"]`` — reserved; chunk 13 wires
+      the compose-bar toggle + ``/deep`` slash, and chunks 18 / 16
+      wire the explicit deep opt-in. Until then this stays ``None``.
+    * Multi-skill fan-out — counted from ``executions`` success flags.
+    """
+    decomposition = safe_context.get("route_decomposition")
+    capability_need = str(
+        getattr(decomposition, "capability_need", "") or ""
+    )
+    routed_capabilities: tuple[str, ...] = tuple(
+        execution.capability
+        for execution in executions
+        if execution.success and execution.capability
+    )
+
+    successful = sum(1 for execution in executions if execution.success)
+    override = safe_context.get("user_mode_override")
+    user_override = override if isinstance(override, str) else None
+    deep_opt_in = user_override == "deep"
+    profile = safe_context.get("platform_profile")
+    wants_artifact = artifact_candidate is not None and should_use_artifact_mode(
+        decomposition if decomposition is not None else safe_context,
+        user_override,
+        profile=profile if isinstance(profile, str) else None,
+    )
+
+    return PlannerInputs(
+        intent=str(safe_context.get("intent", "") or ""),
+        response_shape=str(safe_context.get("response_shape", "") or ""),
+        reasoning_complexity=str(
+            safe_context.get("reasoning_complexity", "") or ""
+        ),
+        capability_need=capability_need,
+        routed_capabilities=routed_capabilities,
+        requires_current_data=bool(
+            safe_context.get("requires_current_data", False)
+        ),
+        multiple_skills_fired=successful > 1,
+        has_artifact_output=wants_artifact,
+        deep_opt_in=deep_opt_in,
+    )
+
+
+def _first_artifact_candidate(
+    adapter_outputs: list[AdapterOutput],
+) -> dict[str, Any] | None:
+    """Return the first artifact candidate surfaced by any adapter."""
+    for output in adapter_outputs:
+        for candidate in output.artifact_candidates:
+            if isinstance(candidate, dict):
+                return dict(candidate)
+    return None
+
+
+def _normalize_artifact_versions(
+    candidate: dict[str, Any],
+) -> list[dict[str, Any]]:
+    versions_raw = candidate.get("versions")
+    versions: list[dict[str, Any]] = []
+    if isinstance(versions_raw, list):
+        for idx, item in enumerate(versions_raw, start=1):
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content") or "").strip()
+            if not content:
+                continue
+            versions.append(
+                {
+                    "version": int(item.get("version") or idx),
+                    "content": content,
+                    "created_at": str(item.get("created_at") or ""),
+                    "size_bytes": int(
+                        item.get("size_bytes") or len(content.encode("utf-8"))
+                    ),
+                }
             )
-            
-        finish(mode="llm", reason=decision.reason, output_text=response.output_text)
-    else:
-        response = combine_request_spec(request_spec)
-        finish(mode="deterministic", output_text=response.output_text)
-    return response
+    if versions:
+        return versions
+
+    content = str(candidate.get("content") or "").strip()
+    if not content:
+        return []
+    return [{
+        "version": 1,
+        "content": content,
+        "created_at": str(candidate.get("created_at") or ""),
+        "size_bytes": len(content.encode("utf-8")),
+    }]
+
+
+def _build_artifact_surface(candidate: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize one adapter artifact candidate for the envelope surface."""
+    versions = _normalize_artifact_versions(candidate)
+    if not versions:
+        return None
+    selected_version = int(candidate.get("selected_version") or versions[-1]["version"])
+    title = str(candidate.get("title") or "Artifact").strip() or "Artifact"
+    kind = str(candidate.get("kind") or "html").strip() or "html"
+    artifact_id = str(candidate.get("artifact_id") or candidate.get("id") or "").strip()
+    if not artifact_id:
+        artifact_id = f"artifact-inline-{title.lower().replace(' ', '-')}"
+    return {
+        "artifact_id": artifact_id,
+        "title": title,
+        "kind": kind,
+        "selected_version": selected_version,
+        "versions": versions,
+    }
+
+
+def _build_artifact_preview_item(artifact_surface: dict[str, Any]) -> dict[str, Any]:
+    """Build the compact preview payload consumed by the frontend card."""
+    versions = artifact_surface.get("versions")
+    latest = versions[-1] if isinstance(versions, list) and versions else {}
+    content = str(latest.get("content") or "")
+    preview = " ".join(content.replace("\n", " ").split())[:160]
+    return {
+        "artifact_id": artifact_surface.get("artifact_id"),
+        "title": artifact_surface.get("title"),
+        "kind": artifact_surface.get("kind"),
+        "version": latest.get("version"),
+        "preview_text": preview,
+    }
+
+
+# Re-export the valid mode set for callers that need to validate a
+# raw string (e.g. the chat endpoint accepting ``user_mode_override``
+# from the request body in chunk 13). Kept next to the other response
+# imports so the pipeline layer has one place to reach for it.
+_VALID_RESPONSE_MODES = VALID_MODES
 
 
 async def _handle_knowledge_gap(trace, safe_context, raw_text, request_spec, executions, initial_response, runtime):

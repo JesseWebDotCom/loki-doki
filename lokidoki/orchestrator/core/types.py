@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lokidoki.orchestrator.adapters.base import AdapterOutput
+    from lokidoki.orchestrator.response import ResponseEnvelope
 
 
 @dataclass(slots=True)
@@ -111,11 +115,18 @@ class ExecutionResult:
     attempts: int = 1
     handler_name: str = ""
     raw_result: dict[str, Any] = field(default_factory=dict)
+    adapter_output: AdapterOutput | None = None
 
 
 @dataclass(slots=True)
 class ResponseObject:
     output_text: str
+    # Chunk 16: short spoken version emitted from the SAME synthesis
+    # call as ``output_text`` (design §20.3 — never a second LLM pass).
+    # ``None`` means the synthesizer did not produce a dedicated spoken
+    # form; :func:`lokidoki.orchestrator.response.spoken.resolve_spoken_text`
+    # falls back to a trimmed summary at envelope-build time.
+    spoken_text: str | None = None
 
 
 @dataclass(slots=True)
@@ -155,6 +166,13 @@ class RequestSpec:
     # Spotify, images). Rendered as a MediaBar above the assistant
     # text. Never fed to the synthesis prompt — pure UI augmentation.
     media: list[dict[str, Any]] = field(default_factory=list)
+    # Canonical per-turn source list, aggregated from every successful
+    # execution's ``AdapterOutput.sources``. Populated by
+    # :func:`lokidoki.orchestrator.core.pipeline_phases.run_synthesis_phase`
+    # before the LLM decision runs. ``_collect_sources`` in the prompt
+    # builder prefers this list when present, falling back to the legacy
+    # per-chunk ``result.sources`` scrape when empty.
+    adapter_sources: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -235,6 +253,13 @@ class PipelineResult:
     response: ResponseObject
     trace: TraceData
     trace_summary: TraceSummary
+    # Canonical rich-response envelope for this turn. Populated by
+    # :func:`lokidoki.orchestrator.core.pipeline_phases.run_synthesis_phase`
+    # alongside the legacy ``response`` object. ``None`` on fast-lane
+    # turns where the synthesis phase is bypassed entirely. Chunk 9
+    # begins streaming envelope-level SSE events; until then the
+    # envelope is only consumed by persistence and history replay.
+    envelope: ResponseEnvelope | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

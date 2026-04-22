@@ -476,6 +476,7 @@
       {
         "id": "core.units.convert",
         "handler_name": "core.units.convert",
+        "skill_id": "unit_conversion",
         "priority": 5,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.units",
@@ -905,6 +906,7 @@
       {
         "id": "core.knowledge.lookup",
         "handler_name": "core.knowledge.lookup",
+        "skill_id": "knowledge",
         "priority": 50,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.knowledge",
@@ -1095,6 +1097,7 @@
       {
         "id": "core.time.location",
         "handler_name": "core.time.location",
+        "skill_id": "datetime_local",
         "priority": 20,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.time_in_location",
@@ -1453,6 +1456,7 @@
       {
         "id": "skills.dictionary.lookup",
         "handler_name": "skills.dictionary.lookup",
+        "skill_id": "dictionary",
         "priority": 20,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.dictionary",
@@ -1506,6 +1510,7 @@
       {
         "id": "skills.news.google_rss",
         "handler_name": "skills.news.google_rss",
+        "skill_id": "news",
         "priority": 30,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.news",
@@ -1547,6 +1552,7 @@
       {
         "id": "skills.news.briefing",
         "handler_name": "skills.news.briefing",
+        "skill_id": "news",
         "priority": 25,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.news",
@@ -1579,6 +1585,7 @@
       {
         "id": "skills.news.search",
         "handler_name": "skills.news.search",
+        "skill_id": "news",
         "priority": 25,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.news",
@@ -1664,6 +1671,7 @@
       {
         "id": "skills.jokes.icanhazdadjoke",
         "handler_name": "skills.jokes.icanhazdadjoke",
+        "skill_id": "jokes",
         "priority": 30,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.jokes",
@@ -3516,6 +3524,7 @@
       {
         "id": "core.calculator.alias",
         "handler_name": "core.calculator.evaluate",
+        "skill_id": "calculator",
         "priority": 10,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.calculator",
@@ -3867,6 +3876,7 @@
       {
         "id": "skills.search.ddg",
         "handler_name": "skills.search.web",
+        "skill_id": "search",
         "priority": 30,
         "enabled": true,
         "module_path": "lokidoki.orchestrator.skills.search_web",

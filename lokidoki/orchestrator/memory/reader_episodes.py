@@ -40,34 +40,29 @@ def _episode_bm25_query(
     terms: list[str],
     top_k: int,
     topic_scope: str | None,
+    session_ids: tuple[int, ...] | None,
 ) -> list[tuple[int, float]]:
     """Run BM25 over ``episodes_fts`` and return ``(episode_id, score)`` pairs."""
     match = _build_fts_match(terms)
+    sql = """
+        SELECT episodes_fts.rowid AS episode_id, bm25(episodes_fts) AS score
+        FROM episodes_fts
+        JOIN episodes ON episodes.id = episodes_fts.rowid
+        WHERE episodes_fts MATCH ?
+          AND episodes.owner_user_id = ?
+    """
+    params: list[object] = [match, owner_user_id]
     if topic_scope is not None:
-        sql = """
-            SELECT episodes_fts.rowid AS episode_id, bm25(episodes_fts) AS score
-            FROM episodes_fts
-            JOIN episodes ON episodes.id = episodes_fts.rowid
-            WHERE episodes_fts MATCH ?
-              AND episodes.owner_user_id = ?
-              AND episodes.topic_scope = ?
-            ORDER BY score
-            LIMIT ?
-        """
-        params: tuple = (match, owner_user_id, topic_scope, top_k * 5)
-    else:
-        sql = """
-            SELECT episodes_fts.rowid AS episode_id, bm25(episodes_fts) AS score
-            FROM episodes_fts
-            JOIN episodes ON episodes.id = episodes_fts.rowid
-            WHERE episodes_fts MATCH ?
-              AND episodes.owner_user_id = ?
-            ORDER BY score
-            LIMIT ?
-        """
-        params = (match, owner_user_id, top_k * 5)
+        sql += " AND episodes.topic_scope = ?"
+        params.append(topic_scope)
+    if session_ids is not None:
+        placeholders = ",".join("?" * len(session_ids)) or "NULL"
+        sql += f" AND episodes.session_id IN ({placeholders})"
+        params.extend(session_ids)
+    sql += " ORDER BY score LIMIT ?"
+    params.append(top_k * 5)
     try:
-        rows = store._conn.execute(sql, params).fetchall()
+        rows = store._conn.execute(sql, tuple(params)).fetchall()
         return [(int(row["episode_id"]), float(row["score"])) for row in rows]
     except Exception as exc:  # noqa: BLE001
         log.warning("memory reader episode BM25 failed: %s", exc)
@@ -79,25 +74,26 @@ def _episode_recency_scan(
     owner_user_id: int,
     top_k: int,
     topic_scope: str | None,
+    session_ids: tuple[int, ...] | None,
 ) -> list[tuple[int, float]]:
     """Fetch the most recent episodes and return ``(episode_id, rank_score)`` pairs."""
+    sql = """
+        SELECT id FROM episodes
+        WHERE owner_user_id = ?
+    """
+    params: list[object] = [owner_user_id]
     if topic_scope is not None:
-        sql = """
-            SELECT id FROM episodes
-            WHERE owner_user_id = ? AND topic_scope = ?
-            ORDER BY start_at DESC, id DESC LIMIT ?
-        """
-        params: tuple = (owner_user_id, topic_scope, top_k * 3)
-    else:
-        sql = """
-            SELECT id FROM episodes
-            WHERE owner_user_id = ?
-            ORDER BY start_at DESC, id DESC LIMIT ?
-        """
-        params = (owner_user_id, top_k * 3)
+        sql += " AND topic_scope = ?"
+        params.append(topic_scope)
+    if session_ids is not None:
+        placeholders = ",".join("?" * len(session_ids)) or "NULL"
+        sql += f" AND session_id IN ({placeholders})"
+        params.extend(session_ids)
+    sql += " ORDER BY start_at DESC, id DESC LIMIT ?"
+    params.append(top_k * 3)
     hits: list[tuple[int, float]] = []
     try:
-        rows = store._conn.execute(sql, params).fetchall()
+        rows = store._conn.execute(sql, tuple(params)).fetchall()
         for rank, row in enumerate(rows, start=1):
             hits.append((int(row["id"]), 1.0 / rank))
     except Exception as exc:  # noqa: BLE001
@@ -148,6 +144,7 @@ def read_episodes(
     *,
     top_k: int = 2,
     topic_scope: str | None = None,
+    session_ids: tuple[int, ...] | None = None,
 ) -> list[EpisodeHit]:
     """Lazy Tier 3 read path: only call when ``need_episode`` is set.
 
@@ -159,10 +156,10 @@ def read_episodes(
     """
     terms = _clean_query_terms(query)
     bm25_hits: list[tuple[int, float]] = (
-        _episode_bm25_query(store, owner_user_id, terms, top_k, topic_scope)
+        _episode_bm25_query(store, owner_user_id, terms, top_k, topic_scope, session_ids)
         if terms else []
     )
-    recency_hits = _episode_recency_scan(store, owner_user_id, top_k, topic_scope)
+    recency_hits = _episode_recency_scan(store, owner_user_id, top_k, topic_scope, session_ids)
     fused = score_facts_rrf([("bm25", bm25_hits), ("recency", recency_hits)])
     if not fused:
         return []

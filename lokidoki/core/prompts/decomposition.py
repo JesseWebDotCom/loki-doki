@@ -88,6 +88,7 @@ DECOMPOSITION_PROMPT = (
     "DEFINITIONAL LOOKUPS:\n"
     "\"who is X\", \"who was X\", and \"what is X\" for a named public person/work/concept default to response_shape=\"verbatim\", knowledge_source=\"encyclopedic\", capability_need=\"encyclopedic\", referent_anchor=X.\n"
     "- If the request mentions \"YouTube\", \"channel\", or \"official video\", use capability_need=\"youtube\".\n"
+    "- \"show me a picture/pic/image/photo of X\" (or \"show me X\") → capability_need=\"encyclopedic\", referent_anchor=X; resolve pronouns like \"it\" via RECENT_CONTEXT.\n"
     "\n"
     "YOUTUBE & CREATORS:\n"
     "Requests for YouTube videos, music videos, or creator channels (e.g., \"find MKBHD\", \"show me @RedLetterMedia\", \"latest video from X\") → capability_need=\"youtube\", referent_type=\"media\".\n"

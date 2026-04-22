@@ -15,7 +15,7 @@ import logging
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
@@ -28,6 +28,8 @@ from lokidoki.core.model_manager import ModelPolicy
 from lokidoki.core.providers.client import HTTPProvider
 from lokidoki.core.providers.spec import ProviderSpec
 from lokidoki.orchestrator.core.config import CONFIG
+from lokidoki.orchestrator.memory.chat_search import find_in_chat, search_all_chats
+from lokidoki.orchestrator.response.mode import VALID_MODES
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,12 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[int] = None
     project_id: Optional[int] = None
+    active_workspace_id: Optional[str] = None
+    # Chunk 13: explicit response-mode override from the compose-bar
+    # toggle or ``/deep``-style slash command. ``None`` means "let the
+    # planner derive via ``derive_response_mode``"; a value must be one
+    # of ``VALID_MODES`` or the endpoint returns 400.
+    user_mode_override: Optional[str] = None
 
     @field_validator("message")
     @classmethod
@@ -58,6 +66,71 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("message must not be empty")
         return v
+
+    @field_validator("user_mode_override")
+    @classmethod
+    def user_mode_override_normalized(cls, v: Optional[str]) -> Optional[str]:
+        """Collapse empty strings to ``None`` so downstream checks simplify.
+
+        The UI may send ``""`` when the toggle sits at ``auto``.
+        Semantic validation (must be a known mode) runs in the endpoint
+        so we can return a 400 with a clear message — Pydantic would
+        otherwise raise 422 from this same check.
+        """
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped or None
+
+
+def _normalize_limit(limit: int, *, default: int, maximum: int) -> int:
+    if limit <= 0:
+        return default
+    return min(limit, maximum)
+
+
+@router.get("/search")
+async def search_chat_history(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(50, ge=0),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Search all chats for the current user via local SQLite FTS."""
+    rows = await memory.run_sync(
+        lambda conn: search_all_chats(
+            conn,
+            user_id=user.id,
+            query=q,
+            limit=_normalize_limit(limit, default=50, maximum=100),
+            offset=offset,
+        )
+    )
+    return {"query": q, "results": rows}
+
+
+@router.get("/sessions/{session_id}/search")
+async def search_single_chat(
+    session_id: int,
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=0),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    memory: MemoryProvider = Depends(get_memory),
+):
+    """Search one chat session for the current user via local SQLite FTS."""
+    rows = await memory.run_sync(
+        lambda conn: find_in_chat(
+            conn,
+            user_id=user.id,
+            session_id=session_id,
+            query=q,
+            limit=_normalize_limit(limit, default=20, maximum=100),
+            offset=offset,
+        )
+    )
+    return {"query": q, "session_id": session_id, "results": rows}
 
 
 @router.post("")
@@ -69,9 +142,24 @@ async def chat(
     """Process a chat message through the pipeline, streaming SSE events."""
     from lokidoki.orchestrator.core.streaming import stream_pipeline_sse
 
+    # Chunk 13: validate the explicit mode override BEFORE spawning the
+    # pipeline so bad input short-circuits with a clear 400 instead of
+    # silently degrading to auto-derivation.
+    user_mode_override = request.user_mode_override
+    if user_mode_override is not None and user_mode_override not in VALID_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"user_mode_override {user_mode_override!r} is not a known mode; "
+                f"expected one of {sorted(VALID_MODES)}"
+            ),
+        )
+
     user_id = user.id
     session_id = request.session_id or await memory.create_session(
-        user_id, project_id=request.project_id
+        user_id,
+        project_id=request.project_id,
+        active_workspace_id=request.active_workspace_id,
     )
 
     # Check if this is the first message in the session (for auto-naming).
@@ -120,6 +208,11 @@ async def chat(
         "character_name": character_name,
         "character_id": str(character_id),
         "conversation_history": conversation_history,
+        "active_workspace_id": request.active_workspace_id,
+        # Chunk 13: threaded through to ``_build_envelope`` where
+        # ``derive_response_mode`` consumes it as ``user_override``.
+        # ``None`` means "let the planner derive".
+        "user_mode_override": user_mode_override,
     }
 
     async def event_stream():
@@ -129,7 +222,28 @@ async def chat(
             yield f"data: {json.dumps(session_event, separators=(',', ':'))}\n\n"
 
             response_text = ""
+            # Captured from the `response_snapshot` SSE event (chunk 9)
+            # — this is the envelope shape persisted alongside the
+            # assistant message row for history replay. Replaces the
+            # chunk-7 `_response_envelope_json` shared-context hack.
+            envelope_json: Optional[str] = None
             async for sse_chunk in stream_pipeline_sse(request.message, context=context):
+                # Sniff response_snapshot before yielding so we can
+                # persist the serialized envelope when synthesis:done
+                # lands. The event itself is still forwarded to the
+                # client unchanged.
+                if '"response_snapshot"' in sse_chunk:
+                    try:
+                        payload = json.loads(sse_chunk.removeprefix("data: ").rstrip("\n"))
+                        if payload.get("phase") == "response_snapshot":
+                            envelope_obj = payload.get("data", {}).get("envelope")
+                            if envelope_obj is not None:
+                                envelope_json = json.dumps(
+                                    envelope_obj, separators=(",", ":")
+                                )
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+
                 # Intercept synthesis-done to capture the final response and trigger naming.
                 if '"phase"' in sse_chunk and '"synthesis"' in sse_chunk and '"status"' in sse_chunk and '"done"' in sse_chunk:
                     try:
@@ -146,6 +260,7 @@ async def chat(
                             session_id=session_id,
                             role="assistant",
                             content=response_text,
+                            response_envelope=envelope_json,
                         )
                         # Auto-name session on first turn.
                         if is_first_turn:
