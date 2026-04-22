@@ -30,6 +30,60 @@ from lokidoki.skills.knowledge._parse import (
 WIKI_API_URL = "https://en.wikipedia.org/w/api.php"
 USER_AGENT = "LokiDoki/0.1 (https://github.com/lokidoki; local assistant) httpx"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+_STRUCTURED_MARKDOWN_CHAR_CAP = 2500
+_SECTION_SKIP_TITLES = frozenset({
+    "see also",
+    "references",
+    "notes",
+    "external links",
+    "bibliography",
+    "further reading",
+    "footnotes",
+    "sources",
+})
+
+
+def _soft_trim(text: str, char_cap: int) -> str:
+    """Trim at a sentence boundary when possible, otherwise at a word."""
+    text = (text or "").strip()
+    if len(text) <= char_cap:
+        return text
+    window = text[:char_cap].rstrip()
+    for index in range(len(window) - 1, 0, -1):
+        if window[index - 1] in ".!?" and (index == len(window) or window[index] == " "):
+            return window[:index].strip()
+    return window.rsplit(" ", 1)[0].rstrip() + "..."
+
+
+def _compose_structured_markdown(lead: str, sections: list[dict[str, str]]) -> str:
+    """Render the lead plus the first useful top-level sections as markdown."""
+    blocks = [(lead or "").strip()]
+    if not blocks[0]:
+        return ""
+
+    for section in sections:
+        title = (section.get("title") or "").strip()
+        paragraph = (section.get("paragraph") or "").strip()
+        if not title or not paragraph or title.lower() in _SECTION_SKIP_TITLES:
+            continue
+
+        candidate = "\n\n".join([*blocks, f"## {title}\n\n{paragraph}"])
+        if len(candidate) <= _STRUCTURED_MARKDOWN_CHAR_CAP:
+            blocks.append(f"## {title}\n\n{paragraph}")
+            if len(blocks) == 4:
+                break
+            continue
+
+        remaining = _STRUCTURED_MARKDOWN_CHAR_CAP - len("\n\n".join(blocks)) - len("\n\n## \n\n")
+        remaining -= len(title)
+        if remaining <= 0:
+            break
+        trimmed = _soft_trim(paragraph, remaining)
+        if trimmed:
+            blocks.append(f"## {title}\n\n{trimmed}")
+        break
+
+    return "\n\n".join(blocks)
 
 
 class WikipediaSkill(BaseSkill):
@@ -262,16 +316,19 @@ class WikipediaSkill(BaseSkill):
             lead, sections = parse_wiki_html(page_resp.text)
             if not lead:
                 return MechanismResult(success=False, error="Failed to parse article body")
+            section_dicts = [
+                {"title": section.title, "paragraph": section.paragraph}
+                for section in sections
+            ]
+            structured_markdown = _compose_structured_markdown(lead, section_dicts)
 
             return MechanismResult(
                 success=True,
                 data={
                     "title": title,
                     "lead": lead,
-                    "sections": [
-                        {"title": section.title, "paragraph": section.paragraph}
-                        for section in sections
-                    ],
+                    "sections": section_dicts,
+                    "structured_markdown": structured_markdown,
                     "url": url,
                 },
                 source_url=url,
