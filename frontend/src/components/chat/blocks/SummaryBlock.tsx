@@ -54,7 +54,11 @@ const SummaryBlock: React.FC<{ block: Block }> = ({ block }) => {
     shouldRenderContent;
 
   if (!shouldRenderContent) {
-    return <BlockShell block={block} renderPartial />;
+    return (
+      <BlockShell block={block} renderPartial>
+        {null}
+      </BlockShell>
+    );
   }
 
   return (

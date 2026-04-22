@@ -1,6 +1,6 @@
 # LokiDoki — Agent Build Contract
 
-Read `docs/spec.md` before any non-trivial work. This file is the enforcement layer. If this file conflicts with `docs/spec.md`, `docs/spec.md` wins.
+Read [`docs/DESIGN.md`](docs/DESIGN.md) before any non-trivial work. This file is the enforcement layer. If this file conflicts with `docs/DESIGN.md`, `docs/DESIGN.md` wins.
 
 ---
 

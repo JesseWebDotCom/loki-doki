@@ -56,15 +56,15 @@ class TestUserOverride:
 
     def test_empty_override_ignored(self):
         inputs = PlannerInputs()
-        assert derive_response_mode(inputs, user_override="") == "standard"
+        assert derive_response_mode(inputs, user_override="") == "rich"
 
     def test_none_override_ignored(self):
         inputs = PlannerInputs()
-        assert derive_response_mode(inputs, user_override=None) == "standard"
+        assert derive_response_mode(inputs, user_override=None) == "rich"
 
     def test_unknown_override_ignored(self):
         inputs = PlannerInputs()
-        assert derive_response_mode(inputs, user_override="ultra") == "standard"
+        assert derive_response_mode(inputs, user_override="ultra") == "rich"
 
     def test_user_override_beats_workspace_default(self):
         inputs = PlannerInputs()
@@ -106,15 +106,33 @@ class TestSearchRule:
         inputs = PlannerInputs(capability_need="web_search")
         assert derive_response_mode(inputs) == "search"
 
-    def test_web_search_beats_rich_signals(self):
-        """Search rule runs before rich — a web-search ask stays search."""
+    def test_pure_web_search_stays_search(self):
+        """A lone web-search ask with no rich signals renders as search."""
+        inputs = PlannerInputs(
+            capability_need="web_search",
+            response_shape="synthesized",
+        )
+        assert derive_response_mode(inputs) == "search"
+
+    def test_web_search_with_rich_signals_promotes_to_rich(self):
+        """When an entity lookup routes to web_search AND a knowledge
+        skill (multi-skill fan-out), the planner prefers the rich
+        entity-summary layout over a bare results list."""
         inputs = PlannerInputs(
             capability_need="web_search",
             response_shape="synthesized",
             requires_current_data=True,
             multiple_skills_fired=True,
         )
-        assert derive_response_mode(inputs) == "search"
+        assert derive_response_mode(inputs) == "rich"
+
+    def test_web_search_with_rich_routed_capability_promotes_to_rich(self):
+        """web_search + knowledge_query routed capability → rich."""
+        inputs = PlannerInputs(
+            capability_need="web_search",
+            routed_capabilities=("knowledge_query",),
+        )
+        assert derive_response_mode(inputs) == "rich"
 
 
 class TestDeepRule:
@@ -215,17 +233,28 @@ class TestRichRule:
         )
         assert derive_response_mode(inputs) == "rich"
 
-    def test_synthesized_bare_does_not_yield_rich(self):
-        """No multi-skill, no current-data, no rich capability → standard."""
+    def test_synthesized_bare_still_yields_rich(self):
+        """Auto biases toward rich: even a bare synthesized turn with no
+        rich signals now falls through to rich rather than standard.
+        ``standard`` is only reachable when the user explicitly picks
+        Simple."""
         inputs = PlannerInputs(response_shape="synthesized")
-        assert derive_response_mode(inputs) == "standard"
+        assert derive_response_mode(inputs) == "rich"
 
 
 class TestStandardDefault:
-    """Rule 7: fallthrough is ``standard``."""
+    """Default fallthrough is ``rich`` (Auto biases toward structured blocks).
 
-    def test_empty_inputs_yields_standard(self):
-        assert derive_response_mode(PlannerInputs()) == "standard"
+    ``standard`` is only reachable via explicit user override
+    (the "Simple" toggle option / ``/simple`` slash) or the
+    exception-path legacy fallback.
+    """
+
+    def test_empty_inputs_yields_rich(self):
+        assert derive_response_mode(PlannerInputs()) == "rich"
+
+    def test_simple_override_yields_standard(self):
+        assert derive_response_mode(PlannerInputs(), user_override="standard") == "standard"
 
     def test_legacy_fallback_on_exception(self):
         """A duck-typed decomposition raising during attribute access

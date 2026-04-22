@@ -14,7 +14,7 @@ describe('chat density', () => {
     expect(copy.className).toContain('text-base');
   });
 
-  it('renders assistant responses with roomier bubble and body typography', () => {
+  it('renders assistant responses without persistent bubble chrome', () => {
     render(
       <MessageItem
         role="assistant"
@@ -23,15 +23,16 @@ describe('chat density', () => {
       />,
     );
 
+    // The assistant side intentionally has no boxed bubble — content
+    // flows flush with the avatar column, ChatGPT-style.
     const bubble = screen.getByTestId('message-bubble');
-    expect(bubble?.className ?? '').toContain('px-7');
-    expect(bubble?.className ?? '').toContain('py-5');
+    expect(bubble?.className ?? '').not.toContain('px-7');
+    expect(bubble?.className ?? '').not.toContain('py-5');
 
-    const assistantLabel = screen.getByText('assistant');
-    expect(assistantLabel.className).toContain('text-xs');
-
-    const body = screen.getByText('This is a test response.').closest('div.prose-onyx');
-    expect(body?.className ?? '').toContain('text-base');
-    expect(body?.className ?? '').toContain('leading-8');
+    // No persistent "assistant" / "LokiDoki" meta label above the
+    // response — those were removed as part of the rich-response UI
+    // simplification.
+    expect(screen.queryByText('assistant')).toBeNull();
+    expect(screen.queryByText('LokiDoki')).toBeNull();
   });
 });

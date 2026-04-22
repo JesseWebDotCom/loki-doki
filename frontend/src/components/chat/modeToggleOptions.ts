@@ -1,15 +1,15 @@
 import type { ResponseMode } from "./SlashCommandParser";
 
-export type ToggleMode = "auto" | "rich" | "deep" | "search";
+export type ToggleMode = "auto" | "simple" | "rich";
 
 export const TOGGLE_MODES: readonly ToggleMode[] = [
   "auto",
+  "simple",
   "rich",
-  "deep",
-  "search",
 ] as const;
 
 export function toggleModeToOverride(mode: ToggleMode): ResponseMode | null {
   if (mode === "auto") return null;
-  return mode;
+  if (mode === "simple") return "standard";
+  return "rich";
 }

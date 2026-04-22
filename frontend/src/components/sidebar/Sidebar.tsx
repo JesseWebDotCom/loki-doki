@@ -59,7 +59,7 @@ const useSystemStatus = () => {
 };
 
 const healthColor = (pct: number) =>
-  pct >= 95 ? 'text-red-400' : pct >= 85 ? 'text-amber-400' : 'text-emerald-400';
+  pct >= 95 ? 'text-red-400' : pct >= 85 ? 'text-amber-400' : 'text-muted-foreground/40';
 
 const StatusIcons: React.FC<{ compact?: boolean }> = ({ compact }) => {
   const s = useSystemStatus();
@@ -70,12 +70,12 @@ const StatusIcons: React.FC<{ compact?: boolean }> = ({ compact }) => {
   const items = [
     {
       icon: s.internet_ok ? Wifi : WifiOff,
-      color: s.internet_ok ? 'text-emerald-400' : 'text-red-400',
+      color: s.internet_ok ? 'text-muted-foreground/40' : 'text-red-400',
       title: s.internet_ok ? 'Internet connected' : 'No internet',
     },
     {
       icon: Bot,
-      color: s.engine_ok ? 'text-emerald-400' : 'text-red-400',
+      color: s.engine_ok ? 'text-muted-foreground/40' : 'text-red-400',
       title: s.engine_ok
         ? `LLM ready · ${fastModelShort || s.platform}`
         : 'LLM engine unreachable',
@@ -92,11 +92,19 @@ const StatusIcons: React.FC<{ compact?: boolean }> = ({ compact }) => {
     },
   ];
 
+  // Hide the row entirely when everything is healthy — only surface the
+  // chips when an indicator is actually warning or critical. Compact
+  // rail variant always renders a summary dot so it never collapses to
+  // nothing (the dot just goes muted).
+  const hasSignal = items.some(
+    (it) => it.color === 'text-red-400' || it.color === 'text-amber-400',
+  );
+
   const summaryTone = items.some((item) => item.color === 'text-red-400')
     ? 'bg-red-400'
     : items.some((item) => item.color === 'text-amber-400')
       ? 'bg-amber-400'
-      : 'bg-emerald-400';
+      : 'bg-muted-foreground/30';
 
   if (compact) {
     return (
@@ -129,16 +137,22 @@ const StatusIcons: React.FC<{ compact?: boolean }> = ({ compact }) => {
     );
   }
 
+  if (!hasSignal) return null;
+
   return (
     <div className="flex items-center gap-3 px-2">
-      {items.map((it) => {
-        const Icon = it.icon;
-        return (
-          <span key={it.title} title={it.title}>
-            <Icon size={14} className={`${it.color} transition-colors`} />
-          </span>
-        );
-      })}
+      {items
+        .filter(
+          (it) => it.color === 'text-red-400' || it.color === 'text-amber-400',
+        )
+        .map((it) => {
+          const Icon = it.icon;
+          return (
+            <span key={it.title} title={it.title}>
+              <Icon size={14} className={`${it.color} transition-colors`} />
+            </span>
+          );
+        })}
     </div>
   );
 };

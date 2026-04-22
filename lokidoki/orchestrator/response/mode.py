@@ -200,7 +200,8 @@ def derive_response_mode(
        (reserved for chunks 19-20; triggered only via
        ``has_artifact_output``). Never inferred from user text.
     3. **Search** when the decomposer flagged explicit retrieval
-       (``capability_need`` in :data:`_SEARCH_CAPABILITY_NEEDS`).
+       (``capability_need`` in :data:`_SEARCH_CAPABILITY_NEEDS`) and
+       no rich signal is present.
     4. **Deep** only when ``reasoning_complexity == "thinking"`` AND
        the user opted in (``deep_opt_in=True``). Deep NEVER triggers
        automatically — design §10.4 is explicit that accidental
@@ -208,13 +209,10 @@ def derive_response_mode(
     5. **Direct** for ``response_shape == "verbatim"`` with a
        deterministic capability (unit conversion, calendar, etc.)
        — skip enrichment, return the skill output.
-    6. **Rich** for a recognized rich-shaped capability
-       (encyclopedic / medical / people_lookup / …), a multi-skill
-       fan-out, or any current-data enrichment. The decomposer's
-       ``response_shape`` does not gate rich mode — verbatim skill
-       output and synthesized answers both benefit from structured
-       blocks.
-    7. **Standard** otherwise.
+    6. **Rich** — the default for synthesized/LLM turns. The planner
+       biases toward rich so Auto mode delivers structured blocks by
+       default. The user picks ``Simple`` (``standard``) via override
+       when they want bare prose instead.
 
     Any exception during rule evaluation → ``"standard"`` + a WARNING
     log. The rich-response rollout must never break a turn because
@@ -254,11 +252,29 @@ def derive_response_mode(
         if inputs.has_artifact_output:
             return "artifact"
 
-        # Rule 3 — explicit retrieval → search layout. The decomposer
-        # tags web-search asks with ``capability_need="web_search"``;
-        # that is the one planner input that makes ``search`` mode
-        # appropriate.
-        if inputs.capability_need in _SEARCH_CAPABILITY_NEEDS:
+        # Compute rich signals up-front so Rule 3 (search) and Rule 6
+        # (rich) can both consult them. A "who is X" turn that routed
+        # to BOTH knowledge_wiki (rich-shaped) AND web_search should
+        # render as a structured entity summary, not a results list —
+        # rich wins over search whenever a rich signal is present.
+        routed_rich = any(
+            cap in _RICH_ROUTED_CAPABILITIES for cap in inputs.routed_capabilities
+        )
+        has_rich_signal = (
+            inputs.capability_need in _RICH_CAPABILITY_NEEDS
+            or routed_rich
+            or inputs.multiple_skills_fired
+            or inputs.requires_current_data
+        )
+
+        # Rule 3 — explicit retrieval → search layout, but ONLY when
+        # there are no rich signals. Pure web-search (user is browsing
+        # results) stays search; entity lookups that co-route to
+        # knowledge skills escalate to rich.
+        if (
+            inputs.capability_need in _SEARCH_CAPABILITY_NEEDS
+            and not has_rich_signal
+        ):
             return "search"
 
         # Rule 4 — deep requires BOTH the decomposer's thinking signal
@@ -274,34 +290,14 @@ def derive_response_mode(
         ):
             return "direct"
 
-        # Rule 6 — rich-shaped capability, multi-skill fan-out, or
-        # current-data enrichment → rich layout.
-        #
-        # The decomposer's ``response_shape`` ("verbatim" / "synthesized")
-        # is NOT used as a gate here. Rationale: "verbatim" means the
-        # skill output is authoritative and should not be re-synthesized
-        # by a heavy LLM — it does NOT mean the answer should render as
-        # a bare paragraph. Encyclopedic / people_lookup / medical
-        # answers benefit from structured blocks (summary + key_facts +
-        # sources) whether the content is skill-verbatim or
-        # LLM-synthesized. Gating on "synthesized" made rich mode
-        # unreachable for "who is X" / "what is X" turns.
-        routed_rich = any(
-            cap in _RICH_ROUTED_CAPABILITIES for cap in inputs.routed_capabilities
-        )
-        if (
-            inputs.capability_need in _RICH_CAPABILITY_NEEDS
-            or routed_rich
-            or inputs.multiple_skills_fired
-            or inputs.requires_current_data
-        ):
-            return "rich"
+        # Rule 6 — rich is the default for every non-deterministic /
+        # non-search turn. Auto mode biases toward structured blocks;
+        # a user who wants bare prose picks ``Simple`` (``standard``)
+        # via override.
+        return "rich"
     except Exception:  # noqa: BLE001 — legacy fallback path
         logger.warning("derive_response_mode: rule evaluation raised", exc_info=True)
         return "standard"
-
-    # Rule 7 — default.
-    return "standard"
 
 
 def _coerce_inputs(decomposition: object) -> PlannerInputs:

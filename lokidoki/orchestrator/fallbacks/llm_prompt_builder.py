@@ -38,20 +38,61 @@ _RICH_MODE_DIRECTIVE = (
     "RICH FORMATTING — THIS TURN IS RENDERED IN RICH MODE:\n"
     "- Override the default 1–3 sentence rule. Be thorough.\n"
     "- Open with a 1–2 sentence overview paragraph.\n"
-    "- Then use ## H2 section headers to organize the answer "
-    "(e.g. ## Key facts, ## Notable work, ## Why it matters, ## Bottom line). "
-    "Pick section names that fit the subject; don't invent empty sections.\n"
-    "- Under each header use short bullet lists. Key/value bullets use "
-    "bold inline labels: - **Label:** value.\n"
+    "- Organize the answer with ## H2 section headers whenever the "
+    "subject has multiple distinct aspects. Pick section names that fit "
+    "THIS subject. For a person / biography, 'Key facts', 'Notable "
+    "work', 'Why it matters' are usually correct. For a product, prefer "
+    "names like 'What it is', 'How it works', 'Trade-offs'. For a "
+    "concept, prefer 'Definition', 'Examples', 'Common pitfalls'. "
+    "Never copy a template verbatim onto a subject it doesn't suit — "
+    "match the headers to the content.\n"
+    "- Skip headers entirely only when the answer is one short "
+    "coherent thread (a definition, a direct factual reply).\n"
+    "- Bullets are for natural lists (items, steps, examples). Write "
+    "each bullet as a plain phrase or short sentence. Do NOT prefix "
+    "bullets with 'Label:' or any other uniform tag — write the fact "
+    "directly (e.g. 'Released March 2026' not 'Label: Release: March 2026'). "
+    "Bold a short lead-in only when it sharpens the fact (e.g. "
+    "'**Born** March 17, 1964 in Dayton, Ohio').\n"
+    "- If the user asked multiple questions in one turn, answer each "
+    "one explicitly — don't hide an answer inside a generic section.\n"
     "- Keep [src:N] citations inline after the facts they support.\n"
     "- No preamble, no meta comments about the format. Just the answer.\n"
 )
 
 
+_RICH_ROUTED_CAPABILITIES_FOR_PROMPT: frozenset[str] = frozenset({
+    "knowledge_query", "lookup_definition", "lookup_fact",
+    "define_word", "lookup_person_facts", "lookup_person_birthday",
+    "lookup_relationship", "list_family", "news_search",
+    "find_recipe", "code_assistance",
+})
+
+# Router capabilities where the rich directive would clash with the
+# skill's verbatim output. Calculator / time / unit conversion /
+# deterministic device-control etc. produce a literal answer ("2+2 is
+# 4", "5 km = 3.1 mi") that should NOT be rewritten into headers +
+# bullets. The planner picks ``direct`` mode for these; the prompt
+# builder mirrors that by skipping the directive.
+_DIRECT_SHAPED_CAPABILITIES: frozenset[str] = frozenset({
+    "compute_math", "calculator", "unit_conversion",
+    "current_time", "timer_reminder", "calendar",
+    "device_control", "home_automation",
+})
+
+
 def _derive_response_mode_for_prompt(spec: RequestSpec) -> str:
     """Return ``"rich"`` / ``"deep"`` / ``""`` using the same signal the
-    envelope builder consumes. Kept local to avoid importing the whole
-    mode module from the prompt layer."""
+    envelope builder consumes.
+
+    Auto path mirrors the planner's rich-by-default bias
+    (``derive_response_mode`` rule 7): every non-deterministic,
+    non-search turn gets the rich directive so the LLM output matches
+    the envelope's rich mode. Deterministic skills (calculator, time,
+    unit conversion) stay unformatted because the planner picks
+    ``direct`` for them; a lone ``web_search`` route also stays plain
+    because the frontend renders a search layout, not prose.
+    """
     ctx = spec.context if isinstance(spec.context, dict) else {}
     override = str(ctx.get("user_mode_override") or "").strip().lower()
     if override in {"rich", "deep"}:
@@ -61,20 +102,26 @@ def _derive_response_mode_for_prompt(spec: RequestSpec) -> str:
         return workspace
     if override in {"direct", "standard", "search", "artifact"}:
         return ""
-    # Auto path: infer from the routed capability. Mirrors the
-    # _RICH_ROUTED_CAPABILITIES set in llm_fallback.
-    rich_routed = frozenset({
-        "knowledge_query", "lookup_definition", "lookup_fact",
-        "define_word", "lookup_person_facts", "lookup_person_birthday",
-        "lookup_relationship", "list_family", "news_search",
-        "find_recipe", "code_assistance",
-    })
+
+    # Auto path — mirror the planner's rich-by-default bias.
+    primary_caps: list[str] = []
     for chunk in spec.chunks:
-        if chunk.role != "primary_request":
-            continue
-        if chunk.capability in rich_routed and chunk.success:
-            return "rich"
-    return ""
+        if chunk.role == "primary_request" and chunk.success:
+            primary_caps.append(chunk.capability or "")
+
+    # Lone web-search route → keep search layout (no directive).
+    if primary_caps and all(cap == "web_search" for cap in primary_caps):
+        return ""
+
+    # Lone deterministic skill → keep direct layout (no directive).
+    if primary_caps and all(
+        cap in _DIRECT_SHAPED_CAPABILITIES for cap in primary_caps
+    ):
+        return ""
+
+    # Everything else — direct_chat, knowledge lookups, multi-skill
+    # fan-outs, rich-routed capabilities — gets the rich directive.
+    return "rich"
 
 
 # Chunk 16: one-call synthesis contract (design §20.3) — the LLM is
@@ -420,7 +467,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
     response_schema = _select_response_schema(spec)
 
     if _is_direct_chat_only(spec):
-        return render_prompt(
+        prompt = render_prompt(
             "direct_chat",
             user_question=spec.original_request,
             character_name=character_name,
@@ -430,26 +477,29 @@ def build_combine_prompt(spec: RequestSpec) -> str:
             response_schema=response_schema,
             **memory_slots,
         )
-    payload = build_llm_payload(spec)
-    sources = _collect_sources(spec)
-    prompt = render_prompt(
-        "combine",
-        spec=json.dumps(payload, ensure_ascii=False),
-        character_name=character_name,
-        behavior_prompt=behavior_prompt,
-        confidence_guide=_build_confidence_guide(spec),
-        sources_list=_render_sources_list(sources),
-        media_hint=_render_media_hint(spec),
-        current_time=current_time,
-        user_name=user_name,
-        response_schema=response_schema,
-        **memory_slots,
-    )
+    else:
+        payload = build_llm_payload(spec)
+        sources = _collect_sources(spec)
+        prompt = render_prompt(
+            "combine",
+            spec=json.dumps(payload, ensure_ascii=False),
+            character_name=character_name,
+            behavior_prompt=behavior_prompt,
+            confidence_guide=_build_confidence_guide(spec),
+            sources_list=_render_sources_list(sources),
+            media_hint=_render_media_hint(spec),
+            current_time=current_time,
+            user_name=user_name,
+            response_schema=response_schema,
+            **memory_slots,
+        )
     if _derive_response_mode_for_prompt(spec):
         # Prepend the rich-mode directive so the model sees the
         # override-the-length-rule instruction BEFORE the persona /
-        # default rules. Leaves ``COMBINE_PROMPT`` itself unchanged so
-        # the decomposer-budget tests keep passing.
+        # default rules. Applies to BOTH combine and direct_chat paths:
+        # when the user picks Rich on the toggle for a plain LLM chat
+        # turn, the directive is what tells the model to write
+        # structured prose instead of a 1–3 sentence quip.
         prompt = _RICH_MODE_DIRECTIVE + "\n" + prompt
     return prompt
 

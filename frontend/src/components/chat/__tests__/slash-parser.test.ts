@@ -116,7 +116,12 @@ describe("parseSlash — pass-through (non-command) inputs", () => {
 
 describe("SLASH_PREFIXES", () => {
   it("exposes all user-typeable modes", () => {
-    const modes = SLASH_PREFIXES.map((p) => p.mode).sort();
+    const modes = [...new Set(SLASH_PREFIXES.map((p) => p.mode))].sort();
     expect(modes).toEqual(["deep", "direct", "rich", "search", "standard"]);
+  });
+
+  it("exposes /simple as an alias for the standard mode", () => {
+    const simple = SLASH_PREFIXES.find((p) => p.slash === "/simple");
+    expect(simple?.mode).toBe("standard");
   });
 });

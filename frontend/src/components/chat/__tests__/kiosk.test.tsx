@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import MessageItem from "../MessageItem";
-import ModeToggle from "../ModeToggle";
+import ComposerMenu from "../ComposerMenu";
 import SourceSurface from "../SourceSurface";
 import ArtifactSurface from "../artifact/ArtifactSurface";
 import type { ResponseEnvelope } from "../../../lib/response-types";
@@ -83,11 +83,6 @@ describe("kiosk layout polish", () => {
     expect(document.body.querySelector('[data-slot="source-surface"]')).toBeTruthy();
   });
 
-  it("collapses the mode toggle to a compact picker on narrow viewports", () => {
-    render(<ModeToggle value="auto" onChange={() => undefined} />);
-    expect(screen.getByTestId("mode-toggle-compact")).toBeTruthy();
-  });
-
   it("renders narrow artifact views as a dialog", () => {
     render(
       <ArtifactSurface
@@ -110,9 +105,13 @@ describe("kiosk layout polish", () => {
       />,
     );
 
-    const compactToggle = render(<ModeToggle value="auto" onChange={() => undefined} />);
-    expect(screen.getByTestId("mode-toggle-compact").className).toContain("h-11");
+    const composer = render(
+      <ComposerMenu mode="auto" onSelectMode={() => undefined} />,
+    );
+    expect(
+      composer.container.querySelector('button[aria-label="Response mode"]')?.className,
+    ).toContain("h-9");
     expect(document.body.querySelector('[data-slot="use-source-next"]')?.className).toContain("h-11");
-    compactToggle.unmount();
+    composer.unmount();
   });
 });

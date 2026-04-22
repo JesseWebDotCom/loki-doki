@@ -348,7 +348,7 @@ const ChatPage: React.FC = () => {
   // same instance without relying on React batching. Cleared at the
   // start of each send; written on every response-family event.
   const envelopeRef = useRef<ResponseEnvelope | undefined>(undefined);
-  const [liveEnvelope, setLiveEnvelope] = useState<ResponseEnvelope | undefined>(undefined);
+  const [, setLiveEnvelope] = useState<ResponseEnvelope | undefined>(undefined);
   const inProgressMessageIndexRef = useRef<number | null>(null);
   // Session-bleed guard. When a turn starts, ``inflightTurnSessionRef``
   // captures the session id the turn belongs to (``null`` for a

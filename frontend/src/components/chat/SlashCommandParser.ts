@@ -35,6 +35,7 @@ export interface SlashParseResult {
  */
 const PREFIXES: readonly { slash: string; mode: ResponseMode }[] = [
   { slash: "/direct", mode: "direct" },
+  { slash: "/simple", mode: "standard" },
   { slash: "/standard", mode: "standard" },
   { slash: "/rich", mode: "rich" },
   { slash: "/deep", mode: "deep" },

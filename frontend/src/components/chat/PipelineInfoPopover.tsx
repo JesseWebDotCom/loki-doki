@@ -16,6 +16,11 @@ import { formatDuration } from '../../lib/utils';
 interface Props {
   pipeline: PipelineState;
   currentPhase?: PipelineState['phase'];
+  /** When true, the accordion starts expanded. Used by the hover-gated
+   *  Details button in ``MessageItem``: the user already expressed
+   *  intent by clicking Details, so the inner accordion should not
+   *  require a second click to reveal contents. */
+  defaultExpanded?: boolean;
 }
 
 const phaseRows = [
@@ -218,8 +223,12 @@ function buildLiveSteps(
   return steps.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 }
 
-const PipelineInfoPopover: React.FC<Props> = ({ pipeline, currentPhase = 'completed' }) => {
-  const [expanded, setExpanded] = useState(false);
+const PipelineInfoPopover: React.FC<Props> = ({
+  pipeline,
+  currentPhase = 'completed',
+  defaultExpanded = false,
+}) => {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [copied, setCopied] = useState(false);
   const isLive = currentPhase !== 'completed';
   const fastLaneHit = pipeline.microFastLane?.hit === true;

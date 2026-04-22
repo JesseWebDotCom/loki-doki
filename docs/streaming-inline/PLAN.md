@@ -39,6 +39,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 4 | [`ThinkingIndicator` loses `interimText`, keeps phase chrome](chunk-4-indicator-chrome-only.md) | done | 584844a |
 | 5 | [Completion path — flip `status` in place, no append-on-done](chunk-5-completion-flip.md) | done | c1754ee |
 | 6 | [Tests — progressive-in-place, history replay, fast-lane fallback](chunk-6-tests.md) | done | ad6ac41 |
+| 7 | [Streaming markdown stabilizer](chunk-7-markdown-stabilizer.md) | done | 2112ece |
 
 ---
 
