@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 
 import type { Block } from "../../../lib/response-types";
+import { stabilizeStreamingMarkdown } from "../../../utils/markdownStabilizer";
 import SourceChip from "../SourceChip";
 import BlockShell from "./BlockShell";
 import { useBlockContext } from "./index";
@@ -41,7 +42,11 @@ function preprocessContent(content: string): string {
 const SummaryBlock: React.FC<{ block: Block }> = ({ block }) => {
   const { sources, mentionedPeople, envelopeStatus } = useBlockContext();
   const content = block.content ?? "";
-  const processed = preprocessContent(content);
+  const markdownSource =
+    envelopeStatus === "streaming" && block.state !== "ready"
+      ? stabilizeStreamingMarkdown(content)
+      : content;
+  const processed = preprocessContent(markdownSource);
   const shouldRenderContent = processed.trim().length > 0;
   const showCaret =
     envelopeStatus === "streaming" &&

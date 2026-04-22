@@ -17,6 +17,18 @@ function withContext(node: React.ReactNode) {
   );
 }
 
+function withStreamingContext(node: React.ReactNode) {
+  return (
+    <BlockContextProvider
+      sources={[]}
+      mentionedPeople={[]}
+      envelopeStatus="streaming"
+    >
+      {node}
+    </BlockContextProvider>
+  );
+}
+
 describe("SummaryBlock", () => {
   it("renders content when state is ready", () => {
     const block: Block = {
@@ -58,6 +70,70 @@ describe("SummaryBlock", () => {
     render(withContext(<SummaryBlock block={block} />));
 
     expect(screen.getByText("Working on it")).toBeTruthy();
+  });
+
+  it("stabilizes unclosed markdown while streaming", () => {
+    const block: Block = {
+      id: "summary",
+      type: "summary",
+      state: "partial",
+      seq: 1,
+      content: "This is **bold",
+    };
+
+    const { container } = render(
+      withStreamingContext(<SummaryBlock block={block} />),
+    );
+
+    const strong = container.querySelector("strong");
+    expect(strong?.textContent).toBe("bold");
+    expect(container.textContent).not.toContain("**");
+  });
+
+  it("hides incomplete citation text while streaming", () => {
+    const block: Block = {
+      id: "summary",
+      type: "summary",
+      state: "partial",
+      seq: 1,
+      content: "See [src:",
+    };
+
+    const { container } = render(
+      withStreamingContext(<SummaryBlock block={block} />),
+    );
+
+    expect(container.textContent).not.toContain("[src:");
+  });
+
+  it("keeps authoritative unbalanced markdown verbatim after completion", () => {
+    const block: Block = {
+      id: "summary",
+      type: "summary",
+      state: "ready",
+      seq: 1,
+      content: "Unbalanced **",
+    };
+
+    const { container } = render(withContext(<SummaryBlock block={block} />));
+
+    expect(container.textContent).toContain("Unbalanced **");
+  });
+
+  it("keeps the trailing caret after stabilized streaming prose", () => {
+    const block: Block = {
+      id: "summary",
+      type: "summary",
+      state: "partial",
+      seq: 1,
+      content: "This is **bold",
+    };
+
+    const { container } = render(
+      withStreamingContext(<SummaryBlock block={block} />),
+    );
+
+    expect(container.textContent).toContain("▍");
   });
 
   it("renders a muted failure chip with reason when state is failed", () => {
