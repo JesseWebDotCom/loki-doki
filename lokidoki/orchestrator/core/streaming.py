@@ -119,19 +119,35 @@ def _step_to_sse_event(
 
 
 def _route_active_event(step: TraceStep) -> SSEEvent:
-    """Build a descriptive routing active event from route step details."""
+    """Build a descriptive routing active event from route step details.
+
+    Shows the *skill(s)* being called, never the raw user query — the
+    user already sees their query in the bubble above. A generic
+    "Consulting Wikipedia" reads cleaner than "Searching did the tv
+    show taxi have a finale" and keeps sensitive/ embarrassing asks
+    out of the status chrome.
+    """
     chunks = step.details.get("chunks") or []
-    if chunks:
-        skills = [_human_skill_name(c.get("capability", "")) for c in chunks if c.get("capability") != "direct_chat"]
-        queries = [c.get("text", "").strip() for c in chunks if c.get("text")]
-        if skills and queries:
-            activity = f"Searching {queries[0][:60]}"
-        elif skills:
-            activity = f"Looking up {', '.join(skills[:2])}"
-        else:
-            activity = "Thinking about this…"
+    if not chunks:
+        return SSEEvent(phase="routing", status="active", data={"activity": "Routing…"})
+    # Dedupe in insertion order so a multi-chunk turn hitting the same
+    # skill twice reads as one entry.
+    skills: list[str] = []
+    for c in chunks:
+        cap = c.get("capability", "")
+        if not cap or cap == "direct_chat":
+            continue
+        label = _human_skill_name(cap)
+        if label not in skills:
+            skills.append(label)
+    if not skills:
+        activity = "Thinking about this…"
+    elif len(skills) == 1:
+        activity = f"Consulting {skills[0]}"
+    elif len(skills) == 2:
+        activity = f"Consulting {skills[0]} and {skills[1]}"
     else:
-        activity = "Routing…"
+        activity = f"Consulting {', '.join(skills[:2])} and more"
     return SSEEvent(phase="routing", status="active", data={"activity": activity})
 
 
