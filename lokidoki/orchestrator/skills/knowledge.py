@@ -354,6 +354,7 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
     # ── Local-first: try ZIM archives before any network call ──
     zim_result = await _zim_source(query, archive_hint, capability_need)
     if zim_result.success and score(zim_result) >= MIN_SUBJECT_COVERAGE:
+        await _topup_media(zim_result, query)
         return zim_result.to_payload()
 
     # ── ZIM missed — fall back to parallel network sources ──
@@ -369,4 +370,47 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
             "neither Wikipedia nor web search returned a relevant article."
         ),
     )
+    if result.success:
+        await _topup_media(result, query)
     return result.to_payload()
+
+
+async def _topup_media(result: AdapterResult, query: str) -> None:
+    """Fill the media bar up to :data:`_MAX_MEDIA_CARDS` in place.
+
+    Whichever source answered (ZIM / MediaWiki API / DDG), this final
+    pass ensures a rich-mode turn has a populated media header as long
+    as the network is reachable. The ZIM path already does layered
+    image collection; this handles the remaining two paths where
+    media would otherwise be empty (e.g. "when did the iPhone 4 come
+    out" → DDG instant-answer text only → no images).
+
+    Fails silently. Never raises. If the active web-search skill has
+    no network, the list stays at whatever the primary source provided.
+    """
+    if not result.success:
+        return
+    data = result.data if isinstance(result.data, dict) else {}
+    existing = data.get("media") or []
+    if isinstance(existing, tuple):
+        existing = list(existing)
+    if not isinstance(existing, list):
+        existing = []
+    remaining = _MAX_MEDIA_CARDS - len(existing)
+    if remaining <= 0:
+        return
+    try:
+        extras = await web_image_search_source(query, limit=remaining)
+    except Exception:  # noqa: BLE001
+        extras = []
+    if not extras:
+        return
+    seen = {str((item or {}).get("url") or "") for item in existing if isinstance(item, dict)}
+    merged = list(existing)
+    for card in extras:
+        url = str((card or {}).get("url") or "")
+        if url and url not in seen:
+            merged.append(card)
+            seen.add(url)
+    data["media"] = merged
+    result.data = data
