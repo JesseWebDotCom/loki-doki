@@ -82,4 +82,31 @@ Refs docs/rich-response/PLAN.md chunk 17.
 
 ## Deferrals
 
-<!-- Append specifics here if this chunk surfaced work that belongs in a later chunk. -->
+- **`pypdf` runtime install via bootstrap.** Added `pypdf>=5.1.0` to
+  `pyproject.toml` (no `pip install` / `uv add` from the agent shell).
+  The extractor in
+  `lokidoki/orchestrator/documents/extraction.py` degrades to an
+  empty string when `pypdf` is missing, so verify + tests pass today
+  without the package installed. The next bootstrap run (`./run.sh`
+  → `uv sync`) materializes it on disk. No additional `versions.py`
+  entry is needed — `pypdf` is a pure-Python wheel resolved by `uv`.
+- **Existing vector infra reuse.** Repo's `lokidoki/orchestrator/memory/`
+  is scoped to tier memory slots (episodic / facts / social etc.),
+  not ad-hoc document corpora. Wiring in a second backing store would
+  duplicate index plumbing for a different data lifetime; chunk 17
+  uses a pure-Python BM25 implementation in
+  `lokidoki/orchestrator/documents/retrieval.py` which is O(chunks)
+  per turn and requires zero persistence. Revisit only if user-attached
+  docs ever get large enough that BM25 scoring becomes the turn's
+  latency bottleneck.
+- **DOCX extraction.** Chunk doc lists DOCX as a supported kind; the
+  extractor currently falls through to plain-text reads (most .docx
+  files are ZIP-wrapped XML, so this yields garbage). A future chunk
+  should add a `python-docx` pin in `pyproject.toml` and a branch in
+  `extract_text` / `extract_pages`.
+- **Attachment plumbing.** `_apply_attached_document` reads
+  `safe_context["attached_document"]`, but no frontend flow sets that
+  key yet — file-upload UI, the chat POST schema extension, and the
+  context seeding happen in a later chunk (likely chunk 21 workspace
+  lens or a dedicated upload chunk). The current pipeline is
+  additive: every non-document turn is a no-op.

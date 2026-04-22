@@ -49,7 +49,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 14 | [`key_facts` / `steps` / `comparison` block renderers + enrichment budgets](chunk-14-blocks-text.md) | done | 62d3df2 |
 | 15 | [`follow_ups` / `clarification` / `status` block renderers](chunk-15-blocks-meta.md) | done | 6506d0b |
 | 16 | [Voice parity — one-call synthesis + barge-in](chunk-16-voice-parity.md) | done | b3013fd |
-| 17 | [Adaptive document handling (small inline / large RAG)](chunk-17-doc-strategy.md) | pending | |
+| 17 | [Adaptive document handling (small inline / large RAG)](chunk-17-doc-strategy.md) | done | 0b2d7e0 |
 | 18 | [Deep-work path with wall-clock cap + checkpoints](chunk-18-deep-mode.md) | pending | |
 | 19 | [Artifact security foundation (sandboxed iframe + CSP)](chunk-19-artifact-security.md) | pending | |
 | 20 | [ArtifactSurface UI + version navigation + export RPC](chunk-20-artifact-ui.md) | pending | |
