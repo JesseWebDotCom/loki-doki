@@ -54,8 +54,8 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 19 | [Artifact security foundation (sandboxed iframe + CSP)](chunk-19-artifact-security.md) | done | 118cc23 |
 | 20 | [ArtifactSurface UI + version navigation + export RPC](chunk-20-artifact-ui.md) | done | d3f46dc |
 | 21 | [Workspace lens (persona + memory scope)](chunk-21-workspace-lens.md) | done | b7ddfcc |
-| 22 | [Kiosk / Pi display layout polish](chunk-22-kiosk-polish.md) | pending | |
-| 23 | [Chat search — SQLite FTS find-in-chat + search-all-chats](chunk-23-chat-search.md) | pending | |
+| 22 | [Kiosk / Pi display layout polish](chunk-22-kiosk-polish.md) | done | 320246f |
+| 23 | [Chat search — SQLite FTS find-in-chat + search-all-chats](chunk-23-chat-search.md) | done | 320246f |
 
 ---
 
@@ -127,3 +127,4 @@ Do not rewrite prior entries. Do not delete blockers. Do not reorder.
 
 - 2026-04-21: Chunks 1–3 ran in a single codex session and landed as one combined commit (f0db1ad) instead of three. Going forward, one chunk per fresh session per commit. Resolver implementations don't carry `skill_id`, so chunks 1–3 introduced a `_HANDLER_TO_SKILL_ID` fallback map in `pipeline_phases.py`; fold this into chunk 5 (cutover). Recorded in chunk-3-adapters-sourced.md Deferrals.
 - 2026-04-21: Chunk 5 folded in the `_HANDLER_TO_SKILL_ID` deferral. `skill_id` now lives on the registry implementations for calculator / datetime_local / dictionary / unit_conversion / jokes / knowledge / search / news, so `ImplementationSelection.skill_id` drives adapter dispatch directly and the fallback map is retired. `_phase_synthesis` / `_phase_media_augmentation` test files were created from scratch (they didn't exist yet — chunk 5's doc assumed they did, mirroring chunks 1–3's phantom-file pattern).
+- 2026-04-21: Chunks 22 and 23 were completed together in one user-requested combined pass despite the per-chunk stop rule. Commit `320246f` lands both kiosk polish and local chat search.
