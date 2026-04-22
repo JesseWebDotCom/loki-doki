@@ -9,7 +9,7 @@ describe('MessageItem sources', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders citation chips as title-dash-source labels and opens the sources panel callback', () => {
+  it('renders compact citation chips (source name visible, full title-dash-source in aria-label) and opens the sources panel callback', () => {
     const onOpenSources = vi.fn();
     const sources: SourceInfo[] = [
       {
@@ -28,7 +28,9 @@ describe('MessageItem sources', () => {
       />,
     );
 
-    expect(screen.getByText('Nintendo Switch 2 - Wikipedia')).toBeTruthy();
+    const chips = screen.getAllByRole('link', { name: /Source 1: Nintendo Switch 2 - Wikipedia/ });
+    expect(chips.length).toBeGreaterThan(0);
+    expect(chips[0].textContent).toContain('Wikipedia');
 
     fireEvent.click(screen.getByRole('button', { name: 'Sources' }));
 
