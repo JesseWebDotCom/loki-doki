@@ -6,6 +6,8 @@ from pathlib import Path
 from lokidoki.skills.knowledge._parse import (
     SECTION_PARAGRAPH_CHAR_CAP,
     WikiSection,
+    is_disambiguation_page,
+    salvage_disambiguation_lead,
     parse_wiki_html,
 )
 
@@ -105,3 +107,40 @@ def test_parse_wiki_html_fixture_keeps_real_sections() -> None:
         "See also",
         "References",
     ]
+
+
+def test_is_disambiguation_page_detects_may_also_refer_to_lead() -> None:
+    lead = (
+        "Divine intervention is an event that occurs when a deity becomes actively "
+        "involved in changing some situation in human affairs.\n\n"
+        "Divine Intervention may also refer to:"
+    )
+
+    assert is_disambiguation_page(title="Divine Intervention", lead=lead) is True
+
+
+def test_is_disambiguation_page_detects_explicit_disambiguation_notice() -> None:
+    lead = (
+        "This disambiguation page lists articles associated with the title Divine Intervention."
+    )
+
+    assert is_disambiguation_page(title="Divine Intervention", lead=lead) is True
+
+
+def test_is_disambiguation_page_keeps_normal_article() -> None:
+    lead = "Luke Skywalker is a Jedi Knight from Tatooine."
+
+    assert is_disambiguation_page(title="Luke Skywalker", lead=lead) is False
+
+
+def test_salvage_disambiguation_lead_keeps_useful_intro() -> None:
+    lead = (
+        "Divine intervention is an event that occurs when a deity becomes actively "
+        "involved in changing some situation in human affairs.\n\n"
+        "Divine Intervention may also refer to:"
+    )
+
+    assert salvage_disambiguation_lead(lead) == (
+        "Divine intervention is an event that occurs when a deity becomes actively "
+        "involved in changing some situation in human affairs."
+    )

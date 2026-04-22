@@ -46,6 +46,19 @@ def _search_response(title: str = "Luke Skywalker") -> _MockResponse:
     )
 
 
+def _api_page_response(*, title: str, extract: str, pageprops: dict | None = None) -> _MockResponse:
+    page: dict[str, object] = {
+        "pageid": 1,
+        "title": title,
+        "extract": extract,
+    }
+    if pageprops is not None:
+        page["pageprops"] = pageprops
+    return _MockResponse(
+        json_data={"query": {"pages": {"1": page}}},
+    )
+
+
 def test_web_scraper_structured_markdown_includes_lead_and_sections() -> None:
     html = _FIXTURE.read_text(encoding="utf-8")
     skill = WikipediaSkill()
@@ -111,3 +124,53 @@ def test_web_scraper_without_h2_uses_lead_only() -> None:
 
     assert result.success is True
     assert result.data["structured_markdown"] == "Padme Amidala is a senator from Naboo."
+
+
+def test_mediawiki_api_salvages_disambiguation_intro() -> None:
+    skill = WikipediaSkill()
+    responses = [
+        _search_response("Divine Intervention"),
+        _api_page_response(
+            title="Divine Intervention",
+            extract=(
+                "Divine intervention is an event that occurs when a deity becomes "
+                "actively involved in changing some situation in human affairs.\n\n"
+                "Divine Intervention may also refer to:"
+            ),
+            pageprops={"disambiguation": ""},
+        ),
+    ]
+
+    with patch(
+        "lokidoki.skills.knowledge.skill.httpx.AsyncClient",
+        side_effect=lambda **kwargs: _MockAsyncClient(responses, **kwargs),
+    ):
+        result = asyncio.run(skill.execute_mechanism("mediawiki_api", {"query": "divine intervention"}))
+
+    assert result.success is True
+    assert result.data["lead"].endswith("human affairs.")
+    assert "may also refer to" not in result.data["lead"].lower()
+    assert "media" not in result.data
+
+
+def test_web_scraper_salvages_disambiguation_intro() -> None:
+    html = """
+    <div id="mw-content-text">
+      <p>Divine intervention is an event that occurs when a deity becomes actively involved in changing some situation in human affairs.</p>
+      <p>Divine Intervention may also refer to:</p>
+      <h2><span class="mw-headline">Music</span></h2>
+      <ul><li>Divine Intervention (Slayer album)</li></ul>
+    </div>
+    """
+    skill = WikipediaSkill()
+    responses = [_search_response("Divine Intervention"), _MockResponse(text=html)]
+
+    with patch(
+        "lokidoki.skills.knowledge.skill.httpx.AsyncClient",
+        side_effect=lambda **kwargs: _MockAsyncClient(responses, **kwargs),
+    ):
+        result = asyncio.run(skill.execute_mechanism("web_scraper", {"query": "divine intervention"}))
+
+    assert result.success is True
+    assert result.data["lead"].endswith("human affairs.")
+    assert "may also refer to" not in result.data["lead"].lower()

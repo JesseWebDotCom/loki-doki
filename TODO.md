@@ -94,3 +94,11 @@ Allow users to see other members' characters, whether they are active, and inter
 - Presence visibility is itself opt-in (awake/asleep/invisible).
 - Audit log of who spoke through whose character and when.
 - Scope decisions: does this live in core, a plugin, or a new shared-presence service? (TBD — likely plugin + core presence hooks.)
+
+## 6. Tighten knowledge/media heuristics for small definitional asks
+The rich response layer is still too eager to show images and media-adjacent cards for tiny definitional questions where the user just wants a clean sentence or two.
+
+- Suppress images/media cards for small, single-concept definitional asks such as `what is divine intervention`, `define serendipity`, and similar "what is X" queries where media adds noise instead of value.
+- Add a lightweight decision rule for when YouTube/video links are actually helpful versus distracting.
+- Show YouTube/video links when the user is explicitly asking about a music video, trailer, clip, performance, or watchable artifact.
+- Example to support: `when was the music video thriller made` should surface the relevant video link/source because the object of the question is the video itself, not just the concept.

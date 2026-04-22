@@ -181,6 +181,46 @@ async def test_knowledge_adapter_zim_fast_path_skips_network(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_knowledge_adapter_zim_salvages_disambiguation_intro(monkeypatch):
+    """A local Wikipedia disambiguation snippet should keep a valid intro
+    sentence but drop the dangling 'may also refer to' tail."""
+    from unittest.mock import AsyncMock
+    from lokidoki.orchestrator.skills import knowledge as adapter
+    import lokidoki.archives.search as _search_mod
+    from lokidoki.archives.search import ZimArticle
+
+    article = ZimArticle(
+        source_id="wikipedia",
+        title="Divine Intervention",
+        path="A/Divine_Intervention",
+        snippet=(
+            "Divine intervention is an event that occurs when a deity becomes actively "
+            "involved in changing some situation in human affairs.\n\n"
+            "Divine Intervention may also refer to:"
+        ),
+        url="https://en.wikipedia.org/wiki/Divine_Intervention",
+        source_label="Wikipedia",
+    )
+    mock_engine = type("E", (), {
+        "loaded_sources": ["wikipedia"],
+        "search": AsyncMock(return_value=[article]),
+        "get_article_html": AsyncMock(return_value=""),
+    })()
+    monkeypatch.setattr(_search_mod, "get_search_engine", lambda: mock_engine)
+
+    wiki = _RecordingFake({"mediawiki_api": _fail("should not be called")})
+    ddg = _RecordingFake({"ddg_api": _fail("should not be called")})
+    monkeypatch.setattr(adapter, "_WIKI", wiki, raising=True)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "what is divine intervention"})
+    assert result["success"] is True
+    assert result["output_text"].endswith("human affairs.")
+    assert "may also refer to" not in result["output_text"].lower()
+    assert result["data"]["lead"].endswith("human affairs.")
+
+
+@pytest.mark.anyio
 async def test_knowledge_adapter_zim_rejects_off_topic_example_match(monkeypatch):
     """Regression: a ZIM hit whose *title* has no overlap with the query
     must NOT be accepted just because the query words appear inside the

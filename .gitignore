@@ -260,4 +260,6 @@ app_config.json
 # assets/faces/            — face PNG sequences, committed
 # assets/sounds/           — sound .wav files, committed
 # wakeword.onnx            — wake word model, committed (small enough)
-.claude/
+.claude/*
+!.claude/rules/
+!.claude/rules/**/*.md

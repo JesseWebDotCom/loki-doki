@@ -20,7 +20,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from lokidoki.skills.knowledge._parse import parse_wiki_html
+from lokidoki.skills.knowledge._parse import (
+    is_disambiguation_page,
+    parse_wiki_html,
+    salvage_disambiguation_lead,
+)
 from lokidoki.skills.knowledge.skill import (
     HEADERS,
     WIKI_API_URL,
@@ -206,11 +210,21 @@ async def _zim_source(
         # a ``lead`` / ``title`` / ``extract`` to work with — without
         # it the adapter gets an empty dict and the rich-response
         # ``key_facts`` block stays empty.
-        media = await _zim_article_media(engine, best)
+        output_text = str(best.snippet or "").strip()
+        salvaged_disambiguation = False
+        if is_disambiguation_page(best.title, output_text):
+            output_text = salvage_disambiguation_lead(output_text)
+            salvaged_disambiguation = True
+            if not output_text:
+                return AdapterResult(
+                    output_text="", success=False, error="no local article found",
+                )
+
+        media = [] if salvaged_disambiguation else await _zim_article_media(engine, best)
         data: dict[str, Any] = {
             "title": best.title,
-            "lead": best.snippet,
-            "extract": best.snippet,
+            "lead": output_text,
+            "extract": output_text,
             "sections": [],
             "url": best.url,
         }
@@ -220,6 +234,13 @@ async def _zim_source(
                 if html:
                     lead, sections = parse_wiki_html(html)
                     if lead:
+                        if is_disambiguation_page(best.title, lead):
+                            lead = salvage_disambiguation_lead(lead)
+                            salvaged_disambiguation = True
+                            if not lead:
+                                return AdapterResult(
+                                    output_text="", success=False, error="no local article found",
+                                )
                         section_dicts = [
                             {"title": section.title, "paragraph": section.paragraph}
                             for section in sections
@@ -231,6 +252,7 @@ async def _zim_source(
                         data["lead"] = lead
                         data["extract"] = lead
                         data["sections"] = section_dicts
+                        output_text = lead
                         if structured_markdown:
                             data["structured_markdown"] = structured_markdown
             except Exception:  # noqa: BLE001 - article parse must never break the turn
@@ -238,7 +260,7 @@ async def _zim_source(
         if media:
             data["media"] = media
         return AdapterResult(
-            output_text=best.snippet,
+            output_text=output_text,
             success=True,
             source_url=best.url,
             source_title=f"{best.source_label} (offline)",
