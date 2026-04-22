@@ -180,6 +180,18 @@ interface SessionSummary {
   created_at?: string;
 }
 
+interface CompletedAssistantPayload {
+  finalText: string;
+  pipeline: PipelineState;
+  envelope?: ResponseEnvelope;
+  sources: SourceInfo[];
+  media: MediaCard[];
+  confirmations: SilentConfirmation[];
+  clarification?: string;
+  mentionedPeople: MentionedPerson[];
+  messageId?: number;
+}
+
 const INITIAL_PIPELINE: PipelineState = {
   phase: 'idle',
   activity: '',
@@ -194,6 +206,40 @@ const INITIAL_PIPELINE: PipelineState = {
   clarification: null,
   renderTimings: {},
 };
+
+function buildCompletedAssistantPayload(
+  pipeline: PipelineState,
+  envelope: ResponseEnvelope | undefined,
+): CompletedAssistantPayload {
+  const finalText =
+    pipeline.synthesis?.response?.trim() ||
+    pipeline.streamingResponse?.trim() ||
+    '⚠️ No response received. Check the backend log — Ollama may have errored.';
+  const completedPipeline: PipelineState = {
+    ...pipeline,
+    phase: 'completed' as PipelineState['phase'],
+  };
+  const finalEnvelope = envelope
+    ? {
+        ...envelope,
+        status: envelope.status === 'streaming' ? 'complete' : envelope.status,
+      }
+    : undefined;
+  return {
+    finalText,
+    pipeline: completedPipeline,
+    envelope: finalEnvelope,
+    sources: pipeline.synthesis?.sources ?? [],
+    media: pipeline.synthesis?.media ?? [],
+    confirmations: pipeline.confirmations,
+    clarification: pipeline.clarification ?? undefined,
+    mentionedPeople:
+      ((pipeline.synthesis as SynthesisData & {
+        mentioned_people?: MentionedPerson[];
+      } | null)?.mentioned_people) ?? [],
+    messageId: pipeline.synthesis?.assistant_message_id as number | undefined,
+  };
+}
 
 function buildPipelineStateFromDb(m: DbSessionMessage): PipelineState | undefined {
   if (!m.phase_latencies) return undefined;
@@ -773,6 +819,73 @@ const ChatPage: React.FC = () => {
     });
   }, []);
 
+  const commitCompletedAssistantMessage = useCallback(
+    (
+      payload: CompletedAssistantPayload,
+      inProgressIndex: number | null,
+      turnBelongsToCurrentView: boolean,
+    ) => {
+      if (turnBelongsToCurrentView) {
+        setMessages((msgs) => {
+          if (inProgressIndex != null) {
+            const next = msgs.map((message, index) =>
+              index === inProgressIndex
+                ? {
+                    ...message,
+                    role: 'assistant' as const,
+                    content: payload.finalText,
+                    sources: payload.sources,
+                    media: payload.media,
+                    pipeline: payload.pipeline,
+                    confirmations: payload.confirmations,
+                    clarification: payload.clarification,
+                    mentionedPeople: payload.mentionedPeople,
+                    messageId: payload.messageId,
+                    envelope: payload.envelope,
+                  }
+                : message,
+            );
+            const spoken =
+              resolveSpokenText(payload.envelope) ||
+              payload.pipeline.synthesis?.spoken_text?.trim() ||
+              payload.finalText;
+            tts.speak(`msg-${inProgressIndex}`, spoken);
+            return next;
+          }
+          const next = [
+            ...msgs,
+            {
+              role: 'assistant' as const,
+              content: payload.finalText,
+              timestamp: createMessageTimestamp(),
+              sources: payload.sources,
+              media: payload.media,
+              pipeline: payload.pipeline,
+              confirmations: payload.confirmations,
+              clarification: payload.clarification,
+              mentionedPeople: payload.mentionedPeople,
+              messageId: payload.messageId,
+              envelope: payload.envelope,
+            },
+          ];
+          const spoken =
+            resolveSpokenText(payload.envelope) ||
+            payload.pipeline.synthesis?.spoken_text?.trim() ||
+            payload.finalText;
+          tts.speak(`msg-${next.length - 1}`, spoken);
+          return next;
+        });
+        return;
+      }
+
+      if (inProgressIndex != null) {
+        setMessages((msgs) => msgs.filter((_, index) => index !== inProgressIndex));
+      }
+      tts.bargeIn();
+    },
+    [tts],
+  );
+
   const handleSend = async () => {
     if (!input.trim() || isProcessing) return;
     if (!connectivity.backendReachable) {
@@ -841,65 +954,21 @@ const ChatPage: React.FC = () => {
       const finalUiSession = currentSessionIdRef.current;
       const turnBelongsToCurrentView =
         !finalTurnSession || !finalUiSession || String(finalUiSession) === finalTurnSession;
+      const liveEnvelope = envelopeRef.current;
+      const inProgressIndex = inProgressMessageIndexRef.current;
+      envelopeRef.current = undefined;
+      setLiveEnvelope(undefined);
 
       setPipeline(prev => {
-        // Always emit a message at the end of a turn, even if synthesis
-        // returned empty or errored. Falls back to whatever streamed in,
-        // or a clear "no response" placeholder so the UI never looks stuck.
-        const finalText =
-          prev.synthesis?.response?.trim() ||
-          prev.streamingResponse?.trim() ||
-          '⚠️ No response received. Check the backend log — Ollama may have errored.';
-        const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
-        // Chunk 10: the envelope for THIS turn came in through
-        // ``envelopeRef`` during the SSE stream. Attach it to the
-        // message so MessageItem can render via the block registry.
-        // Fast-lane turns finish with ``envelopeRef.current === undefined``
-        // — MessageItem falls back to the client-derived block shape.
-        const liveEnvelope = envelopeRef.current;
-        envelopeRef.current = undefined;
-        setLiveEnvelope(undefined);
-        const inProgressIndex = inProgressMessageIndexRef.current;
+        const completed = buildCompletedAssistantPayload(prev, liveEnvelope);
+        commitCompletedAssistantMessage(
+          completed,
+          inProgressIndex,
+          turnBelongsToCurrentView,
+        );
         if (turnBelongsToCurrentView) {
-          setMessages(msgs => {
-            if (inProgressIndex != null) {
-              return msgs;
-            }
-            const next = [...msgs, {
-              role: 'assistant' as const,
-              content: finalText,
-              timestamp: createMessageTimestamp(),
-              sources: prev.synthesis?.sources ?? [],
-              media: prev.synthesis?.media ?? [],
-              pipeline: completedPipeline,
-              confirmations: prev.confirmations,
-              clarification: prev.clarification ?? undefined,
-              mentionedPeople: ((prev.synthesis as SynthesisData & { mentioned_people?: MentionedPerson[] } | null)?.mentioned_people) ?? [],
-              messageId: (prev.synthesis?.assistant_message_id as number | undefined),
-              envelope: liveEnvelope,
-            }];
-            // Chunk 16: authoritative TTS input is the envelope's
-            // ``spoken_text`` (emitted from the same synthesis JSON call
-            // as the visual summary — design §20.3). Falls back to the
-            // trimmed summary when the synthesizer didn't produce a
-            // dedicated spoken form. Snapshot semantics (§20.4):
-            // ``tts.speak`` is idempotent per messageKey — block patches
-            // arriving after this point update the visual only.
-            const spoken =
-              resolveSpokenText(liveEnvelope) ||
-              prev.synthesis?.spoken_text?.trim() ||
-              finalText;
-            tts.speak(`msg-${next.length - 1}`, spoken);
-            return next;
-          });
           return { ...prev, phase: 'idle' };
         }
-        // User switched sessions mid-flight — silence TTS for the
-        // stale turn and reset the pipeline without emitting a message.
-        if (inProgressIndex != null) {
-          setMessages((msgs) => msgs.filter((_, index) => index !== inProgressIndex));
-        }
-        tts.bargeIn();
         return { ...INITIAL_PIPELINE };
       });
       // Nudge the sidebar to refetch sessions + titles. The backend
@@ -954,6 +1023,7 @@ const ChatPage: React.FC = () => {
       setIsProcessing(true);
       envelopeRef.current = undefined;
       setLiveEnvelope(undefined);
+      inProgressMessageIndexRef.current = null;
       inflightTurnSessionRef.current = currentSessionId ?? null;
       setPipeline({
         ...INITIAL_PIPELINE,
@@ -977,41 +1047,18 @@ const ChatPage: React.FC = () => {
           const finalUiSession = currentSessionIdRef.current;
           const belongsToCurrentView =
             !finalTurnSession || !finalUiSession || String(finalUiSession) === finalTurnSession;
+          const liveEnvelope = envelopeRef.current;
+          const inProgressIndex = inProgressMessageIndexRef.current;
+          envelopeRef.current = undefined;
+          setLiveEnvelope(undefined);
           setPipeline(prev => {
-            const finalText =
-              prev.synthesis?.response?.trim() ||
-              prev.streamingResponse?.trim() ||
-              '⚠️ No response received.';
-            const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
-            const liveEnvelope = envelopeRef.current;
-            envelopeRef.current = undefined;
-            setLiveEnvelope(undefined);
-            if (!belongsToCurrentView) {
-              tts.bargeIn();
-              return { ...INITIAL_PIPELINE };
-            }
-            setMessages(msgs => {
-              const next = [...msgs, {
-                role: 'assistant' as const,
-                content: finalText,
-                timestamp: createMessageTimestamp(),
-                sources: prev.synthesis?.sources ?? [],
-                media: prev.synthesis?.media ?? [],
-                pipeline: completedPipeline,
-                confirmations: prev.confirmations,
-                clarification: prev.clarification ?? undefined,
-                mentionedPeople: ((prev.synthesis as SynthesisData & { mentioned_people?: MentionedPerson[] } | null)?.mentioned_people) ?? [],
-                messageId: (prev.synthesis?.assistant_message_id as number | undefined),
-                envelope: liveEnvelope,
-              }];
-              const spoken =
-                resolveSpokenText(liveEnvelope) ||
-                prev.synthesis?.spoken_text?.trim() ||
-                finalText;
-              tts.speak(`msg-${next.length - 1}`, spoken);
-              return next;
-            });
-            return { ...prev, phase: 'idle' };
+            const completed = buildCompletedAssistantPayload(prev, liveEnvelope);
+            commitCompletedAssistantMessage(
+              completed,
+              inProgressIndex,
+              belongsToCurrentView,
+            );
+            return belongsToCurrentView ? { ...prev, phase: 'idle' } : { ...INITIAL_PIPELINE };
           });
           setDataVersion((v) => v + 1);
         })
@@ -1031,10 +1078,11 @@ const ChatPage: React.FC = () => {
         })
         .finally(() => {
           inflightTurnSessionRef.current = undefined;
+          inProgressMessageIndexRef.current = null;
           setIsProcessing(false);
         });
     }, 0);
-  }, [messages, handleEvent, currentSessionId, activeProjectId, tts, modeToggle, activeWorkspaceId]);
+  }, [messages, handleEvent, currentSessionId, activeProjectId, modeToggle, activeWorkspaceId, commitCompletedAssistantMessage]);
 
   const handleNewSession = (projectId?: number) => {
     setMessages([]);
