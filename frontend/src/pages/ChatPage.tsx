@@ -24,6 +24,7 @@ import {
   findInChat,
   deleteWorkspace,
   sendChatMessage,
+  getSettings,
   getSessionMessages,
   getProjects,
   getSessions,
@@ -332,6 +333,7 @@ const ChatPage: React.FC = () => {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | undefined>();
   const [isWorkspaceEditorOpen, setIsWorkspaceEditorOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
+  const [streamingVoiceEnabled, setStreamingVoiceEnabled] = useState(false);
   const tts = useTTSState();
   useAuth();
   const connectivity = useConnectivityStatus();
@@ -402,7 +404,7 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [streamingVoiceEnabled]);
   // Transient shock pose, triggered by clicking the avatar. Auto-clears
   // on a timer so the character returns to whatever ambient state the
   // pipeline/idle logic would otherwise produce.
@@ -656,6 +658,24 @@ const ChatPage: React.FC = () => {
     };
   }, [currentSessionId, dataVersion]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void getSettings()
+      .then((settings) => {
+        if (!cancelled) {
+          setStreamingVoiceEnabled(Boolean(settings.streaming_enabled));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStreamingVoiceEnabled(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataVersion]);
+
   const handleSaveProject = async (data: ProjectInput) => {
     if (!activeProject) return;
     await updateProject(activeProject.id, data);
@@ -702,6 +722,10 @@ const ChatPage: React.FC = () => {
       if (event.phase === RESPONSE_INIT && inProgressMessageIndexRef.current == null) {
         setMessages((msgs) => {
           const nextIndex = msgs.length;
+          const messageKey = `msg-${nextIndex}`;
+          ttsController.beginStreamingTurn(messageKey, {
+            enabled: streamingVoiceEnabled,
+          });
           inProgressMessageIndexRef.current = nextIndex;
           return [
             ...msgs,
@@ -742,6 +766,16 @@ const ChatPage: React.FC = () => {
       // itself lives in tts.ts (≥3 s gate + ≤1 utterance per phase);
       // we just pass the phrase through when a ``status`` block patch
       // lands. Non-status patches are ignored for speech purposes.
+      if (
+        event.phase === BLOCK_PATCH &&
+        typeof event.data?.block_id === 'string' &&
+        event.data.block_id === 'summary' &&
+        typeof event.data?.delta === 'string' &&
+        inProgressMessageIndexRef.current != null
+      ) {
+        const messageKey = `msg-${inProgressMessageIndexRef.current}`;
+        ttsController.pushStreamingDelta(messageKey, event.data.delta as string);
+      }
       if (
         event.phase === BLOCK_PATCH &&
         typeof event.data?.block_id === 'string' &&
@@ -868,6 +902,7 @@ const ChatPage: React.FC = () => {
               resolveSpokenText(payload.envelope) ||
               payload.pipeline.synthesis?.spoken_text?.trim() ||
               payload.finalText;
+            ttsController.endStreamingTurn(`msg-${inProgressIndex}`, spoken);
             tts.speak(`msg-${inProgressIndex}`, spoken);
             return next;
           }
@@ -891,6 +926,7 @@ const ChatPage: React.FC = () => {
             resolveSpokenText(payload.envelope) ||
             payload.pipeline.synthesis?.spoken_text?.trim() ||
             payload.finalText;
+          ttsController.endStreamingTurn(`msg-${next.length - 1}`, spoken);
           tts.speak(`msg-${next.length - 1}`, spoken);
           return next;
         });
@@ -968,7 +1004,7 @@ const ChatPage: React.FC = () => {
     // Chunk 16 (folds chunk 15 deferral #4): arm the status-phrase
     // throttle clock. Any ``status`` block patch that lands before
     // >3 s of wall-clock has elapsed is silently skipped for TTS.
-    ttsController.resetStatusThrottle();
+    ttsController.resetTurnFlags(`msg-${messages.length + 1}`);
     setPipeline({
       ...INITIAL_PIPELINE,
       phase: 'augmentation',
@@ -1102,6 +1138,7 @@ const ChatPage: React.FC = () => {
       isAttachedRef.current = true;
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      ttsController.resetTurnFlags(`msg-${messageIndex}`);
       setPipeline({
         ...INITIAL_PIPELINE,
         phase: 'augmentation',

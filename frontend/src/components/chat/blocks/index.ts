@@ -43,6 +43,7 @@ export interface MentionedPerson {
 }
 
 export interface BlockContextValue {
+  messageKey?: string;
   /** Whole-turn sources. ``SummaryBlock`` uses this to resolve
    *  ``[src:N]`` markers inline. */
   sources: SourceInfo[];
@@ -68,6 +69,7 @@ export interface BlockContextValue {
 }
 
 const BlockContext = createContext<BlockContextValue>({
+  messageKey: undefined,
   sources: [],
   mentionedPeople: [],
   onOpenSources: undefined,
@@ -82,6 +84,7 @@ interface BlockContextProviderProps extends BlockContextValue {
 }
 
 export const BlockContextProvider: React.FC<BlockContextProviderProps> = ({
+  messageKey,
   sources,
   mentionedPeople,
   onOpenSources,
@@ -95,6 +98,7 @@ export const BlockContextProvider: React.FC<BlockContextProviderProps> = ({
     BlockContext.Provider,
     {
       value: {
+        messageKey,
         sources,
         mentionedPeople,
         onOpenSources,

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 const apiMocks = vi.hoisted(() => ({
   sendChatMessage: vi.fn(),
+  getSettings: vi.fn(),
   getSessionMessages: vi.fn(),
   getProjects: vi.fn(),
   getSessions: vi.fn(),
@@ -21,7 +22,11 @@ const apiMocks = vi.hoisted(() => ({
 const ttsMocks = vi.hoisted(() => ({
   speak: vi.fn(),
   bargeIn: vi.fn(),
-  resetStatusThrottle: vi.fn(),
+  beginStreamingTurn: vi.fn(),
+  pushStreamingDelta: vi.fn(),
+  endStreamingTurn: vi.fn(),
+  resetTurnFlags: vi.fn(),
+  updateVisualCursor: vi.fn(),
   speakStatus: vi.fn(),
 }));
 
@@ -30,6 +35,7 @@ vi.mock('../../lib/api', async () => {
   return {
     ...actual,
     sendChatMessage: apiMocks.sendChatMessage,
+    getSettings: apiMocks.getSettings,
     getSessionMessages: apiMocks.getSessionMessages,
     getProjects: apiMocks.getProjects,
     getSessions: apiMocks.getSessions,
@@ -52,7 +58,11 @@ vi.mock('../../utils/tts', () => ({
     '',
   ttsController: {
     bargeIn: ttsMocks.bargeIn,
-    resetStatusThrottle: ttsMocks.resetStatusThrottle,
+    beginStreamingTurn: ttsMocks.beginStreamingTurn,
+    pushStreamingDelta: ttsMocks.pushStreamingDelta,
+    endStreamingTurn: ttsMocks.endStreamingTurn,
+    resetTurnFlags: ttsMocks.resetTurnFlags,
+    updateVisualCursor: ttsMocks.updateVisualCursor,
     speakStatus: ttsMocks.speakStatus,
   },
   useTTSState: () => ({
@@ -251,6 +261,7 @@ function responseDone() {
 
 beforeEach(() => {
   apiMocks.getProjects.mockResolvedValue({ projects: [] });
+  apiMocks.getSettings.mockResolvedValue({ streaming_enabled: true });
   apiMocks.getSessions.mockResolvedValue({
     details: [
       { id: 1, title: 'Session 1' },
@@ -273,7 +284,11 @@ beforeEach(() => {
   apiMocks.sendChatMessage.mockReset();
   ttsMocks.speak.mockReset();
   ttsMocks.bargeIn.mockReset();
-  ttsMocks.resetStatusThrottle.mockReset();
+  ttsMocks.beginStreamingTurn.mockReset();
+  ttsMocks.pushStreamingDelta.mockReset();
+  ttsMocks.endStreamingTurn.mockReset();
+  ttsMocks.resetTurnFlags.mockReset();
+  ttsMocks.updateVisualCursor.mockReset();
   ttsMocks.speakStatus.mockReset();
   ttsMocks.speakStatus.mockResolvedValue(false);
 });
@@ -297,6 +312,7 @@ describe('ChatPage streaming inline', () => {
     );
 
     renderPage();
+    await waitFor(() => expect(apiMocks.getSettings).toHaveBeenCalled());
 
     fireEvent.change(screen.getByPlaceholderText(/ask anything/i), {
       target: { value: 'Tell me about Luke' },
@@ -309,12 +325,17 @@ describe('ChatPage streaming inline', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('message-bubble')).toHaveLength(2);
     });
+    expect(ttsMocks.beginStreamingTurn).toHaveBeenCalledWith(
+      'msg-1',
+      expect.objectContaining({ enabled: expect.any(Boolean) }),
+    );
 
     emit!(patch('Luke', 1));
     await waitFor(() => {
       expect(screen.getByText(/^Luke$/)).toBeTruthy();
       expect(screen.getAllByTestId('message-bubble')).toHaveLength(2);
     });
+    expect(ttsMocks.pushStreamingDelta).toHaveBeenCalledWith('msg-1', 'Luke');
 
     emit!(patch(' Skywalker', 2));
     await waitFor(() => {
@@ -332,6 +353,7 @@ describe('ChatPage streaming inline', () => {
       expect(screen.getAllByTestId('message-bubble')).toHaveLength(2);
       expect(ttsMocks.speak).toHaveBeenCalledTimes(1);
     });
+    expect(ttsMocks.endStreamingTurn).toHaveBeenCalledWith('msg-1', 'Luke Skywalker');
     expect(ttsMocks.speak).toHaveBeenCalledWith('msg-1', 'Luke Skywalker');
   });
 

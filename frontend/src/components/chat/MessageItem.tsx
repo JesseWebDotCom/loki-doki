@@ -363,9 +363,10 @@ const MessageItem: React.FC<MessageProps> = ({
                 {envelope?.document_mode ? (
                   <DocumentChip mode={envelope.document_mode} />
                 ) : null}
-                <BlockContextProvider
-                  sources={effectiveSources}
-                  mentionedPeople={mentionedPeople}
+        <BlockContextProvider
+          messageKey={myKey}
+          sources={effectiveSources}
+          mentionedPeople={mentionedPeople}
                   onOpenSources={onOpenSources}
                   onFollowUp={onFollowUp}
                   artifactSurface={envelope?.artifact_surface}

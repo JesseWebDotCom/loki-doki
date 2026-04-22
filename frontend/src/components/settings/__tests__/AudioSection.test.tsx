@@ -22,6 +22,7 @@ describe("AudioSection", () => {
             piper_voice: "en_US-lessac-medium",
             stt_model: "base",
             read_aloud: true,
+            streaming_enabled: true,
             speech_rate: 1,
             sentence_pause: 0.4,
             normalize_text: true,
@@ -41,6 +42,7 @@ describe("AudioSection", () => {
 
     expect(screen.getByText("Speech Recognition")).toBeTruthy();
     expect(screen.getByText("Read responses out loud")).toBeTruthy();
+    expect(screen.getByText("Start speaking while the reply is still typing")).toBeTruthy();
     expect(
       screen.getByText("Make spoken replies easier to understand"),
     ).toBeTruthy();

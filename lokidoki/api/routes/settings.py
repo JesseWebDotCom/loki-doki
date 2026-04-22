@@ -19,6 +19,7 @@ class SettingsUpdate(BaseModel):
     piper_voice: str = "en_US-lessac-medium"
     stt_model: str = "base"
     read_aloud: bool = True
+    streaming_enabled: bool = True
     speech_rate: float = 1.0
     sentence_pause: float = 0.4
     normalize_text: bool = True

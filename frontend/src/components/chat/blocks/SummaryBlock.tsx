@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 
 import type { Block } from "../../../lib/response-types";
 import { stabilizeStreamingMarkdown } from "../../../utils/markdownStabilizer";
+import { ttsController } from "../../../utils/tts";
 import SourceChip from "../SourceChip";
 import BlockShell from "./BlockShell";
 import { useBlockContext } from "./index";
@@ -39,8 +40,22 @@ function preprocessContent(content: string): string {
   return processed;
 }
 
+function measureRenderedChars(content: string): number {
+  return content
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(?=\S)([^*_]+?)(?<=\S)\1/g, "$2")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s*(?:[-*+]\s+|\d+\.\s+)/gm, "")
+    .replace(/\s+/g, " ")
+    .trim().length;
+}
+
 const SummaryBlock: React.FC<{ block: Block }> = ({ block }) => {
-  const { sources, mentionedPeople, envelopeStatus } = useBlockContext();
+  const { messageKey, sources, mentionedPeople, envelopeStatus } = useBlockContext();
   const content = block.content ?? "";
   const markdownSource =
     envelopeStatus === "streaming" && block.state !== "ready"
@@ -52,6 +67,11 @@ const SummaryBlock: React.FC<{ block: Block }> = ({ block }) => {
     envelopeStatus === "streaming" &&
     block.state !== "ready" &&
     shouldRenderContent;
+
+  useEffect(() => {
+    if (!messageKey) return;
+    ttsController.updateVisualCursor(messageKey, measureRenderedChars(processed));
+  }, [messageKey, processed]);
 
   if (!shouldRenderContent) {
     return (

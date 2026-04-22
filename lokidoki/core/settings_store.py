@@ -5,9 +5,15 @@ import os
 from copy import deepcopy
 
 from lokidoki.core.relationship_aliases import DEFAULT_RELATIONSHIP_ALIASES
+from lokidoki.core.platform import detect_profile
 
 
 SETTINGS_FILE = "data/settings.json"
+
+def _default_streaming_enabled() -> bool:
+    profile = detect_profile()
+    return profile in {"mac", "pi_hailo"}
+
 
 DEFAULT_SETTINGS = {
     "admin_prompt": "",
@@ -15,6 +21,7 @@ DEFAULT_SETTINGS = {
     "piper_voice": "en_US-lessac-medium",
     "stt_model": "base",
     "read_aloud": True,
+    "streaming_enabled": _default_streaming_enabled(),
     "speech_rate": 1.0,
     "sentence_pause": 0.4,
     "normalize_text": True,

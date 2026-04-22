@@ -19,6 +19,7 @@ export interface TimelineEvent {
 
 export type VoiceStreamOptions = {
   voiceId?: string;
+  utteranceId?: string;
   speechRate?: number;
   sentencePause?: number;
   normalizeText?: boolean;
@@ -72,6 +73,7 @@ export class VoiceStreamer {
         body: JSON.stringify({
           text,
           voice: options.voiceId,
+          utterance_id: options.utteranceId,
           speech_rate: options.speechRate,
           sentence_pause: options.sentencePause,
           normalize_text: options.normalizeText,

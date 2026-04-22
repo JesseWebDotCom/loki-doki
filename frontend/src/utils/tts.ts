@@ -22,6 +22,11 @@
  */
 import { useEffect, useState } from 'react';
 import { VoiceStreamer } from './VoiceStreamer';
+import {
+  createSentenceChunker,
+  type SentenceChunker,
+  type Utterance,
+} from './sentenceChunker';
 import type { Block, ResponseEnvelope } from '../lib/response-types';
 
 const MUTE_KEY = 'lokidoki.tts.muted';
@@ -32,6 +37,41 @@ const MUTE_KEY = 'lokidoki.tts.muted';
 // thresholds match the design-doc §22 ("a short burst of status is
 // fine; constant narration is not") and the planner's throttle note.
 export const STATUS_THROTTLE_DELAY_MS = 3_000;
+
+interface StreamingTurnOptions {
+  enabled?: boolean;
+}
+
+interface StreamingUtterance {
+  id: string;
+  index: number;
+  text: string;
+  spokenText: string;
+  startChar: number;
+  endChar: number;
+  startOffset: number;
+  abortController: AbortController;
+}
+
+interface StreamingTurnState {
+  messageKey: string;
+  enabled: boolean;
+  turnCancelled: boolean;
+  chunker: SentenceChunker;
+  utterances: StreamingUtterance[];
+  nextCharStart: number;
+  visualCursorChars: number;
+  processingPromise: Promise<void> | null;
+  finalizationPromise: Promise<void> | null;
+  finalText: string;
+  streamingFailed: boolean;
+  streamingAudioActive: boolean;
+  spokenNormalized: string;
+}
+
+function normalizeStreamingText(text: string): string {
+  return stripMarkdownForSpeech(text).replace(/\s+/g, ' ').trim();
+}
 
 /**
  * Strip markdown so Piper doesn't literally pronounce "asterisk" around
@@ -148,6 +188,9 @@ class TTSController {
     try { return localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; }
   })();
   private listeners = new Set<Listener>();
+  private currentTurnMessageKey: string | null = null;
+  private streamingTurns = new Map<string, StreamingTurnState>();
+  private pendingStreamRequests = new Map<string, AbortController>();
 
   /**
    * Chunk 16 snapshot semantics. A ``messageKey`` is speak-eligible
@@ -193,6 +236,70 @@ class TTSController {
   speakingMessageKey() { return this.speakingKey; }
   pendingMessageKey() { return this.pendingKey; }
   spokenText() { return this.currentSpokenText; }
+  isStreamingEnabled(messageKey?: string | null) {
+    if (!messageKey) return false;
+    return this.streamingTurns.get(messageKey)?.enabled ?? false;
+  }
+
+  resetTurnFlags(messageKey: string) {
+    this.currentTurnMessageKey = messageKey;
+    const existing = this.streamingTurns.get(messageKey);
+    if (existing) {
+      existing.turnCancelled = false;
+      existing.streamingAudioActive = false;
+      existing.visualCursorChars = 0;
+    }
+    this.resetStatusThrottle();
+  }
+
+  beginStreamingTurn(
+    messageKey: string,
+    options: StreamingTurnOptions = {},
+  ) {
+    this.currentTurnMessageKey = messageKey;
+    this.streamingTurns.set(messageKey, {
+      messageKey,
+      enabled: options.enabled !== false,
+      turnCancelled: false,
+      chunker: createSentenceChunker(),
+      utterances: [],
+      nextCharStart: 0,
+      visualCursorChars: 0,
+      processingPromise: null,
+      finalizationPromise: null,
+      finalText: '',
+      streamingFailed: false,
+      streamingAudioActive: false,
+      spokenNormalized: '',
+    });
+  }
+
+  pushStreamingDelta(messageKey: string, delta: string) {
+    const turn = this.streamingTurns.get(messageKey);
+    if (!turn || !turn.enabled || turn.turnCancelled || !delta.trim()) {
+      return;
+    }
+    const utterances = turn.chunker.push(delta);
+    this.enqueueStreamingUtterances(turn, utterances);
+  }
+
+  endStreamingTurn(messageKey: string, finalText: string) {
+    const turn = this.streamingTurns.get(messageKey);
+    if (!turn || !turn.enabled || turn.turnCancelled) {
+      return;
+    }
+    turn.finalText = finalText;
+    const trailing = turn.chunker.flush();
+    this.enqueueStreamingUtterances(turn, trailing);
+  }
+
+  updateVisualCursor(messageKey: string, visualCursorChars: number) {
+    const turn = this.streamingTurns.get(messageKey);
+    if (!turn || turn.turnCancelled) {
+      return;
+    }
+    turn.visualCursorChars = Math.max(0, visualCursorChars);
+  }
 
   /**
    * Barge-in — cancel the current utterance immediately. Must fire
@@ -203,7 +310,22 @@ class TTSController {
    * ``block_failed`` event on the summary block.
    */
   bargeIn() {
-    if (!this.speakingKey && !this.pendingKey && !this.abort) return;
+    if (
+      !this.speakingKey &&
+      !this.pendingKey &&
+      !this.abort &&
+      this.pendingStreamRequests.size === 0 &&
+      this.streamingTurns.size === 0
+    ) return;
+
+    this.pendingStreamRequests.forEach((controller) => controller.abort());
+    this.pendingStreamRequests.clear();
+    this.streamingTurns.forEach((turn) => {
+      turn.turnCancelled = true;
+      turn.streamingAudioActive = false;
+      turn.utterances = [];
+      turn.visualCursorChars = 0;
+    });
     this.stop();
   }
 
@@ -232,6 +354,13 @@ class TTSController {
     if (this.muted || !phrase.trim()) return false;
     if (!this.statusThrottle.turnStartedAt) return false;
     if (this.statusThrottle.spokenPhases.has(phaseKey)) return false;
+    const currentTurn = this.currentTurnMessageKey
+      ? this.streamingTurns.get(this.currentTurnMessageKey)
+      : undefined;
+    if (currentTurn?.streamingAudioActive) {
+      console.debug('[tts] suppressing status audio while streaming voice is active');
+      return false;
+    }
     const elapsed = Date.now() - this.statusThrottle.turnStartedAt;
     if (elapsed < STATUS_THROTTLE_DELAY_MS) return false;
     this.statusThrottle.spokenPhases.add(phaseKey);
@@ -247,6 +376,11 @@ class TTSController {
   async speak(messageKey: string, text: string) {
     if (this.spokenForKey.has(messageKey)) return;
     this.spokenForKey.add(messageKey);
+    const streamingTurn = this.streamingTurns.get(messageKey);
+    if (streamingTurn && streamingTurn.enabled && !streamingTurn.turnCancelled) {
+      await this.finalizeStreamingTurn(messageKey, text);
+      return;
+    }
     await this.speakNow(messageKey, text);
   }
 
@@ -304,6 +438,139 @@ class TTSController {
       this.emit();
     }
   }
+
+  private enqueueStreamingUtterances(
+    turn: StreamingTurnState,
+    utterances: Utterance[],
+  ) {
+    if (utterances.length === 0) {
+      return;
+    }
+    for (const utterance of utterances) {
+      const normalized = normalizeStreamingText(utterance.spokenText);
+      if (!normalized) {
+        continue;
+      }
+      const startChar = turn.nextCharStart;
+      const endChar = startChar + normalized.length;
+      turn.utterances.push({
+        id: `${turn.messageKey}-utt-${utterance.index}`,
+        index: utterance.index,
+        text: utterance.text,
+        spokenText: utterance.spokenText,
+        startChar,
+        endChar,
+        startOffset: turn.utterances.length,
+        abortController: new AbortController(),
+      });
+      turn.nextCharStart = endChar + 1;
+      turn.streamingAudioActive = true;
+    }
+    if (!turn.processingPromise) {
+      turn.processingPromise = this.processStreamingQueue(turn.messageKey).finally(() => {
+        const latest = this.streamingTurns.get(turn.messageKey);
+        if (latest) {
+          latest.processingPromise = null;
+        }
+      });
+    }
+  }
+
+  private async processStreamingQueue(messageKey: string) {
+    const turn = this.streamingTurns.get(messageKey);
+    if (!turn || turn.turnCancelled || this.muted) {
+      return;
+    }
+
+    while (turn.utterances.length > 0) {
+      const utterance = turn.utterances[0];
+      const gateChar = Math.max(0, utterance.startChar - 1);
+      await this.waitForVisualCursor(turn, gateChar);
+      if (turn.turnCancelled) {
+        return;
+      }
+
+      const controller = utterance.abortController;
+      this.pendingStreamRequests.set(utterance.id, controller);
+      this.abort = controller;
+      this.pendingKey = messageKey;
+      this.emit();
+
+      try {
+        await this.streamer.stream(utterance.spokenText, {
+          signal: controller.signal,
+          utteranceId: utterance.id,
+          onPlaybackStart: () => {
+            this.pendingKey = null;
+            this.speakingKey = messageKey;
+            this.emit();
+          },
+        });
+        const normalized = normalizeStreamingText(utterance.spokenText);
+        turn.spokenNormalized = turn.spokenNormalized
+          ? `${turn.spokenNormalized} ${normalized}`.trim()
+          : normalized;
+      } catch (err) {
+        if ((err as DOMException)?.name !== 'AbortError') {
+          console.error('[tts] streaming utterance failed', err);
+          turn.streamingFailed = true;
+        }
+        return;
+      } finally {
+        this.pendingStreamRequests.delete(utterance.id);
+        if (this.abort === controller) {
+          this.abort = null;
+        }
+        turn.utterances.shift();
+      }
+    }
+  }
+
+  private async waitForVisualCursor(turn: StreamingTurnState, minimumChars: number) {
+    if (minimumChars <= 0) {
+      return;
+    }
+    while (!turn.turnCancelled && turn.visualCursorChars < minimumChars) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+  }
+
+  private async finalizeStreamingTurn(messageKey: string, text: string) {
+    const turn = this.streamingTurns.get(messageKey);
+    if (!turn) {
+      await this.speakNow(messageKey, text);
+      return;
+    }
+    if (turn.finalizationPromise) {
+      await turn.finalizationPromise;
+      return;
+    }
+
+    turn.finalizationPromise = (async () => {
+      await turn.processingPromise;
+      if (turn.turnCancelled) {
+        this.streamingTurns.delete(messageKey);
+        return;
+      }
+
+      const finalNormalized = normalizeStreamingText(turn.finalText || text);
+      const spokenNormalized = turn.spokenNormalized.trim();
+      let remaining = '';
+      if (finalNormalized && spokenNormalized && finalNormalized.startsWith(spokenNormalized)) {
+        remaining = finalNormalized.slice(spokenNormalized.length).trim();
+      } else if (finalNormalized !== spokenNormalized) {
+        remaining = finalNormalized;
+      }
+
+      this.streamingTurns.delete(messageKey);
+      if (!remaining) {
+        return;
+      }
+      await this.speakNow(messageKey, remaining, { skipSnapshotGuard: true });
+    })();
+
+    await turn.finalizationPromise;
+  }
 }
 
 export const ttsController = new TTSController();
@@ -326,6 +593,13 @@ export function useTTSState() {
     bargeIn: () => ttsController.bargeIn(),
     clearSpokenForKey: (key: string) => ttsController.clearSpokenForKey(key),
     resetStatusThrottle: () => ttsController.resetStatusThrottle(),
+    beginStreamingTurn: (key: string, options?: StreamingTurnOptions) =>
+      ttsController.beginStreamingTurn(key, options),
+    pushStreamingDelta: (key: string, delta: string) =>
+      ttsController.pushStreamingDelta(key, delta),
+    endStreamingTurn: (key: string, text: string) =>
+      ttsController.endStreamingTurn(key, text),
+    resetTurnFlags: (key: string) => ttsController.resetTurnFlags(key),
     speakStatus: (phase: string, phrase: string) =>
       ttsController.speakStatus(phase, phrase),
     subscribeViseme: (fn: (v: string) => void) =>

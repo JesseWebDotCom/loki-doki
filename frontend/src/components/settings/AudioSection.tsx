@@ -172,6 +172,23 @@ const AudioSection: React.FC = () => {
           <label className="flex items-center gap-3 p-4 rounded-xl bg-card/50 border border-border/30 cursor-pointer hover:border-border/60 transition-all">
             <input
               type="checkbox"
+              checked={settings.streaming_enabled}
+              onChange={(e) =>
+                setSettings({ ...settings, streaming_enabled: e.target.checked })
+              }
+              className="w-4 h-4 rounded border-border accent-primary"
+            />
+            <div>
+              <div className="text-sm font-bold">Start speaking while the reply is still typing</div>
+              <div className="text-xs text-muted-foreground">
+                Streams voice sentence-by-sentence instead of waiting for the full reply to finish.
+              </div>
+            </div>
+          </label>
+
+          <label className="flex items-center gap-3 p-4 rounded-xl bg-card/50 border border-border/30 cursor-pointer hover:border-border/60 transition-all">
+            <input
+              type="checkbox"
               checked={settings.normalize_text}
               onChange={(e) =>
                 setSettings({ ...settings, normalize_text: e.target.checked })

@@ -73,6 +73,12 @@ function resetController() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (ttsController as any).spokenForKey.clear();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (ttsController as any).streamingTurns.clear();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (ttsController as any).pendingStreamRequests.clear();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (ttsController as any).currentTurnMessageKey = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (ttsController as any).statusThrottle.turnStartedAt = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (ttsController as any).statusThrottle.spokenPhases.clear();
@@ -296,6 +302,20 @@ describe('ttsController.speakStatus throttle', () => {
     (ttsController as any).statusThrottle.turnStartedAt =
       Date.now() - (STATUS_THROTTLE_DELAY_MS + 100);
     const ok = await ttsController.speakStatus('phase-1', 'Checking sources');
+    expect(ok).toBe(false);
+  });
+
+  it('suppresses status audio once streaming audio is active for the turn', async () => {
+    ttsController.resetTurnFlags('msg-2');
+    ttsController.beginStreamingTurn('msg-2', { enabled: true });
+    ttsController.updateVisualCursor('msg-2', 999);
+    ttsController.pushStreamingDelta('msg-2', 'Leia takes command.');
+    await Promise.resolve();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ttsController as any).statusThrottle.turnStartedAt =
+      Date.now() - (STATUS_THROTTLE_DELAY_MS + 100);
+
+    const ok = await ttsController.speakStatus('phase-3', 'Wrapping up');
     expect(ok).toBe(false);
   });
 });
