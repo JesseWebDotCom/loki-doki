@@ -1,10 +1,17 @@
 """Tests for Wikipedia HTML section parsing."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from lokidoki.skills.knowledge._parse import (
     SECTION_PARAGRAPH_CHAR_CAP,
     WikiSection,
     parse_wiki_html,
+)
+
+
+_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "wiki" / "luke_skywalker.html"
 )
 
 
@@ -81,3 +88,20 @@ def test_parse_wiki_html_soft_cuts_section_paragraphs() -> None:
     assert len(sections) == 1
     assert len(sections[0].paragraph) <= SECTION_PARAGRAPH_CHAR_CAP
     assert sections[0].paragraph.endswith((".", "!", "?"))
+
+
+def test_parse_wiki_html_fixture_keeps_real_sections() -> None:
+    html = _FIXTURE.read_text(encoding="utf-8")
+
+    lead, sections = parse_wiki_html(html)
+
+    assert "Luke Skywalker is a Jedi Knight from Tatooine" in lead
+    titles = [section.title for section in sections]
+    assert titles == [
+        "Early life",
+        "Galactic Civil War",
+        "Jedi training",
+        "Legacy",
+        "See also",
+        "References",
+    ]

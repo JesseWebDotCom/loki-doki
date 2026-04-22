@@ -32,10 +32,10 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 
 | # | Chunk | Status | Commit |
 |---|---|---|---|
-| 1 | [`_LeadExtractor` captures per-section opening paragraphs](chunk-1-extractor-per-section.md) | pending | |
-| 2 | [Knowledge skill composes structured markdown](chunk-2-knowledge-skill-markdown.md) | pending | |
-| 3 | [Auto-mode non-rich path renders stub without LLM](chunk-3-auto-mode-routing.md) | pending | |
-| 4 | [Tests — parser, Auto-mode fast-path, Rich/Deep unchanged](chunk-4-tests.md) | pending | |
+| 1 | [`_LeadExtractor` captures per-section opening paragraphs](chunk-1-extractor-per-section.md) | done | 7be164564f6b9f015fe3d30a051cb80c2e8d3697 |
+| 2 | [Knowledge skill composes structured markdown](chunk-2-knowledge-skill-markdown.md) | done | cca8c49105f588a1e2edc9fcd54a623ba8ea3e8f |
+| 3 | [Auto-mode non-rich path renders stub without LLM](chunk-3-auto-mode-routing.md) | done | working tree |
+| 4 | [Tests — parser, Auto-mode fast-path, Rich/Deep unchanged](chunk-4-tests.md) | done | working tree |
 
 ---
 
@@ -95,3 +95,5 @@ Total latency ≤ 500ms on mac, ≤ 1.5s on Pi (no LLM). Rich mode for the same 
 ## NOTE
 
 Append-only. Record cross-chunk discoveries or deferrals that change the plan.
+
+- 2026-04-22: User explicitly overrode the one-chunk-at-a-time execution rule and requested the remaining chunks be implemented in one pass. Chunk 3 and chunk 4 were completed together in the working tree without per-chunk commits, so their status rows are marked `done | working tree` until the user chooses how to commit the combined change set.

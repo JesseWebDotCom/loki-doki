@@ -22,6 +22,7 @@ from lokidoki.orchestrator.response.mode import (
     PlannerInputs,
     VALID_MODES,
     derive_response_mode,
+    should_use_structured_stub,
 )
 from lokidoki.orchestrator.response.planner import plan_initial_blocks
 
@@ -284,6 +285,100 @@ class TestDuckTypedInput:
             capability_need = "encyclopedic"
 
         assert derive_response_mode(Fake()) == "rich"
+
+
+class TestStructuredStubGate:
+    """Structured-stub fast path only fires for Auto encyclopedic lookups."""
+
+    def test_auto_encyclopedic_knowledge_hit_enables_stub(self):
+        inputs = PlannerInputs(
+            response_shape="verbatim",
+            capability_need="encyclopedic",
+            routed_capabilities=("knowledge_query",),
+        )
+        executions = [
+            type(
+                "Execution",
+                (),
+                {
+                    "capability": "knowledge_query",
+                    "success": True,
+                    "raw_result": {
+                        "data": {
+                            "lead": "Luke Skywalker is a Jedi Knight.",
+                            "structured_markdown": (
+                                "Luke Skywalker is a Jedi Knight.\n\n"
+                                "## Early life\n\n"
+                                "Luke was raised on Tatooine."
+                            ),
+                        }
+                    },
+                },
+            )(),
+        ]
+
+        assert should_use_structured_stub(
+            object(),
+            inputs,
+            executions,
+            user_override=None,
+            workspace_default=None,
+        )
+
+    def test_explicit_rich_override_disables_stub(self):
+        inputs = PlannerInputs(
+            capability_need="encyclopedic",
+            routed_capabilities=("knowledge_query",),
+        )
+        executions = [
+            type(
+                "Execution",
+                (),
+                {
+                    "capability": "knowledge_query",
+                    "success": True,
+                    "raw_result": {
+                        "data": {
+                            "lead": "Leia Organa is a leader.",
+                            "structured_markdown": "Leia Organa is a leader.",
+                        }
+                    },
+                },
+            )(),
+        ]
+
+        assert not should_use_structured_stub(
+            object(),
+            inputs,
+            executions,
+            user_override="rich",
+            workspace_default=None,
+        )
+
+    def test_missing_structured_markdown_disables_stub(self):
+        inputs = PlannerInputs(
+            capability_need="encyclopedic",
+            routed_capabilities=("knowledge_query",),
+        )
+        executions = [
+            type(
+                "Execution",
+                (),
+                {
+                    "capability": "knowledge_query",
+                    "success": True,
+                    "raw_result": {"data": {"lead": "Anakin Skywalker was a Jedi."}},
+                },
+            )(),
+        ]
+
+        assert not should_use_structured_stub(
+            object(),
+            inputs,
+            executions,
+            user_override=None,
+            workspace_default=None,
+        )
 
 
 # ---------------------------------------------------------------------------

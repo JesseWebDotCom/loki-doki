@@ -20,7 +20,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from lokidoki.skills.knowledge.skill import HEADERS, WIKI_API_URL, WikipediaSkill
+from lokidoki.skills.knowledge._parse import parse_wiki_html
+from lokidoki.skills.knowledge.skill import (
+    HEADERS,
+    WIKI_API_URL,
+    WikipediaSkill,
+    _compose_structured_markdown,
+)
 
 from lokidoki.orchestrator.skills._runner import (
     AdapterResult,
@@ -184,8 +190,30 @@ async def _zim_source(
             "title": best.title,
             "lead": best.snippet,
             "extract": best.snippet,
+            "sections": [],
             "url": best.url,
         }
+        if best.source_id.startswith("wikipedia"):
+            try:
+                html = await engine.get_article_html(best.source_id, best.path)
+                if html:
+                    lead, sections = parse_wiki_html(html)
+                    if lead:
+                        section_dicts = [
+                            {"title": section.title, "paragraph": section.paragraph}
+                            for section in sections
+                        ]
+                        structured_markdown = _compose_structured_markdown(
+                            lead,
+                            section_dicts,
+                        )
+                        data["lead"] = lead
+                        data["extract"] = lead
+                        data["sections"] = section_dicts
+                        if structured_markdown:
+                            data["structured_markdown"] = structured_markdown
+            except Exception:  # noqa: BLE001 - article parse must never break the turn
+                pass
         if media:
             data["media"] = media
         return AdapterResult(

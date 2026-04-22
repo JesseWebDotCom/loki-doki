@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import patch
 
 from lokidoki.skills.knowledge.skill import (
     WikipediaSkill,
     _STRUCTURED_MARKDOWN_CHAR_CAP,
+)
+
+
+_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "wiki" / "luke_skywalker.html"
 )
 
 
@@ -41,21 +47,7 @@ def _search_response(title: str = "Luke Skywalker") -> _MockResponse:
 
 
 def test_web_scraper_structured_markdown_includes_lead_and_sections() -> None:
-    html = """
-    <div id="mw-content-text">
-      <p>Luke Skywalker is a Jedi Knight from Tatooine.</p>
-      <h2><span class="mw-headline">Early life</span></h2>
-      <p>Luke was raised by Owen and Beru Lars.</p>
-      <h2><span class="mw-headline">Galactic Civil War</span></h2>
-      <p>Luke destroyed the first Death Star during the Battle of Yavin.</p>
-      <h2><span class="mw-headline">See also</span></h2>
-      <p>This section should be filtered.</p>
-      <h2><span class="mw-headline">Legacy</span></h2>
-      <p>Luke later helped rebuild the Jedi Order.</p>
-      <h2><span class="mw-headline">References</span></h2>
-      <p>This section should also be filtered.</p>
-    </div>
-    """
+    html = _FIXTURE.read_text(encoding="utf-8")
     skill = WikipediaSkill()
     responses = [_search_response(), _MockResponse(text=html)]
 
@@ -67,10 +59,11 @@ def test_web_scraper_structured_markdown_includes_lead_and_sections() -> None:
 
     assert result.success is True
     structured = result.data["structured_markdown"]
-    assert structured.startswith("Luke Skywalker is a Jedi Knight from Tatooine.")
+    assert structured.startswith("Luke Skywalker is a Jedi Knight from Tatooine")
     assert "## Early life" in structured
     assert "## Galactic Civil War" in structured
-    assert "## Legacy" in structured
+    assert "## Jedi training" in structured
+    assert "## Legacy" not in structured
     assert "## See also" not in structured
     assert "## References" not in structured
 

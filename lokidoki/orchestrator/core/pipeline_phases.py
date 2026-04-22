@@ -34,7 +34,11 @@ from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.execution.request_spec import build_request_spec
 from lokidoki.orchestrator.fallbacks.llm_fallback import decide_llm, llm_synthesize_async
 from lokidoki.orchestrator.media import augment_with_media
-from lokidoki.orchestrator.core.types import ConstraintResult, ExecutionResult
+from lokidoki.orchestrator.core.types import (
+    ConstraintResult,
+    ExecutionResult,
+    ResponseObject,
+)
 from lokidoki.orchestrator.pipeline.combiner import combine_request_spec
 from lokidoki.orchestrator.pipeline.derivations import derive_need_flags, extract_structured_params
 from lokidoki.orchestrator.pipeline.constraint_extractor import extract_constraints
@@ -59,6 +63,7 @@ from lokidoki.orchestrator.response.mode import (
     PlannerInputs,
     VALID_MODES,
     derive_response_mode,
+    should_use_structured_stub,
 )
 from lokidoki.orchestrator.response.artifact_trigger import should_use_artifact_mode
 from lokidoki.orchestrator.response.planner import is_offline_degraded, plan_initial_blocks
@@ -666,27 +671,48 @@ async def _run_synthesis_phase_impl(trace, safe_context, raw_text, request_spec,
     # per-skill branches.
     _apply_adapter_outputs_to_spec(request_spec, executions)
 
-    decision = decide_llm(request_spec)
-    request_spec.llm_used = decision.needed
-    request_spec.llm_reason = decision.reason
-
     finish = trace.timed("combine")
     envelope_status: str = "complete"
     response = None
     try:
-        if decision.needed:
-            response = await llm_synthesize_async(request_spec)
-
-            # Phase 1 Loop: Check for knowledge gap marker
-            if "[[NEED_SEARCH:" in response.output_text:
-                response = await _handle_knowledge_gap(
-                    trace, safe_context, raw_text, request_spec, executions, response, runtime
-                )
-
-            finish(mode="llm", reason=decision.reason, output_text=response.output_text)
+        planner_inputs = _build_planner_inputs(safe_context, executions)
+        if should_use_structured_stub(
+            request_spec,
+            planner_inputs,
+            executions,
+            user_override=safe_context.get("user_mode_override"),
+            workspace_default=safe_context.get("workspace_default_mode"),
+        ):
+            payload = _first_structured_stub_payload(executions)
+            response = ResponseObject(
+                output_text=payload["structured_markdown"],
+                spoken_text=payload["lead"],
+            )
+            request_spec.llm_used = False
+            request_spec.llm_reason = "structured_stub_fast_path"
+            finish(
+                mode="structured_stub",
+                reason="structured_stub_fast_path",
+                output_text=response.output_text,
+            )
         else:
-            response = combine_request_spec(request_spec)
-            finish(mode="deterministic", output_text=response.output_text)
+            decision = decide_llm(request_spec)
+            request_spec.llm_used = decision.needed
+            request_spec.llm_reason = decision.reason
+
+            if decision.needed:
+                response = await llm_synthesize_async(request_spec)
+
+                # Phase 1 Loop: Check for knowledge gap marker
+                if "[[NEED_SEARCH:" in response.output_text:
+                    response = await _handle_knowledge_gap(
+                        trace, safe_context, raw_text, request_spec, executions, response, runtime
+                    )
+
+                finish(mode="llm", reason=decision.reason, output_text=response.output_text)
+            else:
+                response = combine_request_spec(request_spec)
+                finish(mode="deterministic", output_text=response.output_text)
     except Exception as exc:
         envelope_status = "failed"
         _emit_synthesis_failure_events(safe_context, trace, exc)
@@ -782,6 +808,25 @@ def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> Non
             queue.put_nowait(response_events.block_ready(block.id))
 
     queue.put_nowait(response_events.response_snapshot(envelope))
+
+
+def _first_structured_stub_payload(
+    executions: list[ExecutionResult],
+) -> dict[str, str]:
+    """Return the first successful knowledge payload carrying structured markdown."""
+    for execution in executions:
+        if not execution.success:
+            continue
+        raw = execution.raw_result if isinstance(execution.raw_result, dict) else {}
+        data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+        structured = str(data.get("structured_markdown") or "").strip()
+        lead = str(data.get("lead") or "").strip()
+        if structured and lead:
+            return {
+                "structured_markdown": structured,
+                "lead": lead,
+            }
+    raise ValueError("structured stub payload requested but none was available")
 
 
 def _flush_status_transitions(

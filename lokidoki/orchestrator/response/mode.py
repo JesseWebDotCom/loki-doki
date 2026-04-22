@@ -54,6 +54,18 @@ VALID_MODES: tuple[ResponseMode, ...] = (
     "artifact",
 )
 
+_STRUCTURED_STUB_CAPABILITY_NEEDS: frozenset[str] = frozenset({
+    "encyclopedic",
+})
+
+_STRUCTURED_STUB_ROUTED_CAPABILITIES: frozenset[str] = frozenset({
+    "knowledge_query",
+    "lookup_definition",
+    "lookup_fact",
+    "lookup_person_facts",
+    "lookup_person_birthday",
+})
+
 
 # Capability names the router emits when the ask resolves to an
 # explicit "find / fetch results" path. When the user's intent lands
@@ -335,9 +347,99 @@ def _coerce_inputs(decomposition: object) -> PlannerInputs:
     )
 
 
+def should_use_structured_stub(
+    spec: object,
+    decomposition_result: object,
+    skill_results: object,
+    *,
+    user_override: ResponseMode | str | None = None,
+    workspace_default: ResponseMode | str | None = None,
+) -> bool:
+    """Return True when Auto mode can emit a structured knowledge stub directly.
+
+    This helper is intentionally narrow:
+
+    * only Auto-like turns (no explicit rich/deep/search/direct/artifact override),
+    * only encyclopedic / definitional-style decomposer output,
+    * only when a successful knowledge result already carries a non-empty
+      ``structured_markdown`` payload.
+
+    No regex or raw-user-text inspection is involved; every branch consults
+    structured decomposer / execution fields only.
+    """
+    del spec  # reserved for future request-spec fields; structure lives in args below
+    override = _normalize_override(user_override)
+    if override is not None:
+        return False
+    workspace_mode = _normalize_override(workspace_default)
+    if workspace_mode in {"rich", "deep", "search", "artifact", "direct"}:
+        return False
+
+    try:
+        inputs = _coerce_inputs(decomposition_result)
+    except Exception:  # noqa: BLE001 - mode helpers must never break a turn
+        logger.warning("should_use_structured_stub: failed to coerce inputs", exc_info=True)
+        return False
+
+    if inputs.reasoning_complexity == "thinking" and inputs.deep_opt_in:
+        return False
+    if inputs.requires_current_data or inputs.multiple_skills_fired:
+        return False
+
+    routed_stub = any(
+        cap in _STRUCTURED_STUB_ROUTED_CAPABILITIES
+        for cap in inputs.routed_capabilities
+    )
+    if (
+        inputs.capability_need not in _STRUCTURED_STUB_CAPABILITY_NEEDS
+        and not routed_stub
+    ):
+        return False
+
+    if not isinstance(skill_results, (list, tuple)):
+        return False
+    return _has_structured_stub_payload(skill_results)
+
+
+def _has_structured_stub_payload(skill_results: list[object] | tuple[object, ...]) -> bool:
+    """True when a successful knowledge execution carries structured markdown."""
+    for item in skill_results:
+        capability = str(getattr(item, "capability", "") or "")
+        if capability and capability not in _STRUCTURED_STUB_ROUTED_CAPABILITIES:
+            continue
+        success = getattr(item, "success", True)
+        if not success:
+            continue
+        payload = _structured_stub_payload(item)
+        if payload is not None:
+            return True
+    return False
+
+
+def _structured_stub_payload(item: object) -> dict[str, str] | None:
+    """Extract ``structured_markdown`` + ``lead`` from a skill/execution object."""
+    raw = getattr(item, "raw_result", None)
+    if not isinstance(raw, dict):
+        raw = getattr(item, "data", None)
+    if not isinstance(raw, dict):
+        return None
+    data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+    if not isinstance(data, dict):
+        return None
+    structured = str(data.get("structured_markdown") or "").strip()
+    lead = str(data.get("lead") or "").strip()
+    if not structured or not lead:
+        return None
+    return {
+        "structured_markdown": structured,
+        "lead": lead,
+    }
+
+
 __all__ = [
     "PlannerInputs",
     "ResponseMode",
     "VALID_MODES",
     "derive_response_mode",
+    "should_use_structured_stub",
 ]
