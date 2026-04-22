@@ -90,4 +90,8 @@ Refs docs/rich-response/PLAN.md chunk 16.
 
 ## Deferrals
 
-<!-- Append specifics here if this chunk surfaced work that belongs in a later chunk. -->
+- **Chunk-15 follow-up / clarification chip click wiring** was folded into chunk 16 (the deferral list on chunk-15 specifically pointed at the voice-parity chunk as the right home). `onFollowUp` now threads from `ChatPage.handleFollowUp` → `ChatWindow` → `MessageItem` → `BlockContextProvider`. Clicking a follow-up chip or clarification quick-reply fires `handleSend` with the chip text.
+- **Chunk-15 voice throttle for the status block** was also folded in. Throttle lives in `ttsController.speakStatus` (≥3 s gate + ≤1 utterance per phase). `ChatPage` calls `resetStatusThrottle()` at turn start and `speakStatus(phaseKey, phrase)` when a `block_patch` for the `status` block lands.
+- **Pre-existing frontend test failures on `chatDensity.test.tsx` + two `MessageItem.test.tsx` tests** remain — chunk-15 deferrals flagged these as already failing on `main` HEAD (verified again via `git stash` round-trip at chunk-16 time). Not a chunk-16 regression.
+- **Real LLM JSON-mode constraint** — today the `<spoken_text>…</spoken_text>` island is a prompt-level contract that `extract_and_strip_spoken_text` parses out of plain-text model output. When llama.cpp grammars / MLX constraints are wired for the synthesis call (future chunk, likely 18 deep-mode), move the one-call contract to a proper constrained-JSON schema with `response` + `spoken_text` as required fields. The parser stays as the legacy fallback salvage path for engines that don't support grammar mode.
+- **Synthesis-prompt budget drift** — adding the `<spoken_text>` instruction grew `COMBINE_PROMPT` / `DIRECT_CHAT_PROMPT` by a sentence each. Still well inside the 8,000-char ceiling, but worth tracking if later chunks add more voice-parity guidance.
