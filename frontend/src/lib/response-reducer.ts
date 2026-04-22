@@ -266,15 +266,14 @@ function mergeSnapshot(
       }
       return { ...live, state: snapBlock.state, reason: snapBlock.reason };
     }
-    // Content differs (e.g. snapshot added late items the streaming
-    // path missed) — prefer snapshot, but keep streamed ``content``
-    // if the snapshot's is shorter (the stream almost certainly has
-    // the complete final text for prose blocks).
-    const mergedContent =
-      (snapBlock.content ?? "").length >= (live.content ?? "").length
-        ? snapBlock.content
-        : live.content;
-    return { ...snapBlock, content: mergedContent };
+    // Content differs: snapshot is authoritative. The backend runs
+    // post-processing (strips ``<spoken_text>`` islands, sanitizes
+    // citations) between the last streaming delta and the final
+    // envelope snapshot, so the snapshot's ``content`` is the
+    // canonical rendered text. Keeping the streamed version would
+    // leak the raw tokens (including the spoken_text tag) into the
+    // committed bubble.
+    return snapBlock;
   });
 
   // Preserve streamed source/media refs when the snapshot has the same

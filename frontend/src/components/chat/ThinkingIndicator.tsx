@@ -9,8 +9,19 @@ interface ThinkingIndicatorProps {
   interimText?: string;
 }
 
+function cleanInterim(text: string): string {
+  // Strip the ``<spoken_text>`` island (closed or still-streaming) so
+  // the interim preview never flashes the raw tag. Mirrors the
+  // SummaryBlock preprocessor.
+  let out = text.replace(/\s*<spoken_text>[\s\S]*?<\/spoken_text>/gi, "");
+  out = out.replace(/\s*<spoken_text>[\s\S]*$/i, "");
+  return out;
+}
+
 const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline, avatar, interimText }) => {
   if (pipeline.phase === 'idle') return null;
+
+  const cleaned = interimText ? cleanInterim(interimText) : '';
 
   return (
     <div className={`${pipeline.phase === 'completed' ? 'mb-2' : 'mb-8'} w-full`}>
@@ -18,8 +29,8 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ pipeline, avatar,
         {avatar}
         <div className="min-w-0 flex-1 pt-1">
           <PipelineInfoPopover pipeline={pipeline} currentPhase={pipeline.phase} />
-          {interimText && (
-            <p className="mt-2 text-sm text-muted-foreground animate-pulse">{interimText}</p>
+          {cleaned && (
+            <p className="mt-2 text-sm text-muted-foreground animate-pulse">{cleaned}</p>
           )}
         </div>
       </div>

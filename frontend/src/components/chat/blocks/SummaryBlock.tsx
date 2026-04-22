@@ -23,7 +23,14 @@ import { useBlockContext } from "./index";
  * behind a skeleton.
  */
 function preprocessContent(content: string): string {
-  let processed = content.replace(
+  // Strip the ``<spoken_text>...</spoken_text>`` island the LLM
+  // appends for voice parity (design §20.3). The backend strips this
+  // at the final ResponseObject boundary, but during streaming the
+  // tag lands in the block's content token-by-token. Also drop an
+  // unterminated opening tag so the in-progress render stays clean.
+  let processed = content.replace(/\s*<spoken_text>[\s\S]*?<\/spoken_text>/gi, "");
+  processed = processed.replace(/\s*<spoken_text>[\s\S]*$/i, "");
+  processed = processed.replace(
     /\s*\[src:(\d+)\]/g,
     "\u00A0[🔗$1](#cite-$1)",
   );

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { MediaCard } from '../../lib/api';
 import YouTubePlayer from './YouTubePlayer';
 import YouTubeChannelCard from './YouTubeChannelCard';
@@ -6,6 +6,40 @@ import YouTubeChannelCard from './YouTubeChannelCard';
 interface MediaBarProps {
   media: MediaCard[];
 }
+
+const ImageTile: React.FC<{
+  url: string;
+  caption?: string;
+  sourceLabel?: string;
+}> = ({ url, caption, sourceLabel }) => {
+  // When a DDG / web-image URL 404s or returns HTML, the browser
+  // falls back to rendering the ``alt`` text inside the image slot —
+  // users saw article titles rendered as image content. Hide the
+  // whole tile instead on any load failure, so we never substitute
+  // text for what should be a picture.
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <figure
+      className="group relative h-40 w-28 shrink-0 overflow-hidden rounded-lg border border-border bg-muted/20 sm:h-48 sm:w-36"
+      title={caption || undefined}
+    >
+      <img
+        src={url}
+        alt={caption || 'Image'}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        className="h-full w-full object-cover"
+      />
+      {sourceLabel && (
+        <figcaption className="absolute bottom-0 right-0 rounded-tl-md bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white/85">
+          {sourceLabel}
+        </figcaption>
+      )}
+    </figure>
+  );
+};
 
 const MediaBar: React.FC<MediaBarProps> = ({ media }) => {
   if (!media || media.length === 0) return null;
@@ -58,24 +92,12 @@ const MediaBar: React.FC<MediaBarProps> = ({ media }) => {
           );
         }
         if (card.kind === 'image') {
-          const node = (
-            <figure
-              key={`${card.kind}-${card.url}-${i}`}
-              className="group relative h-40 w-28 shrink-0 overflow-hidden rounded-lg border border-border bg-muted/20 sm:h-48 sm:w-36"
-              title={card.caption || undefined}
-            >
-              <img
-                src={card.url}
-                alt={card.caption || 'Image'}
-                loading="lazy"
-                className="h-full w-full object-cover"
-              />
-              {card.source_label && (
-                <figcaption className="absolute bottom-0 right-0 rounded-tl-md bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white/85">
-                  {card.source_label}
-                </figcaption>
-              )}
-            </figure>
+          const tile = (
+            <ImageTile
+              url={card.url}
+              caption={card.caption}
+              sourceLabel={card.source_label}
+            />
           );
           if (card.url.startsWith('http')) {
             return (
@@ -86,11 +108,15 @@ const MediaBar: React.FC<MediaBarProps> = ({ media }) => {
                 rel="noopener noreferrer"
                 className="contents"
               >
-                {node}
+                {tile}
               </a>
             );
           }
-          return node;
+          return (
+            <React.Fragment key={`${card.kind}-${card.url}-${i}`}>
+              {tile}
+            </React.Fragment>
+          );
         }
         return null;
       })}
