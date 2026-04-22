@@ -51,7 +51,7 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 16 | [Voice parity — one-call synthesis + barge-in](chunk-16-voice-parity.md) | done | b3013fd |
 | 17 | [Adaptive document handling (small inline / large RAG)](chunk-17-doc-strategy.md) | done | 0b2d7e0 |
 | 18 | [Deep-work path with wall-clock cap + checkpoints](chunk-18-deep-mode.md) | done | 2da3c93 |
-| 19 | [Artifact security foundation (sandboxed iframe + CSP)](chunk-19-artifact-security.md) | pending | |
+| 19 | [Artifact security foundation (sandboxed iframe + CSP)](chunk-19-artifact-security.md) | done | 118cc23 |
 | 20 | [ArtifactSurface UI + version navigation + export RPC](chunk-20-artifact-ui.md) | pending | |
 | 21 | [Workspace lens (persona + memory scope)](chunk-21-workspace-lens.md) | pending | |
 | 22 | [Kiosk / Pi display layout polish](chunk-22-kiosk-polish.md) | pending | |
