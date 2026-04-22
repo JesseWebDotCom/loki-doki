@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Search, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { resolveSpokenText, ttsController, useTTSState } from '../utils/tts';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
@@ -12,10 +12,9 @@ import ChatWelcomeView from '../components/chat/ChatWelcomeView';
 import ProjectLandingView from '../components/projects/ProjectLandingView';
 import ProjectModal from '../components/sidebar/ProjectModal';
 import SourceSurface from '../components/chat/SourceSurface';
-import ModeToggle from '../components/chat/ModeToggle';
+import ComposerMenu from '../components/chat/ComposerMenu';
 import type { ToggleMode } from '../components/chat/modeToggleOptions';
 import { toggleModeToOverride } from '../components/chat/modeToggleOptions';
-import WorkspacePicker from '../components/workspace/WorkspacePicker';
 import WorkspaceEditor from '../components/workspace/WorkspaceEditor';
 import SearchDialog from '../components/chat/search/SearchDialog';
 import { parseSlash } from '../components/chat/SlashCommandParser';
@@ -304,6 +303,18 @@ const ChatPage: React.FC = () => {
   // start of each send; written on every response-family event.
   const envelopeRef = useRef<ResponseEnvelope | undefined>(undefined);
   const [liveEnvelope, setLiveEnvelope] = useState<ResponseEnvelope | undefined>(undefined);
+  const inProgressMessageIndexRef = useRef<number | null>(null);
+  // Session-bleed guard. When a turn starts, ``inflightTurnSessionRef``
+  // captures the session id the turn belongs to (``null`` for a
+  // brand-new chat whose id the backend will assign via the
+  // ``session`` SSE event). The ``handleEvent`` callback reads
+  // ``currentSessionIdRef`` so it sees the LATEST selected session
+  // without needing to re-bind — and drops any event whose origin
+  // session no longer matches what the user is viewing. The backend
+  // still persists the response against the correct session id, so
+  // returning to the original chat surfaces it in full.
+  const inflightTurnSessionRef = useRef<string | null | undefined>(undefined);
+  const currentSessionIdRef = useRef<string | undefined>(undefined);
 
   // Idle-state ticker for the character avatar. We don't need a dense
   // requestAnimationFrame loop here — the avatar only changes between
@@ -326,6 +337,9 @@ const ChatPage: React.FC = () => {
       inputRef.current?.focus();
     }
   }, [isProcessing, currentSessionId, characterMode]);
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  }, [currentSessionId]);
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(id);
@@ -586,10 +600,27 @@ const ChatPage: React.FC = () => {
   };
 
   const handleEvent = useCallback((event: PipelineEvent) => {
+    // Session-bleed guard. If the user switched to a different chat
+    // while this turn was still streaming, drop the event. The turn
+    // continues to persist server-side; returning to the origin
+    // session surfaces the full response from the DB.
+    const turnSession = inflightTurnSessionRef.current;
+    const uiSession = currentSessionIdRef.current;
+    if (turnSession !== undefined && turnSession !== null) {
+      if (uiSession && String(uiSession) !== turnSession) {
+        return;
+      }
+    }
+
     // Capture the session id the backend assigned for a brand-new chat
     // so the next turn reuses it instead of creating yet another row.
     if (event.phase === 'session' && event.data?.session_id) {
       const sid = String(event.data.session_id);
+      // Bind the in-flight turn to the backend-assigned id so
+      // subsequent events can be matched against the current view.
+      if (inflightTurnSessionRef.current === null) {
+        inflightTurnSessionRef.current = sid;
+      }
       setCurrentSessionId((prev) => prev ?? sid);
     }
 
@@ -597,8 +628,40 @@ const ChatPage: React.FC = () => {
     // The legacy pipeline-phase events below stay on their current path
     // so ``PipelineInfoPopover`` keeps working unchanged.
     if (isResponseEvent(event)) {
-      envelopeRef.current = reduceResponse(envelopeRef.current, event);
-      setLiveEnvelope(envelopeRef.current);
+      if (event.phase === RESPONSE_INIT) {
+        const nextEnvelope = reduceResponse(envelopeRef.current, event);
+        envelopeRef.current = nextEnvelope;
+        setLiveEnvelope(nextEnvelope);
+        setMessages((msgs) => {
+          const nextIndex = msgs.length;
+          inProgressMessageIndexRef.current = nextIndex;
+          return [
+            ...msgs,
+            {
+              role: 'assistant',
+              content: '',
+              timestamp: createMessageTimestamp(),
+              sources: [],
+              media: [],
+              pipeline: { ...INITIAL_PIPELINE, phase: 'streaming' as PipelineState['phase'] },
+              envelope: nextEnvelope,
+            },
+          ];
+        });
+      } else {
+        envelopeRef.current = reduceResponse(envelopeRef.current, event);
+        setLiveEnvelope(envelopeRef.current);
+      }
+      if (inProgressMessageIndexRef.current != null) {
+        const inProgressIndex = inProgressMessageIndexRef.current;
+        setMessages((msgs) =>
+          msgs.map((message, index) =>
+            index === inProgressIndex
+              ? { ...message, envelope: envelopeRef.current }
+              : message,
+          ),
+        );
+      }
       // Chunk 16 barge-in: a ``block_failed`` event for the summary
       // block is a hard signal to cut TTS — the content the user was
       // waiting for isn't coming, and whatever was speaking (a stale
@@ -741,6 +804,12 @@ const ChatPage: React.FC = () => {
     setIsProcessing(true);
     envelopeRef.current = undefined;
     setLiveEnvelope(undefined);
+    inProgressMessageIndexRef.current = null;
+    // Bind this turn to its origin session so ``handleEvent`` drops
+    // any SSE events that arrive after the user switches chats
+    // mid-stream. ``null`` = brand-new chat; the ``session`` event
+    // patches the ref with the backend-assigned id.
+    inflightTurnSessionRef.current = currentSessionId ?? null;
     // Chunk 16 (folds chunk 15 deferral #4): arm the status-phrase
     // throttle clock. Any ``status`` block patch that lands before
     // >3 s of wall-clock has elapsed is silently skipped for TTS.
@@ -762,6 +831,17 @@ const ChatPage: React.FC = () => {
         activeWorkspaceId,
       );
 
+      // Session-bleed guard for the final append. If the user left the
+      // origin session while this turn was in flight, skip the assistant
+      // message append — the backend persisted it to the correct
+      // session and history-replay will pick it up when the user returns.
+      // We still refresh the sidebar below so titles / session list
+      // update for the background turn.
+      const finalTurnSession = inflightTurnSessionRef.current;
+      const finalUiSession = currentSessionIdRef.current;
+      const turnBelongsToCurrentView =
+        !finalTurnSession || !finalUiSession || String(finalUiSession) === finalTurnSession;
+
       setPipeline(prev => {
         // Always emit a message at the end of a turn, even if synthesis
         // returned empty or errored. Falls back to whatever streamed in,
@@ -779,48 +859,72 @@ const ChatPage: React.FC = () => {
         const liveEnvelope = envelopeRef.current;
         envelopeRef.current = undefined;
         setLiveEnvelope(undefined);
-        setMessages(msgs => {
-          const next = [...msgs, {
-            role: 'assistant' as const,
-            content: finalText,
-            timestamp: createMessageTimestamp(),
-            sources: prev.synthesis?.sources ?? [],
-            media: prev.synthesis?.media ?? [],
-            pipeline: completedPipeline,
-            confirmations: prev.confirmations,
-            clarification: prev.clarification ?? undefined,
-            mentionedPeople: ((prev.synthesis as SynthesisData & { mentioned_people?: MentionedPerson[] } | null)?.mentioned_people) ?? [],
-            messageId: (prev.synthesis?.assistant_message_id as number | undefined),
-            envelope: liveEnvelope,
-          }];
-          // Chunk 16: authoritative TTS input is the envelope's
-          // ``spoken_text`` (emitted from the same synthesis JSON call
-          // as the visual summary — design §20.3). Falls back to the
-          // trimmed summary when the synthesizer didn't produce a
-          // dedicated spoken form. Snapshot semantics (§20.4):
-          // ``tts.speak`` is idempotent per messageKey — block patches
-          // arriving after this point update the visual only.
-          const spoken =
-            resolveSpokenText(liveEnvelope) ||
-            prev.synthesis?.spoken_text?.trim() ||
-            finalText;
-          tts.speak(`msg-${next.length - 1}`, spoken);
-          return next;
-        });
-        return { ...prev, phase: 'idle' };
+        const inProgressIndex = inProgressMessageIndexRef.current;
+        if (turnBelongsToCurrentView) {
+          setMessages(msgs => {
+            if (inProgressIndex != null) {
+              return msgs;
+            }
+            const next = [...msgs, {
+              role: 'assistant' as const,
+              content: finalText,
+              timestamp: createMessageTimestamp(),
+              sources: prev.synthesis?.sources ?? [],
+              media: prev.synthesis?.media ?? [],
+              pipeline: completedPipeline,
+              confirmations: prev.confirmations,
+              clarification: prev.clarification ?? undefined,
+              mentionedPeople: ((prev.synthesis as SynthesisData & { mentioned_people?: MentionedPerson[] } | null)?.mentioned_people) ?? [],
+              messageId: (prev.synthesis?.assistant_message_id as number | undefined),
+              envelope: liveEnvelope,
+            }];
+            // Chunk 16: authoritative TTS input is the envelope's
+            // ``spoken_text`` (emitted from the same synthesis JSON call
+            // as the visual summary — design §20.3). Falls back to the
+            // trimmed summary when the synthesizer didn't produce a
+            // dedicated spoken form. Snapshot semantics (§20.4):
+            // ``tts.speak`` is idempotent per messageKey — block patches
+            // arriving after this point update the visual only.
+            const spoken =
+              resolveSpokenText(liveEnvelope) ||
+              prev.synthesis?.spoken_text?.trim() ||
+              finalText;
+            tts.speak(`msg-${next.length - 1}`, spoken);
+            return next;
+          });
+          return { ...prev, phase: 'idle' };
+        }
+        // User switched sessions mid-flight — silence TTS for the
+        // stale turn and reset the pipeline without emitting a message.
+        if (inProgressIndex != null) {
+          setMessages((msgs) => msgs.filter((_, index) => index !== inProgressIndex));
+        }
+        tts.bargeIn();
+        return { ...INITIAL_PIPELINE };
       });
       // Nudge the sidebar to refetch sessions + titles. The backend
       // auto-names a fresh session on the first turn and we won't see
       // that name until something re-pulls /memory/sessions.
       setDataVersion((v) => v + 1);
     } catch (err) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}. Is the LLM engine running?`,
-        timestamp: createMessageTimestamp(),
-      }]);
+      // Suppress the error toast when the user has switched away
+      // from the origin session — the error belongs to a chat they're
+      // no longer viewing.
+      const turnSession = inflightTurnSessionRef.current;
+      const uiSession = currentSessionIdRef.current;
+      const belongsToCurrentView =
+        !turnSession || !uiSession || String(uiSession) === turnSession;
+      if (belongsToCurrentView) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}. Is the LLM engine running?`,
+          timestamp: createMessageTimestamp(),
+        }]);
+      }
       setPipeline({ ...INITIAL_PIPELINE });
     } finally {
+      inflightTurnSessionRef.current = undefined;
+      inProgressMessageIndexRef.current = null;
       setIsProcessing(false);
       // Refocus is handled by the useEffect below — it watches
       // isProcessing transitioning back to false and runs AFTER
@@ -849,6 +953,8 @@ const ChatPage: React.FC = () => {
       setInput('');
       setIsProcessing(true);
       envelopeRef.current = undefined;
+      setLiveEnvelope(undefined);
+      inflightTurnSessionRef.current = currentSessionId ?? null;
       setPipeline({
         ...INITIAL_PIPELINE,
         phase: 'augmentation',
@@ -867,6 +973,10 @@ const ChatPage: React.FC = () => {
         activeWorkspaceId,
       )
         .then(() => {
+          const finalTurnSession = inflightTurnSessionRef.current;
+          const finalUiSession = currentSessionIdRef.current;
+          const belongsToCurrentView =
+            !finalTurnSession || !finalUiSession || String(finalUiSession) === finalTurnSession;
           setPipeline(prev => {
             const finalText =
               prev.synthesis?.response?.trim() ||
@@ -875,6 +985,11 @@ const ChatPage: React.FC = () => {
             const completedPipeline: PipelineState = { ...prev, phase: 'completed' as PipelineState['phase'] };
             const liveEnvelope = envelopeRef.current;
             envelopeRef.current = undefined;
+            setLiveEnvelope(undefined);
+            if (!belongsToCurrentView) {
+              tts.bargeIn();
+              return { ...INITIAL_PIPELINE };
+            }
             setMessages(msgs => {
               const next = [...msgs, {
                 role: 'assistant' as const,
@@ -901,14 +1016,23 @@ const ChatPage: React.FC = () => {
           setDataVersion((v) => v + 1);
         })
         .catch(err => {
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}`,
-            timestamp: createMessageTimestamp(),
-          }]);
+          const turnSession = inflightTurnSessionRef.current;
+          const uiSession = currentSessionIdRef.current;
+          const belongsToCurrentView =
+            !turnSession || !uiSession || String(uiSession) === turnSession;
+          if (belongsToCurrentView) {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+              timestamp: createMessageTimestamp(),
+            }]);
+          }
           setPipeline({ ...INITIAL_PIPELINE });
         })
-        .finally(() => setIsProcessing(false));
+        .finally(() => {
+          inflightTurnSessionRef.current = undefined;
+          setIsProcessing(false);
+        });
     }, 0);
   }, [messages, handleEvent, currentSessionId, activeProjectId, tts, modeToggle, activeWorkspaceId]);
 
@@ -1165,66 +1289,50 @@ const ChatPage: React.FC = () => {
                 LokiDoki cannot reach the local backend right now. You can keep typing, but sending is paused until the service reconnects.
               </div>
             )}
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <WorkspacePicker
-                workspaces={workspaces}
-                activeWorkspaceId={activeWorkspace?.id}
+            <div className="flex w-full items-center gap-1 rounded-[1.45rem] border border-border/50 bg-card/50 py-2 pl-2 pr-2 shadow-m4 transition-all focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5">
+              <ComposerMenu
+                mode={modeToggle}
                 disabled={isProcessing}
-                onSelect={handleSelectWorkspace}
-                onManage={() => setIsWorkspaceEditorOpen(true)}
+                onSelectMode={setModeToggle}
               />
-              <ModeToggle
-                value={modeToggle}
-                onChange={setModeToggle}
+              <input
+                ref={inputRef}
+                autoFocus
+                type="text"
+                value={input}
+                onChange={(e) => {
+                  // Chunk 16 barge-in: the moment the user starts typing,
+                  // any in-flight TTS is cancelled within one frame. We
+                  // check first so idle turns don't churn the emitter.
+                  if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
+                  setInput(e.target.value);
+                }}
+                onFocus={() => {
+                  if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
+                }}
+                onKeyDown={(e) => {
+                  if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
+                  if (e.key === 'Enter') handleSend();
+                }}
+                placeholder={
+                  !connectivity.backendReachable
+                    ? 'Backend offline. Start LokiDoki to resume chat…'
+                    : activeChar
+                      ? `Chat with ${activeChar.name}…`
+                      : 'Ask anything'
+                }
                 disabled={isProcessing}
+                className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm font-medium placeholder:text-muted-foreground/45 focus:outline-none disabled:opacity-50 sm:text-base"
               />
-            </div>
-            <div className="mb-3 flex justify-end">
               <button
-                type="button"
-                onClick={() => setSearchDialogOpen(true)}
-                className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-border/50 bg-card/60 px-4 text-sm font-medium text-foreground shadow-m1 transition-colors hover:bg-accent"
+                onClick={handleSend}
+                disabled={isProcessing}
+                aria-label="Send message"
+                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-white transition-all hover:bg-primary/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Search className="h-4 w-4" />
-                Search chats
+                <Send size={16} />
               </button>
             </div>
-            <input
-              ref={inputRef}
-              autoFocus
-              type="text"
-              value={input}
-              onChange={(e) => {
-                // Chunk 16 barge-in: the moment the user starts typing,
-                // any in-flight TTS is cancelled within one frame. We
-                // check first so idle turns don't churn the emitter.
-                if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
-                setInput(e.target.value);
-              }}
-              onFocus={() => {
-                if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
-              }}
-              onKeyDown={(e) => {
-                if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
-                if (e.key === 'Enter') handleSend();
-              }}
-              placeholder={
-                !connectivity.backendReachable
-                  ? 'Backend offline. Start LokiDoki to resume chat…'
-                  : activeChar
-                    ? `Chat with ${activeChar.name}…`
-                    : 'Chat with your character…'
-              }
-              disabled={isProcessing}
-              className="w-full rounded-[1.45rem] border border-border/50 bg-card/50 py-3.5 pl-6 pr-16 text-sm font-medium shadow-m4 transition-all placeholder:text-muted-foreground/45 focus:border-primary/50 focus:outline-none focus:ring-4 focus:ring-primary/5 disabled:opacity-50 sm:text-base"
-            />
-            <button
-              onClick={handleSend}
-              disabled={isProcessing}
-              className="absolute right-3.5 top-1/2 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xl bg-primary text-white shadow-m2 shadow-primary/20 transition-all hover:bg-primary/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Send size={18} />
-            </button>
           </div>
 
         </div>
