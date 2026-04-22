@@ -24,9 +24,33 @@ from lokidoki.orchestrator.fallbacks.llm_prompt_builder import (  # noqa: F401
     build_resolve_prompt,
     build_split_prompt,
     extract_and_strip_spoken_text,
+    strip_reasoning_blocks,
 )
 
 log = logging.getLogger("lokidoki.orchestrator.llm")
+
+
+# Router capabilities that almost always benefit from full LLM
+# synthesis with structured markdown (H2 headers + bullet hierarchy)
+# rather than a verbatim ZIM article dump. When the user picked Auto
+# mode (i.e. no explicit override), hitting one of these routes is a
+# strong signal to bypass the offline fast-path and let the LLM
+# compose. Mirrors :data:`lokidoki.orchestrator.response.mode
+# ._RICH_ROUTED_CAPABILITIES` — kept local to avoid importing the
+# mode module from this layer.
+_STRUCTURED_SYNTHESIS_CAPABILITIES: frozenset[str] = frozenset({
+    "knowledge_query",
+    "lookup_definition",
+    "lookup_fact",
+    "define_word",
+    "lookup_person_facts",
+    "lookup_person_birthday",
+    "lookup_relationship",
+    "list_family",
+    "news_search",
+    "find_recipe",
+    "code_assistance",
+})
 
 
 @dataclass(slots=True)
@@ -64,7 +88,41 @@ def decide_llm(spec: RequestSpec) -> LLMDecision:
     # Check BEFORE confidence gate: a successful ZIM hit with a
     # substantive encyclopedia paragraph is trustworthy regardless of
     # routing confidence. Skips the 10-30s LLM synthesis entirely.
-    if _can_skip_synthesis_for_offline(primary_chunks):
+    #
+    # BUT: only for verbatim-style lookups ("what is X", "who is Y").
+    # Procedural ("how do I…") and medical asks need LLM synthesis to
+    # extract step structure or apply the medical safety prompt — a raw
+    # article dump tends to grab the wrong adjacent article (e.g. the
+    # Wikipedia "Procedural knowledge" page matching "change a flat
+    # tire" via an example sentence) and drops safety framing.
+    #
+    # Also: when the user picked ``rich`` / ``deep`` mode (or Auto
+    # resolved to rich via a rich-shaped routed capability), the whole
+    # point is ChatGPT-style structured prose with H2 sections + bullet
+    # hierarchies. That REQUIRES LLM synthesis — the deterministic
+    # stub just dumps the Wikipedia lead. Skip the fast-path when the
+    # answer is about to render in rich mode so the LLM can compose
+    # the structured version.
+    ctx = spec.context if isinstance(spec.context, dict) else {}
+    decomposition = ctx.get("route_decomposition")
+    capability_need = getattr(decomposition, "capability_need", "") or ""
+    unsafe_for_fast_path = capability_need in {"howto", "medical"}
+    mode_override = str(ctx.get("user_mode_override") or "").strip().lower()
+    workspace_default = str(ctx.get("workspace_default_mode") or "").strip().lower()
+    # Wants structured rich answer when the user explicitly asked for
+    # it OR when the routed capability is rich-shaped (auto path).
+    wants_structured = mode_override in {"rich", "deep"} or (
+        not mode_override
+        and workspace_default not in {"direct", "standard"}
+        and any(
+            chunk.capability in _STRUCTURED_SYNTHESIS_CAPABILITIES
+            for chunk in primary_chunks
+        )
+    )
+    if unsafe_for_fast_path or wants_structured:
+        # Fall through to the needed=True paths below.
+        pass
+    elif _can_skip_synthesis_for_offline(primary_chunks):
         return LLMDecision(needed=False, reason="offline_knowledge_fast_path")
 
     if any(chunk.confidence <= CONFIG.route_confidence_threshold for chunk in primary_chunks):
@@ -257,7 +315,7 @@ async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
             ))
 
     raw = await call_llm(prompt, on_token=on_token)
-    text = raw.strip()
+    text = strip_reasoning_blocks(raw.strip())
     if not text:
         raise RuntimeError("LLM returned an empty response")
     # Chunk 16 (design §20.3): the same JSON pass carries both ``response``

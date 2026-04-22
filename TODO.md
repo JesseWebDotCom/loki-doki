@@ -62,7 +62,25 @@ the final styling. No two components rendering the same content.
   should still converge on the backend-authoritative block content (e.g.
   `<spoken_text>` stripped, citations sanitized).
 
-## 4. Multi-user presence & cross-session interaction
+## 4. Offline structured stub — parse ZIM H2 sections into markdown
+When the fast-path fires (good ZIM hit, Auto mode, non-rich routing) we
+dump the Wikipedia lead paragraph verbatim with no structure. We could
+do a LOT better without engaging the LLM: Wikipedia ZIM articles have
+`<h2>` section headers (Early life, Career, Awards, …) that the
+existing `_LeadExtractor` already captures into `parser.sections`. A
+deterministic "structured stub" could:
+
+- Extract the lead paragraph as a short overview.
+- Extract the first 2–3 `<h2>` sections and their opening paragraph each.
+- Emit the whole thing as markdown (`## Section\n\n<paragraph>\n\n...`).
+- Zero LLM, still offline, still fast — but structured.
+
+That way the Auto-mode "who is X" path stays snappy AND looks like the
+Rich/Deep path. Rich/Deep still use full LLM synthesis for the
+conversational framing. Scope note: this is a nice win on a Pi where
+LLM synthesis is 10–30 s but the user asked for a quick lookup.
+
+## 5. Multi-user presence & cross-session interaction
 Allow users to see other members' characters, whether they are active, and interact with them.
 
 **Example:** You see Daisy's character is awake (she's using LokiDoki). You can either:

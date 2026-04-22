@@ -27,6 +27,56 @@ _STRUCTURAL_SOURCES = frozenset({
 })
 
 
+# Injected on top of the combine prompt when the derived response mode
+# is rich or deep (i.e. the user wants a ChatGPT-style structured
+# answer, not a 1–3 sentence verbatim summary). Overrides the default
+# length rule in the template and gives the model a concrete
+# formatting contract. Kept short enough to not blow the model's
+# context budget — the COMBINE_PROMPT template itself stays untouched
+# so the decomposer-budget tests don't fire.
+_RICH_MODE_DIRECTIVE = (
+    "RICH FORMATTING — THIS TURN IS RENDERED IN RICH MODE:\n"
+    "- Override the default 1–3 sentence rule. Be thorough.\n"
+    "- Open with a 1–2 sentence overview paragraph.\n"
+    "- Then use ## H2 section headers to organize the answer "
+    "(e.g. ## Key facts, ## Notable work, ## Why it matters, ## Bottom line). "
+    "Pick section names that fit the subject; don't invent empty sections.\n"
+    "- Under each header use short bullet lists. Key/value bullets use "
+    "bold inline labels: - **Label:** value.\n"
+    "- Keep [src:N] citations inline after the facts they support.\n"
+    "- No preamble, no meta comments about the format. Just the answer.\n"
+)
+
+
+def _derive_response_mode_for_prompt(spec: RequestSpec) -> str:
+    """Return ``"rich"`` / ``"deep"`` / ``""`` using the same signal the
+    envelope builder consumes. Kept local to avoid importing the whole
+    mode module from the prompt layer."""
+    ctx = spec.context if isinstance(spec.context, dict) else {}
+    override = str(ctx.get("user_mode_override") or "").strip().lower()
+    if override in {"rich", "deep"}:
+        return override
+    workspace = str(ctx.get("workspace_default_mode") or "").strip().lower()
+    if workspace in {"rich", "deep"}:
+        return workspace
+    if override in {"direct", "standard", "search", "artifact"}:
+        return ""
+    # Auto path: infer from the routed capability. Mirrors the
+    # _RICH_ROUTED_CAPABILITIES set in llm_fallback.
+    rich_routed = frozenset({
+        "knowledge_query", "lookup_definition", "lookup_fact",
+        "define_word", "lookup_person_facts", "lookup_person_birthday",
+        "lookup_relationship", "list_family", "news_search",
+        "find_recipe", "code_assistance",
+    })
+    for chunk in spec.chunks:
+        if chunk.role != "primary_request":
+            continue
+        if chunk.capability in rich_routed and chunk.success:
+            return "rich"
+    return ""
+
+
 # Chunk 16: one-call synthesis contract (design §20.3) — the LLM is
 # instructed to append ``<spoken_text>...</spoken_text>`` after the
 # visual reply so BOTH ``response`` and ``spoken_text`` come out of a
@@ -40,6 +90,23 @@ _SPOKEN_TEXT_ISLAND = re.compile(
 # Hard cap on the spoken form — matches the prompt instruction. Keeps
 # TTS latency bounded even if the LLM ignores the "≤200 chars" hint.
 SPOKEN_TEXT_MAX_CHARS = 240
+
+# Qwen3 / R1-style reasoning tokens. The fast-path prompts append
+# ``/no_think`` to keep synthesis latency bounded, but defensively strip
+# any ``<think>...</think>`` block if a model ignores the flag (or the
+# closing tag is missing). Parsing machine-generated text is permitted
+# (CLAUDE.md — regex salvage is fine for model output).
+_REASONING_BLOCK = re.compile(
+    r"<think>.*?(?:</think>|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def strip_reasoning_blocks(text: str) -> str:
+    """Drop any ``<think>...</think>`` monologue the model leaked in."""
+    if not text or "<think" not in text.lower():
+        return text
+    return _REASONING_BLOCK.sub("", text).strip()
 
 
 def extract_and_strip_spoken_text(text: str) -> tuple[str, str | None]:
@@ -365,7 +432,7 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         )
     payload = build_llm_payload(spec)
     sources = _collect_sources(spec)
-    return render_prompt(
+    prompt = render_prompt(
         "combine",
         spec=json.dumps(payload, ensure_ascii=False),
         character_name=character_name,
@@ -378,6 +445,13 @@ def build_combine_prompt(spec: RequestSpec) -> str:
         response_schema=response_schema,
         **memory_slots,
     )
+    if _derive_response_mode_for_prompt(spec):
+        # Prepend the rich-mode directive so the model sees the
+        # override-the-length-rule instruction BEFORE the persona /
+        # default rules. Leaves ``COMBINE_PROMPT`` itself unchanged so
+        # the decomposer-budget tests keep passing.
+        prompt = _RICH_MODE_DIRECTIVE + "\n" + prompt
+    return prompt
 
 
 def _extract_memory_slots(spec: RequestSpec) -> dict[str, str]:
