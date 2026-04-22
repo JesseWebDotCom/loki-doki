@@ -125,3 +125,9 @@ Refs docs/rich-response/PLAN.md chunk 19.
 ## Deferrals
 
 <!-- Append specifics here if this chunk surfaced work that belongs in a later chunk. -->
+
+- Validator URL/API checks are intentionally conservative text/markup scans in
+  `lokidoki/orchestrator/artifacts/validator.py`, not a full JS/CSS AST pass.
+  That keeps chunk 19 dependency-free and offline-safe, but chunk 20 or a
+  follow-up hardening patch should deepen parsing if false positives/negatives
+  show up with real artifact payloads.
