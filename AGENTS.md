@@ -24,12 +24,15 @@ Detailed, area-specific guidance lives in [`.claude/rules/`](.claude/rules). Rea
 - Runtime must stay offline-first. No CDN assets, remote APIs, remote fonts, public map tiles, call-home telemetry, or runtime model downloads.
 - Keep the three-repo split intact: core in `loki-doki`, optional integrations in `loki-doki-plugins`, persona content in `loki-doki-personas`.
 - Do not use `bmo` as the project name.
+- When the user says `push`, `publish`, or otherwise asks to send changes upstream, use [`scripts/publish_all.sh`](scripts/publish_all.sh) from the repo root instead of inventing a custom publish flow. Only fall back to manual git/gh steps if the script fails, and explain the blocker.
 
 ## Working Style
 
 - Inspect existing code and nearby working patterns before editing.
 - Make the smallest complete fix. Include wiring, imports, registrations, and adjacent edits required for the feature to truly work.
 - Do not invent new architecture, globals, wrappers, or APIs when the repo already has a pattern.
+- Default to action, not narration. If the user asks for a fix, update, implementation, commit, or push, do the work end-to-end in the same turn whenever it is reasonably possible.
+- Do not stop at analysis or "here is what is wrong" when you can directly patch, test, document, commit, or publish the requested change.
 - Verify before claiming success.
 - For non-trivial multi-session work, create a chunked plan under `docs/<plan-name>/` and follow the chunk contract from the docs rule file.
 - Respect the active phase gate in `docs/PHASE_CURRENT.md`; do not scaffold a later phase early.
