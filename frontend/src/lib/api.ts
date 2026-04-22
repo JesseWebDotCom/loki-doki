@@ -140,6 +140,7 @@ export async function sendChatMessage(
   sessionId?: number,
   projectId?: number,
   userModeOverride?: string | null,
+  activeWorkspaceId?: string | null,
 ): Promise<void> {
   // ``user_mode_override`` is the chunk-13 compose-bar / slash-command
   // plumbing. ``null`` means the backend derives a mode itself via
@@ -153,6 +154,7 @@ export async function sendChatMessage(
       session_id: sessionId ?? null,
       project_id: projectId ?? null,
       user_mode_override: userModeOverride ?? null,
+      active_workspace_id: activeWorkspaceId ?? null,
     }),
   });
   if (!response.ok || !response.body) {
@@ -386,6 +388,64 @@ export async function deleteProject(id: number) {
   });
   if (!r.ok) throw new Error(`/projects/${id}: ${r.status}`);
   return (await r.json()) as { status: string };
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  name: string;
+  persona_id: string;
+  default_mode: "direct" | "standard" | "rich" | "deep" | "search" | "artifact";
+  attached_corpora: string[];
+  tone_hint: string | null;
+  memory_scope: "global" | "workspace";
+}
+
+export interface WorkspaceInput {
+  name: string;
+  persona_id: string;
+  default_mode: WorkspaceRecord["default_mode"];
+  attached_corpora: string[];
+  tone_hint?: string;
+  memory_scope: WorkspaceRecord["memory_scope"];
+}
+
+export async function listWorkspaces(sessionId?: number) {
+  const suffix = sessionId != null ? `?session_id=${sessionId}` : "";
+  return getJson<{ workspaces: WorkspaceRecord[]; active_workspace_id?: string | null }>(
+    `/workspaces${suffix}`,
+  );
+}
+
+export async function createWorkspace(workspace: WorkspaceInput) {
+  return postJson<WorkspaceRecord>("/workspaces", workspace);
+}
+
+export async function updateWorkspace(id: string, workspace: WorkspaceInput) {
+  const r = await apiFetch(`${API_BASE}/workspaces/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(workspace),
+  });
+  if (!r.ok) throw new Error(`/workspaces/${id}: ${r.status}`);
+  return (await r.json()) as WorkspaceRecord;
+}
+
+export async function deleteWorkspace(id: string) {
+  const r = await apiFetch(`${API_BASE}/workspaces/${id}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw new Error(`/workspaces/${id}: ${r.status}`);
+  return (await r.json()) as { status: string };
+}
+
+export async function setSessionActiveWorkspace(sessionId: number, workspaceId: string) {
+  const r = await apiFetch(`${API_BASE}/session/active-workspace`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, workspace_id: workspaceId }),
+  });
+  if (!r.ok) throw new Error(`/session/active-workspace: ${r.status}`);
+  return (await r.json()) as { status: string; workspace: WorkspaceRecord };
 }
 
 export async function clearChatMemory() {

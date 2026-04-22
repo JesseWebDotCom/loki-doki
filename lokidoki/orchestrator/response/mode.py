@@ -161,6 +161,7 @@ def _normalize_override(value: object) -> ResponseMode | None:
 def derive_response_mode(
     decomposition: object,
     user_override: ResponseMode | str | None = None,
+    workspace_default: ResponseMode | str | None = None,
 ) -> ResponseMode:
     """Pick a response mode for a turn.
 
@@ -208,6 +209,9 @@ def derive_response_mode(
     override = _normalize_override(user_override)
     if override is not None:
         return override
+    workspace_fallback = _normalize_override(workspace_default)
+    if workspace_fallback is not None:
+        return workspace_fallback
 
     try:
         inputs = _coerce_inputs(decomposition)

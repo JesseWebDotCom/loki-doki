@@ -98,10 +98,16 @@ def assemble_relevant_episodes_slot(
     query: str,
     top_k: int = 2,
     topic_scope: str | None = None,
+    session_ids: tuple[int, ...] | None = None,
 ) -> tuple[str, list[EpisodeHit]]:
     """End-to-end slot assembly for Tier 3. Returns (slot_string, hits)."""
     hits = read_episodes(
-        store, owner_user_id, query, top_k=top_k, topic_scope=topic_scope,
+        store,
+        owner_user_id,
+        query,
+        top_k=top_k,
+        topic_scope=topic_scope,
+        session_ids=session_ids,
     )
     return render_relevant_episodes(hits), hits
 
@@ -159,6 +165,7 @@ def _assemble_memory_tiers(
         rendered, _ = assemble_relevant_episodes_slot(
             store=store, owner_user_id=owner_user_id, query=query,
             topic_scope=context.get("topic_scope"),
+            session_ids=tuple(context.get("workspace_session_ids") or ()) or None,
         )
         out["relevant_episodes"] = rendered
 

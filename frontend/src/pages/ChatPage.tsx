@@ -16,14 +16,21 @@ import ModeToggle, {
   toggleModeToOverride,
   type ToggleMode,
 } from '../components/chat/ModeToggle';
+import WorkspacePicker from '../components/workspace/WorkspacePicker';
+import WorkspaceEditor from '../components/workspace/WorkspaceEditor';
 import { parseSlash } from '../components/chat/SlashCommandParser';
 import type { StructuredSource } from '../components/chat/SourceCard';
 import {
+  createWorkspace,
+  deleteWorkspace,
   sendChatMessage,
   getSessionMessages,
   getProjects,
   getSessions,
+  listWorkspaces,
+  setSessionActiveWorkspace,
   updateProject,
+  updateWorkspace,
   listCharacters,
   reduceResponse,
   isResponseEvent,
@@ -34,6 +41,8 @@ import {
   RESPONSE_SNAPSHOT,
   type CharacterRow,
   type ResponseEnvelope,
+  type WorkspaceInput,
+  type WorkspaceRecord,
 } from '../lib/api';
 import { envelopeFromDict } from '../lib/response-types';
 import CharacterFrame from '../components/character/CharacterFrame';
@@ -214,6 +223,9 @@ const ChatPage: React.FC = () => {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [projectChats, setProjectChats] = useState<any[]>([]);
   const [isEditingProject, setIsEditingProject] = useState(false);
+  const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | undefined>();
+  const [isWorkspaceEditorOpen, setIsWorkspaceEditorOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const tts = useTTSState();
   useAuth();
@@ -332,6 +344,10 @@ const ChatPage: React.FC = () => {
     () => (activeProjectId ? projects.find((p) => p.id === activeProjectId) || null : null),
     [activeProjectId, projects],
   );
+  const activeWorkspace = useMemo<WorkspaceRecord | null>(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0] || null,
+    [activeWorkspaceId, workspaces],
+  );
 
   // Fetch projects + project-scoped sessions whenever the project changes
   // or after a save bumps dataVersion.
@@ -394,6 +410,30 @@ const ChatPage: React.FC = () => {
       }
     })();
     return () => { cancelled = true; };
+  }, [currentSessionId, dataVersion]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await listWorkspaces(
+          currentSessionId ? Number(currentSessionId) : undefined,
+        );
+        if (cancelled) return;
+        setWorkspaces(response.workspaces);
+        setActiveWorkspaceId((prev) => {
+          const next = response.active_workspace_id || prev || response.workspaces[0]?.id;
+          return next || undefined;
+        });
+      } catch (error) {
+        if (!cancelled) {
+          console.error('[ChatPage] failed to load workspaces', error);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [currentSessionId, dataVersion]);
 
   const handleSaveProject = async (data: ProjectInput) => {
@@ -575,6 +615,7 @@ const ChatPage: React.FC = () => {
         currentSessionId ? Number(currentSessionId) : undefined,
         activeProjectId || undefined,
         userOverride,
+        activeWorkspaceId,
       );
 
       setPipeline(prev => {
@@ -678,6 +719,7 @@ const ChatPage: React.FC = () => {
         // any) was consumed when the turn was first sent, and the
         // retried message text no longer carries the prefix.
         toggleModeToOverride(modeToggle),
+        activeWorkspaceId,
       )
         .then(() => {
           setPipeline(prev => {
@@ -723,7 +765,7 @@ const ChatPage: React.FC = () => {
         })
         .finally(() => setIsProcessing(false));
     }, 0);
-  }, [messages, handleEvent, currentSessionId, activeProjectId, tts, modeToggle]);
+  }, [messages, handleEvent, currentSessionId, activeProjectId, tts, modeToggle, activeWorkspaceId]);
 
   const handleNewSession = (projectId?: number) => {
     setMessages([]);
@@ -805,6 +847,35 @@ const ChatPage: React.FC = () => {
       sources,
     });
   }, [messages]);
+
+  const handleSelectWorkspace = useCallback(async (workspaceId: string) => {
+    setActiveWorkspaceId(workspaceId);
+    if (!currentSessionId) return;
+    try {
+      await setSessionActiveWorkspace(Number(currentSessionId), workspaceId);
+      setDataVersion((value) => value + 1);
+    } catch (error) {
+      console.error('[ChatPage] failed to switch workspace', error);
+      toast.error('Could not switch workspace');
+    }
+  }, [currentSessionId]);
+
+  const handleSaveWorkspace = useCallback(async (workspaceId: string, input: WorkspaceInput) => {
+    await updateWorkspace(workspaceId, input);
+    setDataVersion((value) => value + 1);
+  }, []);
+
+  const handleCreateWorkspace = useCallback(async (input: WorkspaceInput) => {
+    const created = await createWorkspace(input);
+    setActiveWorkspaceId(created.id);
+    setDataVersion((value) => value + 1);
+  }, []);
+
+  const handleDeleteWorkspace = useCallback(async (workspaceId: string) => {
+    await deleteWorkspace(workspaceId);
+    setActiveWorkspaceId('default');
+    setDataVersion((value) => value + 1);
+  }, []);
 
   const handleExitFullscreen = useCallback(() => {
     setCharacterMode('docked');
@@ -904,7 +975,14 @@ const ChatPage: React.FC = () => {
                 LokiDoki cannot reach the local backend right now. You can keep typing, but sending is paused until the service reconnects.
               </div>
             )}
-            <div className="mb-2 flex justify-end">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <WorkspacePicker
+                workspaces={workspaces}
+                activeWorkspaceId={activeWorkspace?.id}
+                disabled={isProcessing}
+                onSelect={handleSelectWorkspace}
+                onManage={() => setIsWorkspaceEditorOpen(true)}
+              />
               <ModeToggle
                 value={modeToggle}
                 onChange={setModeToggle}
@@ -958,6 +1036,16 @@ const ChatPage: React.FC = () => {
           }}
           title={openSources?.title}
           sources={openSources?.sources ?? []}
+        />
+        <WorkspaceEditor
+          open={isWorkspaceEditorOpen}
+          onOpenChange={setIsWorkspaceEditorOpen}
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspace?.id}
+          onSelect={handleSelectWorkspace}
+          onSave={handleSaveWorkspace}
+          onCreate={handleCreateWorkspace}
+          onDelete={handleDeleteWorkspace}
         />
       </main>
 

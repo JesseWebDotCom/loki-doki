@@ -66,6 +66,26 @@ class TestUserOverride:
         inputs = PlannerInputs()
         assert derive_response_mode(inputs, user_override="ultra") == "standard"
 
+    def test_user_override_beats_workspace_default(self):
+        inputs = PlannerInputs()
+        assert derive_response_mode(
+            inputs,
+            user_override="deep",
+            workspace_default="rich",
+        ) == "deep"
+
+
+class TestWorkspaceDefault:
+    """Workspace default is the fallback below user override, above rules."""
+
+    def test_workspace_default_applies_when_no_override_present(self):
+        inputs = PlannerInputs(capability_need="web_search")
+        assert derive_response_mode(inputs, workspace_default="rich") == "rich"
+
+    def test_unknown_workspace_default_is_ignored(self):
+        inputs = PlannerInputs(capability_need="web_search")
+        assert derive_response_mode(inputs, workspace_default="ultra") == "search"
+
 
 class TestArtifactRule:
     """Rule 2: artifact mode only fires when an artifact was actually produced."""

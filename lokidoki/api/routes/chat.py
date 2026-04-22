@@ -52,6 +52,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[int] = None
     project_id: Optional[int] = None
+    active_workspace_id: Optional[str] = None
     # Chunk 13: explicit response-mode override from the compose-bar
     # toggle or ``/deep``-style slash command. ``None`` means "let the
     # planner derive via ``derive_response_mode``"; a value must be one
@@ -105,7 +106,9 @@ async def chat(
 
     user_id = user.id
     session_id = request.session_id or await memory.create_session(
-        user_id, project_id=request.project_id
+        user_id,
+        project_id=request.project_id,
+        active_workspace_id=request.active_workspace_id,
     )
 
     # Check if this is the first message in the session (for auto-naming).
@@ -154,6 +157,7 @@ async def chat(
         "character_name": character_name,
         "character_id": str(character_id),
         "conversation_history": conversation_history,
+        "active_workspace_id": request.active_workspace_id,
         # Chunk 13: threaded through to ``_build_envelope`` where
         # ``derive_response_mode`` consumes it as ``user_override``.
         # ``None`` means "let the planner derive".

@@ -59,6 +59,7 @@ PEOPLE_COLUMN_MIGRATIONS = (
 
 SESSION_COLUMN_MIGRATIONS = (
     ("project_id", "INTEGER"),
+    ("active_workspace_id", "TEXT"),
 )
 
 # Projects gain icon + icon_color so the UI can render a per-project

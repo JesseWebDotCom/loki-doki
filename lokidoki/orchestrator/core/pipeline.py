@@ -29,6 +29,7 @@ from lokidoki.orchestrator.core.types import (
 from lokidoki.orchestrator.execution.request_spec import build_request_spec
 from lokidoki.orchestrator.observability.tracing import build_trace_summary, start_trace
 from lokidoki.orchestrator.registry.runtime import get_runtime
+from lokidoki.orchestrator.workspace import resolve_active_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,8 @@ async def run_pipeline_async(
     """
     trace, runtime, ctx = _init_trace(context)
     ensure_session(ctx)
+    workspace = await resolve_active_workspace(ctx)
+    _apply_workspace_context(ctx, workspace)
     bridge_session_state_to_recent_entities(ctx)
     normalized, signals, fast_lane = run_pre_parse_phase(trace, ctx, raw_text)
     if fast_lane.matched:
@@ -214,3 +217,18 @@ def _strip_envelope_media(envelope) -> None:
             block.items = []
             block.state = BlockState.omitted
             break
+
+
+def _apply_workspace_context(ctx: dict[str, Any], workspace) -> None:
+    """Thread workspace-derived preferences into the safe context."""
+    ctx["workspace"] = workspace
+    ctx["active_workspace_id"] = workspace.id
+    ctx["workspace_default_mode"] = workspace.default_mode
+    ctx["workspace_persona_id"] = workspace.persona_id
+    ctx["workspace_memory_scope"] = workspace.memory_scope
+    ctx["attached_corpora"] = list(workspace.attached_corpora)
+    tone_hint = (workspace.tone_hint or "").strip()
+    if tone_hint:
+        base = str(ctx.get("behavior_prompt") or "").strip()
+        suffix = f"Tone hint: {tone_hint}"
+        ctx["behavior_prompt"] = f"{base}\n{suffix}".strip() if base else suffix

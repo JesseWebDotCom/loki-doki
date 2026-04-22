@@ -239,11 +239,20 @@ class MemoryProvider:
     # ---- sessions --------------------------------------------------------
 
     async def create_session(
-        self, user_id: int, title: str = "", project_id: Optional[int] = None
+        self,
+        user_id: int,
+        title: str = "",
+        project_id: Optional[int] = None,
+        active_workspace_id: Optional[str] = None,
     ) -> int:
         async with self._lock:
             return await asyncio.to_thread(
-                sql.create_session, self._conn, user_id, title, project_id
+                sql.create_session,
+                self._conn,
+                user_id,
+                title,
+                project_id,
+                active_workspace_id,
             )
 
     async def list_sessions(

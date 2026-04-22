@@ -852,6 +852,7 @@ def _build_envelope(
     derived_mode = derive_response_mode(
         planner_inputs,
         user_override=ctx.get("user_mode_override"),
+        workspace_default=ctx.get("workspace_default_mode"),
     )
     clarification_text = _collect_clarification_text(ctx, executions)
     blocks: list[Block] = plan_initial_blocks(
