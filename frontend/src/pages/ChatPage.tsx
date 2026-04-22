@@ -362,12 +362,18 @@ const ChatPage: React.FC = () => {
   const inflightTurnSessionRef = useRef<string | null | undefined>(undefined);
   const currentSessionIdRef = useRef<string | undefined>(undefined);
   // Abort handle for the in-flight chat SSE stream. Replaced at the
-  // start of every send/retry; aborted by the Stop button, by
-  // ``handleNewSession``, and by ``handleSelectSession`` so block_patch
-  // events from a stale turn can't keep mutating ``messages`` (which
-  // caused rich responses to visibly "type" into a different chat the
-  // user had switched to). Cleared in ``finally``.
+  // start of every send/retry; aborted by the Stop button only.
+  // Session switches DO NOT abort — the stream keeps running in the
+  // background so the user can return to it mid-stream and see the
+  // typing resume (see ``isAttachedRef`` below).
   const abortControllerRef = useRef<AbortController | null>(null);
+  // View attachment to the in-flight turn. ``true`` while the current
+  // visible chat is the one the stream is writing into; flips to
+  // ``false`` in ``handleNewSession`` / ``handleSelectSession`` and
+  // back to ``true`` on re-attach. ``handleEvent`` still accumulates
+  // ``envelopeRef`` when detached so the bubble resumes at the latest
+  // stream position on return, but skips DOM/pipeline/TTS side effects.
+  const isAttachedRef = useRef<boolean>(false);
 
   // Idle-state ticker for the character avatar. We don't need a dense
   // requestAnimationFrame loop here — the avatar only changes between
@@ -658,38 +664,42 @@ const ChatPage: React.FC = () => {
   };
 
   const handleEvent = useCallback((event: PipelineEvent) => {
-    // Session-bleed guard. If the user switched to a different chat
-    // while this turn was still streaming, drop the event. The turn
-    // continues to persist server-side; returning to the origin
-    // session surfaces the full response from the DB.
-    const turnSession = inflightTurnSessionRef.current;
-    const uiSession = currentSessionIdRef.current;
-    if (turnSession !== undefined && turnSession !== null) {
-      if (uiSession && String(uiSession) !== turnSession) {
-        return;
-      }
-    }
-
-    // Capture the session id the backend assigned for a brand-new chat
-    // so the next turn reuses it instead of creating yet another row.
+    // Capture the backend-assigned session id BEFORE the attachment
+    // guard so a switched-away turn still gets its session bound.
+    // Bumping ``dataVersion`` here is what makes a brand-new chat
+    // appear in the sidebar's recent list — without it the new chat
+    // stays invisible until the auto-naming step fires, and if the
+    // user switched away mid-stream they had no way to find it again.
     if (event.phase === 'session' && event.data?.session_id) {
       const sid = String(event.data.session_id);
-      // Bind the in-flight turn to the backend-assigned id so
-      // subsequent events can be matched against the current view.
       if (inflightTurnSessionRef.current === null) {
         inflightTurnSessionRef.current = sid;
+        setDataVersion((v) => v + 1);
       }
       setCurrentSessionId((prev) => prev ?? sid);
     }
+
+    // Always advance the in-memory envelope for rich-response events,
+    // even when the view is detached from this turn. ``envelopeRef``
+    // is the source of truth used by ``handleSelectSession`` to push
+    // an in-progress bubble on re-attach, so dropping events here
+    // would make the bubble snap to a stale position on return.
+    if (isResponseEvent(event)) {
+      envelopeRef.current = reduceResponse(envelopeRef.current, event);
+      setLiveEnvelope(envelopeRef.current);
+    }
+
+    // Attachment guard — skip DOM/pipeline/TTS side effects when the
+    // user is viewing a different chat (or hit "new chat"). The
+    // stream keeps running server-side; ``handleSelectSession``
+    // re-attaches the bubble when the user returns to this session.
+    if (!isAttachedRef.current) return;
 
     // Chunk 10: route the rich-response SSE family through the reducer.
     // The legacy pipeline-phase events below stay on their current path
     // so ``PipelineInfoPopover`` keeps working unchanged.
     if (isResponseEvent(event)) {
-      if (event.phase === RESPONSE_INIT) {
-        const nextEnvelope = reduceResponse(envelopeRef.current, event);
-        envelopeRef.current = nextEnvelope;
-        setLiveEnvelope(nextEnvelope);
+      if (event.phase === RESPONSE_INIT && inProgressMessageIndexRef.current == null) {
         setMessages((msgs) => {
           const nextIndex = msgs.length;
           inProgressMessageIndexRef.current = nextIndex;
@@ -702,13 +712,10 @@ const ChatPage: React.FC = () => {
               sources: [],
               media: [],
               pipeline: { ...INITIAL_PIPELINE, phase: 'streaming' as PipelineState['phase'] },
-              envelope: nextEnvelope,
+              envelope: envelopeRef.current,
             },
           ];
         });
-      } else {
-        envelopeRef.current = reduceResponse(envelopeRef.current, event);
-        setLiveEnvelope(envelopeRef.current);
       }
       if (inProgressMessageIndexRef.current != null) {
         const inProgressIndex = inProgressMessageIndexRef.current;
@@ -955,6 +962,7 @@ const ChatPage: React.FC = () => {
     // mid-stream. ``null`` = brand-new chat; the ``session`` event
     // patches the ref with the backend-assigned id.
     inflightTurnSessionRef.current = currentSessionId ?? null;
+    isAttachedRef.current = true;
     const controller = new AbortController();
     abortControllerRef.current = controller;
     // Chunk 16 (folds chunk 15 deferral #4): arm the status-phrase
@@ -1029,7 +1037,7 @@ const ChatPage: React.FC = () => {
         // was emitted). The envelope stays ``streaming`` on the
         // frontend — flip it to ``complete`` here so the action row
         // comes back and the indicator stops spinning.
-        const liveEnvelope = envelopeRef.current;
+        const liveEnvelope = envelopeRef.current as ResponseEnvelope | undefined;
         const inProgressIndex = inProgressMessageIndexRef.current;
         if (inProgressIndex != null && liveEnvelope) {
           const finalEnvelope = { ...liveEnvelope, status: 'complete' as const };
@@ -1053,6 +1061,7 @@ const ChatPage: React.FC = () => {
       abortControllerRef.current = null;
       inflightTurnSessionRef.current = undefined;
       inProgressMessageIndexRef.current = null;
+      isAttachedRef.current = false;
       setIsProcessing(false);
       // Refocus is handled by the useEffect below — it watches
       // isProcessing transitioning back to false and runs AFTER
@@ -1090,6 +1099,7 @@ const ChatPage: React.FC = () => {
       setLiveEnvelope(undefined);
       inProgressMessageIndexRef.current = null;
       inflightTurnSessionRef.current = currentSessionId ?? null;
+      isAttachedRef.current = true;
       const controller = new AbortController();
       abortControllerRef.current = controller;
       setPipeline({
@@ -1167,6 +1177,7 @@ const ChatPage: React.FC = () => {
           abortControllerRef.current = null;
           inflightTurnSessionRef.current = undefined;
           inProgressMessageIndexRef.current = null;
+          isAttachedRef.current = false;
           setIsProcessing(false);
         });
     }, 0);
@@ -1181,13 +1192,17 @@ const ChatPage: React.FC = () => {
   }, [retryAtIndex]);
 
   const handleNewSession = (projectId?: number) => {
-    // Kill any in-flight turn and wipe the per-turn refs BEFORE we
-    // clear ``messages``. Without this, rich responses streaming in
-    // the old chat would keep emitting block_patch events into the
-    // newly-empty array — the user would watch their new-chat view
-    // "type" out the answer meant for the chat they just left.
-    abortInFlightTurn();
-    setIsProcessing(false);
+    // Detach the view from any in-flight turn — the stream keeps
+    // running in the background so the user can return to the
+    // origin chat and see the typing resume. ``handleEvent`` reads
+    // ``isAttachedRef`` and stops mutating ``messages`` once we flip
+    // it false; clearing ``inProgressMessageIndexRef`` is belt-and-
+    // suspenders in case a stale event sneaks through. ``isProcessing``
+    // stays true while the background turn runs — the compose-bar
+    // guard in ``handleSend`` blocks starting a second turn until the
+    // first completes (single-turn invariant).
+    isAttachedRef.current = false;
+    inProgressMessageIndexRef.current = null;
     setMessages([]);
     setPipeline(INITIAL_PIPELINE);
     setCurrentSessionId(undefined);
@@ -1203,13 +1218,13 @@ const ChatPage: React.FC = () => {
   };
 
   const handleSelectSession = async (sessionId: string) => {
-    // Same rationale as ``handleNewSession``: any in-flight turn
-    // belongs to the chat the user is leaving, so tear down its
-    // stream + refs before we swap in the target session's history.
-    // Otherwise a late block_patch can index into the freshly-loaded
-    // messages array and overwrite the wrong row.
-    abortInFlightTurn();
-    setIsProcessing(false);
+    // Detach the view from the in-flight turn (if any). The stream
+    // keeps running in the background; if the target session turns
+    // out to be the turn's own session, we re-attach AFTER history
+    // loads so the in-progress bubble shows up at the end of the
+    // reloaded messages array with the correct index.
+    isAttachedRef.current = false;
+    inProgressMessageIndexRef.current = null;
     // Switch state immediately so the right pane reacts even if the
     // messages fetch is slow or errors. Clearing activeProjectId
     // ensures the ProjectLandingView gate (`activeProject && !currentSessionId`)
@@ -1252,6 +1267,42 @@ const ChatPage: React.FC = () => {
         };
       });
       setMessages(loaded);
+      // Re-attach if this session is the one the background turn is
+      // streaming into. We push an in-progress bubble seeded with the
+      // latest accumulated envelope so the user sees the stream
+      // resume where it actually is, then let ``handleEvent``
+      // continue patching that row as further SSE events land.
+      if (
+        inflightTurnSessionRef.current != null &&
+        String(inflightTurnSessionRef.current) === String(sessionId)
+      ) {
+        isAttachedRef.current = true;
+        setPipeline({
+          ...INITIAL_PIPELINE,
+          phase: 'streaming' as PipelineState['phase'],
+        });
+        if (envelopeRef.current != null) {
+          setMessages((prev) => {
+            const nextIndex = prev.length;
+            inProgressMessageIndexRef.current = nextIndex;
+            return [
+              ...prev,
+              {
+                role: 'assistant',
+                content: '',
+                timestamp: createMessageTimestamp(),
+                sources: [],
+                media: [],
+                pipeline: {
+                  ...INITIAL_PIPELINE,
+                  phase: 'streaming' as PipelineState['phase'],
+                },
+                envelope: envelopeRef.current,
+              },
+            ];
+          });
+        }
+      }
     } catch (err) {
       console.error('[ChatPage] failed to load session messages', sessionId, err);
       setMessages([]);
