@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Send } from 'lucide-react';
+import { Send, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { resolveSpokenText, ttsController, useTTSState } from '../utils/tts';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
@@ -361,6 +361,13 @@ const ChatPage: React.FC = () => {
   // returning to the original chat surfaces it in full.
   const inflightTurnSessionRef = useRef<string | null | undefined>(undefined);
   const currentSessionIdRef = useRef<string | undefined>(undefined);
+  // Abort handle for the in-flight chat SSE stream. Replaced at the
+  // start of every send/retry; aborted by the Stop button, by
+  // ``handleNewSession``, and by ``handleSelectSession`` so block_patch
+  // events from a stale turn can't keep mutating ``messages`` (which
+  // caused rich responses to visibly "type" into a different chat the
+  // user had switched to). Cleared in ``finally``.
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Idle-state ticker for the character avatar. We don't need a dense
   // requestAnimationFrame loop here — the avatar only changes between
@@ -891,6 +898,26 @@ const ChatPage: React.FC = () => {
     [tts],
   );
 
+  // Aborts the in-flight chat SSE request (if any). Does NOT touch the
+  // per-turn refs — the awaiting ``sendChatMessage`` promise will
+  // reject with ``AbortError``, and its existing ``catch``/``finally``
+  // branches read ``inflightTurnSessionRef`` to decide whether the
+  // cancelled turn still belongs to the visible chat. Clearing refs
+  // here would make that check pass for a switched-away turn and
+  // silently re-append the partial bubble to the new session.
+  const abortInFlightTurn = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }, []);
+
+  // Stop button — user-facing "halt the stream" action. Aborts the
+  // SSE request; the ``catch`` inside ``handleSend`` / ``retryAtIndex``
+  // detects the ``AbortError`` and finalizes the partial bubble.
+  const handleStop = useCallback(() => {
+    abortInFlightTurn();
+  }, [abortInFlightTurn]);
+
   const handleSend = async () => {
     if (!input.trim() || isProcessing) return;
     if (!connectivity.backendReachable) {
@@ -928,6 +955,8 @@ const ChatPage: React.FC = () => {
     // mid-stream. ``null`` = brand-new chat; the ``session`` event
     // patches the ref with the backend-assigned id.
     inflightTurnSessionRef.current = currentSessionId ?? null;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     // Chunk 16 (folds chunk 15 deferral #4): arm the status-phrase
     // throttle clock. Any ``status`` block patch that lands before
     // >3 s of wall-clock has elapsed is silently skipped for TTS.
@@ -947,6 +976,8 @@ const ChatPage: React.FC = () => {
         activeProjectId || undefined,
         userOverride,
         activeWorkspaceId,
+        null,
+        controller.signal,
       );
 
       // Session-bleed guard for the final append. If the user left the
@@ -988,7 +1019,29 @@ const ChatPage: React.FC = () => {
       const uiSession = currentSessionIdRef.current;
       const belongsToCurrentView =
         !turnSession || !uiSession || String(uiSession) === turnSession;
-      if (belongsToCurrentView) {
+      const isAbort =
+        (err instanceof DOMException && err.name === 'AbortError') ||
+        (err instanceof Error && err.name === 'AbortError');
+      if (isAbort && belongsToCurrentView) {
+        // User hit Stop while still viewing this chat. Commit whatever
+        // was streamed so the partial bubble doesn't vanish, but skip
+        // TTS and the usual snapshot hydration (no ``response_done``
+        // was emitted). The envelope stays ``streaming`` on the
+        // frontend — flip it to ``complete`` here so the action row
+        // comes back and the indicator stops spinning.
+        const liveEnvelope = envelopeRef.current;
+        const inProgressIndex = inProgressMessageIndexRef.current;
+        if (inProgressIndex != null && liveEnvelope) {
+          const finalEnvelope = { ...liveEnvelope, status: 'complete' as const };
+          setMessages((msgs) =>
+            msgs.map((message, index) =>
+              index === inProgressIndex
+                ? { ...message, envelope: finalEnvelope }
+                : message,
+            ),
+          );
+        }
+      } else if (!isAbort && belongsToCurrentView) {
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}. Is the LLM engine running?`,
@@ -997,6 +1050,7 @@ const ChatPage: React.FC = () => {
       }
       setPipeline({ ...INITIAL_PIPELINE });
     } finally {
+      abortControllerRef.current = null;
       inflightTurnSessionRef.current = undefined;
       inProgressMessageIndexRef.current = null;
       setIsProcessing(false);
@@ -1036,6 +1090,8 @@ const ChatPage: React.FC = () => {
       setLiveEnvelope(undefined);
       inProgressMessageIndexRef.current = null;
       inflightTurnSessionRef.current = currentSessionId ?? null;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       setPipeline({
         ...INITIAL_PIPELINE,
         phase: 'augmentation',
@@ -1055,6 +1111,7 @@ const ChatPage: React.FC = () => {
         modeOverride !== undefined ? modeOverride : toggleModeToOverride(modeToggle),
         activeWorkspaceId,
         userMessageDbId,
+        controller.signal,
       )
         .then(() => {
           const finalTurnSession = inflightTurnSessionRef.current;
@@ -1081,7 +1138,23 @@ const ChatPage: React.FC = () => {
           const uiSession = currentSessionIdRef.current;
           const belongsToCurrentView =
             !turnSession || !uiSession || String(uiSession) === turnSession;
-          if (belongsToCurrentView) {
+          const isAbort =
+            (err instanceof DOMException && err.name === 'AbortError') ||
+            (err instanceof Error && err.name === 'AbortError');
+          if (isAbort && belongsToCurrentView) {
+            const liveEnvelope = envelopeRef.current;
+            const inProgressIndex = inProgressMessageIndexRef.current;
+            if (inProgressIndex != null && liveEnvelope) {
+              const finalEnvelope = { ...liveEnvelope, status: 'complete' as const };
+              setMessages((msgs) =>
+                msgs.map((message, index) =>
+                  index === inProgressIndex
+                    ? { ...message, envelope: finalEnvelope }
+                    : message,
+                ),
+              );
+            }
+          } else if (!isAbort && belongsToCurrentView) {
             setMessages(prev => [...prev, {
               role: 'assistant',
               content: `Pipeline error: ${err instanceof Error ? err.message : 'Unknown error'}`,
@@ -1091,6 +1164,7 @@ const ChatPage: React.FC = () => {
           setPipeline({ ...INITIAL_PIPELINE });
         })
         .finally(() => {
+          abortControllerRef.current = null;
           inflightTurnSessionRef.current = undefined;
           inProgressMessageIndexRef.current = null;
           setIsProcessing(false);
@@ -1107,6 +1181,13 @@ const ChatPage: React.FC = () => {
   }, [retryAtIndex]);
 
   const handleNewSession = (projectId?: number) => {
+    // Kill any in-flight turn and wipe the per-turn refs BEFORE we
+    // clear ``messages``. Without this, rich responses streaming in
+    // the old chat would keep emitting block_patch events into the
+    // newly-empty array — the user would watch their new-chat view
+    // "type" out the answer meant for the chat they just left.
+    abortInFlightTurn();
+    setIsProcessing(false);
     setMessages([]);
     setPipeline(INITIAL_PIPELINE);
     setCurrentSessionId(undefined);
@@ -1122,6 +1203,13 @@ const ChatPage: React.FC = () => {
   };
 
   const handleSelectSession = async (sessionId: string) => {
+    // Same rationale as ``handleNewSession``: any in-flight turn
+    // belongs to the chat the user is leaving, so tear down its
+    // stream + refs before we swap in the target session's history.
+    // Otherwise a late block_patch can index into the freshly-loaded
+    // messages array and overwrite the wrong row.
+    abortInFlightTurn();
+    setIsProcessing(false);
     // Switch state immediately so the right pane reacts even if the
     // messages fetch is slow or errors. Clearing activeProjectId
     // ensures the ProjectLandingView gate (`activeProject && !currentSessionId`)
@@ -1396,12 +1484,16 @@ const ChatPage: React.FC = () => {
                 className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm font-medium placeholder:text-muted-foreground/45 focus:outline-none disabled:opacity-50 sm:text-base"
               />
               <button
-                onClick={handleSend}
-                disabled={isProcessing}
-                aria-label="Send message"
-                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-white transition-all hover:bg-primary/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={isProcessing ? handleStop : handleSend}
+                disabled={!isProcessing && !input.trim()}
+                aria-label={isProcessing ? 'Stop response' : 'Send message'}
+                className={`flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-white transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  isProcessing
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-primary hover:bg-primary/90'
+                }`}
               >
-                <Send size={16} />
+                {isProcessing ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
               </button>
             </div>
           </div>

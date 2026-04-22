@@ -143,12 +143,17 @@ export async function sendChatMessage(
   userModeOverride?: string | null,
   activeWorkspaceId?: string | null,
   retryOfMessageId?: number | null,
+  signal?: AbortSignal,
 ): Promise<void> {
   // ``user_mode_override`` is the chunk-13 compose-bar / slash-command
   // plumbing. ``null`` means the backend derives a mode itself via
   // ``derive_response_mode``; a string must be one of VALID_MODES or
   // the backend rejects with 400. ``retryOfMessageId`` tells the
   // backend to drop the stale assistant row before loading history.
+  // ``signal`` lets the caller tear down the fetch + SSE reader when
+  // the user hits Stop, switches chats mid-stream, or starts a new
+  // session — without this, block_patch events keep arriving and bleed
+  // into whatever chat the user is currently viewing.
   const response = await apiFetch(`${API_BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -160,6 +165,7 @@ export async function sendChatMessage(
       active_workspace_id: activeWorkspaceId ?? null,
       retry_of_message_id: retryOfMessageId ?? null,
     }),
+    signal,
   });
   if (!response.ok || !response.body) {
     throw new Error(`Chat request failed: ${response.status}`);
