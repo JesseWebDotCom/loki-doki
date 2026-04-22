@@ -35,8 +35,8 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 |---|---|---|---|
 | 1 | [Mirror envelope to React state](chunk-1-envelope-state.md) | done | 5cca324 |
 | 2 | [Push in-progress assistant message on `response_init`](chunk-2-in-progress-message.md) | done | c5a35ca |
-| 3 | [Block renderers handle `streaming` envelope / `partial` block state](chunk-3-block-render-streaming.md) | pending | |
-| 4 | [`ThinkingIndicator` loses `interimText`, keeps phase chrome](chunk-4-indicator-chrome-only.md) | pending | |
+| 3 | [Block renderers handle `streaming` envelope / `partial` block state](chunk-3-block-render-streaming.md) | done | cc5f137 |
+| 4 | [`ThinkingIndicator` loses `interimText`, keeps phase chrome](chunk-4-indicator-chrome-only.md) | done | 584844a |
 | 5 | [Completion path — flip `status` in place, no append-on-done](chunk-5-completion-flip.md) | pending | |
 | 6 | [Tests — progressive-in-place, history replay, fast-lane fallback](chunk-6-tests.md) | pending | |
 
