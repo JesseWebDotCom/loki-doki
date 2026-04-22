@@ -37,8 +37,8 @@ You are a fresh Claude Code session. You have been pointed at this file and give
 | 2 | [Push in-progress assistant message on `response_init`](chunk-2-in-progress-message.md) | done | c5a35ca |
 | 3 | [Block renderers handle `streaming` envelope / `partial` block state](chunk-3-block-render-streaming.md) | done | cc5f137 |
 | 4 | [`ThinkingIndicator` loses `interimText`, keeps phase chrome](chunk-4-indicator-chrome-only.md) | done | 584844a |
-| 5 | [Completion path — flip `status` in place, no append-on-done](chunk-5-completion-flip.md) | pending | |
-| 6 | [Tests — progressive-in-place, history replay, fast-lane fallback](chunk-6-tests.md) | pending | |
+| 5 | [Completion path — flip `status` in place, no append-on-done](chunk-5-completion-flip.md) | done | c1754ee |
+| 6 | [Tests — progressive-in-place, history replay, fast-lane fallback](chunk-6-tests.md) | done | ad6ac41 |
 
 ---
 
