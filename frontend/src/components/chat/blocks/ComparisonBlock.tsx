@@ -55,10 +55,22 @@ const ComparisonBlock: React.FC<{ block: Block }> = ({ block }) => {
     dimensions.length > 0 &&
     left.items.length === dimensions.length &&
     right.items.length === dimensions.length;
+  const hasRenderableComparison =
+    dimensions.length > 0 ||
+    left.items.length > 0 ||
+    right.items.length > 0 ||
+    left.title.length > 0 ||
+    right.title.length > 0;
+  const shouldRenderComparison =
+    hasRenderableComparison &&
+    (block.state === "ready" ||
+      block.state === "partial" ||
+      block.state === "loading");
 
   return (
     <BlockShell
       block={block}
+      renderPartial={shouldRenderComparison}
       skeleton={
         <div
           data-slot="comparison-skeleton"

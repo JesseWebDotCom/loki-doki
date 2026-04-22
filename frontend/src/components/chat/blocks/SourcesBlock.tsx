@@ -22,6 +22,10 @@ import SourceChip from "../SourceChip";
 const INLINE_LIMIT = 4;
 
 const SourcesBlock: React.FC<{ block: Block }> = ({ block }) => {
+  if (block.state !== "ready") {
+    return null;
+  }
+
   const items = (block.items as SourceInfo[] | undefined) ?? [];
   const { onOpenSources } = useBlockContext();
 
@@ -29,11 +33,7 @@ const SourcesBlock: React.FC<{ block: Block }> = ({ block }) => {
   const overflow = Math.max(items.length - inline.length, 0);
 
   return (
-    <BlockShell
-      block={block}
-      renderPartial
-      skeleton={<div className="my-2 h-4 w-24" />}
-    >
+    <BlockShell block={block}>
       <div
         data-slot="sources-block"
         data-source-count={items.length}

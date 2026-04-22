@@ -28,10 +28,16 @@ const KeyFactsBlock: React.FC<{ block: Block }> = ({ block }) => {
     .map((entry) => String(entry?.text ?? "").trim())
     .filter((text) => text.length > 0)
     .slice(0, MAX_FACTS);
+  const shouldRenderItems =
+    items.length > 0 &&
+    (block.state === "ready" ||
+      block.state === "partial" ||
+      block.state === "loading");
 
   return (
     <BlockShell
       block={block}
+      renderPartial={shouldRenderItems}
       skeleton={
         <div
           data-slot="key-facts-skeleton"
@@ -52,7 +58,7 @@ const KeyFactsBlock: React.FC<{ block: Block }> = ({ block }) => {
         data-fact-count={items.length}
         className="my-4"
       >
-        <ul className="ml-5 list-disc space-y-1.5 text-[0.95rem] leading-7 text-foreground/90">
+        <ul className="ml-5 list-disc space-y-1.5 text-base leading-7 text-foreground/90">
           {items.map((text, index) => (
             <li key={index} className="pl-1">
               {text}

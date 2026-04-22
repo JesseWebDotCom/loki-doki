@@ -20,6 +20,7 @@ import type {
   ArtifactSurfaceData,
   Block,
   BlockType,
+  EnvelopeStatus,
 } from "../../../lib/response-types";
 import type { SourceInfo } from "../../../lib/api";
 
@@ -62,6 +63,8 @@ export interface BlockContextValue {
   artifactSurface?: ArtifactSurfaceData;
   /** Opens the dedicated artifact surface. */
   onOpenArtifact?: () => void;
+  /** Current envelope lifecycle state for streaming-aware block UI. */
+  envelopeStatus?: EnvelopeStatus;
 }
 
 const BlockContext = createContext<BlockContextValue>({
@@ -71,6 +74,7 @@ const BlockContext = createContext<BlockContextValue>({
   onFollowUp: undefined,
   artifactSurface: undefined,
   onOpenArtifact: undefined,
+  envelopeStatus: undefined,
 });
 
 interface BlockContextProviderProps extends BlockContextValue {
@@ -84,6 +88,7 @@ export const BlockContextProvider: React.FC<BlockContextProviderProps> = ({
   onFollowUp,
   artifactSurface,
   onOpenArtifact,
+  envelopeStatus,
   children,
 }) => {
   return React.createElement(
@@ -96,6 +101,7 @@ export const BlockContextProvider: React.FC<BlockContextProviderProps> = ({
         onFollowUp,
         artifactSurface,
         onOpenArtifact,
+        envelopeStatus,
       },
     },
     children,

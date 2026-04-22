@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw, Bot } from 'lucide-react';
+import { Brain, Play, Square, LoaderCircle, Volume2, VolumeX, Copy, Check, ThumbsUp, ThumbsDown, RefreshCw, Bot, Info } from 'lucide-react';
 import { useTTSState } from '../../utils/tts';
 import {
   Tooltip,
@@ -110,6 +110,7 @@ const MessageItem: React.FC<MessageProps> = ({
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [pendingRating, setPendingRating] = useState<1 | -1 | null>(null);
   const [artifactOpen, setArtifactOpen] = useState(false);
+  const [pipelineOpen, setPipelineOpen] = useState(false);
 
   const processedContent = useMemo(() => isUser ? content : preprocessContent(content), [content, isUser]);
   // ``primarySource`` is read AFTER ``effectiveSources`` is declared
@@ -192,19 +193,19 @@ const MessageItem: React.FC<MessageProps> = ({
   const hoverDateTime = formatMessageDateTime(timestamp);
 
   const contentMarkup = (
-    <div className={`prose-onyx font-medium tracking-tight ${isUser ? 'text-base leading-8 text-foreground sm:text-[1.02rem]' : 'text-[1.14rem] leading-9 text-foreground/95 sm:text-[1.36rem] sm:leading-[2.45rem]'}`}>
+    <div className={`prose-onyx font-medium tracking-tight ${isUser ? 'text-base leading-7 text-foreground sm:text-[1.02rem]' : 'text-base leading-7 text-foreground/95 sm:text-[1.05rem] sm:leading-8'}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         components={{
           p: ({ children }) => (
-            <p className={`last:mb-0 ${isUser ? 'mb-4' : 'mb-5'}`}>{children}</p>
+            <p className="mb-4 last:mb-0">{children}</p>
           ),
-          ul: ({ children }) => <ul className={`ml-6 list-disc ${isUser ? 'mb-4 space-y-1.5' : 'mb-5 space-y-2'}`}>{children}</ul>,
-          ol: ({ children }) => <ol className={`ml-6 list-decimal ${isUser ? 'mb-4 space-y-1.5' : 'mb-5 space-y-2'}`}>{children}</ol>,
-          li: ({ children }) => <li className={isUser ? 'leading-8' : 'leading-9 sm:leading-[2.45rem]'}>{children}</li>,
-          h1: ({ children }) => <h1 className="mb-5 mt-1 text-[2.35rem] font-bold leading-tight tracking-[-0.04em] text-foreground sm:text-[3.7rem]">{children}</h1>,
-          h2: ({ children }) => <h2 className="mb-4 mt-1 text-[1.8rem] font-bold leading-tight tracking-[-0.03em] text-foreground sm:text-[2.6rem]">{children}</h2>,
-          h3: ({ children }) => <h3 className="mb-3 mt-1 text-[1.35rem] font-semibold leading-tight text-foreground sm:text-[1.7rem]">{children}</h3>,
+          ul: ({ children }) => <ul className="ml-6 mb-4 list-disc space-y-1.5">{children}</ul>,
+          ol: ({ children }) => <ol className="ml-6 mb-4 list-decimal space-y-1.5">{children}</ol>,
+          li: ({ children }) => <li className={isUser ? 'leading-7' : 'leading-7 sm:leading-8'}>{children}</li>,
+          h1: ({ children }) => <h1 className="mb-4 mt-1 text-[1.65rem] font-bold leading-tight tracking-[-0.02em] text-foreground sm:text-[1.95rem]">{children}</h1>,
+          h2: ({ children }) => <h2 className="mb-3 mt-1 text-[1.3rem] font-bold leading-tight tracking-[-0.01em] text-foreground sm:text-[1.5rem]">{children}</h2>,
+          h3: ({ children }) => <h3 className="mb-2 mt-1 text-[1.1rem] font-semibold leading-tight text-foreground sm:text-[1.2rem]">{children}</h3>,
           strong: ({ children }) => <strong className="font-bold text-primary/90">{children}</strong>,
           a: ({ href, children }) => {
             if (href?.startsWith('#cite-')) {
@@ -317,18 +318,14 @@ const MessageItem: React.FC<MessageProps> = ({
               </div>
             )}
             <div className="min-w-0 flex-1 pt-1 flex flex-col gap-1">
-               <div className="flex flex-wrap items-center gap-2 px-1">
-                <span className="text-[10px] sm:text-[11px] font-bold tracking-widest text-muted-foreground/40 uppercase font-mono">
-                  {pipeline?.synthesis?.model?.split(':')[0]?.toUpperCase() || 'LokiDoki'}
-                </span>
-                <span className="text-[10px] sm:text-[11px] font-mono text-muted-foreground/30">
-                  {displayTime}
-                </span>
-                {envelope?.offline_degraded ? <OfflineTrustChip className="mb-0" /> : null}
-              </div>
-              {pipeline && (
+              {envelope?.offline_degraded ? (
                 <div className="px-1">
-                  <PipelineInfoPopover pipeline={pipeline} />
+                  <OfflineTrustChip className="mb-0" />
+                </div>
+              ) : null}
+              {pipeline && pipelineOpen && (
+                <div className="px-1">
+                  <PipelineInfoPopover pipeline={pipeline} defaultExpanded />
                 </div>
               )}
               <div data-testid="message-bubble" className="w-full text-foreground relative">
@@ -342,6 +339,7 @@ const MessageItem: React.FC<MessageProps> = ({
                   onFollowUp={onFollowUp}
                   artifactSurface={envelope?.artifact_surface}
                   onOpenArtifact={() => setArtifactOpen(true)}
+                  envelopeStatus={envelope?.status}
                 >
                   {envelope?.mode === 'deep' && envelope.status === 'streaming' ? (
                     <DeepWorkFrame envelope={envelope}>
@@ -512,6 +510,28 @@ const MessageItem: React.FC<MessageProps> = ({
                       </Tooltip>
                     )}
 
+                    {pipeline && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={pipelineOpen ? 'Hide details' : 'Details'}
+                            onClick={() => setPipelineOpen((v) => !v)}
+                            className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition cursor-pointer ${
+                              pipelineOpen
+                                ? 'text-foreground bg-card'
+                                : 'text-muted-foreground/60 hover:text-foreground hover:bg-card'
+                            }`}
+                          >
+                            <Info size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="text-xs">
+                          {pipelineOpen ? 'Hide details' : 'Details'}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+
                     {effectiveSources.length > 0 && onOpenSources && (
                       <>
                         <div className="mx-1 h-4 w-px bg-border/40" />
@@ -531,6 +551,15 @@ const MessageItem: React.FC<MessageProps> = ({
                         </button>
                       </>
                     )}
+
+                    <div className="ml-auto">
+                      <span
+                        className="cursor-default font-mono text-[11px] italic text-muted-foreground/50"
+                        title={hoverDateTime}
+                      >
+                        {displayTime}
+                      </span>
+                    </div>
                   </TooltipProvider>
                 </div>
               </div>

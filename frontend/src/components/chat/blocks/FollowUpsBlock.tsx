@@ -48,6 +48,10 @@ function normalizeFollowUp(entry: unknown): string {
 }
 
 const FollowUpsBlock: React.FC<{ block: Block }> = ({ block }) => {
+  if (block.state !== "ready") {
+    return null;
+  }
+
   const rawItems = (block.items as unknown[] | undefined) ?? [];
   const chips = rawItems
     .map(normalizeFollowUp)
@@ -68,23 +72,7 @@ const FollowUpsBlock: React.FC<{ block: Block }> = ({ block }) => {
   };
 
   return (
-    <BlockShell
-      block={block}
-      skeleton={
-        <div
-          data-slot="follow-ups-skeleton"
-          className="my-4 flex flex-wrap gap-2"
-          aria-hidden="true"
-        >
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div
-              key={index}
-              className="h-8 w-28 animate-pulse rounded-full bg-muted/60"
-            />
-          ))}
-        </div>
-      }
-    >
+    <BlockShell block={block}>
       <div
         data-slot="follow-ups-block"
         data-chip-count={chips.length}

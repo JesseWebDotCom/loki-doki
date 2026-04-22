@@ -39,40 +39,49 @@ function preprocessContent(content: string): string {
 }
 
 const SummaryBlock: React.FC<{ block: Block }> = ({ block }) => {
-  const { sources, mentionedPeople } = useBlockContext();
+  const { sources, mentionedPeople, envelopeStatus } = useBlockContext();
   const content = block.content ?? "";
   const processed = preprocessContent(content);
+  const shouldRenderContent = processed.trim().length > 0;
+  const showCaret =
+    envelopeStatus === "streaming" &&
+    block.state !== "ready" &&
+    shouldRenderContent;
+
+  if (!shouldRenderContent) {
+    return <BlockShell block={block} renderPartial />;
+  }
 
   return (
-    <BlockShell block={block} renderPartial>
-      <div className="prose-onyx font-medium tracking-tight text-[1.14rem] leading-9 text-foreground/95 sm:text-[1.36rem] sm:leading-[2.45rem]">
+    <BlockShell block={block} renderPartial={shouldRenderContent}>
+      <div className="prose-onyx font-medium tracking-tight text-base leading-7 text-foreground/95 sm:text-[1.05rem] sm:leading-8">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkBreaks]}
           components={{
             p: ({ children }) => (
-              <p className="mb-5 last:mb-0">{children}</p>
+              <p className="mb-4 last:mb-0">{children}</p>
             ),
             ul: ({ children }) => (
-              <ul className="ml-6 mb-5 list-disc space-y-2">{children}</ul>
+              <ul className="ml-6 mb-4 list-disc space-y-1.5">{children}</ul>
             ),
             ol: ({ children }) => (
-              <ol className="ml-6 mb-5 list-decimal space-y-2">{children}</ol>
+              <ol className="ml-6 mb-4 list-decimal space-y-1.5">{children}</ol>
             ),
             li: ({ children }) => (
-              <li className="leading-9 sm:leading-[2.45rem]">{children}</li>
+              <li className="leading-7 sm:leading-8">{children}</li>
             ),
             h1: ({ children }) => (
-              <h1 className="mb-5 mt-1 text-[2.35rem] font-bold leading-tight tracking-[-0.04em] text-foreground sm:text-[3.7rem]">
+              <h1 className="mb-4 mt-1 text-[1.65rem] font-bold leading-tight tracking-[-0.02em] text-foreground sm:text-[1.95rem]">
                 {children}
               </h1>
             ),
             h2: ({ children }) => (
-              <h2 className="mb-4 mt-1 text-[1.8rem] font-bold leading-tight tracking-[-0.03em] text-foreground sm:text-[2.6rem]">
+              <h2 className="mb-3 mt-1 text-[1.3rem] font-bold leading-tight tracking-[-0.01em] text-foreground sm:text-[1.5rem]">
                 {children}
               </h2>
             ),
             h3: ({ children }) => (
-              <h3 className="mb-3 mt-1 text-[1.35rem] font-semibold leading-tight text-foreground sm:text-[1.7rem]">
+              <h3 className="mb-2 mt-1 text-[1.1rem] font-semibold leading-tight text-foreground sm:text-[1.2rem]">
                 {children}
               </h3>
             ),
@@ -149,6 +158,14 @@ const SummaryBlock: React.FC<{ block: Block }> = ({ block }) => {
         >
           {processed}
         </ReactMarkdown>
+        {showCaret ? (
+          <span
+            aria-hidden="true"
+            className="opacity-50 animate-pulse"
+          >
+            ▍
+          </span>
+        ) : null}
       </div>
     </BlockShell>
   );

@@ -47,10 +47,16 @@ const StepsBlock: React.FC<{ block: Block }> = ({ block }) => {
     }
     items.push(step);
   });
+  const shouldRenderItems =
+    items.length > 0 &&
+    (block.state === "ready" ||
+      block.state === "partial" ||
+      block.state === "loading");
 
   return (
     <BlockShell
       block={block}
+      renderPartial={shouldRenderItems}
       skeleton={
         <div
           data-slot="steps-skeleton"
@@ -75,7 +81,7 @@ const StepsBlock: React.FC<{ block: Block }> = ({ block }) => {
           <li
             key={step.n}
             data-slot="steps-item"
-            className="flex items-start gap-3 leading-7 text-foreground/90"
+            className="flex items-start gap-3 text-base leading-7 text-foreground/90"
           >
             <span
               className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-[11px] font-semibold text-primary"
@@ -86,7 +92,7 @@ const StepsBlock: React.FC<{ block: Block }> = ({ block }) => {
             <div className="flex-1">
               <div>{step.text}</div>
               {step.substeps ? (
-                <ul className="ml-5 mt-1 list-disc space-y-1 text-[0.9rem] leading-6 text-foreground/75">
+                <ul className="ml-5 mt-1 list-disc space-y-1 text-sm leading-6 text-foreground/75">
                   {step.substeps.map((sub, index) => (
                     <li key={index}>{sub}</li>
                   ))}

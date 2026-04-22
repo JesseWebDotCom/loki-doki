@@ -19,18 +19,14 @@ import BlockShell from "./BlockShell";
  * ladder.
  */
 const MediaBlock: React.FC<{ block: Block }> = ({ block }) => {
+  if (block.state !== "ready") {
+    return null;
+  }
+
   const items = (block.items as MediaCard[] | undefined) ?? [];
 
   return (
-    <BlockShell
-      block={block}
-      skeleton={
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <div className="h-32 flex-1 animate-pulse rounded-xl bg-muted/60 sm:max-w-sm" />
-          <div className="h-32 flex-1 animate-pulse rounded-xl bg-muted/60 sm:max-w-sm" />
-        </div>
-      }
-    >
+    <BlockShell block={block}>
       <MediaBar media={items} />
     </BlockShell>
   );

@@ -128,7 +128,7 @@ describe("FollowUpsBlock", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders a skeleton while loading", () => {
+  it("renders nothing until the block is ready", () => {
     const block: Block = {
       id: "follow_ups",
       type: "follow_ups",
@@ -138,9 +138,7 @@ describe("FollowUpsBlock", () => {
     };
 
     const { container } = withContext(<FollowUpsBlock block={block} />);
-    expect(
-      container.querySelector('[data-slot="follow-ups-skeleton"]'),
-    ).toBeTruthy();
+    expect(container.firstChild).toBeNull();
   });
 });
 
