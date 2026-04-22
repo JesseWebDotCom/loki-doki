@@ -30,9 +30,14 @@ class WikipediaAdapter:
             kind="web",
             snippet=_sentences(lead, limit=1)[0] if lead else None,
         )
+        media_items = data.get("media") or ()
+        media: tuple[dict, ...] = ()
+        if isinstance(media_items, (list, tuple)):
+            media = tuple(item for item in media_items if isinstance(item, dict))
         return AdapterOutput(
             summary_candidates=(lead,) if lead else (),
             facts=_sentences(lead, limit=5),
             sources=(source,),
+            media=media,
             raw=data,
         )

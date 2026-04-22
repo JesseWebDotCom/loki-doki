@@ -63,6 +63,15 @@ class _TextExtractor(HTMLParser):
 _MULTI_SPACE = re.compile(r"[ \t]+")
 _MULTI_NEWLINE = re.compile(r"\n{3,}")
 
+# Kiwix boilerplate that tails every Wikipedia article in ZIM archives.
+# The phrasing is fixed by the kiwix-tools build; matching the opening
+# sentence is enough — we discard from that sentence to the end of the
+# extracted text so related license/media-terms trailers go with it.
+_KIWIX_FOOTER_RE = re.compile(
+    r"\s*This article is issued from [A-Z][\w ]+\..*\Z",
+    re.DOTALL,
+)
+
 
 def strip_html(html: str, max_chars: int = 2000) -> str:
     """Strip HTML tags and return clean text, capped at max_chars."""
@@ -77,6 +86,7 @@ def strip_html(html: str, max_chars: int = 2000) -> str:
     text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
     text = _MULTI_NEWLINE.sub("\n\n", text)
     text = _MULTI_SPACE.sub(" ", text)
+    text = _KIWIX_FOOTER_RE.sub("", text)
     text = text.strip()
     if len(text) > max_chars:
         text = text[:max_chars]

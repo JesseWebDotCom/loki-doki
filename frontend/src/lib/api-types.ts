@@ -111,6 +111,12 @@ export type MediaCard =
       handle?: string;
       featured_video_id?: string;
       avatar_url?: string;
+    }
+  | {
+      kind: 'image';
+      url: string;
+      caption?: string;
+      source_label?: string;
     };
 
 export interface SynthesisData {

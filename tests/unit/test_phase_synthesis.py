@@ -248,17 +248,20 @@ async def test_run_synthesis_phase_stitches_adapter_sources_onto_spec(monkeypatc
     ]
     assert "Luke trained with Yoda." in spec.supporting_context
 
-    # Envelope: planner allocated summary + sources (media absent); the
-    # summary is filled with the combined response text; sources block
-    # mirrors spec.adapter_sources; source_surface is populated too.
+    # Envelope: knowledge_query is a rich-shaped routed capability, so
+    # the planner now allocates rich mode — summary + sources + key_facts
+    # (media absent because no media was emitted). The summary is filled
+    # with the combined response text; sources mirrors spec.adapter_sources;
+    # source_surface is populated too.
     assert isinstance(envelope, ResponseEnvelope)
     assert envelope.request_id == "t-synth-envelope"
-    assert envelope.mode == "standard"
+    assert envelope.mode == "rich"
     assert envelope.status == "complete"
 
     block_ids = [block.id for block in envelope.blocks]
     assert "summary" in block_ids
     assert "sources" in block_ids
+    assert "key_facts" in block_ids
     assert "media" not in block_ids
 
     summary_block = next(b for b in envelope.blocks if b.id == "summary")

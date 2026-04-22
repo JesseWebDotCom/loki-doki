@@ -730,6 +730,18 @@ def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> Non
         queue.put_nowait(response_events.block_init(block))
 
     seq_by_block: dict[str, int] = {}
+    # List-block families whose populated ``items`` must be streamed as
+    # ``block_patch(items_delta=...)`` so the reducer can render them
+    # before the final snapshot arrives. Without this, the block stays
+    # in ``loading`` state through the streaming window and only
+    # materialises after ``response_snapshot`` — which for some
+    # frontends is effectively never.
+    _LIST_ITEMS_BLOCKS = {
+        BlockType.key_facts,
+        BlockType.steps,
+        BlockType.comparison,
+        BlockType.follow_ups,
+    }
     for block in envelope.blocks:
         if block.state is BlockState.omitted:
             continue
@@ -744,6 +756,13 @@ def _emit_envelope_events(safe_context: dict, envelope: ResponseEnvelope) -> Non
         elif block.type is BlockType.media and block.items:
             for card in block.items:
                 queue.put_nowait(response_events.media_add(card))
+        elif block.type in _LIST_ITEMS_BLOCKS and block.items:
+            seq_by_block[block.id] = seq_by_block.get(block.id, 0) + 1
+            queue.put_nowait(response_events.block_patch(
+                block.id,
+                seq_by_block[block.id],
+                items_delta=list(block.items),
+            ))
         elif block.type is BlockType.clarification and block.content:
             # Clarification arrives ready — one patch carries the
             # whole question so replay / reducer don't need a
@@ -1081,6 +1100,11 @@ def _build_planner_inputs(
     capability_need = str(
         getattr(decomposition, "capability_need", "") or ""
     )
+    routed_capabilities: tuple[str, ...] = tuple(
+        execution.capability
+        for execution in executions
+        if execution.success and execution.capability
+    )
 
     successful = sum(1 for execution in executions if execution.success)
     override = safe_context.get("user_mode_override")
@@ -1100,6 +1124,7 @@ def _build_planner_inputs(
             safe_context.get("reasoning_complexity", "") or ""
         ),
         capability_need=capability_need,
+        routed_capabilities=routed_capabilities,
         requires_current_data=bool(
             safe_context.get("requires_current_data", False)
         ),

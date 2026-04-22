@@ -157,15 +157,18 @@ class TestDirectRule:
         )
         assert derive_response_mode(inputs) == "direct"
 
-    def test_verbatim_non_deterministic_capability_does_not_yield_direct(self):
-        """Verbatim encyclopedic lookups route elsewhere."""
+    def test_verbatim_non_deterministic_capability_yields_rich(self):
+        """Verbatim encyclopedic lookups route to rich mode.
+
+        Verbatim means "skill output is authoritative, don't
+        re-synthesize" — not "render as a bare paragraph". Structured
+        blocks still apply to the verbatim payload.
+        """
         inputs = PlannerInputs(
             response_shape="verbatim",
             capability_need="encyclopedic",
         )
-        # Not direct — response_shape != synthesized, capability is
-        # rich-shaped but rule 6 requires synthesized, so falls through.
-        assert derive_response_mode(inputs) == "standard"
+        assert derive_response_mode(inputs) == "rich"
 
     def test_synthesized_deterministic_capability_does_not_yield_direct(self):
         inputs = PlannerInputs(
@@ -176,20 +179,28 @@ class TestDirectRule:
 
 
 class TestRichRule:
-    """Rule 6: synthesized + (multi-skill | current-data | rich capability) → rich."""
+    """Rule 6: multi-skill | current-data | rich capability → rich."""
 
-    def test_synthesized_plus_multiple_skills_yields_rich(self):
-        inputs = PlannerInputs(
-            response_shape="synthesized",
-            multiple_skills_fired=True,
-        )
+    def test_multiple_skills_alone_yields_rich(self):
+        inputs = PlannerInputs(multiple_skills_fired=True)
         assert derive_response_mode(inputs) == "rich"
 
-    def test_synthesized_plus_current_data_yields_rich(self):
-        inputs = PlannerInputs(
-            response_shape="synthesized",
-            requires_current_data=True,
-        )
+    def test_current_data_alone_yields_rich(self):
+        inputs = PlannerInputs(requires_current_data=True)
+        assert derive_response_mode(inputs) == "rich"
+
+    @pytest.mark.parametrize(
+        "capability",
+        ["encyclopedic", "medical", "technical_reference", "people_lookup"],
+    )
+    def test_rich_capability_alone_yields_rich(self, capability):
+        """A rich-shaped capability is sufficient on its own.
+
+        The decomposer's ``response_shape`` (``verbatim`` /
+        ``synthesized``) does not gate rich mode — both skill-verbatim
+        and LLM-synthesized answers benefit from structured blocks.
+        """
+        inputs = PlannerInputs(capability_need=capability)
         assert derive_response_mode(inputs) == "rich"
 
     @pytest.mark.parametrize(
@@ -197,6 +208,7 @@ class TestRichRule:
         ["encyclopedic", "medical", "technical_reference", "people_lookup"],
     )
     def test_synthesized_plus_rich_capability_yields_rich(self, capability):
+        """The ``synthesized`` path continues to yield rich (back-compat)."""
         inputs = PlannerInputs(
             response_shape="synthesized",
             capability_need=capability,
@@ -322,13 +334,14 @@ class TestPlanStandard:
         assert [b.id for b in blocks] == ["summary", "status"]
 
     def test_standard_with_sources_and_media(self):
-        # No follow_up_candidates in ``_outputs_with_both`` → no
-        # follow_ups block.
+        # Media rides at the top of the bubble (ChatGPT-style media
+        # header). ``_outputs_with_both`` has no follow_up_candidates,
+        # so no follow_ups block.
         blocks = plan_initial_blocks(_outputs_with_both(), mode="standard")
         assert [b.id for b in blocks] == [
+            "media",
             "summary",
             "sources",
-            "media",
             "status",
         ]
 
@@ -353,11 +366,12 @@ class TestPlanRich:
 
     def test_rich_with_everything(self):
         blocks = plan_initial_blocks(_outputs_with_both(), mode="rich")
-        # No follow_up_candidates → no follow_ups block.
+        # Media rides at the top; no follow_up_candidates → no
+        # follow_ups block.
         assert [b.id for b in blocks] == [
+            "media",
             "summary",
             "sources",
-            "media",
             "key_facts",
             "status",
         ]

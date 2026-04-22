@@ -103,8 +103,9 @@ def test_planner_standard_adds_media_block_when_any_output_has_media() -> None:
     blocks = plan_initial_blocks(outputs)
 
     ids = [b.id for b in blocks]
-    assert ids == ["summary", "media", "status"]
-    assert blocks[1].type is BlockType.media
+    # Media rides at the top of the bubble (ChatGPT-style media header).
+    assert ids == ["media", "summary", "status"]
+    assert blocks[0].type is BlockType.media
 
 
 def test_planner_standard_emits_all_three_when_many_outputs_contribute() -> None:
@@ -125,9 +126,9 @@ def test_planner_standard_emits_all_three_when_many_outputs_contribute() -> None
     blocks = plan_initial_blocks(outputs)
 
     assert [b.id for b in blocks] == [
+        "media",
         "summary",
         "sources",
-        "media",
         "follow_ups",
         "status",
     ]

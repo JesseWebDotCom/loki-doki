@@ -1,8 +1,17 @@
 """Response adapter for DuckDuckGo-backed search results."""
 from __future__ import annotations
 
+import re
+
 from lokidoki.core.skill_executor import MechanismResult
 from lokidoki.orchestrator.adapters.base import AdapterOutput, Source
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _sentences(text: str, *, limit: int) -> tuple[str, ...]:
+    parts = [part.strip() for part in _SENTENCE_SPLIT_RE.split(text) if part.strip()]
+    return tuple(parts[:limit])
 
 
 class DuckDuckGoAdapter:
@@ -35,4 +44,28 @@ class DuckDuckGoAdapter:
                 sources.append(Source(title=title or "Search result", url=None, kind="web", snippet=snippet))
 
         summaries = (abstract,) if abstract else ()
-        return AdapterOutput(summary_candidates=summaries, sources=tuple(sources[:8]), raw=data)
+        # Sentence-split the abstract into ``facts`` so rich-mode
+        # turns (encyclopedic / people_lookup / …) get a populated
+        # ``key_facts`` block. Mirrors :class:`WikipediaAdapter`.
+        facts = _sentences(abstract, limit=5) if abstract else ()
+        media: tuple[dict, ...] = ()
+        # DuckDuckGo's instant-answer JSON surfaces a thumbnail in
+        # ``Image`` for people / works / products. Use it verbatim
+        # when present — falls back to no media silently, never
+        # blocks the turn.
+        image = str(data.get("Image") or "").strip()
+        if image:
+            image_url = image if image.startswith(("http://", "https://")) else f"https://duckduckgo.com{image}"
+            media = ({
+                "kind": "image",
+                "url": image_url,
+                "caption": heading,
+                "source_label": "DuckDuckGo",
+            },)
+        return AdapterOutput(
+            summary_candidates=summaries,
+            facts=facts,
+            sources=tuple(sources[:8]),
+            media=media,
+            raw=data,
+        )

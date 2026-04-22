@@ -5,6 +5,14 @@ from lokidoki.core.skill_executor import BaseSkill, MechanismResult
 
 DDG_API_URL = "https://api.duckduckgo.com/"
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
+DDG_HOME_URL = "https://duckduckgo.com/"
+DDG_IMAGES_URL = "https://duckduckgo.com/i.js"
+
+# DDG's image API is a two-step flow: hit the homepage with the query
+# to obtain a short-lived ``vqd`` token, then hit ``i.js`` with that
+# token. The token is embedded in the HTML as ``vqd=...`` — accept
+# single/double/no quotes since the format has changed before.
+_VQD_RE = re.compile(r'vqd=(["\']?)([\d-]+)\1')
 
 # DDG's Instant Answer API sometimes returns self-referential rows
 # ("About DuckDuckGo", "DuckDuckGo is a search engine...") when the
@@ -24,13 +32,26 @@ def _strip_brand(text: str) -> str:
 
 
 class DuckDuckGoSkill(BaseSkill):
-    """Web search via DuckDuckGo instant answers API with HTML scraper fallback."""
+    """Web search via DuckDuckGo instant answers API with HTML scraper fallback.
+
+    Implements the shared "web-search skill" contract. Any provider in
+    this slot (DuckDuckGo today, Brave/Kagi/Searx tomorrow) MUST expose:
+
+    * ``ddg_api`` / ``ddg_scraper`` — text results (``web_search_source``
+      in the shared ``_runner`` wraps these).
+    * ``image_search`` — returns up to N image result dicts
+      (``{title, image_url, thumbnail, source_url, width, height}``).
+      Called by :func:`lokidoki.orchestrator.skills._runner.web_image_search_source`
+      and threaded into ``AdapterOutput.media`` as ``kind="image"`` cards.
+    """
 
     async def execute_mechanism(self, method: str, parameters: dict) -> MechanismResult:
         if method == "ddg_api":
             return await self._ddg_api(parameters)
         elif method == "ddg_scraper":
             return await self._ddg_scraper(parameters)
+        elif method == "image_search":
+            return await self._image_search(parameters)
         raise ValueError(f"Unknown mechanism: {method}")
 
     async def _ddg_api(self, parameters: dict) -> MechanismResult:
@@ -79,6 +100,79 @@ class DuckDuckGoSkill(BaseSkill):
                 source_title=heading or query,
             )
         except Exception as e:
+            return MechanismResult(success=False, error=str(e))
+
+    async def _image_search(self, parameters: dict) -> MechanismResult:
+        """Return up to ``limit`` image results for the given query.
+
+        DuckDuckGo's image endpoint requires a short-lived ``vqd`` token
+        obtained by loading the homepage once. Both requests are wrapped
+        in a tight timeout so an offline or network-degraded turn fails
+        fast and silently; the caller degrades to "no extra images"
+        instead of blocking.
+        """
+        query = parameters.get("query")
+        if not query:
+            return MechanismResult(success=False, error="Query parameter required")
+        limit = int(parameters.get("limit") or 3)
+        try:
+            async with httpx.AsyncClient(
+                timeout=3.0,
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 LokiDoki"},
+            ) as client:
+                home = await client.get(
+                    DDG_HOME_URL,
+                    params={"q": query, "iax": "images", "ia": "images"},
+                )
+                if home.status_code != 200:
+                    return MechanismResult(success=False, error=f"DDG home error: {home.status_code}")
+                match = _VQD_RE.search(home.text)
+                if not match:
+                    return MechanismResult(success=False, error="no vqd token")
+                vqd = match.group(2)
+                resp = await client.get(
+                    DDG_IMAGES_URL,
+                    params={
+                        "l": "us-en",
+                        "o": "json",
+                        "q": query,
+                        "vqd": vqd,
+                        "f": ",,,,,",
+                        "p": "1",
+                    },
+                    headers={
+                        "Accept": "application/json",
+                        "Referer": "https://duckduckgo.com/",
+                    },
+                )
+            if resp.status_code != 200:
+                return MechanismResult(success=False, error=f"DDG images error: {resp.status_code}")
+            payload = resp.json()
+            items: list[dict] = []
+            for row in payload.get("results", [])[: limit * 2]:
+                image_url = str(row.get("image") or "").strip()
+                if not image_url or not image_url.startswith(("http://", "https://")):
+                    continue
+                items.append({
+                    "title": str(row.get("title") or "").strip(),
+                    "image_url": image_url,
+                    "thumbnail": str(row.get("thumbnail") or "").strip(),
+                    "source_url": str(row.get("url") or "").strip(),
+                    "width": int(row.get("width") or 0),
+                    "height": int(row.get("height") or 0),
+                })
+                if len(items) >= limit:
+                    break
+            if not items:
+                return MechanismResult(success=False, error="no image results")
+            return MechanismResult(
+                success=True,
+                data={"images": items},
+                source_url=f"https://duckduckgo.com/?q={query}&iax=images&ia=images",
+                source_title=f"DuckDuckGo images — {query}",
+            )
+        except Exception as e:  # noqa: BLE001
             return MechanismResult(success=False, error=str(e))
 
     async def _ddg_scraper(self, parameters: dict) -> MechanismResult:

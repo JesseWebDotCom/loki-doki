@@ -21,6 +21,7 @@ from lokidoki.skills.knowledge._parse import (
     _query_tokens,
     _strip_diacritics,
     _title_matches_query,
+    _title_substantially_matches,
     _trim_to_sentences,
     parse_wiki_html,
 )
@@ -58,11 +59,42 @@ class WikipediaSkill(BaseSkill):
             if engine is None or not engine.loaded_sources:
                 return MechanismResult(success=False, error="No ZIM archives loaded")
 
-            results = await engine.search(query, max_results=1)
+            # Ask for a handful and filter. Raw top-1 frequently surfaces
+            # junk titles (``Portal:Illinois``) or articles that share no
+            # meaningful tokens with the query (``Procedural knowledge``
+            # for "how do I change a flat tire"). Apply the same relevance
+            # gate the MediaWiki path uses so the orchestrator's offline
+            # fast-path never dumps a wildly off-topic article.
+            results = await engine.search(query, max_results=8)
             if not results:
                 return MechanismResult(success=False, error="No local article found")
 
-            article = results[0]
+            # The shared ``_title_matches_query`` helper returns True when
+            # the query has no significant tokens (its "generic fallback"
+            # branch). That's sensible for the MediaWiki path where the
+            # top result is already ranked by Wikipedia, but it lets the
+            # ZIM path leak wildly off-topic articles for short
+            # procedural asks where every word is filtered as short or
+            # stopword ("how do I give cpr"). Require real overlap here
+            # and fall back to a token-containment check so the skill
+            # fails cleanly and lets the LLM synthesis path answer.
+            q_tokens = _query_tokens(query)
+            def _is_relevant(title: str) -> bool:
+                if _is_junk_title(title):
+                    return False
+                if q_tokens:
+                    return bool(q_tokens & _query_tokens(title))
+                # Every query token was too short/common for the overlap
+                # helper. Fall back to substring containment so a hit is
+                # only accepted when the title literally mentions the ask.
+                lt = title.lower()
+                return any(word.lower() in lt for word in query.split() if len(word) >= 3)
+
+            article = next((r for r in results if _is_relevant(r.title)), None)
+            if article is None:
+                return MechanismResult(
+                    success=False, error="No relevant local article found"
+                )
             lead = _trim_to_sentences(article.snippet, VERBATIM_LEAD_CHAR_CAP)
             data = {
                 "title": article.title,
@@ -108,7 +140,7 @@ class WikipediaSkill(BaseSkill):
                     (
                         r["title"] for r in results
                         if not _is_junk_title(r.get("title", ""))
-                        and _title_matches_query(r.get("title", ""), query)
+                        and _title_substantially_matches(r.get("title", ""), query)
                     ),
                     None,
                 )
@@ -123,9 +155,17 @@ class WikipediaSkill(BaseSkill):
                     params={
                         "action": "query",
                         "titles": resolved_title,
-                        "prop": "extracts",
+                        # ``pageimages`` surfaces the article's canonical
+                        # thumbnail (infobox portrait). Bootstrap is still
+                        # the only install boundary; this live fetch runs
+                        # only when the user chose NOT to mirror Wikipedia
+                        # as a ZIM, and is the same network boundary the
+                        # lead-text fetch is already crossing.
+                        "prop": "extracts|pageimages",
                         "exintro": True,
                         "explaintext": True,
+                        "piprop": "thumbnail|original",
+                        "pithumbsize": 400,
                         "format": "json",
                         "redirects": 1,
                     },
@@ -152,6 +192,15 @@ class WikipediaSkill(BaseSkill):
                     "sections": [],
                     "url": url,
                 }
+                thumb = page.get("thumbnail") or {}
+                thumb_url = str(thumb.get("source") or "").strip()
+                if thumb_url:
+                    data["media"] = [{
+                        "kind": "image",
+                        "url": thumb_url,
+                        "caption": title,
+                        "source_label": "Wikipedia",
+                    }]
 
                 self._cache[query.lower()] = data
 
@@ -195,7 +244,7 @@ class WikipediaSkill(BaseSkill):
                 (
                     r["title"] for r in results
                     if not _is_junk_title(r.get("title", ""))
-                    and _title_matches_query(r.get("title", ""), query)
+                    and _title_substantially_matches(r.get("title", ""), query)
                 ),
                 None,
             )

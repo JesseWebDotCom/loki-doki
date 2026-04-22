@@ -431,11 +431,12 @@ def _plan_standard(
     ``follow_ups`` is only allocated when at least one adapter
     surfaced ``follow_up_candidates`` (chunk 15 — no fabrication).
     """
-    blocks: list[Block] = [_summary()]
-    if has_sources:
-        blocks.append(_sources())
+    blocks: list[Block] = []
     if has_media:
         blocks.append(_media())
+    blocks.append(_summary())
+    if has_sources:
+        blocks.append(_sources())
     text_block = _select_standard_text_block(inputs)
     if text_block is not None:
         blocks.append(text_block)
@@ -462,11 +463,15 @@ def _plan_rich(
     ``comparison``. Both are populated from synthesis output /
     adapter fallback in :mod:`lokidoki.orchestrator.response.synthesis_blocks`.
     """
-    blocks: list[Block] = [_summary()]
-    if has_sources:
-        blocks.append(_sources())
+    # Media rides at the top of the bubble (ChatGPT-style media header)
+    # so the reader sees images / player cards before the text. The rest
+    # of the stack stays in its canonical order.
+    blocks: list[Block] = []
     if has_media:
         blocks.append(_media())
+    blocks.append(_summary())
+    if has_sources:
+        blocks.append(_sources())
     blocks.append(_key_facts())
     if _wants_steps(inputs):
         blocks.append(_steps())

@@ -322,6 +322,56 @@ async def web_search_source(query: str) -> "AdapterResult":
     )
 
 
+async def web_image_search_source(query: str, *, limit: int = 3) -> list[dict]:
+    """Shared image-search helper backed by the active web-search skill.
+
+    Returns a list of normalized image dicts ready to become
+    ``AdapterOutput.media`` entries:
+
+        [{"kind": "image", "url": <str>, "caption": <str>,
+          "source_label": "Web"}, ...]
+
+    Implementation swaps with :func:`web_search_source` — whichever skill
+    fills the web-search slot MUST expose an ``image_search`` mechanism
+    (``{"query", "limit"}`` in, ``data.images=[...]`` out). Today that's
+    ``DuckDuckGoSkill``; tomorrow a Brave / Kagi provider drops in the
+    same place and every caller (knowledge, recipes, tv_show, …) picks
+    up the new provider for free. Fails silently on any error so
+    callers can degrade gracefully — no extra images is fine, a broken
+    turn is not.
+    """
+    if not query:
+        return []
+    try:
+        from lokidoki.skills.search.skill import DuckDuckGoSkill
+
+        skill: DuckDuckGoSkill = getattr(web_image_search_source, "_skill", None)  # type: ignore[assignment]
+        if skill is None:
+            skill = DuckDuckGoSkill()
+            web_image_search_source._skill = skill  # type: ignore[attr-defined]
+
+        result = await skill.execute_mechanism(
+            "image_search", {"query": query, "limit": limit},
+        )
+        if not result.success or not isinstance(result.data, dict):
+            return []
+        raw_images = result.data.get("images") or []
+        out: list[dict] = []
+        for row in raw_images[:limit]:
+            url = str((row or {}).get("image_url") or "").strip()
+            if not url:
+                continue
+            out.append({
+                "kind": "image",
+                "url": url,
+                "caption": str((row or {}).get("title") or "").strip() or query,
+                "source_label": "Web",
+            })
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def score_subject_coverage(query: str, body: str) -> float:
     """Fraction of significant query tokens present in ``body``.
 

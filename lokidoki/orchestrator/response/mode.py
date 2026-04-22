@@ -95,6 +95,31 @@ _RICH_CAPABILITY_NEEDS: frozenset[str] = frozenset({
 })
 
 
+# Router capabilities that are rich-shaped regardless of the
+# decomposer's ``capability_need``. Required because the decomposer
+# can fall back to ``"none"`` (timeout, parse error, disabled) and
+# because older cache entries predate the rich-capability taxonomy —
+# in both cases the router still picks the right skill, and that
+# routing decision is a reliable "this answer deserves structure"
+# signal. Source: capability strings the router actually emits, cross-
+# referenced against
+# :mod:`lokidoki.orchestrator.decomposer.capability_map`.
+_RICH_ROUTED_CAPABILITIES: frozenset[str] = frozenset({
+    "knowledge_query",
+    "lookup_definition",
+    "lookup_fact",
+    "define_word",
+    "lookup_person_facts",
+    "lookup_person_birthday",
+    "lookup_person_address",
+    "lookup_relationship",
+    "list_family",
+    "news_search",
+    "find_recipe",
+    "code_assistance",
+})
+
+
 @dataclass(slots=True)
 class PlannerInputs:
     """Structured inputs for :func:`derive_response_mode`.
@@ -131,6 +156,7 @@ class PlannerInputs:
     response_shape: str = ""
     reasoning_complexity: str = ""
     capability_need: str = ""
+    routed_capabilities: tuple[str, ...] = ()
     requires_current_data: bool = False
     multiple_skills_fired: bool = False
     has_artifact_output: bool = False
@@ -182,9 +208,12 @@ def derive_response_mode(
     5. **Direct** for ``response_shape == "verbatim"`` with a
        deterministic capability (unit conversion, calendar, etc.)
        — skip enrichment, return the skill output.
-    6. **Rich** for synthesized answers with either multiple skills
-       firing or current-data enrichment, or for a recognized
-       rich-shaped capability.
+    6. **Rich** for a recognized rich-shaped capability
+       (encyclopedic / medical / people_lookup / …), a multi-skill
+       fan-out, or any current-data enrichment. The decomposer's
+       ``response_shape`` does not gate rich mode — verbatim skill
+       output and synthesized answers both benefit from structured
+       blocks.
     7. **Standard** otherwise.
 
     Any exception during rule evaluation → ``"standard"`` + a WARNING
@@ -245,12 +274,26 @@ def derive_response_mode(
         ):
             return "direct"
 
-        # Rule 6 — synthesized answers with multi-skill fan-out, a
-        # current-data enrichment, or a rich-shaped capability → rich.
-        if inputs.response_shape == "synthesized" and (
-            inputs.multiple_skills_fired
+        # Rule 6 — rich-shaped capability, multi-skill fan-out, or
+        # current-data enrichment → rich layout.
+        #
+        # The decomposer's ``response_shape`` ("verbatim" / "synthesized")
+        # is NOT used as a gate here. Rationale: "verbatim" means the
+        # skill output is authoritative and should not be re-synthesized
+        # by a heavy LLM — it does NOT mean the answer should render as
+        # a bare paragraph. Encyclopedic / people_lookup / medical
+        # answers benefit from structured blocks (summary + key_facts +
+        # sources) whether the content is skill-verbatim or
+        # LLM-synthesized. Gating on "synthesized" made rich mode
+        # unreachable for "who is X" / "what is X" turns.
+        routed_rich = any(
+            cap in _RICH_ROUTED_CAPABILITIES for cap in inputs.routed_capabilities
+        )
+        if (
+            inputs.capability_need in _RICH_CAPABILITY_NEEDS
+            or routed_rich
+            or inputs.multiple_skills_fired
             or inputs.requires_current_data
-            or inputs.capability_need in _RICH_CAPABILITY_NEEDS
         ):
             return "rich"
     except Exception:  # noqa: BLE001 — legacy fallback path
@@ -271,6 +314,10 @@ def _coerce_inputs(decomposition: object) -> PlannerInputs:
     """
     if isinstance(decomposition, PlannerInputs):
         return decomposition
+    raw_routed = getattr(decomposition, "routed_capabilities", ()) or ()
+    if isinstance(raw_routed, str):
+        raw_routed = (raw_routed,)
+    routed_capabilities = tuple(str(c) for c in raw_routed if str(c))
     return PlannerInputs(
         intent=str(getattr(decomposition, "intent", "") or ""),
         response_shape=str(getattr(decomposition, "response_shape", "") or ""),
@@ -278,6 +325,7 @@ def _coerce_inputs(decomposition: object) -> PlannerInputs:
             getattr(decomposition, "reasoning_complexity", "") or ""
         ),
         capability_need=str(getattr(decomposition, "capability_need", "") or ""),
+        routed_capabilities=routed_capabilities,
         requires_current_data=bool(
             getattr(decomposition, "requires_current_data", False)
         ),
