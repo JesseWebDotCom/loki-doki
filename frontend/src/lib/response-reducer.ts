@@ -233,6 +233,67 @@ function appendMedia(
   return { ...env, blocks: next };
 }
 
+function blocksEquivalent(a: Block, b: Block): boolean {
+  if (a.id !== b.id || a.type !== b.type) return false;
+  if (String(a.content ?? "") !== String(b.content ?? "")) return false;
+  const aItems = a.items ?? [];
+  const bItems = b.items ?? [];
+  if (aItems.length !== bItems.length) return false;
+  for (let i = 0; i < aItems.length; i += 1) {
+    if (JSON.stringify(aItems[i]) !== JSON.stringify(bItems[i])) return false;
+  }
+  return true;
+}
+
+function mergeSnapshot(
+  env: ResponseEnvelope,
+  snapshot: ResponseEnvelope,
+): ResponseEnvelope {
+  // Index streamed blocks by id so the snapshot's order (which is
+  // authoritative) drives the output while we keep streamed refs
+  // whenever content matches.
+  const streamed = new Map<string, Block>();
+  for (const block of env.blocks) streamed.set(block.id, block);
+
+  const blocks: Block[] = snapshot.blocks.map((snapBlock) => {
+    const live = streamed.get(snapBlock.id);
+    if (!live) return snapBlock;
+    // Same content: keep the live ref verbatim but adopt the
+    // snapshot's final ``state`` (e.g. ``ready``) and ``reason``.
+    if (blocksEquivalent(live, snapBlock)) {
+      if (live.state === snapBlock.state && live.reason === snapBlock.reason) {
+        return live;
+      }
+      return { ...live, state: snapBlock.state, reason: snapBlock.reason };
+    }
+    // Content differs (e.g. snapshot added late items the streaming
+    // path missed) — prefer snapshot, but keep streamed ``content``
+    // if the snapshot's is shorter (the stream almost certainly has
+    // the complete final text for prose blocks).
+    const mergedContent =
+      (snapBlock.content ?? "").length >= (live.content ?? "").length
+        ? snapBlock.content
+        : live.content;
+    return { ...snapBlock, content: mergedContent };
+  });
+
+  // Preserve streamed source/media refs when the snapshot has the same
+  // source set (ordered by ``url``); otherwise adopt the snapshot's.
+  const sameSources =
+    env.source_surface.length === snapshot.source_surface.length &&
+    env.source_surface.every((s, i) => {
+      const snap = snapshot.source_surface[i] as Record<string, unknown>;
+      const live = s as Record<string, unknown>;
+      return String(live.url ?? "") === String(snap.url ?? "");
+    });
+
+  return {
+    ...snapshot,
+    blocks,
+    source_surface: sameSources ? env.source_surface : snapshot.source_surface,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public reducer
 // ---------------------------------------------------------------------------
@@ -254,7 +315,17 @@ export function reduceResponse(
       return initEnvelope(ev.data ?? {});
     case RESPONSE_SNAPSHOT: {
       const raw = (ev.data?.envelope ?? {}) as Record<string, unknown>;
-      return envelopeFromDict(raw);
+      const snapshot = envelopeFromDict(raw);
+      // Live-stream case: we already built the envelope from
+      // ``response_init`` + ``block_patch`` events. Replacing it
+      // wholesale creates new block / item object refs identical in
+      // content to what we already rendered, so React unmounts and
+      // re-mounts every block — visually, the whole bubble flashes
+      // when the snapshot arrives. Merge instead: keep the existing
+      // block / source / media refs when content matches, only adopt
+      // snapshot values that filled in genuinely new data.
+      if (!env) return snapshot;
+      return mergeSnapshot(env, snapshot);
     }
     default: {
       // Every remaining event needs an active envelope. If we have
