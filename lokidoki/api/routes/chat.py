@@ -192,6 +192,20 @@ async def chat(
         user_id=user_id, session_id=session_id, role="user", content=request.message,
     )
 
+    # Give the session an immediate human-readable title derived from the
+    # first prompt so the sidebar doesn't show a raw session id while the
+    # turn is in-flight. _auto_name_session runs after synthesis and will
+    # replace this with the LLM's 3-5 word title.
+    if is_first_turn:
+        interim = _interim_title_from_prompt(request.message)
+        if interim:
+            try:
+                await memory.update_session_title(user_id, session_id, interim)
+            except Exception:
+                logger.exception(
+                    "interim title update failed for session %s", session_id
+                )
+
     # Resolve the active character for this user.
     resolved = await memory.run_sync(
         lambda conn: character_ops.get_active_character_for_user(conn, user_id)
@@ -315,6 +329,28 @@ async def chat(
             yield f"data: {err_event}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+_INTERIM_TITLE_MAX = 40
+
+
+def _interim_title_from_prompt(prompt: str) -> str:
+    """Shorten the first user prompt into a single-line title placeholder.
+
+    Collapses whitespace, trims to ~40 chars at a word boundary, and
+    appends an ellipsis when truncated. Returns "" when the prompt is
+    empty so callers can skip the update.
+    """
+    cleaned = " ".join((prompt or "").split())
+    if not cleaned:
+        return ""
+    if len(cleaned) <= _INTERIM_TITLE_MAX:
+        return cleaned
+    cut = cleaned[:_INTERIM_TITLE_MAX]
+    space = cut.rfind(" ")
+    if space >= 20:
+        cut = cut[:space]
+    return cut.rstrip(" ,.;:!?-") + "…"
 
 
 async def _auto_name_session(
