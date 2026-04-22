@@ -21,6 +21,7 @@ import FaviconImage from './FaviconImage';
 import PipelineInfoPopover from './PipelineInfoPopover';
 import OfflineTrustChip from './OfflineTrustChip';
 import DocumentChip from './DocumentChip';
+import DeepWorkFrame from './DeepWorkFrame';
 import { BlockContextProvider, renderBlock } from './blocks';
 
 interface MentionedPerson {
@@ -333,7 +334,13 @@ const MessageItem: React.FC<MessageProps> = ({
                   onOpenSources={onOpenSources}
                   onFollowUp={onFollowUp}
                 >
-                  {assistantBlocks.map((block) => renderBlock(block))}
+                  {envelope?.mode === 'deep' && envelope.status === 'streaming' ? (
+                    <DeepWorkFrame envelope={envelope}>
+                      {assistantBlocks.map((block) => renderBlock(block))}
+                    </DeepWorkFrame>
+                  ) : (
+                    assistantBlocks.map((block) => renderBlock(block))
+                  )}
                 </BlockContextProvider>
 
                 {confirmations.length > 0 && (

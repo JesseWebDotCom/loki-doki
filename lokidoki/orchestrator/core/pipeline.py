@@ -83,6 +83,21 @@ async def run_pipeline_async(
     response, envelope = await run_synthesis_phase(
         trace, ctx, raw_text, spec, executions, mw, runtime,
     )
+    # Chunk 18: branch into the deep-work path when the planner /
+    # user chose deep mode. The runner mutates ``envelope`` in place,
+    # so the downstream persistence + SSE snapshot see the upgraded
+    # shape. Non-deep turns short-circuit inside ``run_deep_turn``
+    # with zero cost.
+    if envelope is not None and envelope.mode == "deep":
+        from lokidoki.orchestrator.deep import run_deep_turn
+        route_decomposition = ctx.get("route_decomposition")
+        await run_deep_turn(
+            envelope,
+            safe_context=ctx,
+            executions=executions,
+            decomposition=route_decomposition,
+            profile=ctx.get("platform_profile"),
+        )
     # Post-synthesis filter: drop media cards when the model still
     # punted with a clarification / deferral despite the media_hint.
     # Showing a random video next to "I'm not sure" is worse than
