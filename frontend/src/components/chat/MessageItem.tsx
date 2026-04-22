@@ -47,6 +47,13 @@ interface MessageProps {
   /** Retry callback — removes this message and re-sends the prior user turn. */
   onRetry?: () => void;
   onOpenSources?: () => void;
+  /**
+   * Chunk 16 (folds chunk 15 deferral #1). Invoked when the user taps
+   * a follow-up chip or a clarification quick-reply rendered inside
+   * this message's block stack. The text arrives as the next user
+   * turn via ``ChatPage`` / ``handleSend``.
+   */
+  onFollowUp?: (text: string) => void;
   /** Chunk 10: canonical server-reconciled envelope. Live turns
    *  populate this from the SSE reducer; history replay populates
    *  it from the persisted ``response_envelope`` column. When
@@ -83,6 +90,7 @@ const MessageItem: React.FC<MessageProps> = ({
   messageId,
   onRetry,
   onOpenSources,
+  onFollowUp,
   envelope,
 }) => {
   const isUser = role === 'user';
@@ -319,6 +327,7 @@ const MessageItem: React.FC<MessageProps> = ({
                   sources={effectiveSources}
                   mentionedPeople={mentionedPeople}
                   onOpenSources={onOpenSources}
+                  onFollowUp={onFollowUp}
                 >
                   {assistantBlocks.map((block) => renderBlock(block))}
                 </BlockContextProvider>

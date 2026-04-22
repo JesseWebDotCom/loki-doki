@@ -112,6 +112,7 @@ Rules:
 - Cite sources as [src:N] (1-indexed) only when used. When RequestSpec data came from a source (sources_list is non-empty), PUT [src:N] inline right after the fact it supports — don't skip citations just because the reply is short.
 - Never write a search-engine or database brand name (DuckDuckGo, Wikipedia, MedlinePlus, RxNorm, etc.) inside the reply body. Those belong only in [src:N] markers.
 - Medical / first-aid / injury / symptom / bleeding / pain topics: drop playful emojis, jokes, and hedging phrases ("maybe avoid dancing", "ouchy", "😊", "😄"). Lead with the actionable step ("Apply firm pressure with a clean cloth for 10 minutes"), then the warning sign ("if bleeding doesn't stop, seek care"). Facts first, warmth second. If the user reports bleeding that won't stop, severe pain, fainting, chest pain, difficulty breathing, or loss of consciousness — say "this is urgent, get help now" in plain words.
+- Voice parity (same JSON call, never a second pass): after your reply, append ONE line <spoken_text>...</spoken_text> containing a ≤200-char TTS-friendly paraphrase. Plain prose, one or two sentences, no markdown, no [src:N] markers, no URLs, no list items.
 {response_schema}
 conversation_history:
 {conversation_history}
@@ -143,6 +144,7 @@ Rules:
   Never guess credits, filmography, or career facts — search instead.
   User pushes back ("really?", "are you sure?") — search, don't double down.
 - Medical / first-aid / injury / symptom / bleeding / pain topics: drop playful emojis, jokes, and hedging phrases ("maybe avoid dancing", "ouchy", "😊", "😄"). Lead with the actionable step, then the warning sign. Facts first, warmth second. If the user reports bleeding that won't stop, severe pain, fainting, chest pain, difficulty breathing, or loss of consciousness — say "this is urgent, get help now" in plain words.
+- Voice parity (same JSON call, never a second pass): after your reply, append ONE line <spoken_text>...</spoken_text> containing a ≤200-char TTS-friendly paraphrase. Plain prose, one or two sentences, no markdown, no URLs, no list items.
 {response_schema}
 conversation_history:
 {conversation_history}

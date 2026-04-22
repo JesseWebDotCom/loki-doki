@@ -19,6 +19,12 @@ interface ChatWindowProps {
   assistantName?: string;
   onRetry?: (messageIndex: number) => void;
   onOpenSources?: (messageIndex: number) => void;
+  /**
+   * Chunk 16 (folds chunk 15 deferral #1). Invoked when a user taps
+   * a follow-up chip or a clarification quick-reply inside any
+   * message's block stack. The text arrives as the next user turn.
+   */
+  onFollowUp?: (text: string) => void;
 }
 
 const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -33,6 +39,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   assistantName,
   onRetry,
   onOpenSources,
+  onFollowUp,
 }) => {
   // Per-message mini avatars only render in mini mode. Docked mode
   // shows the big right-column avatar instead, and rendering both at
@@ -117,6 +124,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   assistantName={assistantName}
                   onRetry={onRetry ? () => onRetry(idx) : undefined}
                   onOpenSources={onOpenSources ? () => onOpenSources(idx) : undefined}
+                  onFollowUp={onFollowUp}
                 />
               </React.Fragment>
             );

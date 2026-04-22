@@ -27,6 +27,51 @@ _STRUCTURAL_SOURCES = frozenset({
 })
 
 
+# Chunk 16: one-call synthesis contract (design §20.3) — the LLM is
+# instructed to append ``<spoken_text>...</spoken_text>`` after the
+# visual reply so BOTH ``response`` and ``spoken_text`` come out of a
+# single inference pass. Parsing machine-generated text is permitted
+# (CLAUDE.md — regex salvage is fine for model output; it's NOT fine
+# for user-intent classification).
+_SPOKEN_TEXT_ISLAND = re.compile(
+    r"<spoken_text>\s*(.*?)\s*</spoken_text>",
+    re.DOTALL | re.IGNORECASE,
+)
+# Hard cap on the spoken form — matches the prompt instruction. Keeps
+# TTS latency bounded even if the LLM ignores the "≤200 chars" hint.
+SPOKEN_TEXT_MAX_CHARS = 240
+
+
+def extract_and_strip_spoken_text(text: str) -> tuple[str, str | None]:
+    """Pull a ``<spoken_text>...</spoken_text>`` island out of LLM output.
+
+    Returns ``(cleaned_response, spoken_text_or_none)``. The island is
+    stripped from the visible reply so the user never sees the tag in
+    the chat bubble, and any trailing whitespace left behind is
+    trimmed. Multiple islands are tolerated — only the last one wins
+    (the most recent paraphrase).
+
+    When no island is present, ``spoken_text`` is ``None`` and the
+    response is returned unchanged. The envelope-build path will then
+    fall back to a trimmed summary via
+    :func:`lokidoki.orchestrator.response.spoken.resolve_spoken_text`.
+    """
+    if not text:
+        return "", None
+    matches = list(_SPOKEN_TEXT_ISLAND.finditer(text))
+    if not matches:
+        return text, None
+    spoken_raw = matches[-1].group(1).strip()
+    # Strip every island so the response bubble stays clean even if
+    # the model emitted more than one.
+    cleaned = _SPOKEN_TEXT_ISLAND.sub("", text).strip()
+    if not spoken_raw:
+        return cleaned, None
+    if len(spoken_raw) > SPOKEN_TEXT_MAX_CHARS:
+        spoken_raw = spoken_raw[:SPOKEN_TEXT_MAX_CHARS].rstrip()
+    return cleaned, spoken_raw
+
+
 def _extract_persona(spec: RequestSpec) -> tuple[str, str]:
     """Return (character_name, behavior_prompt) from spec context.
 

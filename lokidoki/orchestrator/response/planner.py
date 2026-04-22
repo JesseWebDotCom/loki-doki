@@ -143,6 +143,43 @@ _TEXT_BLOCK_BUDGET: dict[ResponseMode, dict[BlockType, int]] = {
 _STANDARD_TEXT_BLOCK_CAP = 1
 
 
+# Chunk 16 — per-block TTS policy (design §20.2).
+#
+# The authoritative read/skip decision for each block family. Voice
+# parity reads the envelope's ``spoken_text`` (or the trimmed summary
+# fallback) and NEVER concatenates block items (sources, media,
+# follow-ups) into the spoken output. Clarification is spoken because
+# the user has to hear the question to answer it. Status is
+# throttle-gated on the frontend (≤1 utterance per phase, >3s gate —
+# chunk 15 deferral #4). Everything else is visual-only.
+#
+# Encoded as a flat literal dict so the frontend can mirror the same
+# shape without round-tripping per-block fields through the envelope.
+TTS_POLICY: dict[BlockType, str] = {
+    BlockType.summary: "speak",
+    BlockType.key_facts: "skip",
+    BlockType.steps: "skip",
+    BlockType.comparison: "skip",
+    BlockType.sources: "skip",
+    BlockType.media: "skip",
+    BlockType.cta_links: "skip",
+    BlockType.clarification: "speak",
+    BlockType.follow_ups: "skip",
+    BlockType.status: "speak",  # throttled on the client; see tts.ts
+}
+
+
+def tts_policy_for(block_type: BlockType) -> str:
+    """Return the TTS policy (``"speak"`` / ``"skip"``) for ``block_type``.
+
+    Unknown block types default to ``"skip"`` — voice parity must fail
+    closed. Adding a new block family requires a conscious policy
+    decision in :data:`TTS_POLICY`, not a silent default that starts
+    reading UI chrome aloud.
+    """
+    return TTS_POLICY.get(block_type, "skip")
+
+
 _OFFLINE_ERROR_MARKERS: tuple[str, ...] = (
     "offline",
     "name or service not known",
@@ -626,9 +663,11 @@ def build_status_block() -> Block:
 
 
 __all__ = [
-    "plan_initial_blocks",
-    "is_offline_degraded",
-    "text_block_budget",
-    "enforce_text_block_budget",
+    "TTS_POLICY",
     "build_status_block",
+    "enforce_text_block_budget",
+    "is_offline_degraded",
+    "plan_initial_blocks",
+    "text_block_budget",
+    "tts_policy_for",
 ]

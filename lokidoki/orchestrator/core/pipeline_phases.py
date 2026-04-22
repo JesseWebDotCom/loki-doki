@@ -59,6 +59,7 @@ from lokidoki.orchestrator.response.mode import (
     derive_response_mode,
 )
 from lokidoki.orchestrator.response.planner import is_offline_degraded, plan_initial_blocks
+from lokidoki.orchestrator.response.spoken import resolve_spoken_text
 from lokidoki.orchestrator.response.status_strings import (
     FINISHING_PHRASE,
     phrase_for as status_phrase_for,
@@ -823,7 +824,17 @@ def _build_envelope(
         profile=str(ctx.get("platform_profile") or ""),
     )
 
-    spoken_text = getattr(response, "spoken_text", None)
+    # Chunk 16 (design §20.3): ``spoken_text`` and the visual summary
+    # come from the SAME synthesis call — never a second LLM pass. We
+    # read whatever the synthesizer produced (``ResponseObject.spoken_text``
+    # from the one-call JSON contract; adapter-provided ``data["spoken_text"]``
+    # threaded through ``raw_result`` for skills that pre-format a
+    # spoken form). ``resolve_spoken_text`` is then the authoritative
+    # TTS input for the envelope — the same function the frontend
+    # mirror calls so voice and visual stay in sync.
+    synth_spoken = getattr(response, "spoken_text", None)
+    adapter_spoken = _adapter_spoken_text(executions)
+    explicit_spoken = (synth_spoken or adapter_spoken or "").strip() or None
 
     envelope = ResponseEnvelope(
         request_id=getattr(trace, "trace_id", "") or "",
@@ -831,15 +842,44 @@ def _build_envelope(
         status=status,  # type: ignore[arg-type]
         blocks=blocks,
         source_surface=list(source_items),
-        spoken_text=spoken_text,
+        spoken_text=explicit_spoken,
         offline_degraded=is_offline_degraded(executions),
     )
+    # Resolve the authoritative spoken form now that the summary block
+    # is populated — when the synthesizer didn't emit ``spoken_text``
+    # we fall back to the trimmed summary. The envelope stores the
+    # resolved value so history replay + frontend rendering see the
+    # same snapshot (§20.4 — one utterance per turn, no retroactive
+    # edits).
+    resolved = resolve_spoken_text(envelope)
+    envelope.spoken_text = resolved or None
 
     try:
         validate_envelope(envelope)
     except EnvelopeValidationError as exc:
         logger.warning("envelope validation failed: %s", exc)
     return envelope
+
+
+def _adapter_spoken_text(executions: list[ExecutionResult]) -> str | None:
+    """Return the first skill-provided ``spoken_text`` override, if any.
+
+    A handful of skills (e.g. ``movies_fandango``) pre-format a short
+    spoken form that's snappier than the visual reply — they surface
+    it on ``execution.raw_result["data"]["spoken_text"]``. We prefer
+    a skill-provided override over synthesis output when present so
+    long reply surfaces (showtime tables, list-heavy answers) don't
+    read every line aloud.
+    """
+    for execution in executions:
+        if not execution.success:
+            continue
+        raw = execution.raw_result if isinstance(execution.raw_result, dict) else {}
+        data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+        spoken = str(data.get("spoken_text") or raw.get("spoken_text") or "").strip()
+        if spoken:
+            return spoken
+    return None
 
 
 def _collect_clarification_text(

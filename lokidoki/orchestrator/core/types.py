@@ -121,6 +121,12 @@ class ExecutionResult:
 @dataclass(slots=True)
 class ResponseObject:
     output_text: str
+    # Chunk 16: short spoken version emitted from the SAME synthesis
+    # call as ``output_text`` (design §20.3 — never a second LLM pass).
+    # ``None`` means the synthesizer did not produce a dedicated spoken
+    # form; :func:`lokidoki.orchestrator.response.spoken.resolve_spoken_text`
+    # falls back to a trimmed summary at envelope-build time.
+    spoken_text: str | None = None
 
 
 @dataclass(slots=True)

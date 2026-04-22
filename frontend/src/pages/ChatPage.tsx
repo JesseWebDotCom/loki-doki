@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Send } from 'lucide-react';
 import { toast } from 'sonner';
-import { useTTSState } from '../utils/tts';
+import { resolveSpokenText, ttsController, useTTSState } from '../utils/tts';
 import { useDocumentTitle } from '../lib/useDocumentTitle';
 import { useConnectivityStatus } from '../lib/connectivity';
 import { createMessageTimestamp } from '../lib/chatTimestamp';
@@ -28,7 +28,9 @@ import {
   reduceResponse,
   isResponseEvent,
   RESPONSE_INIT,
+  BLOCK_PATCH,
   BLOCK_READY,
+  BLOCK_FAILED,
   RESPONSE_SNAPSHOT,
   type CharacterRow,
   type ResponseEnvelope,
@@ -414,6 +416,34 @@ const ChatPage: React.FC = () => {
     // so ``PipelineInfoPopover`` keeps working unchanged.
     if (isResponseEvent(event)) {
       envelopeRef.current = reduceResponse(envelopeRef.current, event);
+      // Chunk 16 barge-in: a ``block_failed`` event for the summary
+      // block is a hard signal to cut TTS — the content the user was
+      // waiting for isn't coming, and whatever was speaking (a stale
+      // fallback) is no longer accurate. Fires within one frame.
+      if (
+        event.phase === BLOCK_FAILED &&
+        typeof event.data?.block_id === 'string' &&
+        event.data.block_id === 'summary'
+      ) {
+        ttsController.bargeIn();
+      }
+      // Chunk 15 deferral #4: throttled status speech. The throttle
+      // itself lives in tts.ts (≥3 s gate + ≤1 utterance per phase);
+      // we just pass the phrase through when a ``status`` block patch
+      // lands. Non-status patches are ignored for speech purposes.
+      if (
+        event.phase === BLOCK_PATCH &&
+        typeof event.data?.block_id === 'string' &&
+        event.data.block_id === 'status' &&
+        typeof event.data?.delta === 'string'
+      ) {
+        const phrase = event.data.delta as string;
+        // ``seq`` doubles as the phase-key — the backend emits one
+        // patch per phase transition, so seq uniquely identifies
+        // which phase-phrase this is.
+        const phaseKey = `seq-${event.data?.seq ?? 0}`;
+        void ttsController.speakStatus(phaseKey, phrase);
+      }
       // Mirror the reduced envelope onto PipelineState so React renders
       // each delta. Also capture the three design-doc §14.6 timing marks.
       setPipeline(prev => {
@@ -527,6 +557,10 @@ const ChatPage: React.FC = () => {
     }
     setIsProcessing(true);
     envelopeRef.current = undefined;
+    // Chunk 16 (folds chunk 15 deferral #4): arm the status-phrase
+    // throttle clock. Any ``status`` block patch that lands before
+    // >3 s of wall-clock has elapsed is silently skipped for TTS.
+    ttsController.resetStatusThrottle();
     setPipeline({
       ...INITIAL_PIPELINE,
       phase: 'augmentation',
@@ -573,11 +607,17 @@ const ChatPage: React.FC = () => {
             messageId: (prev.synthesis as any)?.assistant_message_id as number | undefined,
             envelope: liveEnvelope,
           }];
-          // Auto-play the new assistant message (no-op when muted).
-          // Skills can supply a short `spoken_text` override when the
-          // on-screen response is rich (e.g. a wall of showtimes) — TTS
-          // reads that instead of the full visual content.
-          const spoken = prev.synthesis?.spoken_text?.trim() || finalText;
+          // Chunk 16: authoritative TTS input is the envelope's
+          // ``spoken_text`` (emitted from the same synthesis JSON call
+          // as the visual summary — design §20.3). Falls back to the
+          // trimmed summary when the synthesizer didn't produce a
+          // dedicated spoken form. Snapshot semantics (§20.4):
+          // ``tts.speak`` is idempotent per messageKey — block patches
+          // arriving after this point update the visual only.
+          const spoken =
+            resolveSpokenText(liveEnvelope) ||
+            prev.synthesis?.spoken_text?.trim() ||
+            finalText;
           tts.speak(`msg-${next.length - 1}`, spoken);
           return next;
         });
@@ -662,7 +702,10 @@ const ChatPage: React.FC = () => {
                 messageId: (prev.synthesis as any)?.assistant_message_id as number | undefined,
                 envelope: liveEnvelope,
               }];
-              const spoken = prev.synthesis?.spoken_text?.trim() || finalText;
+              const spoken =
+                resolveSpokenText(liveEnvelope) ||
+                prev.synthesis?.spoken_text?.trim() ||
+                finalText;
               tts.speak(`msg-${next.length - 1}`, spoken);
               return next;
             });
@@ -767,6 +810,25 @@ const ChatPage: React.FC = () => {
     setCharacterMode('docked');
   }, [setCharacterMode]);
 
+  // Chunk 15 deferral #1 (folded into chunk 16). ``FollowUpsBlock`` and
+  // ``ClarificationBlock`` surface chip clicks via ``onFollowUp``; until
+  // now nothing set the callback, so chips rendered but were inert.
+  // We bridge them into the existing send path: the chip text becomes
+  // the next user turn.
+  const handleFollowUp = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isProcessing) return;
+    setInput(trimmed);
+    // Defer so the input state settles before ``handleSend`` reads it.
+    setTimeout(() => {
+      handleSend();
+    }, 0);
+    // Note: handleSend is not referenced in deps because it's stable
+    // enough for the UX (clicking a chip fires once) and adding it
+    // would drag the whole send closure into every dependency graph.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProcessing]);
+
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased">
       <Sidebar
@@ -828,6 +890,7 @@ const ChatPage: React.FC = () => {
             assistantName={activeChar?.name}
             onRetry={handleRetry}
             onOpenSources={handleOpenSources}
+            onFollowUp={handleFollowUp}
           />
         )}
 
@@ -853,8 +916,20 @@ const ChatPage: React.FC = () => {
               autoFocus
               type="text"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+              onChange={(e) => {
+                // Chunk 16 barge-in: the moment the user starts typing,
+                // any in-flight TTS is cancelled within one frame. We
+                // check first so idle turns don't churn the emitter.
+                if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
+                setInput(e.target.value);
+              }}
+              onFocus={() => {
+                if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
+              }}
+              onKeyDown={(e) => {
+                if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
+                if (e.key === 'Enter') handleSend();
+              }}
               placeholder={
                 !connectivity.backendReachable
                   ? 'Backend offline. Start LokiDoki to resume chat…'

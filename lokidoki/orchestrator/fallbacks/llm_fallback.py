@@ -23,6 +23,7 @@ from lokidoki.orchestrator.fallbacks.llm_prompt_builder import (  # noqa: F401
     build_llm_payload,
     build_resolve_prompt,
     build_split_prompt,
+    extract_and_strip_spoken_text,
 )
 
 log = logging.getLogger("lokidoki.orchestrator.llm")
@@ -259,6 +260,13 @@ async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
     text = raw.strip()
     if not text:
         raise RuntimeError("LLM returned an empty response")
+    # Chunk 16 (design §20.3): the same JSON pass carries both ``response``
+    # and ``spoken_text``. Strip the island from the visible reply so
+    # the user never sees the tag, and thread the extracted form onto
+    # ``ResponseObject.spoken_text`` for the envelope builder to pick up.
+    text, spoken_text = extract_and_strip_spoken_text(text)
+    if not text:
+        raise RuntimeError("LLM returned an empty response")
     source_count = len(_collect_sources(spec))
     text = _sanitize_citations(text, source_count)
-    return ResponseObject(output_text=text)
+    return ResponseObject(output_text=text, spoken_text=spoken_text)
