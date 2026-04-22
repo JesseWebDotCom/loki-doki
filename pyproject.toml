@@ -30,6 +30,13 @@ dependencies = [
     # uv skips the install on other platforms automatically.
     "mlx-lm>=0.29.4 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "osmium>=4.3.1",
+    # pypdf backs the PDF text-extraction path used by the adaptive
+    # document handler (chunk 17). Pure-Python and offline-safe;
+    # bootstrap's ``uv sync`` installs it alongside the other core
+    # deps. If pypdf is unavailable at runtime the extractor returns
+    # an empty string and the pipeline degrades gracefully (see
+    # ``lokidoki/orchestrator/documents/extraction.py``).
+    "pypdf>=5.1.0",
 ]
 
 # Pin the spaCy English model to a wheel so `uv sync` installs it

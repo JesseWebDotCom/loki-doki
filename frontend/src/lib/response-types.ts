@@ -67,6 +67,14 @@ export type EnvelopeMode =
 
 export type EnvelopeStatus = "streaming" | "complete" | "failed";
 
+/**
+ * Chunk 17 — which adaptive-document path ran for this turn. ``null`` /
+ * ``undefined`` when no document was attached; ``"inline"`` when the
+ * full doc was pasted into the synthesis prompt; ``"retrieval"`` when
+ * BM25 surfaced only the top-K chunks.
+ */
+export type DocumentMode = "inline" | "retrieval";
+
 export interface ResponseEnvelope {
   request_id: string;
   mode: EnvelopeMode;
@@ -79,6 +87,9 @@ export interface ResponseEnvelope {
   /** Chunk 11: true when at least one execution on this turn reported
    *  an offline failure. Drives ``OfflineTrustChip`` in ``MessageItem``. */
   offline_degraded?: boolean;
+  /** Chunk 17: adaptive-document verdict for the turn — drives
+   *  ``DocumentChip`` in the assistant message shell. */
+  document_mode?: DocumentMode;
 }
 
 /**
@@ -190,6 +201,11 @@ export function envelopeFromDict(
   const sourceSurface = Array.isArray(data.source_surface)
     ? (data.source_surface as unknown[])
     : [];
+  const rawDocMode = data.document_mode as string | undefined;
+  const documentMode: DocumentMode | undefined =
+    rawDocMode === "inline" || rawDocMode === "retrieval"
+      ? (rawDocMode as DocumentMode)
+      : undefined;
   return {
     request_id: String(data.request_id ?? ""),
     mode,
@@ -200,5 +216,6 @@ export function envelopeFromDict(
     artifact_surface: (data.artifact_surface as Record<string, unknown>) ?? undefined,
     spoken_text: (data.spoken_text as string | undefined) ?? undefined,
     offline_degraded: Boolean(data.offline_degraded),
+    document_mode: documentMode,
   };
 }

@@ -14,6 +14,8 @@ from typing import Any
 from lokidoki.core.skill_executor import MechanismResult
 from lokidoki.orchestrator.adapters import adapt
 from lokidoki.orchestrator.adapters.base import AdapterOutput, Source
+from lokidoki.orchestrator.documents.extraction import estimate_tokens as _estimate_doc_tokens
+from lokidoki.orchestrator.documents.extraction import extract_text as _extract_doc_text
 from lokidoki.orchestrator.core.pipeline_hooks import (
     auto_raise_need_session_context,
     record_behavior_event,
@@ -371,6 +373,76 @@ async def run_execute_phase(trace, safe_context, runtime, routable, routes, impl
     return executions
 
 
+_DOCUMENT_CAPABILITY = "document_attachment"
+
+
+def _apply_attached_document(
+    safe_context: dict,
+    request_spec,
+    executions: list[ExecutionResult],
+    raw_text: str,
+) -> None:
+    """Run the document adapter when the turn carries an attached file.
+
+    Reads :py:`safe_context["attached_document"]` which, when present,
+    carries at minimum ``{"path": str, "kind": str}`` — extra keys
+    (``size_bytes``, ``estimated_tokens``) override the cheap
+    estimators. Stamps ``safe_context["document_mode"]`` so
+    :func:`_build_envelope` can surface it on the envelope.
+
+    No-op when the key is absent or the payload is malformed; the
+    pipeline stays additive for every non-document turn.
+    """
+    payload = safe_context.get("attached_document")
+    if not isinstance(payload, dict):
+        return
+    path = str(payload.get("path") or "").strip()
+    kind = str(payload.get("kind") or "").strip().lower().lstrip(".")
+    if not path or kind not in ("pdf", "txt", "md", "docx"):
+        return
+
+    estimated_tokens = payload.get("estimated_tokens")
+    if not isinstance(estimated_tokens, int) or estimated_tokens <= 0:
+        estimated_tokens = _estimate_doc_tokens(_extract_doc_text(path, kind))
+    size_bytes = payload.get("size_bytes")
+    if not isinstance(size_bytes, int):
+        size_bytes = 0
+
+    distilled = str(
+        (safe_context.get("route_decomposition") and
+         getattr(safe_context["route_decomposition"], "distilled_query", "")) or ""
+    ).strip()
+    query = distilled or raw_text
+
+    mechanism = MechanismResult(
+        success=True,
+        data={
+            "path": path,
+            "kind": kind,
+            "size_bytes": size_bytes,
+            "estimated_tokens": estimated_tokens,
+            "query": query,
+            "profile": safe_context.get("platform_profile"),
+        },
+    )
+    output = adapt("document", mechanism)
+    raw = output.raw if isinstance(output.raw, dict) else {}
+    mode = raw.get("document_mode")
+    if mode in ("inline", "retrieval"):
+        safe_context["document_mode"] = mode
+
+    synthetic = ExecutionResult(
+        chunk_index=-1,
+        capability=_DOCUMENT_CAPABILITY,
+        output_text="",
+        success=True,
+        handler_name="document",
+        raw_result={"data": mechanism.data},
+        adapter_output=output,
+    )
+    executions.append(synthetic)
+
+
 def _apply_adapter_outputs_to_spec(request_spec, executions: list[ExecutionResult]) -> None:
     """Aggregate adapter sources + facts onto the spec.
 
@@ -580,6 +652,12 @@ async def _run_synthesis_phase_impl(trace, safe_context, raw_text, request_spec,
         request_spec.context.setdefault("memory_slots", {}).update(memory_slots)
     finish(slots_assembled=sorted(memory_slots.keys()),
            **{f"{k}_chars": len(v) for k, v in memory_slots.items()})
+
+    # Chunk 17: adaptive document handling. If the turn carried an
+    # attached document, pick inline-vs-retrieval and inject a
+    # synthetic execution so the adapter-aggregation path below picks
+    # up the document's sources alongside any skill sources.
+    _apply_attached_document(safe_context, request_spec, executions, raw_text)
 
     # Cutover: sources + facts are read from execution.adapter_output
     # now, not re-scraped from each skill's dict. Writes land on the
@@ -836,6 +914,10 @@ def _build_envelope(
     adapter_spoken = _adapter_spoken_text(executions)
     explicit_spoken = (synth_spoken or adapter_spoken or "").strip() or None
 
+    document_mode = ctx.get("document_mode")
+    if document_mode not in ("inline", "retrieval"):
+        document_mode = None
+
     envelope = ResponseEnvelope(
         request_id=getattr(trace, "trace_id", "") or "",
         mode=derived_mode,  # type: ignore[arg-type]
@@ -844,6 +926,7 @@ def _build_envelope(
         source_surface=list(source_items),
         spoken_text=explicit_spoken,
         offline_degraded=is_offline_degraded(executions),
+        document_mode=document_mode,  # type: ignore[arg-type]
     )
     # Resolve the authoritative spoken form now that the summary block
     # is populated — when the synthesizer didn't emit ``spoken_text``

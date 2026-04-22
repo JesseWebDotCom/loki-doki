@@ -20,6 +20,7 @@ import { getSourcePresentation } from './sourcePresentation';
 import FaviconImage from './FaviconImage';
 import PipelineInfoPopover from './PipelineInfoPopover';
 import OfflineTrustChip from './OfflineTrustChip';
+import DocumentChip from './DocumentChip';
 import { BlockContextProvider, renderBlock } from './blocks';
 
 interface MentionedPerson {
@@ -323,6 +324,9 @@ const MessageItem: React.FC<MessageProps> = ({
               )}
               <div data-testid="message-bubble" className="w-full text-foreground relative">
                 {envelope?.offline_degraded ? <OfflineTrustChip /> : null}
+                {envelope?.document_mode ? (
+                  <DocumentChip mode={envelope.document_mode} />
+                ) : null}
                 <BlockContextProvider
                   sources={effectiveSources}
                   mentionedPeople={mentionedPeople}

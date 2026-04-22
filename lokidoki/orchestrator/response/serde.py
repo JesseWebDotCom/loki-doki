@@ -124,6 +124,8 @@ def envelope_to_dict(envelope: ResponseEnvelope) -> dict[str, Any]:
         data["spoken_text"] = envelope.spoken_text
     if envelope.offline_degraded:
         data["offline_degraded"] = True
+    if envelope.document_mode is not None:
+        data["document_mode"] = envelope.document_mode
     return data
 
 
@@ -154,6 +156,13 @@ def envelope_from_dict(data: dict[str, Any]) -> ResponseEnvelope:
     artifact_raw = data.get("artifact_surface")
     artifact_surface = dict(artifact_raw) if artifact_raw is not None else None
 
+    raw_document_mode = data.get("document_mode")
+    document_mode: str | None
+    if raw_document_mode in ("inline", "retrieval"):
+        document_mode = raw_document_mode
+    else:
+        document_mode = None
+
     return ResponseEnvelope(
         request_id=data["request_id"],
         mode=mode,
@@ -164,6 +173,7 @@ def envelope_from_dict(data: dict[str, Any]) -> ResponseEnvelope:
         artifact_surface=artifact_surface,
         spoken_text=data.get("spoken_text"),
         offline_degraded=bool(data.get("offline_degraded", False)),
+        document_mode=document_mode,  # type: ignore[arg-type]
     )
 
 

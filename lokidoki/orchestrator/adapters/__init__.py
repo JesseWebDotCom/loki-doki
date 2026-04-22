@@ -12,6 +12,7 @@ from lokidoki.orchestrator.adapters.calculator import CalculatorAdapter
 from lokidoki.orchestrator.adapters.conversation_memory import ConversationMemoryAdapter
 from lokidoki.orchestrator.adapters.datetime_local import DateTimeAdapter
 from lokidoki.orchestrator.adapters.dictionary import DictionaryAdapter
+from lokidoki.orchestrator.adapters.document import DocumentAdapter
 from lokidoki.orchestrator.adapters.home_assistant import HomeAssistantAdapter
 from lokidoki.orchestrator.adapters.jokes import JokesAdapter
 from lokidoki.orchestrator.adapters.knowledge import WikipediaAdapter
@@ -36,6 +37,7 @@ from lokidoki.orchestrator.adapters.youtube import YouTubeAdapter
 register(CalculatorAdapter())
 register(DateTimeAdapter())
 register(DictionaryAdapter())
+register(DocumentAdapter())
 register(UnitConversionAdapter())
 register(JokesAdapter())
 register(WikipediaAdapter())
@@ -54,6 +56,7 @@ register(SmartHomeMockAdapter())
 __all__ = [
     "AdapterOutput",
     "ConversationMemoryAdapter",
+    "DocumentAdapter",
     "Source",
     "HomeAssistantAdapter",
     "LokiPeopleDBAdapter",

@@ -38,6 +38,13 @@ EnvelopeMode = Literal[
 ]
 EnvelopeStatus = Literal["streaming", "complete", "failed"]
 
+# Chunk 17: which adaptive-document path ran this turn. ``None`` when
+# no document was attached; ``"inline"`` when the whole doc was pasted
+# into the synthesis context; ``"retrieval"`` when BM25 selected the
+# top-K chunks. Surfaced so the frontend ``DocumentChip`` can explain
+# the choice.
+DocumentMode = Literal["inline", "retrieval"]
+
 
 @dataclass
 class Hero:
@@ -97,6 +104,14 @@ class ResponseEnvelope:
     # against a URL). Drives the OfflineTrustChip in the UI so users know
     # the answer came from local knowledge rather than live sources.
     offline_degraded: bool = False
+    # Chunk 17: adaptive document handling verdict for this turn.
+    # ``None`` means no document was attached. ``"inline"`` means the
+    # full text fit inside half the model's context window; the
+    # synthesis prompt has it verbatim. ``"retrieval"`` means BM25
+    # surfaced the top-K chunks and those chunks are the only
+    # document fragments the model saw. Drives the UI
+    # :class:`DocumentChip`.
+    document_mode: DocumentMode | None = None
 
 
 def validate_envelope(envelope: ResponseEnvelope) -> None:
@@ -161,6 +176,7 @@ def validate_envelope(envelope: ResponseEnvelope) -> None:
 
 
 __all__ = [
+    "DocumentMode",
     "EnvelopeMode",
     "EnvelopeStatus",
     "EnvelopeValidationError",
