@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ArrowDown, Search } from 'lucide-react';
+import { ArrowDown } from 'lucide-react';
 import MessageItem from './MessageItem';
 import ThinkingIndicator from './ThinkingIndicator';
 import CharacterFrame, { type CharacterMode } from '../character/CharacterFrame';
@@ -7,7 +7,6 @@ import type { HeadTiltState } from '../character/useHeadTilt';
 import type { CharacterRow } from '../../lib/api';
 import type { PipelineState, Message } from '../../pages/ChatPage';
 import type { ChatSearchResult } from '../../lib/api-types';
-import { Button } from '../ui/button';
 import FindInChatBar from './search/FindInChatBar';
 
 interface ChatWindowProps {
@@ -143,17 +142,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           className="mx-auto space-y-6"
           style={{ maxWidth: 'var(--app-content-max)' }}
         >
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 rounded-2xl px-4"
-              onClick={onOpenFind}
-            >
-              <Search className="mr-2 h-4 w-4" />
-              Find in chat
-            </Button>
-          </div>
           <FindInChatBar
             open={findOpen}
             query={findQuery}
@@ -192,7 +180,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             <ThinkingIndicator
               pipeline={pipeline}
               avatar={renderAvatar(characterState ?? 'thinking')}
-              interimText={pipeline?.streamingResponse || undefined}
             />
           )}
         </div>
