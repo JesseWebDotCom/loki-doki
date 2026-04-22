@@ -4,6 +4,7 @@ Extracted from skill.py to keep both files under 300 lines.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
 
@@ -17,6 +18,7 @@ LEAD_CHAR_CAP = 8000
 # Wikipedia lead is 5+ paragraphs and reads as a wall of text in chat,
 # so we trim to the first couple of sentences.
 VERBATIM_LEAD_CHAR_CAP = 600
+SECTION_PARAGRAPH_CHAR_CAP = 600
 
 # Junk title patterns we never want to surface as the canonical answer.
 _JUNK_TITLE_PREFIXES = ("list of ", "lists of ", "category:", "portal:", "template:", "wikipedia:")
@@ -137,8 +139,16 @@ def _trim_to_sentences(text: str, char_cap: int) -> str:
     return window.rsplit(" ", 1)[0] + "\u2026"
 
 
+@dataclass(frozen=True)
+class WikiSection:
+    """Structured top-level Wikipedia section summary."""
+
+    title: str
+    paragraph: str
+
+
 class _LeadExtractor(HTMLParser):
-    """Pull the lead <p> paragraphs and top-level <h2> section titles.
+    """Pull the lead <p> paragraphs and top-level <h2> section summaries.
 
     Wikipedia's article body lives in <div id="mw-content-text">. The lead
     is every <p> before the first <h2>.
@@ -149,6 +159,7 @@ class _LeadExtractor(HTMLParser):
         self._in_content = False
         self._content_depth = 0
         self._in_p = False
+        self._in_section_p = False
         self._in_h2 = False
         self._in_headline = False
         self._seen_first_h2 = False
@@ -156,8 +167,21 @@ class _LeadExtractor(HTMLParser):
         self._lead_buf: list[str] = []
         self._cur_p: list[str] = []
         self._cur_section: list[str] = []
+        self._cur_section_p: list[str] = []
+        self._current_section_title: str | None = None
+        self._section_paragraph_captured = False
         self.lead_paragraphs: list[str] = []
         self.sections: list[str] = []
+        self.section_items: list[WikiSection] = []
+
+    def _flush_section(self) -> None:
+        title = (self._current_section_title or "").strip()
+        paragraph = _trim_to_sentences("".join(self._cur_section_p).strip(), SECTION_PARAGRAPH_CHAR_CAP)
+        if title and paragraph:
+            self.section_items.append(WikiSection(title=title, paragraph=paragraph))
+        self._current_section_title = None
+        self._cur_section_p = []
+        self._section_paragraph_captured = False
 
     def handle_starttag(self, tag: str, attrs):
         attrs_d = dict(attrs)
@@ -169,6 +193,9 @@ class _LeadExtractor(HTMLParser):
             return
         if tag == "div":
             self._content_depth += 1
+            if "hatnote" in (attrs_d.get("class") or ""):
+                self._skip_depth += 1
+                return
         if tag in ("sup", "style", "script", "table"):
             self._skip_depth += 1
             return
@@ -177,9 +204,21 @@ class _LeadExtractor(HTMLParser):
         if tag == "p" and not self._seen_first_h2:
             self._in_p = True
             self._cur_p = []
+        elif (
+            tag == "p"
+            and self._seen_first_h2
+            and self._current_section_title is not None
+            and not self._section_paragraph_captured
+        ):
+            self._in_section_p = True
+            self._cur_section_p = []
         elif tag == "h2":
+            self._flush_section()
             self._in_h2 = True
             self._cur_section = []
+            self._current_section_title = None
+            self._cur_section_p = []
+            self._section_paragraph_captured = False
         elif self._in_h2 and tag == "span":
             cls = attrs_d.get("class", "")
             if "mw-headline" in cls:
@@ -188,10 +227,14 @@ class _LeadExtractor(HTMLParser):
     def handle_endtag(self, tag: str):
         if not self._in_content:
             return
-        if tag in ("sup", "style", "script", "table"):
+        if tag in ("sup", "style", "script", "table", "div"):
             if self._skip_depth:
                 self._skip_depth -= 1
-            return
+                if tag == "div":
+                    self._content_depth -= 1
+                    if self._content_depth <= 0:
+                        self._in_content = False
+                return
         if self._skip_depth:
             return
         if tag == "p" and self._in_p:
@@ -199,17 +242,25 @@ class _LeadExtractor(HTMLParser):
             if text:
                 self.lead_paragraphs.append(text)
             self._in_p = False
+        elif tag == "p" and self._in_section_p:
+            text = "".join(self._cur_section_p).strip()
+            if text:
+                self._cur_section_p = [text]
+                self._section_paragraph_captured = True
+            self._in_section_p = False
         elif tag == "span" and self._in_headline:
             self._in_headline = False
         elif tag == "h2" and self._in_h2:
             title = "".join(self._cur_section).strip()
             if title and title.lower() not in ("contents",):
                 self.sections.append(title)
+                self._current_section_title = title
             self._in_h2 = False
             self._seen_first_h2 = True
         elif tag == "div":
             self._content_depth -= 1
             if self._content_depth <= 0:
+                self._flush_section()
                 self._in_content = False
 
     def handle_data(self, data: str):
@@ -217,20 +268,23 @@ class _LeadExtractor(HTMLParser):
             return
         if self._in_p:
             self._cur_p.append(data)
+        elif self._in_section_p:
+            self._cur_section_p.append(data)
         elif self._in_headline:
             self._cur_section.append(data)
 
 
-def parse_wiki_html(html: str) -> tuple[str, list[str]]:
+def parse_wiki_html(html: str) -> tuple[str, list[WikiSection]]:
     parser = _LeadExtractor()
     try:
         parser.feed(html)
     except Exception:
         pass
+    parser._flush_section()
     lead = unescape("\n\n".join(parser.lead_paragraphs)).strip()
     if len(lead) > LEAD_CHAR_CAP:
         lead = lead[:LEAD_CHAR_CAP].rsplit(" ", 1)[0] + "\u2026"
-    return lead, parser.sections
+    return lead, parser.section_items
 
 
 # ZIM Wikipedia articles reference images via relative paths like

@@ -1,11 +1,12 @@
 """Wikipedia knowledge skill.
 
 Both mechanisms return a normalized payload:
-    {"title": str, "lead": str, "sections": list[str], "url": str}
+    {"title": str, "lead": str, "sections": list[dict[str, str]], "url": str}
 
 `lead` is the article's lead section (intro paragraphs before the first
-section header). `sections` is a manifest of top-level section titles so
-the orchestrator can offer follow-ups without re-fetching.
+section header). `sections` carries top-level section titles plus each
+section's opening paragraph so the orchestrator can render a structured
+stub without re-fetching.
 """
 from __future__ import annotations
 
@@ -264,7 +265,15 @@ class WikipediaSkill(BaseSkill):
 
             return MechanismResult(
                 success=True,
-                data={"title": title, "lead": lead, "sections": sections, "url": url},
+                data={
+                    "title": title,
+                    "lead": lead,
+                    "sections": [
+                        {"title": section.title, "paragraph": section.paragraph}
+                        for section in sections
+                    ],
+                    "url": url,
+                },
                 source_url=url,
                 source_title=f"Wikipedia - {title}",
             )
