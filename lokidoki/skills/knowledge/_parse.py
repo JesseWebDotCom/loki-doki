@@ -23,6 +23,11 @@ SECTION_PARAGRAPH_CHAR_CAP = 600
 # Junk title patterns we never want to surface as the canonical answer.
 _JUNK_TITLE_PREFIXES = ("list of ", "lists of ", "category:", "portal:", "template:", "wikipedia:")
 _JUNK_TITLE_SUBSTRINGS = ("(disambiguation)", "(disambiguation page)")
+_DISAMBIGUATION_LEAD_MARKERS = (
+    "may also refer to:",
+    "may refer to:",
+    "this disambiguation page lists articles associated with the title",
+)
 
 # Stopwords excluded from the title-overlap relevance check.
 _OVERLAP_STOPWORDS = frozenset({
@@ -113,6 +118,45 @@ def _is_junk_title(title: str) -> bool:
     if any(s in low for s in _JUNK_TITLE_SUBSTRINGS):
         return True
     return False
+
+
+def is_disambiguation_page(title: str, lead: str) -> bool:
+    """Return True when the resolved article is a disambiguation page.
+
+    Wikipedia disambiguation pages are often plain titles like
+    ``Divine Intervention`` rather than ``Foo (disambiguation)``, so a
+    title-only filter is insufficient. Detect the common lead markers as
+    a second line of defense.
+    """
+    if _is_junk_title(title):
+        return True
+    normalized = " ".join((lead or "").lower().split())
+    return any(marker in normalized for marker in _DISAMBIGUATION_LEAD_MARKERS)
+
+
+def salvage_disambiguation_lead(lead: str) -> str:
+    """Keep the useful definitional intro from a disambiguation lead.
+
+    Example:
+    ``"Divine intervention is ... Divine Intervention may also refer to:"``
+    becomes just the first sentence / paragraph.
+    """
+    text = (lead or "").strip()
+    if not text:
+        return ""
+    paragraphs = [part.strip() for part in text.split("\n\n") if part.strip()]
+    if len(paragraphs) > 1:
+        tail = paragraphs[-1].lower()
+        if any(marker in tail for marker in _DISAMBIGUATION_LEAD_MARKERS):
+            return "\n\n".join(paragraphs[:-1]).strip()
+    lower = text.lower()
+    for marker in _DISAMBIGUATION_LEAD_MARKERS:
+        idx = lower.find(marker)
+        if idx != -1:
+            prefix = text[:idx].strip()
+            prefix = prefix.rstrip(":;,- \n")
+            return prefix
+    return text
 
 
 def _page_url(title: str) -> str:

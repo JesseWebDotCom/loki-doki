@@ -18,6 +18,8 @@ from lokidoki.skills.knowledge._parse import (
     LEAD_CHAR_CAP,
     VERBATIM_LEAD_CHAR_CAP,
     _is_junk_title,
+    salvage_disambiguation_lead,
+    is_disambiguation_page,
     _page_url,
     _query_tokens,
     _strip_diacritics,
@@ -151,6 +153,13 @@ class WikipediaSkill(BaseSkill):
                     success=False, error="No relevant local article found"
                 )
             lead = _trim_to_sentences(article.snippet, VERBATIM_LEAD_CHAR_CAP)
+            if is_disambiguation_page(article.title, lead):
+                lead = salvage_disambiguation_lead(lead)
+                if not lead:
+                    return MechanismResult(
+                        success=False,
+                        error="Resolved Wikipedia page is a disambiguation page",
+                    )
             data = {
                 "title": article.title,
                 "lead": lead,
@@ -216,7 +225,7 @@ class WikipediaSkill(BaseSkill):
                         # only when the user chose NOT to mirror Wikipedia
                         # as a ZIM, and is the same network boundary the
                         # lead-text fetch is already crossing.
-                        "prop": "extracts|pageimages",
+                        "prop": "extracts|pageimages|pageprops",
                         "exintro": True,
                         "explaintext": True,
                         "piprop": "thumbnail|original",
@@ -238,6 +247,17 @@ class WikipediaSkill(BaseSkill):
                 full_lead = (page.get("extract") or "").strip()
                 if len(full_lead) > LEAD_CHAR_CAP:
                     full_lead = full_lead[:LEAD_CHAR_CAP].rsplit(" ", 1)[0] + "\u2026"
+                disambiguation = (
+                    page.get("pageprops", {}).get("disambiguation") is not None
+                    or is_disambiguation_page(title, full_lead)
+                )
+                if disambiguation:
+                    full_lead = salvage_disambiguation_lead(full_lead)
+                    if not full_lead:
+                        return MechanismResult(
+                            success=False,
+                            error="Resolved Wikipedia page is a disambiguation page",
+                        )
                 lead = _trim_to_sentences(full_lead, VERBATIM_LEAD_CHAR_CAP)
                 url = _page_url(title)
                 data = {
@@ -249,7 +269,7 @@ class WikipediaSkill(BaseSkill):
                 }
                 thumb = page.get("thumbnail") or {}
                 thumb_url = str(thumb.get("source") or "").strip()
-                if thumb_url:
+                if thumb_url and not disambiguation:
                     data["media"] = [{
                         "kind": "image",
                         "url": thumb_url,
@@ -316,6 +336,13 @@ class WikipediaSkill(BaseSkill):
             lead, sections = parse_wiki_html(page_resp.text)
             if not lead:
                 return MechanismResult(success=False, error="Failed to parse article body")
+            if is_disambiguation_page(title, lead):
+                lead = salvage_disambiguation_lead(lead)
+                if not lead:
+                    return MechanismResult(
+                        success=False,
+                        error="Resolved Wikipedia page is a disambiguation page",
+                    )
             section_dicts = [
                 {"title": section.title, "paragraph": section.paragraph}
                 for section in sections
