@@ -436,7 +436,10 @@ const MessageItem: React.FC<MessageProps> = ({
                           <TooltipTrigger asChild>
                             <button
                               type="button"
-                              onClick={() => tts.speak(myKey, content)}
+                              onClick={() => {
+                                tts.clearSpokenForKey(myKey);
+                                void tts.speak(myKey, content);
+                              }}
                               disabled={tts.muted || isActive}
                               className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
                             >

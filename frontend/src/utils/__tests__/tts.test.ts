@@ -242,6 +242,33 @@ describe('ttsController barge-in + snapshot semantics', () => {
     ttsController.stop();
     await Promise.all([p1, p2]).catch(() => {});
   });
+
+  it('does not burn the snapshot key when muted blocks playback', async () => {
+    const fake = attachFakeStreamer();
+    ttsController.setMuted(true);
+    await ttsController.speak('turn-10', 'Muted attempt');
+
+    ttsController.setMuted(false);
+    const retry = ttsController.speak('turn-10', 'Audible retry');
+    await Promise.resolve();
+
+    expect(fake.stream).toHaveBeenCalledTimes(1);
+    ttsController.stop();
+    await retry.catch(() => {});
+  });
+
+  it('does not burn the snapshot key when the stream fails', async () => {
+    const fake = attachFakeStreamer();
+    fake.stream.mockRejectedValueOnce(new Error('speaker offline'));
+
+    await ttsController.speak('turn-11', 'First attempt fails');
+    const retry = ttsController.speak('turn-11', 'Second attempt works');
+    await Promise.resolve();
+
+    expect(fake.stream).toHaveBeenCalledTimes(2);
+    ttsController.stop();
+    await retry.catch(() => {});
+  });
 });
 
 // ---------------------------------------------------------------------------

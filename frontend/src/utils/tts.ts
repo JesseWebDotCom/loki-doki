@@ -376,12 +376,23 @@ class TTSController {
   async speak(messageKey: string, text: string) {
     if (this.spokenForKey.has(messageKey)) return;
     this.spokenForKey.add(messageKey);
-    const streamingTurn = this.streamingTurns.get(messageKey);
-    if (streamingTurn && streamingTurn.enabled && !streamingTurn.turnCancelled) {
-      await this.finalizeStreamingTurn(messageKey, text);
-      return;
+    try {
+      const streamingTurn = this.streamingTurns.get(messageKey);
+      if (streamingTurn && streamingTurn.enabled && !streamingTurn.turnCancelled) {
+        const finalized = await this.finalizeStreamingTurn(messageKey, text);
+        if (!finalized) {
+          this.spokenForKey.delete(messageKey);
+        }
+        return;
+      }
+      const spoke = await this.speakNow(messageKey, text);
+      if (!spoke) {
+        this.spokenForKey.delete(messageKey);
+      }
+    } catch (error) {
+      this.spokenForKey.delete(messageKey);
+      throw error;
     }
-    await this.speakNow(messageKey, text);
   }
 
   /**
@@ -393,10 +404,10 @@ class TTSController {
     messageKey: string,
     text: string,
     opts: { skipSnapshotGuard?: boolean } = {},
-  ) {
+  ): Promise<boolean> {
     void opts;
     const spoken = stripMarkdownForSpeech(text);
-    if (this.muted || !spoken.trim()) return;
+    if (this.muted || !spoken.trim()) return false;
     this.stop();
     this.pendingKey = messageKey;
     this.currentSpokenText = '';
@@ -412,6 +423,7 @@ class TTSController {
           this.emit();
         },
       });
+      return true;
     } catch (err) {
       if ((err as DOMException)?.name !== 'AbortError') {
         console.error('[tts] stream failed', err);
@@ -422,6 +434,7 @@ class TTSController {
         this.currentSpokenText = '';
         this.emit();
       }
+      return false;
     }
   }
 
@@ -535,22 +548,20 @@ class TTSController {
     }
   }
 
-  private async finalizeStreamingTurn(messageKey: string, text: string) {
+  private async finalizeStreamingTurn(messageKey: string, text: string): Promise<boolean> {
     const turn = this.streamingTurns.get(messageKey);
     if (!turn) {
-      await this.speakNow(messageKey, text);
-      return;
+      return this.speakNow(messageKey, text);
     }
     if (turn.finalizationPromise) {
-      await turn.finalizationPromise;
-      return;
+      return turn.finalizationPromise;
     }
 
     turn.finalizationPromise = (async () => {
       await turn.processingPromise;
       if (turn.turnCancelled) {
         this.streamingTurns.delete(messageKey);
-        return;
+        return false;
       }
 
       const finalNormalized = normalizeStreamingText(turn.finalText || text);
@@ -564,12 +575,12 @@ class TTSController {
 
       this.streamingTurns.delete(messageKey);
       if (!remaining) {
-        return;
+        return spokenNormalized.length > 0;
       }
-      await this.speakNow(messageKey, remaining, { skipSnapshotGuard: true });
+      return this.speakNow(messageKey, remaining, { skipSnapshotGuard: true });
     })();
 
-    await turn.finalizationPromise;
+    return turn.finalizationPromise;
   }
 }
 
