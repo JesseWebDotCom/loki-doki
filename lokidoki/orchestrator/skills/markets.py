@@ -37,7 +37,17 @@ async def _quote(ticker: str) -> dict[str, Any] | None:
     if response.status_code != 200:
         return None
     results = (response.json().get("quoteResponse") or {}).get("result") or []
-    return results[0] if results else None
+    if not results:
+        return None
+    # Yahoo's /v7/finance/quote is an exact-symbol lookup, but we verify
+    # anyway: if the returned ``symbol`` doesn't match the request, the
+    # caller asked for a symbol that doesn't exist and Yahoo silently
+    # returned something else (rare, but observed with delisted / merged
+    # tickers). Fail the skill rather than quote a different company.
+    top = results[0]
+    if str(top.get("symbol") or "").upper() != ticker.upper():
+        return None
+    return top
 
 
 async def get_stock_price(payload: dict[str, Any]) -> dict[str, Any]:

@@ -40,24 +40,43 @@ class YouTubeSkill(BaseSkill):
         # for videos that are private, age-gated, region-blocked, or
         # have embedding disabled by the uploader — exactly the videos
         # that would render "Video unavailable" in the iframe. Pick
-        # the first candidate whose metadata actually comes back.
+        # the first candidate whose metadata actually comes back AND
+        # whose title substantially overlaps the query, so a search
+        # for "Jimi Hendrix Voodoo Child" can't silently resolve to a
+        # cover / guitar-tutorial that happened to rank first but share
+        # no significant words with the query.
+        from lokidoki.skills.knowledge._parse import _title_substantially_matches
+
+        fallback_candidate = None
+        fallback_meta = None
         for candidate in video_results[:6]:
             meta = await self._get_video_metadata(candidate["id"])
             if not meta:
                 continue
-            return MechanismResult(
-                success=True,
-                data={
-                    "type": "video",
-                    "video_id": candidate["id"],
-                    "title": meta.get("title") or candidate["title"],
-                    "channel": meta.get("author_name", ""),
-                    "url": f"https://www.youtube.com/watch?v={candidate['id']}",
-                },
-                source_url=f"https://www.youtube.com/watch?v={candidate['id']}",
-                source_title=f"YouTube - {meta.get('title') or candidate['title']}",
-            )
-        return MechanismResult(success=False, error="No embeddable videos found")
+            video_title = str(meta.get("title") or candidate.get("title") or "")
+            if _title_substantially_matches(video_title, query):
+                return MechanismResult(
+                    success=True,
+                    data={
+                        "type": "video",
+                        "video_id": candidate["id"],
+                        "title": video_title,
+                        "channel": meta.get("author_name", ""),
+                        "url": f"https://www.youtube.com/watch?v={candidate['id']}",
+                    },
+                    source_url=f"https://www.youtube.com/watch?v={candidate['id']}",
+                    source_title=f"YouTube - {video_title}",
+                )
+            if fallback_candidate is None:
+                fallback_candidate = candidate
+                fallback_meta = meta
+
+        # Nothing matched on title — fail so the LLM can say "couldn't
+        # find a good match" rather than surfacing an off-topic video.
+        return MechanismResult(
+            success=False,
+            error="No embeddable videos found with a matching title",
+        )
 
     async def _get_music_video(self, parameters: dict) -> MechanismResult:
         query = parameters.get("query")

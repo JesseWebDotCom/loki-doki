@@ -181,6 +181,191 @@ async def test_knowledge_adapter_zim_fast_path_skips_network(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_knowledge_adapter_zim_rejects_off_topic_example_match(monkeypatch):
+    """Regression: a ZIM hit whose *title* has no overlap with the query
+    must NOT be accepted just because the query words appear inside the
+    article body as an example.
+
+    Exact case that shipped to production: "how do I change a tire"
+    matched the Wikipedia article "Procedural knowledge" at score=1.0
+    because the article body cites "I know how to change a flat tire"
+    as an example of procedural knowledge. Title-relevance was never
+    checked, so the adapter trusted it, the fast-path skipped LLM
+    synthesis, and the user saw a raw dump of the Procedural knowledge
+    article instead of tire-change steps.
+    """
+    from unittest.mock import AsyncMock
+    from lokidoki.orchestrator.skills import knowledge as adapter
+    import lokidoki.archives.search as _search_mod
+    from lokidoki.archives.search import ZimArticle
+
+    off_topic = ZimArticle(
+        source_id="wikipedia",
+        title="Procedural knowledge",
+        path="A/Procedural_knowledge",
+        snippet=(
+            "Procedural knowledge, also known as know-how, is the knowledge "
+            "exercised in the performance of some task. A common example is "
+            "'I know how to change a flat tire' — knowing how to perform an "
+            "action is distinct from knowing propositional facts."
+        ),
+        url="https://en.wikipedia.org/wiki/Procedural_knowledge",
+        source_label="Wikipedia",
+    )
+    mock_engine = type("E", (), {
+        "loaded_sources": ["wikipedia"],
+        "search": AsyncMock(return_value=[off_topic]),
+    })()
+    monkeypatch.setattr(_search_mod, "get_search_engine", lambda: mock_engine)
+
+    # Network fallbacks return empty so we isolate the ZIM gating decision.
+    wiki = _RecordingFake({"mediawiki_api": _fail("no network"),
+                           "web_scraper": _fail("no network")})
+    ddg = _RecordingFake({"ddg_api": _fail("no network"),
+                          "ddg_scraper": _fail("no network")})
+    monkeypatch.setattr(adapter, "_WIKI", wiki, raising=True)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "how do I change a tire"})
+    # The skill must fail so the LLM fallback answers — never return the
+    # off-topic article as if it were a real answer.
+    assert result["success"] is False, (
+        "Procedural knowledge article leaked through despite title mismatch"
+    )
+    # And the raw snippet text must NOT appear in the output.
+    assert "procedural knowledge" not in result["output_text"].lower()
+
+
+@pytest.mark.anyio
+async def test_knowledge_adapter_mediawiki_rejects_partial_token_match(monkeypatch):
+    """Regression: the network Wikipedia path used a one-token-overlap
+    title gate that accepted "Amanda Palmer" for "who is palmer rocky"
+    (1/2 token overlap). The stricter rule now requires 2-of-2 for
+    2-token queries, so the MediaWiki mechanism must return failure
+    and the adapter must NOT surface Amanda Palmer's lead as if it
+    were the right answer.
+    """
+    from lokidoki.skills.knowledge.skill import WikipediaSkill
+
+    skill = WikipediaSkill()
+
+    class _FakeResponse:
+        def __init__(self, payload):
+            self.status_code = 200
+            self._payload = payload
+        def json(self):
+            return self._payload
+
+    class _FakeClient:
+        def __init__(self, *a, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None):
+            # First call: search endpoint → returns "Amanda Palmer" on top.
+            if params and params.get("list") == "search":
+                return _FakeResponse({"query": {"search": [
+                    {"title": "Amanda Palmer"},
+                    {"title": "Robert Palmer"},
+                    {"title": "Palmer (Arkansas)"},
+                ]}})
+            return _FakeResponse({"query": {"pages": {}}})
+
+    import httpx
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    result = await skill._mediawiki_api({"query": "who is palmer rocky"})
+    assert result.success is False, (
+        "MediaWiki path accepted an article with only 1-of-2 token overlap"
+    )
+    assert "no relevant" in (result.error or "").lower()
+
+
+@pytest.mark.anyio
+async def test_knowledge_adapter_zim_rejects_partial_token_match(monkeypatch):
+    """Regression: a 2-token person query like "who is palmer rocky" must
+    not be satisfied by an article whose title shares only one of those
+    tokens ("Palmer Island Light Station" has "Palmer" but not "Rocky").
+
+    Exact case that shipped to production: 1 of 2 query tokens overlapped
+    the title, 2 of 2 overlapped the body (because the snippet mentions
+    "rocky shoal"), so the adapter trusted the hit and dumped the
+    lighthouse article for a person query. Multi-token queries now
+    require most of the tokens to appear in the TITLE, not just one.
+    """
+    from unittest.mock import AsyncMock
+    from lokidoki.orchestrator.skills import knowledge as adapter
+    import lokidoki.archives.search as _search_mod
+    from lokidoki.archives.search import ZimArticle
+
+    off_topic = ZimArticle(
+        source_id="wikipedia",
+        title="Palmer Island Light Station",
+        path="A/Palmer_Island_Light_Station",
+        snippet=(
+            "Palmer Island Light Station is a historic lighthouse in New "
+            "Bedford Harbor. From 1888 until 1891 it guided vessels past "
+            "Butler Flats, a rocky shoal on the west side of the channel."
+        ),
+        url="https://en.wikipedia.org/wiki/Palmer_Island_Light_Station",
+        source_label="Wikipedia",
+    )
+    mock_engine = type("E", (), {
+        "loaded_sources": ["wikipedia"],
+        "search": AsyncMock(return_value=[off_topic]),
+    })()
+    monkeypatch.setattr(_search_mod, "get_search_engine", lambda: mock_engine)
+
+    wiki = _RecordingFake({"mediawiki_api": _fail("no network"),
+                           "web_scraper": _fail("no network")})
+    ddg = _RecordingFake({"ddg_api": _fail("no network"),
+                          "ddg_scraper": _fail("no network")})
+    monkeypatch.setattr(adapter, "_WIKI", wiki, raising=True)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "who is palmer rocky"})
+    assert result["success"] is False, (
+        "Lighthouse article leaked through for a person query that only "
+        "overlapped one of two query tokens"
+    )
+
+
+@pytest.mark.anyio
+async def test_knowledge_adapter_zim_rejects_portal_and_category_titles(monkeypatch):
+    """Regression: ZIM top-hits starting with ``Portal:`` / ``Category:``
+    / ``Template:`` are junk and must be rejected even when the snippet
+    happens to score well. Exact case: "how do I give cpr" → ZIM
+    top-hit was ``Portal:Illinois``."""
+    from unittest.mock import AsyncMock
+    from lokidoki.orchestrator.skills import knowledge as adapter
+    import lokidoki.archives.search as _search_mod
+    from lokidoki.archives.search import ZimArticle
+
+    junk = ZimArticle(
+        source_id="wikipedia",
+        title="Portal:Illinois",
+        path="A/Portal:Illinois",
+        snippet="... did you know that CPR was first described in Illinois ...",
+        url="https://en.wikipedia.org/wiki/Portal:Illinois",
+        source_label="Wikipedia",
+    )
+    mock_engine = type("E", (), {
+        "loaded_sources": ["wikipedia"],
+        "search": AsyncMock(return_value=[junk]),
+    })()
+    monkeypatch.setattr(_search_mod, "get_search_engine", lambda: mock_engine)
+
+    wiki = _RecordingFake({"mediawiki_api": _fail("no network"),
+                           "web_scraper": _fail("no network")})
+    ddg = _RecordingFake({"ddg_api": _fail("no network"),
+                          "ddg_scraper": _fail("no network")})
+    monkeypatch.setattr(adapter, "_WIKI", wiki, raising=True)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "how do I give cpr"})
+    assert result["success"] is False, "Portal:* junk article leaked through"
+
+
+@pytest.mark.anyio
 async def test_knowledge_adapter_prefers_wiki_when_both_match(monkeypatch):
     """When both sources cover the subject equally, Wikipedia wins by
     preference (first in the sources list) — it's authoritative."""
@@ -625,3 +810,269 @@ async def test_llm_skills_return_stub_when_llm_disabled():
 
     result = await llm_skills.emotional_support({"chunk_text": "i feel stuck in life"})
     assert "hear you" in result["output_text"].lower()
+
+
+# ---- regression: top-1-and-trust pattern across skills ---------------------
+#
+# Same bug class as the knowledge adapter's "Amanda Palmer for palmer rocky"
+# failure: a fuzzy upstream search returns a wrong-but-popular result, the
+# skill blindly trusts the top row, and the user sees confident wrong data.
+# Each test below fakes the upstream to return exactly the mismatch pattern
+# and asserts the skill fails cleanly so the LLM fallback answers instead.
+
+
+class _HTTPResp:
+    def __init__(self, payload, status=200):
+        self.status_code = status
+        self._payload = payload
+        self.text = ""
+
+    def json(self):
+        return self._payload
+
+
+def _fake_httpx_client(router):
+    """Build an AsyncClient stand-in that dispatches requests via ``router``.
+
+    ``router`` is a callable ``(url, params) -> _HTTPResp``.
+    """
+    class _Client:
+        def __init__(self, *a, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None, headers=None):
+            return router(url, params or {})
+
+    return _Client
+
+
+@pytest.mark.anyio
+async def test_markets_adapter_rejects_mismatched_symbol(monkeypatch):
+    """Yahoo quote endpoint is an exact lookup but observed to echo a
+    different symbol for delisted / renamed tickers. The skill must
+    fail rather than quote a different company under the wrong ticker.
+    """
+    import httpx
+    from lokidoki.orchestrator.skills import markets
+
+    def router(url, params):
+        # Pretend Yahoo returned a quote for a DIFFERENT symbol than requested.
+        return _HTTPResp({
+            "quoteResponse": {
+                "result": [{
+                    "symbol": "AAPL",
+                    "regularMarketPrice": 180.0,
+                    "currency": "USD",
+                    "shortName": "Apple Inc.",
+                }]
+            }
+        })
+
+    monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx_client(router))
+
+    result = await markets.get_stock_price({"params": {"ticker": "APPL"}})
+    assert result["success"] is False, (
+        "markets quoted Apple Inc. under the misspelled ticker APPL"
+    )
+
+
+@pytest.mark.anyio
+async def test_markets_adapter_accepts_matching_symbol(monkeypatch):
+    """Happy path — matching symbol is returned normally."""
+    import httpx
+    from lokidoki.orchestrator.skills import markets
+
+    def router(url, params):
+        return _HTTPResp({
+            "quoteResponse": {
+                "result": [{
+                    "symbol": "AAPL",
+                    "regularMarketPrice": 180.0,
+                    "currency": "USD",
+                    "shortName": "Apple Inc.",
+                }]
+            }
+        })
+
+    monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx_client(router))
+
+    result = await markets.get_stock_price({"params": {"ticker": "AAPL"}})
+    assert result["success"] is True
+    assert "Apple" in result["output_text"]
+
+
+@pytest.mark.anyio
+async def test_people_facts_rejects_wrong_entity_for_partial_name_match(monkeypatch):
+    """Wikidata ``wbsearchentities`` is fuzzy — "palmer rocky" returns
+    Amanda Palmer at the top on the strength of the "palmer" token
+    alone. The skill used to fetch whatever claims that entity had and
+    surface "palmer rocky occupation is singer" with Amanda Palmer's
+    data. Now it must fail instead.
+    """
+    import httpx
+    from lokidoki.orchestrator.skills import people_facts
+
+    def router(url, params):
+        if "wbsearchentities" in str(params.get("action", "")):
+            return _HTTPResp({
+                "search": [
+                    {"id": "Q123", "label": "Amanda Palmer", "description": "singer"},
+                    {"id": "Q456", "label": "Robert Palmer", "description": "musician"},
+                ]
+            })
+        return _HTTPResp({"entities": {}})
+
+    monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx_client(router))
+
+    # Also stub the web fallback so failures propagate instead of
+    # silently being rescued by DuckDuckGo.
+    from lokidoki.orchestrator.skills._runner import web_search_source
+    if not hasattr(web_search_source, "_skill"):
+        from lokidoki.skills.search.skill import DuckDuckGoSkill
+        web_search_source._skill = DuckDuckGoSkill()  # type: ignore[attr-defined]
+    web_fake = _RecordingFake({"ddg_api": _fail("no network"),
+                               "ddg_scraper": _fail("no network")})
+    monkeypatch.setattr(web_search_source, "_skill", web_fake)
+
+    result = await people_facts.lookup_fact({"chunk_text": "palmer rocky occupation"})
+    assert result["success"] is False, (
+        "people_facts grounded on Amanda Palmer's Wikidata entry for "
+        "'palmer rocky' via one-token label overlap"
+    )
+
+
+@pytest.mark.anyio
+async def test_people_facts_accepts_exact_name_match(monkeypatch):
+    """Happy path — a Wikidata entity whose label matches the person
+    name (both tokens) is accepted and its claims are surfaced."""
+    import httpx
+    from lokidoki.orchestrator.skills import people_facts
+
+    call_log: list[tuple[str, dict]] = []
+
+    def router(url, params):
+        call_log.append((url, dict(params)))
+        if "wbsearchentities" in str(params.get("action", "")):
+            return _HTTPResp({
+                "search": [
+                    {"id": "Q12345", "label": "Corey Feldman", "description": "actor"},
+                ]
+            })
+        return _HTTPResp({
+            "entities": {
+                "Q12345": {
+                    "labels": {"en": {"value": "Corey Feldman"}},
+                    "claims": {
+                        # P27 = country of citizenship
+                        "P27": [{"mainsnak": {"datavalue": {"value": {"id": "Q30"}}}}],
+                    },
+                }
+            }
+        })
+
+    monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx_client(router))
+
+    result = await people_facts.lookup_fact({"chunk_text": "what is corey feldman's nationality"})
+    # Success isn't strictly required here (parallel-scored source may pick web),
+    # but the Wikidata call must at least have been attempted with the resolved
+    # entity — not rejected up-front.
+    assert any("wbsearchentities" in str(p.get("action")) for _, p in call_log), (
+        "Wikidata search endpoint was never hit for the exact-match case"
+    )
+
+
+@pytest.mark.anyio
+async def test_tmdb_rejects_off_topic_title(monkeypatch):
+    """TMDB search ranks by popularity — "palmer rocky" (routed badly
+    as a movie query) could return "Rocky (1976)" at the top. The
+    skill must gate on title overlap and fail rather than surface
+    Stallone's movie plot for a person lookup."""
+    import httpx
+    from lokidoki.skills.movies_tmdb.skill import TMDBSkill
+
+    def router(url, params):
+        return _HTTPResp({
+            "results": [
+                {"id": 1, "title": "Rocky", "release_date": "1976-11-21",
+                 "overview": "A Philadelphia boxer gets a shot at the world title.",
+                 "vote_average": 8.1, "vote_count": 1234},
+            ]
+        })
+
+    monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx_client(router))
+
+    skill = TMDBSkill(api_key="stub")
+    result = await skill._tmdb_api({"query": "palmer rocky"})
+    assert result.success is False, (
+        "TMDB accepted 'Rocky' for 'palmer rocky' despite only 1/2 token overlap"
+    )
+
+
+@pytest.mark.anyio
+async def test_tmdb_accepts_exact_title(monkeypatch):
+    """Happy path — an exact title match is accepted."""
+    import httpx
+    from lokidoki.skills.movies_tmdb.skill import TMDBSkill
+
+    def router(url, params):
+        return _HTTPResp({
+            "results": [
+                {"id": 603, "title": "The Matrix", "release_date": "1999-03-31",
+                 "overview": "A hacker learns the world is a simulation.",
+                 "vote_average": 8.7, "vote_count": 24000},
+            ]
+        })
+
+    monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx_client(router))
+
+    skill = TMDBSkill(api_key="stub")
+    result = await skill._tmdb_api({"query": "the matrix"})
+    assert result.success is True
+    assert result.data["title"] == "The Matrix"
+
+
+@pytest.mark.anyio
+async def test_youtube_rejects_off_topic_top_result(monkeypatch):
+    """YouTube search ranks by popularity + watch history — the first
+    embeddable result may not match the query. The skill must gate on
+    title overlap and fail rather than surface an unrelated video."""
+    from lokidoki.skills.youtube.skill import YouTubeSkill
+
+    skill = YouTubeSkill()
+
+    async def fake_search(self, q):
+        return [{"type": "video", "id": "dQw4w9WgXcQ", "title": "YouTube Video"}]
+    async def fake_meta(self, vid):
+        # Real title is totally unrelated to the user's query.
+        return {"title": "Never Gonna Give You Up", "author_name": "Rick Astley"}
+
+    monkeypatch.setattr(YouTubeSkill, "_search_youtube", fake_search)
+    monkeypatch.setattr(YouTubeSkill, "_get_video_metadata", fake_meta)
+
+    result = await skill._get_video({"query": "jimi hendrix voodoo child"})
+    assert result.success is False, (
+        "YouTube surfaced 'Never Gonna Give You Up' for a Jimi Hendrix query"
+    )
+
+
+@pytest.mark.anyio
+async def test_youtube_accepts_matching_title(monkeypatch):
+    """Happy path — a video whose title overlaps the query is returned."""
+    from lokidoki.skills.youtube.skill import YouTubeSkill
+
+    skill = YouTubeSkill()
+
+    async def fake_search(self, q):
+        return [{"type": "video", "id": "vid1", "title": "YouTube Video"}]
+    async def fake_meta(self, vid):
+        return {
+            "title": "Jimi Hendrix - Voodoo Child (Live)",
+            "author_name": "Jimi Hendrix",
+        }
+
+    monkeypatch.setattr(YouTubeSkill, "_search_youtube", fake_search)
+    monkeypatch.setattr(YouTubeSkill, "_get_video_metadata", fake_meta)
+
+    result = await skill._get_video({"query": "jimi hendrix voodoo child"})
+    assert result.success is True
+    assert "Jimi Hendrix" in result.data["title"]
