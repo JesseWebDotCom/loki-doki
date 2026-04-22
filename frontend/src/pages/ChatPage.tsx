@@ -303,6 +303,7 @@ const ChatPage: React.FC = () => {
   // same instance without relying on React batching. Cleared at the
   // start of each send; written on every response-family event.
   const envelopeRef = useRef<ResponseEnvelope | undefined>(undefined);
+  const [liveEnvelope, setLiveEnvelope] = useState<ResponseEnvelope | undefined>(undefined);
 
   // Idle-state ticker for the character avatar. We don't need a dense
   // requestAnimationFrame loop here — the avatar only changes between
@@ -597,6 +598,7 @@ const ChatPage: React.FC = () => {
     // so ``PipelineInfoPopover`` keeps working unchanged.
     if (isResponseEvent(event)) {
       envelopeRef.current = reduceResponse(envelopeRef.current, event);
+      setLiveEnvelope(envelopeRef.current);
       // Chunk 16 barge-in: a ``block_failed`` event for the summary
       // block is a hard signal to cut TTS — the content the user was
       // waiting for isn't coming, and whatever was speaking (a stale
@@ -738,6 +740,7 @@ const ChatPage: React.FC = () => {
     }
     setIsProcessing(true);
     envelopeRef.current = undefined;
+    setLiveEnvelope(undefined);
     // Chunk 16 (folds chunk 15 deferral #4): arm the status-phrase
     // throttle clock. Any ``status`` block patch that lands before
     // >3 s of wall-clock has elapsed is silently skipped for TTS.
@@ -775,6 +778,7 @@ const ChatPage: React.FC = () => {
         // — MessageItem falls back to the client-derived block shape.
         const liveEnvelope = envelopeRef.current;
         envelopeRef.current = undefined;
+        setLiveEnvelope(undefined);
         setMessages(msgs => {
           const next = [...msgs, {
             role: 'assistant' as const,

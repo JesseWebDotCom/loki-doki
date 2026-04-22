@@ -233,26 +233,31 @@ async def test_synthesis_phase_streams_ordered_response_events(monkeypatch):
     phases = [e.phase for e in events]
 
     # Core ordered sequence for a calculator turn with one source
-    # under chunk 15's standard mode. Calculator never surfaces
+    # under the current rich-response mode. Calculator never surfaces
     # ``follow_up_candidates`` so follow_ups is NOT allocated (chunk 15
-    # no-fabrication rule). The live ``status`` block IS always
+    # no-fabrication rule). Facts from the adapter materialise as a
+    # ready ``key_facts`` block. The live ``status`` block IS always
     # allocated; the synthesis phase itself emits one
     # "Pulling a summary together" patch, then the status block is
     # flipped to ``omitted`` before block_ready so it never renders.
     #
     # response_init -> block_init{summary} -> block_init{sources}
-    # -> block_init{status}
-    # -> block_patch{summary,seq=1} -> source_add -> block_patch{status,seq=1}
+    # -> block_init{key_facts} -> block_init{status}
+    # -> block_patch{summary,seq=1} -> source_add
+    # -> block_patch{key_facts,seq=1} -> block_patch{status,seq=1}
     # -> block_ready{summary} -> block_ready{sources}
-    # -> response_snapshot
+    # -> block_ready{key_facts} -> response_snapshot
     assert phases == [
         "response_init",
+        "block_init",
         "block_init",
         "block_init",
         "block_init",
         "block_patch",
         "source_add",
         "block_patch",
+        "block_patch",
+        "block_ready",
         "block_ready",
         "block_ready",
         "response_snapshot",
@@ -261,31 +266,39 @@ async def test_synthesis_phase_streams_ordered_response_events(monkeypatch):
     # response_init carries every planned block stub in order.
     init = events[0]
     assert init.data["request_id"] == "t-9"
-    assert init.data["mode"] == "standard"
+    assert init.data["mode"] == "rich"
     assert [b["id"] for b in init.data["blocks"]] == [
         "summary",
         "sources",
+        "key_facts",
         "status",
     ]
 
     # block_inits come in the same order.
     assert events[1].data["block_id"] == "summary"
     assert events[2].data["block_id"] == "sources"
-    assert events[3].data["block_id"] == "status"
+    assert events[3].data["block_id"] == "key_facts"
+    assert events[4].data["block_id"] == "status"
 
     # block_patch{summary,seq=1} carries the combined response prose.
-    patch_event = events[4]
+    patch_event = events[5]
     assert patch_event.data["block_id"] == "summary"
     assert patch_event.data["seq"] == 1
     assert patch_event.data["delta"] == response.output_text
 
     # source_add mirrors the single adapter source.
-    src = events[5]
+    src = events[6]
     assert src.data["source"]["url"] == "file:///offline/arith.html"
+
+    # block_patch{key_facts,seq=1} carries the adapter fact list.
+    key_facts_patch = events[7]
+    assert key_facts_patch.data["block_id"] == "key_facts"
+    assert key_facts_patch.data["seq"] == 1
+    assert key_facts_patch.data["items_delta"] == [{"text": "Addition is commutative."}]
 
     # block_patch{status,seq=1} carries the phrase emitted when the
     # synthesis phase fired ``emit_status_patch``.
-    status_patch = events[6]
+    status_patch = events[8]
     assert status_patch.data["block_id"] == "status"
     assert status_patch.data["seq"] == 1
     assert status_patch.data["delta"] == "Pulling a summary together"
@@ -294,7 +307,7 @@ async def test_synthesis_phase_streams_ordered_response_events(monkeypatch):
     # status block is flipped to ``omitted`` before this loop, so it
     # never reaches block_ready.
     ready_ids = [e.data["block_id"] for e in events if e.phase == "block_ready"]
-    assert ready_ids == ["summary", "sources"]
+    assert ready_ids == ["summary", "sources", "key_facts"]
 
     # response_snapshot is the last emitted event and round-trips.
     snapshot = events[-1]
