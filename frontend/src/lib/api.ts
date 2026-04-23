@@ -222,6 +222,12 @@ export interface PipelineRunOptions {
   memory_enabled?: boolean;
   need_preference?: boolean;
   need_social?: boolean;
+  benchmark_label?: string;
+  llm_mode?: "auto" | "system_only" | "force_llm";
+  llm_model_override?: string;
+  user_mode_override?: "standard" | "rich" | "deep" | "direct" | "search" | "artifact";
+  voice_id?: string;
+  reasoning_mode?: "auto" | "fast" | "thinking";
 }
 
 export async function runPipeline(message: string, options: PipelineRunOptions = {}) {
@@ -230,6 +236,12 @@ export async function runPipeline(message: string, options: PipelineRunOptions =
     memory_enabled: options.memory_enabled ?? false,
     need_preference: options.need_preference ?? true,
     need_social: options.need_social ?? true,
+    benchmark_label: options.benchmark_label ?? null,
+    llm_mode: options.llm_mode ?? "auto",
+    llm_model_override: options.llm_model_override ?? null,
+    user_mode_override: options.user_mode_override ?? null,
+    voice_id: options.voice_id ?? null,
+    reasoning_mode: options.reasoning_mode ?? "auto",
   });
 }
 

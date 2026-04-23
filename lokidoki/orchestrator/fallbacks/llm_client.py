@@ -57,6 +57,7 @@ def _get_client() -> object:
 async def call_llm(
     prompt: str,
     *,
+    model: str | None = None,
     on_token: "Optional[Callable[[str], None]]" = None,
 ) -> str:
     """Send a rendered prompt to the local LLM via OpenAI-compatible API.
@@ -72,9 +73,11 @@ async def call_llm(
     """
     client = _get_client()
 
+    selected_model = model or CONFIG.llm_model
+
     log.debug(
         "calling LLM: model=%s url=%s prompt_chars=%d",
-        CONFIG.llm_model,
+        selected_model,
         CONFIG.llm_endpoint,
         len(prompt),
     )
@@ -88,7 +91,7 @@ async def call_llm(
         parts: list[str] = []
         finish = ""
         async for chunk in client.chat_stream(  # type: ignore[attr-defined]
-            model=CONFIG.llm_model,
+            model=selected_model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=budget,
             temperature=CONFIG.llm_temperature,
@@ -106,7 +109,7 @@ async def call_llm(
                 budget, budget * 2,
             )
             body = await client.chat(  # type: ignore[attr-defined]
-                model=CONFIG.llm_model,
+                model=selected_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=budget * 2,
                 temperature=CONFIG.llm_temperature,
@@ -116,7 +119,7 @@ async def call_llm(
 
     # ── Non-streaming path (tests / stub) ──
     body = await client.chat(  # type: ignore[attr-defined]
-        model=CONFIG.llm_model,
+        model=selected_model,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=budget,
         temperature=CONFIG.llm_temperature,
@@ -130,7 +133,7 @@ async def call_llm(
             budget, budget * 2,
         )
         body = await client.chat(  # type: ignore[attr-defined]
-            model=CONFIG.llm_model,
+            model=selected_model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=budget * 2,
             temperature=CONFIG.llm_temperature,

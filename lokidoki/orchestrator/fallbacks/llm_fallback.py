@@ -104,6 +104,12 @@ def decide_llm(spec: RequestSpec) -> LLMDecision:
     # answer is about to render in rich mode so the LLM can compose
     # the structured version.
     ctx = spec.context if isinstance(spec.context, dict) else {}
+    benchmark = ctx.get("dev_benchmark") if isinstance(ctx.get("dev_benchmark"), dict) else {}
+    llm_mode = str(benchmark.get("llm_mode") or "").strip().lower()
+    if llm_mode == "system_only":
+        return LLMDecision(needed=False, reason="benchmark_system_only")
+    if llm_mode == "force_llm":
+        return LLMDecision(needed=True, reason="benchmark_force_llm")
     decomposition = ctx.get("route_decomposition")
     capability_need = getattr(decomposition, "capability_need", "") or ""
     unsafe_for_fast_path = capability_need in {"howto", "medical"}
@@ -179,13 +185,14 @@ async def llm_synthesize_async(spec: RequestSpec) -> ResponseObject:
     """
     if not CONFIG.llm_enabled:
         return _stub_synthesize(spec)
-    spec.llm_model = CONFIG.llm_model
+    model = _selected_llm_model(spec)
+    spec.llm_model = model
     try:
         return await _call_real_llm(spec)
     except Exception as exc:  # noqa: BLE001 - we never want LLM to break the pipeline
         log.warning(
             "LLM fallback degraded to stub: model=%s url=%s error=%s",
-            CONFIG.llm_model,
+            model,
             CONFIG.llm_endpoint,
             exc,
         )
@@ -326,7 +333,7 @@ async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
                     "summary", stream_state["seq"], delta=delta,
                 ))
 
-    raw = await call_llm(prompt, on_token=on_token)
+    raw = await call_llm(prompt, model=_selected_llm_model(spec), on_token=on_token)
     text = strip_reasoning_blocks(raw.strip())
     if not text:
         raise RuntimeError("LLM returned an empty response")
@@ -340,3 +347,17 @@ async def _call_real_llm(spec: RequestSpec) -> ResponseObject:
     source_count = len(_collect_sources(spec))
     text = _sanitize_citations(text, source_count)
     return ResponseObject(output_text=text, spoken_text=spoken_text)
+
+
+def _selected_llm_model(spec: RequestSpec) -> str:
+    """Return the request-scoped benchmark override, or the configured default."""
+    ctx = spec.context if isinstance(spec.context, dict) else {}
+    benchmark = ctx.get("dev_benchmark") if isinstance(ctx.get("dev_benchmark"), dict) else {}
+    override = str(benchmark.get("llm_model_override") or "").strip()
+    if override:
+        return override
+    reasoning_mode = str(benchmark.get("reasoning_mode") or "").strip().lower()
+    if reasoning_mode in {"fast", "thinking"}:
+        from lokidoki.core.model_manager import ModelPolicy
+        return ModelPolicy().select(reasoning_mode)[0]
+    return CONFIG.llm_model

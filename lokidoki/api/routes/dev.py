@@ -39,6 +39,12 @@ router = APIRouter()
 class PipelineRunRequest(BaseModel):
     message: str
     context: dict[str, Any] = Field(default_factory=dict)
+    benchmark_label: str | None = None
+    llm_mode: str = "auto"
+    llm_model_override: str | None = None
+    user_mode_override: str | None = None
+    voice_id: str | None = None
+    reasoning_mode: str = "auto"
     # Memory toggles. When ``memory_enabled`` is true the dev-tools test
     # store is wired into ``context`` so the run actually exercises the
     # write + read paths. ``need_preference`` and ``need_social`` gate
@@ -57,6 +63,22 @@ class PipelineRunRequest(BaseModel):
         if not value.strip():
             raise ValueError("message must not be empty")
         return value
+
+    @field_validator("llm_mode")
+    @classmethod
+    def llm_mode_valid(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"auto", "system_only", "force_llm"}:
+            raise ValueError("llm_mode must be auto, system_only, or force_llm")
+        return normalized
+
+    @field_validator("reasoning_mode")
+    @classmethod
+    def reasoning_mode_valid(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"auto", "fast", "thinking"}:
+            raise ValueError("reasoning_mode must be auto, fast, or thinking")
+        return normalized
 
 
 class SkillRunRequest(BaseModel):
@@ -318,6 +340,7 @@ async def run_pipeline(
     real user memory.
     """
     context = dict(request.context)
+    _apply_benchmark_overrides(context, request)
     if request.memory_enabled:
         context["memory_writes_enabled"] = True
         context["memory_provider"] = SimpleNamespace(store=get_dev_store())
@@ -351,6 +374,7 @@ async def pipeline_chat_stream(
     from lokidoki.orchestrator.core.streaming import stream_pipeline_sse
 
     context: dict[str, Any] = dict(request.context)
+    _apply_benchmark_overrides(context, request)
     if request.memory_enabled:
         context["memory_writes_enabled"] = True
         context["memory_provider"] = SimpleNamespace(store=get_dev_store())
@@ -471,3 +495,20 @@ def _package_version(name: str) -> str:
         return version(name)
     except PackageNotFoundError:
         return "not installed"
+
+
+def _apply_benchmark_overrides(context: dict[str, Any], request: PipelineRunRequest) -> None:
+    """Inject request-scoped benchmark controls into the pipeline context."""
+    llm_model_override = (request.llm_model_override or "").strip()
+    voice_id = (request.voice_id or "").strip()
+    context["dev_benchmark"] = {
+        "label": (request.benchmark_label or "").strip(),
+        "llm_mode": request.llm_mode,
+        "llm_model_override": llm_model_override,
+        "voice_id": voice_id,
+        "reasoning_mode": request.reasoning_mode,
+    }
+    if request.reasoning_mode != "auto":
+        context["reasoning_complexity"] = request.reasoning_mode
+    if request.user_mode_override:
+        context["user_mode_override"] = request.user_mode_override.strip().lower()
