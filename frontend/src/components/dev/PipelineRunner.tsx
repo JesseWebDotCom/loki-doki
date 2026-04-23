@@ -11,13 +11,10 @@ import {
   Gauge,
   Globe,
   Grid3x3,
-  Layers,
   Mic,
   Play,
-  Plus,
   Route as RouteIcon,
   Sparkles,
-  Trash2,
   Type,
   Volume2,
   Wrench,
@@ -173,9 +170,11 @@ interface StageBreakdown {
   ms: number;
 }
 
-const computeStageBreakdown = (result: PipelineRunResponse): StageBreakdown[] => {
+const computeStageBreakdownFromSteps = (
+  steps: ReadonlyArray<{ name: string; timing_ms: number }>,
+): StageBreakdown[] => {
   const totals = new Map<string, number>();
-  for (const step of result.trace.steps) {
+  for (const step of steps) {
     const group = STEP_TO_GROUP[step.name];
     const key = group?.key ?? 'other';
     totals.set(key, (totals.get(key) ?? 0) + (step.timing_ms || 0));
@@ -206,6 +205,9 @@ const computeStageBreakdown = (result: PipelineRunResponse): StageBreakdown[] =>
   return out;
 };
 
+const computeStageBreakdown = (result: PipelineRunResponse): StageBreakdown[] =>
+  computeStageBreakdownFromSteps(result.trace.steps);
+
 
 type RunStatus = 'idle' | 'running' | 'done' | 'error';
 
@@ -214,15 +216,6 @@ interface BenchmarkRun {
   status: RunStatus;
   result: PipelineRunResponse | null;
   error?: string | null;
-}
-
-interface MatrixConfigDraft {
-  id: string;
-  label: string;
-  llm_mode: 'auto' | 'system_only' | 'force_llm';
-  llm_model_override: string;
-  reasoning_mode: ReasoningMode;
-  user_mode_override: ResponseMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,8 +229,6 @@ const fmtMs = (value: number | null | undefined): string => {
 };
 
 const fmtPct = (value: number): string => `${(value * 100).toFixed(0)}%`;
-
-const newDraftId = () => `cfg_${Math.random().toString(36).slice(2, 9)}`;
 
 const buildSourceBadges = (result: PipelineRunResponse): string[] => {
   const badges: string[] = [];
@@ -905,27 +896,102 @@ const BenchmarkSynthesis: React.FC<{ runs: BenchmarkRun[] }> = ({ runs }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Matrix mode
+// Matrix mode — same row layout as Single, averaged across N prompts.
 // ---------------------------------------------------------------------------
 
 interface MatrixModeProps {
   systemInfo: SystemInfo | null;
-  selectedModel: string;
-  reasoningMode: ReasoningMode;
-  responseMode: ResponseMode;
-  selectedVoice: string;
+  variants: BenchmarkVariant[];
   warming: boolean;
   onError: (message: string | null) => void;
 }
 
 const MATRIX_LIMIT = 200;
 
+const MATRIX_VARIANT_TO_LLM_MODE: Record<
+  string,
+  'raw_llm' | 'auto' | 'system_only' | 'force_llm'
+> = {
+  llm: 'raw_llm',
+  app: 'auto',
+};
+
+interface VariantAggregate {
+  variant: BenchmarkVariant;
+  cfg: MatrixConfigResult | null;
+  avgBreakdown: StageBreakdown[];
+  avgTotalBreakdown: number;
+  sampleCapability: string | null;
+  sampleLlmUsed: boolean;
+  sampleLlmModel: string | null;
+  sampleFastLaneMatched: boolean;
+}
+
+const buildVariantAggregate = (
+  variant: BenchmarkVariant,
+  cfg: MatrixConfigResult | null,
+): VariantAggregate => {
+  if (!cfg || cfg.runs.length === 0) {
+    return {
+      variant,
+      cfg,
+      avgBreakdown: [],
+      avgTotalBreakdown: 0,
+      sampleCapability: null,
+      sampleLlmUsed: false,
+      sampleLlmModel: null,
+      sampleFastLaneMatched: false,
+    };
+  }
+  const sumByGroup = new Map<string, { label: string; color: string; legendColor: string; ms: number }>();
+  let validCount = 0;
+  for (const run of cfg.runs) {
+    if (run.error) continue;
+    validCount += 1;
+    const perRun = computeStageBreakdownFromSteps(run.trace_steps ?? []);
+    for (const seg of perRun) {
+      const cur = sumByGroup.get(seg.groupKey);
+      if (cur) {
+        cur.ms += seg.ms;
+      } else {
+        sumByGroup.set(seg.groupKey, {
+          label: seg.label,
+          color: seg.color,
+          legendColor: seg.legendColor,
+          ms: seg.ms,
+        });
+      }
+    }
+  }
+  const denom = Math.max(1, validCount);
+  const avgBreakdown: StageBreakdown[] = Array.from(sumByGroup.entries()).map(([groupKey, seg]) => ({
+    groupKey,
+    label: seg.label,
+    color: seg.color,
+    legendColor: seg.legendColor,
+    ms: seg.ms / denom,
+  }));
+  avgBreakdown.sort((a, b) => {
+    const order = STAGE_GROUPS.findIndex((g) => g.key === a.groupKey);
+    const orderB = STAGE_GROUPS.findIndex((g) => g.key === b.groupKey);
+    return (order === -1 ? 99 : order) - (orderB === -1 ? 99 : orderB);
+  });
+  const avgTotalBreakdown = avgBreakdown.reduce((s, b) => s + b.ms, 0);
+  const sample = cfg.runs.find((r) => !r.error) ?? null;
+  return {
+    variant,
+    cfg,
+    avgBreakdown,
+    avgTotalBreakdown,
+    sampleCapability: sample?.capability ?? null,
+    sampleLlmUsed: sample?.llm_used ?? false,
+    sampleLlmModel: sample?.llm_model ?? null,
+    sampleFastLaneMatched: sample?.fast_lane_matched ?? false,
+  };
+};
+
 const MatrixMode: React.FC<MatrixModeProps> = ({
-  systemInfo,
-  selectedModel,
-  reasoningMode,
-  responseMode,
-  selectedVoice,
+  variants,
   warming,
   onError,
 }) => {
@@ -933,19 +999,16 @@ const MatrixMode: React.FC<MatrixModeProps> = ({
   const [selectedCategories, setSelectedCategories] = useState<Record<string, boolean>>({});
   const [promptLimit, setPromptLimit] = useState<number>(20);
   const [iterations, setIterations] = useState<number>(1);
-  const [configs, setConfigs] = useState<MatrixConfigDraft[]>([]);
   const [result, setResult] = useState<MatrixResponse | null>(null);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
-  const [openCategoryRuns, setOpenCategoryRuns] = useState<string | null>(null);
+  const [openVariantId, setOpenVariantId] = useState<string | null>(null);
 
   useEffect(() => {
     void getBenchmarkCorpus()
       .then((data) => {
         setCorpus(data.categories);
-        // Default: run every bundled fixture category end-to-end.
-        // The corpus ships arts, entertainment, math, nonsense, science,
-        // and technology — pre-select all of them so the tab is a
+        // Pre-select every bundled fixture category so the tab becomes a
         // one-click "run the fixtures" button.
         const defaultSel: Record<string, boolean> = {};
         for (const entry of data.categories) defaultSel[entry.category] = true;
@@ -954,24 +1017,6 @@ const MatrixMode: React.FC<MatrixModeProps> = ({
       .catch(() => onError('Failed to load benchmark corpus'));
   }, [onError]);
 
-  useEffect(() => {
-    if (configs.length === 0 && systemInfo) {
-      // One config by default — the full fixture corpus is 6 × 20 = 120
-      // prompts, so a single run fits under the matrix cell cap and
-      // the user can still "Add" another config to compare.
-      setConfigs([
-        {
-          id: newDraftId(),
-          label: 'Auto (default)',
-          llm_mode: 'auto',
-          llm_model_override: selectedModel,
-          reasoning_mode: reasoningMode,
-          user_mode_override: responseMode,
-        },
-      ]);
-    }
-  }, [configs.length, systemInfo, selectedModel, reasoningMode, responseMode]);
-
   const selectedPrompts = useMemo<BenchmarkCorpusPrompt[]>(() => {
     const out: BenchmarkCorpusPrompt[] = [];
     for (const entry of corpus) {
@@ -979,7 +1024,6 @@ const MatrixMode: React.FC<MatrixModeProps> = ({
       const pool = entry.prompts.slice(0, Math.max(1, promptLimit));
       for (const p of pool) out.push({ ...p, category: entry.category });
     }
-    // iterations: duplicate each prompt so stats show variance over N runs
     const expanded: BenchmarkCorpusPrompt[] = [];
     for (let i = 0; i < Math.max(1, iterations); i++) {
       for (const p of out) {
@@ -989,36 +1033,12 @@ const MatrixMode: React.FC<MatrixModeProps> = ({
     return expanded;
   }, [corpus, selectedCategories, promptLimit, iterations]);
 
-  const totalCells = selectedPrompts.length * configs.length;
+  const totalCells = selectedPrompts.length * variants.length;
   const overLimit = totalCells > MATRIX_LIMIT;
-
-  const updateConfig = (id: string, patch: Partial<MatrixConfigDraft>) => {
-    setConfigs((prev) => prev.map((cfg) => (cfg.id === id ? { ...cfg, ...patch } : cfg)));
-  };
-  const addConfig = () => {
-    setConfigs((prev) => [
-      ...prev,
-      {
-        id: newDraftId(),
-        label: `Config ${prev.length + 1}`,
-        llm_mode: 'auto',
-        llm_model_override: selectedModel,
-        reasoning_mode: reasoningMode,
-        user_mode_override: responseMode,
-      },
-    ]);
-  };
-  const removeConfig = (id: string) => {
-    setConfigs((prev) => prev.filter((cfg) => cfg.id !== id));
-  };
 
   const handleRun = async () => {
     if (selectedPrompts.length === 0) {
       onError('Pick at least one category first.');
-      return;
-    }
-    if (configs.length === 0) {
-      onError('Add at least one config.');
       return;
     }
     if (overLimit) {
@@ -1027,15 +1047,17 @@ const MatrixMode: React.FC<MatrixModeProps> = ({
     }
     setRunning(true);
     onError(null);
-    setProgress(`Running ${totalCells} cells (${configs.length} configs × ${selectedPrompts.length} prompts)…`);
+    setProgress(
+      `Running ${totalCells} cells (${variants.length} rows × ${selectedPrompts.length} prompts)…`,
+    );
     try {
-      const configInputs: MatrixConfigInput[] = configs.map((cfg) => ({
-        label: cfg.label,
-        llm_mode: cfg.llm_mode,
-        llm_model_override: cfg.llm_model_override || null,
-        reasoning_mode: cfg.reasoning_mode,
-        user_mode_override: cfg.user_mode_override,
-        voice_id: selectedVoice || null,
+      const configInputs: MatrixConfigInput[] = variants.map((variant) => ({
+        label: variant.id,
+        llm_mode: MATRIX_VARIANT_TO_LLM_MODE[variant.id] ?? 'auto',
+        llm_model_override: variant.options.llm_model_override ?? null,
+        reasoning_mode: variant.options.reasoning_mode ?? 'auto',
+        user_mode_override: variant.options.user_mode_override ?? null,
+        voice_id: variant.options.voice_id ?? null,
       }));
       const response = await runBenchmarkMatrix(selectedPrompts, configInputs);
       setResult(response);
@@ -1048,27 +1070,25 @@ const MatrixMode: React.FC<MatrixModeProps> = ({
     }
   };
 
-  // "Best" ranks accuracy first, then p50. When no prompt in the run
-  // has a graded expectation, fall back to pure speed. This matches the
-  // user's grading intent: a fast config that gets every answer wrong
-  // is not the winner.
-  const bestLabel = useMemo(() => {
-    if (!result || result.configs.length === 0) return null;
-    const anyGraded = result.configs.some((c) => c.stats.graded_count > 0);
-    return result.configs.reduce((best, cfg) => {
-      if (!best) return cfg.label;
-      const prev = result.configs.find((c) => c.label === best);
-      if (!prev) return cfg.label;
-      if (anyGraded) {
-        if (cfg.stats.accuracy_rate !== prev.stats.accuracy_rate) {
-          return cfg.stats.accuracy_rate > prev.stats.accuracy_rate ? cfg.label : best;
-        }
-      }
-      return cfg.stats.p50_ms < prev.stats.p50_ms ? cfg.label : best;
-    }, null as string | null);
-  }, [result]);
+  const aggregates = useMemo<VariantAggregate[]>(() => {
+    const byLabel = new Map((result?.configs ?? []).map((c) => [c.label, c]));
+    return variants.map((variant) => buildVariantAggregate(variant, byLabel.get(variant.id) ?? null));
+  }, [variants, result]);
 
-  const availableModels = systemInfo?.available_models ?? [];
+  const fastestVariantId = useMemo(() => {
+    const withStats = aggregates.filter((a) => a.cfg && a.cfg.stats.count > 0);
+    if (withStats.length === 0) return null;
+    return withStats.reduce((best, cur) => {
+      if (!best) return cur.variant.id;
+      const prev = withStats.find((a) => a.variant.id === best);
+      if (!prev || !prev.cfg || !cur.cfg) return cur.variant.id;
+      return cur.cfg.stats.p50_ms < prev.cfg.stats.p50_ms ? cur.variant.id : best;
+    }, null as string | null);
+  }, [aggregates]);
+
+  const maxP50 = useMemo(() => {
+    return Math.max(1, ...aggregates.map((a) => a.cfg?.stats.p50_ms ?? 0));
+  }, [aggregates]);
 
   return (
     <div className="space-y-3">
@@ -1128,7 +1148,16 @@ const MatrixMode: React.FC<MatrixModeProps> = ({
               className="w-16 rounded border border-border/40 bg-background/60 px-2 py-0.5 text-xs"
             />
           </label>
-          <div className="ml-auto flex items-center gap-2 font-mono text-[11px]">
+          <button
+            onClick={() => void handleRun()}
+            disabled={running || warming || totalCells === 0 || overLimit}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-white transition-all hover:bg-primary/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            title={warming ? 'Waiting for the selected model to load into engine RAM…' : undefined}
+          >
+            <Play size={11} />
+            {running ? 'Running…' : warming ? 'Warming…' : `Run (${totalCells})`}
+          </button>
+          <div className="flex items-center gap-2 font-mono text-[11px]">
             <span className="text-muted-foreground">Cells:</span>
             <span className={overLimit ? 'font-bold text-red-300' : 'font-bold text-foreground'}>
               {totalCells}
@@ -1136,210 +1165,330 @@ const MatrixMode: React.FC<MatrixModeProps> = ({
             <span className="text-muted-foreground">/ {MATRIX_LIMIT}</span>
           </div>
         </div>
-      </div>
-
-      <div className="rounded-lg border border-border/30 bg-background/30 p-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            <Layers size={11} />
-            Configurations ({configs.length})
-          </div>
-          <button
-            onClick={addConfig}
-            className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-card/50 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground transition-all hover:border-primary/40 hover:text-primary"
-          >
-            <Plus size={10} />
-            Add
-          </button>
-        </div>
-        <div className="mt-2 space-y-1.5">
-          {configs.map((cfg, index) => (
-            <div
-              key={cfg.id}
-              className="grid gap-2 rounded-md border border-border/30 bg-card/40 p-2 text-[11px] md:grid-cols-[1.2fr_0.8fr_1.5fr_0.8fr_0.9fr_auto]"
-            >
-              <input
-                value={cfg.label}
-                onChange={(e) => updateConfig(cfg.id, { label: e.target.value })}
-                placeholder={`Config ${index + 1}`}
-                className="rounded border border-border/40 bg-background/60 px-2 py-1 text-xs font-bold"
-              />
-              <select
-                value={cfg.llm_mode}
-                onChange={(e) =>
-                  updateConfig(cfg.id, { llm_mode: e.target.value as MatrixConfigDraft['llm_mode'] })
-                }
-                className="rounded border border-border/40 bg-background/60 px-2 py-1 text-xs"
-              >
-                <option value="system_only">system_only</option>
-                <option value="auto">auto</option>
-                <option value="force_llm">force_llm</option>
-              </select>
-              <select
-                value={cfg.llm_model_override}
-                onChange={(e) => updateConfig(cfg.id, { llm_model_override: e.target.value })}
-                className="rounded border border-border/40 bg-background/60 px-2 py-1 text-xs"
-                disabled={cfg.llm_mode === 'system_only'}
-              >
-                <option value="">default</option>
-                {availableModels.map((m) => (
-                  <option key={m.name} value={m.name}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={cfg.reasoning_mode}
-                onChange={(e) =>
-                  updateConfig(cfg.id, { reasoning_mode: e.target.value as ReasoningMode })
-                }
-                className="rounded border border-border/40 bg-background/60 px-2 py-1 text-xs"
-              >
-                <option value="fast">fast</option>
-                <option value="thinking">thinking</option>
-                <option value="auto">auto</option>
-              </select>
-              <select
-                value={cfg.user_mode_override}
-                onChange={(e) =>
-                  updateConfig(cfg.id, { user_mode_override: e.target.value as ResponseMode })
-                }
-                className="rounded border border-border/40 bg-background/60 px-2 py-1 text-xs"
-              >
-                <option value="standard">standard</option>
-                <option value="rich">rich</option>
-                <option value="deep">deep</option>
-              </select>
-              <button
-                onClick={() => removeConfig(cfg.id)}
-                className="inline-flex items-center justify-center rounded border border-border/40 bg-card/50 px-2 py-1 text-muted-foreground transition-all hover:border-red-400/40 hover:text-red-300"
-                title="Remove"
-              >
-                <Trash2 size={11} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          onClick={() => void handleRun()}
-          disabled={running || warming || totalCells === 0 || overLimit}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-bold text-white transition-all hover:bg-primary/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-          title={warming ? 'Waiting for the selected model to load into engine RAM…' : undefined}
-        >
-          <Play size={12} />
-          {running ? 'Running matrix…' : warming ? 'Warming…' : `Run matrix (${totalCells})`}
-        </button>
-        {progress && <div className="text-[11px] text-muted-foreground">{progress}</div>}
-        {overLimit && (
-          <div className="inline-flex items-center gap-1 text-[11px] text-red-300">
-            <AlertTriangle size={11} />
-            Over limit — shrink categories, iterations, or configs.
+        {(progress || overLimit) && (
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]">
+            {progress && <span className="text-muted-foreground">{progress}</span>}
+            {overLimit && (
+              <span className="inline-flex items-center gap-1 text-red-300">
+                <AlertTriangle size={11} />
+                Over limit — shrink categories or iterations.
+              </span>
+            )}
           </div>
         )}
       </div>
 
-      {result && result.configs.length > 0 && (
-        <div className="space-y-3">
-          <div className="overflow-hidden rounded-lg border border-border/30">
-            <table className="w-full text-xs">
-              <thead className="bg-background/40 text-[10px] uppercase tracking-widest text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 text-left font-bold">Config</th>
-                  <th className="px-3 py-2 text-right font-bold">p50</th>
-                  <th className="px-3 py-2 text-right font-bold">p95</th>
-                  <th className="px-3 py-2 text-right font-bold">Mean</th>
-                  <th className="px-3 py-2 text-right font-bold">Min / Max</th>
-                  <th className="px-3 py-2 text-right font-bold">Accuracy</th>
-                  <th className="px-3 py-2 text-right font-bold">Errors</th>
-                  <th className="px-3 py-2 text-right font-bold">Fast-lane</th>
-                  <th className="px-3 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {result.configs.map((cfg) => {
-                  const best = cfg.label === bestLabel;
-                  const fastLaneCount = cfg.runs.filter((r) => r.fast_lane_matched).length;
-                  const isOpen = openCategoryRuns === cfg.label;
-                  const accuracyCells = (() => {
-                    const { graded_count: g, correct_count: c, accuracy_rate: r } = cfg.stats;
-                    if (g === 0) {
-                      return (
-                        <span className="text-muted-foreground/60">n/a</span>
-                      );
-                    }
+      <div className="overflow-hidden rounded-lg border border-border/30 bg-card/20">
+        {aggregates.map((agg, rowIdx) => {
+          const { variant, cfg, avgBreakdown, avgTotalBreakdown } = agg;
+          const isDone = !!cfg && cfg.stats.count > 0;
+          const isCurrent = running && !isDone;
+          const isIdle = !running && !cfg;
+          const isOpen = openVariantId === variant.id;
+          const p50 = cfg?.stats.p50_ms ?? 0;
+          const best = isDone && variant.id === fastestVariantId;
+          const relative = Math.max(1.5, (p50 / maxP50) * 100);
+          const accuracyTone = (() => {
+            if (!cfg || cfg.stats.graded_count === 0) return 'text-muted-foreground/60';
+            const r = cfg.stats.accuracy_rate;
+            return r >= 0.8 ? 'text-emerald-300' : r >= 0.5 ? 'text-amber-300' : 'text-red-300';
+          })();
+
+          return (
+            <div key={variant.id} className={rowIdx > 0 ? 'border-t border-border/20' : ''}>
+              <div
+                className={`flex items-center gap-3 px-3 py-2 transition-colors ${
+                  best ? 'bg-emerald-400/5' : isCurrent ? 'bg-primary/5' : ''
+                } ${isIdle ? 'opacity-50' : ''}`}
+              >
+                <div className="flex w-32 shrink-0 items-center gap-1.5">
+                  {best ? (
+                    <Zap size={11} className="shrink-0 text-emerald-400" />
+                  ) : isCurrent ? (
+                    <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-primary" />
+                  ) : (
+                    <span className="w-[11px]" />
+                  )}
+                  <span className="truncate text-xs font-bold" title={variant.blurb}>
+                    {variant.title}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  {STAGE_ORDER.map((stage) => {
+                    const state = variant.stages[stage];
+                    const { Icon, label } = STAGE_META[stage];
                     const tone =
-                      r >= 0.8
-                        ? 'text-emerald-300'
-                        : r >= 0.5
-                          ? 'text-amber-300'
-                          : 'text-red-300';
+                      state === 'on'
+                        ? 'bg-primary/15 text-primary'
+                        : state === 'auto'
+                          ? 'bg-amber-400/10 text-amber-300 ring-1 ring-dashed ring-amber-400/40'
+                          : 'bg-card/40 text-muted-foreground/40';
+                    const title =
+                      state === 'on'
+                        ? `${label} · on`
+                        : state === 'auto'
+                          ? `${label} · auto`
+                          : `${label} · off`;
                     return (
-                      <>
-                        <span className={`font-bold ${tone}`}>{fmtPct(r)}</span>
-                        <span className="ml-1 text-muted-foreground">
-                          ({c}/{g})
-                        </span>
-                      </>
+                      <span
+                        key={stage}
+                        title={title}
+                        className={`flex h-5 w-5 items-center justify-center rounded ${tone}`}
+                      >
+                        <Icon size={10} />
+                      </span>
                     );
-                  })();
-                  return (
-                    <React.Fragment key={cfg.label}>
-                      <tr className={`border-t border-border/20 ${best ? 'bg-emerald-400/5' : 'bg-card/20'}`}>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-1.5 font-bold">
-                            {best && <Zap size={11} className="text-emerald-400" />}
-                            {cfg.label}
-                          </div>
-                          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                            {cfg.llm_mode} · {cfg.reasoning_mode} · {cfg.user_mode_override || 'default'}
-                            {cfg.llm_model_override ? ` · ${cfg.llm_model_override}` : ''}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono font-bold">{fmtMs(cfg.stats.p50_ms)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{fmtMs(cfg.stats.p95_ms)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{fmtMs(cfg.stats.mean_ms)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-[11px] text-muted-foreground">
-                          {fmtMs(cfg.stats.min_ms)} / {fmtMs(cfg.stats.max_ms)}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono">{accuracyCells}</td>
-                        <td
-                          className={`px-3 py-2 text-right font-mono ${
-                            cfg.stats.errors > 0 ? 'font-bold text-red-300' : 'text-muted-foreground'
-                          }`}
-                        >
-                          {cfg.stats.errors} ({fmtPct(cfg.stats.error_rate)})
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-[11px] text-muted-foreground">
-                          {fastLaneCount}/{cfg.runs.length}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            onClick={() => setOpenCategoryRuns(isOpen ? null : cfg.label)}
-                            className="inline-flex items-center rounded border border-border/40 bg-card/50 px-1.5 py-0.5 text-muted-foreground transition-all hover:border-primary/40 hover:text-primary"
-                          >
-                            <ChevronDown
-                              size={11}
-                              className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                            />
-                          </button>
-                        </td>
-                      </tr>
-                      {isOpen && (
-                        <tr className="border-t border-border/20 bg-background/40">
-                          <td colSpan={9} className="px-3 py-3">
-                            <CategoryHeatmap cfg={cfg} />
-                            <RunList cfg={cfg} />
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+                  })}
+                </div>
+                <div
+                  className={`relative h-6 flex-1 overflow-hidden rounded bg-card/40 ${
+                    isCurrent ? 'animate-pulse ring-1 ring-primary/40' : ''
+                  }`}
+                >
+                  {isDone && avgBreakdown.length > 0 && (
+                    <div
+                      className="absolute inset-y-0 left-0 flex overflow-hidden rounded"
+                      style={{ width: `${relative}%` }}
+                    >
+                      {avgBreakdown.map((seg) => {
+                        const pct = (seg.ms / Math.max(1, avgTotalBreakdown)) * 100;
+                        return (
+                          <div
+                            key={seg.groupKey}
+                            className={seg.color}
+                            style={{ width: `${pct}%` }}
+                            title={`${seg.label}: ${fmtMs(seg.ms)} avg`}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                  {isCurrent && !isDone && (
+                    <div className="absolute inset-y-0 left-0 right-0 animate-pulse bg-primary/25" />
+                  )}
+                </div>
+                <div
+                  className={`w-16 shrink-0 text-right font-mono text-sm font-bold tabular-nums ${
+                    best
+                      ? 'text-emerald-300'
+                      : isDone
+                        ? 'text-foreground'
+                        : 'text-muted-foreground/40'
+                  }`}
+                  title={
+                    cfg
+                      ? `p50 ${fmtMs(cfg.stats.p50_ms)} · mean ${fmtMs(cfg.stats.mean_ms)} · p95 ${fmtMs(cfg.stats.p95_ms)}`
+                      : undefined
+                  }
+                >
+                  {isDone ? fmtMs(p50) : isCurrent ? '…' : '—'}
+                </div>
+                <div
+                  className={`w-20 shrink-0 text-right font-mono text-[11px] tabular-nums ${accuracyTone}`}
+                  title={
+                    cfg && cfg.stats.graded_count > 0
+                      ? `${cfg.stats.correct_count}/${cfg.stats.graded_count} graded`
+                      : 'No graded prompts'
+                  }
+                >
+                  {cfg && cfg.stats.graded_count > 0 ? (
+                    <>
+                      <span className="font-bold">{fmtPct(cfg.stats.accuracy_rate)}</span>
+                      <span className="ml-1 text-muted-foreground">
+                        {cfg.stats.correct_count}/{cfg.stats.graded_count}
+                      </span>
+                    </>
+                  ) : (
+                    <span>—</span>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => isDone && setOpenVariantId(isOpen ? null : variant.id)}
+                    disabled={!isDone}
+                    className="inline-flex items-center rounded border border-border/40 bg-card/50 px-1.5 py-0.5 text-muted-foreground transition-all hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30"
+                    title="Show per-prompt runs"
+                  >
+                    <ChevronDown
+                      size={11}
+                      className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                </div>
+              </div>
+              {isOpen && cfg && (
+                <div className="space-y-2 border-t border-border/20 bg-background/40 px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                    <span>
+                      prompts: <span className="font-mono text-foreground/80">{cfg.runs.length}</span>
+                    </span>
+                    <span>
+                      errors:{' '}
+                      <span
+                        className={`font-mono ${cfg.stats.errors > 0 ? 'text-red-300' : 'text-foreground/80'}`}
+                      >
+                        {cfg.stats.errors}
+                      </span>
+                    </span>
+                    <span>
+                      fast-lane:{' '}
+                      <span className="font-mono text-foreground/80">
+                        {cfg.runs.filter((r) => r.fast_lane_matched).length}/{cfg.runs.length}
+                      </span>
+                    </span>
+                    <span>
+                      p50 <span className="font-mono text-foreground/80">{fmtMs(cfg.stats.p50_ms)}</span>{' '}
+                      · p95 <span className="font-mono text-foreground/80">{fmtMs(cfg.stats.p95_ms)}</span>{' '}
+                      · mean <span className="font-mono text-foreground/80">{fmtMs(cfg.stats.mean_ms)}</span>
+                    </span>
+                  </div>
+                  <CategoryHeatmap cfg={cfg} />
+                  <RunList cfg={cfg} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <MatrixSynthesis aggregates={aggregates} />
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Matrix synthesis — LLM vs App comparison across all N prompts.
+// ---------------------------------------------------------------------------
+
+const MatrixSynthesis: React.FC<{ aggregates: VariantAggregate[] }> = ({ aggregates }) => {
+  const hasAny = aggregates.some((a) => a.cfg && a.cfg.stats.count > 0);
+  if (!hasAny) {
+    return (
+      <div className="rounded-lg border border-dashed border-border/40 bg-background/20 px-3 py-4 text-center text-[11px] text-muted-foreground">
+        Run the matrix to see a synthesis of the results here.
+      </div>
+    );
+  }
+
+  const llm = aggregates.find((a) => a.variant.id === 'llm') ?? null;
+  const app = aggregates.find((a) => a.variant.id === 'app') ?? null;
+  const llmP50 = llm?.cfg?.stats.p50_ms ?? null;
+  const appP50 = app?.cfg?.stats.p50_ms ?? null;
+
+  const headline = (() => {
+    if (llmP50 != null && appP50 != null) {
+      const delta = appP50 - llmP50;
+      const absDelta = Math.abs(delta);
+      const ratio = delta === 0 ? 1 : appP50 / llmP50;
+      if (Math.abs(delta) < 5) return 'App and LLM came in within a hair of each other (p50).';
+      if (delta > 0) {
+        return `App is ${fmtMs(absDelta)} slower than bare LLM at p50 (${ratio.toFixed(2)}× the latency).`;
+      }
+      return `App is ${fmtMs(absDelta)} faster than bare LLM at p50 (${(1 / ratio).toFixed(2)}× speedup).`;
+    }
+    return 'Synthesis is partial — at least one row is still missing.';
+  })();
+
+  const appBreakdown = app?.avgBreakdown ?? [];
+  const appTotalBreakdown = app?.avgTotalBreakdown ?? 0;
+  const topStage = appBreakdown.slice().sort((a, b) => b.ms - a.ms)[0] ?? null;
+
+  const renderAccuracy = (agg: VariantAggregate | null) => {
+    if (!agg?.cfg || agg.cfg.stats.graded_count === 0) {
+      return <span className="text-muted-foreground/60">n/a</span>;
+    }
+    const r = agg.cfg.stats.accuracy_rate;
+    const tone = r >= 0.8 ? 'text-emerald-300' : r >= 0.5 ? 'text-amber-300' : 'text-red-300';
+    return (
+      <>
+        <span className={`font-bold ${tone}`}>{fmtPct(r)}</span>
+        <span className="ml-1 text-muted-foreground">
+          ({agg.cfg.stats.correct_count}/{agg.cfg.stats.graded_count})
+        </span>
+      </>
+    );
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border/30 bg-background/30 p-3">
+      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <Sparkles size={11} />
+        Synthesis
+      </div>
+      <div className="text-sm text-foreground">{headline}</div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-md border border-border/30 bg-card/40 p-2 text-[11px]">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            LLM (bare) — p50
+          </div>
+          <div className="mt-1 font-mono text-lg font-bold tabular-nums">
+            {llmP50 != null ? fmtMs(llmP50) : '—'}
+          </div>
+          <div className="mt-1 text-muted-foreground">
+            No parsing, routing, or memory — just the model.
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span>Accuracy:</span>
+            <span className="font-mono">{renderAccuracy(llm)}</span>
+          </div>
+        </div>
+        <div className="rounded-md border border-border/30 bg-card/40 p-2 text-[11px]">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            App (full pipeline) — p50
+          </div>
+          <div className="mt-1 font-mono text-lg font-bold tabular-nums">
+            {appP50 != null ? fmtMs(appP50) : '—'}
+          </div>
+          <div className="mt-1 text-muted-foreground">
+            {app?.sampleFastLaneMatched
+              ? 'Fast-lane engaged on at least one prompt'
+              : app?.sampleLlmUsed
+                ? 'Ran the LLM on the sampled prompt'
+                : 'Pipeline completed'}
+            {app?.sampleCapability ? ` · ${app.sampleCapability}` : ''}
+            {app?.sampleLlmModel ? ` · ${app.sampleLlmModel}` : ''}
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span>Accuracy:</span>
+            <span className="font-mono">{renderAccuracy(app)}</span>
+          </div>
+        </div>
+      </div>
+
+      {appBreakdown.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            <span>App time by stage (avg per prompt)</span>
+            {topStage && (
+              <span className="normal-case tracking-normal text-muted-foreground">
+                Heaviest stage:{' '}
+                <span className="font-mono text-foreground/80">
+                  {topStage.label} ({fmtMs(topStage.ms)})
+                </span>
+              </span>
+            )}
+          </div>
+          <div className="flex h-4 w-full overflow-hidden rounded bg-card/40">
+            {appBreakdown.map((seg) => {
+              const pct = (seg.ms / Math.max(1, appTotalBreakdown)) * 100;
+              return (
+                <div
+                  key={seg.groupKey}
+                  className={seg.color}
+                  style={{ width: `${pct}%` }}
+                  title={`${seg.label}: ${fmtMs(seg.ms)} (${pct.toFixed(0)}%)`}
+                />
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            {appBreakdown.map((seg) => (
+              <span key={seg.groupKey} className="inline-flex items-center gap-1.5">
+                <span className={`h-2 w-2 rounded-sm ${seg.legendColor}`} />
+                <span>{seg.label}</span>
+                <span className="font-mono text-foreground/80">{fmtMs(seg.ms)}</span>
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -1826,10 +1975,7 @@ const PipelineRunner: React.FC = () => {
             ) : (
               <MatrixMode
                 systemInfo={systemInfo}
-                selectedModel={selectedModel}
-                reasoningMode={reasoningMode}
-                responseMode={responseMode}
-                selectedVoice={selectedVoice}
+                variants={variants}
                 warming={warming}
                 onError={setError}
               />

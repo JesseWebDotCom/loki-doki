@@ -148,7 +148,7 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
       </aside>
 
       <main className="flex-1 flex flex-col relative bg-background shadow-inner overflow-y-auto">
-        <header className="border-b border-border/10 px-[var(--app-shell-gutter)] pt-10 pb-8 sm:pt-12">
+        <header className="border-b border-border/10 px-[var(--app-shell-gutter)] pt-6 pb-3 sm:pt-8">
           <div className={`${contentWidthClass} mx-auto flex items-center gap-4`} style={{ maxWidth: active.fullWidth ? undefined : 'var(--app-content-max)' }}>
             <div className="p-3 rounded-2xl bg-card/40 border border-border/40 text-foreground/70 shadow-m1">
               <ActiveIcon size={26} />
@@ -158,10 +158,10 @@ const AdminPanelLayout: React.FC<AdminPanelLayoutProps> = ({
               <p className="text-base font-medium text-muted-foreground">{active.description}</p>
             </div>
           </div>
-          <div className={`${contentWidthClass} mx-auto mt-8 border-b border-border/20`} />
+          <div className={`${contentWidthClass} mx-auto mt-4 border-b border-border/20`} />
         </header>
 
-        <section className="flex-1 px-[var(--app-shell-gutter)] pb-16 pt-8">
+        <section className="flex-1 px-[var(--app-shell-gutter)] pb-16 pt-4">
           <div className={`${contentWidthClass} mx-auto`} style={{ maxWidth: active.fullWidth ? undefined : 'var(--app-content-max)' }}>
             {renderSection(active)}
           </div>

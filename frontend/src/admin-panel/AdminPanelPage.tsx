@@ -13,7 +13,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import {
-  Check, Cpu, Save, X, Trash2, Brain, AlertTriangle, Shield, ScrollText, Wrench, Users as UsersIcon,
+  Check, Cpu, Save, X, Trash2, Brain, AlertTriangle, Shield, ScrollText, Users as UsersIcon,
 } from 'lucide-react';
 import AdminPanelLayout from './AdminPanelLayout';
 import type { SectionDef, SectionId } from './sections';
@@ -916,12 +916,4 @@ const LogsPane: React.FC = () => (
   </div>
 );
 
-const ToolsPane: React.FC = () => (
-  <div className="space-y-4">
-    <div className="flex items-center gap-2 border-b border-border/10 pb-4">
-      <Wrench className="text-primary w-5 h-5" />
-      <h2 className="text-xl font-bold tracking-tight">Tools</h2>
-    </div>
-    <PipelineRunner />
-  </div>
-);
+const ToolsPane: React.FC = () => <PipelineRunner />;

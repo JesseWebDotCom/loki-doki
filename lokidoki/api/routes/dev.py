@@ -22,6 +22,7 @@ from lokidoki.api.dev_memory import (
 )
 from lokidoki.auth.dependencies import require_admin
 from lokidoki.auth.users import User
+from lokidoki.orchestrator.core.config import CONFIG
 from lokidoki.orchestrator.core.types import RequestChunk, ResolutionResult, RouteMatch
 from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.core.pipeline import run_pipeline_async
@@ -680,8 +681,10 @@ class MatrixConfig(BaseModel):
     @classmethod
     def llm_mode_valid(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if normalized not in {"auto", "system_only", "force_llm"}:
-            raise ValueError("llm_mode must be auto, system_only, or force_llm")
+        if normalized not in {"auto", "system_only", "force_llm", "raw_llm"}:
+            raise ValueError(
+                "llm_mode must be auto, system_only, force_llm, or raw_llm"
+            )
         return normalized
 
     @field_validator("reasoning_mode")
@@ -853,9 +856,39 @@ async def run_benchmark_matrix(
         errors = 0
         runs: list[dict[str, Any]] = []
         for prompt in request.prompts:
-            context = dict(base_context)
             started = time.perf_counter()
             try:
+                if config.llm_mode == "raw_llm":
+                    model = (config.llm_model_override or "").strip() or CONFIG.llm_model
+                    text = await call_llm(prompt.prompt, model=model)
+                    elapsed_ms = (time.perf_counter() - started) * 1000
+                    timings.append(elapsed_ms)
+                    grading = _grade_output(text, prompt.expected)
+                    runs.append(
+                        {
+                            "prompt_id": prompt.id,
+                            "prompt": prompt.prompt,
+                            "category": prompt.category,
+                            "error": None,
+                            "total_timing_ms": elapsed_ms,
+                            "llm_used": True,
+                            "llm_model": model,
+                            "output_text": text,
+                            "fast_lane_matched": False,
+                            "capability": None,
+                            "trace_steps": [
+                                {"name": "llm", "timing_ms": elapsed_ms},
+                            ],
+                            "expected": prompt.expected,
+                            "graded": grading["graded"],
+                            "correct": grading["correct"],
+                            "matches": grading["matches"],
+                            "min_match": grading["min_match"],
+                        }
+                    )
+                    continue
+
+                context = dict(base_context)
                 pipeline_result = await run_pipeline_async(prompt.prompt, context=context)
             except Exception as exc:  # noqa: BLE001 - surfaced to the UI per-run
                 errors += 1
@@ -873,10 +906,11 @@ async def run_benchmark_matrix(
                         "output_text": "",
                         "fast_lane_matched": False,
                         "capability": None,
+                        "trace_steps": [],
                         "expected": prompt.expected,
-                        "graded": grading["graded"],
                         # errors can't be "correct" — force False for graded prompts
                         # so the denominator stays accurate.
+                        "graded": grading["graded"],
                         "correct": False if grading["graded"] else None,
                         "matches": [],
                         "min_match": grading["min_match"],
@@ -894,6 +928,10 @@ async def run_benchmark_matrix(
             capability = primary_chunk.capability if primary_chunk else None
             output_text = pipeline_result.response.output_text or ""
             grading = _grade_output(output_text, prompt.expected)
+            trace_steps = [
+                {"name": step.name, "timing_ms": step.timing_ms}
+                for step in pipeline_result.trace.steps
+            ]
             runs.append(
                 {
                     "prompt_id": prompt.id,
@@ -906,6 +944,7 @@ async def run_benchmark_matrix(
                     "output_text": output_text,
                     "fast_lane_matched": pipeline_result.fast_lane.matched,
                     "capability": capability,
+                    "trace_steps": trace_steps,
                     "expected": prompt.expected,
                     "graded": grading["graded"],
                     "correct": grading["correct"],

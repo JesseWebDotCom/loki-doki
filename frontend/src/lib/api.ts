@@ -274,11 +274,16 @@ export async function getBenchmarkCorpus() {
 
 export interface MatrixConfigInput {
   label: string;
-  llm_mode?: "auto" | "system_only" | "force_llm";
+  llm_mode?: "auto" | "system_only" | "force_llm" | "raw_llm";
   llm_model_override?: string | null;
   reasoning_mode?: "auto" | "fast" | "thinking";
   user_mode_override?: "standard" | "rich" | "deep" | "direct" | "search" | "artifact" | null;
   voice_id?: string | null;
+}
+
+export interface MatrixTraceStep {
+  name: string;
+  timing_ms: number;
 }
 
 export interface MatrixRun {
@@ -292,6 +297,7 @@ export interface MatrixRun {
   output_text: string;
   fast_lane_matched: boolean;
   capability: string | null;
+  trace_steps: MatrixTraceStep[];
   expected: BenchmarkExpected | null;
   graded: boolean;
   correct: boolean | null;
