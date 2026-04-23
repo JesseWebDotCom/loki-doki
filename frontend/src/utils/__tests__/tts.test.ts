@@ -298,7 +298,7 @@ describe('ttsController.speakStatus throttle', () => {
     const duplicate = await ttsController.speakStatus('phase-1', 'Checking sources');
     // speakStatus for a new phase re-enters the streamer — same
     // pattern: let it register, then stop to settle the promise.
-    const p3 = ttsController.speakStatus('phase-2', 'Pulling a summary');
+    const p3 = ttsController.speakStatus('phase-2', 'Preparing response');
     await Promise.resolve();
     ttsController.stop();
     const different = await p3.catch(() => false);

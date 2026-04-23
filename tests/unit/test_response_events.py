@@ -301,7 +301,7 @@ async def test_synthesis_phase_streams_ordered_response_events(monkeypatch):
     status_patch = events[8]
     assert status_patch.data["block_id"] == "status"
     assert status_patch.data["seq"] == 1
-    assert status_patch.data["delta"] == "Pulling a summary together"
+    assert status_patch.data["delta"] == "Preparing response"
 
     # block_ready fires for every non-omitted, populated block. The
     # status block is flipped to ``omitted`` before this loop, so it

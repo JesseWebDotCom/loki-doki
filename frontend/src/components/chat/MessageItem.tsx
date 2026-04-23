@@ -168,6 +168,7 @@ const MessageItem: React.FC<MessageProps> = ({
 
   const showInlineLiveStatus =
     envelope?.status === 'streaming' && !!liveStatusText;
+  const showActionRow = envelope?.status !== 'streaming' || isActive;
 
   const visibleAssistantBlocks = useMemo(() => {
     if (!showInlineLiveStatus) {
@@ -426,7 +427,7 @@ const MessageItem: React.FC<MessageProps> = ({
                   </div>
                 )}
               </div>
-              {envelope?.status !== 'streaming' && (
+              {showActionRow && (
               <div className="relative z-10 min-h-10 w-full pt-3">
                 <div className={`flex items-center gap-1 transition-opacity px-2 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
                   <TooltipProvider delayDuration={300}>
@@ -440,6 +441,7 @@ const MessageItem: React.FC<MessageProps> = ({
                                 tts.clearSpokenForKey(myKey);
                                 void tts.speak(myKey, content);
                               }}
+                              aria-label="Play"
                               disabled={tts.muted || isActive}
                               className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
                             >
@@ -456,6 +458,7 @@ const MessageItem: React.FC<MessageProps> = ({
                             <button
                               type="button"
                               onClick={() => tts.stop()}
+                              aria-label="Stop"
                               disabled={!isActive}
                               className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
                             >
@@ -470,6 +473,7 @@ const MessageItem: React.FC<MessageProps> = ({
                             <button
                               type="button"
                               onClick={tts.toggleMute}
+                              aria-label={tts.muted ? 'Unmute' : 'Mute'}
                               className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-card transition cursor-pointer"
                             >
                               {tts.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}

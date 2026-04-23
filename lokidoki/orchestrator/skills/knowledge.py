@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from lokidoki.skills.knowledge._parse import (
+    _query_tokens,
     is_disambiguation_page,
     parse_wiki_html,
     salvage_disambiguation_lead,
@@ -90,6 +91,28 @@ def _format_wiki(result, method: str) -> str:
     if title:
         return f"I found a Wikipedia article on {title} but couldn't extract a summary."
     return "I couldn't extract a Wikipedia summary for that."
+
+
+def _score_candidate(query: str, result: AdapterResult) -> float:
+    """Score a knowledge candidate while rejecting low-signal web junk.
+
+    Single-token definitional lookups like ``"what is jarvis"`` are
+    especially vulnerable to snippet-only web search matches because any
+    page that repeats the token scores ``1.0`` under naive token
+    coverage. Wallpaper galleries and SEO pages then beat "no answer"
+    despite having no actual definition. For knowledge lookups, only
+    trust snippet-only web candidates when the query has multiple
+    significant tokens; otherwise require a real abstract / lead.
+    """
+    data = result.data if isinstance(result.data, dict) else {}
+    abstract = str(data.get("abstract") or "").strip()
+    if result.mechanism_used.startswith("ddg_") and not abstract:
+        if len(_query_tokens(query)) <= 1:
+            return 0.0
+        snippets = data.get("results") or []
+        combined = " ".join(str(item).strip() for item in snippets if str(item).strip())
+        return score_subject_coverage(query, combined)
+    return score_subject_coverage(query, result.output_text)
 
 
 import re
@@ -420,7 +443,7 @@ async def handle(payload: dict[str, Any]) -> dict[str, Any]:
     capability_need = str(payload.get("capability_need") or "")
 
     def score(result: AdapterResult) -> float:
-        return score_subject_coverage(query, result.output_text)
+        return _score_candidate(query, result)
 
     # ── Local-first: try ZIM archives before any network call ──
     zim_result = await _zim_source(query, archive_hint, capability_need)

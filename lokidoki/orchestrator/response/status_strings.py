@@ -40,7 +40,7 @@ STATUS_BY_PHASE: dict[str, str] = {
     "routing": "Picking the right skills",
     "execute": "Checking sources",
     "media_augment": "Looking for visuals",
-    "synthesis": "Pulling a summary together",
+    "synthesis": "Preparing response",
 }
 
 # Neutral phrase the caller patches in when any block on the turn

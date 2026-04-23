@@ -4,7 +4,7 @@ export const STATUS_LABELS = {
   routing: "Picking the right skills",
   execute: "Checking sources",
   media_augment: "Looking for visuals",
-  synthesis: "Pulling a summary together",
+  synthesis: "Preparing response",
   finishing: "Finishing up",
 } as const;
 

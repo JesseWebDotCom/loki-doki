@@ -5,9 +5,33 @@ import type { SourceInfo } from '../../../lib/api';
 import type { ResponseEnvelope } from '../../../lib/response-types';
 import type { PipelineState } from '../../../pages/ChatPage';
 
+const ttsState = vi.hoisted(() => ({
+  muted: false,
+  speakingKey: null as string | null,
+  pendingKey: null as string | null,
+  speak: vi.fn(),
+  stop: vi.fn(),
+  toggleMute: vi.fn(),
+  clearSpokenForKey: vi.fn(),
+}));
+
+vi.mock('../../../utils/tts', () => ({
+  useTTSState: () => ttsState,
+  ttsController: {
+    updateVisualCursor: vi.fn(),
+  },
+}));
+
 describe('MessageItem sources', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    ttsState.muted = false;
+    ttsState.speakingKey = null;
+    ttsState.pendingKey = null;
+    ttsState.speak.mockReset();
+    ttsState.stop.mockReset();
+    ttsState.toggleMute.mockReset();
+    ttsState.clearSpokenForKey.mockReset();
   });
 
   it('renders streaming summary content in place and completes without swapping the bubble', () => {
@@ -190,6 +214,38 @@ describe('MessageItem sources', () => {
     expect(inlineStatuses[0]?.textContent).toContain('Consulting Wikipedia');
     expect(container.querySelector('[data-slot="status-block"]')).toBeNull();
     expect(screen.getByText(/Luke Skywalker is a fictional character\./)).toBeTruthy();
+  });
+
+  it('keeps the stop control visible while a streaming message is actively speaking', () => {
+    ttsState.pendingKey = 'msg-0';
+    const streamingEnvelope: ResponseEnvelope = {
+      request_id: 'turn-1',
+      mode: 'standard',
+      status: 'streaming',
+      blocks: [
+        {
+          id: 'summary',
+          type: 'summary',
+          state: 'partial',
+          seq: 1,
+          content: 'Luke',
+        },
+      ],
+      source_surface: [],
+    };
+
+    render(
+      <MessageItem
+        role="assistant"
+        content="Luke"
+        timestamp="2026-04-12T12:00:00Z"
+        messageKey="msg-0"
+        envelope={streamingEnvelope}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Stop' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Play' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('renders compact citation chips (source name visible, full title-dash-source in aria-label) and opens the sources panel callback', () => {

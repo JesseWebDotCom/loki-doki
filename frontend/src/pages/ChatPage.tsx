@@ -19,6 +19,7 @@ import WorkspaceEditor from '../components/workspace/WorkspaceEditor';
 import SearchDialog from '../components/chat/search/SearchDialog';
 import { parseSlash } from '../components/chat/SlashCommandParser';
 import type { StructuredSource } from '../components/chat/SourceCard';
+import { STATUS_LABELS } from '../components/chat/status_strings';
 import {
   createWorkspace,
   findInChat,
@@ -67,6 +68,11 @@ import type {
   SilentConfirmation,
 } from '../lib/api';
 import '../styles/kiosk.css';
+
+const SUPPRESSED_STATUS_SPOKEN_PHRASES = new Set([
+  STATUS_LABELS.synthesis,
+  'Pulling a summary together',
+]);
 
 export interface MentionedPerson {
   id: number;
@@ -820,6 +826,9 @@ const ChatPage: React.FC = () => {
         readAloudEnabledRef.current
       ) {
         const phrase = event.data.delta as string;
+        if (SUPPRESSED_STATUS_SPOKEN_PHRASES.has(phrase.trim())) {
+          return;
+        }
         // ``seq`` doubles as the phase-key — the backend emits one
         // patch per phase transition, so seq uniquely identifies
         // which phase-phrase this is.

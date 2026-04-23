@@ -463,6 +463,42 @@ async def test_knowledge_adapter_switches_to_web_when_wiki_off_subject(monkeypat
 
 
 @pytest.mark.anyio
+async def test_knowledge_adapter_rejects_single_token_web_snippet_junk(monkeypatch):
+    """Regression: single-token definitional lookups like ``jarvis``
+    must not accept snippet-only web rows that merely repeat the token.
+
+    Exact failure shipped to the UI: ``what is jarvis`` surfaced a
+    bundle of wallpaper links because the web scorer treated any snippet
+    mentioning "Jarvis" as a perfect topical match.
+    """
+    from lokidoki.orchestrator.skills import knowledge as adapter
+
+    wiki = _RecordingFake({
+        "mediawiki_api": _fail("no relevant article"),
+        "web_scraper": _fail("no relevant article"),
+    })
+    ddg = _RecordingFake({
+        "ddg_api": _ok({
+            "heading": "jarvis",
+            "results": [
+                "🔥 [50+] Jarvis Wallpapers HD | WallpaperSafari",
+                "[100+] Jarvis Wallpapers | Wallpapers.com",
+                "Jarvis Wallpapers - Wallpaper Cave",
+            ],
+        }),
+    })
+    _install_wiki_fake(monkeypatch, adapter, wiki)
+    _install_ddg_fake(monkeypatch, adapter, ddg)
+
+    result = await adapter.handle({"chunk_text": "what is jarvis"})
+    assert result["success"] is False
+    assert "couldn't find" in result["output_text"].lower()
+    candidates = result["data"]["candidates"]
+    web_candidate = next(c for c in candidates if c["source"] == "web")
+    assert web_candidate["score"] == 0.0
+
+
+@pytest.mark.anyio
 async def test_knowledge_adapter_fails_when_both_score_below_threshold(monkeypatch):
     """Novel query that neither source has any info on — the skill must
     fail so the LLM fallback handles it instead of grounding synthesis on

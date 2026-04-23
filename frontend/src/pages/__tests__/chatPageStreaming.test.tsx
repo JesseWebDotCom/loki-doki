@@ -187,6 +187,18 @@ function patch(delta: string, seq: number) {
   };
 }
 
+function statusPatch(delta: string, seq: number) {
+  return {
+    phase: 'block_patch',
+    status: 'data',
+    data: {
+      block_id: 'status',
+      seq,
+      delta,
+    },
+  };
+}
+
 function snapshot(content: string) {
   return {
     phase: 'response_snapshot',
@@ -399,6 +411,42 @@ describe('ChatPage streaming inline', () => {
     });
     expect(ttsMocks.speak).toHaveBeenCalledTimes(1);
     expect(ttsMocks.speak).toHaveBeenCalledWith('msg-1', 'Fast lane answer');
+  });
+
+  it('does not speak synthesis-phase status phrases', async () => {
+    let emit: ((event: Record<string, unknown>) => void) | null = null;
+    let resolveSend: (() => void) | null = null;
+    apiMocks.sendChatMessage.mockImplementation(
+      async (_message: string, onEvent: (event: Record<string, unknown>) => void) => {
+        emit = onEvent;
+        await new Promise<void>((resolve) => {
+          resolveSend = resolve;
+        });
+      },
+    );
+
+    renderPage();
+    await waitFor(() => expect(apiMocks.getSettings).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByPlaceholderText(/ask anything/i), {
+      target: { value: 'Tell me about Jarvis' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send message/i }));
+
+    await waitFor(() => expect(apiMocks.sendChatMessage).toHaveBeenCalledTimes(1));
+
+    emit!(responseInit());
+    emit!(statusPatch('Checking sources', 1));
+    emit!(statusPatch('Preparing response', 2));
+    emit!(statusPatch('Pulling a summary together', 3));
+
+    await waitFor(() => {
+      expect(ttsMocks.speakStatus).toHaveBeenCalledTimes(1);
+    });
+    expect(ttsMocks.speakStatus).toHaveBeenCalledWith('seq-1', 'Checking sources');
+    expect(ttsMocks.speakStatus).not.toHaveBeenCalledWith('seq-2', 'Preparing response');
+    expect(ttsMocks.speakStatus).not.toHaveBeenCalledWith('seq-3', 'Pulling a summary together');
+    resolveSend!();
   });
 
   it('does not autoplay when read_aloud is disabled', async () => {
