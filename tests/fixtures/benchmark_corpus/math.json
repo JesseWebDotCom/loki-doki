@@ -1,0 +1,106 @@
+{
+  "category": "math",
+  "description": "Arithmetic, algebra, word problems, and math reasoning. Skews toward queries that should hit fast-lane math or deterministic calculators.",
+  "prompts": [
+    {
+      "id": "math.arith.01",
+      "prompt": "What is 47 times 23?",
+      "expected": { "any_of": ["1081", "1,081"] }
+    },
+    {
+      "id": "math.arith.02",
+      "prompt": "Calculate 1024 divided by 16.",
+      "expected": { "any_of": ["64"] }
+    },
+    {
+      "id": "math.arith.03",
+      "prompt": "What is 15% of 280?",
+      "expected": { "any_of": ["42"] }
+    },
+    {
+      "id": "math.arith.04",
+      "prompt": "Add 1999 and 2001.",
+      "expected": { "any_of": ["4000", "4,000"] }
+    },
+    {
+      "id": "math.arith.05",
+      "prompt": "Subtract 456 from 1000.",
+      "expected": { "any_of": ["544"] }
+    },
+    {
+      "id": "math.algebra.01",
+      "prompt": "Solve for x: 3x + 7 = 22.",
+      "expected": { "any_of": ["x = 5", "x=5", "5"] }
+    },
+    {
+      "id": "math.algebra.02",
+      "prompt": "If y = 2x + 5 and x is 4, what is y?",
+      "expected": { "any_of": ["y = 13", "y=13", "13"] }
+    },
+    {
+      "id": "math.algebra.03",
+      "prompt": "Factor x^2 + 5x + 6.",
+      "expected": { "any_of": ["x + 2", "x+2", "x + 3", "x+3"], "min_match": 2 }
+    },
+    {
+      "id": "math.word.01",
+      "prompt": "A train travels 60 miles in 45 minutes. What is its speed in mph?",
+      "expected": { "any_of": ["80"] }
+    },
+    {
+      "id": "math.word.02",
+      "prompt": "If three apples cost $1.50, how much do a dozen cost?",
+      "expected": { "any_of": ["$6", "6.00", "six dollar"] }
+    },
+    {
+      "id": "math.word.03",
+      "prompt": "A room is 12 feet by 10 feet. What is its area in square feet?",
+      "expected": { "any_of": ["120"] }
+    },
+    {
+      "id": "math.word.04",
+      "prompt": "How many minutes are there in a week?",
+      "expected": { "any_of": ["10080", "10,080"] }
+    },
+    {
+      "id": "math.geom.01",
+      "prompt": "What is the circumference of a circle with radius 7?",
+      "expected": { "any_of": ["14π", "14 pi", "14*pi", "43.9", "43.98", "44"] }
+    },
+    {
+      "id": "math.geom.02",
+      "prompt": "If a triangle has sides 3, 4, and 5, what is its area?",
+      "expected": { "any_of": ["6"] }
+    },
+    {
+      "id": "math.reason.01",
+      "prompt": "Is 97 a prime number? Explain briefly.",
+      "expected": { "any_of": ["yes", "prime"], "min_match": 2 }
+    },
+    {
+      "id": "math.reason.02",
+      "prompt": "What is the next number in the sequence 2, 6, 12, 20, 30?",
+      "expected": { "any_of": ["42"] }
+    },
+    {
+      "id": "math.reason.03",
+      "prompt": "If I flip a fair coin three times, what is the probability of getting exactly two heads?",
+      "expected": { "any_of": ["3/8", "0.375", "37.5%", "three eighths"] }
+    },
+    {
+      "id": "math.conv.01",
+      "prompt": "Convert 72 Fahrenheit to Celsius.",
+      "expected": { "any_of": ["22.2", "22 °C", "22 celsius", "22c"] }
+    },
+    {
+      "id": "math.conv.02",
+      "prompt": "How many kilometers are in 5 miles?",
+      "expected": { "any_of": ["8.0", "8.04", "8.05", "8 km", "8km", "eight"] }
+    },
+    {
+      "id": "math.conv.03",
+      "prompt": "Convert 2.5 hours into seconds.",
+      "expected": { "any_of": ["9000", "9,000"] }
+    }
+  ]
+}

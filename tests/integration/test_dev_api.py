@@ -94,6 +94,127 @@ async def test_dev_endpoint_runs_pipeline_for_admin(_fresh_memory):
 
 
 @pytest.mark.anyio
+async def test_dev_endpoint_raw_llm_bypasses_pipeline(_fresh_memory, monkeypatch):
+    """raw_llm mode skips every pipeline stage and calls call_llm directly."""
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+
+    captured: dict[str, object] = {}
+
+    async def fake_call_llm(prompt: str, *, model: str | None = None, on_token=None) -> str:
+        captured["prompt"] = prompt
+        captured["model"] = model
+        return "bare llm answer"
+
+    monkeypatch.setattr(
+        "lokidoki.orchestrator.fallbacks.llm_client.call_llm",
+        fake_call_llm,
+    )
+
+    async with _client() as ac:
+        response = await ac.post(
+            "/api/v1/dev/pipeline/run",
+            json={
+                "message": "hello and how do you spell restaurant",
+                "llm_mode": "raw_llm",
+                "llm_model_override": "test-model",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["response"]["output_text"] == "bare llm answer"
+    assert body["request_spec"]["llm_used"] is True
+    assert body["request_spec"]["llm_reason"] == "raw_llm"
+    assert body["request_spec"]["llm_model"] == "test-model"
+    # No pipeline stages ran — chunks/routes/resolutions are empty.
+    assert body["chunks"] == []
+    assert body["routes"] == []
+    assert body["resolutions"] == []
+    assert body["executions"] == []
+    assert body["parsed"]["parser"] == "bypassed"
+    assert body["trace"]["steps"] == [
+        {
+            "name": "llm",
+            "status": "done",
+            "timing_ms": body["trace"]["steps"][0]["timing_ms"],
+            "details": {"mode": "raw_llm", "model": "test-model"},
+        }
+    ]
+    assert captured["prompt"] == "hello and how do you spell restaurant"
+    assert captured["model"] == "test-model"
+
+
+@pytest.mark.anyio
+async def test_dev_llm_warm_requires_admin_auth():
+    async with _client() as ac:
+        r = await ac.post("/api/v1/dev/llm/warm", json={"model": "test-model"})
+
+    assert r.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_dev_llm_warm_fires_one_token_completion(_fresh_memory, monkeypatch):
+    """/dev/llm/warm issues a tiny completion so the engine mmap's the weights."""
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+
+    captured: dict[str, object] = {}
+
+    async def fake_call_llm(prompt: str, *, model: str | None = None, on_token=None) -> str:
+        captured["prompt"] = prompt
+        captured["model"] = model
+        return "."
+
+    monkeypatch.setattr(
+        "lokidoki.api.routes.dev.call_llm",
+        fake_call_llm,
+    )
+
+    async with _client() as ac:
+        response = await ac.post(
+            "/api/v1/dev/llm/warm",
+            json={"model": "test-model"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ok"] is True
+    assert body["model"] == "test-model"
+    assert isinstance(body["latency_ms"], (int, float))
+    assert body["latency_ms"] >= 0
+    assert captured["model"] == "test-model"
+    assert isinstance(captured["prompt"], str) and captured["prompt"]
+
+
+@pytest.mark.anyio
+async def test_dev_llm_warm_returns_error_on_provider_failure(_fresh_memory, monkeypatch):
+    """Provider errors surface as ok=False so the UI can unblock the button."""
+    app.dependency_overrides[require_admin] = _admin_override
+    await _fresh_memory.get_or_create_user("anakin")
+
+    async def failing_call_llm(prompt: str, *, model: str | None = None, on_token=None) -> str:
+        raise RuntimeError("engine unreachable")
+
+    monkeypatch.setattr(
+        "lokidoki.api.routes.dev.call_llm",
+        failing_call_llm,
+    )
+
+    async with _client() as ac:
+        response = await ac.post(
+            "/api/v1/dev/llm/warm",
+            json={"model": "test-model"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ok"] is False
+    assert body["model"] == "test-model"
+    assert "engine unreachable" in (body.get("error") or "")
+
+
+@pytest.mark.anyio
 async def test_dev_endpoint_accepts_recent_context_for_media_resolution(_fresh_memory):
     app.dependency_overrides[require_admin] = _admin_override
     await _fresh_memory.get_or_create_user("anakin")

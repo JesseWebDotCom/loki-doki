@@ -1,12 +1,15 @@
 """Developer-only prototype endpoints."""
 from __future__ import annotations
 
+import json
+import logging
 import time
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -22,6 +25,7 @@ from lokidoki.auth.users import User
 from lokidoki.orchestrator.core.types import RequestChunk, ResolutionResult, RouteMatch
 from lokidoki.orchestrator.execution.executor import execute_chunk_async
 from lokidoki.orchestrator.core.pipeline import run_pipeline_async
+from lokidoki.orchestrator.fallbacks.llm_client import call_llm
 from lokidoki.orchestrator.memory import (
     MEMORY_SUBSYSTEM_ID,
     MEMORY_SUBSYSTEM_LABEL,
@@ -34,6 +38,16 @@ from lokidoki.orchestrator.registry.runtime import get_runtime
 from lokidoki.orchestrator.routing.embeddings import FASTEMBED_MODEL
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+BENCHMARK_CORPUS_DIR = (
+    Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "benchmark_corpus"
+)
+# Defense in depth: bound the matrix so a careless dev cannot kick off
+# an hour-long grid by accident. 1500 covers the full bundled corpus
+# (6 categories × 20 prompts = 120) against up to ~12 configs without
+# blowing the cap. Raise higher only if someone proves the UI needs it.
+MATRIX_MAX_RUNS = 1500
 
 
 class PipelineRunRequest(BaseModel):
@@ -68,8 +82,10 @@ class PipelineRunRequest(BaseModel):
     @classmethod
     def llm_mode_valid(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if normalized not in {"auto", "system_only", "force_llm"}:
-            raise ValueError("llm_mode must be auto, system_only, or force_llm")
+        if normalized not in {"auto", "system_only", "force_llm", "raw_llm"}:
+            raise ValueError(
+                "llm_mode must be auto, system_only, force_llm, or raw_llm"
+            )
         return normalized
 
     @field_validator("reasoning_mode")
@@ -339,6 +355,8 @@ async def run_pipeline(
     store at data/memory.sqlite — dev tool runs never pollute
     real user memory.
     """
+    if request.llm_mode == "raw_llm":
+        return await _run_raw_llm(request)
     context = dict(request.context)
     _apply_benchmark_overrides(context, request)
     if request.memory_enabled:
@@ -512,3 +530,450 @@ def _apply_benchmark_overrides(context: dict[str, Any], request: PipelineRunRequ
         context["reasoning_complexity"] = request.reasoning_mode
     if request.user_mode_override:
         context["user_mode_override"] = request.user_mode_override.strip().lower()
+
+
+async def _run_raw_llm(request: PipelineRunRequest) -> dict[str, Any]:
+    """Bypass the pipeline and send the prompt straight to the local LLM.
+
+    Used by the Dev Tools benchmark lab as a floor/ceiling reference
+    — no parsing, routing, resolution, fast-lane, or augmentation.
+    The response is shaped to match ``PipelineResult.to_dict()`` so the
+    existing dev-tools UI can render it without branching.
+    """
+    from lokidoki.orchestrator.core.config import CONFIG
+    from lokidoki.orchestrator.fallbacks.llm_client import call_llm
+
+    model = (request.llm_model_override or "").strip() or CONFIG.llm_model
+    started = time.perf_counter()
+    error: str | None = None
+    text = ""
+    try:
+        text = await call_llm(request.message, model=model)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI per-run
+        error = str(exc)
+        logger.warning("raw_llm benchmark failed: %s", error)
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+    step_details: dict[str, Any] = {"mode": "raw_llm", "model": model}
+    if error is not None:
+        step_details["error"] = error
+    return {
+        "normalized": {
+            "raw_text": request.message,
+            "cleaned_text": request.message,
+            "lowered_text": request.message.lower(),
+        },
+        "signals": {
+            "interaction_signal": "none",
+            "tone_signal": "neutral",
+            "urgency": "low",
+            "confidence": 0.0,
+        },
+        "fast_lane": {
+            "matched": False,
+            "capability": None,
+            "response_text": None,
+            "reason": None,
+        },
+        "parsed": {
+            "token_count": 0,
+            "tokens": [],
+            "sentences": [],
+            "parser": "bypassed",
+            "entities": [],
+            "noun_chunks": [],
+        },
+        "chunks": [],
+        "extractions": [],
+        "routes": [],
+        "implementations": [],
+        "resolutions": [],
+        "executions": [],
+        "request_spec": {
+            "trace_id": "",
+            "original_request": request.message,
+            "chunks": [],
+            "supporting_context": [],
+            "context": {},
+            "runtime_version": 2,
+            "llm_used": True,
+            "llm_reason": "raw_llm",
+            "llm_model": model,
+            "media": [],
+            "adapter_sources": [],
+        },
+        "response": {"output_text": text, "spoken_text": None},
+        "trace": {
+            "steps": [
+                {
+                    "name": "llm",
+                    "status": "error" if error else "done",
+                    "timing_ms": elapsed_ms,
+                    "details": step_details,
+                }
+            ],
+            "trace_id": "",
+            "listeners": [],
+        },
+        "trace_summary": {
+            "total_timing_ms": elapsed_ms,
+            "slowest_step_name": "llm",
+            "slowest_step_timing_ms": elapsed_ms,
+            "step_count": 1,
+        },
+        "envelope": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Matrix benchmark: N prompts x M configs with aggregate stats.
+# ---------------------------------------------------------------------------
+
+
+class MatrixPrompt(BaseModel):
+    id: str
+    prompt: str
+    category: str | None = None
+    # Optional grading spec. ``any_of`` is a list of case-insensitive
+    # substrings; the output is "correct" when at least ``min_match``
+    # of them appear. Prompts without ``expected`` are ungraded
+    # (creative / adversarial content).
+    expected: dict[str, Any] | None = None
+
+    @field_validator("id")
+    @classmethod
+    def id_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prompt id must not be empty")
+        return value
+
+    @field_validator("prompt")
+    @classmethod
+    def prompt_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prompt text must not be empty")
+        return value
+
+
+class MatrixConfig(BaseModel):
+    """One column in the comparison matrix.
+
+    Field semantics mirror ``PipelineRunRequest`` but we re-declare them
+    here so the frontend can send a lightweight per-config blob without
+    the full memory-toggle surface (memory stays disabled in matrix mode).
+    """
+
+    label: str
+    llm_mode: str = "auto"
+    llm_model_override: str | None = None
+    reasoning_mode: str = "auto"
+    user_mode_override: str | None = None
+    voice_id: str | None = None
+
+    @field_validator("label")
+    @classmethod
+    def label_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("config label must not be empty")
+        return value
+
+    @field_validator("llm_mode")
+    @classmethod
+    def llm_mode_valid(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"auto", "system_only", "force_llm"}:
+            raise ValueError("llm_mode must be auto, system_only, or force_llm")
+        return normalized
+
+    @field_validator("reasoning_mode")
+    @classmethod
+    def reasoning_mode_valid(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"auto", "fast", "thinking"}:
+            raise ValueError("reasoning_mode must be auto, fast, or thinking")
+        return normalized
+
+
+class MatrixRequest(BaseModel):
+    prompts: list[MatrixPrompt]
+    configs: list[MatrixConfig]
+
+    @field_validator("prompts")
+    @classmethod
+    def prompts_not_empty(cls, value: list[MatrixPrompt]) -> list[MatrixPrompt]:
+        if not value:
+            raise ValueError("prompts must not be empty")
+        return value
+
+    @field_validator("configs")
+    @classmethod
+    def configs_not_empty(cls, value: list[MatrixConfig]) -> list[MatrixConfig]:
+        if not value:
+            raise ValueError("configs must not be empty")
+        return value
+
+
+def _percentile(values: list[float], p: float) -> float:
+    """Linear-interpolation percentile for small timing samples.
+
+    Matches NumPy's default ``method='linear'`` behavior without pulling
+    NumPy into the request path. Returns 0.0 on empty input so callers
+    don't have to branch.
+    """
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return float(values[0])
+    ordered = sorted(values)
+    rank = (p / 100.0) * (len(ordered) - 1)
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = rank - lower
+    return float(ordered[lower] * (1 - weight) + ordered[upper] * weight)
+
+
+def _summarize_timings(timings: list[float], error_count: int) -> dict[str, float | int]:
+    total = len(timings) + error_count
+    return {
+        "count": len(timings),
+        "errors": error_count,
+        "error_rate": (error_count / total) if total else 0.0,
+        "mean_ms": (sum(timings) / len(timings)) if timings else 0.0,
+        "min_ms": min(timings) if timings else 0.0,
+        "max_ms": max(timings) if timings else 0.0,
+        "p50_ms": _percentile(timings, 50),
+        "p95_ms": _percentile(timings, 95),
+    }
+
+
+def _grade_output(output: str, expected: dict[str, Any] | None) -> dict[str, Any]:
+    """Keyword grader: case-insensitive substring match against ``any_of``.
+
+    Returns ``{graded, correct, matches, min_match}``. Prompts without an
+    ``expected`` spec are ungraded (``graded=False``, ``correct=None``)
+    so the stats layer can skip them rather than counting them wrong.
+    """
+    if not expected:
+        return {"graded": False, "correct": None, "matches": [], "min_match": 0}
+    raw_any_of = expected.get("any_of") or []
+    any_of = [str(kw) for kw in raw_any_of if str(kw).strip()]
+    min_match = max(1, int(expected.get("min_match") or 1))
+    haystack = (output or "").lower()
+    matches = [kw for kw in any_of if kw.lower() in haystack]
+    return {
+        "graded": True,
+        "correct": len(matches) >= min_match,
+        "matches": matches,
+        "min_match": min_match,
+    }
+
+
+def _summarize_grades(runs: list[dict[str, Any]]) -> dict[str, float | int]:
+    """Roll up per-run gradings into a config-level accuracy."""
+    graded = [r for r in runs if r.get("graded")]
+    correct = [r for r in graded if r.get("correct")]
+    graded_count = len(graded)
+    correct_count = len(correct)
+    return {
+        "graded_count": graded_count,
+        "correct_count": correct_count,
+        "accuracy_rate": (correct_count / graded_count) if graded_count else 0.0,
+    }
+
+
+def _build_matrix_context(config: MatrixConfig) -> dict[str, Any]:
+    context: dict[str, Any] = {}
+    context["dev_benchmark"] = {
+        "label": config.label,
+        "llm_mode": config.llm_mode,
+        "llm_model_override": (config.llm_model_override or "").strip(),
+        "voice_id": (config.voice_id or "").strip(),
+        "reasoning_mode": config.reasoning_mode,
+    }
+    if config.reasoning_mode != "auto":
+        context["reasoning_complexity"] = config.reasoning_mode
+    if config.user_mode_override:
+        context["user_mode_override"] = config.user_mode_override.strip().lower()
+    return context
+
+
+def list_benchmark_corpus_payload() -> dict[str, Any]:
+    """Load every corpus JSON under BENCHMARK_CORPUS_DIR into a single payload."""
+    categories: list[dict[str, Any]] = []
+    if BENCHMARK_CORPUS_DIR.exists():
+        for path in sorted(BENCHMARK_CORPUS_DIR.glob("*.json")):
+            try:
+                data = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError) as err:
+                logger.warning("benchmark corpus %s failed to load: %s", path, err)
+                continue
+            prompts = data.get("prompts") or []
+            categories.append(
+                {
+                    "category": data.get("category") or path.stem,
+                    "description": data.get("description") or "",
+                    "prompt_count": len(prompts),
+                    "prompts": prompts,
+                }
+            )
+    return {"categories": categories}
+
+
+@router.get("/pipeline/corpus")
+async def get_benchmark_corpus(_: User = Depends(require_admin)):
+    """Return the bundled benchmark prompt corpus grouped by category."""
+    return list_benchmark_corpus_payload()
+
+
+@router.post("/pipeline/matrix")
+async def run_benchmark_matrix(
+    request: MatrixRequest,
+    _: User = Depends(require_admin),
+):
+    """Run every prompt x config pair and return per-run + aggregate stats.
+
+    Prompts run sequentially per config (the pipeline is not safe to
+    fan out across the same process right now), but configs iterate
+    independently so the caller sees per-config stats even if a later
+    config errors out.
+    """
+    total_runs = len(request.prompts) * len(request.configs)
+    if total_runs > MATRIX_MAX_RUNS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"matrix would run {total_runs} pipelines which exceeds "
+                f"the safety limit of {MATRIX_MAX_RUNS}"
+            ),
+        )
+
+    results: list[dict[str, Any]] = []
+    for config in request.configs:
+        base_context = _build_matrix_context(config)
+        timings: list[float] = []
+        errors = 0
+        runs: list[dict[str, Any]] = []
+        for prompt in request.prompts:
+            context = dict(base_context)
+            started = time.perf_counter()
+            try:
+                pipeline_result = await run_pipeline_async(prompt.prompt, context=context)
+            except Exception as exc:  # noqa: BLE001 - surfaced to the UI per-run
+                errors += 1
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                grading = _grade_output("", prompt.expected)
+                runs.append(
+                    {
+                        "prompt_id": prompt.id,
+                        "prompt": prompt.prompt,
+                        "category": prompt.category,
+                        "error": str(exc),
+                        "total_timing_ms": elapsed_ms,
+                        "llm_used": False,
+                        "llm_model": None,
+                        "output_text": "",
+                        "fast_lane_matched": False,
+                        "capability": None,
+                        "expected": prompt.expected,
+                        "graded": grading["graded"],
+                        # errors can't be "correct" — force False for graded prompts
+                        # so the denominator stays accurate.
+                        "correct": False if grading["graded"] else None,
+                        "matches": [],
+                        "min_match": grading["min_match"],
+                    }
+                )
+                continue
+
+            spec = pipeline_result.request_spec
+            timing = pipeline_result.trace_summary.total_timing_ms
+            timings.append(timing)
+            primary_chunk = next(
+                (chunk for chunk in spec.chunks if chunk.role == "primary_request"),
+                None,
+            )
+            capability = primary_chunk.capability if primary_chunk else None
+            output_text = pipeline_result.response.output_text or ""
+            grading = _grade_output(output_text, prompt.expected)
+            runs.append(
+                {
+                    "prompt_id": prompt.id,
+                    "prompt": prompt.prompt,
+                    "category": prompt.category,
+                    "error": None,
+                    "total_timing_ms": timing,
+                    "llm_used": bool(spec.llm_used),
+                    "llm_model": spec.llm_model,
+                    "output_text": output_text,
+                    "fast_lane_matched": pipeline_result.fast_lane.matched,
+                    "capability": capability,
+                    "expected": prompt.expected,
+                    "graded": grading["graded"],
+                    "correct": grading["correct"],
+                    "matches": grading["matches"],
+                    "min_match": grading["min_match"],
+                }
+            )
+
+        stats = _summarize_timings(timings, errors)
+        stats.update(_summarize_grades(runs))
+        results.append(
+            {
+                "label": config.label,
+                "llm_mode": config.llm_mode,
+                "llm_model_override": config.llm_model_override,
+                "reasoning_mode": config.reasoning_mode,
+                "user_mode_override": config.user_mode_override,
+                "voice_id": config.voice_id,
+                "runs": runs,
+                "stats": stats,
+            }
+        )
+
+    return {
+        "configs": results,
+        "prompt_count": len(request.prompts),
+        "config_count": len(request.configs),
+    }
+
+
+class WarmModelRequest(BaseModel):
+    model: str
+
+    @field_validator("model")
+    @classmethod
+    def model_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("model must not be empty")
+        return value.strip()
+
+
+@router.post("/llm/warm")
+async def warm_llm_model(
+    request: WarmModelRequest,
+    _: User = Depends(require_admin),
+):
+    """Force a model into engine RAM with a 1-token completion.
+
+    The local OpenAI-compat engine only warms the fast model at boot; any
+    other model loads synchronously on first inference and can stall a
+    benchmark by 30s+. The dev tools call this before running so the
+    timings reflect steady-state rather than cold-load cost.
+    """
+    started = time.perf_counter()
+    try:
+        await call_llm(".", model=request.model)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI so the button unblocks
+        latency_ms = (time.perf_counter() - started) * 1000
+        return {
+            "ok": False,
+            "model": request.model,
+            "latency_ms": latency_ms,
+            "error": str(exc),
+        }
+    latency_ms = (time.perf_counter() - started) * 1000
+    return {
+        "ok": True,
+        "model": request.model,
+        "latency_ms": latency_ms,
+        "error": None,
+    }

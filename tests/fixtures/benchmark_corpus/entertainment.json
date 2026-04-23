@@ -1,0 +1,74 @@
+{
+  "category": "entertainment",
+  "description": "Pop culture, TV, games, sports, and casual conversation. Tests fast-lane greetings and chat-style responses.",
+  "prompts": [
+    { "id": "ent.greet.01", "prompt": "Hey there, how are you doing today?" },
+    { "id": "ent.greet.02", "prompt": "Good morning!" },
+    { "id": "ent.greet.03", "prompt": "Thanks a lot for your help." },
+    {
+      "id": "ent.tv.01",
+      "prompt": "What is the premise of the show Breaking Bad?",
+      "expected": { "any_of": ["teacher", "chemistry", "meth", "walter", "cancer", "drug", "cook", "albuquerque"], "min_match": 2 }
+    },
+    {
+      "id": "ent.tv.02",
+      "prompt": "Name the main characters of Friends.",
+      "expected": { "any_of": ["ross", "rachel", "monica", "chandler", "joey", "phoebe"], "min_match": 4 }
+    },
+    {
+      "id": "ent.tv.03",
+      "prompt": "Who played the Doctor in Doctor Who during the 2005 reboot?",
+      "expected": { "any_of": ["eccleston", "christopher"] }
+    },
+    {
+      "id": "ent.game.01",
+      "prompt": "What year was the original Legend of Zelda released?",
+      "expected": { "any_of": ["1986"] }
+    },
+    {
+      "id": "ent.game.02",
+      "prompt": "Explain the basic rules of chess in a few sentences.",
+      "expected": { "any_of": ["checkmate", "king", "piece", "move", "pawn", "square", "turn", "capture"], "min_match": 3 }
+    },
+    {
+      "id": "ent.game.03",
+      "prompt": "What is a speedrun?",
+      "expected": { "any_of": ["fast", "fastest", "completion", "time", "record", "game"], "min_match": 2 }
+    },
+    {
+      "id": "ent.sports.01",
+      "prompt": "How many players are on a soccer team during a match?",
+      "expected": { "any_of": ["11", "eleven"] }
+    },
+    {
+      "id": "ent.sports.02",
+      "prompt": "Who has the most Olympic gold medals of all time?",
+      "expected": { "any_of": ["phelps", "michael"] }
+    },
+    {
+      "id": "ent.sports.03",
+      "prompt": "What is a grand slam in tennis?",
+      "expected": { "any_of": ["four", "major", "tournament", "australian", "french", "wimbledon", "us open"], "min_match": 2 }
+    },
+    {
+      "id": "ent.music.01",
+      "prompt": "Who is the lead singer of Queen?",
+      "expected": { "any_of": ["mercury", "freddie"] }
+    },
+    {
+      "id": "ent.music.02",
+      "prompt": "Recommend three classic rock albums I should listen to.",
+      "expected": { "any_of": ["led zeppelin", "pink floyd", "rolling stones", "beatles", "the who", "queen", "fleetwood mac", "eagles", "bowie", "rumours", "dark side", "stairway", "wall", "abbey road"], "min_match": 3 }
+    },
+    { "id": "ent.movie.01", "prompt": "Tell me a fun fact about The Matrix." },
+    {
+      "id": "ent.movie.02",
+      "prompt": "What is the highest-grossing movie of all time?",
+      "expected": { "any_of": ["avatar", "avengers", "endgame"] }
+    },
+    { "id": "ent.chat.01", "prompt": "What is your favorite color?" },
+    { "id": "ent.chat.02", "prompt": "Tell me a joke." },
+    { "id": "ent.chat.03", "prompt": "What should I make for dinner tonight?" },
+    { "id": "ent.chat.04", "prompt": "Any book recommendations for a rainy weekend?" }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "category": "technology",
+  "description": "Programming, systems, networking, AI, and engineering questions. Tests technical synthesis and code-adjacent output.",
+  "prompts": [
+    {
+      "id": "tech.prog.01",
+      "prompt": "What is the difference between a list and a tuple in Python?",
+      "expected": { "any_of": ["mutable", "immutable"], "min_match": 2 }
+    },
+    {
+      "id": "tech.prog.02",
+      "prompt": "Explain what a closure is in JavaScript.",
+      "expected": { "any_of": ["function", "scope", "variable", "inner", "enclos", "lexical"], "min_match": 3 }
+    },
+    {
+      "id": "tech.prog.03",
+      "prompt": "When would you use a hash map instead of an array?",
+      "expected": { "any_of": ["lookup", "o(1)", "constant", "key", "index", "search"], "min_match": 2 }
+    },
+    {
+      "id": "tech.prog.04",
+      "prompt": "What is the time complexity of binary search?",
+      "expected": { "any_of": ["log n", "o(log", "logarithmic"] }
+    },
+    {
+      "id": "tech.sys.01",
+      "prompt": "What is the difference between RAM and disk storage?",
+      "expected": { "any_of": ["volatile", "persist", "faster", "slower", "temporary", "non-volatile"], "min_match": 2 }
+    },
+    {
+      "id": "tech.sys.02",
+      "prompt": "Explain what a deadlock is in concurrent programming.",
+      "expected": { "any_of": ["waiting", "resource", "lock", "circular", "process", "thread"], "min_match": 2 }
+    },
+    {
+      "id": "tech.sys.03",
+      "prompt": "What does CPU cache do and why is it important?",
+      "expected": { "any_of": ["fast", "closer", "memory", "latency", "speed", "instruction", "ram"], "min_match": 2 }
+    },
+    {
+      "id": "tech.net.01",
+      "prompt": "What happens when I type a URL into a browser and press enter?",
+      "expected": { "any_of": ["dns", "http", "tcp", "server", "render", "request", "response", "ip"], "min_match": 3 }
+    },
+    {
+      "id": "tech.net.02",
+      "prompt": "What is the difference between TCP and UDP?",
+      "expected": { "any_of": ["reliab", "connection", "order", "loss", "handshake", "faster", "stateless"], "min_match": 2 }
+    },
+    {
+      "id": "tech.net.03",
+      "prompt": "Why is HTTPS considered more secure than HTTP?",
+      "expected": { "any_of": ["encrypt", "tls", "ssl", "certificate", "secure"], "min_match": 2 }
+    },
+    {
+      "id": "tech.ai.01",
+      "prompt": "What is a transformer model in machine learning?",
+      "expected": { "any_of": ["attention", "neural", "sequence", "parallel", "encoder", "decoder", "self-attention"], "min_match": 2 }
+    },
+    {
+      "id": "tech.ai.02",
+      "prompt": "Explain the difference between supervised and unsupervised learning.",
+      "expected": { "any_of": ["label", "unlabeled", "pattern", "cluster", "target"], "min_match": 2 }
+    },
+    {
+      "id": "tech.ai.03",
+      "prompt": "What is a hallucination in a large language model?",
+      "expected": { "any_of": ["false", "made up", "fabricat", "incorrect", "wrong", "confident"] }
+    },
+    {
+      "id": "tech.ai.04",
+      "prompt": "What does quantization mean for a neural network?",
+      "expected": { "any_of": ["precision", "bit", "smaller", "size", "memory", "weight", "int8", "float"], "min_match": 2 }
+    },
+    {
+      "id": "tech.web.01",
+      "prompt": "What is a REST API?",
+      "expected": { "any_of": ["http", "resource", "get", "post", "stateless", "endpoint", "representational"], "min_match": 2 }
+    },
+    {
+      "id": "tech.web.02",
+      "prompt": "Explain the role of a reverse proxy.",
+      "expected": { "any_of": ["server", "forward", "client", "load", "balanc", "cache", "tls"], "min_match": 2 }
+    },
+    {
+      "id": "tech.web.03",
+      "prompt": "What is server-side rendering?",
+      "expected": { "any_of": ["server", "html", "render", "client", "initial"], "min_match": 3 }
+    },
+    {
+      "id": "tech.hw.01",
+      "prompt": "What is the Raspberry Pi 5 typically used for?",
+      "expected": { "any_of": ["education", "iot", "server", "project", "home", "media", "robotic", "maker", "hobby", "learning"] }
+    },
+    {
+      "id": "tech.hw.02",
+      "prompt": "What is the difference between ARM and x86 architectures?",
+      "expected": { "any_of": ["risc", "cisc", "power", "mobile", "efficient", "instruction"], "min_match": 2 }
+    },
+    { "id": "tech.reason.01", "prompt": "Compare keeping a deterministic router versus switching to an LLM router for a local offline assistant." }
+  ]
+}

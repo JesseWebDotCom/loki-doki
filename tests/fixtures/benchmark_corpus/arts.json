@@ -1,0 +1,103 @@
+{
+  "category": "arts",
+  "description": "Literature, painting, music theory, film, and creative writing prompts. Tests open-ended synthesis and tone.",
+  "prompts": [
+    {
+      "id": "arts.lit.01",
+      "prompt": "Who wrote the play Hamlet?",
+      "expected": { "any_of": ["shakespeare"] }
+    },
+    {
+      "id": "arts.lit.02",
+      "prompt": "Summarize the plot of The Great Gatsby in two sentences.",
+      "expected": { "any_of": ["gatsby", "daisy", "nick", "jazz age", "1920", "wealth", "american dream"], "min_match": 2 }
+    },
+    {
+      "id": "arts.lit.03",
+      "prompt": "What is iambic pentameter?",
+      "expected": { "any_of": ["five", "ten", "stressed", "unstressed", "syllable", "foot", "meter"], "min_match": 2 }
+    },
+    {
+      "id": "arts.lit.04",
+      "prompt": "Name three works by Jane Austen.",
+      "expected": { "any_of": ["pride and prejudice", "sense and sensibility", "emma", "persuasion", "mansfield park", "northanger abbey"], "min_match": 3 }
+    },
+    {
+      "id": "arts.paint.01",
+      "prompt": "Who painted The Starry Night?",
+      "expected": { "any_of": ["van gogh", "vincent"] }
+    },
+    {
+      "id": "arts.paint.02",
+      "prompt": "What is impressionism as an art movement?",
+      "expected": { "any_of": ["light", "brushstroke", "19th", "paris", "monet", "outdoor", "plein air", "impression"], "min_match": 2 }
+    },
+    {
+      "id": "arts.paint.03",
+      "prompt": "Describe the style of Pablo Picasso's cubist period.",
+      "expected": { "any_of": ["geometric", "fragment", "perspective", "abstract", "viewpoint", "cube", "facet", "shape"], "min_match": 2 }
+    },
+    {
+      "id": "arts.music.01",
+      "prompt": "Name the four sections of a typical symphony orchestra.",
+      "expected": { "any_of": ["string", "brass", "woodwind", "percussion"], "min_match": 3 }
+    },
+    {
+      "id": "arts.music.02",
+      "prompt": "What is a key signature in sheet music?",
+      "expected": { "any_of": ["sharp", "flat", "scale", "key", "staff", "accidental"], "min_match": 2 }
+    },
+    {
+      "id": "arts.music.03",
+      "prompt": "Who composed the Four Seasons concertos?",
+      "expected": { "any_of": ["vivaldi"] }
+    },
+    {
+      "id": "arts.music.04",
+      "prompt": "What is the difference between major and minor keys?",
+      "expected": { "any_of": ["third", "interval", "happy", "sad", "bright", "dark", "scale", "semitone"], "min_match": 2 }
+    },
+    {
+      "id": "arts.film.01",
+      "prompt": "Who directed the movie Citizen Kane?",
+      "expected": { "any_of": ["welles", "orson"] }
+    },
+    {
+      "id": "arts.film.02",
+      "prompt": "What is a MacGuffin in a film plot?",
+      "expected": { "any_of": ["plot", "object", "drive", "motivat", "device", "pursue"], "min_match": 2 }
+    },
+    {
+      "id": "arts.film.03",
+      "prompt": "What year was the first Star Wars film released?",
+      "expected": { "any_of": ["1977"] }
+    },
+    {
+      "id": "arts.write.01",
+      "prompt": "Write a two-line poem about rain."
+    },
+    {
+      "id": "arts.write.02",
+      "prompt": "Give me a one-sentence opening line for a mystery novel."
+    },
+    {
+      "id": "arts.write.03",
+      "prompt": "Describe a forest at dawn in under 40 words."
+    },
+    {
+      "id": "arts.hist.01",
+      "prompt": "What is the Renaissance and roughly when did it occur?",
+      "expected": { "any_of": ["14", "15", "16", "italy", "europe", "rebirth", "revival", "classical"], "min_match": 2 }
+    },
+    {
+      "id": "arts.hist.02",
+      "prompt": "Name three famous Baroque composers.",
+      "expected": { "any_of": ["bach", "handel", "vivaldi", "purcell", "telemann", "corelli", "scarlatti", "monteverdi"], "min_match": 3 }
+    },
+    {
+      "id": "arts.hist.03",
+      "prompt": "What was the Harlem Renaissance?",
+      "expected": { "any_of": ["harlem", "black", "african", "1920", "art", "music", "culture", "literature"], "min_match": 3 }
+    }
+  ]
+}

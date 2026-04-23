@@ -223,7 +223,7 @@ export interface PipelineRunOptions {
   need_preference?: boolean;
   need_social?: boolean;
   benchmark_label?: string;
-  llm_mode?: "auto" | "system_only" | "force_llm";
+  llm_mode?: "auto" | "system_only" | "force_llm" | "raw_llm";
   llm_model_override?: string;
   user_mode_override?: "standard" | "rich" | "deep" | "direct" | "search" | "artifact";
   voice_id?: string;
@@ -243,6 +243,109 @@ export async function runPipeline(message: string, options: PipelineRunOptions =
     voice_id: options.voice_id ?? null,
     reasoning_mode: options.reasoning_mode ?? "auto",
   });
+}
+
+export interface BenchmarkExpected {
+  any_of: string[];
+  min_match?: number;
+}
+
+export interface BenchmarkCorpusPrompt {
+  id: string;
+  prompt: string;
+  category?: string;
+  expected?: BenchmarkExpected | null;
+}
+
+export interface BenchmarkCorpusCategory {
+  category: string;
+  description: string;
+  prompt_count: number;
+  prompts: BenchmarkCorpusPrompt[];
+}
+
+export interface BenchmarkCorpusResponse {
+  categories: BenchmarkCorpusCategory[];
+}
+
+export async function getBenchmarkCorpus() {
+  return getJson<BenchmarkCorpusResponse>("/dev/pipeline/corpus");
+}
+
+export interface MatrixConfigInput {
+  label: string;
+  llm_mode?: "auto" | "system_only" | "force_llm";
+  llm_model_override?: string | null;
+  reasoning_mode?: "auto" | "fast" | "thinking";
+  user_mode_override?: "standard" | "rich" | "deep" | "direct" | "search" | "artifact" | null;
+  voice_id?: string | null;
+}
+
+export interface MatrixRun {
+  prompt_id: string;
+  prompt: string;
+  category: string | null;
+  error: string | null;
+  total_timing_ms: number;
+  llm_used: boolean;
+  llm_model: string | null;
+  output_text: string;
+  fast_lane_matched: boolean;
+  capability: string | null;
+  expected: BenchmarkExpected | null;
+  graded: boolean;
+  correct: boolean | null;
+  matches: string[];
+  min_match: number;
+}
+
+export interface MatrixStats {
+  count: number;
+  errors: number;
+  error_rate: number;
+  mean_ms: number;
+  min_ms: number;
+  max_ms: number;
+  p50_ms: number;
+  p95_ms: number;
+  graded_count: number;
+  correct_count: number;
+  accuracy_rate: number;
+}
+
+export interface MatrixConfigResult {
+  label: string;
+  llm_mode: string;
+  llm_model_override: string | null;
+  reasoning_mode: string;
+  user_mode_override: string | null;
+  voice_id: string | null;
+  runs: MatrixRun[];
+  stats: MatrixStats;
+}
+
+export interface MatrixResponse {
+  configs: MatrixConfigResult[];
+  prompt_count: number;
+  config_count: number;
+}
+
+export async function runBenchmarkMatrix(
+  prompts: BenchmarkCorpusPrompt[],
+  configs: MatrixConfigInput[],
+) {
+  return postJson<MatrixResponse>("/dev/pipeline/matrix", { prompts, configs });
+}
+
+export interface WarmModelResponse {
+  ok: boolean;
+  model: string;
+  latency_ms: number;
+  error: string | null;
+}
+
+export async function warmLlmModel(model: string) {
+  return postJson<WarmModelResponse>("/dev/llm/warm", { model });
 }
 
 export async function dumpMemory() {

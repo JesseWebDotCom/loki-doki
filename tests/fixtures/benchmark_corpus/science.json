@@ -1,0 +1,106 @@
+{
+  "category": "science",
+  "description": "General science knowledge across physics, chemistry, biology, earth science. Tests factual recall and short-form explanation.",
+  "prompts": [
+    {
+      "id": "science.phys.01",
+      "prompt": "What is the speed of light in a vacuum?",
+      "expected": { "any_of": ["299,792", "299792", "300,000", "300000", "186,000", "186000", "3x10", "3e8", "3 × 10"] }
+    },
+    {
+      "id": "science.phys.02",
+      "prompt": "Explain Newton's third law of motion in one sentence.",
+      "expected": { "any_of": ["action", "reaction", "equal", "opposite"], "min_match": 2 }
+    },
+    {
+      "id": "science.phys.03",
+      "prompt": "Why does a heavier object not fall faster than a lighter one in a vacuum?",
+      "expected": { "any_of": ["gravity", "mass", "acceleration", "force", "vacuum", "same rate", "air resistance"], "min_match": 2 }
+    },
+    {
+      "id": "science.chem.01",
+      "prompt": "What is the chemical symbol for gold?",
+      "expected": { "any_of": ["au"] }
+    },
+    {
+      "id": "science.chem.02",
+      "prompt": "How many protons does a carbon atom have?",
+      "expected": { "any_of": ["6", "six"] }
+    },
+    {
+      "id": "science.chem.03",
+      "prompt": "What is the pH of pure water at 25 degrees Celsius?",
+      "expected": { "any_of": ["7"] }
+    },
+    {
+      "id": "science.chem.04",
+      "prompt": "What gas do plants absorb during photosynthesis?",
+      "expected": { "any_of": ["carbon dioxide", "co2", "co₂"] }
+    },
+    {
+      "id": "science.bio.01",
+      "prompt": "What organelle is known as the powerhouse of the cell?",
+      "expected": { "any_of": ["mitochondri"] }
+    },
+    {
+      "id": "science.bio.02",
+      "prompt": "What is DNA short for?",
+      "expected": { "any_of": ["deoxyribonucleic"] }
+    },
+    {
+      "id": "science.bio.03",
+      "prompt": "Name the four chambers of the human heart.",
+      "expected": { "any_of": ["left atrium", "right atrium", "left ventricle", "right ventricle", "atria", "ventricles"], "min_match": 2 }
+    },
+    {
+      "id": "science.bio.04",
+      "prompt": "What is the largest organ in the human body?",
+      "expected": { "any_of": ["skin"] }
+    },
+    {
+      "id": "science.earth.01",
+      "prompt": "What causes the tides on Earth?",
+      "expected": { "any_of": ["moon", "gravitational", "gravity", "sun"], "min_match": 1 }
+    },
+    {
+      "id": "science.earth.02",
+      "prompt": "Name the layers of Earth from the surface to the core.",
+      "expected": { "any_of": ["crust", "mantle", "outer core", "inner core", "core"], "min_match": 3 }
+    },
+    {
+      "id": "science.earth.03",
+      "prompt": "What is the difference between weather and climate?",
+      "expected": { "any_of": ["short", "long", "average", "pattern", "year", "day"], "min_match": 2 }
+    },
+    {
+      "id": "science.space.01",
+      "prompt": "How many planets are in our solar system?",
+      "expected": { "any_of": ["8", "eight"] }
+    },
+    {
+      "id": "science.space.02",
+      "prompt": "What is a light year?",
+      "expected": { "any_of": ["distance", "light travels", "year", "9.46", "trillion"], "min_match": 2 }
+    },
+    {
+      "id": "science.space.03",
+      "prompt": "Why does the Moon always show the same face to Earth?",
+      "expected": { "any_of": ["tidal lock", "tidally locked", "synchronous", "rotation", "orbit same"], "min_match": 1 }
+    },
+    {
+      "id": "science.reason.01",
+      "prompt": "Why is the sky blue during the day?",
+      "expected": { "any_of": ["rayleigh", "scatter", "shorter wavelength", "blue light"], "min_match": 2 }
+    },
+    {
+      "id": "science.reason.02",
+      "prompt": "Briefly explain how vaccines work.",
+      "expected": { "any_of": ["immune", "antibod", "pathogen", "weakened", "mrna", "protein"], "min_match": 2 }
+    },
+    {
+      "id": "science.reason.03",
+      "prompt": "What is the second law of thermodynamics?",
+      "expected": { "any_of": ["entropy", "increase", "disorder"], "min_match": 2 }
+    }
+  ]
+}
