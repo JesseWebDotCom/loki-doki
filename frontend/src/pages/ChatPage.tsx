@@ -333,7 +333,16 @@ const ChatPage: React.FC = () => {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | undefined>();
   const [isWorkspaceEditorOpen, setIsWorkspaceEditorOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
+  const [readAloudEnabled, setReadAloudEnabled] = useState(false);
   const [streamingVoiceEnabled, setStreamingVoiceEnabled] = useState(false);
+  // Mirror the audio-settings state into refs. ``handleEvent`` and
+  // ``commitCompletedAssistantMessage`` are useCallbacks whose deps
+  // intentionally don't include these flags (rebuilding them would
+  // churn the SSE subscription). Without the refs, both callbacks
+  // would capture the initial ``false`` and never re-read after the
+  // async ``getSettings()`` below flipped read_aloud on.
+  const readAloudEnabledRef = useRef(false);
+  const streamingVoiceEnabledRef = useRef(false);
   const tts = useTTSState();
   useAuth();
   const connectivity = useConnectivityStatus();
@@ -376,6 +385,16 @@ const ChatPage: React.FC = () => {
   // ``envelopeRef`` when detached so the bubble resumes at the latest
   // stream position on return, but skips DOM/pipeline/TTS side effects.
   const isAttachedRef = useRef<boolean>(false);
+  // Programmatic-focus barge-in suppressor. The composer input's
+  // ``onFocus`` handler calls ``bargeIn()`` so a real user clicking into
+  // the field cuts any in-flight TTS within 50 ms (chunk 16). BUT the
+  // effect below auto-focuses the input whenever ``isProcessing`` flips
+  // back to ``false`` at turn completion — which, without a gate, kills
+  // the TTS for the very turn that just started speaking. This ref is
+  // set right before the programmatic focus and consumed by ``onFocus``
+  // on the same tick, so only genuine user-initiated focus events
+  // trigger the barge-in.
+  const suppressFocusBargeRef = useRef<boolean>(false);
 
   // Idle-state ticker for the character avatar. We don't need a dense
   // requestAnimationFrame loop here — the avatar only changes between
@@ -395,12 +414,27 @@ const ChatPage: React.FC = () => {
   // is why setTimeout(0) inside the send handler was unreliable.
   useEffect(() => {
     if (!isProcessing && characterMode !== 'fullscreen') {
-      inputRef.current?.focus();
+      if (document.activeElement !== inputRef.current) {
+        suppressFocusBargeRef.current = true;
+        inputRef.current?.focus();
+        // If the element was detached or focus() silently failed, clear
+        // the flag on the next microtask so it can't poison a later
+        // genuine user focus.
+        queueMicrotask(() => {
+          suppressFocusBargeRef.current = false;
+        });
+      }
     }
   }, [isProcessing, currentSessionId, characterMode]);
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
+  useEffect(() => {
+    readAloudEnabledRef.current = readAloudEnabled;
+  }, [readAloudEnabled]);
+  useEffect(() => {
+    streamingVoiceEnabledRef.current = streamingVoiceEnabled;
+  }, [streamingVoiceEnabled]);
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(id);
@@ -663,11 +697,13 @@ const ChatPage: React.FC = () => {
     void getSettings()
       .then((settings) => {
         if (!cancelled) {
+          setReadAloudEnabled(Boolean(settings.read_aloud));
           setStreamingVoiceEnabled(Boolean(settings.streaming_enabled));
         }
       })
       .catch(() => {
         if (!cancelled) {
+          setReadAloudEnabled(false);
           setStreamingVoiceEnabled(false);
         }
       });
@@ -724,7 +760,7 @@ const ChatPage: React.FC = () => {
           const nextIndex = msgs.length;
           const messageKey = `msg-${nextIndex}`;
           ttsController.beginStreamingTurn(messageKey, {
-            enabled: streamingVoiceEnabled,
+            enabled: readAloudEnabledRef.current && streamingVoiceEnabledRef.current,
           });
           inProgressMessageIndexRef.current = nextIndex;
           return [
@@ -780,7 +816,8 @@ const ChatPage: React.FC = () => {
         event.phase === BLOCK_PATCH &&
         typeof event.data?.block_id === 'string' &&
         event.data.block_id === 'status' &&
-        typeof event.data?.delta === 'string'
+        typeof event.data?.delta === 'string' &&
+        readAloudEnabledRef.current
       ) {
         const phrase = event.data.delta as string;
         // ``seq`` doubles as the phase-key — the backend emits one
@@ -902,8 +939,10 @@ const ChatPage: React.FC = () => {
               resolveSpokenText(payload.envelope) ||
               payload.pipeline.synthesis?.spoken_text?.trim() ||
               payload.finalText;
-            ttsController.endStreamingTurn(`msg-${inProgressIndex}`, spoken);
-            tts.speak(`msg-${inProgressIndex}`, spoken);
+            if (readAloudEnabledRef.current) {
+              ttsController.endStreamingTurn(`msg-${inProgressIndex}`, spoken);
+              tts.speak(`msg-${inProgressIndex}`, spoken);
+            }
             return next;
           }
           const next = [
@@ -926,8 +965,10 @@ const ChatPage: React.FC = () => {
             resolveSpokenText(payload.envelope) ||
             payload.pipeline.synthesis?.spoken_text?.trim() ||
             payload.finalText;
-          ttsController.endStreamingTurn(`msg-${next.length - 1}`, spoken);
-          tts.speak(`msg-${next.length - 1}`, spoken);
+          if (readAloudEnabledRef.current) {
+            ttsController.endStreamingTurn(`msg-${next.length - 1}`, spoken);
+            tts.speak(`msg-${next.length - 1}`, spoken);
+          }
           return next;
         });
         return;
@@ -952,7 +993,7 @@ const ChatPage: React.FC = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-  }, []);
+  }, [readAloudEnabled, streamingVoiceEnabled, tts]);
 
   // Stop button — user-facing "halt the stream" action. Aborts the
   // SSE request; the ``catch`` inside ``handleSend`` / ``retryAtIndex``
@@ -1555,6 +1596,10 @@ const ChatPage: React.FC = () => {
                   setInput(e.target.value);
                 }}
                 onFocus={() => {
+                  if (suppressFocusBargeRef.current) {
+                    suppressFocusBargeRef.current = false;
+                    return;
+                  }
                   if (tts.speakingKey || tts.pendingKey) tts.bargeIn();
                 }}
                 onKeyDown={(e) => {

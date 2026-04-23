@@ -62,7 +62,7 @@ interface StreamingTurnState {
   nextCharStart: number;
   visualCursorChars: number;
   processingPromise: Promise<void> | null;
-  finalizationPromise: Promise<void> | null;
+  finalizationPromise: Promise<boolean> | null;
   finalText: string;
   streamingFailed: boolean;
   streamingAudioActive: boolean;
@@ -539,6 +539,43 @@ class TTSController {
     }
   }
 
+  /**
+   * Speak the trailing text owed at turn-end without calling stop().
+   * VoiceStreamer.stream() schedules new chunks at ``nextChunkStartTime``,
+   * so this PCM queues seamlessly after the still-draining streamed
+   * utterances rather than cutting them off.
+   */
+  private async chainStreamingTail(
+    messageKey: string,
+    remaining: string,
+  ): Promise<boolean> {
+    const spoken = stripMarkdownForSpeech(remaining);
+    if (this.muted || !spoken.trim()) return false;
+    const controller = new AbortController();
+    const requestId = `${messageKey}-final`;
+    this.pendingStreamRequests.set(requestId, controller);
+    this.abort = controller;
+    try {
+      await this.streamer.stream(spoken, {
+        signal: controller.signal,
+        onPlaybackStart: () => {
+          this.pendingKey = null;
+          this.speakingKey = messageKey;
+          this.emit();
+        },
+      });
+      return true;
+    } catch (err) {
+      if ((err as DOMException)?.name !== 'AbortError') {
+        console.error('[tts] finalization tail failed', err);
+      }
+      return false;
+    } finally {
+      this.pendingStreamRequests.delete(requestId);
+      if (this.abort === controller) this.abort = null;
+    }
+  }
+
   private async waitForVisualCursor(turn: StreamingTurnState, minimumChars: number) {
     if (minimumChars <= 0) {
       return;
@@ -567,17 +604,23 @@ class TTSController {
       const finalNormalized = normalizeStreamingText(turn.finalText || text);
       const spokenNormalized = turn.spokenNormalized.trim();
       let remaining = '';
-      if (finalNormalized && spokenNormalized && finalNormalized.startsWith(spokenNormalized)) {
+      if (finalNormalized && finalNormalized.startsWith(spokenNormalized)) {
+        // Clean prefix match (covers the empty-spokenNormalized case
+        // since every string startsWith ""). The tail is genuinely
+        // unspoken text we still owe the user.
         remaining = finalNormalized.slice(spokenNormalized.length).trim();
-      } else if (finalNormalized !== spokenNormalized) {
-        remaining = finalNormalized;
       }
+      // If the streamed transcript and the final spoken text diverge
+      // (e.g., the LLM emitted a different ``<spoken_text>`` island
+      // than the visible deltas, or normalization differs), trust what
+      // we already spoke. Replaying from scratch would call stop() and
+      // cut the audio that is still draining from the AudioContext.
 
       this.streamingTurns.delete(messageKey);
       if (!remaining) {
         return spokenNormalized.length > 0;
       }
-      return this.speakNow(messageKey, remaining, { skipSnapshotGuard: true });
+      return this.chainStreamingTail(messageKey, remaining);
     })();
 
     return turn.finalizationPromise;

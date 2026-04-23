@@ -261,7 +261,10 @@ function responseDone() {
 
 beforeEach(() => {
   apiMocks.getProjects.mockResolvedValue({ projects: [] });
-  apiMocks.getSettings.mockResolvedValue({ streaming_enabled: true });
+  apiMocks.getSettings.mockResolvedValue({
+    read_aloud: true,
+    streaming_enabled: true,
+  });
   apiMocks.getSessions.mockResolvedValue({
     details: [
       { id: 1, title: 'Session 1' },
@@ -383,6 +386,7 @@ describe('ChatPage streaming inline', () => {
     );
 
     renderPage();
+    await waitFor(() => expect(apiMocks.getSettings).toHaveBeenCalled());
 
     fireEvent.change(screen.getByPlaceholderText(/ask anything/i), {
       target: { value: 'Hi' },
@@ -395,6 +399,39 @@ describe('ChatPage streaming inline', () => {
     });
     expect(ttsMocks.speak).toHaveBeenCalledTimes(1);
     expect(ttsMocks.speak).toHaveBeenCalledWith('msg-1', 'Fast lane answer');
+  });
+
+  it('does not autoplay when read_aloud is disabled', async () => {
+    apiMocks.getSettings.mockResolvedValue({
+      read_aloud: false,
+      streaming_enabled: true,
+    });
+    apiMocks.sendChatMessage.mockImplementation(
+      async (_message: string, onEvent: (event: Record<string, unknown>) => void) => {
+        onEvent(responseInit());
+        onEvent(patch('Silent', 1));
+        onEvent(synthesisDone('Silent answer'));
+        onEvent(responseDone());
+      },
+    );
+
+    renderPage();
+    await waitFor(() => expect(apiMocks.getSettings).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByPlaceholderText(/ask anything/i), {
+      target: { value: 'Stay quiet' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send message/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Silent answer/)).toBeTruthy();
+    });
+    expect(ttsMocks.beginStreamingTurn).toHaveBeenCalledWith(
+      'msg-1',
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(ttsMocks.speak).not.toHaveBeenCalled();
+    expect(ttsMocks.endStreamingTurn).not.toHaveBeenCalled();
   });
 
   it('renders history replay envelopes without streaming chrome', async () => {

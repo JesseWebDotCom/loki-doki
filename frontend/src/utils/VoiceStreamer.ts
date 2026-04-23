@@ -64,7 +64,12 @@ export class VoiceStreamer {
     await this.prepare();
     this.stopped = false;
     this.isStreamActive = true;
-    this.flush();
+    // Do NOT flush here. Chained stream() calls (streaming-TTS queue)
+    // rely on ``nextChunkStartTime`` to schedule each new sentence
+    // after the previous one's tail. A mid-turn flush would cut off
+    // the still-playing tail and produce chopped, garbled audio.
+    // Explicit interruption goes through ``stop()`` (which flushes),
+    // and ``speakNow`` already calls ``stop()`` before ``stream()``.
 
     try {
       const response = await fetch('/api/v1/audio/tts/stream', {

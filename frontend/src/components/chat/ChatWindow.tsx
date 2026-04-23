@@ -144,6 +144,25 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const lastMessage = messages[messages.length - 1];
   const hasInProgressBubble =
     lastMessage?.role === 'assistant' && lastMessage.envelope?.status === 'streaming';
+  // Between ``response_done`` (envelope flips to ``complete``) and the
+  // pipeline reset, ``hasInProgressBubble`` goes false but the pipeline
+  // still holds the full ``streamingResponse`` text — without this gate
+  // the indicator briefly flashes a duplicate of the response below the
+  // just-committed bubble. Most visible on short turns where the gap
+  // isn't masked by other rendering work. Only suppress when the
+  // bubble's summary already covers the streamed text — the
+  // synthesis:done-without-block_patch path needs the indicator to
+  // surface the text the envelope never received.
+  const lastAssistantSettled =
+    lastMessage?.role === 'assistant' && lastMessage.envelope?.status === 'complete';
+  const settledSummaryContent =
+    (lastAssistantSettled
+      ? lastMessage?.envelope?.blocks?.find((b) => b.id === 'summary')?.content
+      : '') ?? '';
+  const indicatorRedundant =
+    lastAssistantSettled &&
+    settledSummaryContent.trim().length >=
+      (pipeline?.streamingResponse ?? '').trim().length;
   // ``pipeline.activity`` is updated by legacy phase-active events
   // (e.g. routing → "Consulting Wikipedia"). The synthesis-active
   // event only fires when the trace step finishes, which is AFTER
@@ -207,7 +226,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
               </React.Fragment>
             );
           })}
-          {isThinking && !hasInProgressBubble && (
+          {isThinking && !hasInProgressBubble && !indicatorRedundant && (
             <ThinkingIndicator
               pipeline={pipeline}
               avatar={renderAvatar(characterState ?? 'thinking')}
