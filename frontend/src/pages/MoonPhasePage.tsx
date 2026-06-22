@@ -44,10 +44,6 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86400000)
 }
 
-function isWaxing(age: number): boolean {
-  return age < SYNODIC_MONTH / 2
-}
-
 interface NextPhase {
   label: string
   emoji: string
@@ -85,57 +81,17 @@ function formatDate(d: Date): string {
 
 // ── Moon visual ───────────────────────────────────────────────────────────────
 
-// The illumination CSS trick:
-// - Outer circle is the lit moon (amber-50)
-// - Overlay is a dark circle (bg-background / dark navy) shifted left/right
-//   to reveal the illuminated crescent or gibbous shape
-// - For waxing: light on right, shadow shifted LEFT (shadow covers left side)
-// - For waning: light on left, shadow shifted RIGHT (shadow covers right side)
-// translateX value: 0 = fully covered (new moon), size = fully uncovered (full moon)
-// At 50% illumination (quarter), shadow edge lines up with center: translateX = 0
-
-function MoonVisual({ age, illumination }: { age: number; illumination: number }) {
-  const SIZE = 200
-  const waxing = isWaxing(age)
-
-  // illumFrac: 0 = new moon, 1 = full moon
-  const illumFrac = illumination / 100
-
-  // Shadow translateX: maps illumination to offset
-  // New moon (0%): shadow covers fully, offset = 0 (centered on top of moon)
-  // First/last quarter (50%): shadow at center, offset = 0
-  // Full moon (100%): shadow is off-screen
-  //
-  // The shadow circle is same size as the moon.
-  // At illumFrac = 0: translateX = 0 (dark circle perfectly overlaps)
-  // At illumFrac = 0.5: translateX = SIZE/2 (edge at center)
-  // At illumFrac = 1: translateX = SIZE (fully off-screen)
-  //
-  // For waxing: shift shadow LEFT (negative = left side revealed is dark, right is lit)
-  //   Actually: lit side is right for waxing crescent. Shadow sits on top shifted left
-  //   to uncover the right. translateX from 0 (new) to SIZE (full) going negative.
-  //   Wait: we want shadow to cover the left portion. Shadow shifts to the right to uncover right.
-  // Let's think differently:
-  //   - illumFrac = 0: shadow translateX = 0 (exactly on top, full cover)
-  //   - illumFrac = 0.5 (quarter): shadow translateX = SIZE/2 (edge at center of moon)
-  //   - illumFrac = 1 (full): shadow translateX = SIZE (fully off to one side)
-  //
-  // Waxing: lit side is right, so shadow moves LEFT (negative x)
-  // Waning: lit side is left, so shadow moves RIGHT (positive x)
-
-  const offsetMag = illumFrac * SIZE
-  const translateX = waxing ? -offsetMag : offsetMag
-
+// Render the phase emoji at large size — it carries accurate phase shape,
+// color, and surface detail far better than a flat CSS shadow circle.
+function MoonVisual({ emoji }: { emoji: string }) {
   return (
     <div
-      className="relative shrink-0 rounded-full bg-amber-50 ring-1 ring-white/20 overflow-hidden"
-      style={{ width: SIZE, height: SIZE }}
+      className="shrink-0 leading-none text-[180px] select-none"
+      style={{ filter: 'drop-shadow(0 0 32px rgba(226,232,240,0.25))' }}
+      role="img"
+      aria-label="Moon phase"
     >
-      {/* Shadow overlay */}
-      <div
-        className="absolute inset-0 rounded-full bg-[#0f172a]"
-        style={{ transform: `translateX(${translateX}px)` }}
-      />
+      {emoji}
     </div>
   )
 }
@@ -192,12 +148,10 @@ export function MoonPhasePage() {
 
         {/* Moon visual + phase info */}
         <div className="flex flex-col items-center gap-5 pt-2">
-          <MoonVisual age={age} illumination={illumination} />
+          <MoonVisual emoji={emoji} />
 
           <div className="flex flex-col items-center gap-1 text-center">
-            <p className="text-2xl font-bold">
-              {emoji} {phase}
-            </p>
+            <p className="text-2xl font-bold">{phase}</p>
             <p className="text-base text-muted-foreground">{illumination}% illuminated</p>
             <p className="text-sm text-muted-foreground/70">
               Day {ageDays} of {SYNODIC_MONTH.toFixed(1)}
