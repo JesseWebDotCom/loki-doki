@@ -98,27 +98,32 @@ presence module via the GROVE port if desired (solderless).
 
 ### 2. Echo Show replacement — large touchscreen, powered, camera
 
-**Pick: M5Stack CoreS3** — **~$45**, ships enclosed with a DinBase mount.
+The Echo Show spans 5.5"–21", and the **Waveshare ESP32-P4-WIFI6 HMI** family
+covers that whole range **while staying on ESP32** (one firmware, one Pod
+protocol, no Raspberry Pi). Each is a tablet-style all-in-one with **dual mics +
+echo cancellation, speaker, 10-point touch, and a 5 MP MIPI-CSI camera** (onboard
+on the larger sizes; optional OV5647 module on the 7"/4.3"), on ESP32-P4 + an
+ESP32-C6 for Wi-Fi 6 / BLE 5. Sizes 4.3"/5"/7"/8"/10.1"; ~$80–117 by size/battery.
 
-- 2.0" glass capacitive touch (LVGL)
-- **0.3 MP GC0308 camera** (presence / video / image attach)
-- **Dual mic** (ES7210 codec), 1 W speaker (AW88298 I2S amp)
-- 500 mAh battery + RTC
-- **Bonus sensors already onboard:** LTR-553 ambient-light + proximity, BMI270 IMU
-- DinBase enables wall / desk / screw mount out of the box
+- **Show 5** → **M5Stack Tab5** (~$55, ESP32-P4, 5" 1280×720, fully enclosed, 2 MP
+  **front-facing** camera, IMU, RTC, 1/4″-20 tripod nut) — most *finished* small
+  unit, zero assembly. Or **ESP32-P4-WIFI6-Touch-LCD-5** for the 5 MP camera and
+  same family as the larger sizes.
+- **Show 8** → **ESP32-P4-WIFI6 7"/8" HMI** — 5 MP camera, dual mic, speaker.
+- **Show 10/15** → **ESP32-P4-WIFI6 10.1" HMI** (800×1280, 5 MP cam, dual mic,
+  speaker, ~$80–117) — wall-panel-sized all-in-one, still ESP32.
 
-**Without vision (all-in-one, same case/size): M5Stack CoreS3 SE** (~$30) —
-identical 2" cased body, mic + speaker + RTC, **no camera** (also drops proximity
-and IMU). Drop-in if the Show doesn't need video/presence — cheaper, same
-footprint, no new case.
+**Front-facing camera (required):** Tab5's 2 MP camera is front-facing. The
+Waveshare HMI camera is a MIPI-CSI module (RPi-style FPC) — since these are
+tablet-style HMIs it sits on the display face, but **verify the camera orientation
+and whether the chosen size ships with an enclosure** (some are board-only; smaller
+sizes take the camera as an add-on module you position yourself).
 
-**Bigger-screen alternative (cased):** Waveshare ESP32-S3-Touch-LCD-4.3 "Type B
-with Case" (~$50) — 4.3" 800×480 IPS in an enclosure. **Caveat:** no onboard
-mic/speaker; you'd add a USB/I2S mic+speaker, breaking the all-in-one cleanliness.
-
-**Recommendation:** CoreS3 if the Show should keep the camera (video / presence);
-CoreS3 SE if it's a display-only Show. Reserve the 4.3" SKU for when screen size
-beats a clean audio path.
+**Recommendation:** **Tab5** for a fully-cased countertop Show 5 with zero
+assembly; the **ESP32-P4-WIFI6 HMI** (7"–10.1") for a bigger Show or a wall panel
+while staying all-ESP32. A consumer wall tablet (Scenario 5) remains the
+lowest-effort large panel if you'd rather not build at all — deliberately **not**
+a Raspberry Pi build.
 
 ### 3. Apple-Watch-sized + battery — ~1.3–2" cased
 
@@ -161,6 +166,33 @@ range.
 use the **1.85C** and skip the camera. Only add vision here if this unit truly
 needs it — then Tab5 (cased, bigger) or path B (minimal, generic box).
 
+### 5. Wall-mounted tablet — dashboard / family panel (Echo Show 15 style)
+
+A wall panel for the family calendar, weather, home control, and glanceable
+companion presence — the original `VISION.md` "hallway / kitchen panel." The
+ESP32-P4-WIFI6 10.1" HMI (Scenario 2) now covers this size as an all-ESP32 Pod, so
+this scenario is the **lowest-effort, no-build** alternative — buy a finished
+tablet instead of wiring a panel.
+
+**Pick: an off-the-shelf consumer tablet running the Loki Doki web app** — a Fire
+HD 8/10 or an inexpensive Android tablet on a wall mount (VESA plate, adhesive
+wall dock, or in-wall recessed mount). Fully cased "tablet" out of the box: touch,
+speaker, mic, and camera all built in, powered from an in-wall or surface-channel
+USB feed. **No Raspberry Pi, no flashing, no assembly** — install the app and hang
+it on the wall. The most dad-friendly large panel.
+
+**Architecture note:** this is a **Client (browser)**, not a Pod — it loads the
+web UI from a Host over the LAN.
+- Touch + tap-to-talk + data display + unprompted alarms (web notifications /
+  audio while the app is open) work directly.
+- A browser can't reliably run always-on wake word in the background, so for
+  hands-free **always-listening** wake word, pair the panel with a nearby
+  **Atom Echo Pod** (Scenario 1) that handles the wake and hands off to the Host.
+
+So the lineup stays to two things a non-technical user can set up: **cased ESP32
+Pods** (now a 1.85" puck up to a 10.1" panel) and, optionally, **a tablet running
+the app** for the largest wall panels.
+
 ---
 
 ## Optional bonus sensors (welcomed)
@@ -195,9 +227,10 @@ mounts / weighted bases instead.
 | Device | Placement | Stability/angle need | No-print solution |
 | --- | --- | --- | --- |
 | **Atom Echo** (Dot) | Counter / shelf | Tiny + very light → a USB-C cable tug topples it | Set in a small weighted holder or stick down with an adhesive pad; route cable with strain relief. (Device-specific holders exist but are 3D-printed.) |
-| **CoreS3** (Show/watch) | Counter or wall | Needs viewing tilt; anti-tip | **Ships with DinBase** → wall / screw / DIN-rail / LEGO-hole mount out of the box. For a tilted *desk* Show, set it in a generic adjustable phone/tablet easel stand. |
-| **CoreS3 SE** (Show, no cam) | Same as CoreS3 | Same | Same — DinBase + generic easel |
-| **Tab5** (wider watch, vision) | Counter / desk | Tablet-sized → needs a real kickstand + anti-tip | **Built-in 1/4″-20 tripod nut** → any off-the-shelf mini-tripod, desk arm, or 1/4-20 tablet mount. Universal, no print. |
+| **CoreS3** (watch, vision) | Counter or wall | Needs viewing tilt; anti-tip | **Ships with DinBase** → wall / screw / DIN-rail / LEGO-hole mount out of the box. For a tilted *desk* use, set it in a generic adjustable phone/tablet easel stand. |
+| **Tab5** (Show 5 / wider watch) | Counter / desk | Tablet-sized → needs a real kickstand + anti-tip | **Built-in 1/4″-20 tripod nut** → any off-the-shelf mini-tripod, desk arm, or 1/4-20 tablet mount. Universal, no print. |
+| **ESP32-P4-WIFI6 HMI** (Show 7–10.1") | Counter or wall | Big panel → tilt stand or wall mount | Waveshare panel enclosure; generic tablet easel for desk, or a VESA-style wall bracket. |
+| **Wall tablet** (10"+ panel) | **Wall** | Flush/angled; tidy power; anti-theft | Off-the-shelf VESA plate, adhesive wall dock, or in-wall recessed tablet mount. |
 | **Waveshare 1.28-B** (round watch) | Desk puck *or* worn | Round metal puck → wants a small tilt cradle | Generic mini watch/display easel cradle; or a magnetic USB-C charging dock to set it on. |
 | **LilyGO T-Watch S3** (round watch) | **Worn** | Wearable — uses a strap | Ships as a watch with a **standard strap**; for desk use, a generic watch charging stand. |
 | **Waveshare 1.85C** (wider watch box) | Counter | Box footprint is stable; may want slight tilt | Sits as-is; optional small easel for tilt. |
@@ -236,8 +269,9 @@ mounts / weighted bases instead.
 | Scenario | Device | Price | Screen | Mic | Spkr | Cam | Batt | Onboard sensors | Case |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Echo Dot | M5Stack Atom Echo | ~$13 | — (RGB) | ✅ | ✅ | — | — | — (Grove add-on) | ✅ enclosed |
-| Echo Show (vision) | M5Stack CoreS3 | ~$45 | 2.0" | dual | ✅ | ✅ | ✅ | light, prox, IMU | ✅ enclosed |
-| Echo Show (no cam) | M5Stack CoreS3 SE | ~$30 | 2.0" | dual | ✅ | — | ✅ | — | ✅ enclosed |
+| Echo Show 5 | M5Stack Tab5 *(or ESP32-P4-WIFI6-LCD-5)* | ~$55 *(~$80)* | 5" | ✅ | ✅ | ✅ front | ✅ | IMU | ✅ enclosed |
+| Echo Show 8–10 | Waveshare ESP32-P4-WIFI6 HMI (7/8/10.1") | ~$80–117 | 7"–10.1" | dual | ✅ | ✅ 5MP | opt | — | enclosure varies |
+| Wall panel (10"+) | ESP32-P4-WIFI6 10.1" HMI *or* consumer tablet (Client) | ~$80–117 / ~$60–150 | 10.1"–15" | ✅ | ✅ | ✅ | opt/✅ | tablet built-ins | ✅ |
 | Watch (vision) | M5Stack CoreS3 | ~$45 | 2.0" sq | dual | ✅ | ✅ | ✅ | light, prox, IMU | ✅ enclosed |
 | Watch (no cam, round) | Waveshare 1.28-B / LilyGO T-Watch S3 | ~$30 / ~$40 | 1.28"–1.54" | ✅ | ✅ | — | ✅ | IMU | ✅ enclosed |
 | Wider watch (no cam) | Waveshare 1.85C | ~$30–40 | 1.85" rnd | ✅ | ✅ | — | ✅ | — | ✅ enclosed |
@@ -246,32 +280,37 @@ mounts / weighted bases instead.
 **Common firmware base:** ESP32-S3 (Tab5 = ESP32-P4) + PSRAM, openWakeWord
 TFLite-Micro, WebRTC-VAD, the binary WebSocket Pod protocol, BLE provisioning,
 OTA. Watches add RTC-backed local alarm scheduling; Dot/Show rely on the
-persistent Host connection for unprompted responses.
+persistent Host connection for unprompted responses. The **wall tablet** is the
+one exception — a browser **Client** (no firmware) paired with an Atom Echo Pod
+for hands-free wake. So the lineup is two things a non-technical user sets up:
+**cased ESP32 Pods** and **a tablet running the app** — deliberately **no
+Raspberry Pi / mini-PC** anywhere.
 
 ## Open decisions
 
-1. **Per screened device — vision or all-in-one?** For the Show and each watch,
-   decide whether that unit needs a camera (→ CoreS3 / Tab5, boxy) or should be the
-   smaller/round all-in-one (→ CoreS3 SE / 1.28-B / T-Watch S3 / 1.85C, no camera).
-   For Scenario 4's vision path specifically: Tab5 (cased, 5") vs. bare 2.8" board
-   + project box (minimal width).
-2. **Which Host(s)** these Pods stream to, and whether the Show should instead be
-   a Host (Raspberry Pi 5 + DSI) for local video calling.
-3. **Battery strategy** for the watches: always-listen vs. tap-to-wake vs. low-power
+1. **Echo Show size:** Tab5 (5", fully cased, zero assembly) vs. the
+   **ESP32-P4-WIFI6 HMI** (7"/8"/10.1", 5 MP camera onboard, enclosure varies) for
+   bigger Shows / a wall panel — all still ESP32. Verify camera orientation +
+   whether the chosen HMI size ships cased. Largest panels can also be a wall
+   tablet (Scenario 5); deliberately no Raspberry Pi.
+2. **Per watch — vision or all-in-one?** Camera (→ CoreS3, ~2" box) vs. the
+   smaller/round all-in-one without a camera (→ 1.28-B / T-Watch S3 / 1.85C). For
+   Scenario 4's vision path: Tab5 (cased, 5") vs. bare 2.8" board + project box.
+3. **Which Host(s)** these Pods and the wall tablet stream to on the LAN.
+4. **Battery strategy** for the watches: always-listen vs. tap-to-wake vs. low-power
    wake co-processor.
-4. **Stand / mount per device:** wall-mount (CoreS3 DinBase) vs. desk easel vs.
-   Tab5 tripod mount; and whether battery devices get a magnetic USB-C charging
-   dock that doubles as the stand.
-4. **Prototype order** — recommend Atom Echo (Dot) first to validate the wake-word
-   + Host streaming path end-to-end, then CoreS3 for the screened/camera path.
+5. **Stand / mount per device:** wall-mount (CoreS3 DinBase / VESA) vs. desk easel
+   vs. Tab5 tripod mount vs. tablet wall mount; and whether battery devices get a
+   magnetic USB-C charging dock that doubles as the stand.
+6. **Prototype order** — recommend Atom Echo (Dot) first to validate the wake-word
+   + Host streaming path end-to-end, then Tab5 for the screened/camera path.
 
 ## Sources
 
 - [M5Stack Atom Echo](https://shop.m5stack.com/products/atom-echo-smart-speaker-dev-kit) · [Atom VoiceS3R](https://shop.m5stack.com/products/atom-echos3r-smart-speaker-dev-kit) · [$13 HA smart speaker (XDA)](https://www.xda-developers.com/home-assistant-voice-control-with-atom-echo-smart-speaker/)
 - [M5Stack CoreS3](https://shop.m5stack.com/products/m5stack-cores3-esp32s3-iotdevelopment-kit) · [CoreS3 SE (CNX)](https://www.cnx-software.com/2024/05/31/m5stack-cores3-se-cost-down-esp32-s3-iot-controller-features-a-2-inch-touch-display-a-microsd-card-slot-a-speaker-two-microphones/)
 - [M5Stack Tab5 (ESP32-P4)](https://shop.m5stack.com/products/m5stack-tab5-iot-development-kit-esp32-p4) · [Tab5 docs](https://docs.m5stack.com/en/core/Tab5)
-- [Waveshare ESP32-S3-Touch-LCD-1.85C](https://www.waveshare.com/esp32-s3-touch-lcd-1.85c.htm) · [1.28-B CNC metal case](https://www.waveshare.com/esp32-s3-touch-lcd-1.28-b.htm) · [4.3" Type B with Case (Amazon)](https://www.amazon.com/waveshare-ESP32-S3-4-3inch-Touch-Case/dp/B0DD6VLH1Y)
+- [Waveshare ESP32-P4-WIFI6 HMI 7/8/10.1"](https://www.waveshare.com/esp32-p4-wifi6-touch-lcd-7-8-10.1.htm) · [CNX: P4 HMI 5MP camera](https://www.cnx-software.com/2026/01/17/tablet-like-esp32-p4-based-7-8-and-10-1-inch-hmi-displays-integrate-wi-fi-6-connectivity-5mp-camera/) · [7" (Amazon)](https://www.amazon.com/Waveshare-ESP32-P4-WIFI6-Development-Resolution-Microphones/dp/B0GG8XRD65) · [10.1" (Amazon)](https://www.amazon.com/Waveshare-ESP32-P4-WIFI6-Development-Resolution-Microphones/dp/B0GG8LSS54)
+- [Waveshare ESP32-S3-Touch-LCD-1.85C](https://www.waveshare.com/esp32-s3-touch-lcd-1.85c.htm) · [1.28-B CNC metal case](https://www.waveshare.com/esp32-s3-touch-lcd-1.28-b.htm)
 - [LilyGO T-Watch S3](https://lilygo.cc/products/t-watch-s3) · [Waveshare ESP32-S3-AUDIO-Board](https://www.waveshare.com/esp32-s3-audio-board.htm)
 - Mounting: [M5Stack DinBase docs](https://docs.m5stack.com/en/base/DIN%20BASE) · [Tab5 docs (1/4″-20 tripod nut)](https://docs.m5stack.com/en/core/Tab5) · [Tab5 wall/panel mount thread](https://community.m5stack.com/topic/7690/tab5-wall-panel-mount)
-</content>
-</invoke>
