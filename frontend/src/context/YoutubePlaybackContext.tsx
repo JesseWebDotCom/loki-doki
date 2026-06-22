@@ -6,6 +6,7 @@ export interface YtMiniTrack {
   videoId: string
   title: string
   author: string | null
+  channelThumb?: string | null
   localKind?: 'audio' | 'video'
   durationSec?: number | null
 }

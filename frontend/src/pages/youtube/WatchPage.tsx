@@ -18,7 +18,7 @@ import { useYtFeed } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
-  prewarmStream, ytImageProxy, type VideoMeta, type VideoVotes,
+  ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort } from '@/lib/youtube/types'
 import { parseChapters } from '@/lib/youtube/chapters'
@@ -101,23 +101,15 @@ export function WatchPage() {
   // Landing on a watch page means a full player owns playback — stop any docked mini.
   useEffect(() => { if (pb.track) pb.clearDock() }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Warm the proxy-stream cache shortly after the video opens so that minimizing later
-  // hands off to the mini-player instantly instead of waiting on a cold resolve. Delayed
-  // a little so videos that are opened and immediately closed don't trigger a resolve.
-  useEffect(() => {
-    if (!online || !videoId) return
-    const t = setTimeout(() => prewarmStream(videoId), 1500)
-    return () => clearTimeout(t)
-  }, [online, videoId])
 
   // Navigating away mid-playback hands the video to the docked mini-player. Uses refs so
   // it captures the video being watched at unmount, not the one this effect closed over.
-  const handoffRef = useRef<{ videoId: string; title: string; author: string | null; localKind?: 'audio' | 'video'; durationSec: number | null }>(null!)
-  handoffRef.current = { videoId, title, author, localKind, durationSec: meta?.durationSec ?? null }
+  const handoffRef = useRef<{ videoId: string; title: string; author: string | null; channelThumb: string | null; localKind?: 'audio' | 'video'; durationSec: number | null }>(null!)
+  handoffRef.current = { videoId, title, author, channelThumb, localKind, durationSec: meta?.durationSec ?? null }
   useEffect(() => () => {
     const h = handoffRef.current
     if (playingRef.current && secRef.current > 1 && h.videoId) {
-      pb.dock({ videoId: h.videoId, title: h.title, author: h.author, localKind: h.localKind, durationSec: h.durationSec }, secRef.current)
+      pb.dock({ videoId: h.videoId, title: h.title, author: h.author, channelThumb: h.channelThumb, localKind: h.localKind, durationSec: h.durationSec }, secRef.current)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -152,7 +144,7 @@ export function WatchPage() {
   // (even if paused) so the button always does something; navigating away would otherwise
   // only hand off while playing.
   function minimize() {
-    pb.dock({ videoId, title, author, localKind, durationSec: meta?.durationSec ?? null }, secRef.current || currentSec)
+    pb.dock({ videoId, title, author, channelThumb, localKind, durationSec: meta?.durationSec ?? null }, secRef.current || currentSec)
     navigate('/youtube')
   }
 
@@ -306,7 +298,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
         ))}
         {votes && <VotesBar votes={votes} />}
         <div className="ml-auto flex items-center gap-1.5">
-          <button onClick={onMinimize} title="Minimize — keep playing in the mini-player while you browse" aria-label="Minimize to mini-player"
+          <button onClick={onMinimize} title="Minimize — keep playing in the mini-player while you browse. Note: the mini-player streams directly from YouTube (not the private proxy)." aria-label="Minimize to mini-player"
             className="grid size-9 place-items-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
             <PictureInPicture2 className="size-4" />
           </button>
