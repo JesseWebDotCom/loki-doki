@@ -2,34 +2,36 @@
 title: Offline Library
 description: Reading Wikipedia and other offline references without an internet connection.
 sidebar:
-  order: 5
+  order: 9
 ---
 
-Reference knowledge that lives on your own server and works with no internet at all, and no one logs what you read or look up.
+Full reference libraries that live on your own server and work with no internet at all. Nobody logs what you read or look up.
 
 ## Overview
 
-The Library gives you access to full offline archives, including Wikipedia, medical references, and more, without any internet connection required.
+The Library gives you whole offline archives, including Wikipedia, Wiktionary, medical references, and more, served straight from your home server. There is no internet connection required and no account anywhere tracking your reading.
 
-## Accessing the Library
+## Finding a library
 
-Library archives appear as cards on the Today page, grouped by category. Tap any card to open the full reader.
+Library archives show up as cards right on the Home (Today) screen, grouped by category such as Reference, Medical, or Education. There is no separate Library page; you open an archive from its card. Tap any card to open the full reader.
 
 ## Reading
 
-The reader opens full-screen inside the app. Navigate as you would a website: tap links to go to related articles, and use back to return.
+The reader opens full-screen inside the app and looks like a normal website. Tap links to jump to related articles, use the back and forward arrows to move through your history, and use the shuffle button to open a random article. The app even matches the archive's colors to your light or dark theme.
 
 ## Searching
 
-Use the search bar inside a library archive to find articles. Search is powered by the archive's own index and works fully offline.
+Each archive has its own search box at the top of the reader. Type what you are looking for and the results come from that archive's built-in index. It works fully offline; nothing is sent anywhere.
 
-## Available Archives
+Your companion can also pull facts from installed archives when you ask it questions, so a quick "what is X?" can be answered from Wikipedia or a dictionary without going online.
 
-Your admin configures which archives are available. Common ones include:
+## Available archives
+
+Your admin chooses which archives are installed. Common ones include:
 
 - Wikipedia (English and other languages)
-- Wiktionary
+- Wiktionary and dictionaries
 - Medical references
-- Stack Overflow (offline snapshot)
+- Wikibooks, Wikivoyage, and other reference snapshots
 
-Ask your admin to add new archives if something you need isn't available.
+Ask your admin to add new archives if something you need isn't available. They are managed under Admin → Features.

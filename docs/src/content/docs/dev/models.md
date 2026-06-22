@@ -7,30 +7,24 @@ sidebar:
 
 All models run locally. No cloud APIs, no telemetry.
 
+The catalog (chat/embedding/router/image roles) is defined in `backend/src/lib/catalog.ts`. Installable system components and the dynamic image-model entries are assembled in `backend/src/lib/installRegistry.ts`. The setup wizard installs the essentials; the rest land in the background `download_jobs` queue.
+
 ---
 
 ## Ollama models
 
-These are pulled via `ollama pull <tag>`. The setup wizard handles the required ones automatically.
+These are pulled via `ollama pull <tag>`. The selected chat model is stored in `app_settings` under `model`; the code default when nothing is set is `llama3.1:8b`.
 
 ### Chat LLM
 
-One model is active at a time, chosen by the admin. The selected model also handles Tier 2 routing when the semantic router is uncertain.
+One model is active at a time, chosen by the admin. The catalog ships abliterated (Western fine-tune) variants. The active model also handles Tier 2 routing if no dedicated router LLM is installed.
 
 | Model | Ollama tag | Size | Notes |
 |---|---|---|---|
-| Llama 3.1 8B | `llama3.1:8b` | ~4.9 GB | Recommended for 24 GB Apple Silicon and 32 GB PC |
-| Llama 3.3 27B | `llama3.3:27b` | ~16 GB | Recommended for 36 GB+ Apple Silicon |
-| Gemma 4 12B | `gemma4:12b` | ~7.5 GB | Built-in vision; no separate vision model needed |
+| Llama 3.1 8B (abliterated) | `mannix/llama3.1-8b-abliterated:latest` | ~4.8 GB | Recommended for 24 GB Apple Silicon / 32 GB PC |
+| Gemma 4 12B (abliterated) | `huihui_ai/gemma-4-abliterated:latest` | ~7.5 GB | Built-in vision; recommended for 36 GB+ Apple Silicon |
 
-### Uncensored LLM (optional)
-
-Western fine-tunes only. Enabled per-user via the Privacy tab.
-
-| Model | Ollama tag | Size | Notes |
-|---|---|---|---|
-| Llama 3.1 8B Uncensored | `mannix/llama3.1-8b-abliterated:latest` | ~4.8 GB | Abliterated (not retrained) |
-| Gemma 4 12B Uncensored | `huihui_ai/gemma-4-abliterated:latest` | ~7.5 GB | Built-in vision; Western fine-tune by huihui_ai |
+On 36 GB+ hardware the hardware-fit helper (`backend/src/lib/hwfit.ts`) may additionally recommend `llama3.3:27b`, but it is not part of the model catalog.
 
 ### Vision
 
@@ -70,23 +64,25 @@ When Tier 1 cosine similarity falls below threshold, this model extracts tool ar
 
 ## Image generation models (ComfyUI)
 
-Downloaded separately via the setup wizard. All run headless through ComfyUI on port 8188.
+Image gen runs headless through **ComfyUI** (Python, default port 8188), spawned as a sidecar. The base checkpoint plus optional add-ons are surfaced as install components (catalog roles `image_gen`, `face_id`, `face_embed`, `video_motion`, `video_gen`, `bg_remove`) and download into `data/comfyui/models/...`.
 
 ### Base checkpoint (required for image gen)
 
 | Model | Source | Size |
 |---|---|---|
-| Juggernaut XL Ragnarok | CivitAI (public) | ~6.6 GB |
+| Juggernaut XL Ragnarok | CivitAI (public download) | ~6.6 GB |
 
 ### Optional add-ons
 
 | Model | Role | Source | Size | Requires |
 |---|---|---|---|---|
-| IP-Adapter FaceID Plus v2 SDXL | Face identity injection | HuggingFace h94/IP-Adapter-FaceID | ~1.5 GB | InsightFace AntelopeV2 + base checkpoint |
-| InsightFace AntelopeV2 | Face embedding extraction | HuggingFace vladmandic/insightface-faceanalysis | ~361 MB | (none) |
-| AnimateDiff XL | Text-to-video motion module | HuggingFace guoyww/animatediff | ~400 MB | Base checkpoint |
-| Stable Video Diffusion XT | Image-to-video (25 frames) | HuggingFace stabilityai/stable-video-diffusion-img2vid-xt | ~4.9 GB | (none) |
-| BiRefNet Lite | Background removal (ONNX, CPU) | HuggingFace onnx-community/BiRefNet_lite-ONNX | ~224 MB | (none) |
+| IP-Adapter FaceID Plus v2 SDXL | Face identity injection | HuggingFace `h94/IP-Adapter-FaceID` | ~1.5 GB | InsightFace AntelopeV2 + base checkpoint |
+| InsightFace AntelopeV2 | Face embedding extraction | HuggingFace `vladmandic/insightface-faceanalysis` | ~361 MB | (none) |
+| AnimateDiff XL | Text-to-video motion module (`mm_sdxl_v10_beta.ckpt`) | HuggingFace `guoyww/animatediff` | ~400 MB | Base checkpoint |
+| Stable Video Diffusion XT | Image-to-video (`svd_xt.safetensors`) | HuggingFace `stabilityai/stable-video-diffusion-img2vid-xt` | ~4.9 GB | (none) |
+| BiRefNet Lite | Background removal (ONNX, CPU) | HuggingFace `onnx-community/BiRefNet_lite-ONNX` | ~224 MB | (none) |
+
+Face restoration (CodeFormer / GFPGAN) and ESRGAN upscaling models are installed as their own components and loaded by the inpaint / restore workflows.
 
 ---
 
@@ -96,6 +92,25 @@ Installed as the `voice-core` and `wakeword-core` components via the Features pa
 
 | Model | Role | Runtime | Notes |
 |---|---|---|---|
-| Kokoro-82M | TTS | ONNX via kokoro-js (Bun voice-server sidecar) | Sentence-chunked streaming; no Python |
-| Whisper | STT | ONNX via transformers.js (Bun voice-server sidecar) | Transcribes microphone input |
-| OpenWakeWord | Wake-word detection | WASM in-browser (onnxruntime-web) | ONNX model downloaded to `data/voice/wakewords/` |
+| Kokoro-82M (`onnx-community/Kokoro-82M-v1.0-ONNX`) | TTS | `kokoro-js` ONNX in the voice sidecar | Sentence-chunked streaming; ~50 bundled voices |
+| Whisper (`whisper-tiny.en` by default) | STT | `@huggingface/transformers` in the voice sidecar | Override via `WHISPER_MODEL`; external whisper.cpp only if forced |
+| OpenWakeWord | Wake-word detection | `onnxruntime-web` WASM, in-browser | ONNX model served to the browser |
+
+The voice sidecar is a Node worker spawned from `backend/scripts/voice-server.ts` (default port `8091`); it exposes `/synthesize` (Kokoro WAV) and `/inference` (Whisper).
+
+---
+
+## System components
+
+Beyond models, the install registry (`backend/src/lib/installRegistry.ts`) manages runtime/binary components, each with an `isInstalled()` check and a `repair()` installer:
+
+| Component | What it installs |
+|---|---|
+| `comfyui-base` / `comfyui-nodes` / `comfyui-facerestore` | ComfyUI Python runtime + custom nodes |
+| `voice-core` | Kokoro TTS + Whisper STT models |
+| `wakeword-core` / `wakeword-train` | OpenWakeWord runtime + training deps |
+| `kiwix-tools` | `kiwix-serve` for the offline library |
+| `maps-toolchain` | Planetiler / GraphHopper map tooling |
+| `tesseract` | OCR |
+| `esrgan` / `codeformer` / `gfpgan` | Upscale + face-restore models |
+| `weather-icons`, `podcast-stinger-sf` | Static assets (icons, soundfont) |

@@ -1,40 +1,62 @@
 ---
 title: Privacy & Content Controls
-description: PIN-gated adult content, the countdown timer, and the keyboard shortcut.
+description: How content levels, the adult-content PIN gate, and "your data stays home" work day to day.
 sidebar:
   order: 10
 ---
 
-Loki Doki is built so the whole family can share one server safely. Adults get full, unrestricted access; kids get a controlled environment where adult content is invisible and nothing they do is logged, profiled, or sold. The controls below are how that line is drawn and held.
+Loki Doki is built so a whole family can share one server safely. The owner decides how mature the AI is allowed to get, each person can dial it down further for themselves, and the most sensitive material sits behind a PIN. And because the server is yours, none of it leaves your home.
 
-## Adult Content
+## Your Data Stays Home
 
-Some image generation features and LoRAs are marked as adult content. These are hidden by default and require a PIN to unlock.
+Everything here runs on your own server. Your chats, the content levels you pick, the images you make, and the links you keep all live on hardware you control. Nothing is sent to a cloud service to be logged, profiled, or sold. The privacy controls below are about who in your home sees what, not about what some outside company is allowed to collect, because the answer to that is always "nothing."
 
-## Unlocking
+## Content Levels
 
-1. Tap the lock icon (or press **⌘⇧P** on Mac)
-2. Enter your PIN
-3. Adult content is now visible for **30 seconds**
+What the AI is willing to say is set by four independent levels:
 
-## The Countdown
+- **Profanity**
+- **Sexual content**
+- **Violence**
+- **Substances** (drugs and crime)
 
-After unlocking, a pill in the corner shows the remaining seconds. If you interact with any adult content, the countdown resets to 30 seconds.
+Each level has three settings, from off (clean and family-friendly) up to fully open. You can set these yourself in **Settings → Privacy**, using the **Safe**, **Open**, or **Custom** presets or by tuning each level by hand.
 
-To keep content unlocked indefinitely, tap **Extend** on the countdown pill. It stays unlocked until you close it or navigate away.
+Two limits sit above your choices:
 
-After the countdown expires, adult content is automatically hidden again.
+- **A safety floor that never turns off.** No matter how you set your levels, the AI always refuses genuinely harmful or illegal requests (weapons, drug synthesis, content involving minors, and so on). This can't be disabled by anyone.
+- **A ceiling set by your admin.** The owner of the server can cap how high any one person's levels can go. If you see "Some levels are limited by your administrator," that's your cap. It's how a parent keeps a child's account family-friendly while leaving their own unrestricted.
 
-## Keyboard Shortcut
+Your effective level is always the stricter of what you pick and what your admin allows.
 
-**⌘⇧P** (Mac) toggles adult content unlock. If locked, it prompts for your PIN. If unlocked, it hides immediately.
+### Companions
 
-## Your PIN
+Each AI companion can have its own content style. A companion only shows up as usable if its style fits within your effective levels. If a companion is too mature for your account, it stays locked, so you can't accidentally step around your own limits by switching characters.
 
-Your PIN is set by your admin. If you need it changed, contact your admin.
+## Adult Content (the PIN Gate)
 
-## Privacy Notes
+Some image styles (LoRAs), generated images, and music tracks can be marked as **adult**. These are hidden by default and require a PIN to reveal. This is separate from the content levels above: it controls visible media, not what the AI says.
 
-- Adult content decisions are **not logged** in the activity feed
-- Generated images marked as adult are stored separately and excluded from the main gallery unless unlocked
-- Adult LoRAs are not shown in the image generation LoRA picker unless unlocked
+### Unlocking
+
+1. Trigger the unlock (your build may offer a lock button, or press **⌘⇧P** on Mac / **Ctrl+Shift+P** elsewhere)
+2. Enter the PIN
+3. Adult content becomes visible
+
+### The Countdown
+
+After you unlock, a pill shows the seconds remaining (30 by default, set by your admin). When it reaches zero, adult content hides itself again automatically.
+
+If you want it to stay visible while you work, choose **keep open**: the countdown stops and content stays revealed until you hide it. To hide immediately at any time, press **⌘⇧P** again.
+
+### Too Many Wrong Tries
+
+The PIN is rate-limited. After several wrong attempts the gate locks for a while and tells you how long to wait. This protects against someone guessing the PIN.
+
+### Your PIN
+
+The adult-content PIN is set by your admin in the admin panel. If you need it changed, ask your admin.
+
+## What's Not Logged
+
+Adult-content decisions are a viewing preference held in your session, not an event written to any history or activity feed. Adult images and styles simply don't appear in the gallery or pickers until you unlock them.

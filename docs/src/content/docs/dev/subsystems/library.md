@@ -2,52 +2,114 @@
 title: Offline Library (ZIM)
 description: kiwix-serve integration, ZIM archive management, and the reader experience.
 sidebar:
-  order: 5
+  order: 10
 ---
 
 ## Overview
 
-The offline library serves ZIM archives (Wikipedia, medical references, etc.) via a **kiwix-serve subprocess** proxied through the backend. Archives appear as live cards on the Today page and open full-screen at `/read/:sourceId`.
+The offline library serves [ZIM](https://wiki.openzim.org/wiki/OpenZIM) archives (Wikipedia, Wiktionary, medical references, etc.) through a local kiwix subprocess that the backend proxies. Archives surface as live cards on the Home/Today page (folded by category) and open full-screen in `ReaderPage` at `/read/:sourceId`. There is no standalone Library page.
+
+Relevant code:
+
+- `backend/src/lib/kiwix.ts`: subprocess lifecycle + state machine
+- `backend/src/lib/archives.ts`: download + verify/repair, `syncKiwixWithArchives()`
+- `backend/src/lib/zimCatalog.ts`: `ZIM_CATALOG` (catalog of installable sources/variants)
+- `backend/src/lib/zimSearch.ts`: full-text search across installed archives (companion tools)
+- `backend/src/routes/archives.ts`: status, installed list, favicon proxy, content proxy
+- `backend/src/routes/adminArchives.ts`: catalog, SSE download, delete, verify (admin)
+- `frontend/src/pages/ReaderPage.tsx`: full-screen reader
+- `zim_archives` table in `backend/src/db/schema.ts`
 
 ---
 
-## Architecture
+## kiwix-serve subprocess lifecycle
 
-```
-kiwix-serve subprocess (port auto-assigned)
-  ← proxied via backend /api/library/proxy/*
-  ← ZIM files stored in data/zim/
-```
+The serving backend differs per OS (see `backend/src/lib/kiwix.ts`):
 
-The backend spawns kiwix-serve pointing at `data/zim/`. All browser requests go through the backend proxy, kiwix-serve is never exposed directly to the browser.
+- **macOS / Linux** compile `@openzim/libzim` (via `npm install`, since `bun add` skips native lifecycle scripts) and run a custom `backend/zim-server.ts` under Bun. Articles are served at `http://127.0.0.1:8090/<bookName>/…`.
+- **Windows** download the official static `kiwix-tools` bundle (`kiwix-serve.exe` + `kiwix-manage.exe`, pinned `3.7.0`). `kiwix-manage` builds a `library.xml`, then `kiwix-serve` serves articles at `http://127.0.0.1:8090/content/<bookName>/…`.
 
----
+The port is fixed at `8090` (`KIWIX_PORT`), bound to `127.0.0.1` only. `kiwixContentBase()` / `kiwixContentRelPrefix()` abstract the per-OS URL scheme so the proxy never hardcodes either.
 
-## Admin, AdminArchivesTab
+State machine: `idle | starting | ready | failed` (`getKiwixState()`). `spawnKiwix()` / `maybeSpawnKiwix()` launch the process and `startHealthPoll()` polls `/catalog/v2/entries` (up to 60s) until it answers, then marks `ready`. `stopKiwix()` SIGTERMs the child and, on Unix, kills only the LISTEN socket on `8090` (`lsof -ti tcp:8090 -sTCP:LISTEN`, never the backend's own PID).
 
-- Add archives by ZIM file URL or local file path
-- Download progress via SSE
-- Enable/disable individual archives
-- Archives stored in `zimArchives` DB table
+Adding or removing an archive **requires a restart** of the subprocess so it picks up the new ZIM set. `restartKiwix(zimPaths)` serializes restarts through a promise chain (`restartChain`) so concurrent downloads don't stomp each other; the last call wins with the fullest archive list. (The reader shows an auto-refreshing "Setting up this archive…" placeholder while the restart settles.)
 
 ---
 
-## Today Page Integration
+## Content proxy
 
-Enabled archives surface as **live cards** on the Today page, folded by category. Clicking a card opens the full-screen reader. The standalone Library page was removed, all library access is through Today.
+`GET /api/archives/view/:sourceId/*` (`backend/src/routes/archives.ts`) is the proxy. It is intentionally **unauthenticated static content** (same posture as the maps tile route) so the iframe stays same-origin. For each request it:
+
+1. Looks up the `zim_archives` row by `sourceId` to get `kiwixBookName`.
+2. If the row is missing, or `kiwixBookName` is null, or kiwix isn't `ready`, returns a friendly `libraryStatusPage()` HTML (with a meta-refresh when a retry will help) instead of a raw error.
+3. Fetches from kiwix-serve with `redirect: 'manual'` and follows the ZIM's internal redirect chain itself (up to 10 hops), tracking `effectivePath`, so the browser only ever sees one HTTP response (avoids Chrome's too-many-redirects limit on deep in-ZIM redirects like Wikipedia).
+4. For HTML, rewrites absolute kiwix-serve paths (`href`/`src`/`action`/CSS `url()`) to the `/api/archives/view/:sourceId/` proxy base, injects a `<base>` tag (so `../` resolves to the ZIM root), hides the kiwix nav bar, and, when the `ld-theme` cookie is dark, injects a dark-mode CSS/JS payload (MediaWiki variable overrides, structural catch-alls, and a luminance-checked `invert()` fallback for arbitrary archives).
+5. Non-HTML (CSS/JS/images/fonts) is streamed through with `content-type`/cache headers forwarded.
+
+`GET /api/archives/favicon/:sourceId` discovers the favicon embedded in the ZIM (parsing the landing page's `<link rel=icon>`) and proxies it, cached in-memory per source.
+
+> Note: `backend/src/routes/proxy.ts` is a **separate** reverse proxy for user bookmarks (`/api/proxy/:id`), not the kiwix proxy.
 
 ---
 
-## ReaderPage
+## How archives become Today cards
 
-Full-screen reader at `/read/:sourceId`. Renders the kiwix-serve proxy URL in an iframe. The back button returns to the calling context (Today or wherever the link was followed from).
+`GET /api/archives/installed` returns each `zim_archives` row enriched from `ZIM_CATALOG` (`label`, `description`, `category`, `faviconUrl`, plus a `zimIconUrl` pointing at the favicon proxy). The Home/Today page groups these by category and renders each as a card; the card links to `/read/:sourceId`. `GET /api/archives/status` exposes `kiwixInstalled`, `kiwixState`, `kiwixError`, and the installed count for boot/health surfaces.
 
 ---
 
-## Adding New Archives
+## ReaderPage (`/read/:sourceId`)
 
-Archives can be sourced from:
-- [library.kiwix.org](https://library.kiwix.org), official Kiwix library
-- Any `.zim` file
+`frontend/src/pages/ReaderPage.tsx` resolves the archive from `/api/archives/installed`, then loads `/api/archives/view/:sourceId/` into a same-origin iframe (`sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms"`). It provides browser-style chrome via `AppBreadcrumb`:
 
-After adding, the archive is immediately available in kiwix-serve without a restart.
+- Back / forward drive `iframe.contentWindow.history`.
+- The search box opens `view/:sourceId/search?pattern=…` (kiwix's own full-text search).
+- A shuffle button opens `view/:sourceId/random`.
+- It reads `document.title` from the iframe on each load and publishes UI context (`usePublishUIContext`) so the companion knows which archive and article the user is reading.
+- A CC-BY-SA credit line links to `/settings/about` (content licenses).
+
+If the archive isn't installed it shows an empty state pointing at Admin → Features.
+
+---
+
+## Admin management (Admin → Features)
+
+Archive install/uninstall lives in the Features manifest UI (`AdminFeaturesTab`), backed by `backend/src/routes/adminArchives.ts` (all routes `requireAdmin`):
+
+- `GET /api/admin/archives/catalog`: `ZIM_CATALOG` annotated with install state.
+- `GET /api/admin/archives/download/:sourceId?variantKey=`: SSE download stream (`status` / `progress` / `done` / `cancelled` / `error`); shares `downloadArchive()` with the background download-job manager. One active download per source (`activeDownloads` map); client disconnect aborts it.
+- `POST /api/admin/archives/cancel/:sourceId`: abort an in-flight download.
+- `DELETE /api/admin/archives/:sourceId`: delete the ZIM file + row, then `restartKiwix()` with the remaining set.
+- `POST /api/admin/archives/install-kiwix`: SSE install of the kiwix runtime (compile `@openzim/libzim` on Unix, download `kiwix-tools` on Windows).
+- `POST /api/admin/archives/verify`: scan installed archives, quarantine corrupt ones, and `syncKiwixWithArchives()` to re-serve the healthy set.
+
+Downloads are blocked when the server is in offline mode (`isDownloadBlocked()` → `503`).
+
+---
+
+## `zim_archives` table
+
+| Column | Notes |
+|---|---|
+| `id` | PK |
+| `source_id` | unique; matches a `ZIM_CATALOG` entry |
+| `variant_key` | which catalog variant (e.g. language / size) |
+| `kiwix_book_name` | ZIM `Name` metadata → kiwix-serve URL path segment |
+| `file_path` | on-disk `.zim` path under `data/zim/` |
+| `file_size_bytes`, `zim_date` | size + ZIM build date (e.g. `2024-12`) |
+| `downloaded_at`, `verified_at` | timestamps; `verified_at` = last passed corrupt-check |
+| `created_at`, `updated_at` | timestamps |
+
+ZIM files live under `data/zim/` (`kiwixZimDir`); each source gets its own subdirectory.
+
+---
+
+## AI searchability
+
+`backend/src/lib/zimSearch.ts` exposes `zimSearch(sourceIds, query, limit)` for companion tools (`backend/src/tools/search.ts`, `dictionary.ts`, `medical.ts`). It returns early unless kiwix is `ready`, then queries each requested book in priority order:
+
+- **Unix:** `GET /<bookName>/search?pattern=…&format=json` (titles + snippets).
+- **Windows:** `GET /suggest?content=<bookName>&term=…` (title-only; the static build has no JSON full-text endpoint).
+
+`deriveZimAnswerPayload()` shapes results into a `gist` + `highlights` + `sources` payload, with each source linking back to `/api/archives/view/:sourceId/:path` so the companion can cite an article the user can open in the reader.

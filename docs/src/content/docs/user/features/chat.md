@@ -11,24 +11,43 @@ Your chats run on a model on your own hardware. No corporation is reading them, 
 
 Open the Chat page and type your message, or say your wakeword to start hands-free.
 
-The AI remembers things you've told it in past conversations (your preferences, interests, and context) and uses that to give more relevant answers.
+Each conversation is saved so you can come back to it. Start a new one any time, or reopen an earlier one from the conversation list. You can pin the chats you want to keep handy, and organize related chats into projects.
+
+## It Remembers You
+
+Over time, the AI quietly picks up the things you tell it: your name, your preferences, the people and places that matter to you. It uses that to give answers that fit your life, without you having to repeat yourself.
+
+It is polite about it, though. It will not bring up something you mentioned weeks ago unless it is actually relevant to what you just asked. No "since you love hiking..." out of nowhere.
 
 ## What the AI Can Do
 
-- Answer questions and have conversations
-- Look things up on the web (search tool)
-- Check the weather
-- Tell you the time and date
-- Set reminders
-- Interact with other parts of the app (home inventory, maps, etc.)
+When a question needs more than a chat, the AI reaches for the right tool on its own. It can:
+
+- Answer questions and have a normal conversation
+- Look things up on the web
+- Check the weather and what to wear
+- Tell you the time, date, or how many days until something
+- Do math and convert units
+- Look up a word's meaning
+- Find recipes and YouTube videos
+- Check sports scores, the news, and local events near you
+- Tell you if a movie or show is appropriate for your kids
+- Create an image from a description
+- Control your smart home (lights, thermostat, locks, and more)
+- Work with other parts of the app, like your home inventory
+
+You do not have to know which tool to ask for. Just say what you want in plain language.
 
 ## Companions
 
-You can choose which companion is active from your profile settings. Each companion has its own personality, voice, and look. The active companion appears as a floating overlay alongside the chat.
+Your companion is available everywhere in the app through the bar at the bottom of the screen, not only on the Chat page. Each companion has its own personality, voice, and look, and the one you have chosen is who you are talking to by default.
+
+You can switch companions from your profile or the companion picker. The Chat page is the place to go when you want to save a conversation or organize work into projects.
 
 ## Tips
 
-- **Short messages get short answers**: the AI is tuned to be concise. Ask for more detail if you want it.
+- **Keep going where you left off**: if you switch pages or close the tab mid-answer, the AI keeps thinking. Come back and the reply is waiting.
 - **"Tell me more"**: always works to expand on the previous response.
-- **Tool calls take longer**: when the AI needs to look something up or use a tool, expect a few extra seconds.
-- **Conversation history**: each conversation is saved. You can start a new one or continue a previous one from the conversation list.
+- **Tool calls take a moment**: when the AI looks something up or controls something, expect a few extra seconds.
+- **Stop any time**: hit stop to cut a response short. Whatever was written so far stays.
+- **Citations**: when the AI looks something up, you will see small numbered links you can tap to check the source.

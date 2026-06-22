@@ -7,21 +7,28 @@ sidebar:
 
 ## Prerequisites
 
-- **Bun** (package manager and runtime, not npm/yarn)
-- **Ollama** running locally
-- **ComfyUI** (for image generation work)
+- **Bun**, package manager and runtime (not npm/yarn). `run.sh` auto-installs it on first run if missing.
+- **Ollama**, the app can install/manage it, but having it running locally helps.
+- **ComfyUI** is installed by the app itself (it manages a Python runtime), no manual setup needed for image-gen work.
 
 ---
 
-## Setup
+## Running
 
 ```bash
-# Install all dependencies
-bun install
-
-# Start the app (backend + frontend dev server)
 ./run.sh
 ```
+
+`run.sh` installs Bun if absent, then starts the backend (`backend/`, `bun run dev`, Hono on port 3000) and the frontend (`frontend/`, `bun run dev`, Vite on port 5173), running `bun install` per package if `node_modules` is missing. It opens the browser at `http://localhost:5173`, and on exit unloads Ollama models from VRAM. `./run.sh --uninstall` removes app data, models, and ComfyUI/Ollama after a typed confirmation.
+
+The two dev servers can also be run by hand:
+
+```bash
+cd backend && bun run dev      # bun run --hot src/index.ts
+cd frontend && bun run dev     # vite
+```
+
+There is no automated test suite. The bar for "done" is that both builds pass.
 
 ---
 
@@ -29,7 +36,7 @@ bun install
 
 After any **frontend** change:
 ```bash
-cd frontend && npx vite build
+cd frontend && bun run build   # tsc -b && vite build
 ```
 
 After any **backend** change:
@@ -37,7 +44,7 @@ After any **backend** change:
 bun build --target=bun backend/src/index.ts
 ```
 
-Both must exit 0 before a change is done. Never rely on `tsc --noEmit` alone, Vite's Babel transform catches additional JSX/TSX errors that TypeScript misses.
+Both must exit 0 before a change is done. Never rely on `tsc --noEmit` alone, Vite's transform catches additional JSX/TSX errors that TypeScript misses.
 
 ---
 
@@ -50,10 +57,11 @@ Both must exit 0 before a change is done. Never rely on `tsc --noEmit` alone, Vi
 - Components in `shared/`: extend before duplicating; update `agents.md` catalog when adding
 
 ### Backend
-- Use `bun:sqlite` (not better-sqlite3 or node:sqlite)
-- All IDs via `ulid()`, not auto-increment
+- Use `bun:sqlite` (not better-sqlite3 or node:sqlite) via Drizzle (`backend/src/db/schema.ts`)
+- Schema changes: edit `schema.ts` **and** mirror an idempotent statement in `runMigrations()` (`backend/src/db/index.ts`). Do not rely on `drizzle-kit generate`
 - Proxy all AI calls, keys and Ollama URLs never reach the browser
 - Add `think: false` to every Ollama request body
+- Guard routes with `requireAuth` (or `requireAdmin`) from `backend/src/middleware/auth.ts`
 
 ### SSE Streaming
 - Use Hono's `streamSSE` helper

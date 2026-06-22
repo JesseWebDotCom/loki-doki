@@ -55,6 +55,11 @@ Everything that can run locally does. Chat, image and video generation, voice, m
 - **[Navigate offline](../features/maps/)**: maps with turn-by-turn routing, no data plan needed
 - **[Track your home](../features/home-inventory/)**: appliances, devices, service history, and warranty alerts
 - **[Control your home](../features/home-assistant/)**: turn off the lights, lock the door, or set a room's brightness by just asking, through your own Home Assistant
+- **[Watch YouTube privately](../features/youtube/)**: search and watch with no Google account and nothing phoning home, with a personal library
+- **[Make podcasts](../features/podcasts/)**: turn an article or video into an AI-generated audio show in voices you choose
+- **[Generate music](../features/music/)**: render tracks and stingers entirely offline in the browser
+- **[Open the Today dashboard](../features/today/)**: news, sports, weather, on-this-day history, holidays, and local events in one place
+- **[Add and remove apps](../features/app-store/)**: the admin installs exactly the apps your household wants, with install-time disclosure instead of hidden data collection
 
 ## Getting Started
 

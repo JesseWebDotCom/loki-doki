@@ -209,7 +209,7 @@ A browser opens at `http://localhost:5173`. The setup wizard creates your admin 
 <p align="center">
   <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Ollama-000000?style=for-the-badge&logoColor=white" alt="Ollama" />
-  <img src="https://img.shields.io/badge/Stable_Diffusion-FF6B35?style=for-the-badge&logoColor=white" alt="sd.cpp" />
+  <img src="https://img.shields.io/badge/ComfyUI-FF6B35?style=for-the-badge&logoColor=white" alt="ComfyUI" />
   <img src="https://img.shields.io/badge/Whisper-00A67E?style=for-the-badge&logoColor=white" alt="Whisper" />
   <img src="https://img.shields.io/badge/MapLibre-396CB2?style=for-the-badge&logoColor=white" alt="MapLibre" />
 </p>

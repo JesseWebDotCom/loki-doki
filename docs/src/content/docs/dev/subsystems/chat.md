@@ -1,320 +1,271 @@
 ---
 title: Chat & Routing
-description: Chat pipeline architecture, latency optimizations, three-tier router, and tuning rules.
+description: The chat pipeline, semantic router, tool calling, memory, SSE streaming contract, and the message-render performance rules.
 sidebar:
   order: 1
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-This page covers every latency-related decision in the chat pipeline: what was changed, why, and what to watch for. Keep it updated when the pipeline changes.
+This page covers the chat subsystem end to end: how a message flows from the browser to Ollama and back, how the router decides whether to call a tool, how long-term memory is recalled, and the two performance contracts (server-side streaming and client-side rendering) that keep it fast. Keep it updated when the pipeline changes.
 
----
-
-## The Chat Pipeline
+## High-Level Flow
 
 ```
-User sends message
-  └─ 1. Prefs + companion load (parallel)
-  └─ 2. Load conversation history (trimmed to token budget)
-  └─ 3. Routing + memory embed (parallel)
-       ├─ Router: cosine similarity → T0 / T1 / T2
-       └─ Memory: embed → recall → format block
-  └─ 4. Tool execution (if routed)
-  └─ 5. Build system prompt
-  └─ 6. ollamaChatStream → SSE tokens to browser
+Browser (ChatContext.submit)
+  └─ POST /api/chat/stream
+       └─ chat.ts: load prefs + companion + content ceilings (parallel)
+       └─ resolve content dials, model, options, conversation
+       └─ enqueue a genQueue job (decouples generation from the connection)
+       └─ stream a `gen` event, then tail the job over SSE
+            └─ makeChatRun closure (runs inside genQueue):
+                 ├─ persist user message (fire-and-forget)
+                 ├─ routing + memory recall (parallel)
+                 ├─ tool execute (if routed) → emit block / sources / tool_data
+                 │    └─ snappy path: directReply → emit + done, skip the LLM
+                 ├─ build system prompt (content + date + companion + memory + UI)
+                 └─ ollamaChatStream → emit `token` events → persist final message
 ```
 
-Timing is logged on every request via `[CHAT-TIMING]` lines. Use these to diagnose regressions.
+Every stage is timed. Look for `[CHAT-TIMING] <label> +<ms>ms` lines to diagnose regressions.
 
----
+Key files:
 
-## Three-Tier Router Architecture
+- `backend/src/routes/chat.ts`: the HTTP endpoints and the `makeChatRun` pipeline
+- `backend/src/lib/genQueue.ts`: the generation queue (decouples work from the socket)
+- `backend/src/llm/router.ts`: the two-tier semantic router
+- `backend/src/llm/ollama.ts`: the raw-TCP streaming client
+- `backend/src/memory/recall.ts` + `backend/src/memory/sweep.ts`: recall and the background memory writer
+- `backend/src/tools/index.ts`: the tool registry
+- `frontend/src/context/ChatContext.tsx`: the client stream consumer
+- `frontend/src/components/chat/MessageList.tsx` + `ChatMessage.tsx`: the render contract
 
-**File:** `backend/src/llm/router.ts`
+## Routes
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/chat/conversations` | List the caller's conversations (optionally filtered by `projectId`); each row carries a `preview` of the last message. |
+| `GET` | `/api/chat/conversations/:id` | One conversation plus its full message list (ownership enforced). |
+| `PATCH` | `/api/chat/conversations/:id` | Rename or pin/unpin. |
+| `DELETE` | `/api/chat/conversations/:id` | Delete a conversation (cascades to messages). |
+| `POST` | `/api/chat/stream` | Start a generation. Returns an SSE stream. |
+| `GET` | `/api/chat/stream/:genId?since=N` | Reconnect to an in-flight or recently finished generation, replaying from sequence `N`. |
+| `POST` | `/api/chat/stream/:genId/cancel` | Actually stop server-side generation and free the queue slot. |
+
+All routes require auth (`requireAuth`). The stream endpoints set `X-Accel-Buffering: no` so a reverse proxy does not buffer the SSE body.
+
+## genQueue: Generation Outlives the Connection
+
+`POST /api/chat/stream` does not run the model inline. It builds a `run` closure and hands it to `genQueue.enqueue({ type: 'chat', ... })`, then the HTTP handler just subscribes to that job and tails its event buffer.
+
+This matters because **disconnecting is never a stop signal**. The job runs to completion whether or not a browser is attached. Consequences:
+
+- Tokens are buffered in memory on the job (`job.events`, capped at `MAX_BUFFER`), each with a monotonic `seq`. A client that navigates away and comes back reconnects with `GET /api/chat/stream/:genId?since=<lastSeq>` and replays only what it missed.
+- To actually halt generation you must `POST .../cancel` (the client's `stop()` does this). Dropping the socket alone leaves the job running by design.
+- Jobs are garbage-collected `GC_DELAY_MS` (60s) after they finish. A reconnect after that returns 404, and the client falls back to `GET /conversations/:id` for the persisted final message.
+- Per-type FIFO lanes with concurrency limits (`DEFAULT_LIMITS` chat 2 / image 1 / vision 1, overridable via `queue.*` app settings). One user may have at most `MAX_CHAT_WAITING_PER_USER` (3) chat jobs *waiting*; exceeding that returns HTTP 429.
+
+`subscribeAndTail()` is the shared catch-up + live-tail primitive: it subscribes the live listener first, replays buffered events `>= sinceSeq` through a serial write chain, and unsubscribes (without aborting) on disconnect.
+
+## SSE Event Contract
+
+The stream is a sequence of named SSE events. Each carries an `id:` equal to the job's `seq` (the cursor used for resume). Event names and payloads:
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `gen` | `{ genId, conversationId, assistantMessageId }` | First event. The client stores these to reconnect later and to correlate the placeholder message with the server's real message id. |
+| `queue` | `{ position, type }` | Queue position. `0` = a slot was acquired and work is starting. |
+| `routing` | `{ tool }` | A tool was selected and is about to run. |
+| `tool_data` | `{ tool, data }` | Raw tool result (consumed mainly for debugging/blocks). |
+| `block` | a `Block` object | A structured render block (weather card, search results, etc.) to show above the prose. |
+| `sources` | `Source[]` | Citation sources; rendered as inline `[1]` chips. |
+| `offline` | `{ tool }` | The routed tool needs the internet but offline mode is on. |
+| `tool_error` | `{ tool, error }` | The tool ran but failed; the model is told to acknowledge it. |
+| `token` | raw text (not JSON) | One chunk of generated prose. Concatenate in order. |
+| `done` | `{ model, conversationId, title }` | Generation finished; final message is persisted. Terminal. |
+| `error` | error string | Generation failed. Terminal. |
+| `cancelled` | `{ jobId }` | The job was cancelled. Terminal. |
+
+<Aside type="note">
+`token` data is the literal text, not JSON, so a token can contain any character. The client's SSE parser treats `token` specially and never `JSON.parse`s it.
+</Aside>
+
+## The Router (Two-Tier)
+
+**File:** `backend/src/llm/router.ts`. The router answers one question: should this message call a tool, and if so, which one and with what arguments?
+
+It uses a dedicated embedding model, `all-minilm` (`ROUTER_EMBED_MODEL`), distinct from the `nomic-embed-text` model used for memory recall. nomic's compressed similarity space does not threshold cleanly; all-minilm gives a wider spread between conversational and tool-intent messages.
 
 ```
-Message arrives
-  └─ Embed with all-minilm (router embed model)
-  └─ Cosine similarity against all tool examples
-  └─ Score < 0.40 → T0: Conversational (no LLM call)
-  └─ Score 0.40–0.65 → T2: Ambiguous (granite4.1:3b LLM call, top-3 candidates)
-  └─ Score ≥ 0.65 → T1: Confident match
-       ├─ passMessage tool → direct passthrough (no LLM call)
-       └─ non-passthrough → T2 narrowed to 1 candidate (arg extraction only)
+routePrompt(message, history, model)
+  └─ GREETING_RE matches ("hi", "thanks", "ok", …) → no tool (skip everything)
+  └─ SEARCH_INTENT_RE matches ("what is X", "who is X", "look up X", …) → search tool, pass message verbatim (skip the embed)
+  └─ embed message with all-minilm, cosine vs every tool's example embeddings
+       ├─ best ≥ 0.65  → Tier 1 (confident)
+       │     ├─ passMessage tool → pass raw message as the arg, no LLM call
+       │     └─ otherwise → narrowed Tier 2: one candidate, LLM extracts args only
+       ├─ best < 0.40  → conversational, no tool (skip Tier 2)
+       └─ 0.40–0.65    → Tier 2: LLM picks from top-5 candidates (search always injected)
 ```
 
-**Thresholds:**
+Thresholds:
+
 ```typescript
-const CONVERSATIONAL_MAX = 0.40   // below = definitely not a tool call
-const SIMILARITY_THRESHOLD = 0.65 // at/above = confident tool match
+const SIMILARITY_THRESHOLD = 0.65       // at/above = confident Tier 1
+const CONVERSATIONAL_THRESHOLD = 0.40   // below = clearly not a tool request
+const TIER2_TOP_N = 5                    // candidates handed to the Tier 2 LLM
 ```
 
-**Tuning:** Observe `[ROUTER]` logs. Each line includes the top-3 cosine scores. If a tool call is missed (score below 0.40), the tool's example phrases need more natural language variations.
-
----
-
-## Fix 1, KV Cache Warmup Prefix Must Match Chat Exactly
-
-**File:** `backend/src/lib/models.ts` → `warmupModel()`
-
-At startup we pre-warm the LLM with a dummy `"hi"` message so the first real message doesn't pay cold-load tax (~1–2s). The warmup system prompt **must be byte-for-byte identical** to the prefix every real chat message uses, or llama.cpp's KV cache misses and re-prefills the entire context.
-
-**Correct warmup message:**
-```typescript
-{ role: 'system', content: `Today is ${dateStr}. Be concise — 1 to 3 sentences unless the user asks for more detail.` }
-```
-
-**What breaks the cache:** adding/removing words; including current time (changes every minute); including per-user memory or companion prompt.
+Tier 2 (`tier2Call`) sends the candidate tools' `toolDefinition`s to Ollama as function definitions, plus a `TIER2_SYSTEM` prompt of per-tool selection rules and the last `TIER2_HISTORY_LIMIT` (10) messages for context, then reads back `response.message.tool_calls[0]`. It runs on a dedicated router model when one is configured (`router_llm_model` app setting or `ROUTER_MODEL` env var, e.g. `granite4.1:3b`), falling back to the chat model. A separate router model gets its own KV cache so it does not pollute the chat model's.
 
 <Aside type="caution">
-If you change the system prompt prefix in `chat.ts`, update `warmupModel()` to match. A drift causes 4–6s first-message latency on every conversation.
+`SEARCH_INTENT_RE` fires unconditionally with no score gate. `all-minilm` scores phrasings like "what is X" low regardless of tool examples, so a score threshold would silently break topic queries. Do not add one back.
 </Aside>
 
----
+### Tool examples are capability descriptions
 
-## Fix 2, TCP noDelay: Disable macOS Delayed ACK
+Each tool's `examples` array (embedded at startup) should describe what the tool *does*, not transcribe what a user *says*. Capability descriptions ("find information about any topic, person, or concept online") generalize across phrasings; literal utterances ("what is covid") overfit.
 
-**File:** `backend/src/llm/ollama.ts` → `ollamaChatStream()`
+`initRouter()` embeds every example in parallel and caches the index to `data/router-index.json`, keyed by a SHA-256 hash of all example text (`examplesHash()`). Changing any example invalidates the cache automatically; an unchanged restart skips all embed calls.
 
-Replaced Bun's HTTP client with a raw `node:net` TCP socket using `noDelay: true`:
+### The tool registry
 
-```typescript
-const sock = createConnection({ host, port, noDelay: true })
-```
+**File:** `backend/src/tools/index.ts`. Tools implement the `Tool` interface (`id`, `name`, `examples`, `toolDefinition`, `offline`, optional `passMessage`, `dataSources`, `execute`). Registered tools:
 
-macOS has a 200ms delayed-ACK timer. Without `noDelay`, the kernel waits for ACKs to batch before sending more data. `noDelay` disables Nagle's algorithm on our socket, which also suppresses the delayed-ACK wait on the Ollama side.
+`weather`, `search`, `calculator`, `unit_conversion`, `jokes`, `news`, `recipes`, `dictionary`, `youtube`, `tvshows`, `datetime`, `moonphase`, `image_gen`, `medical`, `whereToWatch`, `holidays`, `homeInventory`, `onthisday`, `localEvents`, `localNews`, `contentRating`, `sports`, `homeAssistant`.
 
-**Diagnostic:** After every stream, the log emits:
-```
-[OLLAMA-TCP] tcp_segs=N ndjson_chunks=M
-```
-- `tcp_segs ≈ ndjson_chunks` → true per-token streaming
-- `tcp_segs << ndjson_chunks` → Ollama is batching internally
+`ToolResult` carries `success`, `data`, and optionally `error`, `offline`, or `directReply`. A `directReply` triggers the **snappy path**: the chat pipeline speaks that text verbatim and skips LLM synthesis entirely (used by Home Assistant, whose action confirmations are already finished sentences).
 
----
+Per-tool gating happens at run time: `isToolAllowed(tool.id, userId)` can disable a tool for a user, and `tool.offline === false` plus `isOffline(userId)` short-circuits to an "offline" message instead of executing.
 
-## Fix 3, Disable Model Thinking Mode
+## System Prompt Assembly
 
-**File:** `backend/src/llm/ollama.ts`
+The system message is assembled in `makeChatRun` from `systemParts`, joined with blank lines, in this order:
 
-Add `think: false` to every Ollama request body:
-```typescript
-JSON.stringify({ model, messages, stream: true, keep_alive: -1, options, think: false })
-```
+1. `buildContentPrompt(activeDials)`: the content-policy preamble (see the content-policy subsystem).
+2. The stable line: `Today is <date>.`, plus `You are speaking with <name>.`, location, and a friendship line for companions; followed by the locale block.
+3. The companion personality prompt (`buildCompanionPrompt`), if a character is active.
+4. The memory block, if any (see below).
+5. The UI context block (`uiContext`), if the page sent one.
+6. The interaction-style fragment (language / depth / candor).
 
-Without this, thinking models (Gemma 4, etc.) spend hidden reasoning tokens before any visible output. Those tokens count toward `num_predict` but don't appear in `chunk.message.content`. With a 100-token cap, the model can exhaust the budget on reasoning and produce zero visible output, the response silently disappears.
+Order is chosen so the longest-lived, most-shared prefixes come first, which lets Ollama reuse its KV cache across turns. `prompt_eval_duration=0` in the final chunk (logged as `prefill=0(cached)`) means a perfect KV cache hit.
 
----
+## Memory
 
-## Fix 4, Token Ceiling (num_predict)
+Long-term memory has two halves: **recall** on the request path and a **background writer** that never touches it.
 
-**File:** `backend/src/routes/chat.ts`
+### Recall (`backend/src/memory/recall.ts`)
 
-`num_predict` is a **ceiling, not a target.** The model stops at natural completion or the cap, whichever comes first.
+`recallMemories()` does an entity-first deterministic pass followed by a vector pass:
 
-| Message type | Cap | Rationale |
-|---|---|---|
-| Short conversational (≤20 chars) | 60 tokens | Model ignores brevity for greetings, cap enforces it |
-| Everything else | 2048 tokens | Ceiling only, model stops when done; never cuts off |
+- **Entity pass:** tokenize the prompt, match tokens against `entities.name` + aliases, and load *all* active memories linked to matched entities regardless of cosine score. This guarantees "would Artie like this?" surfaces Artie's facts even after months of silence.
+- **Vector pass:** cosine over the remaining memories (embedded with `nomic-embed-text`). Durable memories score `1.0` for recency; episodic memories use `score = 0.7·cosine + 0.2·importanceNorm + 0.1·recency`. Pinned memories are always included.
 
-```typescript
-if (!tool && message.trim().length <= 20) {
-  options['num_predict'] = Math.min(options['num_predict'] as number, 60)
-}
-```
-
-At 60 tok/s generation speed, the 60-token cap means ~1s max for short messages. The reason for the cap: without it, Ollama's internal batch size (`n_batch ≈ 512`) causes all tokens to be generated before any TCP flush, making first-token latency equal total generation time.
-
----
-
-## Fix 5, Per-Conversation Memory Cache
-
-**File:** `backend/src/routes/chat.ts`
-
-```typescript
-const CONV_MEM_TTL_MS = 30 * 60 * 1000
-const convMemCache = new Map<string, MemCacheEntry>()
-```
-
-- **Turn 1:** Embed + recall in parallel with routing. Cache result.
-- **Turn 2+:** Instant cache hit. Memory block is stable → system prompt prefix is stable → KV cache hits.
-
-The 30-minute TTL aligns with the background memory sweep (adds new memories after 5+ min idle).
-
----
-
-## Fix 6, Dedicated T2 Router Model (granite4.1:3b)
-
-**Files:** `backend/src/lib/router.ts`, `backend/src/lib/models.ts`
-
-T2 routing previously used the main 12B chat model. This caused blocking, higher latency (~3s), and KV cache pollution.
-
-**Solution:** Separate router model (`granite4.1:3b`, IBM, 2.1GB):
-- 93% routing accuracy, ~1.8s T2 average
-- Own KV cache, doesn't interfere with chat model
-- Configured via DB setting `router_llm_model` or `ROUTER_MODEL` env var
-
-**Selection rationale:** `gemma3:4b` scored 37% (doesn't call tools); all Qwen variants excluded by design (Chinese origin).
-
----
-
-## Fix 7, Search Intent Regex Bypass
-
-**File:** `backend/src/llm/router.ts`
-
-`all-minilm` scores "what is X", "who is X", "tell me about X" at ~0.20 regardless of tool descriptions. A regex matches these patterns deterministically before the embed call:
-
-```typescript
-const SEARCH_INTENT_RE = /\b(what is|what are|what was|what were|who is|who was|who are|tell me about|explain to me|how does|how do|how did|have you heard of|do you know about|what happened to|what's up with)\b/i
-```
-
-If it matches, the message goes straight to search passthrough with no embed call.
-
-<Aside type="danger">
-Do not add a score threshold back. The regex fires unconditionally because all-minilm scores "what is X" at ~0.20 regardless of examples. A score gate silently breaks all topic queries.
-</Aside>
-
----
-
-## Fix 8, Tool Examples → Capability Descriptions
-
-**Files:** all `backend/src/tools/*.ts`
-
-Tool examples are **capability descriptions** (what the tool *does*), not user utterances (what users *say*):
-
-```typescript
-// Correct — capability descriptions:
-'find information about any topic, person, company, or concept online',
-'look up what something is or who someone is',
-
-// Wrong — user utterances (do not revert):
-'what is red letter media',
-'what is covid',
-```
-
-Capability descriptions generalize to any user phrasing because the semantic match is between user intent and tool purpose, not two specific sentences.
-
-**Startup:** `initRouter()` embeds all examples in parallel and caches to `data/router-index.json`, keyed by a hash of all example text. Automatically invalidated when tool examples change.
-
----
-
-## Fix 9, Memory Block: Don't Volunteer Facts Unprompted
-
-**File:** `backend/src/memory/recall.ts`
-
-The memory block uses an intentionally explicit instruction:
+`formatMemoriesForPrompt()` sections the result into "Core facts", "People & places", "Remembered context", and "Past conversations" (episode summaries), capped at `PROMPT_CHAR_BUDGET` (1200 chars). The block opens with an explicit instruction:
 
 ```
 [Background context about the user. Use ONLY when directly relevant to what the user just asked.
-Never mention, reference, or hint at these facts unprompted — especially not in greetings or small talk.
-Do not say "I know you like X" or "since you enjoy Y". Wait for the user to raise a topic before using any of this.]
+Never mention, reference, or hint at these facts unprompted — especially not in greetings or small talk…]
 ```
 
-Softening this wording causes the model to volunteer memories in greetings ("Are you in the mood to talk about Tom Petty?").
+<Aside type="caution">
+That wording is deliberate. Softening it makes the model volunteer memories in greetings ("Are you in the mood to talk about Tom Petty?"). Do not paraphrase it loosely.
+</Aside>
 
----
+### Per-conversation block cache (`backend/src/memory/blockCache.ts`)
 
-## Fix 10, datetime Tool: current_time Operation
+Recall (embed → vector search → format) gates time-to-first-token because the block must be in the system prompt before generation starts. It is cached per conversation for `MEMORY_BLOCK_TTL_MS` (30 min):
 
-**File:** `backend/src/tools/datetime.ts`
+- **Turn 1:** embed + recall run in parallel with routing, then the result is cached.
+- **Turn 2+:** cache hit, instant. The stable block keeps the system-prompt prefix byte-identical, which is what lets Ollama's KV cache hit.
 
-Added `current_time` operation (no args required):
+The 30-minute TTL aligns with the background sweep's idle window so memories written by the sweep are picked up on the next cold recall.
 
-```typescript
-case 'current_time': {
-  const timeStr = shortTime(now)
-  const dateStr = longDate(now)
-  return { success: true, data: { time: timeStr, date: dateStr, answer_payload: { gist: `${timeStr} — ${dateStr}` } } }
-}
-```
+### The writer (`backend/src/memory/sweep.ts`)
 
-Without this, "what time is it" routed to the datetime tool but the tool had no argless operation, the LLM asked the user for their timezone.
+Memory is **never** extracted on the request path. `startMemorySweep()` runs two background intervals:
 
----
+- **Judge sweep** (every 5 min): finds conversations whose last message is older than the 5-minute idle threshold and newer than `memoryProcessedThrough`, feeds the unprocessed span to `runJudge` (LLM fact extraction + entity upsert), advances the cursor, and generates an episode summary once a conversation passes `EPISODE_MESSAGE_THRESHOLD` (20 messages).
+- **Maintenance sweep** (every hour, plus once 30s after boot): decay scoring and archival.
 
-## History Token Budget
+`triggerJudgeForConversation()` exists to extract immediately on an explicit close, fire-and-forget. Neither job blocks chat; failures are logged, never surfaced.
 
-**File:** `backend/src/routes/chat.ts`
+## Structured Output
 
-```typescript
-const TOKEN_HISTORY_BUDGET = 800
-```
+**File:** `backend/src/llm/structured.ts`. `structuredCall<T>()` wraps any LLM call that must return parseable JSON: it prepends a strict English-only JSON system instruction, runs at `temperature 0.1`, extracts the first JSON object/array from the response, and retries once with a correction prompt on a parse failure. The judge and several tools use it; the main chat stream does not.
 
-We load the last 40 messages but trim to 800 tokens. At ~1.5 tok/ms prefill, 800 tokens ≈ 533ms. Older context is covered by the memory system. Raising above 1200 adds perceptible prefill delay per turn. Always keep at least 4 messages (2 turns) regardless of budget.
+## The Streaming Client (`ollama.ts`)
 
----
+`ollamaChatStream()` bypasses Bun's HTTP stack and speaks HTTP/1.1 over a raw `node:net` socket with `noDelay: true`. Both Bun's `fetch` and its `node:http` compat layer buffer most of a generation before emitting anything; a raw socket fires `data` per TCP segment, giving true per-token streaming. `noDelay` also disables Nagle and suppresses the macOS 200ms delayed-ACK that otherwise lets the remote batch tokens.
 
-## System Prompt Stability Rules
+- Every request sends `think: false`. Thinking models (Gemma and others) otherwise spend hidden reasoning tokens that count against `num_predict` but never appear in `message.content`, which can produce a silent/empty response under a low cap.
+- HTTPS endpoints fall back to `node:http` (`nodeHttpChatStream`) because raw-TCP TLS needs cert config.
+- Two-phase timeouts: a generous first-byte deadline (`OLLAMA_FIRST_BYTE_MS`, 300s) covers a cold VRAM load, then a tight idle timeout (`OLLAMA_STREAM_IDLE_MS`, 60s) bounds a mid-stream stall.
+- After each stream the log emits `[OLLAMA-TCP] tcp_segs=N ndjson_chunks=M`. `tcp_segs ≈ ndjson_chunks` is true per-token streaming; `tcp_segs << ndjson_chunks` means tokens are being batched.
 
-```
-1. Date prefix + brevity instruction  ← STABLE (24h)
-2. Companion personality prompt        ← varies per companion
-3. Memory block                        ← stable within conversation (cached)
-4. UI context                          ← varies per page/feature
-```
+### Token ceiling
 
-`prompt_eval_duration=0` in the done chunk means a perfect KV cache hit, zero prefill. This is the ideal state for turns 2+ in a conversation.
+`num_predict` is a **ceiling, not a target**: the model stops at natural completion or the cap, whichever comes first. It defaults to the user's `max_tokens` preference or `2048` (set in `chat.ts`). `num_ctx` comes from the `ctx_limit` preference (default `4096`), and `temperature` from `temperature` (default `0.7`).
 
----
+### Warmup
 
-## Observed Performance (June 2026)
+`warmupModel()` (`backend/src/lib/models.ts`) pre-loads the chat model, both embedding models, and the router model into VRAM at boot with `keep_alive: -1`, then calls `initRouter()`. It primes the chat model with a short system+`"hi"` exchange so the first real turn does not pay full cold-load tax.
 
-**Model:** huihui_ai/gemma-4-abliterated:latest (12B), Apple Silicon
+<Aside type="caution">
+The warmup system message and the prefix `chat.ts` actually builds are not byte-identical today (chat leads with the content-policy preamble and a richer date line). Warmup still loads the model into VRAM and primes the date-shaped prefix, but do not assume a guaranteed turn-1 KV cache hit. If you want a true turn-1 cache hit, the warmup prefix and the first `systemParts` entries in `chat.ts` must match exactly.
+</Aside>
 
-| Scenario | First-token | Total |
-|---|---|---|
-| "hi" (KV cache hit, turn 2+) | 230–480ms | 400–650ms |
-| "hi" (turn 1, cold KV) | 500–700ms | 700–1100ms |
-| Factual conversational | 200–900ms | 1.5–2.5s |
-| Tool call (T2 route + execute + synth) | 5–8s | 7–10s |
-| T2 route only (granite4.1:3b) |, | 1.8–2.8s |
+## Client Render Contracts
 
----
+Two contracts in the frontend keep streaming smooth. Both live in `frontend/src/context/ChatContext.tsx` and `frontend/src/components/chat/`.
+
+### 1. RAF-batched token application
+
+`token` events arrive faster than React should re-render. `ChatContext` accumulates incoming tokens in `tokenBufRef` and flushes them with a single `setMessages` per animation frame (`requestAnimationFrame`). This fixes the "everything appears at once" symptom on fast models and avoids one render per token. The buffer is force-flushed on `done`, `stop`, and `error` so no trailing text is lost.
+
+### 2. Memoized messages + scroll-to-top on generation start
+
+- `ChatMessage` is wrapped in `React.memo`. Only the streaming (last) message changes its `content` each frame, so memoization keeps every earlier message from re-rendering on every token.
+- `MessageList` (`MessageList.tsx`) does **not** simply follow the bottom. On generation start it sizes a spacer below the latest turn and scrolls so the **user's prompt pins to the top** of the viewport while the answer types out underneath. The spacer shrinks as the response grows; once the turn is taller than the viewport the spacer is 0 and normal bottom-following resumes. Auto-follow is suppressed if the user has scrolled up to read earlier content (`atBottomRef`).
+
+<Aside type="caution">
+Do not replace the spacer logic with a naive "scroll to bottom on each token". The scroll-to-top-of-turn behavior is the intended UX, and re-introducing per-token bottom scroll fights the RAF batch and jitters the view.
+</Aside>
+
+## Companions & Conversations
+
+A chat may be bound to a `characterId` (companion). When set, `chat.ts` loads the character, builds its personality prompt, records the user→character grant in `userCharacters`, and on first meeting writes a durable "first met" memory so the companion recalls it naturally later. The composer defaults `characterId` to the active companion (`getActiveCompanionId()`), so chatting from the main input talks to the selected companion with their persona and voice.
+
+Conversations get an auto-generated 3-5 word title (`generateConversationTitle`) after the first turn finishes (model already warm, so latency is minimal). Conversations can be pinned and filed under a `projectId`.
+
+## Admin Benchmarks
+
+| Endpoint | What it measures |
+|---|---|
+| `GET /api/admin/chat-benchmark/stream` | Per-stage latency (bare LLM, +system, +memory, +history, routing, KV cache hits) via SSE. |
+| `GET /api/admin/router-benchmark/stream?model=MODEL` | Router accuracy + speed across natural-language variations per tool. |
 
 ## What NOT to Change Without Re-Testing
 
-1. **Warmup system prompt**: must stay in sync with `chat.ts` prefix or KV cache misses on every first turn
-2. **`think: false`**, removing re-enables thinking mode; hidden tokens exhaust `num_predict` → silent responses
-3. **`CONVERSATIONAL_MAX = 0.40`**, "hi" scores ~0.265; anything above that breaks greetings
-4. **`SEARCH_INTENT_RE`**, do not add a score threshold back
-5. **Tool `examples` arrays**, they are capability descriptions, not utterances; do not revert
-6. **Memory block instruction**: the explicit wording is intentional; softening it causes Tom Petty problem
-7. **Memory cache TTL**: if lowered below the sweep idle window (5 min), re-computation breaks KV cache
-8. **History token budget**: raising above 1200 adds perceptible prefill delay per turn
-
----
+1. **`think: false`** in `ollama.ts`: removing it re-enables hidden reasoning that can exhaust `num_predict` and produce empty responses.
+2. **`SEARCH_INTENT_RE`**: no score gate; the regex itself is the gate.
+3. **`CONVERSATIONAL_THRESHOLD = 0.40` / `SIMILARITY_THRESHOLD = 0.65`**: re-tune only against the router benchmark.
+4. **Tool `examples`**: capability descriptions, not utterances.
+5. **The memory-block instruction wording**: softening it causes unprompted memory volunteering.
+6. **The memory block cache TTL**: lowering it below the sweep idle window breaks the KV-cache-stable prefix.
+7. **Disconnect-is-not-stop** in `genQueue`: closing the socket must never abort the job; only `/cancel` does.
+8. **The RAF token buffer and the spacer scroll** in the client: they are the two render contracts.
 
 ## Common Regression Patterns
 
 | Symptom | Likely cause |
 |---|---|
-| "hi" gets no response or empty response | `think: false` removed |
-| First message of every conversation slow (4–6s) | Warmup system prompt drifted from `chat.ts` prefix |
-| "what is X" answered from model knowledge (wrong) | `SEARCH_INTENT_RE` not matching or search tool disabled |
-| Model mentions memories in greetings | Memory block instruction weakened or removed |
-| All tools stop routing | `routeIndex.length === 0`, all-minilm failed to warm up |
-| T2 routing very slow (>4s) | granite4.1:3b not running; check `ROUTER_MODEL` env var |
-| Long responses cut off mid-sentence | `num_predict` cap hit, check user's `max_tokens` preference in DB |
-| Responses stream all at once | `noDelay: true` removed or switched back to `fetch`/`Bun.connect` |
-
----
-
-## Benchmark Tools
-
-### Chat Benchmark
-`GET /api/admin/chat-benchmark/stream`
-
-9 tests via SSE using `ollamaChat` (non-streaming for reliable timing). Reports Ollama's own prefill/generation/load breakdowns.
-
-Tests: bare LLM · +system · +memory · +history · +history+memory · routing T1 · routing T2 · KV cache 1st hit · KV cache 2nd hit
-
-### Router Benchmark
-`GET /api/admin/router-benchmark/stream?model=MODEL`
-
-30-test accuracy + speed benchmark. Natural language variations per tool. Scores tool selection correctness and arg extraction.
-
-### CLI Router Benchmark
-```bash
-cd backend && bun run ../scripts/router-bench.ts granite4.1:3b
-```
+| Empty / no response | `think: false` removed, or `num_predict` exhausted before content. |
+| Responses stream all at once | `noDelay` removed in `ollama.ts`, or the client RAF token buffer bypassed. |
+| "what is X" answered from model knowledge | `SEARCH_INTENT_RE` not matching, or the search tool disabled for the user. |
+| Model mentions memories in greetings | Memory-block instruction weakened. |
+| All tools stop routing | `routeIndex.length === 0` (all-minilm never warmed up). |
+| Tool routing very slow | Configured router model (`granite4.1:3b`) not installed/running; check `router_llm_model` / `ROUTER_MODEL`. |
+| Generation keeps running after the user leaves | Expected: only `/cancel` stops it; a dropped socket does not. |
+| Reconnect shows blank then jumps | Job was GC'd (>60s after done); client correctly fell back to the persisted message. |

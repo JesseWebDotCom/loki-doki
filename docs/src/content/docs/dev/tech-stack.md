@@ -22,7 +22,8 @@ Use `bun` everywhere, not `npm` or `yarn`.
 ### Core
 - **React 18**: UI library
 - **react-router-dom v6**: client-side routing
-- **TanStack Query**: data fetching, caching, background refetch
+- **TanStack Query (v5)**: data fetching, caching, background refetch
+- **motion (v12)**: animation
 
 ### Styling
 - **Tailwind CSS v4**: CSS-first config via `src/index.css` (no `tailwind.config.js`)
@@ -48,7 +49,19 @@ Never hardcode `violet-500` or the `primary` token for accent UI.
 - `clsx` + `tailwind-merge`, compose via `cn()` from `@/lib/cn`
 - `class-variance-authority`, variant-based component APIs
 - `lucide-react`, icon library (do not add others)
-- `dnd-kit`, drag-and-drop (`@dnd-kit/core`, `sortable`, `modifiers`, `utilities`)
+- `dnd-kit`, drag-and-drop (`@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`)
+- `sonner`, toasts
+- `react-markdown` + `remark-gfm` / `remark-math` / `rehype-katex` + `katex`, message rendering
+- `react-syntax-highlighter`, code blocks
+
+### Maps, avatars & in-browser AI
+- **maplibre-gl** + **pmtiles**, offline vector maps
+- **@dicebear/core** + **@dicebear/collection**, companion avatars
+- **onnxruntime-web**, in-browser OpenWakeWord (WASM); `scripts/copy-ort.mjs` copies the runtime assets on `predev` / `prebuild`
+- **openmoji**, emoji assets (copied via `scripts/copy-openmoji.mjs`)
+
+### Music engine (offline)
+- **tonal**, **@tonejs/midi**, **spessasynth_core** / **spessasynth_lib**, client-rendered podcast stinger/intro music from a soundfont
 
 ---
 
@@ -59,19 +72,30 @@ Never hardcode `violet-500` or the `primary` token for accent UI.
 - **Server-Sent Events (SSE)**: LLM token streaming, image progress, boot repair
 
 ### Database
-- **SQLite** via Bun's built-in `bun:sqlite` + **Drizzle ORM**
+- **SQLite** via Bun's built-in `bun:sqlite` + **Drizzle ORM** (`drizzle-orm`, dialect `bun-sqlite`)
 - PostgreSQL optional override via `DATABASE_URL` env var
+- Schema in `backend/src/db/schema.ts`; inline `runMigrations()` is authoritative (do not rely on `drizzle-kit generate`)
 
 ### Auth & Security
 - **Argon2id**: PIN hashing via `Bun.password.hash()` (no extra dep)
-- **Pepper**: `PIN_PEPPER_SECRET` env var (256-bit hex, never in DB)
-- **HttpOnly session cookies**: not JWT in localStorage (XSS-safe)
+- **Pepper**: `PIN_PEPPER_SECRET` env var; falls back to a generated value in `app_settings`
+- **HttpOnly cookie** named `session`: not JWT in localStorage (XSS-safe); only the token's SHA-256 hash is stored
+
+### Backend libraries
+- **hono**: HTTP framework
+- **pino** / **pino-pretty**: logging
+- **@huggingface/transformers** (3.8.x): Whisper STT inside the voice sidecar
+- **kokoro-js**: Kokoro TTS in the voice sidecar
+- **@openzim/libzim**: ZIM archive reads (alongside `kiwix-serve`)
+- **osm-pbf-parser**, **geotiff**: maps build/geocoding helpers
+- **chrono-node**: natural-language date parsing
+- **obscenity**: content filtering
 
 ### AI Integration
 - All AI calls proxied through backend, keys/URLs never reach the browser
 - **Ollama**: chat, routing, embeddings, vision
-- **ComfyUI** (headless, port 8188), image generation via workflow JSON
-- **Voice sidecar** (`backend/scripts/voice-server.ts`), Kokoro TTS + Whisper STT
+- **ComfyUI** (Python, headless, default port 8188), image generation via workflow JSON
+- **Voice sidecar** (Node worker spawned from `backend/scripts/voice-server.ts`), Kokoro TTS + Whisper STT in-process
 
 ---
 
@@ -79,15 +103,15 @@ Never hardcode `violet-500` or the `primary` token for accent UI.
 
 | Capability | Engine | Notes |
 |---|---|---|
-| Chat LLM | Ollama (any model) | Default: huihui_ai/gemma-4-abliterated:latest 12B |
-| Routing | all-minilm (embed) + granite4.1:3b (T2) | See [Chat & Routing](../subsystems/chat/) |
-| Embeddings (router) | all-minilm via Ollama | Tool intent matching, router index |
-| Embeddings (memory) | nomic-embed-text via Ollama | Memory/friendship semantic recall |
-| Vision | Ollama VLM | Structured JSON output |
-| TTS | Kokoro-82M | ONNX, sentence-chunked streaming, no Python |
-| STT | Whisper | Via transformers.js / onnxruntime-wasm |
-| Wakeword | OpenWakeWord | WASM in-browser |
-| Image gen | ComfyUI + Juggernaut XL | SDXL 1.0, LoRA support |
+| Chat LLM | Ollama (admin-selectable) | Catalog offers `mannix/llama3.1-8b-abliterated` and `huihui_ai/gemma-4-abliterated` (12B, built-in vision); code default is `llama3.1:8b` |
+| Routing (T1) | `all-minilm` (embed) | Cosine intent match, router index cached |
+| Routing (T2) | `granite4.1:3b` | Kept warm; extracts tool args when T1 is uncertain |
+| Embeddings (memory) | `nomic-embed-text` via Ollama | Memory/friendship semantic recall |
+| Vision | Ollama VLM | Built-in if chat model is vision-capable, else `gemma3:4b` |
+| TTS | Kokoro-82M (`kokoro-js`) | ONNX in the voice sidecar, sentence-chunked streaming |
+| STT | Whisper (`whisper-tiny.en`) | In the voice sidecar via `@huggingface/transformers` (not browser WASM) |
+| Wakeword | OpenWakeWord | `onnxruntime-web` WASM, in-browser |
+| Image gen | ComfyUI + Juggernaut XL Ragnarok | SDXL checkpoint; LoRA, face-ID, video, bg-remove add-ons |
 
 ---
 
@@ -95,7 +119,7 @@ Never hardcode `violet-500` or the `primary` token for accent UI.
 
 After any frontend change:
 ```bash
-cd frontend && npx vite build
+cd frontend && bun run build   # tsc -b && vite build
 ```
 
 After any backend change:
@@ -103,4 +127,4 @@ After any backend change:
 bun build --target=bun backend/src/index.ts
 ```
 
-Both must exit 0 before a change is considered done. `tsc --noEmit` passes but Vite's Babel transform catches additional JSX/TSX errors, never rely on `tsc` alone.
+Both must exit 0 before a change is considered done. `tsc --noEmit` passes but Vite's transform catches additional JSX/TSX errors, never rely on `tsc` alone.
