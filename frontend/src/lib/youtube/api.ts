@@ -145,12 +145,44 @@ export interface ChannelMeta {
   thumbnailUrl: string | null
   bannerUrl: string | null
   subscribers: string | null
+  videoCount: string | null
+  availableTabs: string[]
 }
 
 export interface ChannelPage {
   meta: ChannelMeta | null
   videos: ItVideo[]
   continuation: string | null
+}
+
+/** Video-bearing channel tabs (Videos / Shorts / Live) — all return the ChannelPage shape. */
+export type ChannelVideoTab = 'videos' | 'shorts' | 'live'
+
+export interface ChannelPlaylistItem {
+  playlistId: string
+  title: string
+  videoCount: number | null
+  thumbnailUrl: string | null
+  author: string | null
+  channelId: string | null
+}
+
+export interface ChannelPlaylistsPage {
+  meta: ChannelMeta | null
+  playlists: ChannelPlaylistItem[]
+  continuation: string | null
+}
+
+export interface ChannelLink { title: string; url: string }
+
+export interface ChannelAbout {
+  description: string | null
+  subscribers: string | null
+  videoCount: string | null
+  viewCount: string | null
+  joined: string | null
+  country: string | null
+  links: ChannelLink[]
 }
 
 export async function getTrending(limit = 30): Promise<ItVideo[]> {
@@ -163,10 +195,22 @@ export async function getPopular(limit = 30): Promise<ItVideo[]> {
   return (await r.json() as { videos: ItVideo[] }).videos ?? []
 }
 
-export async function getChannelPage(channelId: string, cursor?: string | null): Promise<ChannelPage> {
+export async function getChannelPage(channelId: string, cursor?: string | null, tab: ChannelVideoTab = 'videos'): Promise<ChannelPage> {
+  const base = `/api/youtube/channel/${encodeURIComponent(channelId)}${tab === 'videos' ? '' : `/${tab}`}`
   const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
-  const r = await fetch(`/api/youtube/channel/${encodeURIComponent(channelId)}${q}`, opts)
+  const r = await fetch(`${base}${q}`, opts)
   return r.json() as Promise<ChannelPage>
+}
+
+export async function getChannelPlaylists(channelId: string, cursor?: string | null): Promise<ChannelPlaylistsPage> {
+  const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+  const r = await fetch(`/api/youtube/channel/${encodeURIComponent(channelId)}/playlists${q}`, opts)
+  return r.json() as Promise<ChannelPlaylistsPage>
+}
+
+export async function getChannelAbout(channelId: string): Promise<ChannelAbout | null> {
+  const r = await fetch(`/api/youtube/channel/${encodeURIComponent(channelId)}/about`, opts)
+  return (await r.json() as { about: ChannelAbout | null }).about
 }
 
 export async function getRelated(videoId: string, limit = 20): Promise<ItVideo[]> {
@@ -239,10 +283,12 @@ export async function search(q: string, cursor?: string | null, type: SearchType
   return r.json() as Promise<SearchResponse>
 }
 
-/** Videos in a playlist (browse a playlist found via search). */
-export async function getPlaylist(playlistId: string): Promise<{ title: string | null; description?: string | null; videos: ItVideo[] }> {
+export interface PlaylistOwner { channelId: string | null; name: string | null; thumbnailUrl: string | null }
+
+/** Videos in a playlist (browse a playlist found via search), plus its owning channel. */
+export async function getPlaylist(playlistId: string): Promise<{ title: string | null; description?: string | null; owner?: PlaylistOwner | null; videos: ItVideo[] }> {
   const r = await fetch(`/api/youtube/playlist/${encodeURIComponent(playlistId)}`, opts)
-  return r.json() as Promise<{ title: string | null; description?: string | null; videos: ItVideo[] }>
+  return r.json() as Promise<{ title: string | null; description?: string | null; owner?: PlaylistOwner | null; videos: ItVideo[] }>
 }
 
 /** Personalized recommendations seeded from watch history / subscriptions. */

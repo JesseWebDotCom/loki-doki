@@ -36,11 +36,17 @@ export function YoutubeShortsPage() {
   const channelThumb = meta?.channelThumb ?? feedItem?.channelThumb ?? navState.channelThumb ?? null
   const channelId = meta?.channelId ?? feedItem?.channelId ?? null
 
+  // Circular: advancing past the last short wraps to the first (and vice-versa), so the feed
+  // keeps cycling through every short instead of getting stuck looping the newest/last one.
   const go = useCallback((dir: 1 | -1) => {
-    const target = index === -1 ? (dir === 1 ? queue[0] : undefined) : queue[index + dir]
-    if (target) navigate(`/youtube/shorts/${target.videoId}`,
+    if (!queue.length) return
+    const base = index === -1 ? (dir === 1 ? 0 : queue.length - 1) : index + dir
+    const target = queue[(base + queue.length) % queue.length]
+    if (!target) return
+    if (target.videoId === videoId) { playerRef.current?.seek(0); return }   // single-short feed → just replay
+    navigate(`/youtube/shorts/${target.videoId}`,
       { state: { title: target.title, author: target.author, channelThumb: target.channelThumb, dir } })
-  }, [index, queue, navigate])
+  }, [index, queue, navigate, videoId])
 
   // Keyboard: ↑ / ↓ move between shorts.
   useEffect(() => {
@@ -86,8 +92,9 @@ export function YoutubeShortsPage() {
   const liked = useCollection('liked').some(v => v.videoId === videoId)
   const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
 
-  const hasPrev = index > 0
-  const hasNext = index === -1 ? queue.length > 0 : index < queue.length - 1
+  // With circular wrapping both arrows stay live whenever there's more than one short.
+  const hasPrev = queue.length > 1
+  const hasNext = queue.length > 1
 
   return (
     <div ref={rootRef} className="flex h-full select-none items-center justify-center gap-3 overflow-hidden px-4 py-4">
@@ -97,7 +104,7 @@ export function YoutubeShortsPage() {
         className={cn('relative aspect-[9/16] h-full max-h-[82vh] overflow-hidden rounded-2xl bg-black',
           navState.dir === 1 ? 'yt-short-up' : navState.dir === -1 ? 'yt-short-down' : '')}>
         <VideoPlayer ref={playerRef} key={videoId} videoId={videoId} aspect="short"
-          onEnded={() => { if (autoplay && hasNext) go(1); else playerRef.current?.seek(0) }}
+          onEnded={() => { if (autoplay && queue.length > 1) go(1); else playerRef.current?.seek(0) }}
           videoMeta={{ title, author, channelId, durationSec: meta?.durationSec ?? null }} />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pt-14">
           {author && (channelId ? (

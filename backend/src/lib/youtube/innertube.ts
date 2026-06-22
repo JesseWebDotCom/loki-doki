@@ -18,9 +18,14 @@ const CLIENT = { clientName: 'WEB', clientVersion: '2.20240701.00.00', hl: 'en',
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-// The "Videos" channel tab, base64 of the protobuf the web client sends. Lets us land
-// directly on a channel's uploads grid instead of its home tab.
-const CHANNEL_VIDEOS_PARAMS = 'EgZ2aWRlb3PyBgQKAjoA'
+// Per-tab `params` (base64 protobuf the web client sends) that land a channel browse on a
+// specific tab instead of its Home tab. These are stable constants shared by every client.
+const CHANNEL_TAB_PARAMS = {
+  videos: 'EgZ2aWRlb3PyBgQKAjoA',
+  shorts: 'EgZzaG9ydHPyBgUKA5oBAA==',
+  live: 'EgdzdHJlYW1z8gYECgJ6AA==',
+  playlists: 'EglwbGF5bGlzdHPyBgQKAkIA',
+} as const
 
 async function call(endpoint: string, body: Record<string, unknown>, timeout = 8000): Promise<any> {
   const res = await fetch(`${BASE}/${endpoint}?key=${WEB_KEY}&prettyPrint=false`, {
@@ -244,6 +249,67 @@ function collectVideos(data: any, limit: number): ItVideo[] {
   return out
 }
 
+// ── Shorts ──────────────────────────────────────────────────────────────────────
+// A channel's Shorts tab uses different renderers than its Videos tab. Modern YouTube
+// ships `shortsLockupViewModel`; older responses use `reelItemRenderer`; some grids wrap
+// a short in a `lockupViewModel` with contentType …_SHORTS. Shorts carry no duration
+// (the UI renders them 9:16 by tab, not by length), so durationSec stays null.
+function parseShortLockup(r: any): ItVideo | null {
+  const videoId =
+    r?.onTap?.innertubeCommand?.reelWatchEndpoint?.videoId ??
+    r?.entityId?.match(/([\w-]{11})$/)?.[1]
+  if (!videoId || typeof videoId !== 'string') return null
+  const meta = r?.overlayMetadata
+  const title = meta?.primaryText?.content ?? r?.accessibilityText ?? ''
+  if (!title) return null
+  return {
+    videoId,
+    title,
+    author: null,
+    channelId: null,
+    channelThumb: null,
+    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+    durationSec: null,
+    publishedText: null,
+    views: meta?.secondaryText?.content ?? null,
+  }
+}
+
+function shortFromVideoId(videoId: string, title: string): ItVideo {
+  return {
+    videoId, title, author: null, channelId: null, channelThumb: null,
+    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+    durationSec: null, publishedText: null, views: null,
+  }
+}
+
+function collectShorts(data: any, limit: number): ItVideo[] {
+  const out: ItVideo[] = []
+  const seen = new Set<string>()
+  const push = (v: ItVideo | null) => { if (v && !seen.has(v.videoId)) { seen.add(v.videoId); out.push(v) } }
+
+  for (const key of ['shortsLockupViewModel', 'reelItemRenderer']) {
+    const raw: any[] = []
+    collect(data, key, raw, limit * 3)
+    for (const r of raw) {
+      push(key === 'shortsLockupViewModel' ? parseShortLockup(r) : parseVideoRenderer(r))
+      if (out.length >= limit) return out
+    }
+  }
+  // Some channels surface shorts inside a generic lockupViewModel (contentType …_SHORTS).
+  const lk: any[] = []
+  collect(data, 'lockupViewModel', lk, limit * 3)
+  for (const r of lk) {
+    if (r?.contentType === 'LOCKUP_CONTENT_TYPE_SHORTS') {
+      const id = r?.contentId
+      const title = r?.metadata?.lockupMetadataViewModel?.title?.content
+      if (id && title) push(shortFromVideoId(id, title))
+    }
+    if (out.length >= limit) return out
+  }
+  return out
+}
+
 // ── Playlists ─────────────────────────────────────────────────────────────────────
 
 export interface ItPlaylist {
@@ -274,6 +340,28 @@ function parsePlaylistRenderer(r: any): ItPlaylist | null {
   }
 }
 
+// Deep-search a lockup for its "N videos" count text (it lives in a thumbnail overlay
+// badge — "3 videos" — not in the metadata rows).
+function lockupVideoCount(node: any): number | null {
+  let found: number | null = null
+  const rec = (x: any): void => {
+    if (found != null || !x || typeof x !== 'object') return
+    if (Array.isArray(x)) { x.forEach(rec); return }
+    const t = x.content
+    if (typeof t === 'string') {
+      const m = /([\d,]+)\s+videos?/i.exec(t)
+      if (m) { const n = parseInt(m[1].replace(/,/g, ''), 10); if (Number.isFinite(n)) { found = n; return } }
+    }
+    for (const k in x) rec(x[k])
+  }
+  rec(node)
+  return found
+}
+
+// The first metadata row of a channel's own playlist lockup is a CTA ("View full
+// playlist"/"Play all"), not the owner — so it must not become the subtitle.
+const PLAYLIST_CTA = /^(view full playlist|play all)$/i
+
 // YouTube increasingly returns playlists as the newer lockupViewModel shape.
 function parseLockupPlaylist(r: any): ItPlaylist | null {
   if (r?.contentType !== 'LOCKUP_CONTENT_TYPE_PLAYLIST') return null
@@ -284,12 +372,13 @@ function parseLockupPlaylist(r: any): ItPlaylist | null {
   const thumbSources = r?.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnailViewModel?.image?.sources ?? []
   const rows = r?.metadata?.lockupMetadataViewModel?.metadata?.contentMetadataViewModel?.metadataRows ?? []
   const ownerText = rows?.[0]?.metadataParts?.[0]?.text?.content ?? null
+  const author = ownerText && !PLAYLIST_CTA.test(ownerText) && !/\d+\s*videos?/i.test(ownerText) ? ownerText : null
   return {
     playlistId,
     title,
-    videoCount: null,
+    videoCount: lockupVideoCount(r),
     thumbnailUrl: fixProtoRelative(thumbSources.length ? thumbSources[thumbSources.length - 1]?.url : null),
-    author: ownerText,
+    author,
     channelId: null,
   }
 }
@@ -338,8 +427,30 @@ export async function innertubeSearch(query: string, limit = 12, channelLimit = 
   return { videos, channels, playlists: collectPlaylists(data, playlistLimit), continuation: findContinuation(data) }
 }
 
-/** Browse a playlist's videos (browseId `VL<playlistId>`). */
-export async function innertubePlaylist(playlistId: string, limit = 50, timeout = 8000): Promise<{ title: string | null; description: string | null; videos: ItVideo[] }> {
+export interface ItPlaylistOwner { channelId: string | null; name: string | null; thumbnailUrl: string | null }
+
+// The playlist's owning channel — from the modern videoOwnerRenderer (carries the avatar)
+// or the legacy playlistHeaderRenderer.ownerText.
+function parsePlaylistOwner(data: any): ItPlaylistOwner | null {
+  const arr: any[] = []
+  collect(data, 'videoOwnerRenderer', arr, 1)
+  const r = arr[0]
+  if (r) {
+    const run = r?.title?.runs?.[0]
+    const thumbs: any[] = r?.thumbnail?.thumbnails ?? []
+    return {
+      channelId: run?.navigationEndpoint?.browseEndpoint?.browseId ?? null,
+      name: run?.text ?? null,
+      thumbnailUrl: fixProtoRelative(thumbs.length ? thumbs[thumbs.length - 1]?.url : null),
+    }
+  }
+  const run = data?.header?.playlistHeaderRenderer?.ownerText?.runs?.[0]
+  if (run) return { channelId: run?.navigationEndpoint?.browseEndpoint?.browseId ?? null, name: run?.text ?? null, thumbnailUrl: null }
+  return null
+}
+
+/** Browse a playlist's videos (browseId `VL<playlistId>`), plus its owning channel. */
+export async function innertubePlaylist(playlistId: string, limit = 50, timeout = 8000): Promise<{ title: string | null; description: string | null; owner: ItPlaylistOwner | null; videos: ItVideo[] }> {
   const id = playlistId.startsWith('VL') ? playlistId : `VL${playlistId}`
   const data = await call('browse', { browseId: id }, timeout)
   const title = data?.metadata?.playlistMetadataRenderer?.title
@@ -348,7 +459,7 @@ export async function innertubePlaylist(playlistId: string, limit = 50, timeout 
   const description = textOf(data?.metadata?.playlistMetadataRenderer?.description)
     || textOf(data?.header?.playlistHeaderRenderer?.descriptionText)
     || null
-  return { title, description, videos: collectVideos(data, limit) }
+  return { title, description, owner: parsePlaylistOwner(data), videos: collectVideos(data, limit) }
 }
 
 /** Fetch the next page of search results from a continuation token. */
@@ -367,6 +478,8 @@ export interface ItChannelMeta {
   thumbnailUrl: string | null
   bannerUrl: string | null
   subscribers: string | null
+  videoCount: string | null
+  availableTabs: string[]   // tab titles the channel actually publishes ("Videos","Shorts",…)
 }
 
 export interface ItChannelPage {
@@ -383,7 +496,42 @@ function parseChannelMeta(data: any): ItChannelMeta | null {
   const channelId = m?.externalId ?? header?.channelId
   if (!channelId) return null
   const avatars: any[] = m?.avatar?.thumbnails ?? header?.avatar?.thumbnails ?? []
-  const banners: any[] = header?.banner?.thumbnails ?? []
+
+  // Banner: the legacy c4 header exposes header.banner.thumbnails; the modern pageHeader
+  // nests it inside an imageBannerViewModel (image.sources, ascending by width).
+  let banners: any[] = header?.banner?.thumbnails ?? []
+  if (!banners.length) {
+    const ib: any[] = []
+    collect(header, 'imageBannerViewModel', ib, 1)
+    banners = ib[0]?.image?.sources ?? []
+  }
+
+  // Subscriber / video counts: the legacy header has dedicated text fields; the modern
+  // pageHeader keeps them as metadata-row text parts ("5.69M subscribers", "2.2K videos").
+  let subscribers = textOf(header?.subscriberCountText) || null
+  let videoCount = textOf(header?.videosCountText) || null
+  const rowArrays: any[] = []
+  collect(header, 'metadataRows', rowArrays, 4)
+  for (const arr of rowArrays) {
+    for (const row of Array.isArray(arr) ? arr : []) {
+      for (const part of row?.metadataParts ?? []) {
+        const t = part?.text?.content
+        if (typeof t !== 'string') continue
+        if (/subscriber/i.test(t)) subscribers ??= t
+        else if (/video/i.test(t)) videoCount ??= t
+      }
+    }
+  }
+
+  // Which tabs the channel actually has — the browse response always lists them all, so we
+  // can hide tabs (Live/Playlists/Shorts) the channel doesn't publish instead of showing an
+  // empty grid that silently falls back to its Home content.
+  const availableTabs: string[] = []
+  for (const t of data?.contents?.twoColumnBrowseResultsRenderer?.tabs ?? []) {
+    const title = t?.tabRenderer?.title ?? t?.expandableTabRenderer?.title
+    if (typeof title === 'string' && title) availableTabs.push(title)
+  }
+
   return {
     channelId,
     title: m?.title ?? textOf(header?.title) ?? '',
@@ -391,7 +539,9 @@ function parseChannelMeta(data: any): ItChannelMeta | null {
     description: m?.description ?? null,
     thumbnailUrl: fixProtoRelative(avatars.length ? avatars[avatars.length - 1]?.url : null),
     bannerUrl: fixProtoRelative(banners.length ? banners[banners.length - 1]?.url : null),
-    subscribers: textOf(header?.subscriberCountText) || null,
+    subscribers,
+    videoCount,
+    availableTabs,
   }
 }
 
@@ -401,16 +551,121 @@ function findContinuation(data: any): string | null {
   return out[0]?.continuationEndpoint?.continuationCommand?.token ?? null
 }
 
-/** Browse a channel's Videos tab. Pass `continuation` to page deeper; the returned
- *  `continuation` token feeds the next call (null when the catalogue is exhausted). */
-export async function innertubeChannel(channelId: string, continuation?: string | null, limit = 30, timeout = 8000): Promise<ItChannelPage> {
+export type ChannelVideoTab = 'videos' | 'shorts' | 'live'
+
+/** Browse a channel's Videos / Shorts / Live tab. Pass `continuation` to page deeper; the
+ *  returned `continuation` token feeds the next call (null when the catalogue is exhausted).
+ *  `tab` must match across paged calls so continuations parse with the right renderer. */
+export async function innertubeChannel(channelId: string, continuation?: string | null, limit = 30, timeout = 8000, tab: ChannelVideoTab = 'videos'): Promise<ItChannelPage> {
   const data = continuation
     ? await call('browse', { continuation }, timeout)
-    : await call('browse', { browseId: channelId, params: CHANNEL_VIDEOS_PARAMS }, timeout)
+    : await call('browse', { browseId: channelId, params: CHANNEL_TAB_PARAMS[tab] }, timeout)
   return {
     meta: continuation ? null : parseChannelMeta(data),
-    videos: collectVideos(data, limit),
+    videos: tab === 'shorts' ? collectShorts(data, limit) : collectVideos(data, limit),
     continuation: findContinuation(data),
+  }
+}
+
+export interface ItChannelPlaylistsPage {
+  meta: ItChannelMeta | null
+  playlists: ItPlaylist[]
+  continuation: string | null
+}
+
+/** Browse a channel's Playlists tab (the playlists it created), with continuation paging. */
+export async function innertubeChannelPlaylists(channelId: string, continuation?: string | null, limit = 50, timeout = 8000): Promise<ItChannelPlaylistsPage> {
+  const data = continuation
+    ? await call('browse', { continuation }, timeout)
+    : await call('browse', { browseId: channelId, params: CHANNEL_TAB_PARAMS.playlists }, timeout)
+  return {
+    meta: continuation ? null : parseChannelMeta(data),
+    playlists: collectPlaylists(data, limit),
+    continuation: findContinuation(data),
+  }
+}
+
+export interface ItChannelLink { title: string; url: string }
+export interface ItChannelAbout {
+  description: string | null
+  subscribers: string | null
+  videoCount: string | null
+  viewCount: string | null
+  joined: string | null
+  country: string | null
+  links: ItChannelLink[]
+}
+
+// Channel link URLs come back as youtube.com/redirect?q=… wrappers; unwrap to the target.
+function cleanRedirect(url: string): string {
+  try {
+    const u = new URL(url)
+    if (u.hostname.endsWith('youtube.com') && u.pathname === '/redirect') {
+      const q = u.searchParams.get('q')
+      if (q) return q
+    }
+  } catch { /* not a parseable URL — return as-is */ }
+  return url
+}
+
+function linkUrlFromVM(l: any): string | null {
+  const cmd =
+    l?.link?.commandRuns?.[0]?.onTap?.innertubeCommand?.urlEndpoint?.url ??
+    l?.navigationEndpoint?.urlEndpoint?.url
+  if (typeof cmd === 'string') return cleanRedirect(cmd)
+  const disp = l?.link?.content
+  if (typeof disp === 'string' && disp) return disp.startsWith('http') ? disp : `https://${disp}`
+  return null
+}
+
+/** A channel's About details: full description, subscriber/video/view counts, joined
+ *  date, country, and external links. Returns null when nothing parses.
+ *
+ *  YouTube no longer serves About as a browse tab — its `aboutChannelViewModel` loads
+ *  lazily through an engagement-panel continuation token embedded in the channel's home
+ *  browse. So we fetch home, harvest the engagement-panel tokens, and resolve the first
+ *  one that yields the About view-model (usually the first or second). */
+export async function innertubeChannelAbout(channelId: string, timeout = 8000): Promise<ItChannelAbout | null> {
+  const home = await call('browse', { browseId: channelId }, timeout)
+
+  const panels: any[] = []
+  collect(home, 'engagementPanelSectionListRenderer', panels, 8)
+  collect(home, 'showEngagementPanelEndpoint', panels, 8)
+  const tokens: string[] = []
+  const seenTok = new Set<string>()
+  for (const p of panels) {
+    const cmds: any[] = []
+    collect(p, 'continuationCommand', cmds, 4)
+    for (const cmd of cmds) {
+      const t = cmd?.token
+      if (typeof t === 'string' && !seenTok.has(t)) { seenTok.add(t); tokens.push(t) }
+    }
+  }
+
+  let vm: any = null
+  for (const t of tokens.slice(0, 4)) {
+    const data = await call('browse', { continuation: t }, timeout)
+    const arr: any[] = []
+    collect(data, 'aboutChannelViewModel', arr, 1)
+    if (arr[0]) { vm = arr[0]; break }
+  }
+  if (!vm) return null
+
+  const links: ItChannelLink[] = []
+  const linkArr: any[] = []
+  collect(vm, 'channelExternalLinkViewModel', linkArr, 30)
+  for (const l of linkArr) {
+    const url = linkUrlFromVM(l)
+    if (url) links.push({ title: l?.title?.content || url, url })
+  }
+  return {
+    description: vm?.description ?? null,
+    subscribers: vm?.subscriberCountText ?? null,
+    videoCount: vm?.videoCountText ?? null,
+    viewCount: vm?.viewCountText ?? null,
+    joined: vm?.joinedDateText?.content ?? null,
+    country: vm?.country ?? null,
+    links,
   }
 }
 
@@ -427,7 +682,7 @@ export async function innertubeResolveChannel(url: string, timeout = 8000): Prom
   const browseId = nav?.endpoint?.browseEndpoint?.browseId
   if (!browseId || !browseId.startsWith('UC')) return null
   const page = await innertubeChannel(browseId, null, 1, timeout)
-  return page.meta ?? { channelId: browseId, title: '', handle: null, description: null, thumbnailUrl: null, bannerUrl: null, subscribers: null }
+  return page.meta ?? { channelId: browseId, title: '', handle: null, description: null, thumbnailUrl: null, bannerUrl: null, subscribers: null, videoCount: null, availableTabs: [] }
 }
 
 // ── Related / "Up next" ──────────────────────────────────────────────────────────

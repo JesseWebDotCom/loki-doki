@@ -16,7 +16,7 @@ import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary } from '@/lib/youtube/summarize'
 import { exportsDir, backfillSavedHeights, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
-import { innertubeChannel, innertubeRelated, innertubePlayerMeta, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeRelated, innertubePlayerMeta, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments } from '@/lib/youtube/sponsorblock'
 import { resolveStreamUrl, invalidateStreamUrl, isValidVideoId, parseQuality, type StreamKind } from '@/lib/youtube/stream'
@@ -1055,6 +1055,29 @@ youtubeRoute.get('/channel/:channelId', async (c) => {
   return c.json(page ?? ({ meta: null, videos: [], continuation: null } as ItChannelPage))
 })
 
+// A channel's secondary tabs — Shorts, Live (past streams), Playlists, and About.
+// Unlike the Videos tab these aren't cached (they're opened far less), but they page off
+// the same continuation tokens. `cursor` is the opaque token from the previous page.
+youtubeRoute.get('/channel/:channelId/:tab', async (c) => {
+  const channelId = c.req.param('channelId')
+  const tab = c.req.param('tab')
+  const cursor = c.req.query('cursor') ?? null
+
+  if (tab === 'about') {
+    const about = await tryInnertube('channel-about', () => innertubeChannelAbout(channelId), null)
+    return c.json({ about })
+  }
+  if (tab === 'playlists') {
+    const page = await tryInnertubeRetry('channel-playlists', () => innertubeChannelPlaylists(channelId, cursor))
+    return c.json(page ?? { meta: null, playlists: [], continuation: null })
+  }
+  if (tab === 'shorts' || tab === 'live') {
+    const page = await tryInnertubeRetry(`channel-${tab}`, () => innertubeChannel(channelId, cursor, 30, 8000, tab))
+    return c.json(page ?? { meta: null, videos: [], continuation: null })
+  }
+  return c.json({ error: 'Unknown channel tab' }, 404)
+})
+
 // Real "Up next" — YouTube's own related videos for this watch page.
 youtubeRoute.get('/related/:videoId', async (c) => {
   const videoId = c.req.param('videoId')
@@ -1066,7 +1089,7 @@ youtubeRoute.get('/related/:videoId', async (c) => {
 // A playlist's videos (for browsing a playlist found in search).
 youtubeRoute.get('/playlist/:playlistId', async (c) => {
   const playlistId = c.req.param('playlistId')
-  const page = await tryInnertube('playlist', () => innertubePlaylist(playlistId), { title: null, description: null, videos: [] })
+  const page = await tryInnertube('playlist', () => innertubePlaylist(playlistId), { title: null, description: null, owner: null, videos: [] })
   return c.json(page)
 })
 

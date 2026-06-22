@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams, useLocation } from 'react-router-dom'
+import { useParams, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ListVideo, Loader2, Plus, Check } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -8,6 +8,7 @@ import { getPlaylist, addSubscription } from '@/lib/youtube/api'
 import { itToItem } from '@/lib/youtube/types'
 import { thumbUrl } from '@/lib/youtube/format'
 import { useYtSubs } from '@/lib/youtube/useData'
+import { ChannelAvatar } from '@/components/youtube/media'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { PodcastSourceButtons } from '@/components/youtube/PodcastSourceButtons'
 
@@ -24,6 +25,20 @@ export function YoutubePlaylistPage() {
   const { data, isLoading } = useQuery({ queryKey: ['yt-playlist', playlistId], queryFn: () => getPlaylist(playlistId), enabled: !!playlistId })
   const title = data?.title || navState.title || 'Playlist'
   const videos = data?.videos ?? []
+  const owner = data?.owner ?? null
+  // Playlist video renderers omit per-video channel thumbs. Borrow the owning channel's
+  // avatar for videos that are actually the owner's (the common channel-uploads playlist), so
+  // those cards show a real logo — but not for guest/other-channel videos in a mixed playlist
+  // (those keep their own author's coloured-initial avatar).
+  const items = videos.map(v => {
+    const it = itToItem(v)
+    const byOwner = !it.author || (owner?.name != null && it.author === owner.name)
+    return {
+      ...it,
+      channelThumb: it.channelThumb ?? (byOwner ? owner?.thumbnailUrl ?? null : null),
+      author: it.author ?? owner?.name ?? null,
+    }
+  })
 
   const subscribed = subs.some(s => s.externalId === playlistId)
   async function subscribe() {
@@ -45,6 +60,16 @@ export function YoutubePlaylistPage() {
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Playlist</p>
           <h1 className="truncate text-2xl font-black tracking-tight">{title}</h1>
+          {owner?.channelId ? (
+            <Link to={`/youtube/channel/${encodeURIComponent(owner.channelId)}`}
+              state={{ title: owner.name, thumbnailUrl: owner.thumbnailUrl }}
+              className="mt-1 inline-flex items-center gap-2 rounded-full py-0.5 pr-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+              <ChannelAvatar title={owner.name ?? 'Channel'} src={owner.thumbnailUrl} className="size-6 text-[10px] ring-1 ring-border/40" />
+              <span className="truncate">{owner.name ?? 'View channel'}</span>
+            </Link>
+          ) : owner?.name ? (
+            <p className="mt-1 text-sm text-muted-foreground">{owner.name}</p>
+          ) : null}
           <p className="text-sm text-muted-foreground">{videos.length} {videos.length === 1 ? 'video' : 'videos'}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -66,7 +91,7 @@ export function YoutubePlaylistPage() {
       ) : videos.length === 0 ? (
         <p className="py-24 text-center text-sm text-muted-foreground">This playlist has no videos, or it couldn’t be loaded.</p>
       ) : (
-        <div className={GRID}>{videos.map(v => <VideoCard key={v.videoId} item={itToItem(v)} />)}</div>
+        <div className={GRID}>{items.map(i => <VideoCard key={i.videoId} item={i} />)}</div>
       )}
     </div>
   )

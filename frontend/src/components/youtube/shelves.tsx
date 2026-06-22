@@ -1,6 +1,6 @@
 import { useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRight, ChevronLeft } from 'lucide-react'
+import { ChevronRight, ChevronLeft, ListVideo } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { fmtCount } from '@/lib/youtube/format'
 import type { VideoItem } from '@/lib/youtube/types'
@@ -115,6 +115,33 @@ export function ChannelRail({ title = 'Top channels', to, channels }: { title?: 
         ))}
       </HScroll>
     </section>
+  )
+}
+
+/** Minimal shape a playlist card needs — satisfied by both search and channel-tab rows. */
+export interface PlaylistCardData {
+  playlistId: string
+  title: string
+  videoCount: number | null
+  thumbnailUrl: string | null
+  author: string | null
+}
+
+/** A single playlist card (search results, the channel Playlists tab, playlist rails). */
+export function PlaylistCard({ p }: { p: PlaylistCardData }) {
+  return (
+    <Link to={`/youtube/playlist/${encodeURIComponent(p.playlistId)}`} state={{ title: p.title }} className="group">
+      <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
+        {p.thumbnailUrl
+          ? <img src={p.thumbnailUrl} alt="" className="size-full object-cover transition group-hover:scale-105" />
+          : <div className="flex size-full items-center justify-center"><ListVideo className="size-8 text-muted-foreground/40" /></div>}
+        <div className="absolute bottom-0 right-0 flex items-center gap-1 rounded-tl-lg bg-black/80 px-2 py-1 text-[11px] font-semibold text-white">
+          <ListVideo className="size-3" /> {p.videoCount != null ? `${p.videoCount}` : 'Playlist'}
+        </div>
+      </div>
+      <p className="mt-1.5 line-clamp-2 text-sm font-semibold leading-snug">{p.title}</p>
+      {p.author && <p className="truncate text-xs text-muted-foreground">{p.author}</p>}
+    </Link>
   )
 }
 

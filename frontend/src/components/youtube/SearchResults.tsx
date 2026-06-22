@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Loader2, ListVideo } from 'lucide-react'
+import { Search, Loader2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { search as ytSearch, type SearchResult, type PlaylistSearchResult, type SearchType } from '@/lib/youtube/api'
 import { searchToItem } from '@/lib/youtube/types'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { VideoCard } from '@/components/youtube/VideoCard'
-import { ChannelRail, HScroll, type ChannelEntry } from '@/components/youtube/shelves'
+import { ChannelRail, HScroll, PlaylistCard, type ChannelEntry } from '@/components/youtube/shelves'
 
 const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 const FILTERS: [SearchType, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['playlists', 'Playlists'], ['channels', 'Channels']]
@@ -99,24 +99,6 @@ export function SearchResults({ q }: { q: string }) {
       )}
       {error ? <p className="text-sm text-destructive">Search failed.</p> : null}
     </div>
-  )
-}
-
-// A single playlist card (used in the rail + the Playlists filter grid).
-function PlaylistCard({ p }: { p: PlaylistSearchResult }) {
-  return (
-    <Link to={`/youtube/playlist/${encodeURIComponent(p.playlistId)}`} state={{ title: p.title }} className="group">
-      <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
-        {p.thumbnailUrl
-          ? <img src={p.thumbnailUrl} alt="" className="size-full object-cover transition group-hover:scale-105" />
-          : <div className="flex size-full items-center justify-center"><ListVideo className="size-8 text-muted-foreground/40" /></div>}
-        <div className="absolute bottom-0 right-0 flex items-center gap-1 rounded-tl-lg bg-black/80 px-2 py-1 text-[11px] font-semibold text-white">
-          <ListVideo className="size-3" /> {p.videoCount != null ? `${p.videoCount}` : 'Playlist'}
-        </div>
-      </div>
-      <p className="mt-1.5 line-clamp-2 text-sm font-semibold leading-snug">{p.title}</p>
-      {p.author && <p className="truncate text-xs text-muted-foreground">{p.author}</p>}
-    </Link>
   )
 }
 
