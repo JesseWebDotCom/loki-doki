@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Sparkles, BookmarkPlus, Download, Heart, Clock, Loader2, Search, Smartphone, Mic,
+  BookmarkPlus, Download, Heart, Clock, Loader2, Search, Smartphone, Mic, Check,
+  ThumbsUp, ThumbsDown, Pin, PictureInPicture2,
 } from 'lucide-react'
 import { ShieldCheck, Headphones } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -16,14 +17,24 @@ import { ChannelAvatar } from '@/components/youtube/media'
 import { useYtFeed } from '@/lib/youtube/useData'
 import {
   getVideoMeta, summarize, getTranscriptText, getRelated, getSponsorSegments,
-  addSubscription, deleteSubscription,
+  getComments, getChapters, getVotes, addSubscription, deleteSubscription,
+  prewarmStream, ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
 import { itToItem, isShort } from '@/lib/youtube/types'
 import { parseChapters } from '@/lib/youtube/chapters'
 import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
+import { useDeArrow } from '@/lib/youtube/dearrow'
+import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 
-type SideTab = 'transcript' | 'summary'
+type SideTab = 'transcript' | 'summary' | 'comments'
+
+/** Compact like/dislike counts (1234 → "1.2K"). */
+function fmtCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}K`
+  return `${n}`
+}
 
 const PRIVACY_KEY = 'yt.privacy'
 const AUDIO_KEY = 'yt.audioOnly'
@@ -38,9 +49,20 @@ export function WatchPage() {
   const localKind = (params.get('k') as 'audio' | 'video' | null) ?? undefined
   const navigate = useNavigate()
   const ui = useYoutubeUI()
+  const pb = useYoutubePlayback()
   const playerRef = useRef<VideoPlayerHandle>(null)
   const [tab, setTab] = useState<SideTab>('transcript')
   const [autoplay, setAutoplay] = useState(true)
+
+  // ── Docked mini-player hand-off ────────────────────────────────────────────────
+  // If this same video is currently playing in the docked mini-player (we got here by
+  // tapping "expand"), resume from its position. Captured once, synchronously, so the
+  // player starts at the right spot rather than the stale server position.
+  const [adopt] = useState(() => (pb.track?.videoId === videoId ? Math.floor(pb.positionSec) : null))
+  // Latest play state + position, mirrored into refs so the unmount handler (which runs
+  // with stale closures) can hand the live values to the mini-player.
+  const playingRef = useRef(false)
+  const secRef = useRef(0)
 
   const { data: meta, isPending } = useQuery({ queryKey: ['yt-video', videoId], queryFn: () => getVideoMeta(videoId), enabled: !!videoId })
   const { items } = useYtFeed()
@@ -59,6 +81,11 @@ export function WatchPage() {
   const { data: related = [] } = useQuery({ queryKey: ['yt-related', videoId], queryFn: () => getRelated(videoId), enabled: online && !!videoId })
   // SponsorBlock segments — auto-skipped + marked on the scrubber (online only).
   const { data: segments = [] } = useQuery({ queryKey: ['yt-sb', videoId], queryFn: () => getSponsorSegments(videoId), enabled: online && !!videoId })
+  // Return YouTube Dislike — estimated like/dislike counts (online only).
+  const { data: votes } = useQuery({ queryKey: ['yt-votes', videoId], queryFn: () => getVotes(videoId), enabled: online && !!videoId })
+  // DeArrow: swap a clickbait title for the community one on the watch header too.
+  // (The on/off switch lives in Settings → YouTube; this just reflects the global state.)
+  const da = useDeArrow(videoId)
 
   // The card that linked here passes the channel's name/avatar (e.g. search results,
   // which aren't subscribed so the API can't supply them) — used as a fallback.
@@ -66,18 +93,49 @@ export function WatchPage() {
   const feedItem = items.find(i => i.videoId === videoId)
   // A short opened in the full watch view — offer a jump back to the vertical feed.
   const isShortVid = online && !!feedItem && isShort(feedItem)
-  const title = meta?.title || feedItem?.title || navState.title || 'Video'
+  const title = da?.title || meta?.title || feedItem?.title || navState.title || 'Video'
   const author = meta?.author ?? feedItem?.author ?? navState.author ?? null
   const channelThumb = meta?.channelThumb ?? feedItem?.channelThumb ?? navState.channelThumb ?? null
-  const resumeSec = meta?.positionSec ?? 0
+  const resumeSec = (adopt != null ? adopt : meta?.positionSec) ?? 0
+
+  // Landing on a watch page means a full player owns playback — stop any docked mini.
+  useEffect(() => { if (pb.track) pb.clearDock() }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Warm the proxy-stream cache shortly after the video opens so that minimizing later
+  // hands off to the mini-player instantly instead of waiting on a cold resolve. Delayed
+  // a little so videos that are opened and immediately closed don't trigger a resolve.
+  useEffect(() => {
+    if (!online || !videoId) return
+    const t = setTimeout(() => prewarmStream(videoId), 1500)
+    return () => clearTimeout(t)
+  }, [online, videoId])
+
+  // Navigating away mid-playback hands the video to the docked mini-player. Uses refs so
+  // it captures the video being watched at unmount, not the one this effect closed over.
+  const handoffRef = useRef<{ videoId: string; title: string; author: string | null; localKind?: 'audio' | 'video'; durationSec: number | null }>(null!)
+  handoffRef.current = { videoId, title, author, localKind, durationSec: meta?.durationSec ?? null }
+  useEffect(() => () => {
+    const h = handoffRef.current
+    if (playingRef.current && secRef.current > 1 && h.videoId) {
+      pb.dock({ videoId: h.videoId, title: h.title, author: h.author, localKind: h.localKind, durationSec: h.durationSec }, secRef.current)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const upNext = useMemo(() => {
     if (related.length) return related.map(itToItem).filter(i => i.videoId !== videoId).slice(0, 15)
     return items.filter(i => i.videoId !== videoId).slice(0, 15)
   }, [related, items, videoId])
 
-  // Chapters parsed from the description (creators list them as timestamped lines).
-  const chapters = useMemo(() => parseChapters(meta?.description), [meta?.description])
+  // Chapters: creators usually list them as timestamped lines in the description (free to
+  // parse). When that turns up nothing, fall back to YouTube's authoritative chapter list
+  // (creator-set or auto) via InnerTube — only fetched in that case, so it's cheap.
+  const descChapters = useMemo(() => parseChapters(meta?.description), [meta?.description])
+  const { data: itChapters = [] } = useQuery({
+    queryKey: ['yt-chapters', videoId],
+    queryFn: () => getChapters(videoId),
+    enabled: online && !!videoId && !!meta && descChapters.length === 0,
+  })
+  const chapters = descChapters.length ? descChapters : itChapters
 
   // Current playback second — drives the transcript's follow-along highlight.
   const [currentSec, setCurrentSec] = useState(0)
@@ -88,6 +146,14 @@ export function WatchPage() {
 
   function onEnded() {
     if (autoplay && upNext[0]) navigate(`/youtube/watch/${upNext[0].videoId}${upNext[0].localKind ? `?k=${upNext[0].localKind}` : ''}`)
+  }
+
+  // Pop the video into the docked mini-player and leave the watch page. Forces the dock
+  // (even if paused) so the button always does something; navigating away would otherwise
+  // only hand off while playing.
+  function minimize() {
+    pb.dock({ videoId, title, author, localKind, durationSec: meta?.durationSec ?? null }, secRef.current || currentSec)
+    navigate('/youtube')
   }
 
   return (
@@ -104,40 +170,17 @@ export function WatchPage() {
             skipSegments={online ? segments : undefined}
             onSkip={(cat) => toast.info(`Skipped ${SB_LABELS[cat] ?? cat}`)}
             chapters={chapters}
-            onTime={(s) => setCurrentSec(Math.floor(s))}
+            onTime={(s) => { secRef.current = s; setCurrentSec(Math.floor(s)) }}
+            onPlaying={(p) => { playingRef.current = p }}
             videoMeta={videoMeta}
           />
         )}
 
-        {online && (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <button onClick={togglePrivacy} title="Stream through this server so Google never sees you (≤720p)."
-              className={cn('flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-medium transition-colors',
-                privacy ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground')}>
-              <ShieldCheck className={cn('size-3.5', privacy && 'fill-current')} /> Private stream
-            </button>
-            <button onClick={toggleAudioOnly} title="Play just the audio to save bandwidth — the thumbnail stays as the poster."
-              className={cn('flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-medium transition-colors',
-                audioOnly ? 'border-sky-500/30 bg-sky-500/10 text-sky-400' : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground')}>
-              <Headphones className="size-3.5" /> Audio only
-            </button>
-            {isShortVid && (
-              <Link to={`/youtube/shorts/${videoId}`}
-                className="flex items-center gap-1.5 rounded-full border border-border/60 px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-                <Smartphone className="size-3.5" /> Shorts view
-              </Link>
-            )}
-            {segments.length > 0 && (
-              <span className="ml-auto flex items-center gap-1.5 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 font-medium text-amber-500/90"
-                title="SponsorBlock segments are skipped automatically.">
-                <ShieldCheck className="size-3.5" /> Skips {segments.length} sponsor{segments.length > 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-        )}
-
         <InfoPanel videoId={videoId} title={title} author={author} channelThumb={channelThumb} meta={meta}
-          localKind={localKind} onSummary={() => setTab('summary')} />
+          votes={votes ?? null} localKind={localKind}
+          privacy={privacy} onTogglePrivacy={togglePrivacy}
+          audioOnly={audioOnly} onToggleAudioOnly={toggleAudioOnly}
+          isShortVid={isShortVid} onMinimize={minimize} />
       </div>
 
       {/* Side column */}
@@ -169,15 +212,23 @@ export function WatchPage() {
 
 // ── Info panel ───────────────────────────────────────────────────────────────
 
-function InfoPanel({ videoId, title, author, channelThumb, meta, localKind, onSummary }: {
+function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKind,
+  privacy, onTogglePrivacy, audioOnly, onToggleAudioOnly, isShortVid, onMinimize }: {
   videoId: string
   title: string
   author: string | null
   channelThumb: string | null
-  meta: import('@/lib/youtube/api').VideoMeta | undefined
+  meta: VideoMeta | undefined
+  votes: VideoVotes | null
   localKind?: 'audio' | 'video'
-  onSummary: () => void
+  privacy: boolean
+  onTogglePrivacy: () => void
+  audioOnly: boolean
+  onToggleAudioOnly: () => void
+  isShortVid: boolean
+  onMinimize: () => void
 }) {
+  const online = !localKind
   const ui = useYoutubeUI()
   const qc = useQueryClient()
   const [expanded, setExpanded] = useState(false)
@@ -242,18 +293,43 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, localKind, onSu
             <p className="text-sm font-semibold">{author}</p>
           </div>
         ))}
-        {channelId && (
+        {channelId && (subbed ? (
+          <button onClick={toggleSub} disabled={subBusy} title="Subscribed — click to unsubscribe" aria-label="Subscribed"
+            className="grid size-9 place-items-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60">
+            {subBusy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+          </button>
+        ) : (
           <button onClick={toggleSub} disabled={subBusy}
-            className={cn('flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60',
-              subbed ? 'bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive' : 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]')}>
-            {subBusy && <Loader2 className="size-4 animate-spin" />}{subbed ? 'Subscribed' : 'Subscribe'}
+            className="flex items-center gap-1.5 rounded-full bg-[var(--yt-accent)] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--yt-accent-hover)] disabled:opacity-60">
+            {subBusy && <Loader2 className="size-4 animate-spin" />}Subscribe
           </button>
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={onSummary}
-            className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 px-3.5 py-2 text-sm font-semibold text-violet-300 transition-colors hover:from-violet-500/30 hover:to-fuchsia-500/30">
-            <Sparkles className="size-4" /> AI Summary
+        ))}
+        {votes && <VotesBar votes={votes} />}
+        <div className="ml-auto flex items-center gap-1.5">
+          <button onClick={onMinimize} title="Minimize — keep playing in the mini-player while you browse" aria-label="Minimize to mini-player"
+            className="grid size-9 place-items-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+            <PictureInPicture2 className="size-4" />
           </button>
+          {online && (
+            <button onClick={onTogglePrivacy} title="Private stream — route through this server so Google never sees you. Slower to start and caps at 720p." aria-label="Private stream"
+              className={cn('grid size-9 place-items-center rounded-full border transition-colors',
+                privacy ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground')}>
+              <ShieldCheck className={cn('size-4', privacy && 'fill-current')} />
+            </button>
+          )}
+          {online && (
+            <button onClick={onToggleAudioOnly} title="Audio only — play just the audio to save bandwidth." aria-label="Audio only"
+              className={cn('grid size-9 place-items-center rounded-full border transition-colors',
+                audioOnly ? 'border-sky-500/30 bg-sky-500/10 text-sky-400' : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground')}>
+              <Headphones className="size-4" />
+            </button>
+          )}
+          {isShortVid && (
+            <Link to={`/youtube/shorts/${videoId}`} title="Open in Shorts view" aria-label="Shorts view"
+              className="grid size-9 place-items-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+              <Smartphone className="size-4" />
+            </Link>
+          )}
           <Pill icon={Mic} label="Podcast" onClick={() => setPodcastOpen(true)} />
           <Pill icon={Heart} label="Like" active={liked} onClick={() => toggleCollection('liked', snapshot)} />
           <Pill icon={Clock} label="Watch Later" active={watchLater} onClick={() => toggleCollection('watch-later', snapshot)} />
@@ -280,11 +356,23 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, localKind, onSu
 
 function Pill({ icon: Icon, label, active, onClick }: { icon: typeof Heart; label: string; active?: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick}
-      className={cn('flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors',
+    <button onClick={onClick} title={label} aria-label={label}
+      className={cn('grid size-9 place-items-center rounded-full transition-colors',
         active ? 'bg-[var(--yt-accent-soft)] text-[var(--yt-accent-fg)]' : 'bg-muted text-foreground/80 hover:bg-muted/70')}>
-      <Icon className={cn('size-4', active && 'fill-current')} /> {label}
+      <Icon className={cn('size-4', active && 'fill-current')} />
     </button>
+  )
+}
+
+// Estimated like/dislike counts from Return YouTube Dislike (YouTube hides dislikes).
+function VotesBar({ votes }: { votes: VideoVotes }) {
+  return (
+    <div className="flex items-center rounded-full bg-muted text-[13px] font-semibold text-foreground/80"
+      title="Estimated by Return YouTube Dislike">
+      <span className="flex items-center gap-1.5 px-3 py-1.5"><ThumbsUp className="size-3.5" />{fmtCount(votes.likes)}</span>
+      <span className="my-1.5 h-4 w-px bg-border" />
+      <span className="flex items-center gap-1.5 px-3 py-1.5"><ThumbsDown className="size-3.5" />{fmtCount(votes.dislikes)}</span>
+    </div>
   )
 }
 
@@ -301,7 +389,7 @@ function SidePanel({ videoId, tab, setTab, onSeek, initialSummary, currentSec }:
   return (
     <section className="rounded-2xl border border-border/50 bg-card/40">
       <div className="flex gap-1 border-b border-border/50 px-2 pt-2">
-        {([['transcript', 'Transcript'], ['summary', 'AI Summary']] as [SideTab, string][]).map(([k, label]) => (
+        {([['transcript', 'Transcript'], ['summary', 'AI Summary'], ['comments', 'Comments']] as [SideTab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             className={cn('-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors',
               tab === k ? 'border-[var(--yt-accent)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
@@ -312,6 +400,7 @@ function SidePanel({ videoId, tab, setTab, onSeek, initialSummary, currentSec }:
       <div className="p-3">
         {tab === 'transcript' && <TranscriptTab videoId={videoId} onSeek={onSeek} currentSec={currentSec} />}
         {tab === 'summary' && <SummaryTab videoId={videoId} initial={initialSummary} />}
+        {tab === 'comments' && <CommentsTab videoId={videoId} />}
       </div>
     </section>
   )
@@ -391,6 +480,35 @@ function SummaryTab({ videoId, initial }: { videoId: string; initial: string | n
   if (isPending) return <Centered><Loader2 className="size-4 animate-spin" /> Summarizing…</Centered>
   if (!data) return <Empty>No summary available — this video has no captions to summarize.</Empty>
   return <div className="max-h-[480px] space-y-3 overflow-y-auto whitespace-pre-wrap px-1 text-sm leading-relaxed text-foreground/85">{data}</div>
+}
+
+function CommentsTab({ videoId }: { videoId: string }) {
+  const { data: comments = [], isPending } = useQuery({ queryKey: ['yt-comments', videoId], queryFn: () => getComments(videoId, 30) })
+  if (isPending) return <Centered><Loader2 className="size-4 animate-spin" /> Loading comments…</Centered>
+  if (!comments.length) return <Empty>No comments — they may be turned off for this video.</Empty>
+  return (
+    <div className="max-h-[520px] space-y-4 overflow-y-auto pr-1">
+      {comments.map((c, i) => (
+        <div key={i} className="flex gap-2.5">
+          {c.authorThumb
+            ? <img src={ytImageProxy(c.authorThumb)} alt="" referrerPolicy="no-referrer" className="mt-0.5 size-7 shrink-0 rounded-full object-cover" />
+            : <div className="mt-0.5 size-7 shrink-0 rounded-full bg-muted" />}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {c.pinned && <Pin className="size-3 text-[var(--yt-accent-fg)]" />}
+              <span className="font-semibold text-foreground/90">{c.author}</span>
+              {c.publishedText && <span>· {c.publishedText}</span>}
+            </div>
+            <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground/85">{c.text}</p>
+            <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+              {c.likeCount && <span className="flex items-center gap-1"><ThumbsUp className="size-3" />{c.likeCount}</span>}
+              {c.replyCount ? <span>{c.replyCount} {c.replyCount === 1 ? 'reply' : 'replies'}</span> : null}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function Centered({ children }: { children: React.ReactNode }) {

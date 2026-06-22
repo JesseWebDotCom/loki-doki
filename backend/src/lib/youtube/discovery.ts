@@ -41,6 +41,20 @@ let trendingCache: { at: number; videos: ItVideo[] } | null = null
 
 const ytThumb = (videoId: string) => `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`
 
+// Piped serves avatars through its own per-instance proxy
+// (`https://proxy.piped.…/<path>?host=yt3.ggpht.com`). Those hosts aren't reliably
+// fetchable from our /img cache, so unwrap them back to the direct YouTube URL
+// (`https://yt3.ggpht.com/<path>`) — same form InnerTube/Popular produce.
+function unwrapPipedAvatar(url: string | null | undefined): string | null {
+  if (typeof url !== 'string' || !url) return null
+  try {
+    const u = new URL(url)
+    const host = u.searchParams.get('host')
+    if (host && /(^|\.)piped|proxy/i.test(u.hostname)) return `https://${host}${u.pathname}`
+  } catch { /* not a URL — fall through */ }
+  return url
+}
+
 // Invidious /api/v1/popular item → ItVideo.
 function invidiousToItVideo(v: any): ItVideo | null {
   const videoId = v?.videoId
@@ -72,7 +86,7 @@ function pipedToItVideo(v: any): ItVideo | null {
     title: v.title,
     author: v.uploaderName ?? null,
     channelId,
-    channelThumb: typeof v.uploaderAvatar === 'string' ? v.uploaderAvatar : null,
+    channelThumb: unwrapPipedAvatar(v.uploaderAvatar),
     thumbnailUrl: ytThumb(videoId),
     durationSec: len > 0 ? len : null,
     publishedText: v.uploadedDate ?? null,
@@ -176,6 +190,13 @@ export async function fetchTrending(limit = 40): Promise<ItVideo[]> {
   if (trendingCache && Date.now() - trendingCache.at < TTL_MS) return trendingCache.videos.slice(0, limit)
   const videos = await pipedTrending()
   const out = videos.length ? videos : await invidiousTrending()
-  if (out.length) { trendingCache = { at: Date.now(), videos: out }; return out.slice(0, limit) }
+  if (out.length) {
+    // Piped omits avatars for some uploaders and the Invidious fallback has none at all,
+    // so backfill the ones we'll show via InnerTube — same as Popular. Mutates the shared
+    // objects, so the cache keeps the resolved avatars.
+    await enrichChannelThumbs(out.slice(0, 48))
+    trendingCache = { at: Date.now(), videos: out }
+    return out.slice(0, limit)
+  }
   return trendingCache?.videos.slice(0, limit) ?? []
 }

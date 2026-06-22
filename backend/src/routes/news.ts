@@ -1,4 +1,7 @@
 import { Hono } from 'hono'
+import { and, desc, eq } from 'drizzle-orm'
+import { db } from '@/db'
+import { feeds, feedItems } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { isOffline } from '@/lib/connectivity'
 import type { AppEnv } from '@/types'
@@ -34,19 +37,41 @@ function setCached(key: string, items: NewsItem[]): void {
   cache.set(key, { items, expiresAt: Date.now() + TTL_MS })
 }
 
+// World headlines now read from the unified feed store (curated News = system feeds),
+// deduped by title. Falls back to a live fetch when the store is still empty (fresh boot,
+// before the first poll completes) so News never shows blank.
+async function worldFromStore(limit: number): Promise<NewsItem[]> {
+  const rows = await db.select({ it: feedItems, feedTitle: feeds.title }).from(feedItems)
+    .innerJoin(feeds, eq(feedItems.feedId, feeds.id))
+    .where(eq(feeds.isSystem, true))
+    .orderBy(desc(feedItems.publishedAt), desc(feedItems.fetchedAt))
+    .limit(limit * 4)
+  const items: NewsItem[] = []
+  const seen = new Set<string>()
+  for (const r of rows) {
+    const title = r.it.title
+    if (!title) continue
+    const key = title.toLowerCase().slice(0, 60)
+    if (seen.has(key)) continue
+    seen.add(key)
+    items.push({
+      title, url: r.it.url ?? undefined, source: r.feedTitle,
+      summary: r.it.summary ?? undefined, imageUrl: r.it.imageUrl ?? undefined,
+      publishedAt: r.it.publishedAt ?? undefined,
+    })
+    if (items.length >= limit) break
+  }
+  return items
+}
+
 async function fetchItems(type: string, limit: number, userId: string): Promise<NewsItem[]> {
   if (type === 'world') {
-    const raw = await worldHeadlines(limit, 6000)
-    const items: NewsItem[] = raw.map((r) => ({
-      title: r.title,
-      url: r.url,
-      source: r.source,
-      summary: r.summary,
-      imageUrl: r.imageUrl,
-      publishedAt: r.publishedAt,
-    }))
-    // Cache before enriching images so the response isn't blocked.
-    // enrichOgImages mutates items in place, so the cached reference gets images too.
+    let items = await worldFromStore(limit)
+    if (!items.length) {
+      // Store empty (pre-first-poll) → live fallback, same shape as before.
+      const raw = await worldHeadlines(limit, 6000)
+      items = raw.map((r) => ({ title: r.title, url: r.url, source: r.source, summary: r.summary, imageUrl: r.imageUrl, publishedAt: r.publishedAt }))
+    }
     const key = `${type}-${limit}`
     setCached(key, items)
     enrichOgImages(items).catch(() => {})

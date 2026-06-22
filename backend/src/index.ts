@@ -41,6 +41,8 @@ import { voice } from '@/routes/voice'
 import { createSttRoute } from '@/routes/stt'
 import { bookmarks } from '@/routes/bookmarks'
 import { adminBookmarks } from '@/routes/adminBookmarks'
+import { reader } from '@/routes/reader'
+import { adminReader } from '@/routes/adminReader'
 import { appFeatures } from '@/routes/appFeatures'
 import { adminBriefing } from '@/routes/adminBriefing'
 import { maps } from '@/routes/maps'
@@ -72,6 +74,9 @@ import { music } from '@/routes/music'
 import { logoRoute } from '@/routes/logo'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
+import { feeds as feedsRoute } from '@/routes/feeds'
+import { seedSystemFeeds } from '@/lib/feeds/seed'
+import { startFeedPoller, refreshSystemFeeds } from '@/lib/feeds/poller'
 import { startYoutubeReconcile } from '@/lib/youtube/reconcile'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
@@ -134,6 +139,9 @@ listHealthyArchivePaths()
 // and start the scheduler that drains the queue (≤1 large, ≤1 per host, ≤4 total).
 void resumeDownloadJobs()
 startYoutubeFeedPoller()
+// Feeds: seed curated News as system feeds, kick an initial fetch, then poll on an interval.
+void seedSystemFeeds().then(() => refreshSystemFeeds()).catch(() => {})
+startFeedPoller()
 // Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
 // that window between polls (bursts / extended downtime) is invisible to the poller forever.
 // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
@@ -231,6 +239,8 @@ app.route('/api/voice', voice)
 app.route('/api/stt', createSttRoute(upgradeWebSocket))
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
+app.route('/api/reader', reader)
+app.route('/api/admin/reader', adminReader)
 app.route('/api/app-features', appFeatures)
 app.route('/api/admin/briefing', adminBriefing)
 app.route('/api/maps', maps)
@@ -248,6 +258,7 @@ app.route('/api/app-store', appStore)
 app.route('/api/home-layout', homeLayout)
 app.route('/api/admin/connectivity', adminConnectivity)
 app.route('/api/news', news)
+app.route('/api/feeds', feedsRoute)
 app.route('/api/on-this-day', onThisDayRoute)
 app.route('/api/sports/today', sportsTodayRoute)
 app.route('/api/sports', sportsRoute)

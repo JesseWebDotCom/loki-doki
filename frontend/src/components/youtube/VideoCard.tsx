@@ -6,6 +6,7 @@ import { fmtAge, fmtDur } from '@/lib/youtube/format'
 import { watchProgress, type VideoItem } from '@/lib/youtube/types'
 import { VideoThumb, ChannelAvatar } from '@/components/youtube/media'
 import { useYoutubeModeOptional, useYoutubeUIOptional } from '@/components/youtube/YoutubeLayout'
+import { useDeArrow } from '@/lib/youtube/dearrow'
 
 /** Where a card navigates — the full-page watch route, preserving offline kind. */
 export function watchHref(i: Pick<VideoItem, 'videoId' | 'localKind'>) {
@@ -22,12 +23,12 @@ function useGhost(item: Pick<VideoItem, 'videoId' | 'title' | 'localKind'>) {
   return { ghosted, onClick }
 }
 
-function Thumb({ i, aspect, ghosted }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean }) {
+function Thumb({ i, aspect, ghosted, overrideSrc }: { i: VideoItem; aspect: 'video' | 'short'; ghosted?: boolean; overrideSrc?: string | null }) {
   const dur = fmtDur(i.durationSec)
   const progress = watchProgress(i)
   return (
     <div className={cn('relative overflow-hidden rounded-xl bg-muted', aspect === 'short' ? 'aspect-[9/16]' : 'aspect-video')}>
-      <VideoThumb videoId={i.videoId} title={i.title} className={cn('size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
+      <VideoThumb videoId={i.videoId} title={i.title} overrideSrc={overrideSrc} className={cn('size-full transition-transform duration-500', ghosted ? 'grayscale' : 'group-hover:scale-[1.03]')} />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       {ghosted ? (
         <>
@@ -63,18 +64,21 @@ function Thumb({ i, aspect, ghosted }: { i: VideoItem; aspect: 'video' | 'short'
 export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?: 'video' | 'short' }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
   const { ghosted, onClick } = useGhost(item)
+  // DeArrow swaps clickbait titles/thumbnails for community-voted ones (no-op when off).
+  const da = useDeArrow(item.videoId)
+  const title = da?.title || item.title
   // Online shorts open in the vertical Shorts feed; everything else (and offline
   // shorts, which need local playback) goes to the standard watch page.
   const to = aspect === 'short' && !item.localKind ? `/youtube/shorts/${item.videoId}` : watchHref(item)
   const body = (
     <>
-      <Thumb i={item} aspect={aspect} ghosted={ghosted} />
+      <Thumb i={item} aspect={aspect} ghosted={ghosted} overrideSrc={da?.thumbnailUrl} />
       <div className="flex gap-2.5">
         {item.author && (
           <ChannelAvatar title={item.author} src={item.channelThumb} className={cn('mt-0.5 size-8 text-[11px] ring-1 ring-border/40', ghosted && 'grayscale')} />
         )}
         <div className="min-w-0 flex-1">
-          <p className={cn('line-clamp-2 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{item.title}</p>
+          <p className={cn('line-clamp-2 text-sm font-semibold leading-snug', ghosted ? 'text-muted-foreground' : 'text-foreground')}>{title}</p>
           {(item.author || age) && (
             <p className="mt-1 truncate text-xs text-muted-foreground">
               {item.author}{item.author && age ? ' · ' : ''}{age}
@@ -92,7 +96,7 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
     )
   }
   return (
-    <Link to={to} state={{ title: item.title, author: item.author, channelThumb: item.channelThumb }} className="group flex flex-col gap-2.5">
+    <Link to={to} state={{ title, author: item.author, channelThumb: item.channelThumb }} className="group flex flex-col gap-2.5">
       {body}
     </Link>
   )
@@ -102,13 +106,15 @@ export function VideoCard({ item, aspect = 'video' }: { item: VideoItem; aspect?
 export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean }) {
   const age = item.ageLabel ?? fmtAge(item.publishedAt)
   const { ghosted, onClick } = useGhost(item)
+  const da = useDeArrow(item.videoId)
+  const title = da?.title || item.title
   const body = (
     <>
       <div className="relative w-[150px] shrink-0">
-        <Thumb i={item} aspect="video" ghosted={ghosted} />
+        <Thumb i={item} aspect="video" ghosted={ghosted} overrideSrc={da?.thumbnailUrl} />
       </div>
       <div className="min-w-0 flex-1 py-0.5">
-        <p className={cn('line-clamp-2 text-[13px] font-semibold leading-snug', ghosted && 'text-muted-foreground')}>{item.title}</p>
+        <p className={cn('line-clamp-2 text-[13px] font-semibold leading-snug', ghosted && 'text-muted-foreground')}>{title}</p>
         {item.author && <p className="mt-1 truncate text-xs text-muted-foreground">{item.author}</p>}
         {age && <p className="truncate text-xs text-muted-foreground">{age}</p>}
       </div>
@@ -122,7 +128,7 @@ export function UpNextRow({ item, active }: { item: VideoItem; active?: boolean 
     )
   }
   return (
-    <Link to={watchHref(item)} state={{ title: item.title, author: item.author, channelThumb: item.channelThumb }}
+    <Link to={watchHref(item)} state={{ title, author: item.author, channelThumb: item.channelThumb }}
       className={cn('group flex gap-2.5 rounded-xl p-1.5 transition-colors', active ? 'bg-accent' : 'hover:bg-accent/50')}>
       {body}
     </Link>

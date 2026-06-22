@@ -989,6 +989,171 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_clock_timer_runs_user_id ON clock_timer_runs(user_id);
   `)
 
+  // Feeds (RSS reader) + Reader (read-it-later library). Created in FK-dependency order.
+  // The journal stops before these, so this inline block is the authoritative schema.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS feed_folders (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS feeds (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'rss',
+      url TEXT,
+      query TEXT,
+      title TEXT NOT NULL DEFAULT '',
+      favicon_url TEXT,
+      site_url TEXT,
+      folder_id TEXT REFERENCES feed_folders(id) ON DELETE SET NULL,
+      is_system INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      notify INTEGER NOT NULL DEFAULT 0,
+      etag TEXT,
+      last_modified TEXT,
+      last_fetched_at INTEGER,
+      last_error TEXT,
+      poll_interval_sec INTEGER,
+      added_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS feeds_user_url_unique ON feeds(user_id, url);
+    CREATE INDEX IF NOT EXISTS feeds_user_idx ON feeds(user_id);
+    CREATE INDEX IF NOT EXISTS feeds_system_idx ON feeds(is_system);
+    CREATE TABLE IF NOT EXISTS feed_items (
+      id TEXT NOT NULL PRIMARY KEY,
+      feed_id TEXT NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+      guid TEXT NOT NULL,
+      title TEXT,
+      url TEXT,
+      author TEXT,
+      summary TEXT,
+      content_html TEXT,
+      image_url TEXT,
+      published_at INTEGER,
+      fetched_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS feed_items_feed_guid_unique ON feed_items(feed_id, guid);
+    CREATE INDEX IF NOT EXISTS feed_items_feed_pub_idx ON feed_items(feed_id, published_at);
+    CREATE INDEX IF NOT EXISTS feed_items_pub_idx ON feed_items(published_at);
+    CREATE TABLE IF NOT EXISTS feed_item_state (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      item_id TEXT NOT NULL REFERENCES feed_items(id) ON DELETE CASCADE,
+      read INTEGER NOT NULL DEFAULT 0,
+      saved INTEGER NOT NULL DEFAULT 0,
+      read_at INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS feed_item_state_unique ON feed_item_state(user_id, item_id);
+    CREATE INDEX IF NOT EXISTS feed_item_state_saved_idx ON feed_item_state(user_id, saved);
+    CREATE INDEX IF NOT EXISTS feed_item_state_read_idx ON feed_item_state(user_id, read);
+    CREATE TABLE IF NOT EXISTS feed_interests (
+      user_id TEXT NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      interests_text TEXT,
+      likes_json TEXT NOT NULL DEFAULT '[]',
+      hides_json TEXT NOT NULL DEFAULT '[]',
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS feed_item_scores (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      item_id TEXT NOT NULL,
+      score REAL,
+      reason TEXT,
+      scored_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS feed_item_scores_unique ON feed_item_scores(user_id, item_id);
+
+    CREATE TABLE IF NOT EXISTS reader_collections (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reader_tags (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reader_items (
+      id TEXT NOT NULL PRIMARY KEY,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      source TEXT NOT NULL DEFAULT 'bookmark',
+      source_ref TEXT,
+      type TEXT NOT NULL DEFAULT 'live',
+      url TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      byline TEXT,
+      site_name TEXT,
+      favicon_url TEXT,
+      excerpt TEXT,
+      content_html TEXT,
+      content_text TEXT,
+      word_count INTEGER NOT NULL DEFAULT 0,
+      reading_mins INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'unread',
+      archive_state TEXT NOT NULL DEFAULT 'none',
+      archive_error TEXT,
+      read_at INTEGER,
+      use_proxy INTEGER NOT NULL DEFAULT 0,
+      use_embed INTEGER NOT NULL DEFAULT 0,
+      category TEXT NOT NULL DEFAULT 'Other',
+      collection_id TEXT REFERENCES reader_collections(id) ON DELETE SET NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      screenshot_path TEXT,
+      snapshot_path TEXT,
+      og_image_path TEXT,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS reader_items_owner_status_idx ON reader_items(owner_id, status);
+    CREATE INDEX IF NOT EXISTS reader_items_source_ref_idx ON reader_items(source, source_ref);
+    CREATE TABLE IF NOT EXISTS reader_item_tags (
+      item_id TEXT NOT NULL REFERENCES reader_items(id) ON DELETE CASCADE,
+      tag_id TEXT NOT NULL REFERENCES reader_tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (item_id, tag_id)
+    );
+
+    -- FTS5 over reader_items (external-content), kept in sync by triggers.
+    CREATE VIRTUAL TABLE IF NOT EXISTS reader_items_fts USING fts5(
+      title, excerpt, content_text,
+      content='reader_items', content_rowid='rowid'
+    );
+    CREATE TRIGGER IF NOT EXISTS reader_items_ai AFTER INSERT ON reader_items BEGIN
+      INSERT INTO reader_items_fts(rowid, title, excerpt, content_text)
+        VALUES (new.rowid, new.title, new.excerpt, new.content_text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS reader_items_ad AFTER DELETE ON reader_items BEGIN
+      INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text)
+        VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS reader_items_au AFTER UPDATE ON reader_items BEGIN
+      INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text)
+        VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text);
+      INSERT INTO reader_items_fts(rowid, title, excerpt, content_text)
+        VALUES (new.rowid, new.title, new.excerpt, new.content_text);
+    END;
+  `)
+
+  // One-time, idempotent: fold existing Organizr-style bookmarks into reader_items as
+  // Live links (reusing the bookmark id so re-runs are no-ops). The old table is left
+  // in place. The AFTER INSERT trigger populates FTS for migrated rows.
+  sqlite.exec(`
+    INSERT INTO reader_items
+      (id, owner_id, source, type, url, title, favicon_url, category,
+       use_proxy, use_embed, sort_order, status, archive_state,
+       word_count, reading_mins, is_adult, created_at, updated_at)
+    SELECT b.id, b.owner_id, 'bookmark', 'live', b.url, b.label, b.icon, b.category,
+       b.use_proxy, b.use_embed, b.sort_order, 'unread', 'none',
+       0, 0, 0, b.created_at, b.updated_at
+    FROM bookmarks b
+    WHERE NOT EXISTS (SELECT 1 FROM reader_items r WHERE r.id = b.id);
+  `)
+
   // Hot-path indexes for foreign-key / scope lookups. All idempotent (IF NOT EXISTS),
   // so they are safe to (re)run on every boot. Mirror any new index here too.
   sqlite.exec(`

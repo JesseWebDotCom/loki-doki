@@ -12,6 +12,7 @@ import { PrivacyProvider } from '@/context/PrivacyContext'
 import { ServerHealthProvider } from '@/context/ServerHealthContext'
 import { SetupProgressProvider } from '@/context/SetupProgressContext'
 import { PodcastPlaybackProvider } from '@/context/PodcastPlaybackContext'
+import { YoutubePlaybackProvider } from '@/context/YoutubePlaybackContext'
 import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
@@ -41,6 +42,13 @@ import { CategoriesPage } from '@/pages/CategoriesPage'
 import { AllAppsPage } from '@/pages/AllAppsPage'
 import { LinksPage } from '@/pages/LinksPage'
 import { LinkViewPage } from '@/pages/LinkViewPage'
+import { ReaderLayout } from '@/components/reader/ReaderLayout'
+import { ReaderLibraryPage } from '@/pages/reader/ReaderLibraryPage'
+import { ReaderReadPage } from '@/pages/reader/ReaderReadPage'
+import { ReaderSettingsPage } from '@/pages/reader/ReaderSettingsPage'
+import { FeedsPage } from '@/pages/FeedsPage'
+import { FeedReaderPage } from '@/pages/FeedReaderPage'
+import { SavePage } from '@/pages/SavePage'
 import { BoredPage } from '@/pages/BoredPage'
 import { VideoPage } from '@/pages/VideoPage'
 import { HomeInventoryPage } from '@/pages/HomeInventoryPage'
@@ -51,6 +59,7 @@ import { CompanionCategoriesPage } from '@/pages/companion-store/CompanionCatego
 import { CompanionCategoryPage } from '@/pages/companion-store/CompanionCategoryPage'
 import { CompanionFavoritesPage } from '@/pages/companion-store/CompanionFavoritesPage'
 import { CompanionDetailPage } from '@/pages/companion-store/CompanionDetailPage'
+import { CompanionStudioPage } from '@/pages/companion-store/CompanionStudioPage'
 import { DocsPage } from '@/pages/DocsPage'
 import { NewsPage } from '@/pages/NewsPage'
 import { OnThisDayPage } from '@/pages/OnThisDayPage'
@@ -66,11 +75,13 @@ import { YoutubeSubscriptionsPage } from '@/pages/youtube/YoutubeSubscriptionsPa
 import { YoutubeShortsPage } from '@/pages/youtube/YoutubeShortsPage'
 import { YoutubePlaylistPage } from '@/pages/youtube/YoutubePlaylistPage'
 import { WatchPage } from '@/pages/youtube/WatchPage'
+import { YoutubeSettingsPage } from '@/pages/youtube/YoutubeSettingsPage'
 import { PodcastLayout } from '@/components/podcast/PodcastLayout'
 import { ListenNowPage } from '@/pages/podcast/ListenNowPage'
 import { PodcastBrowsePage } from '@/pages/podcast/PodcastBrowsePage'
 import { PodcastLibraryPage } from '@/pages/podcast/PodcastLibraryPage'
 import { ShowDetailPage } from '@/pages/podcast/ShowDetailPage'
+import { PodcastAdminPage } from '@/pages/podcast/PodcastAdminPage'
 import { DictionaryPage } from '@/pages/DictionaryPage'
 import { TvShowsPage } from '@/pages/TvShowsPage'
 import { WhereToWatchPage } from '@/pages/WhereToWatchPage'
@@ -196,6 +207,7 @@ export default function App() {
           <GenerationProvider>
           <PrivacyProvider>
           <PodcastPlaybackProvider>
+          <YoutubePlaybackProvider>
           <TimeAlarmProvider>
           <ChatProvider>
           <Routes>
@@ -229,6 +241,14 @@ export default function App() {
                 <Route path="/category/:category" element={<CategoryPage />} />
                 <Route path="/links" element={<LinksPage />} />
                 <Route path="/links/:id" element={<LinkViewPage />} />
+                <Route path="/reader" element={<ReaderLayout />}>
+                  <Route index element={<ReaderLibraryPage />} />
+                  <Route path="collection/:id" element={<ReaderLibraryPage />} />
+                  <Route path="read/:id" element={<ReaderReadPage />} />
+                  <Route path="settings" element={<ReaderSettingsPage />} />
+                </Route>
+                <Route path="/feeds" element={<FeedsPage />} />
+                <Route path="/feeds/read/:itemId" element={<FeedReaderPage />} />
                 <Route path="/companions" element={<CompanionStoreLayout />}>
                   <Route index element={<CompanionHomePage />} />
                   <Route path="browse" element={<CompanionBrowsePage />} />
@@ -236,6 +256,7 @@ export default function App() {
                   <Route path="category/:key" element={<CompanionCategoryPage />} />
                   <Route path="favorites" element={<CompanionFavoritesPage />} />
                   <Route path="c/:id" element={<CompanionDetailPage />} />
+                  <Route path="studio" element={<CompanionStudioPage />} />
                 </Route>
                 <Route path="/bored" element={<BoredPage />} />
                 <Route path="/youtube" element={<YoutubeLayout />}>
@@ -248,12 +269,14 @@ export default function App() {
                   <Route path="playlist/:id" element={<YoutubePlaylistPage />} />
                   <Route path="watch/:videoId" element={<WatchPage />} />
                   <Route path="shorts/:videoId" element={<YoutubeShortsPage />} />
+                  <Route path="settings" element={<YoutubeSettingsPage />} />
                 </Route>
                 <Route path="/podcasts" element={<PodcastLayout />}>
                   <Route index element={<ListenNowPage />} />
                   <Route path="browse" element={<PodcastBrowsePage />} />
                   <Route path="library" element={<PodcastLibraryPage />} />
                   <Route path="show/:id" element={<ShowDetailPage />} />
+                  <Route path="admin" element={<PodcastAdminPage />} />
                 </Route>
                 <Route path="/home-inventory" element={<HomeInventoryPage />} />
                 <Route path="/news" element={<NewsPage />} />
@@ -286,6 +309,9 @@ export default function App() {
                 <Route path="/settings/:section?" element={<SettingsPage />} />
               </Route>
 
+              {/* Capture popup (bookmarklet / share target) — authenticated but chrome-less */}
+              <Route path="/save" element={<SavePage />} />
+
               {/* Admin-only routes */}
               <Route element={<AdminGuard />}>
                 <Route element={<AppShell />}>
@@ -300,6 +326,7 @@ export default function App() {
           </ChatProvider>
           <AlarmRingDialog />
           </TimeAlarmProvider>
+          </YoutubePlaybackProvider>
           </PodcastPlaybackProvider>
           <PrivacyOverlay />
           </PrivacyProvider>

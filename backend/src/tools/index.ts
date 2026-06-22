@@ -80,6 +80,8 @@ import { sportsTool } from './sports'
 import { homeAssistantTool } from './homeAssistant'
 import { timeTool } from './time'
 import { converterTool } from './converter'
+import { readerLibraryTool } from './readerLibrary'
+import { saveToReaderTool } from './saveToReader'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -107,4 +109,6 @@ export const toolRegistry: Tool[] = [
   homeAssistantTool,
   timeTool,
   converterTool,
+  readerLibraryTool,
+  saveToReaderTool,
 ]

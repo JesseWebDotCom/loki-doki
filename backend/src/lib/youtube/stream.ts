@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { logger } from '@/lib/logger'
 import { ytDlpBin, withYtDlpSlot } from '@/lib/youtube/ytdlp'
+import { innertubePlayerStreams, type ItStreams } from '@/lib/youtube/innertube'
 
 const execFileAsync = promisify(execFile)
 
@@ -53,14 +54,47 @@ const cache = new Map<string, CachedUrl>()
 
 function cacheKey(videoId: string, kind: StreamKind, quality: StreamQuality) { return `${videoId}:${kind}:${quality}` }
 
-/** Resolve (and cache) a directly-playable URL for a video, via yt-dlp. */
-export async function resolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality = 'auto'): Promise<string | null> {
+// Pick the best progressive (muxed) URL the ANDROID client offered for this quality.
+// Progressive tops out at 720p (itag 22) — and often only 360p (itag 18) survives — so
+// this gives the same ceiling yt-dlp would for a single-file stream, just faster.
+function pickProgressive(streams: ItStreams, quality: StreamQuality): string | null {
+  const prog = streams.progressive
+    .filter(f => f.url && (f.height ?? 0) > 0)
+    .sort((a, b) => (b.height ?? 0) - (a.height ?? 0))
+  if (!prog.length) return null
+  const chosen = quality === '360'
+    ? (prog.find(f => (f.height ?? 0) <= 360) ?? prog[prog.length - 1])
+    : (prog.find(f => (f.height ?? 0) <= 720) ?? prog[0])   // auto / 720 → best ≤720
+  return chosen?.url ?? null
+}
+
+/**
+ * Resolve (and cache) a directly-playable URL for a video. Video streams try the fast
+ * InnerTube/ANDROID path first (no subprocess) and fall back to yt-dlp; audio always uses
+ * yt-dlp. `forceYtDlp` skips the fast path (used when an InnerTube URL has just 403'd).
+ */
+export async function resolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality = 'auto', forceYtDlp = false): Promise<string | null> {
   if (!isValidVideoId(videoId)) return null
   const now = Date.now()
   const key = cacheKey(videoId, kind, quality)
   const hit = cache.get(key)
   if (hit && hit.expires > now) return hit.url
   if (hit) cache.delete(key) // expired
+
+  // Fast path (video only): one JSON call to the ANDROID client beats spawning yt-dlp.
+  if (kind === 'video' && !forceYtDlp) {
+    try {
+      const streams = await innertubePlayerStreams(videoId)
+      const url = streams ? pickProgressive(streams, quality) : null
+      if (url && isAllowedUpstream(url)) {
+        if (cache.size > 500) sweepExpired()
+        cache.set(key, { url, expires: now + TTL_MS })
+        return url
+      }
+    } catch (err) {
+      logger.warn(`[youtube/stream] innertube fast-resolve failed for ${videoId}: ${err}`)
+    }
+  }
 
   try {
     const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [

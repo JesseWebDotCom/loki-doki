@@ -711,6 +711,117 @@ export async function innertubeRelated(videoId: string, limit = 20, timeout = 80
   return out
 }
 
+// ── Chapters ───────────────────────────────────────────────────────────────────
+// YouTube's authoritative chapter list (creator-set or auto-generated) lives in the
+// `next` response's player bar markers — more reliable than scraping timestamps out of
+// the description, and it carries the official titles. We walk for `chapterRenderer`
+// rather than the deep markersMap path so it survives YouTube reshuffling the tree.
+
+export interface ItChapter { start: number; title: string }
+
+export async function innertubeChapters(videoId: string, timeout = 8000): Promise<ItChapter[]> {
+  const data = await call('next', { videoId }, timeout)
+  const raw: any[] = []
+  collect(data, 'chapterRenderer', raw, 200)
+  const out: ItChapter[] = []
+  for (const ch of raw) {
+    const ms = ch?.timeRangeStartMillis
+    if (typeof ms !== 'number') continue
+    const title = textOf(ch?.title)
+    if (!title) continue
+    out.push({ start: Math.round(ms / 1000), title })
+  }
+  out.sort((a, b) => a.start - b.start)
+  // Drop duplicate start times (the markersMap sometimes carries two marker sets).
+  return out.filter((ch, i) => i === 0 || ch.start !== out[i - 1]!.start)
+}
+
+// ── Comments ───────────────────────────────────────────────────────────────────
+// Two-step: the first `next` call carries a continuation token for the comments
+// section; a second `next` with that token returns the actual threads. Modern WEB
+// stores comment *data* in `frameworkUpdates` mutations keyed by an entity key that
+// each thread's view-model references — with a fallback to the legacy commentRenderer.
+
+export interface ItComment {
+  author: string
+  authorThumb: string | null
+  text: string
+  likeCount: string | null
+  publishedText: string | null
+  replyCount: number | null
+  pinned: boolean
+}
+
+function findCommentsToken(data: any): string | null {
+  const sections = data?.contents?.twoColumnWatchNextResults?.results?.results?.contents
+  if (Array.isArray(sections)) {
+    for (const s of sections) {
+      const isr = s?.itemSectionRenderer
+      if (isr?.sectionIdentifier === 'comment-item-section') {
+        const tok = isr.contents?.find((x: any) => x?.continuationItemRenderer)
+          ?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token
+        if (typeof tok === 'string') return tok
+      }
+    }
+  }
+  return null
+}
+
+export async function innertubeComments(videoId: string, limit = 20, timeout = 8000): Promise<ItComment[]> {
+  const first = await call('next', { videoId }, timeout)
+  const token = findCommentsToken(first)
+  if (!token) return []   // comments disabled, or YouTube changed the shape
+  const data = await call('next', { continuation: token }, timeout)
+
+  // Build entity-key → payload map from the framework mutations (current WEB shape).
+  const payloads = new Map<string, any>()
+  const muts = data?.frameworkUpdates?.entityBatchUpdate?.mutations
+  if (Array.isArray(muts)) {
+    for (const m of muts) {
+      const p = m?.payload?.commentEntityPayload
+      if (p?.key) payloads.set(p.key, p)
+    }
+  }
+
+  const threads: any[] = []
+  collect(data, 'commentThreadRenderer', threads, limit * 2)
+  const out: ItComment[] = []
+  for (const t of threads) {
+    const vm = t?.commentViewModel?.commentViewModel ?? t?.commentViewModel
+    const p = vm?.commentKey ? payloads.get(vm.commentKey) : null
+    if (p) {
+      const text = p?.properties?.content?.content
+      if (!text) continue
+      const reply = p?.toolbar?.replyCount
+      out.push({
+        author: p?.author?.displayName ?? '',
+        authorThumb: fixProtoRelative(p?.author?.avatarThumbnailUrl ?? p?.avatar?.image?.sources?.[0]?.url),
+        text,
+        likeCount: p?.toolbar?.likeCountNotliked || null,
+        publishedText: p?.properties?.publishedTime ?? null,
+        replyCount: reply ? (parseInt(String(reply).replace(/\D/g, ''), 10) || null) : null,
+        pinned: !!vm?.pinnedText,
+      })
+    } else {
+      // Legacy commentRenderer fallback (older InnerTube responses).
+      const cr = t?.comment?.commentRenderer
+      const text = runsToText(cr?.contentText?.runs) || textOf(cr?.contentText)
+      if (!cr || !text) continue
+      out.push({
+        author: textOf(cr?.authorText),
+        authorThumb: fixProtoRelative(cr?.authorThumbnail?.thumbnails?.slice(-1)?.[0]?.url),
+        text,
+        likeCount: textOf(cr?.voteCount) || null,
+        publishedText: textOf(cr?.publishedTimeText) || null,
+        replyCount: null,
+        pinned: !!cr?.pinnedCommentBadge,
+      })
+    }
+    if (out.length >= limit) break
+  }
+  return out
+}
+
 // Note: YouTube retired the anonymous Trending feed (FEtrending now returns HTTP 400),
 // so there is no InnerTube trending call. Discovery is sourced via lib/youtube/discovery.ts.
 
@@ -741,6 +852,51 @@ export async function innertubePlayerMeta(videoId: string, timeout = 8000): Prom
     durationSec: Number.isFinite(len) && len > 0 ? len : null,
     views: d.viewCount ?? null,
   }
+}
+
+// ── Stream resolution (fast path) ────────────────────────────────────────────────
+// The ANDROID_VR InnerTube client hands back directly-playable stream URLs with no
+// signature cipher to solve — so the privacy proxy can resolve a stream with a single
+// JSON call instead of spawning yt-dlp (seconds faster). (The plain WEB/ANDROID clients
+// no longer return usable streams without an attestation token; ANDROID_VR still does.)
+// Not every video cooperates — some have no progressive format, some come back non-OK —
+// so callers fall back to yt-dlp when this returns null.
+
+const VR_CLIENT = { clientName: 'ANDROID_VR', clientVersion: '1.60.19', deviceModel: 'Quest 3', androidSdkVersion: 32, hl: 'en', gl: 'US' }
+const VR_UA = 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; GB) gzip'
+
+export interface ItStreamFormat { itag: number; url: string; height: number | null; bitrate: number | null; mime: string }
+export interface ItStreams { progressive: ItStreamFormat[]; audio: ItStreamFormat[] }
+
+export async function innertubePlayerStreams(videoId: string, timeout = 6000): Promise<ItStreams | null> {
+  const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': VR_UA,
+      'X-Youtube-Client-Name': '28',
+      'X-Youtube-Client-Version': VR_CLIENT.clientVersion,
+      Origin: 'https://www.youtube.com',
+    },
+    body: JSON.stringify({ context: { client: VR_CLIENT }, videoId, contentCheckOk: true, racyCheckOk: true }),
+    signal: AbortSignal.timeout(timeout),
+  })
+  if (!res.ok) throw new Error(`innertube player(vr) → ${res.status}`)
+  const data: any = await res.json()
+  const status = data?.playabilityStatus?.status
+  if (status && status !== 'OK') return null   // login/age/region gated → let yt-dlp try
+  const sd = data?.streamingData
+  if (!sd) return null
+  const toFmt = (f: any): ItStreamFormat | null => {
+    // Skip ciphered formats (signatureCipher instead of a plain url) — those need the
+    // player JS we're trying to avoid; yt-dlp handles them on the fallback path.
+    if (!f?.url || typeof f.url !== 'string') return null
+    const itag = typeof f.itag === 'number' ? f.itag : parseInt(f.itag, 10)
+    return { itag, url: f.url, height: f.height ?? null, bitrate: f.bitrate ?? null, mime: f.mimeType ?? '' }
+  }
+  const progressive = ((sd.formats ?? []).map(toFmt).filter(Boolean)) as ItStreamFormat[]
+  const audio = ((sd.adaptiveFormats ?? []).filter((f: any) => String(f?.mimeType ?? '').startsWith('audio/')).map(toFmt).filter(Boolean)) as ItStreamFormat[]
+  return { progressive, audio }
 }
 
 // Best-effort wrappers — never throw; callers treat InnerTube as an optional fast path.

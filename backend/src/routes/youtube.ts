@@ -16,9 +16,11 @@ import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary } from '@/lib/youtube/summarize'
 import { exportsDir, backfillSavedHeights, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
-import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeRelated, innertubePlayerMeta, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeRelated, innertubePlayerMeta, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
-import { getSkipSegments } from '@/lib/youtube/sponsorblock'
+import { getSkipSegments, getUserSkipCategories } from '@/lib/youtube/sponsorblock'
+import { getVotes } from '@/lib/youtube/returndislike'
+import { getDeArrowBatch, fetchDeArrowThumb } from '@/lib/youtube/dearrow'
 import { getOrFetchImage } from '@/lib/youtube/imageCache'
 import { resolveStreamUrl, invalidateStreamUrl, isValidVideoId, parseQuality, type StreamKind } from '@/lib/youtube/stream'
 import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot } from '@/lib/youtube/ytdlp'
@@ -1110,6 +1112,29 @@ youtubeRoute.get('/related/:videoId', async (c) => {
   return c.json({ videos })
 })
 
+// Comments — InnerTube `next` continuation, proxied so the browser never hits Google.
+youtubeRoute.get('/comments/:videoId', async (c) => {
+  const videoId = c.req.param('videoId')
+  const limit = Math.min(50, parseInt(c.req.query('limit') ?? '20', 10))
+  const comments = await tryInnertube('comments', () => innertubeComments(videoId, limit), [])
+  return c.json({ comments })
+})
+
+// Authoritative chapter list (creator/auto chapters) — used to enrich the watch page
+// when the description has no parseable timestamps.
+youtubeRoute.get('/chapters/:videoId', async (c) => {
+  const videoId = c.req.param('videoId')
+  const chapters = await tryInnertube('chapters', () => innertubeChapters(videoId), [])
+  return c.json({ chapters })
+})
+
+// Return YouTube Dislike — estimated like/dislike counts, proxied server-side.
+youtubeRoute.get('/votes/:videoId', async (c) => {
+  const videoId = c.req.param('videoId')
+  const votes = await getVotes(videoId)
+  return c.json({ votes })
+})
+
 // A playlist's videos (for browsing a playlist found in search).
 youtubeRoute.get('/playlist/:playlistId', async (c) => {
   const playlistId = c.req.param('playlistId')
@@ -1169,9 +1194,47 @@ youtubeRoute.get('/recommended', async (c) => {
 // Proxied so the browser never tells a third party which videos are being watched.
 
 youtubeRoute.get('/sponsorblock/:videoId', async (c) => {
+  const user = c.get('user')
   const videoId = c.req.param('videoId')
-  const segments = await getSkipSegments(videoId)
+  // Only return the categories this user has chosen to skip — the player auto-skips
+  // whatever it receives, so filtering here keeps unskipped segments off the scrubber too.
+  const enabled = await getUserSkipCategories(user.id)
+  const segments = (await getSkipSegments(videoId)).filter(s => enabled[s.category as keyof typeof enabled])
   return c.json({ segments })
+})
+
+// ── DeArrow ───────────────────────────────────────────────────────────────────
+// Crowdsourced de-clickbait titles/thumbnails. Batched by id so a feed of cards is a
+// single round-trip; thumbnails are proxied through us (separate host from /img).
+
+youtubeRoute.post('/dearrow', async (c) => {
+  const body = await c.req.json<{ videoIds?: string[] }>().catch(() => ({ videoIds: [] }))
+  const ids = (body.videoIds ?? []).filter(id => isValidVideoId(id)).slice(0, 100)
+  if (!ids.length) return c.json({ branding: {} })
+  const raw = await getDeArrowBatch(ids)
+  // Hand the client a ready-to-render thumbnail URL (proxied) instead of the timestamp.
+  const branding: Record<string, { title: string | null; thumbnailUrl: string | null }> = {}
+  for (const [id, b] of Object.entries(raw)) {
+    branding[id] = {
+      title: b.title,
+      thumbnailUrl: b.thumbTime != null ? `/api/youtube/dearrow-thumb/${id}?t=${b.thumbTime}` : null,
+    }
+  }
+  return c.json({ branding })
+})
+
+youtubeRoute.get('/dearrow-thumb/:videoId', async (c) => {
+  const videoId = c.req.param('videoId')
+  const time = parseFloat(c.req.query('t') ?? '')
+  if (!isValidVideoId(videoId) || !Number.isFinite(time)) return c.json({ error: 'bad request' }, 400)
+  const upstream = await fetchDeArrowThumb(videoId, time)
+  if (!upstream) return c.json({ error: 'upstream' }, 502)
+  return new Response(upstream.body, {
+    headers: {
+      'content-type': upstream.headers.get('content-type') ?? 'image/webp',
+      'cache-control': 'public, max-age=86400',
+    },
+  })
 })
 
 // ── Privacy stream proxy ────────────────────────────────────────────────────────
@@ -1208,12 +1271,14 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
 
   try {
     let upstream = await fetchUpstream(upstreamUrl)
-    // A 403 usually means the cached URL's signature rotated — re-resolve once.
+    // A 403 usually means the cached URL's signature rotated — re-resolve once. Force the
+    // yt-dlp path here: if the fast InnerTube URL was the one that 403'd, retrying it the
+    // same way would likely 403 again, so fall straight through to the robust resolver.
     if (upstream.status === 403) {
       // Drain the stale response before refetching so its connection isn't leaked.
       try { await upstream.body?.cancel() } catch { /* already closed */ }
       invalidateStreamUrl(videoId, kind, quality)
-      const fresh = await resolveStreamUrl(videoId, kind, quality)
+      const fresh = await resolveStreamUrl(videoId, kind, quality, true)
       if (fresh) upstream = await fetchUpstream(fresh)
     }
     if (!upstream.ok && upstream.status !== 206) {
@@ -1236,6 +1301,16 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
     if (ac.signal.aborted) return new Response(null, { status: 499 })
     return c.json({ error: 'Stream failed' }, 502)
   }
+})
+
+// Pre-resolve (and cache) the proxy stream URL ahead of time so a later hand-off to the
+// docked mini-player plays instantly instead of waiting on a cold resolve (InnerTube →
+// yt-dlp). Fire-and-forget: returns immediately while the cache warms in the background.
+youtubeRoute.get('/stream/:videoId/prewarm', async (c) => {
+  const videoId = c.req.param('videoId')
+  if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
+  void resolveStreamUrl(videoId, 'video', 'auto')
+  return c.body(null, 204)
 })
 
 // ── Collections (Watch Later / Liked) ───────────────────────────────────────────

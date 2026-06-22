@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, Globe, EyeOff, Store, Mic, LayoutDashboard } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, EyeOff, Store, LayoutDashboard } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -87,12 +87,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   },
   {
     id: 'companions', label: 'Companions', icon: Sparkles,
-    keywords: ['companion', 'character', 'persona', 'avatar', 'voice', 'wakeword', 'briefing'],
-    description: 'Characters, voices, wake words, and daily briefing',
+    keywords: ['companion', 'voice', 'wakeword', 'briefing', 'tts'],
+    description: 'Instance-wide voice, wake words, and daily briefing (character studio lives in the Companions app)',
     subsections: [
-      { id: 'characters', label: 'Characters', kind: 'view',
-        keywords: ['companion', 'persona', 'avatar', 'character', 'content', 'dials', 'personality'],
-        description: 'Create and manage companions and their content levels' },
       { id: 'voice', label: 'Voice & Wake words', kind: 'view',
         keywords: ['voice', 'tts', 'wakeword', 'wake word', 'speech', 'piper', 'hey', 'trigger', 'microphone'],
         description: 'Default voice and wake-word settings' },
@@ -100,12 +97,6 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         keywords: ['briefing', 'news', 'weather', 'ambient', 'context', 'sports'],
         description: 'Ambient world and local context for companions' },
     ],
-  },
-  {
-    id: 'links', label: 'Links', icon: Globe,
-    keywords: ['links', 'bookmarks', 'organizr', 'shortcuts'],
-    description: 'Global bookmarks and shortcuts',
-    subsections: [],
   },
   {
     id: 'privacy', label: 'Privacy & Content', icon: EyeOff,
@@ -128,12 +119,6 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         keywords: ['lora', 'style', 'adult', 'flag', 'rescan'],
         description: 'Manually mark image styles as adult' },
     ],
-  },
-  {
-    id: 'podcasts', label: 'Podcasts', icon: Mic,
-    keywords: ['podcast', 'rss', 'audio', 'show', 'episode'],
-    description: 'Podcast shows and subscriptions',
-    subsections: [],
   },
   {
     id: 'users', label: 'Users', icon: Users,

@@ -53,13 +53,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
   chapters?: Chapter[]
   // Fires with current playback time (~2×/sec) so callers can follow along (transcript).
   onTime?: (sec: number) => void
+  // Fires (~2×/sec) with the play/pause state — lets the watch page decide whether to
+  // hand off to the docked mini-player on navigate-away.
+  onPlaying?: (playing: boolean) => void
   // Metadata persisted with watch-state so the video appears in History even when it
   // was never in a subscription feed.
   videoMeta?: WatchMeta
   // Frame shape: 'video' self-sizes to 16:9; 'short' fills its parent (the parent
   // sizes the 9:16 box) — used by the vertical Shorts feed.
   aspect?: 'video' | 'short'
-}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, audioOnly = false, skipSegments, onSkip, chapters, onTime, videoMeta, aspect = 'video' }, ref) {
+}>(function VideoPlayer({ videoId, localKind, resumeSec = 0, onEnded, privacyProxy = false, audioOnly = false, skipSegments, onSkip, chapters, onTime, onPlaying, videoMeta, aspect = 'video' }, ref) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null)
@@ -172,7 +175,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     const iv = setInterval(() => {
       const s = read(); if (!s) return
       setPosition(s.t); posRef.current = s.t; if (s.d) setDuration(s.d); setPlaying(s.playing)
-      onTime?.(s.t)
+      onTime?.(s.t); onPlaying?.(s.playing)
 
       // The embed only exposes its quality levels once playback has started — refresh
       // them here so the Quality menu isn't stuck showing just "Auto". (Best-effort:

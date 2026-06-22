@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import {
-  ExternalLink, Home, LayoutGrid, Loader2, Locate, MapPin, Search, Settings,
+  ExternalLink, Home, LayoutGrid, Loader2, Locate, Lock, MapPin, Search, Settings,
   ShieldCheck, Sparkles, Terminal, User, X,
   type LucideIcon,
 } from "lucide-react";
@@ -19,6 +19,7 @@ import { BottomTabBar } from "./BottomTabBar";
 import { CompanionOverlay } from "./CompanionOverlay";
 import { QueueBanner } from "./QueueBanner";
 import { PodcastPlayerBar } from "@/components/podcast/PodcastPlayerBar";
+import { YoutubeMiniBar } from "@/components/youtube/YoutubeMiniBar";
 import { useChatContext } from "@/context/ChatContext";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useNewsPrefetch } from "@/lib/news/useNews";
@@ -42,9 +43,11 @@ export function AppShell() {
   const isChat = pathname.startsWith("/chat");
   const isPanel = PANEL_PREFIXES.some(p => pathname.startsWith(p));
   // Full-bleed apps own their full height and let the companion float over them.
-  // isReader also covers docs pages — both provide their own breadcrumb header.
-  const isReader = pathname.startsWith("/read") || pathname.startsWith("/docs");
-  const isFullBleed = pathname.startsWith("/maps") || isReader || pathname.startsWith("/imaging") || pathname.startsWith("/video") || pathname.startsWith("/youtube");
+  // isReader (ZIM reader at /read/:id + docs) provides its OWN breadcrumb header, so the
+  // standard one is suppressed there. NOTE: match "/read/" (trailing slash) so the Reader
+  // app at "/reader" is NOT caught — it uses the standard breadcrumb like other apps.
+  const isReader = pathname.startsWith("/read/") || pathname.startsWith("/docs");
+  const isFullBleed = pathname.startsWith("/maps") || isReader || pathname.startsWith("/imaging") || pathname.startsWith("/video") || pathname.startsWith("/youtube") || pathname.startsWith("/reader");
   const { conversations, conversationId, currentProject } = useChatContext();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -237,11 +240,12 @@ export function AppShell() {
                 {breadcrumbSearch.rightSlot}
                 {breadcrumbSearch.settingsHref && user?.role === 'admin' && (
                   <Button
-                    variant="ghost" size="icon" className="size-8 shrink-0"
-                    title="Settings"
+                    variant="ghost" size="icon" className="relative size-8 shrink-0"
+                    title="Admin settings"
                     onClick={() => navigate(breadcrumbSearch.settingsHref!)}
                   >
                     <Settings className="size-4" />
+                    <Lock className="absolute right-1 top-1 size-2.5 text-amber-500" />
                   </Button>
                 )}
                 {breadcrumbSearch.externalHref && (
@@ -269,7 +273,8 @@ export function AppShell() {
           </div>
         )}
 
-        {/* Persistent podcast player bar — shown above companion when a track is loaded */}
+        {/* Persistent media player bars — shown above companion when a track is loaded */}
+        <YoutubeMiniBar />
         <PodcastPlayerBar />
 
         {/* Floating companion — the global input + persistent animated buddy (desktop) */}
