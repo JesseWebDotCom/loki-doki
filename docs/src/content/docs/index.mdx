@@ -1,0 +1,45 @@
+---
+title: Loki Doki
+description: Documentation for Loki Doki, a private, offline-first AI home hub.
+template: splash
+hero:
+  title: Loki Doki
+  tagline: Your family. Your data. Your rules. A full AI stack that runs in your home and stays there, private, uncensored, and free.
+  actions:
+    - text: User Guide
+      link: user/welcome/
+      icon: right-arrow
+      variant: primary
+    - text: Developer Guide
+      link: dev/architecture/
+      icon: open-book
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+  <Card title="Chat" icon="comment">
+    Local LLM chat with memory, tool calling, and character companions. Powered by Ollama. No data leaves your network.
+  </Card>
+  <Card title="Image Generation" icon="pencil">
+    ComfyUI + Stable Diffusion XL. txt2img, img2img, face identity, video, background removal, and LoRA support.
+  </Card>
+  <Card title="Voice" icon="phone">
+    Hands-free wakeword detection, Whisper STT, and Kokoro-82M TTS, all running locally with no cloud dependency.
+  </Card>
+  <Card title="Companions" icon="star">
+    A fully customizable, animated AI buddy with its own name, personality, voice, and look. It breathes, reacts, and lip-syncs as it talks, and it's yours, not built to hook you.
+  </Card>
+  <Card title="Offline Library" icon="open-book">
+    Full Wikipedia, medical references, and more via ZIM archives. Readable offline via the built-in kiwix-serve engine.
+  </Card>
+  <Card title="Maps" icon="rocket">
+    Offline maps with routing via MapLibre + pmtiles + GraphHopper. Full-text geocoder, no tile API required.
+  </Card>
+  <Card title="Home Inventory" icon="list-format">
+    AI-powered device tracker. Photo → VLM identify → web lookup. Service logs, warranty alerts, and manual PDF cache.
+  </Card>
+  <Card title="Home Control" icon="setting">
+    Control your smart home by natural language through Home Assistant. "Turn off the office lights", "lock the front door", "set the bedroom to 50%", with per-user, per-room permissions.
+  </Card>
+</CardGrid>

@@ -1,0 +1,146 @@
+import { db } from '@/db'
+import { appSettings } from '@/db/schema'
+import { eq } from 'drizzle-orm'
+import { ollamaChat, ollamaEmbed, ollamaList } from '@/llm/ollama'
+import { EMBED_MODEL, ROUTER_EMBED_MODEL } from '@/llm/embed'
+import { initRouter } from '@/llm/router'
+import { logger } from '@/lib/logger'
+import { CATALOG } from '@/lib/catalog'
+
+async function getSetting(key: string): Promise<string | null> {
+  const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1)
+  return row ? (JSON.parse(row.value) as string) : null
+}
+
+export async function getModel(): Promise<string> {
+  return (await getSetting('model')) ?? process.env.MODEL ?? 'llama3.1:8b'
+}
+
+// Cached router model — read once, re-read only on explicit invalidation.
+// router_llm_model almost never changes (only via admin UI), so caching is safe.
+let _routerModelCache: { value: string | null } | null = null
+
+export async function getRouterModel(): Promise<string | null> {
+  if (!_routerModelCache) {
+    _routerModelCache = { value: (await getSetting('router_llm_model')) ?? process.env.ROUTER_MODEL ?? null }
+  }
+  return _routerModelCache.value
+}
+
+export function invalidateRouterModelCache(): void {
+  _routerModelCache = null
+}
+
+// A small, fast model for short auxiliary text tasks (e.g. weather blurbs) where the
+// big chat model is overkill — generating a one-line summary on a 12B model costs
+// seconds of prefill + decode. Prefers the router LLM (already kept warm for routing,
+// e.g. granite4.1:3b), falling back to the main chat model if that isn't installed.
+let _fastModelCache: { value: string } | null = null
+
+export async function getFastModel(): Promise<string> {
+  if (_fastModelCache) return _fastModelCache.value
+  const main = await getModel()
+  const candidate =
+    (await getSetting('router_llm_model')) ??
+    process.env.ROUTER_MODEL ??
+    CATALOG.find((m) => m.role === 'router_llm')?.ollamaTag ??
+    null
+  if (candidate && candidate !== main) {
+    try {
+      const installed = await ollamaList()
+      if (installed.some((m) => m.name === candidate)) {
+        _fastModelCache = { value: candidate }
+        return candidate
+      }
+    } catch {
+      // Ollama unreachable — fall back to the main model.
+    }
+  }
+  _fastModelCache = { value: main }
+  return main
+}
+
+export function invalidateFastModelCache(): void {
+  _fastModelCache = null
+}
+
+// Returns the best available vision-capable model:
+// 1. Explicitly configured vision_model setting
+// 2. The current chat model if it has builtinVision (e.g. Gemma 4 12B)
+// 3. Fallback: gemma3:4b (the catalog vision role default)
+export async function getVisionModel(): Promise<string> {
+  const explicit = await getSetting('vision_model')
+  if (explicit) return explicit
+
+  const chatModel = await getModel()
+  const chatEntry = CATALOG.find(m => m.ollamaTag === chatModel || m.id === chatModel)
+  if (chatEntry?.builtinVision) return chatModel
+
+  return 'gemma3:4b'
+}
+
+// Shared warmup promise — callers that need to wait for warmup to finish (e.g. the boot
+// sequence) await this instead of firing their own duplicate Ollama requests.
+let _warmupPromise: Promise<void> | null = null
+export function getWarmupPromise(): Promise<void> | null { return _warmupPromise }
+
+// Load both models into VRAM with keep_alive: -1 and init the semantic router.
+// Runs at server startup so the first user message never pays cold-load tax.
+//
+// IMPORTANT: warmup must use the same system prompt PREFIX as real chat requests so
+// llama.cpp's KV cache already contains those tokens when the first real turn arrives.
+// Using a bare "hi" (no system message) means the cache never hits on turn 1 — every
+// first message of every conversation pays full prefill cost (~2–5s for 12B models).
+export function warmupModel(): Promise<void> {
+  _warmupPromise = _doWarmup()
+  return _warmupPromise
+}
+
+async function _doWarmup(): Promise<void> {
+  const model = await getModel()
+
+  // Pre-warm with the stable system prompt prefix that every real chat message will share.
+  // The date is the longest-lived stable prefix (~24h). Memory and character prompts vary
+  // per user/conversation so they can't be pre-warmed centrally; the date prefix alone
+  // eliminates a significant chunk of the cold-prefill work.
+  const dateStr = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  })
+  // IMPORTANT: this system prompt must be identical to the prefix built in chat.ts
+  // so llama.cpp's KV cache already holds these tokens when the first real turn arrives.
+  const warmupMessages = [
+    { role: 'system' as const, content: `Today is ${dateStr}. Be concise — 1 to 3 sentences unless the user asks for more detail.` },
+    { role: 'user' as const, content: 'hi' },
+  ]
+
+  const routerModel = await getRouterModel()
+
+  // Load LLM + embed models + router LLM in parallel so first Tier 2 call never cold-loads.
+  const [, , routerEmbedOk] = await Promise.allSettled([
+    ollamaChat(model, warmupMessages, [], {
+      temperature: 0, num_predict: 1, num_ctx: 4096,
+    })
+      .then(() => logger.info(`[warmup] ${model} ready`))
+      .catch(() => {}),
+    ollamaEmbed(EMBED_MODEL, 'warmup')
+      .then(() => logger.info(`[warmup] ${EMBED_MODEL} ready`))
+      .catch(() => {}),
+    ollamaEmbed(ROUTER_EMBED_MODEL, 'warmup')
+      .then(() => { logger.info(`[warmup] ${ROUTER_EMBED_MODEL} ready`); return true })
+      .catch(() => false),
+    routerModel && routerModel !== model
+      ? ollamaChat(routerModel, [{ role: 'user' as const, content: 'hi' }], [], {
+          temperature: 0, num_predict: 1,
+        })
+          .then(() => logger.info(`[warmup] ${routerModel} (router) ready`))
+          .catch(() => {})
+      : Promise.resolve(),
+  ])
+
+  // Router indexing uses all-minilm — only init after it's warm
+  if (routerEmbedOk.status === 'fulfilled' && routerEmbedOk.value) {
+    initRouter().then(() => logger.info('[warmup] router indexed')).catch(() => {})
+  } else {
+    logger.info('[warmup] router skipped — all-minilm not available')
+  }
+}

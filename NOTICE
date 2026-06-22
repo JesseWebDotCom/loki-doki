@@ -1,0 +1,117 @@
+loki-doki-v3
+Third-Party Licenses and Attributions
+
+This software incorporates components from third-party projects. The following
+notices are required by their respective licenses.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MAPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenStreetMap / Geofabrik
+  Map data © OpenStreetMap contributors
+  License: Open Data Commons Open Database License (ODbL) 1.0
+  https://www.openstreetmap.org/copyright
+  https://opendatacommons.org/licenses/odbl/
+
+Natural Earth
+  Country and administrative boundary data
+  License: Public Domain
+  https://www.naturalearthdata.com/
+
+MapLibre GL JS
+  Map rendering engine
+  License: BSD 3-Clause
+  https://maplibre.org/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OFFLINE LIBRARY CONTENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Offline content is served from ZIM archives downloaded from the Kiwix project
+(https://kiwix.org). Content licenses vary by source:
+
+  Wikipedia, Wiktionary, Wikivoyage, Wikiquote, Wikinews, Wikiversity
+    License: Creative Commons Attribution-ShareAlike 4.0 International (CC-BY-SA 4.0)
+    © Wikimedia Foundation contributors
+    https://creativecommons.org/licenses/by-sa/4.0/
+
+  Stack Exchange / Stack Overflow (all sites)
+    License: Creative Commons Attribution-ShareAlike 4.0 International (CC-BY-SA 4.0)
+    https://stackoverflow.com/legal/terms-of-service#licensing
+
+  iFixit
+    License: Creative Commons Attribution-ShareAlike 3.0 (CC-BY-SA 3.0)
+    https://www.ifixit.com/Info/Licensing
+
+  Khan Academy
+    License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (CC-BY-NC-SA 4.0)
+    https://www.khanacademy.org/
+
+  Arch Linux Wiki, Alpine Linux Wiki
+    License: Creative Commons Attribution-ShareAlike 3.0 (CC-BY-SA 3.0)
+
+  MDN Web Docs
+    License: Creative Commons Attribution-ShareAlike 2.5 (CC-BY-SA 2.5)
+    https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Attrib_copyright_license
+
+  Citizendium, RationalWiki, Bogleheads, Hitchwiki, Wikiversity, iFixit,
+  Appropedia, Energypedia, Restarters Wiki
+    License: Creative Commons Attribution-ShareAlike 3.0 or 4.0 (CC-BY-SA)
+    See individual archive pages for exact license version.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHARACTER AVATARS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DiceBear Avataaars  (via @dicebear/avataaars v9)
+  Original artwork by Pablo Stanley
+  License: Free for personal and commercial use
+  https://avataaars.com/
+
+DiceBear Bottts  (via @dicebear/bottts v9)
+  Original artwork by Pablo Stanley
+  License: Free for personal and commercial use
+  https://bottts.com/
+
+DiceBear Toon Head  (via @dicebear/toon-head v9)
+  Original artwork by Johan Melin
+  License: Creative Commons Attribution 4.0 International (CC-BY 4.0)
+  © Johan Melin — https://www.johanmelin.com/
+  https://creativecommons.org/licenses/by/4.0/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+UI ASSETS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+amCharts Animated SVG Weather Icons
+  License: Creative Commons Attribution 4.0 International (CC-BY 4.0)
+  © amCharts — https://www.amcharts.com/
+  https://creativecommons.org/licenses/by/4.0/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AI MODELS & RUNTIMES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ollama                          MIT License          https://ollama.com/
+Meta Llama 3.x                  Meta Llama 3 License https://llama.meta.com/
+Google Gemma 3/4                Gemma Terms of Use   https://ai.google.dev/gemma/
+IBM Granite 4                   Apache 2.0           https://github.com/ibm-granite/
+ComfyUI                         GPL 3.0              https://github.com/comfyanonymous/ComfyUI
+stable-diffusion.cpp            MIT License          https://github.com/leejet/stable-diffusion.cpp
+Kokoro TTS                      Apache 2.0           https://huggingface.co/hexgrad/Kokoro-82M
+Whisper (ONNX)                  MIT License          https://github.com/openai/whisper
+OpenWakeWord                    Apache 2.0           https://github.com/dscripka/openWakeWord
+BiRefNet Lite (ONNX)            MIT License          https://huggingface.co/onnx-community/BiRefNet_lite-ONNX
+CodeFormer                      Apache 2.0           https://github.com/sczhou/CodeFormer
+GFPGAN                          Apache 2.0           https://github.com/TencentARC/GFPGAN
+InsightFace / AntelopeV2        Apache 2.0           https://github.com/deepinsight/insightface
+IP-Adapter FaceID               Apache 2.0           https://github.com/tencent-ailab/IP-Adapter
+AnimateDiff                     Apache 2.0           https://github.com/guoyww/AnimateDiff
+Stable Video Diffusion          OpenRAIL++-M         https://huggingface.co/stabilityai/stable-video-diffusion-img2vid-xt
+ESRGAN (4x-NMKD-Siax_200k)     MIT License          https://huggingface.co/uwg/upscaler
+TAESD (madebyollin)             MIT License          https://github.com/madebyollin/taesd
+Planetiler                      Apache 2.0           https://github.com/onthegomap/planetiler
+GraphHopper                     Apache 2.0           https://github.com/graphhopper/graphhopper
+go-pmtiles                      BSD 3-Clause         https://github.com/protomaps/go-pmtiles
+Eclipse Temurin JRE             GPL 2.0 + CPE        https://adoptium.net/

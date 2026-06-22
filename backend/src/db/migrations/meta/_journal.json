@@ -1,0 +1,125 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1780705862024,
+      "tag": "0000_ordinary_mongoose",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1749200000000,
+      "tag": "0001_conversation_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1749300000000,
+      "tag": "0002_tool_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1749400000000,
+      "tag": "0003_tool_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1749500000000,
+      "tag": "0004_memory_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1749600000000,
+      "tag": "0005_lora_routing",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1749700000000,
+      "tag": "0006_zim_archives",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1749800000000,
+      "tag": "0007_image_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781046024046,
+      "tag": "0008_plain_black_cat",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1781132424046,
+      "tag": "0009_voice",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1781068468509,
+      "tag": "0010_magenta_triton",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1781200000000,
+      "tag": "0011_bookmarks",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1781300000000,
+      "tag": "0012_bookmark_proxy",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1781400000000,
+      "tag": "0013_bookmark_embed",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1781500000000,
+      "tag": "0014_wakeword_phrase",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1781600000000,
+      "tag": "0015_maps",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1781700000000,
+      "tag": "0016_analysis",
+      "breakpoints": true
+    }
+  ]
+}

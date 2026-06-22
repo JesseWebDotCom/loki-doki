@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0c0f" />
+    <meta name="description" content="Local-first AI assistant" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="LokiDoki" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <title>LokiDoki</title>
+    <script>
+      (function () {
+        const t = localStorage.getItem("theme");
+        const effective =
+          t === "light" ? "light"
+          : t === "auto"
+            ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+            : "dark";
+        document.documentElement.setAttribute("data-theme", effective);
+        document.cookie = "ld-theme=" + effective + "; path=/; max-age=31536000; SameSite=Lax";
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
+    <script>
+      // Recover from ERR_NETWORK_CHANGED (macOS changes its network interface
+      // on screen lock/unlock, aborting Vite's in-flight ESM module fetches
+      // and leaving the page white). Two recovery paths:
+      //
+      // 1. "online" event — fires when the interface comes back up; reload only
+      //    if the app never mounted, with a 1s pause to let the stack settle.
+      // 2. Periodic heartbeat — starts 5s after the document loads (enough for
+      //    React to mount normally); if root is still empty, keep reloading
+      //    every 5s until the server comes back.
+      (function () {
+        function broken() {
+          return !document.getElementById("root").firstElementChild;
+        }
+        window.addEventListener("online", function () {
+          if (broken()) setTimeout(function () { location.reload(); }, 1000);
+        });
+        setTimeout(function () {
+          if (broken()) { location.reload(); return; }
+          setInterval(function () { if (broken()) location.reload(); }, 5000);
+        }, 5000);
+      })();
+    </script>
+  </body>
+</html>

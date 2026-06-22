@@ -1,0 +1,200 @@
+import { Hono } from 'hono'
+import { eq, and } from 'drizzle-orm'
+import { db } from '@/db'
+import { userPreferences, appSettings, users } from '@/db/schema'
+import { requireAuth, requireAdmin } from '@/middleware/auth'
+import type { AppEnv } from '@/types'
+
+const homeLayout = new Hono<AppEnv>()
+
+const PREF_KEY = 'home.layout'
+const DEFAULT_SETTING_KEY = 'home.layout.default'
+const LOCK_KEY = 'home.layout.locked'
+
+export interface HomeWidget {
+  toolId: string
+  colSpan: 1 | 2
+}
+
+export interface HomeRow {
+  id: string
+  cols: HomeWidget[]
+}
+
+export interface HomeLayoutHeader {
+  weather: boolean
+  jokes: boolean
+  sports: boolean
+  locked: boolean
+}
+
+export interface HomeLayout {
+  header: HomeLayoutHeader
+  canvas: HomeRow[]
+}
+
+const DEFAULT_LAYOUT: HomeLayout = {
+  header: { weather: true, jokes: true, sports: true, locked: false },
+  canvas: [],
+}
+
+async function getSystemDefaultLayout(): Promise<HomeLayout> {
+  const [row] = await db
+    .select({ value: appSettings.value })
+    .from(appSettings)
+    .where(eq(appSettings.key, DEFAULT_SETTING_KEY))
+    .limit(1)
+  if (!row) return DEFAULT_LAYOUT
+  try { return JSON.parse(row.value) as HomeLayout } catch { return DEFAULT_LAYOUT }
+}
+
+async function getUserLayout(userId: string): Promise<HomeLayout | null> {
+  const [row] = await db
+    .select({ value: userPreferences.value })
+    .from(userPreferences)
+    .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, PREF_KEY)))
+    .limit(1)
+  if (!row) return null
+  try { return JSON.parse(row.value) as HomeLayout } catch { return null }
+}
+
+async function isLayoutLocked(userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ value: userPreferences.value })
+    .from(userPreferences)
+    .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, LOCK_KEY)))
+    .limit(1)
+  if (!row) return false
+  try { return JSON.parse(row.value) === true } catch { return false }
+}
+
+// ── GET /api/home-layout ───────────────────────────────────────────────────────
+
+homeLayout.get('/', requireAuth, async (c) => {
+  const user = c.get('user')
+  const [layout, locked, systemDefault] = await Promise.all([
+    getUserLayout(user.id),
+    isLayoutLocked(user.id),
+    getSystemDefaultLayout(),
+  ])
+
+  // Migrate legacy home.highlights into header if no layout set yet
+  if (!layout) {
+    const [highlightsRow] = await db
+      .select({ value: userPreferences.value })
+      .from(userPreferences)
+      .where(and(eq(userPreferences.userId, user.id), eq(userPreferences.key, 'home.highlights')))
+      .limit(1)
+
+    if (highlightsRow) {
+      try {
+        const h = JSON.parse(highlightsRow.value) as { sports?: boolean; jokes?: boolean }
+        const migratedLayout: HomeLayout = {
+          ...systemDefault,
+          header: {
+            ...systemDefault.header,
+            sports: h.sports ?? systemDefault.header.sports,
+            jokes: h.jokes ?? systemDefault.header.jokes,
+            locked,
+          },
+        }
+        return c.json({ layout: migratedLayout, locked })
+      } catch { /* fall through */ }
+    }
+  }
+
+  return c.json({
+    layout: { ...(layout ?? systemDefault), header: { ...(layout ?? systemDefault).header, locked } },
+    locked,
+  })
+})
+
+// ── PUT /api/home-layout ───────────────────────────────────────────────────────
+
+homeLayout.put('/', requireAuth, async (c) => {
+  const user = c.get('user')
+  const locked = await isLayoutLocked(user.id)
+  if (locked) return c.json({ error: 'Layout is locked by admin' }, 403)
+
+  const body = await c.req.json() as HomeLayout
+  const now = new Date()
+  const value = JSON.stringify(body)
+  if (value.length > 64_000) return c.json({ error: 'Layout is too large.' }, 400)
+
+  await db
+    .insert(userPreferences)
+    .values({ id: crypto.randomUUID(), userId: user.id, key: PREF_KEY, value, updatedAt: now })
+    .onConflictDoUpdate({
+      target: [userPreferences.userId, userPreferences.key],
+      set: { value, updatedAt: now },
+    })
+
+  return c.json({ ok: true })
+})
+
+// ── GET /api/home-layout/default (admin) ─────────────────────────────────────
+
+homeLayout.get('/default', requireAdmin, async (c) => {
+  const layout = await getSystemDefaultLayout()
+  return c.json({ layout })
+})
+
+// ── PUT /api/home-layout/default (admin) ─────────────────────────────────────
+
+homeLayout.put('/default', requireAdmin, async (c) => {
+  const body = await c.req.json() as HomeLayout
+  const now = new Date()
+  const value = JSON.stringify(body)
+  await db
+    .insert(appSettings)
+    .values({ id: crypto.randomUUID(), key: DEFAULT_SETTING_KEY, value, updatedAt: now })
+    .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: now } })
+  return c.json({ ok: true })
+})
+
+// ── GET /api/home-layout/users/:userId (admin) ────────────────────────────────
+
+homeLayout.get('/users/:userId', requireAdmin, async (c) => {
+  const userId = c.req.param('userId')
+  const [layout, locked] = await Promise.all([getUserLayout(userId), isLayoutLocked(userId)])
+  return c.json({ layout, locked })
+})
+
+// ── PUT /api/home-layout/users/:userId (admin) ────────────────────────────────
+
+homeLayout.put('/users/:userId', requireAdmin, async (c) => {
+  const userId = c.req.param('userId')
+  // Validate the target exists first — userPreferences.userId has an FK to users, so a
+  // bogus id would otherwise surface as a 500 constraint error instead of a clean 404.
+  const [target] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId))
+  if (!target) return c.json({ error: 'User not found' }, 404)
+  const body = await c.req.json() as { layout?: HomeLayout; locked?: boolean }
+  const now = new Date()
+
+  if (body.layout !== undefined) {
+    const value = JSON.stringify(body.layout)
+    if (value.length > 64_000) return c.json({ error: 'Layout is too large.' }, 400)
+    await db
+      .insert(userPreferences)
+      .values({ id: crypto.randomUUID(), userId, key: PREF_KEY, value, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [userPreferences.userId, userPreferences.key],
+        set: { value, updatedAt: now },
+      })
+  }
+
+  if (body.locked !== undefined) {
+    const value = JSON.stringify(body.locked)
+    await db
+      .insert(userPreferences)
+      .values({ id: crypto.randomUUID(), userId, key: LOCK_KEY, value, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [userPreferences.userId, userPreferences.key],
+        set: { value, updatedAt: now },
+      })
+  }
+
+  return c.json({ ok: true })
+})
+
+export { homeLayout }

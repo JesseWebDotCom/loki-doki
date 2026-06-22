@@ -1,0 +1,92 @@
+#!/bin/bash
+set -e
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# Loki Doki runs on the Bun runtime. Install it automatically on first run so a
+# fresh machine needs nothing but this script. (Ollama and the AI models are
+# downloaded by the app itself on first launch.)
+if ! command -v bun >/dev/null 2>&1; then
+  echo "Bun runtime not found — installing it..."
+  curl -fsSL https://bun.sh/install | bash
+  export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+  export PATH="$BUN_INSTALL/bin:$PATH"
+fi
+
+if [ "$1" = "--uninstall" ]; then
+  echo ""
+  echo "WARNING: This will permanently delete all app data, AI models, ComfyUI,"
+  echo "voice/map caches, and the Ollama installation from this machine."
+  echo ""
+  printf "Type UNINSTALL to confirm: "
+  read -r confirm
+  if [ "$confirm" != "UNINSTALL" ]; then
+    echo "Cancelled."
+    exit 1
+  fi
+  cd "$ROOT/backend"
+  [ ! -d node_modules ] && bun install --silent
+  exec bun run src/uninstall-cli.ts
+fi
+
+BACKEND_PID=""
+FRONTEND_PID=""
+
+kill_port() {
+  lsof -ti ":$1" | xargs kill -9 2>/dev/null || true
+}
+
+# Unload Ollama models on exit so they don't linger in VRAM across sessions.
+# The backend's own SIGTERM handler runs first; this is the fallback for crashes.
+cleanup() {
+  echo ""
+  echo "Shutting down..."
+  [ -n "$BACKEND_PID" ] && kill -TERM "$BACKEND_PID" 2>/dev/null || true
+  # Wait briefly for the backend to unload models via its own SIGTERM handler
+  sleep 2
+  # Fallback: ask Ollama directly to evict any remaining loaded models
+  OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+  python3 - <<'EOF' 2>/dev/null || true
+import json, os, sys, urllib.request
+url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+try:
+    resp = urllib.request.urlopen(f"{url}/api/ps", timeout=3)
+    for m in json.loads(resp.read()).get("models", []):
+        try:
+            req = urllib.request.Request(
+                f"{url}/api/generate",
+                data=json.dumps({"model": m["name"], "keep_alive": 0}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+except Exception:
+    pass
+EOF
+  [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+trap cleanup EXIT
+
+kill_port 5173
+kill_port 3000
+
+echo "Starting backend..."
+cd "$ROOT/backend"
+[ ! -d node_modules ] && bun install
+bun run dev &
+BACKEND_PID=$!
+
+echo "Starting frontend..."
+cd "$ROOT/frontend"
+[ ! -d node_modules ] && bun install
+bun run dev &
+FRONTEND_PID=$!
+
+# Wait for frontend then open browser (Chrome if available, otherwise default)
+while ! lsof -ti :5173 &>/dev/null; do sleep 0.2; done
+open -na "Google Chrome" --args --new-window "http://localhost:5173" 2>/dev/null || open "http://localhost:5173"
+
+wait $FRONTEND_PID $BACKEND_PID

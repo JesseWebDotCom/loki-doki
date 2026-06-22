@@ -1,0 +1,82 @@
+---
+title: Getting Started
+description: Install Loki Doki on your server, then log in and take the tour.
+sidebar:
+  order: 2
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Loki Doki runs on one machine in your home, the server. You set it up **once**, and then everyone in the household logs in from their own device. If someone has already set up your server, skip ahead to [First Login](#first-login).
+
+## Install the Server
+
+All you need is a computer with a reasonably modern GPU running Windows, macOS, or Linux. Everything else installs itself.
+
+<Steps>
+
+1. **Clone the project and launch it:**
+
+   ```sh
+   git clone https://github.com/JesseWebDotCom/loki-doki.git
+   cd loki-doki
+   ./run.sh
+   ```
+
+   `run.sh` installs the [Bun](https://bun.sh) runtime if it's missing, starts the app, and opens your browser at `http://localhost:5173`.
+
+2. **Create your admin account.** On first launch the setup wizard walks you through a name, a PIN, and your locale. This first account is the **admin**: it controls the whole server.
+
+3. **Choose what to install.** The wizard downloads and starts [Ollama](https://ollama.com) along with the core AI models, and lets you opt into extras:
+
+   | Capability | What it adds |
+   |---|---|
+   | **Offline Library** | Wikipedia, iFixit & Khan Academy with no internet _(on by default)_ |
+   | **Voice** | Read replies aloud and speak to your AI |
+   | **Wake Word** | Hands-free "Hey Jarvis" activation |
+   | **Maps** | Offline maps, place search, and turn-by-turn directions |
+   | **Home Inventory OCR** | Reads device-label text accurately when scanning stickers |
+
+4. **Wait for the download.** Progress streams inline. This is the only large download, and it happens once. When it finishes, you land on the Today page as the admin.
+
+</Steps>
+
+From the [Admin Panel](../admin/) you can now create accounts for the rest of the family and decide which features each person can use.
+
+## First Login
+
+For everyone else in the household, once the admin has created your account:
+
+<Steps>
+
+1. **Open the app** at the address your admin gave you: the server's name or IP on your home network (something like `http://loki-doki.local:5173`).
+
+2. **Log in** with the username and PIN your admin set up for you.
+
+3. **Explore the Today page**: your home base. It shows recent activity, pinned apps, offline library cards, and any alerts (like upcoming warranty expirations).
+
+4. **Start a chat**: tap the chat icon or say your wakeword (if voice is set up). The AI will greet you and remember previous conversations.
+
+5. **Try image generation**: open the Imaging page, type a description, and tap Generate.
+
+</Steps>
+
+## Main Areas
+
+| Area | What it's for |
+|---|---|
+| Today | Home page, recent activity, library cards, alerts |
+| Chat | Conversations with the AI |
+| Imaging | Image and video generation |
+| Library | Offline Wikipedia and references |
+| Maps | Offline maps and routing |
+| Links | Bookmarks launcher |
+| Home Inventory | Appliance and device tracker |
+
+## Your Profile
+
+Tap your avatar (top right) to access your profile settings, preferences, voice settings, and companion selection.
+
+## Admin Panel
+
+If you have admin access, tap the settings icon to open the Admin panel. See [Admin Panel](../admin/) for details.

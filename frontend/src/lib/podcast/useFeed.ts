@@ -1,0 +1,37 @@
+import { useQuery } from '@tanstack/react-query'
+import { getFeed, type Show, type Episode } from '@/lib/podcast/api'
+
+export interface FeedEpisode { episode: Episode; show: Show }
+
+export interface PodcastFeed {
+  shows: Show[]
+  episodesByShow: Record<string, Episode[]>
+  all: FeedEpisode[]
+}
+
+async function fetchFeed(): Promise<PodcastFeed> {
+  const { shows, episodesByShow } = await getFeed()
+  const all: FeedEpisode[] = []
+  for (const show of shows) {
+    for (const episode of episodesByShow[show.id] ?? []) all.push({ episode, show })
+  }
+  return { shows, episodesByShow, all }
+}
+
+export function usePodcastFeed() {
+  return useQuery({ queryKey: ['podcast-feed'], queryFn: fetchFeed })
+}
+
+const ts = (e: Episode) => new Date(e.generatedAt ?? e.createdAt ?? 0).getTime()
+
+/** In-progress, not-completed episodes — most recent first. */
+export function continueListening(all: FeedEpisode[]): FeedEpisode[] {
+  return all
+    .filter(x => x.episode.status === 'ready' && x.episode.watchState && x.episode.watchState.positionSec > 5 && !x.episode.watchState.completed)
+    .sort((a, b) => ts(b.episode) - ts(a.episode))
+}
+
+/** Ready episodes, newest first. */
+export function newEpisodes(all: FeedEpisode[]): FeedEpisode[] {
+  return all.filter(x => x.episode.status === 'ready').sort((a, b) => ts(b.episode) - ts(a.episode))
+}

@@ -1,0 +1,308 @@
+import { useState, useEffect } from 'react'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
+import { AuthProvider, useAuth } from '@/context/AuthContext'
+import { ThemeProvider } from '@/context/ThemeContext'
+import { AppToaster } from '@/components/shared/AppToaster'
+import { UIContextProvider } from '@/context/UIContextProvider'
+import { BreadcrumbSearchProvider } from '@/context/BreadcrumbSearchContext'
+import { ChatProvider } from '@/context/ChatContext'
+import { GenerationProvider } from '@/context/GenerationContext'
+import { PrivacyProvider } from '@/context/PrivacyContext'
+import { ServerHealthProvider } from '@/context/ServerHealthContext'
+import { SetupProgressProvider } from '@/context/SetupProgressContext'
+import { PodcastPlaybackProvider } from '@/context/PodcastPlaybackContext'
+import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
+import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
+import { BackgroundSetupWidget } from '@/components/shared/BackgroundSetupWidget'
+import { AppShell } from '@/components/shell/AppShell'
+import { BootScreen } from '@/components/shell/BootScreen'
+import { SetupWizard } from '@/pages/SetupWizard'
+import { WelcomeWizard } from '@/pages/WelcomeWizard'
+import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
+import { HomePage } from '@/pages/HomePage'
+import { WeatherPage } from '@/pages/WeatherPage'
+import { MapsPage } from '@/pages/MapsPage'
+import { ImagingPage } from '@/pages/ImagingPage'
+import { MusicPage } from '@/pages/MusicPage'
+import { ChatLayout } from '@/components/chat/ChatLayout'
+import { ConversationView } from '@/components/chat/ConversationView'
+import { ProjectPage } from '@/components/chat/ProjectPage'
+import { ChatsBrowsePage } from '@/components/chat/ChatsBrowsePage'
+import { ProjectsBrowsePage } from '@/components/chat/ProjectsBrowsePage'
+import { SettingsPage } from '@/pages/SettingsPage'
+import { AdminPage } from '@/pages/AdminPage'
+import { ReaderPage } from '@/pages/ReaderPage'
+import { CategoryPage } from '@/pages/CategoryPage'
+import { CategoriesPage } from '@/pages/CategoriesPage'
+import { AllAppsPage } from '@/pages/AllAppsPage'
+import { LinksPage } from '@/pages/LinksPage'
+import { LinkViewPage } from '@/pages/LinkViewPage'
+import { BoredPage } from '@/pages/BoredPage'
+import { VideoPage } from '@/pages/VideoPage'
+import { HomeInventoryPage } from '@/pages/HomeInventoryPage'
+import { CompanionStoreLayout } from '@/components/companions/store/CompanionStoreLayout'
+import { CompanionHomePage } from '@/pages/companion-store/CompanionHomePage'
+import { CompanionBrowsePage } from '@/pages/companion-store/CompanionBrowsePage'
+import { CompanionCategoriesPage } from '@/pages/companion-store/CompanionCategoriesPage'
+import { CompanionCategoryPage } from '@/pages/companion-store/CompanionCategoryPage'
+import { CompanionFavoritesPage } from '@/pages/companion-store/CompanionFavoritesPage'
+import { CompanionDetailPage } from '@/pages/companion-store/CompanionDetailPage'
+import { DocsPage } from '@/pages/DocsPage'
+import { NewsPage } from '@/pages/NewsPage'
+import { OnThisDayPage } from '@/pages/OnThisDayPage'
+import { RecipesPage } from '@/pages/RecipesPage'
+import { JokePage } from '@/pages/JokePage'
+import { UnitConverterPage } from '@/pages/UnitConverterPage'
+import { YoutubeLayout } from '@/components/youtube/YoutubeLayout'
+import { YoutubeHomePage } from '@/pages/youtube/YoutubeHomePage'
+import { YoutubeLibraryPage } from '@/pages/youtube/YoutubeLibraryPage'
+import { YoutubeChannelPage } from '@/pages/youtube/YoutubeChannelPage'
+import { YoutubeSubscriptionsPage } from '@/pages/youtube/YoutubeSubscriptionsPage'
+import { YoutubeShortsPage } from '@/pages/youtube/YoutubeShortsPage'
+import { YoutubePlaylistPage } from '@/pages/youtube/YoutubePlaylistPage'
+import { WatchPage } from '@/pages/youtube/WatchPage'
+import { PodcastLayout } from '@/components/podcast/PodcastLayout'
+import { ListenNowPage } from '@/pages/podcast/ListenNowPage'
+import { PodcastBrowsePage } from '@/pages/podcast/PodcastBrowsePage'
+import { PodcastLibraryPage } from '@/pages/podcast/PodcastLibraryPage'
+import { ShowDetailPage } from '@/pages/podcast/ShowDetailPage'
+import { DictionaryPage } from '@/pages/DictionaryPage'
+import { TvShowsPage } from '@/pages/TvShowsPage'
+import { WhereToWatchPage } from '@/pages/WhereToWatchPage'
+import { MedicalPage } from '@/pages/MedicalPage'
+import { SportsPage } from '@/pages/SportsPage'
+import { HolidaysPage } from '@/pages/HolidaysPage'
+import { MoonPhasePage } from '@/pages/MoonPhasePage'
+import { HomeAssistantPage } from '@/pages/HomeAssistantPage'
+import { LocalEventsPage } from '@/pages/LocalEventsPage'
+import { StoreLayout } from '@/components/store/StoreLayout'
+import { StoreHomePage } from '@/pages/store/StoreHomePage'
+import { StoreBrowsePage } from '@/pages/store/StoreBrowsePage'
+import { StoreCategoriesPage } from '@/pages/store/StoreCategoriesPage'
+import { StoreCategoryPage } from '@/pages/store/StoreCategoryPage'
+import { StoreAppDetailPage } from '@/pages/store/StoreAppDetailPage'
+import { StoreInstalledPage } from '@/pages/store/StoreInstalledPage'
+
+function AppLoading() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-background">
+      <Loader2 className="size-8 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
+
+function Placeholder({ label }: { label: string }) {
+  return (
+    <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+      {label} — coming soon
+    </div>
+  )
+}
+
+// ── Setup guard ───────────────────────────────────────────────────────────────
+// Wraps /setup. Stays in wizard until firstRunComplete.
+// Once complete + authenticated, redirect to app; if complete but not logged in, send to /login.
+function SetupGuard() {
+  const { user, configured, firstRunComplete, loading } = useAuth()
+
+  if (loading) return <AppLoading />
+
+  // If first run is complete and user is authenticated → into the app
+  if (configured && firstRunComplete && user) return <Navigate to="/" replace />
+
+  // If first run is complete but no session → login page
+  if (configured && firstRunComplete && !user) return <Navigate to="/login" replace />
+
+  // Not configured, or configured but first run not complete: show wizard
+  // If admin already exists (configured=true, firstRunComplete=false), skip profile step
+  if (configured && !firstRunComplete) {
+    return <SetupWizard startStep={user ? 'models' : 'profile'} />
+  }
+
+  // Fresh install (not configured at all)
+  return <SetupWizard startStep="profile" />
+}
+
+// ── Login guard ───────────────────────────────────────────────────────────────
+// Wraps /login. Redirects to setup if first run not complete.
+function LoginGuard() {
+  const { user, configured, firstRunComplete, loading } = useAuth()
+  const { pathname } = useLocation()
+
+  if (loading) return <AppLoading />
+
+  // Not set up at all, or setup incomplete → back to wizard
+  if (!configured || !firstRunComplete) return <Navigate to="/setup" replace />
+
+  // Already logged in → app
+  if (user && pathname === '/login') return <Navigate to="/" replace />
+
+  return <Outlet />
+}
+
+// ── Admin guard ───────────────────────────────────────────────────────────────
+function AdminGuard() {
+  const { user, loading } = useAuth()
+  if (loading) return <AppLoading />
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/" replace />
+  return <Outlet />
+}
+
+// ── Auth guard ────────────────────────────────────────────────────────────────
+// Wraps all protected app routes. Requires setup complete + authenticated.
+function AuthGuard() {
+  const { user, configured, firstRunComplete, welcomeComplete, loading, refetch } = useAuth()
+  // null = checking, false = show boot screen, true = already booted
+  const [booted, setBooted] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    fetch('/api/system/ready', { credentials: 'include' })
+      .then((r) => setBooted(r.ok))
+      .catch(() => setBooted(false))
+  }, [])
+
+  if (loading || booted === null) return <AppLoading />
+
+  if (!configured || !firstRunComplete) return <Navigate to="/setup" replace />
+  if (!user) return <Navigate to="/login" replace />
+
+  if (!booted) {
+    return <BootScreen onComplete={() => setBooted(true)} />
+  }
+
+  // First boot only: the admin picks offline content (library, maps, OCR), which then
+  // downloads in the background. Shown once; refetch flips welcomeComplete → into the app.
+  if (user.role === 'admin' && welcomeComplete === false) {
+    return <WelcomeWizard onComplete={() => { void refetch() }} />
+  }
+
+  return <Outlet />
+}
+
+export default function App() {
+  return (
+    <ServerHealthProvider>
+    <SetupProgressProvider>
+    <AuthProvider>
+      <ThemeProvider>
+        <UIContextProvider>
+          <BreadcrumbSearchProvider>
+          <GenerationProvider>
+          <PrivacyProvider>
+          <PodcastPlaybackProvider>
+          <ChatProvider>
+          <Routes>
+            {/* Setup wizard — its own guard handles all setup state */}
+            <Route path="/setup" element={<SetupGuard />} />
+
+            {/* Profile picker — requires setup complete */}
+            <Route element={<LoginGuard />}>
+              <Route path="/login" element={<ProfilePickerPage />} />
+            </Route>
+
+            {/* Protected app routes — boot screen on first entry */}
+            <Route element={<AuthGuard />}>
+              <Route element={<AppShell />}>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/chat" element={<ChatLayout />}>
+                  <Route index element={<ConversationView />} />
+                  <Route path="projects" element={<ProjectsBrowsePage />} />
+                  <Route path="project/:projectId" element={<ProjectPage />} />
+                  <Route path="chats" element={<ChatsBrowsePage />} />
+                  <Route path=":id" element={<ConversationView />} />
+                </Route>
+                <Route path="/maps" element={<MapsPage />} />
+                <Route path="/weather" element={<WeatherPage />} />
+                <Route path="/imaging" element={<ImagingPage />} />
+                <Route path="/music" element={<MusicPage />} />
+                <Route path="/video" element={<VideoPage />} />
+                <Route path="/read/:sourceId" element={<ReaderPage />} />
+                <Route path="/apps" element={<AllAppsPage />} />
+                <Route path="/categories" element={<CategoriesPage />} />
+                <Route path="/category/:category" element={<CategoryPage />} />
+                <Route path="/links" element={<LinksPage />} />
+                <Route path="/links/:id" element={<LinkViewPage />} />
+                <Route path="/companions" element={<CompanionStoreLayout />}>
+                  <Route index element={<CompanionHomePage />} />
+                  <Route path="browse" element={<CompanionBrowsePage />} />
+                  <Route path="categories" element={<CompanionCategoriesPage />} />
+                  <Route path="category/:key" element={<CompanionCategoryPage />} />
+                  <Route path="favorites" element={<CompanionFavoritesPage />} />
+                  <Route path="c/:id" element={<CompanionDetailPage />} />
+                </Route>
+                <Route path="/bored" element={<BoredPage />} />
+                <Route path="/youtube" element={<YoutubeLayout />}>
+                  <Route index element={<YoutubeHomePage />} />
+                  {/* Discover was merged into Home — keep the old path working. */}
+                  <Route path="discover" element={<Navigate to="/youtube" replace />} />
+                  <Route path="library" element={<YoutubeLibraryPage />} />
+                  <Route path="subscriptions" element={<YoutubeSubscriptionsPage />} />
+                  <Route path="channel/:id" element={<YoutubeChannelPage />} />
+                  <Route path="playlist/:id" element={<YoutubePlaylistPage />} />
+                  <Route path="watch/:videoId" element={<WatchPage />} />
+                  <Route path="shorts/:videoId" element={<YoutubeShortsPage />} />
+                </Route>
+                <Route path="/podcasts" element={<PodcastLayout />}>
+                  <Route index element={<ListenNowPage />} />
+                  <Route path="browse" element={<PodcastBrowsePage />} />
+                  <Route path="library" element={<PodcastLibraryPage />} />
+                  <Route path="show/:id" element={<ShowDetailPage />} />
+                </Route>
+                <Route path="/home-inventory" element={<HomeInventoryPage />} />
+                <Route path="/news" element={<NewsPage />} />
+                <Route path="/on-this-day" element={<OnThisDayPage />} />
+                <Route path="/moon-phase" element={<MoonPhasePage />} />
+                <Route path="/recipes" element={<RecipesPage />} />
+                <Route path="/jokes" element={<JokePage />} />
+                <Route path="/unit-converter" element={<UnitConverterPage />} />
+                <Route path="/dictionary" element={<DictionaryPage />} />
+                <Route path="/tv-shows" element={<TvShowsPage />} />
+                <Route path="/where-to-watch" element={<WhereToWatchPage />} />
+                <Route path="/medical" element={<MedicalPage />} />
+                <Route path="/sports" element={<SportsPage />} />
+                <Route path="/holidays" element={<HolidaysPage />} />
+                <Route path="/home-assistant" element={<HomeAssistantPage />} />
+                <Route path="/local-events" element={<LocalEventsPage />} />
+                <Route path="/app-store" element={<StoreLayout />}>
+                  <Route index element={<StoreHomePage />} />
+                  <Route path="browse" element={<StoreBrowsePage />} />
+                  <Route path="categories" element={<StoreCategoriesPage />} />
+                  <Route path="category/:key" element={<StoreCategoryPage />} />
+                  <Route path="installed" element={<StoreInstalledPage />} />
+                  <Route path="app/:appId" element={<StoreAppDetailPage />} />
+                </Route>
+                <Route path="/docs/user" element={<DocsPage entry="user" />} />
+                <Route path="/docs/dev"  element={<DocsPage entry="dev"  />} />
+                <Route path="/me" element={<Placeholder label="Profile" />} />
+                <Route path="/settings/:section?" element={<SettingsPage />} />
+              </Route>
+
+              {/* Admin-only routes */}
+              <Route element={<AdminGuard />}>
+                <Route element={<AppShell />}>
+                  <Route path="/admin/:section?/:subsection?" element={<AdminPage />} />
+                </Route>
+              </Route>
+            </Route>
+
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          </ChatProvider>
+          </PodcastPlaybackProvider>
+          <PrivacyOverlay />
+          </PrivacyProvider>
+          </GenerationProvider>
+          </BreadcrumbSearchProvider>
+        </UIContextProvider>
+        <AppToaster />
+      </ThemeProvider>
+      <ServerHealthBanner />
+      <BackgroundSetupWidget />
+    </AuthProvider>
+    </SetupProgressProvider>
+    </ServerHealthProvider>
+  )
+}

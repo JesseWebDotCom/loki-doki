@@ -1,0 +1,28 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+
+# Runtime data — databases, downloaded models, binaries
+data/
+
+# onnxruntime-web WASM — copied from node_modules at build (predev/prebuild),
+# regenerable, ~38 MB. See frontend/scripts/copy-ort.mjs.
+frontend/public/ort/*.wasm
+frontend/public/ort/*.mjs
+
+# OpenMoji icon set — copied from the `openmoji` npm package at build
+# (predev/prebuild), regenerable, ~20 MB. See frontend/scripts/copy-openmoji.mjs.
+frontend/public/openmoji/
+
+# Backend environment variables
+backend/.env
+
+# Local agent state
+.claude/
+
+# Build artifacts / caches (regenerated)
+__pycache__/
+*.pyc
+*.tsbuildinfo
+docs/.astro/

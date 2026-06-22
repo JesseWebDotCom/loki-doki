@@ -1,0 +1,207 @@
+/* ── Typography ─────────────────────────────────────────────────────────── */
+:root {
+  --sl-font: 'Inter', system-ui, -apple-system, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+  --sl-text-code-size: 0.875em;
+}
+
+/* ── Embedded mode — when the docs run inside the app's iframe, a small script
+   sets [data-embed] on <html>. Only then do we collapse the nav height so the
+   sidebar/content fill the full frame. The standalone site keeps its header. */
+:root[data-embed] {
+  --sl-nav-height: 0rem !important;
+}
+
+/* ── Dark mode — mirroring the app's OKLCH design tokens ───────────────── */
+:root[data-theme='dark'] {
+  /* Accent: brand violet oklch(0.72 0.22 290) */
+  --sl-color-accent-low:  oklch(0.15 0.07 290);
+  --sl-color-accent:      oklch(0.72 0.22 290);
+  --sl-color-accent-high: oklch(0.88 0.14 290);
+
+  /* Gray scale — app bg=0.08, card=0.12, border=0.19, muted=0.52, fg=0.97 */
+  --sl-color-white:  oklch(0.97 0.005 262);  /* --foreground */
+  --sl-color-gray-1: oklch(0.92 0.005 262);
+  --sl-color-gray-2: oklch(0.75 0.004 262);
+  --sl-color-gray-3: oklch(0.52 0.002 262);  /* --muted-foreground */
+  --sl-color-gray-4: oklch(0.28 0 0);
+  --sl-color-gray-5: oklch(0.19 0 0);        /* --border */
+  --sl-color-gray-6: oklch(0.12 0 0);        /* --card (content bg) */
+  --sl-color-gray-7: oklch(0.08 0.005 262);  /* --sidebar (darkest) */
+  --sl-color-black:  oklch(0.06 0 0);
+}
+
+/* ── Light mode — mirroring app light tokens ───────────────────────────── */
+:root[data-theme='light'] {
+  /* Accent: brand violet light oklch(0.44 0.22 290) */
+  --sl-color-accent-low:  oklch(0.93 0.04 290);
+  --sl-color-accent:      oklch(0.44 0.22 290);
+  --sl-color-accent-high: oklch(0.28 0.18 290);
+
+  --sl-color-white:  oklch(0.095 0.008 240);
+  --sl-color-gray-1: oklch(0.18 0.006 240);
+  --sl-color-gray-2: oklch(0.38 0.004 240);
+  --sl-color-gray-3: oklch(0.56 0.002 240);
+  --sl-color-gray-4: oklch(0.78 0 0);
+  --sl-color-gray-5: oklch(0.88 0 0);
+  --sl-color-gray-6: oklch(0.97 0 0);
+  --sl-color-gray-7: oklch(1 0 0);
+  --sl-color-black:  oklch(1 0 0);
+}
+
+/* ── Global UI polish ───────────────────────────────────────────────────── */
+
+/* Sidebar */
+.sidebar-pane {
+  border-inline-end-color: var(--sl-color-gray-5);
+}
+
+nav.sidebar a {
+  border-radius: 0.5rem;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+/* Active sidebar link — violet accent tint */
+nav.sidebar a[aria-current='page'],
+nav.sidebar a[aria-current='page']:hover {
+  background-color: var(--sl-color-accent-low);
+  color: var(--sl-color-accent-high);
+  font-weight: 500;
+}
+
+/* Header / top nav — hidden only when embedded in the app iframe; the app shell
+   provides its own breadcrumb with back/forward/search controls. On the
+   standalone GitHub Pages site the header (title, search, GitHub link) shows. */
+:root[data-embed] header.header {
+  display: none;
+}
+
+/* Site title */
+.site-title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Content area headings */
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3 {
+  letter-spacing: -0.02em;
+}
+
+.sl-markdown-content h2 {
+  border-top: 1px solid var(--sl-color-gray-5);
+  padding-top: 1.5rem;
+  margin-top: 2rem;
+}
+
+/* Inline code — match the app's subtle code style */
+.sl-markdown-content :not(pre) > code {
+  background-color: var(--sl-color-gray-6);
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.3rem;
+  padding: 0.1em 0.35em;
+  font-size: 0.875em;
+}
+
+/* Tables */
+.sl-markdown-content table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.sl-markdown-content thead th {
+  background-color: var(--sl-color-gray-6);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+.sl-markdown-content td,
+.sl-markdown-content th {
+  border: 1px solid var(--sl-color-gray-5);
+  padding: 0.6rem 0.9rem;
+}
+
+.sl-markdown-content tr:nth-child(even) td {
+  background-color: color-mix(in oklch, var(--sl-color-gray-6) 60%, transparent);
+}
+
+/* Callouts / asides — rounded like the app */
+.starlight-aside {
+  border-radius: 0.6rem;
+  border-inline-start-width: 3px;
+}
+
+/* Hero section on landing page */
+.hero > .hero-html {
+  padding-block: 3rem;
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  background: linear-gradient(
+    135deg,
+    var(--sl-color-white) 0%,
+    var(--sl-color-accent) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero .tagline {
+  color: var(--sl-color-gray-3);
+  font-size: 1.1rem;
+  max-width: 42ch;
+}
+
+/* Hero action buttons */
+.hero .action.primary {
+  background-color: var(--sl-color-accent);
+  color: oklch(0.07 0 0);
+  border: none;
+  font-weight: 600;
+  border-radius: 0.6rem;
+  transition: opacity 0.15s ease;
+}
+
+.hero .action.primary:hover {
+  opacity: 0.88;
+}
+
+.hero .action.secondary {
+  border-color: var(--sl-color-gray-4);
+  border-radius: 0.6rem;
+}
+
+/* Search */
+site-search button[data-open-modal] {
+  border-radius: 0.5rem;
+  border-color: var(--sl-color-gray-5);
+}
+
+/* Right-of-content ToC links */
+starlight-toc a {
+  transition: color 0.1s ease;
+}
+
+starlight-toc a[aria-current='true'] {
+  color: var(--sl-color-accent);
+  font-weight: 500;
+}
+
+/* Footer pagination */
+.pagination-links a {
+  border-radius: 0.6rem;
+  border-color: var(--sl-color-gray-5);
+  transition: border-color 0.15s ease;
+}
+
+.pagination-links a:hover {
+  border-color: var(--sl-color-accent);
+}

@@ -1,0 +1,591 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ── Character avatar rig (ported from v2) ────────────────────────────────── */
+@keyframes breathing {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-3px) scale(1.02); }
+}
+.animate-breathing { animation: breathing 5s ease-in-out infinite; }
+
+@keyframes startle-shake {
+  0% { transform: scale(1) translateY(0); }
+  5% { transform: scale(1.3) translateY(-25px); }
+  10% { transform: scale(1.2) translateY(-15px); }
+  15%, 25%, 35%, 45%, 55%, 65%, 75%, 85%, 95% { transform: scale(1.2) translateY(-15px) translateX(-5px) rotate(-1deg); }
+  20%, 30%, 40%, 50%, 60%, 70%, 80%, 90% { transform: scale(1.2) translateY(-15px) translateX(5px) rotate(1deg); }
+  100% { transform: scale(1) translateY(0) translateX(0) rotate(0deg); }
+}
+.behavior-startled { animation: startle-shake 0.8s cubic-bezier(0.36, 0.07, 0.19, 0.97) both !important; }
+
+/* Shared input style for the character studio editor. */
+@layer components {
+  .ld-input {
+    @apply w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors;
+    @apply focus:border-violet-500/40 placeholder:text-foreground/30;
+  }
+}
+
+/* Tilt ONLY the head group split out by DicebearRenderer, around its own bounding
+   box (fill-box) so the buddy cocks its head naturally. A broad id-substring
+   selector would double-rotate nested hair/eyebrow parts and break the pose. */
+.ld-head-rot {
+  transform-box: fill-box;
+  transform-origin: 50% 62%;
+  transform: rotate(var(--ld-head-rotate, 0deg));
+}
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+@custom-variant data-open (&[data-state="open"]);
+@custom-variant data-closed (&[data-state="closed"]);
+@custom-variant data-active (&[data-active="true"]);
+
+/* ---- Light mode ---- */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.095 0.008 240);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.095 0.008 240);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.095 0.008 240);
+  --primary: oklch(0.125 0.01 240);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.96 0.005 240);
+  --secondary-foreground: oklch(0.125 0.01 240);
+  --muted: oklch(0.96 0.005 240);
+  --muted-foreground: oklch(0.47 0.005 240);
+  --accent: oklch(0.96 0.005 240);
+  --accent-foreground: oklch(0.125 0.01 240);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.9 0.005 240);
+  --input: oklch(0.9 0.005 240);
+  --ring: oklch(0.65 0.005 240);
+  --sidebar: oklch(0.98 0 0);
+  --sidebar-foreground: oklch(0.26 0.006 240);
+  --sidebar-primary: oklch(0.125 0.01 240);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.96 0.005 240);
+  --sidebar-accent-foreground: oklch(0.125 0.01 240);
+  --sidebar-border: oklch(0.91 0.003 220);
+  --sidebar-ring: oklch(0.65 0.19 255);
+  --brand: oklch(0.44 0.22 290);
+  --brand-foreground: oklch(0.98 0 0);
+  --radius: 0.75rem;
+}
+
+/* ---- Dark mode ---- */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.08 0 0);
+  --foreground: oklch(0.97 0.005 262);
+  --card: oklch(0.12 0 0);
+  --card-foreground: oklch(0.97 0.005 262);
+  --popover: oklch(0.12 0 0);
+  --popover-foreground: oklch(0.97 0.005 262);
+  --primary: oklch(0.97 0.005 262);
+  --primary-foreground: oklch(0.08 0 0);
+  --secondary: oklch(0.16 0 0);
+  --secondary-foreground: oklch(0.97 0.005 262);
+  --muted: oklch(0.16 0 0);
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0.16 0 0);
+  --accent-foreground: oklch(0.97 0.005 262);
+  --destructive: oklch(0.45 0.2 22);
+  --destructive-foreground: oklch(0.97 0.04 22);
+  --border: oklch(0.19 0 0);
+  --input: oklch(0.19 0 0);
+  --ring: oklch(0.84 0.005 262);
+  --sidebar: oklch(0.08 0.012 262);
+  --sidebar-foreground: oklch(0.97 0.005 262);
+  --sidebar-primary: oklch(0.64 0.19 224);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.15 0.01 262);
+  --sidebar-accent-foreground: oklch(0.97 0.005 262);
+  --sidebar-border: oklch(0.15 0 0);
+  --sidebar-ring: oklch(0.65 0.19 255);
+  --brand: oklch(0.72 0.22 290);
+  --brand-foreground: oklch(0.07 0 0);
+  --radius: 0.75rem;
+}
+
+/* ---- Tailwind v4 theme mapping ---- */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --animate-typing-dot: typing-dot-bounce 1.25s ease-out infinite;
+  --animate-caret-blink: caret-blink 1.25s ease-out infinite;
+  --animate-dl-gradient: dl-gradient 2s linear infinite;
+  --animate-dl-shimmer: dl-shimmer 1.6s ease-in-out infinite;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+}
+
+@keyframes typing-dot-bounce {
+  0%, 40%, 100% { transform: translateY(0); }
+  20% { transform: translateY(-0.25rem); }
+}
+
+@keyframes caret-blink {
+  0%, 70%, 100% { opacity: 1; }
+  20%, 50% { opacity: 0; }
+}
+
+@keyframes streaming-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes dl-gradient {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes dl-shimmer {
+  0%   { transform: translateX(-100%) skewX(-15deg); }
+  100% { transform: translateX(400%)  skewX(-15deg); }
+}
+
+@keyframes shimmer {
+  0%   { transform: translateX(-100%) skewX(-15deg); }
+  100% { transform: translateX(300%)  skewX(-15deg); }
+}
+
+@keyframes indeterminate {
+  0%   { left: -33%; }
+  60%  { left: 100%; }
+  100% { left: 100%; }
+}
+
+/* ── Companion input animated ring ───────────────────────────────────────── */
+@property --ai-ring-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes ai-ring-spin {
+  to { --ai-ring-angle: 360deg; }
+}
+
+@keyframes ai-ring-glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 2px oklch(70% 0.2 300 / 50%)); }
+  50%       { filter: drop-shadow(0 0 5px oklch(70% 0.22 260 / 70%)); }
+}
+
+@keyframes stop-btn-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.75; }
+}
+
+.ai-ring {
+  position: relative;
+  border-radius: 1rem;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--ai-ring-angle),
+    transparent 65%,
+    color-mix(in oklch, var(--brand) 45%, transparent) 82%,
+    transparent 100%
+  );
+  animation: ai-ring-spin 6s linear infinite;
+}
+
+.ai-ring--active {
+  background: conic-gradient(
+    from var(--ai-ring-angle),
+    transparent 40%,
+    color-mix(in oklch, var(--brand) 80%, transparent) 65%,
+    transparent 100%
+  );
+  animation: ai-ring-spin 1.8s linear infinite;
+}
+
+/* Thinking = waiting for first token — noticeably faster + color shift */
+.ai-ring--thinking {
+  background: conic-gradient(
+    from var(--ai-ring-angle),
+    transparent 35%,
+    oklch(70% 0.22 300 / 90%) 55%,
+    oklch(68% 0.2  260 / 70%) 70%,
+    transparent 85%
+  );
+  animation: ai-ring-spin 1s linear infinite, ai-ring-glow-pulse 2s ease-in-out infinite;
+}
+
+.stop-btn-animated {
+  background: linear-gradient(135deg, oklch(62% 0.22 340), oklch(58% 0.2 280));
+  color: white;
+  animation: stop-btn-pulse 2s ease-in-out infinite;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+/* ── Sports ticker ────────────────────────────────────────────────────────── */
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* ── Tile hover animations (ported from v2) ───────────────────────────────── */
+.shimmer-sweep { position: relative; overflow: hidden; }
+.shimmer-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,0.06), transparent);
+  transform: translateX(-100%);
+  transition: transform 800ms ease-in-out;
+  pointer-events: none;
+}
+.group:hover .shimmer-sweep::after,
+.shimmer-sweep:hover::after { transform: translateX(100%); }
+
+
+@layer base {
+  * { border-color: var(--color-border); }
+  html { font-family: var(--font-sans); scroll-behavior: smooth; overscroll-behavior: none; }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* shadcn appended duplicate HSL tokens — removed; our OKLCH tokens above take precedence */
+
+/* Chat message padding — applied via CSS so it survives any module cache */
+.chat-scroll { padding-left: 1.5rem; padding-right: 1.5rem; padding-top: 0.75rem; }
+
+/* Shorts feed: a new short slides in from below (next) or above (prev), YouTube-style. */
+@keyframes yt-short-up { from { transform: translateY(100%); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+@keyframes yt-short-down { from { transform: translateY(-100%); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+.yt-short-up { animation: yt-short-up 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) }
+.yt-short-down { animation: yt-short-down 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) }
+
+/* ─── Weather hero particle animations ──────────────────────────────────────
+   Only animate transform/opacity (compositor-only, no repaints).
+   Negative animation-delay so particles start mid-cycle — no flash on load. */
+
+@keyframes rain-dash {
+  to { stroke-dashoffset: -138; }
+}
+
+@keyframes snow-fall {
+  0%   { transform: translateY(-8%) translateX(0)     rotate(0deg);   opacity: 0;   }
+  8%   {                                                               opacity: 1;   }
+  50%  { transform: translateY(52%) translateX(12px)  rotate(200deg);               }
+  92%  {                                                               opacity: 0.9; }
+  100% { transform: translateY(108%) translateX(-6px) rotate(400deg); opacity: 0;   }
+}
+
+@keyframes lightning-flash {
+  0%, 72%, 100% { opacity: 0;    }
+  74%, 78%      { opacity: 0.22; }
+  76%           { opacity: 0;    }
+}
+
+@keyframes fog-drift {
+  0%   { transform: translateX(-6%)  scaleX(1);    opacity: 0.20; }
+  50%  { transform: translateX(6%)   scaleX(1.06); opacity: 0.34; }
+  100% { transform: translateX(-6%)  scaleX(1);    opacity: 0.20; }
+}
+
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.05; transform: scale(0.6);  }
+  50%      { opacity: 1.00; transform: scale(1.35); }
+}
+
+@keyframes sun-shimmer {
+  0%   { transform: translateY(0)     scale(0.4); opacity: 0;    }
+  15%  { transform: translateY(-10px) scale(1);   opacity: 0.55; }
+  85%  { transform: translateY(-28px) scale(0.7); opacity: 0.25; }
+  100% { transform: translateY(-44px) scale(0.2); opacity: 0;    }
+}
+
+@keyframes wisp-drift {
+  0%   { transform: translateX(-7%)  scaleX(1);    opacity: 0.10; }
+  50%  { transform: translateX(7%)   scaleX(1.07); opacity: 0.20; }
+  100% { transform: translateX(-7%)  scaleX(1);    opacity: 0.10; }
+}
+
+.weather-snow-flake {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  animation: snow-fall ease-in-out infinite;
+  pointer-events: none;
+}
+
+.weather-lightning {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 1);
+  animation: lightning-flash ease-in-out 7s infinite;
+  pointer-events: none;
+}
+
+.weather-fog-layer {
+  position: absolute;
+  width: 120%;
+  left: -10%;
+  border-radius: 40%;
+  background: rgba(255, 255, 255, 0.20);
+  backdrop-filter: blur(4px);
+  animation: fog-drift ease-in-out infinite;
+  pointer-events: none;
+}
+
+.weather-star {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  animation: star-twinkle ease-in-out infinite;
+  pointer-events: none;
+}
+
+.weather-sparkle {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  animation: sun-shimmer ease-out infinite;
+  pointer-events: none;
+}
+
+.weather-cloud-wisp {
+  position: absolute;
+  width: 140%;
+  left: -20%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.09);
+  animation: wisp-drift ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.weather-particle-container {
+  will-change: transform;
+}
+
+@keyframes sun-glow {
+  0%, 100% { opacity: 0.78; }
+  50%       { opacity: 1.00; }
+}
+
+@keyframes sun-rays-spin {
+  from { transform: scale(2.8) rotate(0deg); }
+  to   { transform: scale(2.8) rotate(360deg); }
+}
+
+@keyframes cloud-drift {
+  from { transform: translateX(-320px); }
+  to   { transform: translateX(110vw);  }
+}
+
+@keyframes moon-glow-pulse {
+  0%, 100% { opacity: 0.22; transform: scale(1);    }
+  50%      { opacity: 0.40; transform: scale(1.12); }
+}
+
+@keyframes shooting-star {
+  0%, 70%, 100% { transform: translate(0,0) scaleX(0.05); opacity: 0;    }
+  73%           { transform: translate(0,0) scaleX(1);    opacity: 0.88; }
+  89%           { transform: translate(-150px,68px) scaleX(1); opacity: 0; }
+}
+
+.weather-sun-orb {
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 252, 210, 0.98) 0%,
+    rgba(253, 224,  71, 0.80) 22%,
+    rgba(251, 191,  36, 0.45) 46%,
+    rgba(245, 158,  11, 0.18) 64%,
+    transparent 78%
+  );
+  animation: sun-glow 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.weather-sun-rays {
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(
+    rgba(255, 220, 80, 0.16) 0deg 8deg,
+    transparent 8deg 30deg
+  );
+  transform: scale(2.8);
+  transform-origin: center;
+  animation: sun-rays-spin 28s linear infinite;
+  pointer-events: none;
+}
+
+.weather-cloud-shape {
+  position: absolute;
+  left: 0;
+  background: rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  pointer-events: none;
+  animation: cloud-drift linear infinite;
+}
+
+.weather-cloud-shape--dark {
+  background: rgba(172, 188, 210, 0.62);
+}
+
+.weather-moon-glow {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(219, 234, 254, 0.55) 0%,
+    rgba(147, 197, 253, 0.25) 45%,
+    transparent 70%
+  );
+  animation: moon-glow-pulse 5.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.weather-shooting-star {
+  position: absolute;
+  width: 85px;
+  height: 1.5px;
+  background: linear-gradient(to left, transparent 0%, rgba(255,255,255,0.9) 50%, rgba(255,255,255,0.35) 100%);
+  border-radius: 2px;
+  transform-origin: right center;
+  pointer-events: none;
+  animation: shooting-star ease-in infinite;
+}
+
+/* ── Advisory overlays ──────────────────────────────────────────────────────── */
+
+@keyframes heat-shimmer {
+  0%   { transform: translateY(0px)   scaleX(1.00) skewX(0deg);   opacity: 0; }
+  15%  { opacity: 1; }
+  50%  { transform: translateY(-9px)  scaleX(1.05) skewX(1.5deg); }
+  85%  { opacity: 1; }
+  100% { transform: translateY(0px)   scaleX(1.00) skewX(0deg);   opacity: 0; }
+}
+
+.weather-heat-wave {
+  position: absolute;
+  left: -8%;
+  width: 116%;
+  height: 5%;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255, 190, 80, 0.20) 40%,
+    rgba(255, 210, 130, 0.26) 60%,
+    transparent 100%
+  );
+  filter: blur(3px);
+  pointer-events: none;
+  animation: heat-shimmer ease-in-out infinite;
+}
+
+@keyframes smoke-drift {
+  0%   { transform: translateX(-6%) scaleX(1.00); opacity: 0.12; }
+  50%  { transform: translateX(6%)  scaleX(1.08); opacity: 0.22; }
+  100% { transform: translateX(-6%) scaleX(1.00); opacity: 0.12; }
+}
+
+.weather-smoke-layer {
+  position: absolute;
+  width: 120%;
+  left: -10%;
+  border-radius: 40%;
+  background: rgba(100, 75, 50, 0.22);
+  backdrop-filter: blur(5px);
+  animation: smoke-drift ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes wind-gust {
+  0%   { transform: translateX(-50%) scaleX(0.4); opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateX(130%) scaleX(1.1); opacity: 0; }
+}
+
+.weather-wind-gust {
+  position: absolute;
+  height: 1.5px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.50) 35%, rgba(255,255,255,0.65) 60%, transparent 100%);
+  pointer-events: none;
+  animation: wind-gust linear infinite;
+}
+
+.weather-frost-crystal {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(186, 230, 253, 0.88);
+  animation: star-twinkle ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Admin deep-link flash: briefly ring a setting block scrolled to via search/palette */
+@keyframes admin-flash {
+  0%   { box-shadow: 0 0 0 2px transparent; }
+  20%  { box-shadow: 0 0 0 2px color-mix(in oklch, var(--brand) 55%, transparent); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+.admin-flash {
+  animation: admin-flash 1.5s ease-out;
+  border-radius: 0.75rem;
+}

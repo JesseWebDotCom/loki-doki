@@ -1,0 +1,77 @@
+import { useEffect, useState } from 'react'
+import { useUserLocation } from './useUserLocation'
+import { fetchWeatherData, fetchWeatherAlerts, wmoInfo, type WeatherData, type WmoInfo, type WeatherAlert } from '@/lib/weather'
+
+export interface WeatherSnapshot {
+  location: string
+  temp: number
+  feelsLike: number
+  high: number
+  low: number
+  isDay: boolean
+  info: WmoInfo
+  unit: '°F' | '°C'
+  alerts: WeatherAlert[]
+}
+
+export type SnapshotStatus = 'loading' | 'ready' | 'no-location' | 'error'
+
+export interface UseWeatherSnapshotResult {
+  snapshot: WeatherSnapshot | null
+  status: SnapshotStatus
+}
+
+/**
+ * Lightweight current-conditions snapshot for compact surfaces (Home card,
+ * Today hero). Reuses the shared weather cache so it costs nothing when the
+ * full Weather page has already loaded.
+ */
+export function useWeatherSnapshot(): UseWeatherSnapshotResult {
+  const { location, status: locStatus } = useUserLocation()
+  const [snapshot, setSnapshot] = useState<WeatherSnapshot | null>(null)
+  const [status, setStatus] = useState<SnapshotStatus>('loading')
+
+  useEffect(() => {
+    if (locStatus === 'loading' || locStatus === 'detecting') {
+      setStatus('loading')
+      return
+    }
+    if (!location) {
+      setStatus('no-location')
+      return
+    }
+
+    let cancelled = false
+    setStatus((s) => (snapshot ? s : 'loading'))
+
+    Promise.all([
+      fetchWeatherData(location, { days: 1, unit: 'fahrenheit' }),
+      fetchWeatherAlerts(location),
+    ])
+      .then(([d, alerts]: [WeatherData, WeatherAlert[]]) => {
+        if (cancelled) return
+        const cur = d.weather.current
+        const daily = d.weather.daily
+        setSnapshot({
+          location: d.location,
+          temp: Math.round(cur.temperature_2m),
+          feelsLike: Math.round(cur.apparent_temperature),
+          high: Math.round(daily.temperature_2m_max[0]),
+          low: Math.round(daily.temperature_2m_min[0]),
+          isDay: !!cur.is_day,
+          info: wmoInfo(cur.weather_code, !!cur.is_day),
+          unit: '°F',
+          alerts,
+        })
+        setStatus('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('error')
+      })
+
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location?.displayName, locStatus])
+
+  return { snapshot, status }
+}

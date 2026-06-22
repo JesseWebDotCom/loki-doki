@@ -1,0 +1,357 @@
+// In-app wakeword training pipeline.
+//
+// 1. Generates synthetic WAV samples of the wake phrase via the Kokoro TTS
+//    sidecar (positives + unrelated phrases as negatives).
+// 2. Runs backend/scripts/train_wakeword.py to extract openWakeWord embeddings,
+//    train a logistic regression, and export a detector ONNX.
+// 3. Saves the model to data/voice/wakewords/<id>.onnx.
+//
+// The emit callback receives structured progress objects; the SSE route streams
+// them to the browser.
+
+import { mkdir, writeFile, rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { join, resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { spawn } from 'node:child_process'
+import { wakewordDir, wakewordTrainPython, isWakewordTrainInstalled } from '@/lib/download'
+import { kokoroUrl } from '@/lib/voice/config'
+import { listKokoroVoices, type KokoroVoice } from '@/lib/voice/engines/kokoroEngine'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const TRAIN_SCRIPT = resolve(__dirname, '../../../scripts/train_wakeword.py')
+// onnxruntime-web embedding server (run under this same Bun binary) — see the
+// --embed-runtime wiring below for why training must use the browser's runtime.
+const EMBED_SCRIPT = resolve(__dirname, '../../../scripts/wake_embed_ortweb.mjs')
+
+// How many synthetic samples to generate — more = slower but better accuracy.
+// Speaker diversity (timbre/gender/accent) is the single biggest factor for a
+// speaker-independent detector, so we spread positives across as many distinct
+// voices as we can rather than repeating a few. (openWakeWord's own pipeline
+// uses dozens of voices; we use every English voice the local Kokoro exposes.)
+// Base clip counts are modest because the Python trainer augments each clip
+// (reverb/noise/gain) into many effective samples — voice diversity matters
+// more than raw count, so we keep many voices but few speeds.
+const N_POSITIVE_PER_VOICE = 5    // speed variations per voice (all SPEED_VARIANTS)
+const N_NEGATIVE_PHRASES   = 8    // unrelated phrases per voice
+const MAX_POS_VOICES       = 28   // use every available voice for phonetic diversity
+const MAX_NEG_VOICES       = 8    // generic negatives need phrase variety > voice variety
+
+// Slower speeds produce longer audio → more frames per clip → more windows.
+// Speeds above 1.0 can make short phrases sub-threshold for frame count.
+const SPEED_VARIANTS = [0.7, 0.8, 0.9, 1.0, 1.1]
+
+// Other assistant triggers, generated across the SAME voices as the positives so
+// the model learns the WORD difference ("loki" vs "alexa"), not a voice cue. This
+// is the targeted signal that pushes "hey alexa" below "hey loki".
+const CONTRASTIVE_TRIGGERS = ['Hey Alexa.', 'Hey Google.', 'Hey Siri.', 'Hey Cortana.']
+
+// Order voices to maximize gender + accent diversity: round-robin across
+// (gender × accent) buckets so a capped slice is still balanced. Kokoro lists
+// all American-female voices first, so a naive slice trained on one timbre.
+function pickDiverseVoices(all: KokoroVoice[]): string[] {
+  const en = all.filter((v) => !v.language || /^(en|a|b)/i.test(v.language))
+  const buckets = new Map<string, string[]>()
+  for (const v of en) {
+    const key = `${(v.gender ?? '?').toLowerCase()[0]}|${(v.language ?? '?').slice(0, 5)}`
+    if (!buckets.has(key)) buckets.set(key, [])
+    buckets.get(key)!.push(v.id)
+  }
+  const lists = [...buckets.values()]
+  const out: string[] = []
+  for (let i = 0; lists.some((l) => l.length); i++) {
+    const l = lists[i % lists.length]!
+    const id = l.shift()
+    if (id) out.push(id)
+  }
+  return out
+}
+
+// Common English phrases that don't overlap with typical wake phrases.
+const NEGATIVE_PHRASES = [
+  'What time is it?',
+  'Turn on the lights.',
+  'Play some music please.',
+  'Can you set a reminder?',
+  'I need to go to the store.',
+  'The weather looks nice today.',
+  'How are you doing?',
+  'Tell me a joke.',
+  'What is the capital of France?',
+  'I am going to make some coffee.',
+  'Thank you very much.',
+  'Please send me the report.',
+  'Good morning everyone.',
+  'Let me check my calendar.',
+  'Did you see that movie?',
+  'I will be there in five minutes.',
+  'Can you open the window?',
+  'The meeting starts at three.',
+  'We need more milk and eggs.',
+  'It was a really long day.',
+  'Let me know when you arrive.',
+  'I should probably get some sleep.',
+  'Check your email.',
+  'How does that sound to you?',
+  'That is a great idea.',
+  // Hard negatives: short utterances and "hey …" openers that share onset
+  // sounds with common wake phrases. These force the model to require the full
+  // phrase rather than firing on "hey" or an isolated syllable.
+  'Hey there.',
+  'Hey, how are you?',
+  'Okay.',
+  'Hello.',
+  'Hey you.',
+  'Oh, no way.',
+  'Go ahead.',
+  'Hold on a second.',
+  'No thank you.',
+  'Yes please.',
+  'Hey, what is up?',
+  'Come over here.',
+  // Other assistant triggers as negatives. Per openWakeWord guidance these must
+  // be CLEARLY different — NOT similar-sounding rhymes (e.g. "hey rocky" for
+  // "hey loki"), which measurably hurt accuracy. Robust discrimination comes
+  // from many augmented positives + diverse negatives, not from rhyming decoys.
+  'Hey Alexa.',
+  'Hey Google.',
+  'Hey Siri.',
+  'OK Google.',
+  'Hey Cortana.',
+  'Hey computer.',
+  'Hey Jarvis.',
+  'Hey Bixby.',
+]
+
+// Encode mono float32 PCM as a 16-bit WAV (16 kHz) — for synthesizing noise/
+// silence negatives locally without a TTS round-trip.
+function pcmToWav(samples: Float32Array, sampleRate = 16_000): Buffer {
+  const n = samples.length
+  const buf = Buffer.alloc(44 + n * 2)
+  buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVE', 8)
+  buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22)
+  buf.writeUInt32LE(sampleRate, 24); buf.writeUInt32LE(sampleRate * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34)
+  buf.write('data', 36); buf.writeUInt32LE(n * 2, 40)
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]!))
+    buf.writeInt16LE((s * 32767) | 0, 44 + i * 2)
+  }
+  return buf
+}
+
+// Noise/silence negatives. Real-world non-speech (room hum, silence, fan) is
+// out-of-distribution for a speech-only negative set, so the detector fires on
+// it unpredictably. Training on noise teaches "not speech → not the wake word".
+async function writeNoiseNegatives(negDir: string): Promise<number> {
+  const SR = 16_000
+  const DUR = 3 // seconds → enough audio for several detector windows
+  const levels = [0, 0.0, 0.01, 0.03, 0.06, 0.1, 0.15, 0.2] // 0 = silence
+  let count = 0
+  for (let k = 0; k < levels.length; k++) {
+    const amp = levels[k]!
+    const samples = new Float32Array(SR * DUR)
+    // White noise with a slow amplitude drift so it isn't perfectly stationary.
+    for (let i = 0; i < samples.length; i++) {
+      const drift = 0.6 + 0.4 * Math.sin((i / samples.length) * Math.PI)
+      samples[i] = (Math.random() * 2 - 1) * amp * drift
+    }
+    await writeFile(join(negDir, `noise_${String(k).padStart(2, '0')}.wav`), pcmToWav(samples, SR))
+    count++
+  }
+  return count
+}
+
+export interface TrainProgress {
+  step: 'generating' | 'training' | 'done' | 'error'
+  msg: string
+  pct?: number
+}
+
+export async function trainWakeword(
+  phrase: string,
+  outputId: string,
+  emit: (p: TrainProgress) => void,
+  signal?: AbortSignal,
+  trainingVoice?: string | null,
+): Promise<{ onnxPath: string; threshold?: number }> {
+  const tmpDir = join(wakewordDir(), `.train_${outputId}_tmp`)
+  const posDir = join(tmpDir, 'positives')
+  const negDir = join(tmpDir, 'negatives')
+  const outOnnx = join(wakewordDir(), `${outputId}.onnx`)
+
+  await mkdir(posDir, { recursive: true })
+  await mkdir(negDir, { recursive: true })
+
+  try {
+    // ── Step 1: generate synthetic WAVs ──────────────────────────────────────
+    emit({ step: 'generating', msg: 'Fetching voice list…' })
+    const allVoices = await listKokoroVoices()
+
+    // Default to the full diverse voice set (speaker-independent). Speaker
+    // diversity — many timbres/genders/accents — is what teaches the model the
+    // PHRASE rather than one TTS speaker's fingerprint, so it generalizes to the
+    // user's real voice. Training on a single voice overfits to that one timbre
+    // and barely fires on a real human (the "recognition is barely there" bug).
+    // A specific trainingVoice is honored only as an explicit advanced override;
+    // 'auto'/absent (not a real voice id) falls through to the diverse set.
+    const balanced = pickDiverseVoices(allVoices)
+    const available = new Set(allVoices.map((v) => v.id))
+    const singleVoice = trainingVoice && available.has(trainingVoice) ? trainingVoice : null
+    const voices = singleVoice ? [singleVoice] : balanced.slice(0, MAX_POS_VOICES)
+    if (voices.length === 0) voices.push('am_santa')
+    const negVoices = (balanced.length ? balanced : voices).slice(0, MAX_NEG_VOICES)
+
+    const base = await kokoroUrl()
+
+    const totalPos = voices.length * N_POSITIVE_PER_VOICE
+    const totalNeg = negVoices.length * N_NEGATIVE_PHRASES
+    const totalContrast = voices.length * CONTRASTIVE_TRIGGERS.length
+    const genTotal = totalPos + totalNeg + totalContrast
+    let generated = 0
+
+    const synthesize = async (text: string, voice: string, speed: number, dest: string) => {
+      if (signal?.aborted) throw new Error('aborted')
+      const res = await fetch(`${base}/synthesize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice, speed }),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
+      })
+      if (!res.ok) throw new Error(`synthesize failed: ${res.status}`)
+      const wav = await res.arrayBuffer()
+      await writeFile(dest, Buffer.from(wav))
+    }
+
+    emit({ step: 'generating', msg: `Generating ${totalPos} positive + ${totalNeg} negative samples…`, pct: 0 })
+
+    // Positive samples: a SINGLE utterance of the phrase, per voice × speed.
+    // The trainer pads each clip with silence and labels only the detector
+    // window where the COMPLETE phrase ends, so one clean utterance is exactly
+    // what's wanted. (The old 4× repetition labeled every speech window positive,
+    // which taught "any speech → wake" and collapsed the detector.)
+    const posText = phrase
+    for (const voice of voices) {
+      for (let si = 0; si < N_POSITIVE_PER_VOICE; si++) {
+        const speed = SPEED_VARIANTS[si % SPEED_VARIANTS.length]!
+        const fname = `pos_${voice}_${String(si).padStart(2, '0')}.wav`
+        await synthesize(posText, voice, speed, join(posDir, fname))
+        generated++
+        emit({ step: 'generating', msg: `Generated ${generated}/${genTotal} samples`, pct: Math.round(50 * generated / genTotal) })
+      }
+    }
+
+    // Negative samples: shuffled phrase list per voice
+    const negPhrases = [...NEGATIVE_PHRASES].sort(() => 0.5 - Math.sin(generated))
+    let ni = 0
+    for (const voice of negVoices) {
+      for (let pi = 0; pi < N_NEGATIVE_PHRASES; pi++) {
+        const text = negPhrases[(ni++) % negPhrases.length]!
+        const fname = `neg_${voice}_${String(pi).padStart(2, '0')}.wav`
+        await synthesize(text, voice, 1.0, join(negDir, fname))
+        generated++
+        emit({ step: 'generating', msg: `Generated ${generated}/${genTotal} samples`, pct: Math.round(50 * generated / genTotal) })
+      }
+    }
+
+    // Contrastive trigger negatives: "hey alexa/google/siri/cortana" in the SAME
+    // voices as the positives, so the model learns the word, not the speaker.
+    for (const voice of voices) {
+      for (let ti = 0; ti < CONTRASTIVE_TRIGGERS.length; ti++) {
+        const text = CONTRASTIVE_TRIGGERS[ti]!
+        const fname = `contrast_${voice}_${String(ti).padStart(2, '0')}.wav`
+        await synthesize(text, voice, 1.0, join(negDir, fname))
+        generated++
+        emit({ step: 'generating', msg: `Generated ${generated}/${genTotal} samples`, pct: Math.round(50 * generated / genTotal) })
+      }
+    }
+
+    // Noise + silence negatives so the detector doesn't fire on ambient sound.
+    const noiseCount = await writeNoiseNegatives(negDir)
+    emit({ step: 'generating', msg: `Added ${noiseCount} noise/silence negatives`, pct: 50 })
+
+    // ── Step 2: run Python training script ───────────────────────────────────
+    emit({ step: 'training', msg: 'Training ONNX detector…', pct: 50 })
+
+    const melPath = join(wakewordDir(), 'melspectrogram.onnx')
+    const embPath = join(wakewordDir(), 'embedding_model.onnx')
+
+    if (!existsSync(melPath) || !existsSync(embPath)) {
+      throw new Error('Wakeword core models not installed. Install "Wake Word" from Admin → Features first.')
+    }
+
+    if (!isWakewordTrainInstalled()) {
+      throw new Error('Wake Word Training not installed. Install "Wake Word Training" from Admin → Features first.')
+    }
+
+    // The browser runs the wake-word pipeline through onnxruntime-web (WASM),
+    // whose embedding-model Conv kernels compute measurably differently (~25 per
+    // dim) from native onnxruntime. A detector trained on NATIVE embeddings is fed
+    // out-of-distribution features at runtime and never fires (the long-standing
+    // "trains fine but the tester never matches" bug). So training extracts its
+    // embeddings through the SAME runtime — wake_embed_ortweb.mjs, run under this
+    // same Bun binary — making train and inference features bit-for-bit identical.
+    // The openWakeWord negative-feature bank lives in native-embedding space, so
+    // it is intentionally NOT used (it would crush the ort-web positives);
+    // discrimination comes from the diverse synthesized negatives, which share the
+    // ort-web feature space.
+    const python = wakewordTrainPython()
+    let calibratedThreshold: number | undefined
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(python, [
+        TRAIN_SCRIPT,
+        '--mel',           melPath,
+        '--embed',         embPath,
+        '--positives',     posDir,
+        '--negatives',     negDir,
+        '--output',        outOnnx,
+        '--embed-runtime', 'ortweb',
+        '--node-bin',      process.execPath, // run the embed server under this Bun
+        '--embed-script',  EMBED_SCRIPT,
+      ])
+
+      signal?.addEventListener('abort', () => proc.kill())
+
+      let lineBuffer = ''
+      proc.stdout.on('data', (chunk: Buffer) => {
+        lineBuffer += chunk.toString()
+        const lines = lineBuffer.split('\n')
+        lineBuffer = lines.pop() ?? ''
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          try {
+            const parsed = JSON.parse(trimmed) as { msg?: string; done?: boolean; error?: boolean; threshold?: number }
+            const pct = parsed.done ? 99 : 50 + Math.min(48, (parsed.msg?.length ?? 0))
+            emit({ step: 'training', msg: parsed.msg ?? trimmed, pct })
+            if (typeof parsed.threshold === 'number') calibratedThreshold = parsed.threshold
+            if (parsed.done) resolve()
+          } catch {
+            emit({ step: 'training', msg: trimmed, pct: 75 })
+          }
+        }
+      })
+
+      proc.stderr.on('data', (chunk: Buffer) => {
+        const txt = chunk.toString().trim()
+        if (!txt) return
+        console.error('[wakeword-trainer]', txt)
+        // Forward to SSE so the user sees Python tracebacks in the UI
+        for (const line of txt.split('\n').filter(Boolean)) {
+          emit({ step: 'training', msg: line.slice(0, 200), pct: 60 })
+        }
+      })
+
+      proc.on('close', (code) => {
+        if (code === 0) resolve()
+        else reject(new Error(`Training script exited with code ${code}`))
+      })
+
+      proc.on('error', reject)
+    })
+
+    return { onnxPath: outOnnx, threshold: calibratedThreshold }
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => null)
+  }
+}
+

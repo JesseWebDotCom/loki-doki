@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 810 810" width="810" height="810" role="img" aria-label="LokiDoki — AI home assistant">
+  <defs>
+    <!-- dark tile with subtle purple tint -->
+    <linearGradient id="tile" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#221636"/>
+      <stop offset="100%" stop-color="#14101f"/>
+    </linearGradient>
+    <!-- vibrant gradient on the mark so it pops on dark -->
+    <linearGradient id="grad" x1="180" y1="170" x2="640" y2="660" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6fe0ff"/>
+      <stop offset="38%" stop-color="#7c8bff"/>
+      <stop offset="70%" stop-color="#b06bff"/>
+      <stop offset="100%" stop-color="#ff6ad0"/>
+    </linearGradient>
+    <filter id="ds" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <rect x="22" y="22" width="766" height="766" rx="188" ry="188" fill="url(#tile)"/>
+  <rect x="30" y="30" width="750" height="750" rx="182" ry="182" fill="none"
+        stroke="#6a4fb0" stroke-opacity="0.3" stroke-width="3"/>
+
+  <g fill="url(#grad)" filter="url(#ds)">
+    <path d="M 150 150 L 236 150 L 236 574 L 660 574 L 660 660 L 150 660 Z"/>
+    <circle cx="445" cy="210" r="22"/>
+      <circle cx="393" cy="262" r="22"/>
+      <circle cx="445" cy="262" r="22"/>
+      <circle cx="497" cy="262" r="22"/>
+      <circle cx="341" cy="314" r="22"/>
+      <circle cx="393" cy="314" r="22"/>
+      <circle cx="445" cy="314" r="22"/>
+      <circle cx="497" cy="314" r="22"/>
+      <circle cx="549" cy="314" r="22"/>
+      <circle cx="289" cy="366" r="22"/>
+      <circle cx="341" cy="366" r="22"/>
+      <circle cx="393" cy="366" r="22"/>
+      <circle cx="445" cy="366" r="22"/>
+      <circle cx="497" cy="366" r="22"/>
+      <circle cx="549" cy="366" r="22"/>
+      <circle cx="601" cy="366" r="22"/>
+      <circle cx="341" cy="418" r="22"/>
+      <circle cx="393" cy="418" r="22"/>
+      <circle cx="445" cy="418" r="22"/>
+      <circle cx="497" cy="418" r="22"/>
+      <circle cx="549" cy="418" r="22"/>
+      <circle cx="341" cy="470" r="22"/>
+      <circle cx="393" cy="470" r="22"/>
+      <circle cx="497" cy="470" r="22"/>
+      <circle cx="549" cy="470" r="22"/>
+      <circle cx="341" cy="522" r="22"/>
+      <circle cx="393" cy="522" r="22"/>
+      <circle cx="497" cy="522" r="22"/>
+      <circle cx="549" cy="522" r="22"/>
+  </g>
+</svg>
