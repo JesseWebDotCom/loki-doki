@@ -1129,7 +1129,7 @@ youtubeRoute.get('/sponsorblock/:videoId', async (c) => {
 
 // ── Privacy stream proxy ────────────────────────────────────────────────────────
 // Stream a video (or its audio) through our own server so the client never contacts
-// Google — no embed, no cookies, no ads, no tracking. yt-dlp resolves a direct
+// Google — no embed, no cookies, no tracking. yt-dlp resolves a direct
 // googlevideo URL (solving the signature/throttle ciphers); we proxy the bytes with
 // Range passthrough so seeking works.
 

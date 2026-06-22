@@ -1,15 +1,15 @@
 ---
 title: YouTube
-description: A private, ad-free way to watch YouTube, follow channels, save videos offline, and turn videos into podcasts.
+description: A private way to watch YouTube, follow channels, save videos offline, and turn videos into podcasts.
 sidebar:
   order: 5
 ---
 
-Watch YouTube without the ads, the tracking, or the rabbit hole that comes with it. Loki Doki plays videos through your own server, so the browser never talks to Google. No account, no cookies, no "recommended for you" engineered to keep your kids glued to the screen, and no ads in front of a video.
+Watch YouTube without the tracking or the rabbit hole that comes with it. Loki Doki plays videos through your own server, so the browser never talks to Google. No account, no cookies, and no "recommended for you" engineered to keep your kids glued to the screen.
 
 ## Watching a Video
 
-Search for anything, or open a video from your subscriptions, and it plays right in the app. Because the video streams through your home server, there are no pre-roll ads and nothing reports back about what you watched.
+Search for anything, or open a video from your subscriptions, and it plays right in the app. Because the video streams through your home server, nothing reports back about what you watched.
 
 While a video plays, you can:
 

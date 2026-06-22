@@ -1,8 +1,8 @@
 // Direct-stream resolver for the privacy proxy. yt-dlp does the hard part — solving
 // YouTube's signature cipher and `n`-parameter throttling — and hands us a direct
 // googlevideo.com URL. The route then streams those bytes through our own server, so
-// the browser talks only to us, never to Google (no embed, no cookies, no tracking,
-// no ads). googlevideo URLs are IP-locked to whoever fetched them and expire after a
+// the browser talks only to us, never to Google (no embed, no cookies, no
+// tracking). googlevideo URLs are IP-locked to whoever fetched them and expire after a
 // few hours, so resolution and the byte-proxy must both happen here on the backend.
 
 import { execFile } from 'node:child_process'
