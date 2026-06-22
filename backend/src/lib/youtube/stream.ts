@@ -38,12 +38,20 @@ function isAllowedUpstream(url: string): boolean {
 // Progressive (muxed audio+video) MP4 for video — a single file the browser can play
 // directly without us muxing DASH streams. itag 22 = 720p, itag 18 = 360p. Audio mode
 // pulls the best m4a-compatible audio-only stream.
+//
+// `[protocol^=https]` is critical: YouTube also exposes muxed MP4 as HLS (itags 91–96,
+// protocol m3u8), and a bare `best[ext=mp4][acodec!=none][vcodec!=none]` happily picks one
+// of those because they're higher-res — but a plain <video> can't play an HLS manifest
+// outside Safari, and our byte-proxy can't segment it. So pin to the real progressive
+// itags (22/18) first, then only ever fall back to a direct-https muxed MP4.
 function formatFor(kind: StreamKind, quality: StreamQuality): string {
   if (kind === 'audio') return 'bestaudio[ext=m4a]/bestaudio'
+  // Direct-https muxed MP4 (excludes HLS) at a height ceiling, used as the fallback.
+  const mux = (cap = '') => `best[ext=mp4]${cap}[acodec!=none][vcodec!=none][protocol^=https]`
   switch (quality) {
-    case '360': return '18/best[ext=mp4][height<=360][acodec!=none][vcodec!=none]/worst[acodec!=none][vcodec!=none]'
-    case '720': return '22/best[ext=mp4][height<=720][acodec!=none][vcodec!=none]/18'
-    default:    return 'best[ext=mp4][acodec!=none][vcodec!=none]/22/18/best[acodec!=none][vcodec!=none]'
+    case '360': return `18/${mux('[height<=360]')}/18`
+    case '720': return `22/18/${mux('[height<=720]')}`
+    default:    return `22/18/${mux()}`
   }
 }
 
@@ -51,6 +59,10 @@ interface CachedUrl { url: string; expires: number }
 // googlevideo URLs carry their own `expire` epoch; we re-resolve well before that.
 const TTL_MS = 4 * 60 * 60 * 1000
 const cache = new Map<string, CachedUrl>()
+// In-flight resolves keyed the same as the cache, so a prewarm and the real stream
+// request for the same video share ONE yt-dlp run instead of spawning two (which would
+// serialize behind the yt-dlp slot and double the wait).
+const inflight = new Map<string, Promise<string | null>>()
 
 function cacheKey(videoId: string, kind: StreamKind, quality: StreamQuality) { return `${videoId}:${kind}:${quality}` }
 
@@ -81,6 +93,21 @@ export async function resolveStreamUrl(videoId: string, kind: StreamKind, qualit
   if (hit && hit.expires > now) return hit.url
   if (hit) cache.delete(key) // expired
 
+  // Coalesce concurrent resolves (e.g. prewarm + the real stream request) onto one run.
+  // `forceYtDlp` is a deliberate post-403 re-resolve, so it always runs fresh.
+  if (!forceYtDlp) {
+    const pending = inflight.get(key)
+    if (pending) return pending
+  }
+  const p = doResolveStreamUrl(videoId, kind, quality, forceYtDlp, key, now)
+  if (!forceYtDlp) {
+    inflight.set(key, p)
+    void p.finally(() => { if (inflight.get(key) === p) inflight.delete(key) })
+  }
+  return p
+}
+
+async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality, forceYtDlp: boolean, key: string, now: number): Promise<string | null> {
   // Fast path (video only): one JSON call to the ANDROID client beats spawning yt-dlp.
   if (kind === 'video' && !forceYtDlp) {
     try {
@@ -100,8 +127,13 @@ export async function resolveStreamUrl(videoId: string, kind: StreamKind, qualit
     const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
       '-f', formatFor(kind, quality),
       '-g', '--no-warnings', '--no-playlist',
+      // Speedups: IPv6 paths to googlevideo often stall here; and probing every player
+      // client is wasteful — ANDROID_VR returns pre-signed progressive URLs (no n-sig /
+      // player-JS step) and the web clients cover anything it misses.
+      '--force-ipv4',
+      '--extractor-args', 'youtube:player_client=android_vr,web_safari,web',
       `https://www.youtube.com/watch?v=${videoId}`,
-    ], { timeout: 25_000, maxBuffer: 4 * 1024 * 1024 }))
+    ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }))
 
     // -g prints one URL per selected stream; the first line is our progressive/audio URL.
     const url = stdout.split('\n').map(l => l.trim()).find(Boolean) ?? null
