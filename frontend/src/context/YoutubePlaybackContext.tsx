@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 /** A video handed off to the docked mini-player when you navigate away mid-watch. */
@@ -12,16 +12,22 @@ export interface YtMiniTrack {
 }
 
 interface YoutubePlaybackCtx {
+  /** The currently-docked video (queue[index]), or null when nothing is docked. */
   track: YtMiniTrack | null
-  /** Where to start the mini-player (the spot you left off at). */
+  /** Where to start the current item (the spot you left off at; 0 after a skip). */
   startSec: number
   /** Last reported playback position — read by the watch page when you expand back. */
   positionSec: number
-  /** Hand a video to the mini-player (called by the watch page on navigate-away). */
-  dock: (track: YtMiniTrack, startSec: number) => void
+  hasNext: boolean
+  hasPrev: boolean
+  /** Hand a queue (current + up-next) to the mini-player, starting at `index`/`startSec`. */
+  dock: (queue: YtMiniTrack[], index: number, startSec: number) => void
+  /** Advance / go back through the queue (auto-advance + the skip buttons). */
+  next: () => void
+  prev: () => void
   /** The mini-player reports its current position here as it plays. */
   reportPosition: (sec: number) => void
-  /** Tear the mini-player down (the ✕ button). */
+  /** Tear the mini-player down (the ✕ button, or end of queue). */
   close: () => void
   /** Clear the dock WITHOUT side effects — used when the watch page re-adopts the video. */
   clearDock: () => void
@@ -30,24 +36,44 @@ interface YoutubePlaybackCtx {
 const Ctx = createContext<YoutubePlaybackCtx | null>(null)
 
 export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
-  const [track, setTrack] = useState<YtMiniTrack | null>(null)
+  const [queue, setQueue] = useState<YtMiniTrack[]>([])
+  const [index, setIndex] = useState(0)
   const [startSec, setStartSec] = useState(0)
   const [positionSec, setPositionSec] = useState(0)
 
-  const dock = useCallback((t: YtMiniTrack, start: number) => {
-    setTrack(t)
+  const dock = useCallback((q: YtMiniTrack[], i: number, start: number) => {
+    setQueue(q)
+    setIndex(Math.max(0, Math.min(i, q.length - 1)))
     setStartSec(start)
     setPositionSec(start)
   }, [])
 
-  const reportPosition = useCallback((sec: number) => setPositionSec(sec), [])
-  const close = useCallback(() => { setTrack(null); setPositionSec(0) }, [])
-  const clearDock = useCallback(() => { setTrack(null) }, [])
+  const next = useCallback(() => {
+    setIndex(i => {
+      if (i + 1 >= queue.length) return i
+      setStartSec(0); setPositionSec(0)
+      return i + 1
+    })
+  }, [queue.length])
 
+  const prev = useCallback(() => {
+    setIndex(i => {
+      if (i <= 0) return i
+      setStartSec(0); setPositionSec(0)
+      return i - 1
+    })
+  }, [])
+
+  const reportPosition = useCallback((sec: number) => setPositionSec(sec), [])
+  const close = useCallback(() => { setQueue([]); setIndex(0); setPositionSec(0) }, [])
+  const clearDock = useCallback(() => { setQueue([]); setIndex(0) }, [])
+
+  const track = queue[index] ?? null
   const value = useMemo<YoutubePlaybackCtx>(() => ({
     track, startSec, positionSec,
-    dock, reportPosition, close, clearDock,
-  }), [track, startSec, positionSec, dock, reportPosition, close, clearDock])
+    hasNext: index + 1 < queue.length, hasPrev: index > 0,
+    dock, next, prev, reportPosition, close, clearDock,
+  }), [track, startSec, positionSec, index, queue.length, dock, next, prev, reportPosition, close, clearDock])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

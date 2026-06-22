@@ -20,12 +20,18 @@ import {
   getComments, getChapters, getVotes, addSubscription, deleteSubscription,
   ytImageProxy, type VideoMeta, type VideoVotes,
 } from '@/lib/youtube/api'
-import { itToItem, isShort } from '@/lib/youtube/types'
+import { itToItem, isShort, type VideoItem } from '@/lib/youtube/types'
 import { parseChapters } from '@/lib/youtube/chapters'
 import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { useDeArrow } from '@/lib/youtube/dearrow'
-import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
+import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
+
+/** A feed/related item → a mini-player queue entry. */
+const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
+  videoId: v.videoId, title: v.title, author: v.author ?? null,
+  channelThumb: v.channelThumb ?? null, localKind: v.localKind, durationSec: v.durationSec ?? null,
+})
 
 type SideTab = 'transcript' | 'summary' | 'comments'
 
@@ -102,21 +108,26 @@ export function WatchPage() {
   useEffect(() => { if (pb.track) pb.clearDock() }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
-  // Navigating away mid-playback hands the video to the docked mini-player. Uses refs so
-  // it captures the video being watched at unmount, not the one this effect closed over.
-  const handoffRef = useRef<{ videoId: string; title: string; author: string | null; channelThumb: string | null; localKind?: 'audio' | 'video'; durationSec: number | null }>(null!)
-  handoffRef.current = { videoId, title, author, channelThumb, localKind, durationSec: meta?.durationSec ?? null }
-  useEffect(() => () => {
-    const h = handoffRef.current
-    if (playingRef.current && secRef.current > 1 && h.videoId) {
-      pb.dock({ videoId: h.videoId, title: h.title, author: h.author, channelThumb: h.channelThumb, localKind: h.localKind, durationSec: h.durationSec }, secRef.current)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   const upNext = useMemo(() => {
     if (related.length) return related.map(itToItem).filter(i => i.videoId !== videoId).slice(0, 15)
     return items.filter(i => i.videoId !== videoId).slice(0, 15)
   }, [related, items, videoId])
+
+  // The mini-player's queue = the current video followed by "Up next", so it can advance
+  // (auto-play + skip buttons). Kept in a ref so the unmount hand-off uses the live value.
+  const miniQueueRef = useRef<YtMiniTrack[]>([])
+  miniQueueRef.current = [
+    { videoId, title, author, channelThumb, localKind, durationSec: meta?.durationSec ?? null },
+    ...upNext.map(toMiniTrack),
+  ]
+
+  // Navigating away mid-playback hands the queue to the docked mini-player. Uses refs so it
+  // captures the video being watched at unmount, not the one this effect closed over.
+  useEffect(() => () => {
+    if (playingRef.current && secRef.current > 1 && miniQueueRef.current[0]?.videoId) {
+      pb.dock(miniQueueRef.current, 0, secRef.current)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Chapters: creators usually list them as timestamped lines in the description (free to
   // parse). When that turns up nothing, fall back to YouTube's authoritative chapter list
@@ -144,7 +155,7 @@ export function WatchPage() {
   // (even if paused) so the button always does something; navigating away would otherwise
   // only hand off while playing.
   function minimize() {
-    pb.dock({ videoId, title, author, channelThumb, localKind, durationSec: meta?.durationSec ?? null }, secRef.current || currentSec)
+    pb.dock(miniQueueRef.current, 0, secRef.current || currentSec)
     navigate('/youtube')
   }
 
