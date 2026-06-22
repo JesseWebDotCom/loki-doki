@@ -26,6 +26,10 @@ import {
   getUserPreference, DEFAULT_GLOBAL_CAP,
 } from '@/lib/youtube/quality'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
+import {
+  enqueueVideoSave, createYoutubeEpisode,
+  isAutomationPaused, setAutomationPaused, getAutoSaveKeepDefault, AUTO_KEEP_KEY,
+} from '@/lib/youtube/automation'
 import { resolveUserPath } from '@/lib/storage/paths'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
@@ -234,6 +238,30 @@ youtubeRoute.delete('/subscriptions/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// Update a subscription's automation settings (auto-save on/off, format, keep-N override).
+// Off by default; auto-save applies to NEW uploads going forward, not the existing feed.
+youtubeRoute.patch('/subscriptions/:id', async (c) => {
+  const user = c.get('user')
+  const subId = c.req.param('id')
+  const body = (await c.req.json().catch(() => ({}))) as { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null }
+
+  const [sub] = await db.select({ id: ytSubscriptions.id }).from(ytSubscriptions)
+    .where(and(eq(ytSubscriptions.id, subId), eq(ytSubscriptions.userId, user.id))).limit(1)
+  if (!sub) return c.json({ error: 'Not found' }, 404)
+
+  const patch: Partial<typeof ytSubscriptions.$inferInsert> = {}
+  if (typeof body.autoSave === 'boolean') patch.autoSave = body.autoSave
+  if (body.autoSaveKind === 'audio' || body.autoSaveKind === 'video') patch.autoSaveKind = body.autoSaveKind
+  if (body.autoSaveKeep === null) patch.autoSaveKeep = null
+  else if (typeof body.autoSaveKeep === 'number' && Number.isFinite(body.autoSaveKeep)) {
+    patch.autoSaveKeep = Math.max(0, Math.floor(body.autoSaveKeep))
+  }
+  if (!Object.keys(patch).length) return c.json({ ok: true })
+
+  await db.update(ytSubscriptions).set(patch).where(eq(ytSubscriptions.id, subId))
+  return c.json({ ok: true })
+})
+
 youtubeRoute.post('/subscriptions/:id/refresh', async (c) => {
   const user = c.get('user')
   const subId = c.req.param('id')
@@ -254,6 +282,30 @@ youtubeRoute.post('/subscriptions/refresh-all', async (c) => {
 
 youtubeRoute.post('/subscriptions/backfill-thumbnails', requireAdmin, async (c) => {
   void backfillAllThumbnails().catch(() => {})
+  return c.json({ ok: true })
+})
+
+// ── Automation master switch ─────────────────────────────────────────────────
+// Per-user pause freezes ALL automation (auto-save + auto-podcast) without losing any
+// per-subscription/per-show settings, so unpausing resumes exactly where it left off.
+// keepDefault is the global rolling "keep latest N auto-saved" cap (admin-managed).
+
+youtubeRoute.get('/automation', async (c) => {
+  const user = c.get('user')
+  const [paused, keepDefault] = await Promise.all([isAutomationPaused(user.id), getAutoSaveKeepDefault()])
+  return c.json({ paused, keepDefault, isAdmin: user.role === 'admin' })
+})
+
+youtubeRoute.put('/automation', async (c) => {
+  const user = c.get('user')
+  const body = (await c.req.json().catch(() => ({}))) as { paused?: boolean; keepDefault?: number }
+
+  if (typeof body.paused === 'boolean') await setAutomationPaused(user.id, body.paused)
+  // The global keep-N default is an app-wide cap → admin only (mirrors save-quality limits).
+  if (typeof body.keepDefault === 'number' && Number.isFinite(body.keepDefault)) {
+    if (user.role !== 'admin') return c.json({ error: 'Forbidden' }, 403)
+    await setAppSetting(AUTO_KEEP_KEY, Math.max(1, Math.floor(body.keepDefault)))
+  }
   return c.json({ ok: true })
 })
 
@@ -396,56 +448,9 @@ async function handleSave(c: Context<AppEnv>) {
   const maxHeight = kind === 'audio' ? null
     : Math.min(reqHeight ?? (await getUserPreference(user.id)) ?? cap, cap)
 
-  // Check for existing save
-  const [existing] = await db.select({ id: ytDownloads.id, status: ytDownloads.status })
-    .from(ytDownloads)
-    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind)))
-    .limit(1)
-
-  if (existing?.status === 'ready') return c.json({ ok: true, status: 'already-saved', id: existing.id })
-  if (existing?.status === 'downloading') return c.json({ ok: true, status: 'in-progress', id: existing.id })
-
-  const downloadRowId = existing?.id ?? crypto.randomUUID()
-  const now = new Date()
-
-  if (!existing) {
-    await db.insert(ytDownloads).values({
-      id: downloadRowId,
-      userId: user.id,
-      videoId,
-      title,
-      kind,
-      maxHeight,
-      status: 'pending',
-      createdAt: now,
-      updatedAt: now,
-    })
-  } else {
-    await db.update(ytDownloads).set({ status: 'pending', error: null, maxHeight, updatedAt: now }).where(eq(ytDownloads.id, downloadRowId))
-  }
-
-  // Enqueue yt-media job in the durable download queue
-  const payload = { videoId, videoTitle: title, userId: user.id, userFirstName: firstName, kind, maxHeight, audioFormat: kind === 'audio' ? (audioFormat === 'mp3' ? 'mp3' : 'm4a') : undefined, downloadRowId }
-  await db.insert(downloadJobs).values({
-    id: crypto.randomUUID(),
-    type: 'yt-media',
-    refId: JSON.stringify(payload),
-    domain: 'youtube',   // distinct from podcast/storage so they don't serialize behind one 'local' slot
-    sizeClass: 'large',
-    label: `Save "${title || videoId}" (${kind})`,
-    status: 'pending',
-    priority: 50,
-    attempts: 0,
-    maxAttempts: 3,
-    variantKey: null,
-    lastError: null,
-    nextEligibleAt: null,
-    progress: null,
-    createdAt: now,
-    updatedAt: now,
-  })
-
-  return c.json({ ok: true, status: 'queued', id: downloadRowId })
+  // Upsert the download row + enqueue the durable yt-media job (shared with auto-save).
+  const { status, id } = await enqueueVideoSave({ userId: user.id, videoId, title, kind, maxHeight, firstName, audioFormat })
+  return c.json({ ok: true, status, id })
 }
 
 youtubeRoute.post('/save', handleSave)
@@ -926,57 +931,15 @@ youtubeRoute.post('/podcast', async (c) => {
     const targets = candidates.slice(0, batch)
     for (let i = 0; i < targets.length; i++) {
       const v = targets[i]!
-      const episodeId = crypto.randomUUID()
       // Single video can carry a custom episode title; multi-video uses each video's own.
-      const epTitle = (targets.length === 1 ? (body.label?.trim() || v.title?.trim()) : v.title?.trim()) || 'YouTube video'
-      const createdAt = new Date(now.getTime() - i * 1000)
-
-      await db.insert(podcastEpisodes).values({
-        id: episodeId,
+      await createYoutubeEpisode({
         showId,
-        title: `${epTitle} — ${dateLabel}`,
-        status: 'pending',
-        createdAt,
-      })
-
-      // Record the source video now (not just after generation) so a follow-up "next
-      // batch" can skip it while this one is still pending. Generation re-inserts with
-      // onConflictDoNothing, so this is safe.
-      await db.insert(podcastEpisodeSources).values({
-        id: crypto.randomUUID(),
-        episodeId,
-        sourceType: 'youtube',
-        sourceId: v.videoId,
-        title: v.title ?? null,
-        createdAt,
-      }).onConflictDoNothing()
-
-      // Per-episode content override: feed just this one video's transcript to the script.
-      const payload = JSON.stringify({
-        showId,
-        episodeId,
         userId: user.id,
-        userFirstName: firstName,
-        segments: [{ type: 'youtube', label: 'YouTube', params: { videos: [v] } }],
-      })
-
-      await db.insert(downloadJobs).values({
-        id: crypto.randomUUID(),
-        type: 'podcast-generate',
-        refId: payload,
-        domain: 'podcast',
-        sizeClass: 'small',
-        label: `Podcast: ${epTitle}`,
-        status: 'pending',
-        priority: 50 + i,
-        attempts: 0,
-        maxAttempts: 3,
-        variantKey: null,
-        lastError: null,
-        nextEligibleAt: null,
-        progress: null,
-        createdAt,
-        updatedAt: createdAt,
+        firstName,
+        video: v,
+        dateLabel,
+        createdAt: new Date(now.getTime() - i * 1000),
+        episodeTitle: targets.length === 1 ? body.label : undefined,
       })
     }
 

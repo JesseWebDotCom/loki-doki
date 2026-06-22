@@ -38,6 +38,11 @@ export interface Subscription {
   thumbnailUrl: string | null
   description: string | null
   lastFetchedAt: string | null
+  // Automation (off by default): auto-save new uploads offline, in this format, keeping
+  // only the latest N (null → global default).
+  autoSave: boolean
+  autoSaveKind: 'audio' | 'video'
+  autoSaveKeep: number | null
   addedAt: string
 }
 
@@ -278,8 +283,28 @@ export async function deleteSubscription(id: string): Promise<void> {
   await fetch(`/api/youtube/subscriptions/${id}`, { ...opts, method: 'DELETE' })
 }
 
+export async function updateSubscription(
+  id: string,
+  patch: { autoSave?: boolean; autoSaveKind?: 'audio' | 'video'; autoSaveKeep?: number | null },
+): Promise<void> {
+  await fetch(`/api/youtube/subscriptions/${id}`, { ...opts, method: 'PATCH', headers: J, body: JSON.stringify(patch) })
+}
+
 export async function refreshAllSubscriptions(): Promise<void> {
   await fetch('/api/youtube/subscriptions/refresh-all', { ...opts, method: 'POST' })
+}
+
+// ── Automation master switch ───────────────────────────────────────────────────
+
+export interface AutomationState { paused: boolean; keepDefault: number; isAdmin: boolean }
+
+export async function getAutomation(): Promise<AutomationState> {
+  const r = await fetch('/api/youtube/automation', { ...opts, cache: 'no-store' })
+  return r.json() as Promise<AutomationState>
+}
+
+export async function setAutomation(patch: { paused?: boolean; keepDefault?: number }): Promise<void> {
+  await fetch('/api/youtube/automation', { ...opts, method: 'PUT', headers: J, body: JSON.stringify(patch) })
 }
 
 // ── Offline library ──────────────────────────────────────────────────────────

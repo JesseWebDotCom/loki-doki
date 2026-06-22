@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Loader2, HardDriveDownload, Check, Plus } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { useYtSubs } from '@/lib/youtube/useData'
-import { addSubscription, deleteSubscription, getChannelPage, type ItVideo } from '@/lib/youtube/api'
+import { addSubscription, deleteSubscription, updateSubscription, getChannelPage, type ItVideo, type Subscription } from '@/lib/youtube/api'
 import { isShort, itToItem, type VideoItem } from '@/lib/youtube/types'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { PodcastSourceButtons } from '@/components/youtube/PodcastSourceButtons'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
 import { MediaShelf } from '@/components/youtube/shelves'
+import { Switch } from '@/components/ui/switch'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui/dropdown-menu'
 
 const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 
@@ -95,6 +97,20 @@ export function YoutubeChannelPage() {
     } catch { toast.error('Could not update subscription') } finally { setBusy(false) }
   }
 
+  // Per-subscription auto-save settings (optimistic; persisted via PATCH). Auto-save
+  // applies to NEW uploads going forward, not the existing back-catalogue.
+  async function patchSub(patch: Partial<Pick<Subscription, 'autoSave' | 'autoSaveKind' | 'autoSaveKeep'>>) {
+    if (!sub) return
+    qc.setQueryData<Subscription[]>(['yt-subs'], prev => prev?.map(s => s.id === sub.id ? { ...s, ...patch } : s))
+    try {
+      await updateSubscription(sub.id, patch)
+      if (patch.autoSave !== undefined) toast.success(patch.autoSave ? 'Auto-saving new uploads from this channel' : 'Auto-save turned off')
+    } catch {
+      toast.error('Could not update auto-save')
+      qc.invalidateQueries({ queryKey: ['yt-subs'] })
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
       {unsubDialog}
@@ -114,11 +130,59 @@ export function YoutubeChannelPage() {
           <PodcastSourceButtons
             videos={regular.map(v => ({ videoId: v.videoId, title: v.title, author: v.author ?? title }))}
             sourceId={`channel:${channelId}`} suggestedShowName={title} sourceDescription={description ?? undefined} coverImageUrl={thumb ?? undefined} />
+          {subscribed && sub && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  aria-label={sub.autoSave ? 'Auto-save on' : 'Auto-save off'}
+                  title={sub.autoSave ? `Auto-saving new ${sub.autoSaveKind}` : 'Auto-save new uploads'}
+                  className={cn('flex size-10 items-center justify-center rounded-full transition-colors',
+                    sub.autoSave ? 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]' : 'bg-muted text-muted-foreground hover:text-foreground')}>
+                  <HardDriveDownload className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72 space-y-3 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Auto-save new videos</p>
+                    <p className="text-xs text-muted-foreground">Download future uploads from this channel offline.</p>
+                  </div>
+                  <Switch checked={sub.autoSave} onCheckedChange={v => void patchSub({ autoSave: v })} />
+                </div>
+                {sub.autoSave && (
+                  <>
+                    <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-3">
+                      <span className="text-sm text-muted-foreground">Save as</span>
+                      <div className="flex overflow-hidden rounded-md border border-border">
+                        {(['video', 'audio'] as const).map(k => (
+                          <button key={k} onClick={() => void patchSub({ autoSaveKind: k })}
+                            className={cn('px-3 py-1 text-xs font-medium capitalize transition-colors',
+                              sub.autoSaveKind === k ? 'bg-[var(--yt-accent)] text-white' : 'bg-background text-muted-foreground hover:text-foreground')}>
+                            {k}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Keep latest</span>
+                      <div className="flex items-center gap-1.5">
+                        <input type="number" min={0} value={sub.autoSaveKeep ?? ''} placeholder="default"
+                          onChange={e => void patchSub({ autoSaveKeep: e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))) })}
+                          className="w-16 rounded-md border border-border bg-background px-2 py-1 text-sm" />
+                        <span className="text-xs text-muted-foreground">videos</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <button onClick={toggleSub} disabled={busy}
-            className={cn('flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60',
-              subscribed ? 'bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive' : 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]')}>
-            {busy && <Loader2 className="size-4 animate-spin" />}
-            {subscribed ? 'Subscribed' : 'Subscribe'}
+            aria-label={subscribed ? 'Subscribed — click to unsubscribe' : 'Subscribe'}
+            title={subscribed ? 'Subscribed — click to unsubscribe' : 'Subscribe'}
+            className={cn('group flex size-10 items-center justify-center rounded-full transition-colors disabled:opacity-60',
+              subscribed ? 'bg-[var(--yt-accent)] text-white hover:bg-destructive hover:text-white' : 'bg-muted text-muted-foreground hover:text-foreground')}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : subscribed ? <Check className="size-4" /> : <Plus className="size-4" />}
           </button>
         </div>
       </div>

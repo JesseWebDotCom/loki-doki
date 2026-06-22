@@ -57,6 +57,7 @@ async function loadVisibleShows(user: Actor) {
     visibility: podcastShows.visibility,
     source: podcastShows.source,
     sourceRef: podcastShows.sourceRef,
+    autoGenerate: podcastShows.autoGenerate,
     createdAt: podcastShows.createdAt,
   }).from(podcastShows)
     // Push the visibility filter into SQL (indexed on owner_user_id) instead of scanning
@@ -195,6 +196,7 @@ podcastsRoute.put('/shows/:id', async (c) => {
     name?: string; description?: string; style?: string
     hosts?: unknown[]; segments?: unknown[]
     visibility?: 'personal' | 'shared'
+    autoGenerate?: boolean
   }>()
 
   const [show] = await db.select().from(podcastShows).where(eq(podcastShows.id, showId))
@@ -208,6 +210,7 @@ podcastsRoute.put('/shows/:id', async (c) => {
     ...(body.hosts !== undefined && { hostsJson: JSON.stringify(body.hosts) }),
     ...(body.segments !== undefined && { segmentsJson: JSON.stringify(body.segments) }),
     ...(body.visibility !== undefined && { visibility: body.visibility }),
+    ...(typeof body.autoGenerate === 'boolean' && { autoGenerate: body.autoGenerate }),
   }).where(eq(podcastShows.id, showId))
 
   return c.json({ ok: true })

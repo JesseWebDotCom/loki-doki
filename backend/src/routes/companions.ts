@@ -14,7 +14,7 @@ import { isOffline } from '@/lib/connectivity'
 import { embed } from '@/llm/embed'
 import { recallMemories, formatMemoriesForPrompt } from '@/memory/recall'
 import { getCachedMemoryBlock, setCachedMemoryBlock, invalidateMemoryBlock } from '@/memory/blockCache'
-import { extractMemories } from '@/memory/extract'
+import { runJudge, relinkEntityIds } from '@/memory/judge'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
 import { getCachedBriefing } from '@/lib/briefing/cache'
 import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
@@ -22,7 +22,7 @@ import {
   getCeiling, getUserCeiling, effectiveCeiling,
   parseCharacterContent, characterGate, buildContentPrompt,
 } from '@/lib/contentPolicy'
-import { buildInteractionFragment, ProfanityStreamBuffer } from '@/lib/protections'
+import { buildInteractionFragment, ProfanityStreamBuffer, maskProfanity } from '@/lib/protections'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -216,7 +216,7 @@ companions_.post('/companion', requireAuth, async (c) => {
   // memory adds no wall-clock beyond the tool routing that was already there.
   const history = (body.history ?? []).slice(-6).map((m) => ({ role: m.role, content: m.content }))
   const offlineMode = await isOffline(user.id)
-  const [{ userContent }, computedMemory, prefsRows, existingRelation, adminCeiling] = await Promise.all([
+  const [{ userContent, directReply }, computedMemory, prefsRows, existingRelation, adminCeiling] = await Promise.all([
     runToolTurn({ message: body.message, history, userId: user.id, userRole: user.role, model, offline: offlineMode }),
     cachedMem
       ? Promise.resolve(null as string | null)
@@ -258,6 +258,18 @@ companions_.post('/companion', requireAuth, async (c) => {
   const contentPrompt = await buildContentPrompt(charContent.dials)
   const candorFragment = buildInteractionFragment({ language: 'conversational', depth: 'balanced', candor: charContent.candor })
   const maskProfanityActive = charContent.dials.profanity === 'off'
+
+  // Snappy path: a tool that returned a finished, speakable reply (alarm/timer
+  // confirmations, etc.) is emitted verbatim, with no LLM rephrasing, so it can't get
+  // truncated or reworded inconsistently. Mirrors the chat route's directReply path.
+  if (directReply) {
+    c.header('X-Accel-Buffering', 'no')
+    return streamSSE(c, async (stream) => {
+      const text = maskProfanityActive ? maskProfanity(directReply) : directReply
+      await stream.writeSSE({ event: 'token', data: text })
+      await stream.writeSSE({ event: 'done', data: '{}' })
+    })
+  }
   const storedLoc = prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
   const locStr = storedLoc?.displayName ?? null
 
@@ -335,15 +347,19 @@ companions_.post('/companion', requireAuth, async (c) => {
       await stream.writeSSE({ event: 'error', data: String(err) })
     }
     // Learn from this turn — fire-and-forget AFTER the stream so it never blocks
-    // the reply. Companion still persists no conversation; only durable facts the
-    // extractor distills land in the shared memory store. Use raw body.message
-    // (not userContent, which carries appended tool JSON) and a text model.
+    // the reply. The companion persists no conversation, so the idle judge sweep
+    // never sees these turns; we run the SAME judge here directly on the recent
+    // window. The judge (not the old weak 6-message extractor) applies the full
+    // discard rules + entity/tier model, and writes user facts to the SHARED
+    // brain (characterId=null) so every companion shares knowledge of the person.
+    // Use raw body.message (not userContent, which carries appended tool JSON).
     if (reply.trim()) {
       const turns = [...history, { role: 'user', content: body.message }, { role: 'assistant', content: reply }]
       void (async () => {
         try {
-          const extractModel = hasImages ? await getModel() : model
-          await extractMemories(turns, extractModel, user.id, charId)
+          const judgeModel = hasImages ? await getModel() : model
+          await runJudge('companion', user.id, null, turns.slice(-10), judgeModel)
+          await relinkEntityIds(user.id, null)
           // Any newly-distilled facts must surface next turn — drop the cached
           // block so it is recomputed once, then re-cached.
           invalidateMemoryBlock(memKey)

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import {
   Loader2, Plus, Trash2, UploadCloud, Music, Video as VideoIcon, Settings2, BookmarkPlus, BookmarkCheck, Rss,
+  Download, PauseCircle,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/lib/toast'
@@ -209,6 +211,10 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
   const [tiers, setTiers] = useState<number[]>([])
   const [cap, setCap] = useState<number | null>(null)
   const [pref, setPref] = useState<number | null>(null)
+  // Automation master switch + global keep-N default.
+  const [paused, setPaused] = useState(false)
+  const [keepDefault, setKeepDefault] = useState(10)
+  const [isAdmin, setIsAdmin] = useState(false)
   const { ask: askUnsub, dialog: unsubDialog } = useUnsubscribeConfirm()
 
   async function load() { setSubs(await yt.getSubscriptions()) }
@@ -218,7 +224,25 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
     setLoading(true)
     load().finally(() => setLoading(false))
     yt.getSaveQuality().then(d => { setTiers(d.tiers ?? []); setCap(d.cap); setPref(d.pref) }).catch(() => {})
+    yt.getAutomation().then(a => { setPaused(a.paused); setKeepDefault(a.keepDefault); setIsAdmin(a.isAdmin) }).catch(() => {})
   }, [open])
+
+  // Optimistically patch a subscription's automation settings.
+  async function patchSub(id: string, patch: Partial<Pick<Subscription, 'autoSave' | 'autoSaveKind' | 'autoSaveKeep'>>) {
+    setSubs(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s))
+    await yt.updateSubscription(id, patch).catch(() => {})
+    onChanged?.()
+  }
+
+  async function togglePause(v: boolean) {
+    setPaused(v)
+    await yt.setAutomation({ paused: v }).catch(() => {})
+  }
+
+  async function saveKeepDefault(n: number) {
+    setKeepDefault(n)
+    await yt.setAutomation({ keepDefault: n }).catch(() => {})
+  }
 
   async function handleAdd() {
     const trimmed = input.trim()
@@ -294,15 +318,36 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
           ) : (
             <div className="space-y-2">
               {subs.map(sub => (
-                <div key={sub.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2">
-                  {sub.thumbnailUrl
-                    ? <img src={sub.thumbnailUrl} alt={sub.title} className="size-8 shrink-0 rounded-full object-cover" />
-                    : <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted"><Rss className="size-4 text-muted-foreground" /></div>}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{sub.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">{sub.handle ?? sub.externalId} · {sub.kind}</p>
+                <div key={sub.id} className="rounded-lg border border-border/60 bg-card px-3 py-2">
+                  <div className="flex items-center gap-3">
+                    {sub.thumbnailUrl
+                      ? <img src={sub.thumbnailUrl} alt={sub.title} className="size-8 shrink-0 rounded-full object-cover" />
+                      : <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted"><Rss className="size-4 text-muted-foreground" /></div>}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{sub.title}</p>
+                      <p className="truncate text-xs text-muted-foreground">{sub.handle ?? sub.externalId} · {sub.kind}</p>
+                    </div>
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5" title="Auto-save new uploads offline">
+                      <Download className="size-3.5 text-muted-foreground" />
+                      <Switch checked={sub.autoSave} onCheckedChange={v => void patchSub(sub.id, { autoSave: v })} />
+                    </label>
+                    <button onClick={() => handleDelete(sub.id)} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Remove"><Trash2 className="size-4" /></button>
                   </div>
-                  <button onClick={() => handleDelete(sub.id)} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Remove"><Trash2 className="size-4" /></button>
+                  {sub.autoSave && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/40 pl-11 pt-2 text-xs text-muted-foreground">
+                      <span>Save as</span>
+                      <select value={sub.autoSaveKind} onChange={e => void patchSub(sub.id, { autoSaveKind: e.target.value as 'audio' | 'video' })}
+                        className="rounded-md border border-border bg-background px-2 py-1 text-foreground">
+                        <option value="video">Video</option>
+                        <option value="audio">Audio</option>
+                      </select>
+                      <span>· keep latest</span>
+                      <input type="number" min={0} value={sub.autoSaveKeep ?? ''} placeholder={String(keepDefault)}
+                        onChange={e => void patchSub(sub.id, { autoSaveKeep: e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))) })}
+                        className="w-16 rounded-md border border-border bg-background px-2 py-1 text-foreground" />
+                      <span>videos</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -321,6 +366,28 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
             </div>
           </div>
         )}
+        {/* Automation master switch — freezes auto-save + auto-podcast without losing per-channel settings. */}
+        <div className="border-t border-border/60 pt-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-medium"><PauseCircle className="size-3.5" /> Pause automation</p>
+              <p className="text-xs text-muted-foreground">Stop auto-saving and auto-generating podcasts. Your per-channel settings are kept.</p>
+            </div>
+            <Switch checked={paused} onCheckedChange={v => void togglePause(v)} />
+          </div>
+          {isAdmin && (
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Default videos kept per channel</p>
+                <p className="text-xs text-muted-foreground">Rolling cap on auto-saved videos when a channel has no override.</p>
+              </div>
+              <input type="number" min={1} value={keepDefault}
+                onChange={e => { const n = Math.max(1, Math.floor(Number(e.target.value) || 1)); setKeepDefault(n) }}
+                onBlur={e => void saveKeepDefault(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                className="w-20 rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
     {unsubDialog}

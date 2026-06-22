@@ -9,6 +9,7 @@ import { ytSubscriptions, ytVideos, ytChannelCache } from '@/db/schema'
 import { logger } from '@/lib/logger'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { resolveYouTubeInput } from '@/lib/youtube/resolve'
+import { applySubscriptionAutomation } from '@/lib/youtube/automation'
 
 const YT_FEED_BASE = 'https://www.youtube.com/feeds/videos.xml'
 const FEED_INTERVAL_MS = 15 * 60 * 1000   // poll every 15 min
@@ -163,6 +164,15 @@ async function fetchAndUpsertFeed(sub: typeof ytSubscriptions.$inferSelect): Pro
   // Backfill durations for the new videos in the background so Shorts are
   // pre-split before the user opens the app (best-effort, non-blocking).
   if (newIds.length) void backfillDurations(newIds).catch(() => {})
+
+  // Opt-in subscription automation (auto-save offline + auto-podcast) for the fresh
+  // uploads. Off by default and gated by a per-user pause — see automation.ts. Fire and
+  // forget so a slow download-enqueue / show lookup never holds up the feed refresh.
+  if (fresh.length) {
+    void applySubscriptionAutomation(sub, fresh.map(e => ({
+      videoId: e.videoId, title: e.title, author: e.author, publishedAt: e.publishedAt,
+    }))).catch(err => logger.warn(`[youtube] automation error for "${sub.title}": ${err}`))
+  }
 
   // Fetch channel name/avatar/description the first time we see this subscription (or repair it).
   if (!sub.thumbnailUrl || !sub.description || /^https?:\/\//i.test(sub.title)) void backfillChannelMeta(sub).catch(() => {})

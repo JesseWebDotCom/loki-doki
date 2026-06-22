@@ -68,6 +68,8 @@ CRITICAL — DISCARD these, do NOT extract:
 - Tasks, to-dos, or things to do later
 - Facts about the world that don't reveal anything about the user
 - Anything the user asked about as a passing question with no personal relevance
+- Meta-statements about the user's relationship to real-time/transient data — "the user knows the current date", "the user is unsure about the date", "the user asked about the weather". The current date/time/weather/prices are not facts about the user, and neither is whether they currently know them.
+- Trivially-true or contentless observations ("the user said hi", "the user is chatting", "the user wants help")
 
 PERSIST these:
 - Stable facts about the user's identity, life, relationships, preferences
@@ -87,6 +89,7 @@ Examples of what to DISCARD vs PERSIST:
 - "My brother Artie loves horror movies" → PERSIST entity:Artie(person,aliases:["artie","brother"]), fact:"Artie loves horror movies"
 - "I hate cilantro" → PERSIST fact:"user dislikes cilantro" (category:preference, tier:durable)
 - "What year was the Eiffel Tower built?" → DISCARD (trivia question)
+- "What's today's date?" → DISCARD entirely — do NOT store "user is unsure about the date" or "user knows the date"; nothing durable was revealed
 - "I'm building a home theater in my basement" → PERSIST fact:"user is building a home theater" (goal)
 - "I'm so stressed today" → DISCARD (temporary mood)
 - "I've been a vegetarian for 10 years" → PERSIST fact:"user is vegetarian" (identity)

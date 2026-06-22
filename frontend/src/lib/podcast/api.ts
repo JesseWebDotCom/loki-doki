@@ -19,6 +19,7 @@ export interface Show {
   visibility: 'personal' | 'shared'
   source: 'user' | 'suggested' | 'app'
   sourceRef?: string | null
+  autoGenerate?: boolean
   ownerName: string
   isOwn: boolean
   createdAt: string | number
@@ -95,6 +96,7 @@ export interface ShowInput {
   segments?: ShowSegment[]
   visibility?: 'personal' | 'shared'
   sourceRef?: string
+  autoGenerate?: boolean
 }
 
 export async function createShow(input: ShowInput): Promise<Show> {

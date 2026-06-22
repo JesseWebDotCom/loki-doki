@@ -18,9 +18,10 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import {
-  getShows, getEpisodes, generateEpisode, deleteShow, getHostCharacters, toTrack, stingerUrl, type Episode,
+  getShows, getEpisodes, generateEpisode, deleteShow, updateShow, getHostCharacters, toTrack, stingerUrl, type Episode,
 } from '@/lib/podcast/api'
 import { fmtTotalRuntime, fmtDate } from '@/lib/podcast/format'
+import { Switch } from '@/components/ui/switch'
 
 type Tab = 'episodes' | 'about'
 
@@ -97,6 +98,23 @@ export function ShowDetailPage() {
     }
   }
 
+  // Auto-generate: when on, the feed poller turns each new upload from this show's source
+  // channel into a fresh episode automatically (no manual "next batch" needed).
+  const [autoGen, setAutoGen] = useState(false)
+  useEffect(() => { setAutoGen(!!show?.autoGenerate) }, [show?.autoGenerate])
+
+  async function toggleAutoGen(v: boolean) {
+    setAutoGen(v)
+    try {
+      await updateShow(id, { autoGenerate: v })
+      await qc.invalidateQueries({ queryKey: ['podcast-shows'] })
+      toast.success(v ? 'New videos will become episodes automatically.' : 'Auto-generate turned off.')
+    } catch {
+      setAutoGen(!v)
+      toast.error('Could not update auto-generate.')
+    }
+  }
+
   async function handleDeleteShow() {
     if (!show) return
     await deleteShow(show.id)
@@ -167,6 +185,17 @@ export function ShowDetailPage() {
             <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
               <Video className="size-4 text-red-500" /> Generated from your YouTube content
             </p>
+          )}
+          {show.isOwn && ytSource && (
+            <label className={cn('mt-3 flex w-fit cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors',
+              autoGen ? 'border-brand/40 bg-brand/10' : 'border-border/60 bg-card')}>
+              <Sparkles className={cn('size-4', autoGen ? 'text-brand' : 'text-muted-foreground')} />
+              <span className="text-sm">
+                <span className="font-medium">{autoGen ? 'Auto-generating new episodes' : 'Auto-generate new episodes'}</span>
+                <span className="block text-xs text-muted-foreground">New uploads from this {ytSource.kind} become episodes automatically.</span>
+              </span>
+              <Switch checked={autoGen} onCheckedChange={v => void toggleAutoGen(v)} className="ml-2" />
+            </label>
           )}
           {!show.isOwn && <p className="mt-1 text-xs text-muted-foreground">by {show.ownerName}</p>}
         </div>

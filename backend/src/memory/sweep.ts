@@ -21,6 +21,7 @@ import { conversations, messages } from '@/db/schema'
 import { and, eq, gt, desc, sql } from 'drizzle-orm'
 import { runJudge, relinkEntityIds } from './judge'
 import { runMaintenance } from './maintenance'
+import { runMemoryAudit } from './audit'
 import { generateEpisode } from './episode'
 import { getModel } from '@/lib/models'
 import { logger } from '@/lib/logger'
@@ -125,17 +126,20 @@ async function doJudgeSweep(): Promise<void> {
 
       const msgList = unprocessedRows.map((m) => ({ role: m.role, content: m.content }))
 
-      // Run judge
+      // Run judge. Facts about the USER go to the shared brain (characterId=null)
+      // so every companion shares the same knowledge of the person — switching
+      // characters never loses what you've told another one. Per-character texture
+      // (first-met, episodes) is written separately, scoped to the character.
       const judgeResult = await runJudge(
         conv.id,
         conv.userId,
-        conv.characterId ?? null,
+        null,
         msgList,
         model,
       )
 
-      // Link any facts that reference entities created in this batch
-      await relinkEntityIds(conv.userId, conv.characterId ?? null)
+      // Link any facts that reference entities created in this batch (shared scope)
+      await relinkEntityIds(conv.userId, null)
 
       // Advance the cursor to the latest processed message timestamp
       const newestMsgTime = unprocessedRows[unprocessedRows.length - 1]!.createdAt
@@ -177,6 +181,21 @@ async function doJudgeSweep(): Promise<void> {
   }
 }
 
+// ─── Audit sweep ────────────────────────────────────────────────────────────────
+
+let auditing = false
+
+async function runAudit(): Promise<void> {
+  if (auditing) return
+  auditing = true
+  try {
+    const model = await getModel()
+    await runMemoryAudit(model)
+  } finally {
+    auditing = false
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -190,11 +209,14 @@ export function startMemorySweep(): { stop: () => void } {
 
   const maintenanceTimer = setInterval(() => {
     runMaintenance().catch((err) => logger.error(`[memory:sweep] maintenance error: ${err}`))
+    runAudit().catch((err) => logger.error(`[memory:sweep] audit error: ${err}`))
   }, MAINTENANCE_INTERVAL_MS)
 
-  // Run maintenance once shortly after startup (cleans up any stale state)
+  // Run maintenance + audit once shortly after startup (cleans up stale state
+  // and prunes any junk that accumulated before this pass existed)
   setTimeout(() => {
     runMaintenance().catch((err) => logger.error(`[memory:sweep] startup maintenance error: ${err}`))
+    runAudit().catch((err) => logger.error(`[memory:sweep] startup audit error: ${err}`))
   }, 30_000)
 
   return {
@@ -212,13 +234,15 @@ export function startMemorySweep(): { stop: () => void } {
 export async function triggerJudgeForConversation(
   convId: string,
   userId: string,
-  characterId: string | null,
+  _characterId: string | null,
   allMessages: Array<{ role: string; content: string }>,
 ): Promise<void> {
   try {
     const model = await getModel()
-    const judgeResult = await runJudge(convId, userId, characterId, allMessages, model)
-    await relinkEntityIds(userId, characterId)
+    // User facts → shared brain (characterId=null), regardless of which character
+    // the conversation was with. See doJudgeSweep for rationale.
+    const judgeResult = await runJudge(convId, userId, null, allMessages, model)
+    await relinkEntityIds(userId, null)
 
     const now = new Date()
     await db.update(conversations).set({ memoryProcessedThrough: now }).where(eq(conversations.id, convId))

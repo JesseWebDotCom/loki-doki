@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Mic, Plus, ChevronDown } from 'lucide-react'
+import { Mic, Plus } from 'lucide-react'
+import { cn } from '@/lib/cn'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
@@ -33,13 +34,15 @@ export function PodcastSourceButtons({ videos, sourceId, suggestedShowName, sour
   // Podcasts already made from this source, found by their server-side sourceRef.
   const { data: shows = [] } = useQuery({ queryKey: ['podcast-shows'], queryFn: getShows })
   const related = shows.filter(s => s.isOwn && s.sourceRef === sourceId)
+  // Light the button up when a linked show is auto-generating new episodes from this source.
+  const autoGenerating = related.some(s => s.autoGenerate)
 
   // No videos to build from — keep the button for layout balance, just disabled.
   if (videos.length === 0) {
     return (
-      <button type="button" disabled title="No videos available to make a podcast from"
-        className="flex cursor-not-allowed items-center gap-1.5 rounded-full border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground/80 opacity-50">
-        <Mic className="size-4" /> Podcast <ChevronDown className="size-3.5 opacity-70" />
+      <button type="button" disabled aria-label="Make a podcast" title="No videos available to make a podcast from"
+        className="flex size-10 cursor-not-allowed items-center justify-center rounded-full border border-border bg-background text-foreground/80 opacity-50">
+        <Mic className="size-4" />
       </button>
     )
   }
@@ -48,8 +51,12 @@ export function PodcastSourceButtons({ videos, sourceId, suggestedShowName, sour
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-1.5 rounded-full border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground/80 transition-colors hover:text-foreground">
-            <Mic className="size-4" /> Podcast <ChevronDown className="size-3.5 opacity-70" />
+          <button aria-label="Make a podcast" title={autoGenerating ? 'Auto-generating a podcast from this channel' : 'Make a podcast from this channel'}
+            className={cn('flex size-10 items-center justify-center rounded-full transition-colors',
+              autoGenerating
+                ? 'bg-[var(--yt-accent)] text-white hover:bg-[var(--yt-accent-hover)]'
+                : 'border border-border bg-background text-foreground/80 hover:text-foreground')}>
+            <Mic className="size-4" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
