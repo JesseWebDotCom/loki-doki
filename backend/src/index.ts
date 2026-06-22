@@ -72,6 +72,7 @@ import { music } from '@/routes/music'
 import { logoRoute } from '@/routes/logo'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
+import { startYoutubeReconcile } from '@/lib/youtube/reconcile'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
@@ -133,6 +134,10 @@ listHealthyArchivePaths()
 // and start the scheduler that drains the queue (≤1 large, ≤1 per host, ≤4 total).
 void resumeDownloadJobs()
 startYoutubeFeedPoller()
+// Slow back-catalog sweep: RSS only shows the 15 newest items, so anything that scrolls past
+// that window between polls (bursts / extended downtime) is invisible to the poller forever.
+// This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
+startYoutubeReconcile()
 void backfillAllThumbnails().catch(() => {})
 // Disk cache for YouTube artwork: evict non-subscribed images 24h after fetch, and
 // conditionally re-validate subscribed channel art every 24h. Runs ~30s after boot too.

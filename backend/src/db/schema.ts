@@ -630,6 +630,11 @@ export const ytSubscriptions = sqliteTable('yt_subscriptions', {
   thumbnailUrl: text('thumbnail_url'),
   description: text('description'),
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
+  // Last full back-catalog reconcile (InnerTube channel/playlist scan). The RSS poller
+  // only sees the 15 newest items, so anything that scrolls past that window between polls
+  // (bursts, extended downtime) is invisible to it forever; the reconcile re-scans deeply
+  // on a slow cadence to backfill those missed rows. See youtube/reconcile.ts.
+  lastReconciledAt: integer('last_reconciled_at', { mode: 'timestamp' }),
   // Automation (off by default — subscribing only adds the channel to your feed).
   // autoSave: download each new upload offline; autoSaveKind: as video or audio-only;
   // autoSaveKeep: per-sub rolling "keep latest N" override (null → global default).

@@ -822,6 +822,8 @@ export function runMigrations() {
   addColumn('yt_subscriptions', 'auto_save', 'INTEGER NOT NULL DEFAULT 0')
   addColumn('yt_subscriptions', 'auto_save_kind', `TEXT NOT NULL DEFAULT 'video'`)
   addColumn('yt_subscriptions', 'auto_save_keep', 'INTEGER')
+  // Last full back-catalog reconcile (closes the RSS 15-item-window data-loss gap).
+  addColumn('yt_subscriptions', 'last_reconciled_at', 'INTEGER')
   // Marks downloads written by auto-save (only these are eligible for keep-N pruning).
   addColumn('yt_downloads', 'auto', 'INTEGER NOT NULL DEFAULT 0')
 
