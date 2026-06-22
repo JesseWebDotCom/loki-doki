@@ -39,6 +39,10 @@ export class WhisperWakewordLoop {
   /** Delivers the command spoken in the same breath as the wake phrase
    *  ("hey loki <command>") — the text after the phrase in the final transcript. */
   onCommand: ((text: string) => void) | null = null
+  /** Live partial of the command portion as the user is still speaking, so the
+   *  UI can echo "what you heard" during capture instead of staying blank until
+   *  the final transcript arrives. */
+  onPartial: ((text: string) => void) | null = null
 
   constructor(phrase: string) {
     this.phrase = phrase
@@ -82,6 +86,11 @@ export class WhisperWakewordLoop {
           // Fire on a partial so the UI reacts during speech, not after the
           // silence timeout. The command itself comes from the final below.
           this.fireWakeIfMatch(text)
+          // Echo the command-so-far live so the overlay shows "what you heard"
+          // during capture (the ONNX path streams partials too; without this the
+          // phrase path stays blank until the final, which read as "slow").
+          const cmd = this.commandPortion(text)
+          if (cmd) this.onPartial?.(cmd)
         },
         onFinal: (text) => {
           if (this.capture === stt) this.capture = null
@@ -126,6 +135,17 @@ export class WhisperWakewordLoop {
     this.lastFireAt = now
     console.info(`[wakeword/whisper] detected "${text}" contains phrase "${this.phrase}"`)
     emitWakeDetected({ modelId: `phrase:${this.phrase}`, score: 1, threshold: 1, frameIndex: 0, timestamp: now })
+  }
+
+  /** The command portion of a transcript: the words after the wake phrase, or
+   *  the whole utterance if we're awaiting the command from an earlier bare
+   *  phrase. Empty when this utterance is neither. Shared by the live partial
+   *  echo and the final command delivery so both agree on what counts. */
+  private commandPortion(text: string): string {
+    const norm = normalizePhrase(text)
+    const idx = this.matchIndex(norm)
+    if (idx >= 0) return norm.slice(idx + this.normalizedPhrase.length).trim()
+    return this.awaitingCommand ? norm.trim() : ''
   }
 
   /** On a final transcript: fire the wake (if not already) and deliver the

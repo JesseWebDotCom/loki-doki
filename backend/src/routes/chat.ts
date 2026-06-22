@@ -5,7 +5,7 @@ import { db } from '@/db'
 import { userPreferences, characters, userCharacters, conversations, messages, memories } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { routePrompt } from '@/llm/router'
-import { ollamaChatStream } from '@/llm/ollama'
+import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
 import { buildBlock, extractSources } from '@/lib/blockBuilder'
 import { recallMemories, formatMemoriesForPrompt } from '@/memory/recall'
@@ -23,7 +23,7 @@ import { resolveToolConfig, isToolAllowed } from '@/lib/toolConfig'
 import { toolRegistry } from '@/tools'
 import { isFollowUp as isHAFollowUp, hasRecentContext as hasRecentHAContext } from '@/lib/homeAssistant/context'
 import { isOffline } from '@/lib/connectivity'
-import { friendshipLine, writeFirstMetMemory } from '@/lib/friendshipMemory'
+import { writeFirstMetMemory } from '@/lib/friendshipMemory'
 import { getLocaleSettings, buildLocalePrompt } from '@/routes/adminLocale'
 import {
   getCeiling, getUserCeiling, effectiveCeiling,
@@ -180,8 +180,6 @@ chat.post('/stream', requireAuth, async (c) => {
     : interactionStyle
   const maskProfanityActive = activeDials.profanity === 'off'
 
-  const friendshipStart = existingRelation?.createdAt ?? null
-
   if (characterId && charRow) {
     const now = new Date()
     db.insert(userCharacters)
@@ -285,7 +283,6 @@ chat.post('/stream', requireAuth, async (c) => {
     userId: user.id,
     userRole: user.role,
     userDisplayName: user.nickname?.trim() || user.firstName?.trim() || null,
-    friendshipStart,
     model,
     options,
     message,
@@ -368,7 +365,6 @@ interface ChatRunParams {
   userId: string
   userRole: string
   userDisplayName: string | null
-  friendshipStart: Date | null
   model: string
   options: Record<string, unknown>
   message: string
@@ -562,6 +558,7 @@ function makeChatRun(p: ChatRunParams) {
       // Build system prompt — keep stable across turns for Ollama KV cache reuse.
       const _now = new Date()
       const _date = _now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+      const _time = _now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
       const _storedLoc = p.prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
       let _loc: string | null = _storedLoc?.displayName ?? null
 
@@ -580,10 +577,9 @@ function makeChatRun(p: ChatRunParams) {
       systemParts.push(await buildContentPrompt(p.activeDials))
       systemParts.push(
         [
-          `Today is ${_date}.`,
+          `Today is ${_date}, and the current time is ${_time}.`,
           p.userDisplayName ? `You are speaking with ${p.userDisplayName}.` : null,
           _loc ? `They are located in ${_loc}.` : null,
-          p.characterSystemPrompt ? friendshipLine(p.friendshipStart) : null,
         ].filter(Boolean).join(' '),
         _localeBlock,
       )

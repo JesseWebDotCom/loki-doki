@@ -7,7 +7,7 @@ import { requireAuth } from '@/middleware/auth'
 import { ensureDefaultCompanions } from '@/lib/defaultCompanions'
 import { ollamaChatStream } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
-import { getModel, getVisionModel } from '@/lib/models'
+import { getModel, getFastModel, getVisionModel } from '@/lib/models'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
 import { runToolTurn } from '@/lib/toolTurn'
 import { isOffline } from '@/lib/connectivity'
@@ -15,7 +15,7 @@ import { embed } from '@/llm/embed'
 import { recallMemories, formatMemoriesForPrompt } from '@/memory/recall'
 import { getCachedMemoryBlock, setCachedMemoryBlock, invalidateMemoryBlock } from '@/memory/blockCache'
 import { extractMemories } from '@/memory/extract'
-import { friendshipLine, writeFirstMetMemory } from '@/lib/friendshipMemory'
+import { writeFirstMetMemory } from '@/lib/friendshipMemory'
 import { getCachedBriefing } from '@/lib/briefing/cache'
 import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
 import {
@@ -192,8 +192,13 @@ companions_.post('/companion', requireAuth, async (c) => {
 
   const persona = buildCompanionPrompt({ personalityPrompt: row.personalityPrompt, replyStyle: row.replyStyle, style: row.style, avatarConfig: row.avatarConfig })
   const hasImages = Array.isArray(body.images) && body.images.length > 0
-  // Use vision model when images are attached; regular chat model otherwise
-  const model = hasImages ? await getVisionModel() : await getModel()
+  // Model choice is latency-driven: this is the spoken/voice surface, so first-token
+  // time is everything. Logs showed the heavy 8B chat model takes 6–14s to first token
+  // here (large system prompt prefill every turn), which is what made voice "slow".
+  // The companion is a short-reply buddy, so use the fast model (granite ~3B, already
+  // kept warm for routing) for text. Vision still needs the VLM. The real /chat path
+  // keeps the full chat model.
+  const model = hasImages ? await getVisionModel() : await getFastModel()
   const charId = body.characterId
 
   // Memory recall gates time-to-first-token (the block must be in the system
@@ -241,8 +246,6 @@ companions_.post('/companion', requireAuth, async (c) => {
     writeFirstMetMemory(user.id, body.characterId, row.name, userDisplayName ?? 'the user', now).catch(() => {})
   }
 
-  const friendshipStart = existingRelation?.createdAt ?? null
-
   const prefs = Object.fromEntries(prefsRows.map(r => [r.key, JSON.parse(r.value)]))
   // ── Content policy ─────────────────────────────────────────────────────────
   // A character runs at its own config (can't be compromised) and is usable only if
@@ -263,17 +266,23 @@ companions_.post('/companion', requireAuth, async (c) => {
   // keeping the system-prompt prefix stable for Ollama KV-cache reuse. Closing the date
   // gap too — the companion (unlike main chat) previously never knew today's date.
   const date = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  // Time, not just date: "what time is it" otherwise had no answer in context and the
+  // companion would deflect ("I'm not a clock"). Server-local clock — on a home server
+  // that's the family's timezone. Minute precision is fine for spoken answers.
+  const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   const briefingKey = locStr ?? DEFAULT_BRIEFING_KEY
   const briefingBlock = offlineMode ? null : (getCachedBriefing(briefingKey)?.block || null)
   if (!offlineMode) {
     ensureBriefingWarm(briefingKey, locStr ? { displayName: locStr, lat: storedLoc?.lat, lng: storedLoc?.lng } : null, user.id)
   }
 
+  // The first-met date lives in a durable "relationship" memory (writeFirstMetMemory)
+  // and surfaces via recall when relevant — it is deliberately NOT injected here, so
+  // the companion stops parroting "since we just met today" into every greeting.
   const contextLine = [
-    `Today is ${date}.`,
+    `Today is ${date}, and the current time is ${time}.`,
     userDisplayName ? `You are speaking with ${userDisplayName}.` : null,
     locStr ? `They are located in ${locStr}.` : null,
-    friendshipLine(friendshipStart),
   ].filter(Boolean).join(' ')
 
   const sys = [

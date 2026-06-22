@@ -229,6 +229,16 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
       console.info(`[handsfree] engaging — ONNX wake model "${modelId}", requesting mic…`)
     } else if (wakeWordPhrase?.trim()) {
       const wl = new WhisperWakewordLoop(wakeWordPhrase.trim())
+      // Echo the live command transcript while the user is still speaking. The
+      // first command partial also advances wake-detected → capturing so the
+      // overlay's capture caption + active indicator light up (the ONNX path gets
+      // this from its STT socket's onReady; the phrase path has no such socket).
+      wl.onPartial = (cmd) => {
+        const st = stateRef.current
+        if (st !== 'wake-detected' && st !== 'capturing') return
+        if (st === 'wake-detected') dispatch({ type: 'capture_open' })
+        setPartial(cmd)
+      }
       // The wake loop captured "<phrase> <command>" in one breath — submit the
       // command directly instead of opening a lossy second capture session.
       wl.onCommand = (cmd) => {
