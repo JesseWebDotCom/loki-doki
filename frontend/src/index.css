@@ -579,6 +579,45 @@
   pointer-events: none;
 }
 
+/* ─── Globe space scene (Maps globe view backdrop) ──────────────────────────
+   Compositor-only transform/opacity. Stars reuse `star-twinkle`. */
+
+/* A shooting star. Rotate first, then translate along the rotated x-axis so the
+   streak always travels along its own length (never sideways). The bright head
+   is the trailing-gradient's far end, which leads in +x. Visible only briefly
+   near the end of each (long) cycle so streaks stay occasional. */
+@keyframes space-shoot {
+  0%, 88% { transform: rotate(152deg) translateX(0);     opacity: 0; }
+  91%     {                                              opacity: 0.5; }
+  100%    { transform: rotate(152deg) translateX(520px); opacity: 0; }
+}
+
+/* A saucer drifts slowly across, bobbing gently, fading in/out at the edges. */
+@keyframes ufo-drift {
+  0%       { transform: translate3d(0, 0, 0);        opacity: 0; }
+  12%, 88% {                                          opacity: 0.5; }
+  50%      { transform: translate3d(46vw, -16px, 0);  opacity: 0.5; }
+  100%     { transform: translate3d(92vw, 6px, 0);    opacity: 0; }
+}
+
+.space-shooting-star {
+  position: absolute;
+  height: 1.5px;
+  width: 96px;
+  border-radius: 9999px;
+  /* bright on the right end — that end leads along +x */
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.85));
+  filter: drop-shadow(0 0 4px rgba(186, 230, 253, 0.55));
+  animation: space-shoot ease-in infinite;
+  pointer-events: none;
+}
+
+.space-ufo {
+  position: absolute;
+  animation: ufo-drift linear infinite;
+  pointer-events: none;
+}
+
 /* Admin deep-link flash: briefly ring a setting block scrolled to via search/palette */
 @keyframes admin-flash {
   0%   { box-shadow: 0 0 0 2px transparent; }

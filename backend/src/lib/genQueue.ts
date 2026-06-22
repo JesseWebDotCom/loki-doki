@@ -18,7 +18,7 @@ import { getAppSetting } from '@/lib/settings'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type GenType = 'chat' | 'image' | 'vision'
+export type GenType = 'chat' | 'image' | 'vision' | 'convert'
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 /** One buffered SSE event. seq is monotonic per job — used for cursor-based replay. */
@@ -75,16 +75,17 @@ const MAX_BUFFER = 8_000
 /** Matches the GC window in image.ts */
 const GC_DELAY_MS = 60_000
 
-const DEFAULT_LIMITS: Record<GenType, number> = { chat: 2, image: 1, vision: 1 }
+const DEFAULT_LIMITS: Record<GenType, number> = { chat: 2, image: 1, vision: 1, convert: 2 }
 
 // ── Internal state ────────────────────────────────────────────────────────────
 
 const jobs = new Map<string, Job>()
 
 const lanes: Record<GenType, { running: Set<string>; waiting: string[] }> = {
-  chat:   { running: new Set(), waiting: [] },
-  image:  { running: new Set(), waiting: [] },
-  vision: { running: new Set(), waiting: [] },
+  chat:    { running: new Set(), waiting: [] },
+  image:   { running: new Set(), waiting: [] },
+  vision:  { running: new Set(), waiting: [] },
+  convert: { running: new Set(), waiting: [] },
 }
 
 /** Effective limits cache — re-read from app_settings at most once per second */
@@ -148,13 +149,13 @@ function startDynamicSampler(): ReturnType<typeof setInterval> {
 
       const highWM  = cfg?.loadHighWatermark ?? 0.75
       const lowWM   = cfg?.loadLowWatermark  ?? 0.40
-      const minLims = cfg?.min ?? { chat: 1, image: 1, vision: 1 }
-      const maxLims = cfg?.max ?? { chat: 4, image: 2, vision: 2 }
+      const minLims = cfg?.min ?? { chat: 1, image: 1, vision: 1, convert: 1 }
+      const maxLims = cfg?.max ?? { chat: 4, image: 2, vision: 2, convert: 4 }
 
       const normalized = os.loadavg()[0] / Math.max(1, os.cpus().length)
       let changed = false
 
-      for (const t of ['chat', 'image', 'vision'] as GenType[]) {
+      for (const t of ['chat', 'image', 'vision', 'convert'] as GenType[]) {
         const cur = dynamicLimits[t]
         if (normalized > highWM && cur > minLims[t]) {
           dynamicLimits[t] = cur - 1
@@ -238,7 +239,7 @@ async function runJob(job: Job): Promise<void> {
 
 /** True when no lane has a running or waiting job. */
 function isQueueIdle(): boolean {
-  return (['chat', 'image', 'vision'] as GenType[]).every(
+  return (['chat', 'image', 'vision', 'convert'] as GenType[]).every(
     (t) => lanes[t].running.size === 0 && lanes[t].waiting.length === 0,
   )
 }
@@ -266,7 +267,7 @@ async function pump(type: GenType): Promise<void> {
 }
 
 async function pumpAll(): Promise<void> {
-  await Promise.all((['chat', 'image', 'vision'] as GenType[]).map(pump))
+  await Promise.all((['chat', 'image', 'vision', 'convert'] as GenType[]).map(pump))
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -381,14 +382,16 @@ export async function snapshot(): Promise<QueueSnapshot> {
   const { limits, mode } = await readLimitsFromSettings()
   return {
     running: {
-      chat:   lanes.chat.running.size,
-      image:  lanes.image.running.size,
-      vision: lanes.vision.running.size,
+      chat:    lanes.chat.running.size,
+      image:   lanes.image.running.size,
+      vision:  lanes.vision.running.size,
+      convert: lanes.convert.running.size,
     },
     queued: {
-      chat:   lanes.chat.waiting.length,
-      image:  lanes.image.waiting.length,
-      vision: lanes.vision.waiting.length,
+      chat:    lanes.chat.waiting.length,
+      image:   lanes.image.waiting.length,
+      vision:  lanes.vision.waiting.length,
+      convert: lanes.convert.waiting.length,
     },
     limits,
     loadAvg: os.loadavg()[0] / Math.max(1, os.cpus().length),

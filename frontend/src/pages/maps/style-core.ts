@@ -211,6 +211,9 @@ export function buildMapStyle(
       type: "symbol",
       source: "labels",
       filter: ["==", ["get", "kind"], "country"],
+      // Keep labels off the globe view (zoom <= 3.6): moving symbols re-run
+      // placement during auto-rotation and flicker. They fade in as you dive.
+      minzoom: 3.7,
       maxzoom: 5,
       layout: {
         "text-field": ["get", "name"],
@@ -240,7 +243,7 @@ export function buildMapStyle(
       type: "symbol",
       source: "labels",
       filter: ["==", ["get", "kind"], "state"],
-      minzoom: 3,
+      minzoom: 3.7,
       maxzoom: 9,
       layout: {
         "text-field": ["get", "name"],
@@ -270,6 +273,7 @@ export function buildMapStyle(
       type: "symbol",
       source: "labels",
       filter: ["in", ["get", "kind"], ["literal", ["ocean", "sea"]]],
+      minzoom: 3.7,
       maxzoom: 8,
       layout: {
         "text-field": ["get", "name"],
@@ -347,6 +351,66 @@ export function buildMapStyle(
           9, ["case", ["<=", ["coalesce", ["get", "min_zoom"], 0], 9], 1, 0],
           10, 1,
         ],
+      },
+    },
+    // ── Globe-level major labels ────────────────────────────────────────────
+    // A sparse set of large countries + major oceans shown only on the globe
+    // (maxzoom 3.7, where the detailed overview labels above take over).
+    // Collision is disabled (allow-overlap / ignore-placement) so labels stay
+    // pinned to their feature as the globe auto-rotates instead of flickering
+    // on/off as placement re-runs during motion.
+    {
+      id: "overview-country-globe",
+      type: "symbol",
+      source: "labels",
+      filter: ["all",
+        ["==", ["get", "kind"], "country"],
+        [">=", ["coalesce", ["get", "area_log"], 0], 1.7],
+      ],
+      maxzoom: 3.7,
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Medium"],
+        "text-size": ["interpolate", ["linear"], ["coalesce", ["get", "area_log"], 1.7], 1.7, 12, 2.7, 17],
+        "text-anchor": "center",
+        "text-justify": "center",
+        "text-max-width": 8,
+        "symbol-placement": "point",
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": palette.placeLabel,
+        "text-halo-color": palette.placeLabelHalo,
+        "text-halo-width": 1,
+      },
+    },
+    {
+      id: "overview-ocean-globe",
+      type: "symbol",
+      source: "labels",
+      filter: ["all",
+        ["in", ["get", "kind"], ["literal", ["ocean", "sea"]]],
+        ["<=", ["coalesce", ["get", "min_zoom"], 0], 2],
+      ],
+      maxzoom: 3.7,
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Italic"],
+        "text-size": ["interpolate", ["linear"], ["coalesce", ["get", "area_log"], 2], 1, 11, 3, 17],
+        "text-letter-spacing": 0.18,
+        "text-anchor": "center",
+        "text-justify": "center",
+        "text-max-width": 8,
+        "symbol-placement": "point",
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": palette.waterLabel,
+        "text-halo-color": palette.waterLabelHalo,
+        "text-halo-width": 1,
+        "text-opacity": 0.9,
       },
     },
   );

@@ -151,11 +151,13 @@ export function recommendedModels(hw: HardwareInfo): Record<string, string> {
  * - vision: always 1 — vision model is the most memory-intensive per slot.
  * - chat: scales with RAM headroom; more RAM means more KV-cache for concurrent prefills.
  */
-export function recommendedQueueLimits(hw: HardwareInfo): { chat: number; image: number; vision: number } {
+export function recommendedQueueLimits(hw: HardwareInfo): { chat: number; image: number; vision: number; convert: number } {
   const ram = hw.totalRamGb
   // 36 GB+ has enough headroom for 3 concurrent chat streams; 24 GB is comfortable at 2
   const chatSlots = ram >= 36 ? 3 : 2
-  return { chat: chatSlots, image: 1, vision: 1 }
+  // File conversions are CPU-bound and short; scale gently with core count.
+  const convertSlots = hw.cpus >= 8 ? 3 : 2
+  return { chat: chatSlots, image: 1, vision: 1, convert: convertSlots }
 }
 
 async function getSetting(key: string): Promise<string | null> {
@@ -190,8 +192,8 @@ export async function seedHardwareDefaults(): Promise<HardwareInfo> {
     seedJsonSetting('queue.dynamic', {
       loadHighWatermark: 0.75,
       loadLowWatermark:  0.40,
-      min: { chat: 1, image: 1, vision: 1 },
-      max: { chat: Math.max(queueLimits.chat, 4), image: 2, vision: 2 },
+      min: { chat: 1, image: 1, vision: 1, convert: 1 },
+      max: { chat: Math.max(queueLimits.chat, 4), image: 2, vision: 2, convert: 4 },
     }),
   ])
   return hw

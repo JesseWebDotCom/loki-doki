@@ -1,4 +1,4 @@
-import { LocateFixed } from "lucide-react";
+import { Globe, LocateFixed } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 export function MapControls({
@@ -7,6 +7,7 @@ export function MapControls({
   onZoomOut,
   onResetNorth,
   onLocate,
+  onGlobe,
   locateActive = false,
 }: {
   bearing: number;
@@ -14,11 +15,23 @@ export function MapControls({
   onZoomOut: () => void;
   onResetNorth: () => void;
   onLocate?: () => void;
+  onGlobe?: () => void;
   locateActive?: boolean;
 }): JSX.Element {
   const showCompass = Math.abs(bearing) > 1;
   return (
     <div className="absolute bottom-6 right-3 z-20 flex flex-col items-center gap-2">
+      {onGlobe ? (
+        <button
+          type="button"
+          onClick={onGlobe}
+          aria-label="Globe view"
+          title="Globe view"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/40 bg-background/90 shadow-md transition-colors hover:bg-accent"
+        >
+          <Globe className="size-5" />
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onResetNorth}

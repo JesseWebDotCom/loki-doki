@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Moon } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { SpaceBackdrop } from '@/components/shared/SpaceBackdrop'
 import { cn } from '@/lib/cn'
 
 // ── Moon phase math (ported from backend/src/tools/moonphase.ts) ───────────────
@@ -174,6 +175,11 @@ export function MoonPhasePage() {
 
   return (
     <PageShell gradient={GRADIENT} GhostIcon={Moon}>
+      {/* Space scene behind the moon. data-theme="dark" re-scopes the tokens so
+          text/cards stay readable on the deep-space backdrop in either app theme. */}
+      <div data-theme="dark" className="relative flex flex-1 flex-col text-foreground">
+        <SpaceBackdrop className="z-0" />
+        <div className="relative z-10 flex flex-1 flex-col">
       <PageHeader
         variant="compact"
         title="Moon Phase"
@@ -241,6 +247,8 @@ export function MoonPhasePage() {
           )}
         </div>
 
+      </div>
+        </div>
       </div>
     </PageShell>
   )

@@ -3,6 +3,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MapPin } from "lucide-react";
 import { PageShell } from "@/components/shared/PageShell";
+import { SpaceBackdrop } from "@/components/shared/SpaceBackdrop";
 
 import { useInstalledMapRegions } from "@/hooks/useMaps";
 import { useConnectivity } from "@/hooks/useConnectivity";
@@ -26,6 +27,7 @@ import { useLandcover } from "./maps/use-landcover";
 import { useUserLocation } from "./maps/use-user-location";
 import { toast } from "@/lib/toast";
 import { useMapClick } from "./maps/use-map-click";
+import { useGlobeSpin } from "./maps/use-globe-spin";
 import { MapsPanelContent } from "./maps/MapsPanelContent";
 import { PlaceDetailsCard } from "./maps/panels/PlaceDetailsCard";
 import { PlaceHeaderBanner } from "./maps/panels/PlaceHeaderBanner";
@@ -45,6 +47,11 @@ import { chooseTileSource } from "./maps/tile-source";
 import type { DeepLink, InstalledRegion, LayerMode, PanelKind, PlaceResult } from "./maps/types";
 import type { RouteAlt } from "./maps/use-directions";
 import { useMapTheme } from "./maps/use-map-theme";
+
+// Once-per-session guard for the globe intro. Module scope (not storage) so it
+// resets on a full reload but persists across in-app navigation back to Maps —
+// "session" here means the app/tab lifetime, which is what we want.
+let introPlayedThisSession = false;
 
 export function MapsPage(): JSX.Element {
   const initialDeepLinkRef = useRef<DeepLink | null>(parseDeepLink(window.location.search));
@@ -80,11 +87,19 @@ export function MapsPage(): JSX.Element {
   const [viewportCenter, setViewportCenter] = useState<ViewportCenter | null>(null);
   const [recentsReloadKey, setRecentsReloadKey] = useState(0);
   const [bearing, setBearing] = useState(0);
+  // Globe view = zoomed far enough out that the planet (and the space scene
+  // behind it) is visible. Drives the SpaceBackdrop mount.
+  const [globeView, setGlobeView] = useState(false);
+  const globeViewRef = useRef(false);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [deepLink] = useState<DeepLink | null>(initialDeepLinkRef.current);
   const [browseCategory, setBrowseCategory] = useState<string | null>(null);
   const selectedPoiRef = useRef<{ source: string; sourceLayer: string; id: string | number } | null>(null);
   const clickSeqRef = useRef(0);
+  // True while the globe auto-rotation drives the camera — lets the moveend
+  // handler skip its per-move work so we don't recompute tiles + write
+  // localStorage 60×/sec while spinning.
+  const spinningRef = useRef(false);
   const poiCacheRef = usePOIPrefetch(mapRef);
   useTerrain(mapRef);
   useLandcover(mapRef);
@@ -151,6 +166,11 @@ export function MapsPage(): JSX.Element {
     if (!containerRef.current || mapRef.current) {
       return;
     }
+    // When the once-per-session intro is still pending, open framed on the
+    // globe (low zoom) regardless of where we'll land — the intro effect then
+    // flies down to the real target. This guarantees the globe is the first
+    // frame even if the dive's `load` timing slips.
+    const introPending = !introPlayedThisSession;
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
@@ -161,10 +181,12 @@ export function MapsPage(): JSX.Element {
           : storedViewRef.current
             ? [storedViewRef.current.center.lon, storedViewRef.current.center.lat]
             : [defaultCenter.lon, defaultCenter.lat],
-        zoom: deepLink?.toPlace
-          ? 15
-          : storedViewRef.current?.zoom ?? (regions.length ? 7 : 2),
-        pitch: layerMode === "3d" ? 55 : 0,
+        zoom: introPending
+          ? 1.4
+          : deepLink?.toPlace
+            ? 15
+            : storedViewRef.current?.zoom ?? (regions.length ? 7 : 2),
+        pitch: introPending ? 0 : layerMode === "3d" ? 55 : 0,
         style: buildRuntimeStyle(theme, initialTileSource.tileUrl, layerMode),
         renderWorldCopies: false,
       });
@@ -185,7 +207,22 @@ export function MapsPage(): JSX.Element {
       console.warn("[maps]", msg || e);
     });
     map.on("rotate", () => setBearing(map.getBearing()));
+    // Toggle the space scene when crossing into / out of globe zoom. Only
+    // setState on the transition so flyTo zoom frames don't churn renders.
+    const GLOBE_VIEW_MAX = 3.6;
+    const syncGlobeView = () => {
+      const g = map.getZoom() <= GLOBE_VIEW_MAX;
+      if (g !== globeViewRef.current) {
+        globeViewRef.current = g;
+        setGlobeView(g);
+      }
+    };
+    map.on("zoom", syncGlobeView);
+    syncGlobeView();
     map.on("moveend", () => {
+      // Auto-rotation drives the camera every frame; skip the heavy per-move
+      // work (and the localStorage write) while it spins.
+      if (spinningRef.current) return;
       const center = map.getCenter();
       saveStoredMapView({
         center: { lat: center.lat, lon: center.lng },
@@ -215,6 +252,67 @@ export function MapsPage(): JSX.Element {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Cinematic globe intro — once per session (app/tab lifetime). On the first
+  // Maps open after a reload, pull the camera back to space (globe view) and
+  // dive into wherever this entry would land: the deep-link target, the restored
+  // last view, or the first installed region. Subsequent in-app opens jump
+  // straight there; a full reload re-arms it.
+  const introScheduledRef = useRef(false);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || introScheduledRef.current) return;
+    if (introPlayedThisSession) {
+      introScheduledRef.current = true;
+      return;
+    }
+    // Pick the dive target: deep-link > restored view > first region.
+    let target: { lon: number; lat: number; zoom: number } | null =
+      deepLink?.toPlace
+        ? { lon: deepLink.toPlace.lon, lat: deepLink.toPlace.lat, zoom: 15 }
+        : storedViewRef.current
+          ? { lon: storedViewRef.current.center.lon, lat: storedViewRef.current.center.lat, zoom: storedViewRef.current.zoom }
+          : null;
+    if (!target) {
+      if (!regionsLoaded) return; // wait for installed regions to resolve
+      if (!hasRegions) { introScheduledRef.current = true; introPlayedThisSession = true; return; }
+      target = { lon: regions[0].center.lon, lat: regions[0].center.lat, zoom: 7 };
+    }
+    introScheduledRef.current = true;
+    // Land on a clean map after the dive: don't auto-reopen the place that was
+    // selected in a previous session (its marker + details would pop in and
+    // replace the search/region panel). A deep-link to a specific place keeps it.
+    if (!deepLink?.toPlace && !deepLink?.focusPlace) {
+      setSelectedPlace(null);
+    }
+    const t = target;
+    const dive = () => {
+      // Bail if the map was torn down before `load` fired — under React
+      // StrictMode the first mount is thrown away, and marking the session flag
+      // here (not synchronously above) keeps the real second mount from skipping.
+      if (!mapRef.current) return;
+      introPlayedThisSession = true;
+      // Frame the target from orbit, then descend with a gentle rotation.
+      map.jumpTo({ center: [t.lon, t.lat], zoom: 1.4, bearing: -28, pitch: 0 });
+      map.flyTo({
+        center: [t.lon, t.lat],
+        zoom: t.zoom,
+        bearing: 0,
+        pitch: layerModeRef.current === "3d" ? 55 : 0,
+        duration: 4200,
+        curve: 1.5,
+        essential: true,
+      });
+    };
+    if (map.loaded()) dive();
+    else map.once("load", dive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regionsLoaded, hasRegions]);
+
+  // Idle auto-rotation of the globe view (pauses on manual gesture, resumes
+  // after a quiet period). Declared after the map-creation effect so mapRef is
+  // populated by the time this effect runs.
+  useGlobeSpin(mapRef, spinningRef);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -264,7 +362,18 @@ export function MapsPage(): JSX.Element {
     if (layerMode === 'satellite' && (appMode === 'local' || !hasNetwork)) setLayerMode('map');
   }, [appMode, hasNetwork, layerMode]);
 
-  useSelectionMarker(mapRef, selectedPlace);
+  // Hide the place pin on the globe — keep the void clean. Selection state is
+  // preserved, so the marker reappears once you've dived back in.
+  useSelectionMarker(mapRef, globeView ? null : selectedPlace);
+
+  // On the globe, pad the camera left by the dock width so the planet sits
+  // centered in the visible map area rather than partly behind the panel.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const left = globeView && window.innerWidth >= 768 ? 400 : 0;
+    map.setPadding({ top: 0, right: 0, bottom: 0, left });
+  }, [globeView]);
 
   // Render a live "you are here" dot wherever the browser reports the user.
   useEffect(() => {
@@ -420,8 +529,11 @@ export function MapsPage(): JSX.Element {
       {/* Map fills all remaining space; panels overlay it */}
       {/* Map fills all remaining space — panels overlay it, never resize it */}
       <div className="relative flex min-w-0 flex-1 overflow-hidden bg-card md:h-full">
-        {/* Map canvas */}
-        <div ref={containerRef} className="h-full w-full" />
+        {/* Space scene — sits behind the transparent globe canvas, only while
+            zoomed out to the globe. */}
+        {globeView ? <SpaceBackdrop className="z-0" /> : null}
+        {/* Map canvas (above the backdrop; panels/controls layer above it) */}
+        <div ref={containerRef} className="relative z-[1] h-full w-full" />
 
         {/* 2D / 3D chip — upper right */}
         <div className="absolute top-3 right-3 z-20">
@@ -434,6 +546,22 @@ export function MapsPage(): JSX.Element {
           onZoomOut={() => mapRef.current?.zoomOut()}
           onResetNorth={() => { mapRef.current?.resetNorth(); setBearing(0); }}
           onLocate={locateMe}
+          onGlobe={() => {
+            const map = mapRef.current;
+            if (!map) return;
+            const c = map.getCenter();
+            // Long, gently-eased pull-back so the ascent to orbit reads as smooth.
+            map.flyTo({
+              center: [c.lng, c.lat],
+              zoom: 1.4,
+              pitch: 0,
+              bearing: 0,
+              duration: 2600,
+              curve: 1.42,
+              easing: (t) => 1 - Math.pow(1 - t, 3),
+              essential: true,
+            });
+          }}
           locateActive={userLocation.status === "granted" && userLocation.location !== null}
         />
 
@@ -442,7 +570,7 @@ export function MapsPage(): JSX.Element {
           className="absolute left-0 top-0 bottom-0 z-10 hidden md:flex flex-col w-[400px] overflow-hidden"
           style={{ backgroundColor: panelBg, boxShadow: "4px 0 24px 0 rgba(0,0,0,0.28)" }}
         >
-          {selectedPlace ? (
+          {selectedPlace && !globeView ? (
             <>
               <PlaceHeaderBanner place={selectedPlace} />
               <div className="flex-1 overflow-y-auto px-3 pb-6">

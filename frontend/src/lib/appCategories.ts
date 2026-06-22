@@ -1,6 +1,6 @@
 import {
   ArrowLeftRight, BookMarked, BookOpen, Brain, CalendarDays, Clapperboard, Clock, CloudSun, Compass,
-  Code2, Gamepad2, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
+  Code2, FileType, Gamepad2, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Monitor, Moon, Music, Newspaper, Package, Play,
   Settings2, Smile, Trophy, Tv, UtensilsCrossed, type LucideIcon,
 } from "lucide-react";
@@ -167,6 +167,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "home-inventory", to: "/home-inventory", label: "Home Inventory", description: "Track devices & appliances",  gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Package,         feature: "home-inventory", toolId: "home_inventory" },
       { id: "home-assistant", to: "/home-assistant", label: "Home Assistant", description: "Control smart home devices",  gradient: "linear-gradient(135deg,#1c1917,#57534e)", color: "#78716c", icon: Home,            feature: "homeAssistant",  toolId: "homeAssistant" },
       { id: "unit-converter", to: "/unit-converter", label: "Unit Converter", description: "Convert length, weight, and more", gradient: "linear-gradient(135deg,#134e4a,#0d9488)", color: "#0d9488", icon: ArrowLeftRight },
+      { id: "converter",      to: "/converter",      label: "File Converter", description: "Convert images, audio & video", gradient: "linear-gradient(135deg,#166534,#2563eb)", color: "#2563eb", icon: FileType },
       { id: "time",           to: "/time",           label: "Time",           description: "World clock, alarms & timers", gradient: "linear-gradient(135deg,#0f172a,#4338ca)", color: "#6366f1", icon: Clock, toolId: "time" },
     ],
   },

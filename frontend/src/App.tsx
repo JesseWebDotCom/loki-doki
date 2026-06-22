@@ -57,6 +57,7 @@ import { OnThisDayPage } from '@/pages/OnThisDayPage'
 import { RecipesPage } from '@/pages/RecipesPage'
 import { JokePage } from '@/pages/JokePage'
 import { UnitConverterPage } from '@/pages/UnitConverterPage'
+import { ConverterPage } from '@/pages/ConverterPage'
 import { YoutubeLayout } from '@/components/youtube/YoutubeLayout'
 import { YoutubeHomePage } from '@/pages/youtube/YoutubeHomePage'
 import { YoutubeLibraryPage } from '@/pages/youtube/YoutubeLibraryPage'
@@ -261,6 +262,7 @@ export default function App() {
                 <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
+                <Route path="/converter" element={<ConverterPage />} />
                 <Route path="/time" element={<TimePage />} />
                 <Route path="/dictionary" element={<DictionaryPage />} />
                 <Route path="/tv-shows" element={<TvShowsPage />} />
