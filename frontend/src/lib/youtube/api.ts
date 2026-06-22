@@ -302,10 +302,36 @@ export async function getFeed(limit = 120): Promise<FeedVideo[]> {
   return (await r.json() as { videos: FeedVideo[] }).videos ?? []
 }
 
-export async function backfillDurations(videoIds: string[]): Promise<Record<string, number>> {
+// Duration backfill is the one slow YouTube call (yt-dlp hits YouTube once per video),
+// so a 40-id request can hold a connection open for ~40s. The browser only allows ~6
+// concurrent connections per host, so a few of these — alongside our SSE streams — can
+// starve the /api/health probe and falsely trip the "Can't reach the server" banner.
+// Guard against that: chunk the work small and run every chunk through a single shared
+// queue so at most ONE durations request is ever in flight, briefly, app-wide.
+const DUR_CHUNK = 10
+let durQueue: Promise<unknown> = Promise.resolve()
+function enqueueDur<T>(fn: () => Promise<T>): Promise<T> {
+  const run = durQueue.then(fn, fn)
+  durQueue = run.catch(() => {})
+  return run
+}
+
+export async function backfillDurations(
+  videoIds: string[],
+  onChunk?: (durations: Record<string, number>) => void,
+): Promise<Record<string, number>> {
   if (!videoIds.length) return {}
-  const r = await fetch('/api/youtube/durations', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoIds }) })
-  return (await r.json() as { durations: Record<string, number> }).durations ?? {}
+  const out: Record<string, number> = {}
+  for (let i = 0; i < videoIds.length; i += DUR_CHUNK) {
+    const chunk = videoIds.slice(i, i + DUR_CHUNK)
+    const part = await enqueueDur(async () => {
+      const r = await fetch('/api/youtube/durations', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoIds: chunk }) })
+      return (await r.json() as { durations: Record<string, number> }).durations ?? {}
+    })
+    Object.assign(out, part)
+    if (Object.keys(part).length) onChunk?.(part)
+  }
+  return out
 }
 
 // ── Subscriptions ────────────────────────────────────────────────────────────

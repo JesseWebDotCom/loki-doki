@@ -32,7 +32,9 @@ export async function backfillDurations(videoIds: string[]): Promise<Record<stri
   try {
     const urls = missing.map(id => `https://www.youtube.com/watch?v=${id}`)
     const printed = await new Promise<string>((resolve, reject) => {
-      const proc = spawn(ytDlpBin(), ['--no-warnings', '--skip-download', '--print', '%(id)s\t%(duration)s', ...urls], { stdio: ['ignore', 'pipe', 'ignore'] })
+      // --socket-timeout caps how long a single stuck video can stall the whole batch;
+      // without it one unresponsive request could hold the connection open for ~40s.
+      const proc = spawn(ytDlpBin(), ['--no-warnings', '--skip-download', '--socket-timeout', '15', '--print', '%(id)s\t%(duration)s', ...urls], { stdio: ['ignore', 'pipe', 'ignore'] })
       let buf = ''
       proc.stdout?.on('data', (d: Buffer) => { buf += d.toString() })
       proc.on('close', () => resolve(buf))

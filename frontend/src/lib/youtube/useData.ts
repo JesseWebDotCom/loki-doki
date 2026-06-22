@@ -27,8 +27,9 @@ export function useYtFeed(limit = 120): { videos: FeedVideo[]; items: VideoItem[
   useEffect(() => {
     const missing = videos.filter(v => v.durationSec == null && durations[v.videoId] == null).map(v => v.videoId).slice(0, 40)
     if (!missing.length) return
-    backfillDurations(missing).then(d => {
-      if (Object.keys(d).length) qc.setQueryData<Record<string, number>>(['yt-durations'], prev => ({ ...(prev ?? {}), ...d }))
+    // Merge each chunk as it lands so durations fill in progressively rather than all at once.
+    backfillDurations(missing, (chunk) => {
+      qc.setQueryData<Record<string, number>>(['yt-durations'], prev => ({ ...(prev ?? {}), ...chunk }))
     }).catch(() => {})
   }, [videos, durations, qc])
 

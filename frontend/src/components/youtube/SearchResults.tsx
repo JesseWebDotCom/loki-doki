@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Search, Loader2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { search as ytSearch, type SearchResult, type PlaylistSearchResult, type SearchType } from '@/lib/youtube/api'
-import { searchToItem } from '@/lib/youtube/types'
+import { searchToItem, savedToItem } from '@/lib/youtube/types'
+import { qualityBadge } from '@/lib/youtube/format'
+import { useYtDownloads } from '@/lib/youtube/useData'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { ChannelRail, HScroll, PlaylistCard, type ChannelEntry } from '@/components/youtube/shelves'
+import { useYoutubeModeOptional } from '@/components/youtube/YoutubeLayout'
 
 const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
 const FILTERS: [SearchType, string][] = [['all', 'All'], ['videos', 'Videos'], ['shorts', 'Shorts'], ['playlists', 'Playlists'], ['channels', 'Channels']]
@@ -17,12 +20,23 @@ const FILTERS: [SearchType, string][] = [['all', 'All'], ['videos', 'Videos'], [
  *  (Formerly the Discover page; Discover was merged into Home.) */
 export function SearchResults({ q }: { q: string }) {
   const [type, setType] = useState<SearchType>('all')
+  const online = useYoutubeModeOptional() === 'online'
+  const { data: downloads = [] } = useYtDownloads()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['yt-search', q, type],
     queryFn: () => ytSearch(q, null, type),
-    enabled: q.length > 0,
+    enabled: q.length > 0 && online,
   })
+
+  // Offline: search the saved library by title rather than hitting YouTube.
+  const offlineItems = useMemo(() => {
+    if (online) return []
+    const needle = q.toLowerCase()
+    return downloads
+      .filter(r => r.status === 'ready' && (r.title || r.videoId).toLowerCase().includes(needle))
+      .map(r => savedToItem(r, qualityBadge(r.kind, r.maxHeight)))
+  }, [online, downloads, q])
 
   // Extra pages loaded via the InnerTube continuation token ("Load more").
   const [more, setMore] = useState<SearchResult[]>([])
@@ -51,6 +65,21 @@ export function SearchResults({ q }: { q: string }) {
   }))
   const playlists = data?.playlists ?? []
   const empty = !isLoading && !results.length && !channels.length && !playlists.length
+
+  if (!online) {
+    return (
+      <div className="mx-auto max-w-[1500px] space-y-6 px-4 py-6 sm:px-6">
+        <h1 className="text-xl font-bold tracking-tight">Results for “{q}”</h1>
+        {offlineItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <Search className="mb-3 size-10 opacity-30" /><p className="text-sm">Nothing saved offline matches “{q}”</p>
+          </div>
+        ) : (
+          <div className={GRID}>{offlineItems.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6 px-4 py-6 sm:px-6">

@@ -4,18 +4,20 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, HardDriveDownload, Check, Plus, Link2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
-import { useYtSubs } from '@/lib/youtube/useData'
+import { useYtSubs, useYtDownloads } from '@/lib/youtube/useData'
 import {
   addSubscription, deleteSubscription, updateSubscription,
   getChannelPage, getChannelPlaylists, getChannelAbout, ytImageProxy,
   type ItVideo, type Subscription, type ChannelVideoTab,
 } from '@/lib/youtube/api'
-import { itToItem, type VideoItem } from '@/lib/youtube/types'
+import { itToItem, savedToItem, type VideoItem } from '@/lib/youtube/types'
+import { qualityBadge } from '@/lib/youtube/format'
 import { ChannelAvatar } from '@/components/youtube/media'
 import { VideoCard } from '@/components/youtube/VideoCard'
 import { PlaylistCard } from '@/components/youtube/shelves'
 import { PodcastSourceButtons } from '@/components/youtube/PodcastSourceButtons'
 import { useUnsubscribeConfirm } from '@/components/youtube/UnsubscribeDialog'
+import { useYoutubeMode } from '@/components/youtube/YoutubeLayout'
 import { Switch } from '@/components/ui/switch'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui/dropdown-menu'
 
@@ -86,7 +88,9 @@ export function YoutubeChannelPage() {
   const { id = '' } = useParams()
   const channelId = decodeURIComponent(id)
   const qc = useQueryClient()
+  const online = useYoutubeMode() === 'online'
   const { data: subs = [] } = useYtSubs()
+  const { data: downloads = [] } = useYtDownloads()
   const [busy, setBusy] = useState(false)
   const [descOpen, setDescOpen] = useState(false)
   const [bannerOk, setBannerOk] = useState(true)
@@ -99,9 +103,10 @@ export function YoutubeChannelPage() {
     return p
   }, { replace: true })
 
-  // Videos tab is always fetched: it carries the channel meta (header, available tabs) and
-  // seeds the "make a podcast" source, even while another tab is on screen.
-  const videos = useChannelVideos(channelId, 'videos', true)
+  // Videos tab is always fetched (when online): it carries the channel meta (header, available
+  // tabs) and seeds the "make a podcast" source, even while another tab is on screen. Offline,
+  // none of the live tabs fetch — the page falls back to this channel's downloaded videos.
+  const videos = useChannelVideos(channelId, 'videos', online)
 
   // When arriving from a search/related card the channel isn't subscribed yet, so fall
   // back to name/avatar passed via router state. InnerTube channel meta wins when present.
@@ -117,19 +122,27 @@ export function YoutubeChannelPage() {
   // If the URL points at a now-hidden tab, fall back to Videos.
   const activeTab = visibleTabs.some(([k]) => k === tab) ? tab : 'videos'
 
-  // Secondary tabs only fetch when actually open (gated on the resolved active tab).
-  const shorts = useChannelVideos(channelId, 'shorts', activeTab === 'shorts')
-  const live = useChannelVideos(channelId, 'live', activeTab === 'live')
+  // Secondary tabs only fetch when actually open (gated on the resolved active tab) and online.
+  const shorts = useChannelVideos(channelId, 'shorts', activeTab === 'shorts' && online)
+  const live = useChannelVideos(channelId, 'live', activeTab === 'live' && online)
   const playlistsQuery = useQuery({
     queryKey: ['yt-channel-playlists', channelId],
     queryFn: () => getChannelPlaylists(channelId),
-    enabled: activeTab === 'playlists' && !!channelId,
+    enabled: activeTab === 'playlists' && !!channelId && online,
   })
   const aboutQuery = useQuery({
     queryKey: ['yt-channel-about', channelId],
     queryFn: () => getChannelAbout(channelId),
-    enabled: !!channelId,
+    enabled: !!channelId && online,
   })
+
+  // Offline: this channel's downloaded videos stand in for the live catalogue.
+  const offlineVideos = useMemo(
+    () => downloads
+      .filter(r => r.status === 'ready' && r.channelId === channelId)
+      .map(r => savedToItem(r, qualityBadge(r.kind, r.maxHeight))),
+    [downloads, channelId],
+  )
 
   const about = aboutQuery.data
   const title = meta?.title || sub?.title || navState.title || channelId
@@ -190,6 +203,27 @@ export function YoutubeChannelPage() {
       toast.error('Could not update auto-save')
       qc.invalidateQueries({ queryKey: ['yt-subs'] })
     }
+  }
+
+  // Offline: no live fetch — just the channel header (from local sub/nav state) over a grid of
+  // whatever's been saved from this channel. Nothing here touches the network.
+  if (!online) {
+    return (
+      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
+        <div className="mb-6 flex items-start gap-4">
+          <ChannelAvatar title={title} src={thumb} className="size-20 shrink-0 text-3xl ring-1 ring-border/40 sm:size-24" />
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-2xl font-black tracking-tight sm:text-3xl">{title}</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {offlineVideos.length} {offlineVideos.length === 1 ? 'video' : 'videos'} saved offline
+            </p>
+          </div>
+        </div>
+        {offlineVideos.length === 0
+          ? <EmptyTab label="offline videos" />
+          : <div className={GRID}>{offlineVideos.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>}
+      </div>
+    )
   }
 
   // Until the channel's primary data lands, show a skeleton that mirrors the final layout —

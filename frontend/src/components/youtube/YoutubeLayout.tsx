@@ -25,6 +25,11 @@ export function useYoutubeUI() {
 }
 /** Convenience accessor for just the online/offline mode. */
 export function useYoutubeMode() { return useYoutubeUI().mode }
+/** Mode accessor that doesn't throw outside the provider (defaults to online).
+ *  Lets shared cards ghost offline-only items without every caller threading it. */
+export function useYoutubeModeOptional(): YoutubeMode { return useContext(YoutubeUICtx)?.mode ?? 'online' }
+/** UI accessor that returns null outside the provider (for shared cards). */
+export function useYoutubeUIOptional(): YoutubeUI | null { return useContext(YoutubeUICtx) }
 
 // Online = red identity, Offline = emerald — so you always know which side you're on.
 // The accent feeds CSS variables consumed by the whole app via `bg-[var(--yt-accent)]` etc.

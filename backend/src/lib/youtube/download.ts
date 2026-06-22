@@ -89,17 +89,21 @@ export async function runYtMediaJob(
   const url = `${YT_WATCH_BASE}${videoId}`
   const outputTemplate = join(outDir, `${videoId}.%(ext)s`)
 
-  // Cap Save resolution at the user's effective height; fall back gracefully when no
-  // mp4 stream exists at that height, and finally to any best stream within the cap.
+  // Cap Save resolution at the user's effective height, maximizing resolution within
+  // the cap regardless of codec — do NOT hard-filter [ext=mp4] on the video stream, or
+  // a VP9/AV1-only 1080p tier gets skipped in favour of a lower mp4 tier (the classic
+  // "asked for 1080p, got 960p" downgrade). -S then prefers h264/mp4 for playback
+  // compatibility *when available at the chosen resolution*; --merge-output-format mp4
+  // remuxes the result into an .mp4 container either way.
   const videoFormat =
-    `bestvideo[height<=${maxHeight}][ext=mp4]+bestaudio[ext=m4a]/` +
-    `best[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}]/best`
+    `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`
+  const formatSort = `res,vcodec:h264,acodec:m4a`
 
   const args: string[] = kind === 'audio'
     ? ['-x', '--audio-format', audioFormat, '--audio-quality', '0',
        '--socket-timeout', '30',
        '--output', outputTemplate, '--no-playlist', url]
-    : ['-f', videoFormat,
+    : ['-f', videoFormat, '-S', formatSort,
        '--merge-output-format', 'mp4',
        '--socket-timeout', '30',
        '--output', outputTemplate, '--no-playlist', url]
