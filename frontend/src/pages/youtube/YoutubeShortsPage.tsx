@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronUp, ChevronDown, Heart, Clock, Maximize2, type LucideIcon } from 'lucide-react'
@@ -10,12 +10,19 @@ import { getVideoMeta } from '@/lib/youtube/api'
 import { isShort } from '@/lib/youtube/types'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 
+const AUTOPLAY_KEY = 'yt.shorts.autoplay'
+
 /** Vertical, swipe-through Shorts feed — scroll / arrows / swipe to move between shorts. */
 export function YoutubeShortsPage() {
   const { videoId = '' } = useParams()
   const navigate = useNavigate()
   const navState = (useLocation().state ?? {}) as { title?: string | null; author?: string | null; channelThumb?: string | null; dir?: 1 | -1 }
   const playerRef = useRef<VideoPlayerHandle>(null)
+
+  // Autoplay: advance to the next short when one ends, otherwise loop the current one.
+  // Persisted (not ephemeral) because each advance/swipe remounts this page. Defaults on.
+  const [autoplay, setAutoplay] = useState(() => localStorage.getItem(AUTOPLAY_KEY) !== '0')
+  const toggleAutoplay = () => setAutoplay(a => { const n = !a; try { localStorage.setItem(AUTOPLAY_KEY, n ? '1' : '0') } catch { /* quota */ } return n })
 
   // The queue is every short in the subscription feed; the current one is the route param.
   const { items } = useYtFeed()
@@ -90,7 +97,7 @@ export function YoutubeShortsPage() {
         className={cn('relative aspect-[9/16] h-full max-h-[82vh] overflow-hidden rounded-2xl bg-black',
           navState.dir === 1 ? 'yt-short-up' : navState.dir === -1 ? 'yt-short-down' : '')}>
         <VideoPlayer ref={playerRef} key={videoId} videoId={videoId} aspect="short"
-          onEnded={() => playerRef.current?.seek(0)}
+          onEnded={() => { if (autoplay && hasNext) go(1); else playerRef.current?.seek(0) }}
           videoMeta={{ title, author, channelId, durationSec: meta?.durationSec ?? null }} />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pt-14">
           {author && (channelId ? (
@@ -111,6 +118,13 @@ export function YoutubeShortsPage() {
 
       {/* Action rail. */}
       <div className="flex flex-col items-center gap-5 self-end pb-8">
+        <div className="flex flex-col items-center gap-1 text-xs font-medium text-muted-foreground">
+          <button onClick={toggleAutoplay} role="switch" aria-checked={autoplay} aria-label="Autoplay"
+            className={cn('relative h-5 w-9 rounded-full transition-colors', autoplay ? 'bg-[var(--yt-accent)]' : 'bg-muted-foreground/30')}>
+            <span className={cn('absolute top-0.5 size-4 rounded-full bg-white transition-transform', autoplay ? 'translate-x-4' : 'translate-x-0.5')} />
+          </button>
+          Auto
+        </div>
         <RailBtn icon={Heart} label="Like" active={liked} onClick={() => toggleCollection('liked', snapshot)} />
         <RailBtn icon={Clock} label="Later" active={watchLater} onClick={() => toggleCollection('watch-later', snapshot)} />
         <Link to={`/youtube/watch/${videoId}`} className="flex flex-col items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
