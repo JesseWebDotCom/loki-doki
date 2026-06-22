@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Play } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { thumbUrl } from '@/lib/youtube/format'
+import { ytImageProxy } from '@/lib/youtube/api'
 
 /** Video thumbnail with a graceful fallback when the image 404s. */
 export function VideoThumb({ videoId, title, quality = 'mq', className }: {
@@ -13,8 +14,9 @@ export function VideoThumb({ videoId, title, quality = 'mq', className }: {
   const [ok, setOk] = useState(true)
   return ok ? (
     <img
-      src={thumbUrl(videoId, quality)}
+      src={ytImageProxy(thumbUrl(videoId, quality))}
       alt={title}
+      referrerPolicy="no-referrer"
       className={cn('object-cover', className)}
       loading="lazy"
       onError={() => setOk(false)}
@@ -35,8 +37,12 @@ const AVATAR_COLORS = [
 ]
 
 export function ChannelAvatar({ title, src, className }: { title: string; src?: string | null; className?: string }) {
-  const [ok, setOk] = useState(true)
-  if (src && ok) return <img src={src} alt={title} className={cn('rounded-full object-cover shrink-0', className)} onError={() => setOk(false)} />
+  // Track the URL that failed (not a bare boolean) so navigating to a different channel with a
+  // new src gets a fresh chance to load instead of staying stuck on the letter fallback.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  // referrerPolicy="no-referrer": Google's avatar CDN (yt3.googleusercontent.com) 429s hotlinked
+  // requests that carry a localhost Referer, which made avatars silently fall back to the letter.
+  if (src && failedSrc !== src) return <img key={src} src={ytImageProxy(src)} alt={title} referrerPolicy="no-referrer" className={cn('rounded-full object-cover shrink-0', className)} onError={() => setFailedSrc(src)} />
   let h = 0
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0
   const color = AVATAR_COLORS[h % AVATAR_COLORS.length]

@@ -72,6 +72,7 @@ import { music } from '@/routes/music'
 import { logoRoute } from '@/routes/logo'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
+import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
 import { dictionaryRoute } from '@/routes/dictionary'
@@ -133,6 +134,9 @@ listHealthyArchivePaths()
 void resumeDownloadJobs()
 startYoutubeFeedPoller()
 void backfillAllThumbnails().catch(() => {})
+// Disk cache for YouTube artwork: evict non-subscribed images 24h after fetch, and
+// conditionally re-validate subscribed channel art every 24h. Runs ~30s after boot too.
+startImageCacheMaintenance()
 // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
 // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
 startYtdlpAutoUpdate()

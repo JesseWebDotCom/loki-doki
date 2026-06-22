@@ -321,7 +321,7 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
                 <div key={sub.id} className="rounded-lg border border-border/60 bg-card px-3 py-2">
                   <div className="flex items-center gap-3">
                     {sub.thumbnailUrl
-                      ? <img src={sub.thumbnailUrl} alt={sub.title} className="size-8 shrink-0 rounded-full object-cover" />
+                      ? <img src={yt.ytImageProxy(sub.thumbnailUrl)} alt={sub.title} referrerPolicy="no-referrer" className="size-8 shrink-0 rounded-full object-cover" />
                       : <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted"><Rss className="size-4 text-muted-foreground" /></div>}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{sub.title}</p>

@@ -7,7 +7,7 @@ import { toast } from '@/lib/toast'
 import { useYtSubs } from '@/lib/youtube/useData'
 import {
   addSubscription, deleteSubscription, updateSubscription,
-  getChannelPage, getChannelPlaylists, getChannelAbout,
+  getChannelPage, getChannelPlaylists, getChannelAbout, ytImageProxy,
   type ItVideo, type Subscription, type ChannelVideoTab,
 } from '@/lib/youtube/api'
 import { itToItem, type VideoItem } from '@/lib/youtube/types'
@@ -89,6 +89,7 @@ export function YoutubeChannelPage() {
   const { data: subs = [] } = useYtSubs()
   const [busy, setBusy] = useState(false)
   const [descOpen, setDescOpen] = useState(false)
+  const [bannerOk, setBannerOk] = useState(true)
 
   const [params, setParams] = useSearchParams()
   const tab = (TABS.find(([k]) => k === params.get('tab'))?.[0] ?? 'videos') as Tab
@@ -134,6 +135,9 @@ export function YoutubeChannelPage() {
   const title = meta?.title || sub?.title || navState.title || channelId
   const thumb = meta?.thumbnailUrl ?? sub?.thumbnailUrl ?? navState.thumbnailUrl ?? null
   const bannerUrl = meta?.bannerUrl ?? null
+  // Give a freshly-resolved banner a clean chance to load (the component stays mounted across
+  // channel navigations, so a prior broken banner shouldn't suppress the next channel's).
+  useEffect(() => { setBannerOk(true) }, [bannerUrl])
   // Prefer the description that arrives with the videos query (channel metadata) over the
   // one from the slower about query — same text, but using it avoids a re-layout when about
   // resolves a beat later.
@@ -197,9 +201,9 @@ export function YoutubeChannelPage() {
     <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
       {unsubDialog}
 
-      {bannerUrl && (
+      {bannerUrl && bannerOk && (
         <div className="mb-5 overflow-hidden rounded-2xl ring-1 ring-border/40">
-          <img src={bannerUrl} alt="" className="aspect-[6/1] w-full object-cover" />
+          <img src={ytImageProxy(bannerUrl)} alt="" referrerPolicy="no-referrer" className="aspect-[6/1] w-full object-cover" onError={() => setBannerOk(false)} />
         </div>
       )}
 

@@ -495,7 +495,17 @@ function parseChannelMeta(data: any): ItChannelMeta | null {
     data?.header?.pageHeaderRenderer
   const channelId = m?.externalId ?? header?.channelId
   if (!channelId) return null
-  const avatars: any[] = m?.avatar?.thumbnails ?? header?.avatar?.thumbnails ?? []
+
+  // Avatar: the legacy header / channelMetadata expose avatar.thumbnails directly; the modern
+  // pageHeader nests it as ...decoratedAvatarViewModel.avatar.avatarViewModel.image.sources.
+  // Missing this path is why modern channels rendered a placeholder letter even though search
+  // (which reads channelRenderer.thumbnail) showed the logo fine.
+  let avatars: any[] = m?.avatar?.thumbnails ?? header?.avatar?.thumbnails ?? []
+  if (!avatars.length) {
+    const av: any[] = []
+    collect(header, 'avatarViewModel', av, 1)
+    avatars = av[0]?.image?.sources ?? []
+  }
 
   // Banner: the legacy c4 header exposes header.banner.thumbnails; the modern pageHeader
   // nests it inside an imageBannerViewModel (image.sources, ascending by width).

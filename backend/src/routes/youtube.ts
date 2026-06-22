@@ -19,6 +19,7 @@ import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeRelated, innertubePlayerMeta, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments } from '@/lib/youtube/sponsorblock'
+import { getOrFetchImage } from '@/lib/youtube/imageCache'
 import { resolveStreamUrl, invalidateStreamUrl, isValidVideoId, parseQuality, type StreamKind } from '@/lib/youtube/stream'
 import { ytDlpBin, getYtDlpStatus, ensureYtDlp, withYtDlpSlot } from '@/lib/youtube/ytdlp'
 import {
@@ -124,9 +125,11 @@ youtubeRoute.get('/', async (c) => {
   return c.json({ results: data?.videos ?? [] })
 })
 
-// ── Image proxy ───────────────────────────────────────────────────────────────
-// Serve YouTube thumbnails/avatars same-origin so they can be drawn onto a <canvas>
-// (podcast covers) without tainting it, and without the browser contacting Google.
+// ── Image proxy (read-through cache) ────────────────────────────────────────────
+// Serve YouTube thumbnails/avatars/banners same-origin so they can be drawn onto a
+// <canvas> (podcast covers) without tainting it, and without the browser contacting
+// Google. Backed by a disk cache (lib/youtube/imageCache.ts): a miss fetches + stores,
+// hits serve straight off disk. Eviction/renewal is handled by the maintenance pass.
 youtubeRoute.get('/img', async (c) => {
   const u = c.req.query('u')
   if (!u) return c.json({ error: 'missing u' }, 400)
@@ -134,16 +137,17 @@ youtubeRoute.get('/img', async (c) => {
   try { url = new URL(u) } catch { return c.json({ error: 'bad url' }, 400) }
   const allowed = /(^|\.)(ytimg\.com|ggpht\.com|googleusercontent\.com|youtube\.com)$/i.test(url.hostname)
   if (url.protocol !== 'https:' || !allowed) return c.json({ error: 'forbidden host' }, 403)
-  try {
-    const r = await fetch(url.toString())
-    if (!r.ok) return c.json({ error: 'upstream' }, 502)
-    return new Response(r.body, {
-      headers: {
-        'content-type': r.headers.get('content-type') ?? 'image/jpeg',
-        'cache-control': 'public, max-age=86400',
-      },
-    })
-  } catch { return c.json({ error: 'fetch failed' }, 502) }
+  const img = await getOrFetchImage(url.toString())
+  if (!img) return c.json({ error: 'upstream' }, 502)
+  // Buffer is a valid body at runtime; the cast sidesteps a TS Buffer-generic mismatch.
+  return new Response(img.data as unknown as BodyInit, {
+    headers: {
+      'content-type': img.contentType,
+      // Server holds the canonical copy and revalidates/evicts it; let the browser
+      // hold its own copy for a day too so repeat views don't even hit us.
+      'cache-control': 'public, max-age=86400',
+    },
+  })
 })
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────
@@ -1007,6 +1011,11 @@ youtubeRoute.get('/trending', async (c) => {
 // the cache; if the live fetch fails we serve the stale cache rather than show an
 // empty channel. Continuation pages are always live (deep pages aren't cached).
 const CHANNEL_CACHE_TTL_MS = 30 * 60_000
+// Subscribed channels live in the sidebar and get cheap freshness for free: the 15-min feed
+// poller busts this cache the moment a new upload lands (see feed.ts). So we can hold their
+// page far longer and let the daily expiry double as the "did they change their avatar/banner?"
+// re-check, rather than re-fetching the whole page every 30 min on every visit.
+const SUBSCRIBED_CHANNEL_CACHE_TTL_MS = 24 * 60 * 60_000
 
 youtubeRoute.get('/channel/:channelId', async (c) => {
   const channelId = c.req.param('channelId')
@@ -1017,6 +1026,11 @@ youtubeRoute.get('/channel/:channelId', async (c) => {
     return c.json(more ?? { meta: null, videos: [], continuation: null })
   }
 
+  // Subscribed (by anyone) → longer TTL; the poller keeps videos fresh out-of-band.
+  const subRows = await db.select({ id: ytSubscriptions.id, thumbnailUrl: ytSubscriptions.thumbnailUrl })
+    .from(ytSubscriptions).where(eq(ytSubscriptions.externalId, channelId))
+  const ttl = subRows.length ? SUBSCRIBED_CHANNEL_CACHE_TTL_MS : CHANNEL_CACHE_TTL_MS
+
   const [cached] = await db.select().from(ytChannelCache).where(eq(ytChannelCache.channelId, channelId))
   const readCache = () => ({
     meta: cached!.metaJson ? JSON.parse(cached!.metaJson) : null,
@@ -1026,13 +1040,23 @@ youtubeRoute.get('/channel/:channelId', async (c) => {
   })
 
   // Fresh cache → serve immediately, no network.
-  if (cached && Date.now() - cached.fetchedAt.getTime() < CHANNEL_CACHE_TTL_MS) {
+  if (cached && Date.now() - cached.fetchedAt.getTime() < ttl) {
     return c.json(readCache())
   }
 
   // Stale/missing → fetch live (retried). Cache + return on a real result.
   const page = await tryInnertubeRetry('channel', () => innertubeChannel(channelId, null))
   if (page && page.videos.length > 0) {
+    // Carry forward a previously-known logo/banner if this fetch's meta came back without one
+    // (a transient parse miss shouldn't erase artwork we already had — that's the "shows in
+    // search but not on the channel page" inconsistency).
+    if (page.meta) {
+      const prev = cached?.metaJson ? (JSON.parse(cached.metaJson) as ItChannelPage['meta']) : null
+      if (prev) {
+        page.meta.thumbnailUrl ??= prev.thumbnailUrl ?? null
+        page.meta.bannerUrl ??= prev.bannerUrl ?? null
+      }
+    }
     const row = {
       channelId,
       metaJson: page.meta ? JSON.stringify(page.meta) : null,

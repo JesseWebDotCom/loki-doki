@@ -796,6 +796,24 @@ export function runMigrations() {
       fetched_at INTEGER NOT NULL
     );
   `)
+  // Read-through artwork cache (thumbnails/avatars/banners). Bytes on disk under
+  // data/yt-image-cache/<url_hash>; rows track freshness + subscribed-ness for the
+  // 24h evict (non-subscribed) / re-validate (subscribed) maintenance pass.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS yt_image_cache (
+      url_hash TEXT NOT NULL PRIMARY KEY,
+      url TEXT NOT NULL,
+      file_path TEXT,
+      content_type TEXT,
+      etag TEXT,
+      last_modified TEXT,
+      subscribed INTEGER NOT NULL DEFAULT 0,
+      size_bytes INTEGER,
+      fetched_at INTEGER NOT NULL,
+      checked_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS yt_image_cache_sub_idx ON yt_image_cache(subscribed);
+  `)
   // Resolution the video was saved at (for the offline quality badge) — existing DBs.
   addColumn('yt_downloads', 'max_height', 'INTEGER')
   // Channel/playlist "about" text, resolved via yt-dlp — existing DBs.

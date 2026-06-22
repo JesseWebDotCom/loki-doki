@@ -666,6 +666,23 @@ export const ytChannelCache = sqliteTable('yt_channel_cache', {
   fetchedAt: integer('fetched_at', { mode: 'timestamp' }).notNull(),
 })
 
+// Read-through cache for YouTube artwork (video thumbnails, channel avatars + banners).
+// The /img proxy fills this lazily; bytes live on disk under data/yt-image-cache/<urlHash>.
+// Non-subscribed entries are evicted 24h after fetch; subscribed channel artwork is kept
+// and conditionally re-validated (ETag/Last-Modified) every 24h by the maintenance pass.
+export const ytImageCache = sqliteTable('yt_image_cache', {
+  urlHash: text('url_hash').primaryKey(),       // sha256 of the source URL
+  url: text('url').notNull(),
+  filePath: text('file_path'),                  // filename under data/yt-image-cache/ (== urlHash)
+  contentType: text('content_type'),
+  etag: text('etag'),
+  lastModified: text('last_modified'),
+  subscribed: integer('subscribed', { mode: 'boolean' }).notNull().default(false),
+  sizeBytes: integer('size_bytes'),
+  fetchedAt: integer('fetched_at', { mode: 'timestamp' }).notNull(),
+  checkedAt: integer('checked_at', { mode: 'timestamp' }).notNull(),
+})
+
 export const ytDownloads = sqliteTable('yt_downloads', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
