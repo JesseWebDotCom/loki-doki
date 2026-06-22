@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { bookmarks } from '@/db/schema'
+import { readerItems } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { assertPublicUrl, SsrfError } from '@/lib/ssrfGuard'
 import type { AppEnv } from '@/types'
@@ -17,8 +17,8 @@ async function handleProxy(c: Parameters<Parameters<typeof proxyRouter.get>[1]>[
   const id    = c.req.param('id')
   const qs    = new URL(c.req.url).search ?? ''
 
-  const bm = await db.select().from(bookmarks)
-    .where(eq(bookmarks.id, id))
+  const bm = await db.select().from(readerItems)
+    .where(eq(readerItems.id, id))
     .then(r => r[0])
 
   if (!bm) return c.json({ error: 'Not found' }, 404)

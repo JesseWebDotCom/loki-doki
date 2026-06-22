@@ -206,9 +206,15 @@ export function AdminLinksTab() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const load = (signal?: AbortSignal) => {
-    fetch('/api/admin/bookmarks', { credentials: 'include', signal })
+    fetch('/api/admin/reader', { credentials: 'include', signal })
       .then(r => r.json())
-      .then(d => { if (!signal?.aborted) setBookmarks(d.bookmarks ?? []) })
+      .then(d => {
+        if (signal?.aborted) return
+        // Reader items use `title`/`faviconUrl`; map to this tab's label/icon shape.
+        setBookmarks((d.items ?? []).map((i: { id: string; title: string; url: string; faviconUrl: string | null; category: string; sortOrder: number; useProxy: boolean; useEmbed: boolean }) => ({
+          id: i.id, label: i.title, url: i.url, icon: i.faviconUrl, category: i.category, sortOrder: i.sortOrder, useProxy: i.useProxy, useEmbed: i.useEmbed,
+        })))
+      })
       .catch(() => {})
   }
 
@@ -224,18 +230,12 @@ export function AdminLinksTab() {
     : EMPTY
 
   const handleSave = async (form: BookmarkForm) => {
+    // Map this tab's label/icon onto the reader admin endpoint's title/faviconUrl.
+    const body = JSON.stringify({ title: form.label, url: form.url, faviconUrl: form.icon, category: form.category, useProxy: form.useProxy, useEmbed: form.useEmbed })
     if (editingId) {
-      await fetch(`/api/admin/bookmarks/${editingId}`, {
-        method: 'PATCH', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
+      await fetch(`/api/admin/reader/${editingId}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body })
     } else {
-      await fetch('/api/admin/bookmarks', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
+      await fetch('/api/admin/reader', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body })
     }
     setDialogOpen(false)
     load()
@@ -243,7 +243,7 @@ export function AdminLinksTab() {
 
   const handleDelete = async () => {
     if (!confirmDeleteId) return
-    await fetch(`/api/admin/bookmarks/${confirmDeleteId}`, { method: 'DELETE', credentials: 'include' })
+    await fetch(`/api/admin/reader/${confirmDeleteId}`, { method: 'DELETE', credentials: 'include' })
     setConfirmDeleteId(null)
     load()
   }

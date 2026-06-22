@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, unique, real, index } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, unique, real, index, primaryKey } from 'drizzle-orm/sqlite-core'
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -630,6 +630,11 @@ export const ytSubscriptions = sqliteTable('yt_subscriptions', {
   thumbnailUrl: text('thumbnail_url'),
   description: text('description'),
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
+  // Last full back-catalog reconcile (InnerTube channel/playlist scan). The RSS poller
+  // only sees the 15 newest items, so anything that scrolls past that window between polls
+  // (bursts, extended downtime) is invisible to it forever; the reconcile re-scans deeply
+  // on a slow cadence to backfill those missed rows. See youtube/reconcile.ts.
+  lastReconciledAt: integer('last_reconciled_at', { mode: 'timestamp' }),
   // Automation (off by default — subscribing only adds the channel to your feed).
   // autoSave: download each new upload offline; autoSaveKind: as video or audio-only;
   // autoSaveKeep: per-sub rolling "keep latest N" override (null → global default).
@@ -883,3 +888,150 @@ export const clockTimerRuns = sqliteTable('clock_timer_runs', {
   remainingMs: integer('remaining_ms').notNull(),  // authoritative while paused
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ─── Feeds (RSS/Atom reader; absorbs curated News as system feeds) ──────────────
+// user_id = null → system/curated feed (the News presets, visible to everyone).
+// Items are stored once per feed (shared for system feeds); only feed_item_state is
+// per-user. Saving an item promotes a copy into reader_items, so feed_items prunes freely.
+
+export const feedFolders = sqliteTable('feed_folders', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const feeds = sqliteTable('feeds', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),  // null = system
+  kind: text('kind', { enum: ['rss', 'atom', 'search', 'youtube'] }).notNull().default('rss'),
+  url: text('url'),                            // null for kind='search'
+  query: text('query'),                        // for kind='search'
+  title: text('title').notNull().default(''),
+  faviconUrl: text('favicon_url'),
+  siteUrl: text('site_url'),
+  folderId: text('folder_id').references(() => feedFolders.id, { onDelete: 'set null' }),
+  isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
+  sortOrder: integer('sort_order').notNull().default(0),
+  notify: integer('notify', { mode: 'boolean' }).notNull().default(false),
+  etag: text('etag'),
+  lastModified: text('last_modified'),
+  lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
+  lastError: text('last_error'),
+  pollIntervalSec: integer('poll_interval_sec'),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  userUrlUnique: unique().on(t.userId, t.url),  // NB: NULL userId is distinct — guard seeds explicitly
+  userIdx: index('feeds_user_idx').on(t.userId),
+  systemIdx: index('feeds_system_idx').on(t.isSystem),
+}))
+
+export const feedItems = sqliteTable('feed_items', {
+  id: text('id').primaryKey(),
+  feedId: text('feed_id').notNull().references(() => feeds.id, { onDelete: 'cascade' }),
+  guid: text('guid').notNull(),                // dedup key per feed (guid→id→url→hash fallback)
+  title: text('title'),
+  url: text('url'),
+  author: text('author'),
+  summary: text('summary'),
+  contentHtml: text('content_html'),           // Phase 2 full-text (offline store)
+  imageUrl: text('image_url'),
+  publishedAt: integer('published_at'),        // unix ms, nullable
+  fetchedAt: integer('fetched_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  feedGuidUnique: unique().on(t.feedId, t.guid),
+  feedPubIdx: index('feed_items_feed_pub_idx').on(t.feedId, t.publishedAt),
+  pubIdx: index('feed_items_pub_idx').on(t.publishedAt),
+}))
+
+export const feedItemState = sqliteTable('feed_item_state', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  itemId: text('item_id').notNull().references(() => feedItems.id, { onDelete: 'cascade' }),
+  read: integer('read', { mode: 'boolean' }).notNull().default(false),
+  saved: integer('saved', { mode: 'boolean' }).notNull().default(false),  // promoted to reader_items
+  readAt: integer('read_at', { mode: 'timestamp' }),
+}, t => ({
+  userItemUnique: unique().on(t.userId, t.itemId),
+  savedIdx: index('feed_item_state_saved_idx').on(t.userId, t.saved),
+  readIdx: index('feed_item_state_read_idx').on(t.userId, t.read),
+}))
+
+export const feedInterests = sqliteTable('feed_interests', {
+  userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  interestsText: text('interests_text'),
+  likesJson: text('likes_json').notNull().default('[]'),
+  hidesJson: text('hides_json').notNull().default('[]'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const feedItemScores = sqliteTable('feed_item_scores', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  itemId: text('item_id').notNull(),
+  score: real('score'),
+  reason: text('reason'),
+  scoredAt: integer('scored_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userItemUnique: unique().on(t.userId, t.itemId) }))
+
+// ─── Reader (read-it-later library; absorbs Links/bookmarks) ───────────────────
+// The single home for everything saved: Live links (dashboards/services, like the old
+// bookmarks) and Offline articles (extracted full text). owner_id = null → global/admin.
+// Saved feed items are promoted here (source='feed'). source='bookmark' = a Live link.
+
+export const readerCollections = sqliteTable('reader_collections', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const readerTags = sqliteTable('reader_tags', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+})
+
+export const readerItems = sqliteTable('reader_items', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),  // null = global/admin
+  source: text('source', { enum: ['bookmark', 'article', 'feed'] }).notNull().default('bookmark'),
+  sourceRef: text('source_ref'),               // e.g. 'feed:<feedItemId>'
+  type: text('type', { enum: ['live', 'offline'] }).notNull().default('live'),
+  url: text('url').notNull(),
+  title: text('title').notNull().default(''),
+  byline: text('byline'),
+  siteName: text('site_name'),
+  faviconUrl: text('favicon_url'),
+  excerpt: text('excerpt'),
+  contentHtml: text('content_html'),           // sanitized (offline)
+  contentText: text('content_text'),           // plaintext for FTS / RAG
+  wordCount: integer('word_count').notNull().default(0),
+  readingMins: integer('reading_mins').notNull().default(0),
+  status: text('status', { enum: ['unread', 'reading', 'archived'] }).notNull().default('unread'),
+  archiveState: text('archive_state', { enum: ['none', 'pending', 'fetching', 'ready', 'failed'] }).notNull().default('none'),
+  archiveError: text('archive_error'),
+  readAt: integer('read_at', { mode: 'timestamp' }),
+  useProxy: integer('use_proxy', { mode: 'boolean' }).notNull().default(false),
+  useEmbed: integer('use_embed', { mode: 'boolean' }).notNull().default(false),
+  category: text('category').notNull().default('Other'),
+  collectionId: text('collection_id').references(() => readerCollections.id, { onDelete: 'set null' }),
+  sortOrder: integer('sort_order').notNull().default(0),
+  // reserved for later phases (no P1 UI):
+  screenshotPath: text('screenshot_path'),
+  snapshotPath: text('snapshot_path'),
+  ogImagePath: text('og_image_path'),
+  isAdult: integer('is_adult', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({
+  ownerStatusIdx: index('reader_items_owner_status_idx').on(t.ownerId, t.status),
+  sourceRefIdx: index('reader_items_source_ref_idx').on(t.source, t.sourceRef),
+}))
+
+export const readerItemTags = sqliteTable('reader_item_tags', {
+  itemId: text('item_id').notNull().references(() => readerItems.id, { onDelete: 'cascade' }),
+  tagId: text('tag_id').notNull().references(() => readerTags.id, { onDelete: 'cascade' }),
+}, t => ({ pk: primaryKey({ columns: [t.itemId, t.tagId] }) }))

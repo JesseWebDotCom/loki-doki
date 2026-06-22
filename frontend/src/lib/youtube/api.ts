@@ -122,6 +122,11 @@ export type StreamQuality = 'auto' | '720' | '360'
 export const proxyStreamUrl = (videoId: string, kind: 'audio' | 'video' = 'video', quality: StreamQuality = 'auto') =>
   `/api/youtube/stream/${videoId}?kind=${kind}${quality !== 'auto' ? `&q=${quality}` : ''}`
 
+/** Warm the proxy-stream cache so a later hand-off to the mini-player plays instantly.
+ *  Best-effort and fire-and-forget — failures are harmless (the stream just resolves cold). */
+export const prewarmStream = (videoId: string) =>
+  void fetch(`/api/youtube/stream/${videoId}/prewarm`, { credentials: 'include' }).catch(() => {})
+
 // ── InnerTube discovery: trending / channel / related ────────────────────────────
 
 /** A video as returned by the InnerTube endpoints (search/trending/channel/related). */
@@ -226,6 +231,55 @@ export async function getSponsorSegments(videoId: string): Promise<SkipSegment[]
   const r = await fetch(`/api/youtube/sponsorblock/${videoId}`, opts)
   if (!r.ok) return []
   return (await r.json() as { segments: SkipSegment[] }).segments ?? []
+}
+
+// ── Comments ─────────────────────────────────────────────────────────────────────
+
+export interface YtComment {
+  author: string
+  authorThumb: string | null
+  text: string
+  likeCount: string | null
+  publishedText: string | null
+  replyCount: number | null
+  pinned: boolean
+}
+
+export async function getComments(videoId: string, limit = 20): Promise<YtComment[]> {
+  const r = await fetch(`/api/youtube/comments/${videoId}?limit=${limit}`, opts)
+  if (!r.ok) return []
+  return (await r.json() as { comments: YtComment[] }).comments ?? []
+}
+
+// ── Chapters (authoritative InnerTube source; complements description parsing) ──────
+
+export interface YtChapter { start: number; title: string }
+
+export async function getChapters(videoId: string): Promise<YtChapter[]> {
+  const r = await fetch(`/api/youtube/chapters/${videoId}`, opts)
+  if (!r.ok) return []
+  return (await r.json() as { chapters: YtChapter[] }).chapters ?? []
+}
+
+// ── Return YouTube Dislike ─────────────────────────────────────────────────────────
+
+export interface VideoVotes { likes: number; dislikes: number; rating: number; viewCount: number }
+
+export async function getVotes(videoId: string): Promise<VideoVotes | null> {
+  const r = await fetch(`/api/youtube/votes/${videoId}`, opts)
+  if (!r.ok) return null
+  return (await r.json() as { votes: VideoVotes | null }).votes
+}
+
+// ── DeArrow (batched de-clickbait titles/thumbnails) ───────────────────────────────
+
+export interface DeArrowItem { title: string | null; thumbnailUrl: string | null }
+
+export async function getDeArrowBatch(videoIds: string[]): Promise<Record<string, DeArrowItem>> {
+  if (!videoIds.length) return {}
+  const r = await fetch('/api/youtube/dearrow', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ videoIds }) })
+  if (!r.ok) return {}
+  return (await r.json() as { branding: Record<string, DeArrowItem> }).branding ?? {}
 }
 
 // ── Collections (server-backed Watch Later / Liked) ──────────────────────────────

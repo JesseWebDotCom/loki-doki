@@ -94,6 +94,85 @@ async function backfillChannelMeta(sub: typeof ytSubscriptions.$inferSelect): Pr
   }
 }
 
+// ── Shared upsert ───────────────────────────────────────────────────────────
+
+/** Normalized video row as seen by either the RSS poller or the reconcile scan. */
+export interface UpsertVideo {
+  videoId: string
+  title: string
+  author: string | null
+  channelId: string | null
+  thumbnailUrl: string | null
+  publishedAt: number | null   // Unix ms (null when the source only gives relative text)
+  durationSec: number | null
+  description: string | null
+}
+
+/**
+ * Insert any of `vids` we don't already have as rows on `sub`, claim pre-existing
+ * subscription-less rows, bust the channel-page cache, and backfill missing durations.
+ * Returns the videos that were newly inserted (the "fresh" ones).
+ *
+ * Single source of truth for the catalog upsert, shared by the RSS poller (fetchAndUpsertFeed)
+ * and the back-catalog reconcile (reconcile.ts) so the two never drift. It does NOT touch
+ * lastFetchedAt/lastReconciledAt and does NOT run automation — the caller owns both, because
+ * those differ between "fresh upload just discovered" and "old row backfilled long after the
+ * fact" (auto-save/auto-podcast must only fire for the former).
+ */
+export async function upsertSubscriptionVideos(
+  sub: typeof ytSubscriptions.$inferSelect,
+  vids: UpsertVideo[],
+): Promise<UpsertVideo[]> {
+  if (!vids.length) return []
+
+  const now = new Date()
+  // Which of these videos do we already have? One IN query instead of one SELECT per entry.
+  const ids = vids.map(v => v.videoId)
+  const known = await db.select({ videoId: ytVideos.videoId }).from(ytVideos)
+    .where(inArray(ytVideos.videoId, ids))
+  const knownSet = new Set(known.map(r => r.videoId))
+  const fresh = vids.filter(v => !knownSet.has(v.videoId))
+
+  if (fresh.length) {
+    await db.insert(ytVideos).values(fresh.map(v => ({
+      id: crypto.randomUUID(),
+      videoId: v.videoId,
+      subscriptionId: sub.id,
+      title: v.title,
+      author: v.author || sub.title,
+      channelId: v.channelId,
+      thumbnailUrl: v.thumbnailUrl,
+      publishedAt: v.publishedAt ?? null,
+      durationSec: v.durationSec ?? null,
+      description: v.description,
+      summary: null,
+      createdAt: now,
+    }))).onConflictDoNothing()
+  }
+
+  // Claim any rows that already existed with a null subscriptionId — these were inserted
+  // by non-poller paths (watch history, search) before we polled, and would otherwise be
+  // invisible in the subscription feed (which keys off subscriptionId). onConflictDoNothing
+  // above never repairs them because they're filtered out of `fresh`, so do it explicitly.
+  await db.update(ytVideos).set({ subscriptionId: sub.id })
+    .where(and(inArray(ytVideos.videoId, ids), isNull(ytVideos.subscriptionId)))
+
+  // New uploads landed → invalidate this channel's cached page so the next channel
+  // view re-fetches (surfacing the new videos and dropping any since-removed ones,
+  // since the channel cache stores a full-replace snapshot, not an append).
+  if (fresh.length && sub.kind === 'channel') {
+    try { await db.delete(ytChannelCache).where(eq(ytChannelCache.channelId, sub.externalId)) }
+    catch { /* cache bust is best-effort — never fail a refresh over it */ }
+  }
+
+  // Backfill durations for any fresh video the source didn't already give us one for, in the
+  // background, so Shorts are pre-split before the user opens the app (best-effort).
+  const needDuration = fresh.filter(v => v.durationSec == null).map(v => v.videoId)
+  if (needDuration.length) void backfillDurations(needDuration).catch(() => {})
+
+  return fresh
+}
+
 // ── Fetch + upsert ────────────────────────────────────────────────────────────
 
 async function fetchAndUpsertFeed(sub: typeof ytSubscriptions.$inferSelect): Promise<number> {
@@ -112,58 +191,20 @@ async function fetchAndUpsertFeed(sub: typeof ytSubscriptions.$inferSelect): Pro
   const entries = parseFeed(xml, sub.id)
   if (!entries.length) return 0
 
-  const now = new Date()
-  // Which of this feed's videos do we already have? One IN query instead of one SELECT
-  // per entry (a feed is ~15 entries; this turns ~30 round-trips into 2).
-  const feedIds = entries.map(e => e.videoId)
-  const known = await db.select({ videoId: ytVideos.videoId }).from(ytVideos)
-    .where(inArray(ytVideos.videoId, feedIds))
-  const knownSet = new Set(known.map(r => r.videoId))
-  const fresh = entries.filter(e => !knownSet.has(e.videoId))
-
-  if (fresh.length) {
-    await db.insert(ytVideos).values(fresh.map(e => ({
-      id: crypto.randomUUID(),
-      videoId: e.videoId,
-      subscriptionId: sub.id,
-      title: e.title,
-      author: e.author || sub.title,
-      channelId: e.channelId,
-      thumbnailUrl: e.thumbnailUrl,
-      publishedAt: e.publishedAt ?? null,
-      durationSec: null,
-      description: e.description,
-      summary: null,
-      createdAt: now,
-    }))).onConflictDoNothing()
-  }
-  const inserted = fresh.length
-  const newIds = fresh.map(e => e.videoId)
-
-  // Claim any rows that already existed with a null subscriptionId — these were inserted
-  // by non-poller paths (watch history, search) before we polled, and would otherwise be
-  // invisible in the subscription feed (which keys off subscriptionId). onConflictDoNothing
-  // above never repairs them because they're filtered out of `fresh`, so do it explicitly.
-  if (feedIds.length) {
-    await db.update(ytVideos).set({ subscriptionId: sub.id })
-      .where(and(inArray(ytVideos.videoId, feedIds), isNull(ytVideos.subscriptionId)))
-  }
+  const fresh = await upsertSubscriptionVideos(sub, entries.map(e => ({
+    videoId: e.videoId,
+    title: e.title,
+    author: e.author,
+    channelId: e.channelId,
+    thumbnailUrl: e.thumbnailUrl,
+    publishedAt: e.publishedAt,
+    durationSec: null,
+    description: e.description,
+  })))
 
   await db.update(ytSubscriptions)
-    .set({ lastFetchedAt: now })
+    .set({ lastFetchedAt: new Date() })
     .where(eq(ytSubscriptions.id, sub.id))
-
-  // New uploads landed → invalidate this channel's cached page so the next channel
-  // view re-fetches (surfacing the new videos and dropping any since-removed ones,
-  // since the channel cache stores a full-replace snapshot, not an append).
-  if (inserted > 0 && sub.kind === 'channel') {
-    try { await db.delete(ytChannelCache).where(eq(ytChannelCache.channelId, sub.externalId)) }
-    catch { /* cache bust is best-effort — never fail a feed refresh over it */ }
-  }
-
-  // Backfill durations for the new videos in the background so Shorts are
-  // pre-split before the user opens the app (best-effort, non-blocking).
-  if (newIds.length) void backfillDurations(newIds).catch(() => {})
 
   // Opt-in subscription automation (auto-save offline + auto-podcast) for the fresh
   // uploads. Off by default and gated by a per-user pause — see automation.ts. Fire and
@@ -177,7 +218,7 @@ async function fetchAndUpsertFeed(sub: typeof ytSubscriptions.$inferSelect): Pro
   // Fetch channel name/avatar/description the first time we see this subscription (or repair it).
   if (!sub.thumbnailUrl || !sub.description || /^https?:\/\//i.test(sub.title)) void backfillChannelMeta(sub).catch(() => {})
 
-  return inserted
+  return fresh.length
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

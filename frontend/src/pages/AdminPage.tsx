@@ -15,11 +15,9 @@ import { AdminUsersTab } from '@/components/admin/AdminUsersTab'
 import { AdminSystemTab } from '@/components/admin/AdminSystemTab'
 import { AdminAdvancedTab, type AdvancedView } from '@/components/admin/AdminAdvancedTab'
 import { AdminCompanionsTab, type CompanionView } from '@/components/admin/AdminCompanionsTab'
-import { AdminLinksTab } from '@/components/admin/AdminLinksTab'
 import { AdminPrivacyTab } from '@/components/admin/AdminPrivacyTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
-import { AdminPodcastsTab } from '@/components/admin/AdminPodcastsTab'
 
 const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
 
@@ -188,10 +186,8 @@ export function AdminPage() {
         )}
         {section === 'features'   && <AdminFeaturesTab view={sub} />}
         {section === 'apps'       && <AdminAppsTab openSignal={openSignal} />}
-        {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'characters'} />}
-        {section === 'links'      && <AdminLinksTab />}
+        {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'voice'} />}
         {section === 'privacy'    && <AdminPrivacyTab openSignal={openSignal} />}
-        {section === 'podcasts'   && <AdminPodcastsTab />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}
       </div>

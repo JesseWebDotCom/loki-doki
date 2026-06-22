@@ -1,8 +1,8 @@
 import {
-  ArrowLeftRight, BookMarked, BookOpen, Brain, CalendarDays, Clapperboard, Clock, CloudSun, Compass,
+  ArrowLeftRight, BookOpen, Brain, CalendarDays, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Gamepad2, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Monitor, Moon, Music, Newspaper, Package, Play,
-  Settings2, Smile, Trophy, Tv, UtensilsCrossed, type LucideIcon,
+  Rss, Settings2, Smile, Trophy, Tv, UtensilsCrossed, type LucideIcon,
 } from "lucide-react";
 
 export interface AppItem {
@@ -50,6 +50,15 @@ export const APP_GROUPS: AppGroup[] = [
         color: "#0d9488",
         icon: Newspaper,
         toolId: "news",
+      },
+      {
+        id: "feeds",
+        to: "/feeds",
+        label: "Feeds",
+        description: "Your RSS reader",
+        gradient: "linear-gradient(135deg,#7c2d12,#c2410c)",
+        color: "#ea580c",
+        icon: Rss,
       },
       {
         id: "on-this-day",
@@ -163,7 +172,7 @@ export const APP_GROUPS: AppGroup[] = [
     color: "#2563eb",
     icon: Settings2,
     apps: [
-      { id: "links",          to: "/links",          label: "Links",          description: "Bookmarks & services",       gradient: "linear-gradient(135deg,#14532d,#166534)", color: "#16a34a", icon: BookMarked,      feature: "links" },
+      { id: "links",          to: "/reader",         label: "Reader",         description: "Bookmarks, links & saved articles", gradient: "linear-gradient(135deg,#14532d,#166534)", color: "#16a34a", icon: BookOpen,        feature: "links" },
       { id: "home-inventory", to: "/home-inventory", label: "Home Inventory", description: "Track devices & appliances",  gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Package,         feature: "home-inventory", toolId: "home_inventory" },
       { id: "home-assistant", to: "/home-assistant", label: "Home Assistant", description: "Control smart home devices",  gradient: "linear-gradient(135deg,#1c1917,#57534e)", color: "#78716c", icon: Home,            feature: "homeAssistant",  toolId: "homeAssistant" },
       { id: "unit-converter", to: "/unit-converter", label: "Unit Converter", description: "Convert length, weight, and more", gradient: "linear-gradient(135deg,#134e4a,#0d9488)", color: "#0d9488", icon: ArrowLeftRight },

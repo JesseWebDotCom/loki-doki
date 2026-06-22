@@ -7,6 +7,7 @@ import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
 import { YoutubeRail } from '@/components/youtube/YoutubeRail'
 import { DownloadDialog, SaveDialog, ManageChannelsDialog, type DownloadTarget, type SaveTarget } from '@/components/youtube/dialogs'
 import { hydrateCollections } from '@/lib/youtube/collections'
+import { DeArrowProvider } from '@/lib/youtube/dearrow'
 
 export type YoutubeMode = 'online' | 'offline'
 
@@ -117,6 +118,7 @@ export function YoutubeLayout() {
 
   return (
     <YoutubeUICtx.Provider value={ui}>
+     <DeArrowProvider>
       <div className="flex min-h-0 flex-1 overflow-hidden bg-background" style={accentVars}>
         <YoutubeRail onManage={ui.openManage} />
         <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none pb-28 md:pb-32"><Outlet /></div>
@@ -127,6 +129,7 @@ export function YoutubeLayout() {
       <SaveDialog target={saveTarget} onClose={() => setSaveTarget(null)}
         onSaved={() => qc.invalidateQueries({ queryKey: ['yt-downloads'] })} />
       <DownloadDialog target={downloadTarget} onClose={() => setDownloadTarget(null)} />
+     </DeArrowProvider>
     </YoutubeUICtx.Provider>
   )
 }

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, LayoutGrid, Shapes, Heart, Sparkles, Settings2, type LucideIcon } from 'lucide-react'
+import { Home, LayoutGrid, Shapes, Heart, Sparkles, Settings2, Lock, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 
@@ -44,7 +44,17 @@ export function CompanionStoreRail({ favoritesCount }: { favoritesCount: number 
 
       <p className="mt-6 mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Library</p>
       <RailLink to="/companions/favorites" icon={Heart} label="Favorites" badge={favoritesCount} />
-      {isAdmin && <RailLink to="/admin/companions/characters" icon={Settings2} label="Manage" />}
+      {isAdmin && (
+        <NavLink to="/companions/studio"
+          className={({ isActive }) => cn(
+            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+            isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+          )}>
+          <Settings2 className="size-[18px]" />
+          <span className="flex-1">Studio</span>
+          <Lock className="size-3 text-amber-500/70" />
+        </NavLink>
+      )}
     </nav>
   )
 }

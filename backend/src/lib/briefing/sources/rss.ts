@@ -76,7 +76,7 @@ export function googleNewsSearch(query: string, limit = 3, timeoutMs = 5000): Pr
 // the same generic og:image) and a junk description. For the news UI we instead aggregate
 // a few major world feeds that carry media:* images and real descriptions.
 
-const WORLD_FEEDS: { url: string; source: string }[] = [
+export const WORLD_FEEDS: { url: string; source: string }[] = [
   { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', source: 'The New York Times' },
   { url: 'https://www.theguardian.com/world/rss', source: 'The Guardian' },
   { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', source: 'BBC News' },
