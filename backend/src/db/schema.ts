@@ -331,6 +331,26 @@ export const generatedImages = sqliteTable('generated_images', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── File Conversions ─────────────────────────────────────────────────────────
+
+export const conversions = sqliteTable('conversions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  inputName: text('input_name').notNull(),
+  outputName: text('output_name').notNull(),
+  inputFormat: text('input_format').notNull(),
+  outputFormat: text('output_format').notNull(),
+  family: text('family', { enum: ['image', 'audio', 'video'] }).notNull(),
+  engine: text('engine').notNull(),
+  relPath: text('rel_path'), // relative to user-data root; null until ready
+  state: text('state', { enum: ['pending', 'converting', 'ready', 'failed', 'cancelled'] }).notNull().default('pending'),
+  failureReason: text('failure_reason'),
+  inputBytes: integer('input_bytes'),
+  outputBytes: integer('output_bytes'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ─── Vision Analysis ──────────────────────────────────────────────────────────
 
 export const analysisResults = sqliteTable('analysis_results', {

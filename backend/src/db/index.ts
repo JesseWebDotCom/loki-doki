@@ -278,6 +278,29 @@ export function runMigrations() {
   `)
   addColumn('conversations', 'project_id', 'TEXT')
 
+  // File conversions
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS conversions (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      input_name TEXT NOT NULL,
+      output_name TEXT NOT NULL,
+      input_format TEXT NOT NULL,
+      output_format TEXT NOT NULL,
+      family TEXT NOT NULL,
+      engine TEXT NOT NULL,
+      rel_path TEXT,
+      state TEXT NOT NULL DEFAULT 'pending',
+      failure_reason TEXT,
+      input_bytes INTEGER,
+      output_bytes INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversions_user_id ON conversions(user_id);
+  `)
+
   // Image generation + LoRA system
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS generated_images (

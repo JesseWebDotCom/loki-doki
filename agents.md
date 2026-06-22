@@ -382,6 +382,18 @@ className?: string   // size via `size-*` (the SVG carries its own rounded tile 
 glow?: boolean       // soft violet bloom hugging the squircle — for hero placements (boot/setup)
 ```
 
+### `SpaceBackdrop` - `src/components/shared/SpaceBackdrop.tsx`
+
+Decorative deep-space scene: twinkling starfield, occasional shooting stars, and a slowly drifting UFO over a deep-space radial gradient. `pointer-events-none` (never captures input). Designed to sit **behind** a transparent globe/planet canvas. Used by the Maps globe view (`MapsPage`, mounted only at globe zoom) and the Moon Phase app (`MoonPhasePage`).
+
+```ts
+{ starCount?: number; shootingStars?: boolean; ufo?: boolean; className?: string }
+```
+
+Notes:
+- Keyframes live in `index.css` (`star-twinkle` reused; `space-shoot`, `ufo-drift` added). Per-star randomized values are inline styles (genuinely dynamic).
+- Place it as an `absolute inset-0 z-0` layer with the real content in a `relative z-10` sibling. Over a dark space backdrop, wrap content in `data-theme="dark"` so themed tokens (foreground/card) stay readable regardless of the app's active theme.
+
 ### Toasts (app-wide) - `sonner`
 
 Toasts are mounted globally via `AppToaster` (`src/components/shared/AppToaster.tsx`, rendered once in `App.tsx`, theme-synced to light/dark). To show transient feedback after a save or destructive action, call `toast.success(...)` / `toast.error(...)` from `sonner` anywhere — do **not** build inline "Saving…/Saved" text for new code. Prefer toasts for success/error confirmation; keep optimistic UI updates as-is.

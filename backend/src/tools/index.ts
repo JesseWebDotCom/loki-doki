@@ -79,6 +79,7 @@ import { contentRatingTool } from './contentRating'
 import { sportsTool } from './sports'
 import { homeAssistantTool } from './homeAssistant'
 import { timeTool } from './time'
+import { converterTool } from './converter'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -105,4 +106,5 @@ export const toolRegistry: Tool[] = [
   sportsTool,
   homeAssistantTool,
   timeTool,
+  converterTool,
 ]

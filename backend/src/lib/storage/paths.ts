@@ -36,6 +36,7 @@ export type UserCategory =
   | 'podcasts'
   | 'music'
   | 'documents'
+  | 'converted'
 
 // ── Root resolution ───────────────────────────────────────────────────────────
 

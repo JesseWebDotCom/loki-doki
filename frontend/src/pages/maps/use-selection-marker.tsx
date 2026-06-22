@@ -129,6 +129,10 @@ export function useSelectionMarker(
     }
     return () => {
       removeListeners();
+      // Cancel a pending attach: without this, clearing the place (e.g. hiding
+      // the pin on the globe) before the style loads still fires the stale
+      // handler and re-adds the marker.
+      map.off("load", attachMarker);
     };
   }, [selectedPlace, mapRef]);
 

@@ -24,6 +24,7 @@ import { adminChatBenchmark } from '@/routes/adminChatBenchmark'
 import { adminRouterBenchmark } from '@/routes/adminRouterBenchmark'
 import { projects } from '@/routes/projects'
 import { image } from '@/routes/image'
+import { converter } from '@/routes/converter'
 import { adminImageLoras } from '@/routes/adminImageLoras'
 import { adminQueue } from '@/routes/adminQueue'
 import { adminInstall } from '@/routes/adminInstall'
@@ -205,6 +206,7 @@ app.route('/api/admin/chat-benchmark', adminChatBenchmark)
 app.route('/api/admin/router-benchmark', adminRouterBenchmark)
 app.route('/api/projects', projects)
 app.route('/api/image', image)
+app.route('/api/converter', converter)
 app.route('/api/admin/image-loras', adminImageLoras)
 app.route('/api/admin/queue', adminQueue)
 app.route('/api/admin/install', adminInstall)
