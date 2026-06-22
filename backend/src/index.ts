@@ -78,6 +78,7 @@ import { recipesRoute } from '@/routes/recipes'
 import { medicalRoute } from '@/routes/medical'
 import { holidaysRoute } from '@/routes/holidays'
 import { localEventsRoute } from '@/routes/localEvents'
+import { time } from '@/routes/time'
 import { startHomeAssistantSync } from '@/lib/homeAssistant'
 import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
@@ -254,6 +255,7 @@ app.route('/api/recipes', recipesRoute)
 app.route('/api/medical', medicalRoute)
 app.route('/api/holidays', holidaysRoute)
 app.route('/api/local-events', localEventsRoute)
+app.route('/api/time', time)
 app.route('/api/admin/storage', adminStorage)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)

@@ -84,6 +84,7 @@ export const TOOL_ROUTES: Record<string, string> = {
   moonphase:        '/moon-phase',
   jokes:            '/jokes',
   unit_conversion:  '/unit-converter',
+  time:             '/time',
 }
 
 // ── Fallback meta for tools not represented in APP_GROUPS ──────────────────────

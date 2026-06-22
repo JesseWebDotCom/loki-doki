@@ -12,6 +12,8 @@ import { PrivacyProvider } from '@/context/PrivacyContext'
 import { ServerHealthProvider } from '@/context/ServerHealthContext'
 import { SetupProgressProvider } from '@/context/SetupProgressContext'
 import { PodcastPlaybackProvider } from '@/context/PodcastPlaybackContext'
+import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
+import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
 import { BackgroundSetupWidget } from '@/components/shared/BackgroundSetupWidget'
@@ -25,6 +27,7 @@ import { WeatherPage } from '@/pages/WeatherPage'
 import { MapsPage } from '@/pages/MapsPage'
 import { ImagingPage } from '@/pages/ImagingPage'
 import { MusicPage } from '@/pages/MusicPage'
+import { TimePage } from '@/pages/TimePage'
 import { ChatLayout } from '@/components/chat/ChatLayout'
 import { ConversationView } from '@/components/chat/ConversationView'
 import { ProjectPage } from '@/components/chat/ProjectPage'
@@ -192,6 +195,7 @@ export default function App() {
           <GenerationProvider>
           <PrivacyProvider>
           <PodcastPlaybackProvider>
+          <TimeAlarmProvider>
           <ChatProvider>
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
@@ -257,6 +261,7 @@ export default function App() {
                 <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
+                <Route path="/time" element={<TimePage />} />
                 <Route path="/dictionary" element={<DictionaryPage />} />
                 <Route path="/tv-shows" element={<TvShowsPage />} />
                 <Route path="/where-to-watch" element={<WhereToWatchPage />} />
@@ -291,6 +296,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </ChatProvider>
+          <AlarmRingDialog />
+          </TimeAlarmProvider>
           </PodcastPlaybackProvider>
           <PrivacyOverlay />
           </PrivacyProvider>

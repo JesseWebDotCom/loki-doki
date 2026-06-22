@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 
-const DEFAULT_PINNED = ["chat", "maps", "weather", "news", "imaging", "links", "youtube", "podcasts"];
+const DEFAULT_PINNED = ["chat", "maps", "weather", "time", "news", "imaging", "links", "youtube", "podcasts"];
 const MAX_RECENT = 3;
 const DEBOUNCE_MS = 600;
 

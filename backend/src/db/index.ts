@@ -777,6 +777,12 @@ export function runMigrations() {
   addColumn('yt_downloads', 'max_height', 'INTEGER')
   // Channel/playlist "about" text, resolved via yt-dlp — existing DBs.
   addColumn('yt_subscriptions', 'description', 'TEXT')
+  // Subscription auto-save automation (off by default) + rolling keep-N override.
+  addColumn('yt_subscriptions', 'auto_save', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('yt_subscriptions', 'auto_save_kind', `TEXT NOT NULL DEFAULT 'video'`)
+  addColumn('yt_subscriptions', 'auto_save_keep', 'INTEGER')
+  // Marks downloads written by auto-save (only these are eligible for keep-N pruning).
+  addColumn('yt_downloads', 'auto', 'INTEGER NOT NULL DEFAULT 0')
 
   // Podcast shows, episodes, suggestions, playback state (migration 0019)
   sqlite.exec(`
@@ -840,6 +846,8 @@ export function runMigrations() {
   addColumn('podcast_shows', 'source_ref', 'TEXT')
   // Internal per-show cast/personas + evolving life beats (added after initial CREATE).
   addColumn('podcast_shows', 'cast_json', 'TEXT')
+  // Auto-generate an episode when the source subscription gets a new video (off by default).
+  addColumn('podcast_shows', 'auto_generate', 'INTEGER NOT NULL DEFAULT 0')
   // segments_json was added to podcast_suggestions after its initial inline CREATE; back-fill
   // for DBs created before this column existed (the suggestions route reads/writes it).
   addColumn('podcast_suggestions', 'segments_json', `TEXT NOT NULL DEFAULT '[]'`)
@@ -879,6 +887,63 @@ export function runMigrations() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+  `)
+
+  // Time / Clock app: world-clock locations, alarms, timer presets (migration 0020)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS clock_locations (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      timezone TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_clock_locations_user_id ON clock_locations(user_id);
+    CREATE TABLE IF NOT EXISTS clock_alarms (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label TEXT NOT NULL DEFAULT 'Alarm',
+      hour INTEGER NOT NULL,
+      minute INTEGER NOT NULL,
+      repeat_days TEXT NOT NULL DEFAULT '[]',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      tone TEXT NOT NULL DEFAULT 'builtin:radar',
+      tone_name TEXT,
+      announce INTEGER NOT NULL DEFAULT 1,
+      snooze_minutes INTEGER NOT NULL DEFAULT 9,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_clock_alarms_user_id ON clock_alarms(user_id);
+    CREATE TABLE IF NOT EXISTS clock_timers (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label TEXT NOT NULL DEFAULT 'Timer',
+      duration_sec INTEGER NOT NULL,
+      tone TEXT NOT NULL DEFAULT 'builtin:beacon',
+      tone_name TEXT,
+      announce INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_clock_timers_user_id ON clock_timers(user_id);
+    CREATE TABLE IF NOT EXISTS clock_timer_runs (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label TEXT NOT NULL DEFAULT 'Timer',
+      tone TEXT NOT NULL DEFAULT 'builtin:beacon',
+      tone_name TEXT,
+      announce INTEGER NOT NULL DEFAULT 1,
+      duration_sec INTEGER NOT NULL,
+      ends_at INTEGER NOT NULL,
+      paused INTEGER NOT NULL DEFAULT 0,
+      remaining_ms INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_clock_timer_runs_user_id ON clock_timer_runs(user_id);
   `)
 
   // Hot-path indexes for foreign-key / scope lookups. All idempotent (IF NOT EXISTS),

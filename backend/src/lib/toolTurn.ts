@@ -14,6 +14,9 @@ export interface ToolTurn {
   /** The user message content, with any tool data appended for the LLM. */
   userContent: string
   toolId: string | null
+  /** A finished, speakable reply the caller should emit verbatim (skipping the
+   *  LLM), e.g. an alarm confirmation. Mirrors the chat route's snappy path. */
+  directReply?: string
 }
 
 async function userLocationPref(userId: string): Promise<{ displayName?: string; lat?: number; lng?: number } | null> {
@@ -67,6 +70,9 @@ export async function runToolTurn(opts: {
       return { userContent: `${opts.message}\n\n[${tool.name}]: The service is offline right now. Tell the user this tool is unavailable and to try again later.`, toolId: tool.id }
     }
     if (result.success) {
+      if (typeof result.directReply === 'string' && result.directReply.trim()) {
+        return { userContent: opts.message, toolId: tool.id, directReply: result.directReply.trim() }
+      }
       return { userContent: `${opts.message}\n\n[${tool.name} data]: ${JSON.stringify(result.data)}\n\nUse this data to answer in your own voice, conversationally.`, toolId: tool.id }
     }
     return { userContent: `${opts.message}\n\n[${tool.name} error]: ${result.error ?? 'failed'}. Acknowledge briefly and suggest an alternative.`, toolId: tool.id }

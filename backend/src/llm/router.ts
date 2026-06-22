@@ -48,7 +48,8 @@ Tool selection rules:
 - youtube: requests to find a video, watch something, or "show me how to X".
 - unit_conversion: converting between units of measurement.
 - jokes: requests for a joke, humor, or to cheer the user up.
-- datetime: current date, time, day of week, days until/since an event, or timezone queries.
+- datetime: read-only date/time questions: current date, time, day of week, days until/since an event, or timezone queries. NOT for creating alarms or timers (use alarms_timers).
+- alarms_timers: set, change, cancel, or list the user's alarms and timers, or start/stop a countdown. "set an alarm for 7am", "wake me at 6:30", "set a timer for 10 minutes", "start a 5 minute timer", "cancel my timer", "delete my alarm", "turn off my alarm". Use this (not datetime) whenever the user wants to create or manage an alarm or timer.
 - image_gen: any request to create, generate, draw, paint, sketch, illustrate, or show an image. "draw me a cat", "make an image of X", "create a picture of X", "show me what X looks like", "paint X".
 - contentRating: whether a movie, show, book, game, or app is appropriate for kids/a certain age, or what objectionable content (violence, sex, language, drugs/smoking) it has. "is X ok for my kid", "is X appropriate for a 7 year old", "does X have a lot of violence/swearing", "parent guide for X". Prefer this over search and tvshows for child-suitability or content-concern questions.
 - sports: live scores, results, or who is playing today in any league (MLB, World Cup, NFL, NBA, NHL, MLS). "what's the score", "who won", "is there a game on".
