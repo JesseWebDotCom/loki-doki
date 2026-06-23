@@ -994,8 +994,10 @@ export function runMigrations() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS feed_folders (
       id TEXT NOT NULL PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
+      slug TEXT,
+      locked INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
@@ -1105,6 +1107,12 @@ export function runMigrations() {
       category TEXT NOT NULL DEFAULT 'Other',
       collection_id TEXT REFERENCES reader_collections(id) ON DELETE SET NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      auto_update INTEGER NOT NULL DEFAULT 0,
+      auto_update_interval_mins INTEGER,
+      alert_on_change INTEGER NOT NULL DEFAULT 0,
+      content_hash TEXT,
+      last_checked_at INTEGER,
+      content_changed_at INTEGER,
       screenshot_path TEXT,
       snapshot_path TEXT,
       og_image_path TEXT,
@@ -1145,6 +1153,55 @@ export function runMigrations() {
   // existing DBs so the collection editor (name/icon/color) can read/write them.
   addColumn('reader_collections', 'icon', 'TEXT')
   addColumn('reader_collections', 'color', 'TEXT')
+
+  // Auto-update / change-monitoring columns added to reader_items after its initial inline
+  // CREATE; back-fill for existing DBs (see lib/reader/autoUpdate.ts + archive.ts).
+  addColumn('reader_items', 'auto_update', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('reader_items', 'auto_update_interval_mins', 'INTEGER')
+  addColumn('reader_items', 'alert_on_change', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('reader_items', 'content_hash', 'TEXT')
+  addColumn('reader_items', 'last_checked_at', 'INTEGER')
+  addColumn('reader_items', 'content_changed_at', 'INTEGER')
+
+  // News categories: feed_folders doubles as the News category table. Back-fill slug/locked
+  // for existing DBs, and relax user_id to nullable (shared/built-in categories have userId=null).
+  addColumn('feed_folders', 'slug', 'TEXT')
+  addColumn('feed_folders', 'locked', 'INTEGER NOT NULL DEFAULT 0')
+  try {
+    sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS feed_folders_slug_unique ON feed_folders(slug);`)
+  } catch (err) {
+    console.warn('[migrations] feed_folders slug index failed:', err instanceof Error ? err.message : err)
+  }
+  // SQLite cannot ALTER COLUMN to drop NOT NULL, so rebuild the table once if user_id is still
+  // NOT NULL (older installs). Guarded + idempotent: only fires while the constraint persists.
+  try {
+    const cols = sqlite.query(`PRAGMA table_info(feed_folders);`).all() as Array<{ name: string; notnull: number }>
+    const userIdCol = cols.find((c) => c.name === 'user_id')
+    if (userIdCol && userIdCol.notnull === 1) {
+      sqlite.exec('PRAGMA foreign_keys = OFF;')
+      sqlite.exec(`
+        CREATE TABLE feed_folders_new (
+          id TEXT NOT NULL PRIMARY KEY,
+          user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          slug TEXT,
+          locked INTEGER NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL
+        );
+        INSERT INTO feed_folders_new (id, user_id, name, slug, locked, sort_order, created_at)
+          SELECT id, user_id, name, slug, locked, sort_order, created_at FROM feed_folders;
+        DROP TABLE feed_folders;
+        ALTER TABLE feed_folders_new RENAME TO feed_folders;
+        CREATE UNIQUE INDEX IF NOT EXISTS feed_folders_slug_unique ON feed_folders(slug);
+      `)
+      sqlite.exec('PRAGMA foreign_keys = ON;')
+      console.warn('[migrations] rebuilt feed_folders with nullable user_id')
+    }
+  } catch (err) {
+    try { sqlite.exec('PRAGMA foreign_keys = ON;') } catch {}
+    console.warn('[migrations] feed_folders rebuild failed:', err instanceof Error ? err.message : err)
+  }
 
   // One-time, idempotent: fold existing Organizr-style bookmarks into reader_items as
   // Live links (reusing the bookmark id so re-runs are no-ops). The old table is left

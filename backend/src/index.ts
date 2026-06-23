@@ -60,6 +60,7 @@ import { appStore } from '@/routes/appStore'
 import { homeLayout } from '@/routes/homeLayout'
 import { adminConnectivity } from '@/routes/adminConnectivity'
 import { news } from '@/routes/news'
+import { adminNews } from '@/routes/adminNews'
 import { onThisDayRoute } from '@/routes/onThisDay'
 import { sportsTodayRoute } from '@/routes/sportsToday'
 import { sportsRoute } from '@/routes/sports'
@@ -262,6 +263,7 @@ app.route('/api/app-store', appStore)
 app.route('/api/home-layout', homeLayout)
 app.route('/api/admin/connectivity', adminConnectivity)
 app.route('/api/news', news)
+app.route('/api/admin/news', adminNews)
 app.route('/api/feeds', feedsRoute)
 app.route('/api/on-this-day', onThisDayRoute)
 app.route('/api/sports/today', sportsTodayRoute)

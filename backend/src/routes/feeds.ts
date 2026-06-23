@@ -37,11 +37,13 @@ feedsRouter.get('/', async (c) => {
     for (const t of totals) unread.set(t.feedId, t.n - (readMap.get(t.feedId) ?? 0))
   }
 
-  const folders = await db.select().from(feedFolders).where(eq(feedFolders.userId, user.id)).orderBy(feedFolders.sortOrder)
+  // Folders double as News categories: own (personal) + shared/built-in (userId null).
+  const folderRows = await db.select().from(feedFolders)
+    .where(or(isNull(feedFolders.userId), eq(feedFolders.userId, user.id))).orderBy(feedFolders.sortOrder)
 
   return c.json({
     feeds: rows.map((f) => ({ ...f, isSystem: !!f.isSystem, canEdit: f.userId === user.id, unread: unread.get(f.id) ?? 0 })),
-    folders,
+    folders: folderRows.map((f) => ({ ...f, locked: !!f.locked, canEdit: f.userId === user.id })),
   })
 })
 
@@ -298,7 +300,9 @@ feedsRouter.post('/items/read-all', async (c) => {
 
 feedsRouter.get('/folders', async (c) => {
   const user = c.get('user')
-  return c.json({ folders: await db.select().from(feedFolders).where(eq(feedFolders.userId, user.id)).orderBy(feedFolders.sortOrder) })
+  const folderRows = await db.select().from(feedFolders)
+    .where(or(isNull(feedFolders.userId), eq(feedFolders.userId, user.id))).orderBy(feedFolders.sortOrder)
+  return c.json({ folders: folderRows.map((f) => ({ ...f, locked: !!f.locked, canEdit: f.userId === user.id })) })
 })
 feedsRouter.post('/folders', async (c) => {
   const user = c.get('user')
@@ -310,7 +314,15 @@ feedsRouter.post('/folders', async (c) => {
 })
 feedsRouter.delete('/folders/:id', async (c) => {
   const user = c.get('user')
-  await db.delete(feedFolders).where(and(eq(feedFolders.id, c.req.param('id')), eq(feedFolders.userId, user.id)))
+  const id = c.req.param('id')
+  // Only the owner can delete (built-in/shared folders have userId null and won't match).
+  const own = await db.select({ id: feedFolders.id }).from(feedFolders)
+    .where(and(eq(feedFolders.id, id), eq(feedFolders.userId, user.id))).then((r) => r[0])
+  if (!own) return c.json({ error: 'Not found' }, 404)
+  // Cascade-delete this category's feeds (FK is SET NULL, which would otherwise leave them
+  // orphaned and still polling forever).
+  await db.delete(feeds).where(and(eq(feeds.folderId, id), eq(feeds.userId, user.id)))
+  await db.delete(feedFolders).where(eq(feedFolders.id, id))
   return c.json({ ok: true })
 })
 

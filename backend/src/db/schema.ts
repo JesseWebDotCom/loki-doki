@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, unique, real, index, primaryKey } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, unique, uniqueIndex, real, index, primaryKey } from 'drizzle-orm/sqlite-core'
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -894,13 +894,19 @@ export const clockTimerRuns = sqliteTable('clock_timer_runs', {
 // Items are stored once per feed (shared for system feeds); only feed_item_state is
 // per-user. Saving an item promotes a copy into reader_items, so feed_items prunes freely.
 
+// A folder is also a News "category". userId=null → shared/built-in category visible to all;
+// slug marks the fixed built-ins ('global'/'local'); locked blocks feed editing on built-ins.
 export const feedFolders = sqliteTable('feed_folders', {
   id: text('id').primaryKey(),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),  // null = shared/built-in
   name: text('name').notNull(),
+  slug: text('slug'),                          // 'global' | 'local' for built-ins, else null
+  locked: integer('locked', { mode: 'boolean' }).notNull().default(false),  // built-ins: feeds not editable
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-})
+}, t => ({
+  slugUnique: uniqueIndex('feed_folders_slug_unique').on(t.slug),  // at most one 'global'/'local'
+}))
 
 export const feeds = sqliteTable('feeds', {
   id: text('id').primaryKey(),
@@ -1021,6 +1027,17 @@ export const readerItems = sqliteTable('reader_items', {
   category: text('category').notNull().default('Other'),
   collectionId: text('collection_id').references(() => readerCollections.id, { onDelete: 'set null' }),
   sortOrder: integer('sort_order').notNull().default(0),
+  // ── Auto-update / change monitoring ──
+  // autoUpdate: periodically re-archive this item on a schedule (see lib/reader/autoUpdate.ts).
+  // intervalMins null → default cadence. alertOnChange: notify the owner when a refresh detects
+  // the page's reader-text changed. contentHash is the sha256 of the normalized contentText at the
+  // last capture; the diff baseline. last/contentChangedAt power "due" + the "updated" badge.
+  autoUpdate: integer('auto_update', { mode: 'boolean' }).notNull().default(false),
+  autoUpdateIntervalMins: integer('auto_update_interval_mins'),
+  alertOnChange: integer('alert_on_change', { mode: 'boolean' }).notNull().default(false),
+  contentHash: text('content_hash'),
+  lastCheckedAt: integer('last_checked_at', { mode: 'timestamp' }),
+  contentChangedAt: integer('content_changed_at', { mode: 'timestamp' }),
   // reserved for later phases (no P1 UI):
   screenshotPath: text('screenshot_path'),
   snapshotPath: text('snapshot_path'),

@@ -2,35 +2,72 @@ import { useEffect } from 'react'
 import { useQueryClient, type UseQueryOptions } from '@tanstack/react-query'
 import type { NewsItem } from '@/components/shared/NewsCard'
 
-export type NewsType = 'world' | 'local'
+export type CategoryKind = 'builtin' | 'shared' | 'personal'
 
-export async function fetchNews(type: NewsType): Promise<NewsItem[]> {
-  const r = await fetch(`/api/news?type=${type}&limit=20`, { credentials: 'include' })
+export interface NewsCategory {
+  id: string
+  name: string
+  slug: string | null
+  kind: CategoryKind
+  locked: boolean
+  editable: boolean   // personal categories: feeds are user-managed
+  hidden: boolean      // per-user tab visibility
+}
+
+export async function fetchCategories(): Promise<NewsCategory[]> {
+  const r = await fetch('/api/news/categories', { credentials: 'include' })
   if (!r.ok) return []
-  const d = (await r.json()) as { items: NewsItem[]; error?: string }
-  return d.items ?? []
+  return ((await r.json()) as { categories?: NewsCategory[] }).categories ?? []
+}
+
+export function newsCategoriesQueryOptions(): UseQueryOptions<NewsCategory[]> {
+  return { queryKey: ['news-categories'], queryFn: fetchCategories, staleTime: 5 * 60_000 }
+}
+
+export async function fetchCategoryItems(categoryId: string): Promise<NewsItem[]> {
+  const r = await fetch(`/api/news/categories/${categoryId}/items?limit=20`, { credentials: 'include' })
+  if (!r.ok) return []
+  return ((await r.json()) as { items?: NewsItem[] }).items ?? []
 }
 
 // News is enriched server-side (stale-while-revalidate, 15-min TTL), so a 5-minute
 // client staleTime keeps it instant on revisit without going stale within a session.
-export function newsQueryOptions(type: NewsType): UseQueryOptions<NewsItem[]> {
+export function newsQueryOptions(categoryId: string): UseQueryOptions<NewsItem[]> {
   return {
-    queryKey: ['news', type],
-    queryFn: () => fetchNews(type),
+    queryKey: ['news', categoryId],
+    queryFn: () => fetchCategoryItems(categoryId),
     staleTime: 5 * 60_000,
+    enabled: !!categoryId,
   }
 }
 
+// ── Mutations (category management) ──────────────────────────────────────────────
+
+export async function hideCategory(id: string): Promise<void> {
+  await fetch(`/api/news/categories/${id}/hide`, { method: 'POST', credentials: 'include' })
+}
+export async function unhideCategory(id: string): Promise<void> {
+  await fetch(`/api/news/categories/${id}/unhide`, { method: 'POST', credentials: 'include' })
+}
+// Personal categories reuse the per-user feed folders API.
+export async function createPersonalCategory(name: string): Promise<string> {
+  const r = await fetch('/api/feeds/folders', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  })
+  if (!r.ok) throw new Error('Failed to create category')
+  return ((await r.json()) as { id: string }).id
+}
+export async function deletePersonalCategory(id: string): Promise<void> {
+  const r = await fetch(`/api/feeds/folders/${id}`, { method: 'DELETE', credentials: 'include' })
+  if (!r.ok) throw new Error('Failed to delete category')
+}
+
 // Warm the News cache in the background so the page renders instantly when opened.
-// Runs once on mount during browser idle time; failures are swallowed.
 export function useNewsPrefetch(): void {
   const qc = useQueryClient()
   useEffect(() => {
-    const warm = () => {
-      for (const type of ['world', 'local'] as NewsType[]) {
-        qc.prefetchQuery(newsQueryOptions(type)).catch(() => {})
-      }
-    }
+    const warm = () => { qc.prefetchQuery(newsCategoriesQueryOptions()).catch(() => {}) }
     const ric = (window as unknown as {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
     }).requestIdleCallback
