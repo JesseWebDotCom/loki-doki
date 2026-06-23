@@ -1,5 +1,6 @@
 import type { Tool, ToolResult } from './index'
 import { innertubeSearch } from '@/lib/youtube/innertube'
+import { stripTags } from '@/lib/htmlText'
 
 const DDG_HTML = 'https://html.duckduckgo.com/html/'
 const USER_AGENT = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
@@ -37,17 +38,6 @@ interface PlaylistResult {
   author: string | null
   channelId: string | null
   url: string
-}
-
-function decodeEntities(html: string): string {
-  return html
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, c: string) => String.fromCharCode(parseInt(c, 10)))
-}
-
-function stripTags(html: string): string {
-  return decodeEntities(html.replace(/<[^>]+>/g, '')).trim()
 }
 
 // Combined regex pairs result__a (title+url) with the following result__snippet.

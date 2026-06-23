@@ -2,6 +2,8 @@
 // (Patch fallback, "events near {city}") and any caller that just wants raw results.
 // Uses the official DDG JSON API only — no HTML scraping.
 
+import { stripTags } from '@/lib/htmlText'
+
 const DDG_API = 'https://api.duckduckgo.com/'
 const USER_AGENT = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
 
@@ -9,21 +11,6 @@ export interface WebResult {
   title: string
   snippet: string
   url: string
-}
-
-function decodeEntities(html: string): string {
-  return html
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(parseInt(code, 10)))
-}
-
-function stripTags(html: string): string {
-  return decodeEntities(html.replace(/<[^>]+>/g, '')).trim()
 }
 
 async function ddgApi(query: string, timeoutMs: number): Promise<WebResult[]> {

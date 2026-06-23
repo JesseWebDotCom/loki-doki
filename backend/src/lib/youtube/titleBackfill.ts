@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { ytVideos, ytSubscriptions, ytDownloads } from '@/db/schema'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
-import { decodeEntities } from '@/lib/youtube/text'
+import { decodeEntities } from '@/lib/htmlText'
 import { logger } from '@/lib/logger'
 
 const FLAG = 'yt.titles_decoded_v1'

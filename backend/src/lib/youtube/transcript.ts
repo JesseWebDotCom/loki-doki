@@ -2,6 +2,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { ensureTranscript } from './download'
+import { decodeEntities } from '@/lib/htmlText'
 
 /**
  * Turn a WebVTT subtitle file into clean prose.
@@ -11,18 +12,8 @@ import { ensureTranscript } from './download'
  * We strip every `<...>` tag, drop metadata/timing lines, then collapse adjacent
  * duplicate lines so the rolling repeats become a single readable stream.
  */
-// Decode the HTML entities auto-captions arrive escaped as (&gt;&gt; speaker markers,
-// &#39; apostrophes, &amp;, …) so the transcript and AI summary read as plain text.
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-    .replace(/&gt;/g, '>').replace(/&lt;/g, '<')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-}
-
+// Auto-captions arrive HTML-escaped (&gt;&gt; speaker markers, &#39; apostrophes, …);
+// decodeEntities (canonical) turns them back into plain text.
 export function cleanVttText(vtt: string): string {
   return decodeEntities(vtt.replace(/<[^>]+>/g, '')) // <c>/timestamp tags, then entities
     .replace(/(^|\s)>+(?=\s|$)/g, ' ')               // ">>" speaker-change markers → drop

@@ -1,5 +1,6 @@
 import type { Tool, ToolResult } from './index'
 import { zimSearch, deriveZimAnswerPayload } from '@/lib/zimSearch'
+import { stripTags } from '@/lib/htmlText'
 
 const DDG_API = 'https://api.duckduckgo.com/'
 const USER_AGENT = 'Mozilla/5.0 (compatible; LokiDoki/1.0)'
@@ -29,21 +30,6 @@ const BRAND_LEAK_RE = /duckduckgo[^.]*(?:search engine|privacy|internet)[^.]*\./
 
 function stripBrand(text: string): string {
   return text.replace(BRAND_LEAK_RE, '').trim()
-}
-
-function decodeEntities(html: string): string {
-  return html
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(parseInt(code, 10)))
-}
-
-function stripTags(html: string): string {
-  return decodeEntities(html.replace(/<[^>]+>/g, '')).trim()
 }
 
 function trimSnippet(text: string): string {

@@ -2,6 +2,9 @@
 // Zero-dep regex parsing, consistent with the briefing/youtube feed readers (whose tiny
 // helpers are intentionally duplicated here rather than refactoring those working paths).
 
+export { stripHtml } from '@/lib/htmlText'
+import { stripHtml } from '@/lib/htmlText'
+
 export interface ParsedEntry {
   guid: string                 // dedup key: <guid>/<id> → <link> → hash(title+pubDate)
   title: string
@@ -27,21 +30,6 @@ function tag(block: string, name: string): string {
 function attr(block: string, name: string, a: string): string {
   const m = block.match(new RegExp(`<${name}[^>]*\\s${a}=["']([^"']*)["']`, 'i'))
   return m ? m[1]! : ''
-}
-
-export function stripHtml(html: string): string {
-  return html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 function upscaleImage(url: string): string {

@@ -4,7 +4,7 @@
 //   Playlist: https://www.youtube.com/feeds/videos.xml?playlist_id=PL…
 
 import { eq, and, isNull, or, like, inArray } from 'drizzle-orm'
-import { decodeEntities } from '@/lib/youtube/text'
+import { decodeEntities } from '@/lib/htmlText'
 import { db } from '@/db'
 import { ytSubscriptions, ytVideos, ytChannelCache } from '@/db/schema'
 import { logger } from '@/lib/logger'

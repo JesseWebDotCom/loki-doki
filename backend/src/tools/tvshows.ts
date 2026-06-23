@@ -1,5 +1,6 @@
 import type { Tool, ToolResult } from './index'
 import { searchTool } from './search'
+import { stripTags as stripHtml } from '@/lib/htmlText'
 
 const API = 'https://api.tvmaze.com'
 
@@ -7,14 +8,6 @@ const TRAILING_NOISE = new Set([
   'episode', 'episodes', 'finale', 'news', 'renewal', 'renewed',
   'season', 'seasons', 'series', 'show', 'tv',
 ])
-
-function stripHtml(html: string): string {
-  return (html ?? '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#\d+;/g, '')
-    .trim()
-}
 
 function queryVariants(query: string): string[] {
   const tokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean)

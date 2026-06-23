@@ -1,4 +1,5 @@
 import type { Tool, ToolResult } from './index'
+import { stripTags as stripHtml } from '@/lib/htmlText'
 
 const BASE = 'https://news.google.com/rss'
 
@@ -45,17 +46,6 @@ function extractXml(block: string, tag: string): string {
   return m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim()
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#\d+;/g, '')
-    .replace(/&quot;/g, '"')
-    .trim()
-}
 
 function parseRss(xml: string): NewsItem[] {
   const items: NewsItem[] = []

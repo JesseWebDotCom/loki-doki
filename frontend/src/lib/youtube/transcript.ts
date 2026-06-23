@@ -1,6 +1,8 @@
 // Minimal WebVTT parser → timestamped, de-duplicated transcript lines for the
 // clickable transcript panel. Falls back gracefully (callers use prose if empty).
 
+import { decodeEntities } from '@/lib/htmlText'
+
 export interface TranscriptLine { sec: number; label: string; text: string }
 
 function toSec(stamp: string): number {
@@ -17,18 +19,6 @@ function clockLabel(sec: number): string {
   return h > 0
     ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
     : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
-
-// Auto-captions arrive HTML-escaped (`&gt;&gt;` for the `>>` speaker marker, `&#39;`
-// for apostrophes, etc.) — decode them so the transcript reads as plain text.
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-    .replace(/&gt;/g, '>').replace(/&lt;/g, '<')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
 }
 
 const CUE_RE = /(\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?)/

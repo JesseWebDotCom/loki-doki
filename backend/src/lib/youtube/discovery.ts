@@ -12,7 +12,7 @@
 // we hit the network at most once per TTL regardless of how many users load Home.
 
 import { logger } from '@/lib/logger'
-import { decodeEntities } from '@/lib/youtube/text'
+import { decodeEntities } from '@/lib/htmlText'
 import { innertubeChannelAvatar, tryInnertube, type ItVideo } from './innertube'
 
 // A browser-like UA is required — most Invidious instances serve a Cloudflare/bot

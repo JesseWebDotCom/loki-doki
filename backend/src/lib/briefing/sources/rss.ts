@@ -2,6 +2,8 @@
 // and the reactive tools. Mirrors the lightweight regex parser in tools/news.ts.
 
 import type { BriefingItem } from '../types'
+import { stripTags as stripHtml } from '@/lib/htmlText'
+export { stripTags as stripHtml } from '@/lib/htmlText'
 
 const BASE = 'https://news.google.com/rss'
 const LOCALE = 'hl=en-US&gl=US&ceid=US:en'
@@ -10,18 +12,6 @@ function extractXml(block: string, tag: string): string {
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
   if (!m) return ''
   return m[1]!.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim()
-}
-
-export function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#\d+;/g, '')
-    .replace(/&quot;/g, '"')
-    .trim()
 }
 
 export interface RssItem extends BriefingItem {

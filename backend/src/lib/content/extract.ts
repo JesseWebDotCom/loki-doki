@@ -13,6 +13,7 @@
 // Feeds.
 
 import { safeFetch } from '@/lib/ssrfGuard'
+import { decodeEntities, stripHtml } from '@/lib/htmlText'
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
@@ -90,27 +91,9 @@ function jsonLd(html: string): { author: string | null; site: string | null } {
   return { author, site }
 }
 
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;|&apos;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-}
-
-export function stripHtml(html: string): string {
-  return decodeEntities(
-    html
-      .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ')
-      .replace(/<[^>]+>/g, ' '),
-  )
-    .replace(/\s+/g, ' ')
-    .trim()
-}
+// stripHtml is re-exported from the canonical helper so existing importers
+// (reader.ts, etc.) keep working.
+export { stripHtml }
 
 // ── main-content isolation (heuristic) ────────────────────────────────────────
 

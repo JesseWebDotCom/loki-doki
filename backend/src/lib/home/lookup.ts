@@ -4,6 +4,7 @@ import { writeFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { dataDir } from '@/lib/download'
 import { ollamaChat } from '@/llm/ollama'
+import { decodeEntities, stripTags } from '@/lib/htmlText'
 import { getModel } from '@/lib/models'
 import { assertPublicUrl } from '@/lib/ssrfGuard'
 
@@ -46,21 +47,6 @@ function decodeDdgUrl(url: string): string {
   } catch {
     return url
   }
-}
-
-function decodeEntities(html: string): string {
-  return html
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(parseInt(code, 10)))
-}
-
-function stripTags(html: string): string {
-  return decodeEntities(html.replace(/<[^>]+>/g, '')).trim()
 }
 
 async function ddgSearch(query: string): Promise<Array<{ title: string; url: string; snippet: string }>> {

@@ -7,7 +7,7 @@
 // (the real watch-page "Up next"), trending, handle/URL resolution, and player metadata.
 
 import { logger } from '@/lib/logger'
-import { decodeEntities } from '@/lib/youtube/text'
+import { decodeEntities } from '@/lib/htmlText'
 
 // ── Wire protocol ──────────────────────────────────────────────────────────────
 
