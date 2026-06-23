@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, EyeOff, Store, LayoutDashboard, Newspaper, Camera } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Camera } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -111,32 +111,32 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     subsections: [],
   },
   {
-    id: 'privacy', label: 'Privacy & Content', icon: EyeOff,
-    keywords: ['privacy', 'safety', 'content', 'nsfw', 'adult', 'pin'],
-    description: 'Safety rules, content limits, and privacy mode',
+    id: 'security', label: 'Security', icon: ShieldCheck,
+    keywords: ['security', 'privacy', 'safety', 'content', 'nsfw', 'adult', 'pin', 'profiles', 'filtering', 'styles', 'uncensored'],
+    description: 'Style flags, filtering, and privacy mode',
     subsections: [
-      { id: 'content-ceiling', label: 'Content Profiles', kind: 'anchor', anchorId: 'content-ceiling',
-        keywords: ['profiles', 'ceiling', 'content', 'dials', 'profanity', 'sexual', 'violence', 'nsfw', 'adult', 'uncensored', 'swearing', 'unrestricted', 'censored'],
-        description: 'Named per-category content ceilings assigned to users (profiles)' },
-      { id: 'privacy-mode', label: 'Privacy Mode (PIN)', kind: 'anchor', anchorId: 'privacy-mode',
+      { id: 'styles', label: 'Styles', kind: 'view',
+        keywords: ['lora', 'style', 'adult', 'flag', 'rescan', 'image'],
+        description: 'Manually mark image styles as adult' },
+      { id: 'filtering', label: 'Filtering', kind: 'view',
+        keywords: ['keywords', 'adult', 'detection', 'lora', 'nsfw', 'scan', 'filter'],
+        description: 'Keywords used to flag adult image styles at import' },
+      { id: 'privacy-mode', label: 'Privacy Mode', kind: 'view',
         keywords: ['pin', 'hide', 'reveal', 'privacy', 'lock', 'timeout'],
         description: 'PIN-gated hiding of adult styles and generated content' },
-      { id: 'adult-keywords', label: 'Adult Keywords', kind: 'anchor', anchorId: 'adult-keywords',
-        keywords: ['keywords', 'adult', 'detection', 'lora', 'nsfw', 'scan'],
-        description: 'Keywords used to flag adult LoRAs at import' },
-      { id: 'lora-flags', label: 'Style Adult Flags', kind: 'anchor', anchorId: 'lora-flags',
-        keywords: ['lora', 'style', 'adult', 'flag', 'rescan'],
-        description: 'Manually mark image styles as adult' },
     ],
   },
   {
     id: 'users', label: 'Users', icon: Users,
-    keywords: ['users', 'accounts', 'roles', 'admin', 'members', 'storage'],
-    description: 'User accounts and storage',
+    keywords: ['users', 'accounts', 'roles', 'admin', 'members', 'storage', 'profiles', 'content'],
+    description: 'User accounts, content profiles, and storage',
     subsections: [
       { id: 'accounts', label: 'Accounts', kind: 'anchor', anchorId: 'accounts',
         keywords: ['users', 'accounts', 'roles', 'memory', 'protections', 'style', 'clear memory'],
         description: 'Manage user accounts and per-user settings' },
+      { id: 'profiles', label: 'Content Profiles', kind: 'anchor', anchorId: 'profiles',
+        keywords: ['profiles', 'content', 'ceiling', 'dials', 'profanity', 'sexual', 'violence', 'nsfw', 'adult', 'uncensored', 'unrestricted', 'censored'],
+        description: 'Named per-category content ceilings assigned to users' },
       { id: 'storage', label: 'Storage', kind: 'anchor', anchorId: 'storage',
         keywords: ['storage', 'disk', 'cleanup', 'space', 'usage'],
         description: 'Disk usage and cleanup' },

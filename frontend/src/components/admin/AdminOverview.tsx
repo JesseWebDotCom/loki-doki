@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Users, HardDrive, Brain, Wifi, WifiOff, Activity, ChevronRight,
-  Sparkles, Store, EyeOff, LayoutGrid, Settings2, Loader2,
+  Sparkles, Store, ShieldCheck, LayoutGrid, Settings2, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Card } from '@/components/ui/card'
@@ -167,7 +167,7 @@ export function AdminOverview({ onNavigate }: { onNavigate: (sectionId: string, 
           <QuickAction icon={Sparkles} label="Companions & briefing" onClick={() => onNavigate('companions', 'characters')} />
           <QuickAction icon={Store} label="Apps & install requests" onClick={() => onNavigate('apps', 'requests')} />
           <QuickAction icon={LayoutGrid} label="Features & models" onClick={() => onNavigate('features', 'chat')} />
-          <QuickAction icon={EyeOff} label="Privacy & content" onClick={() => onNavigate('privacy', 'safety-floor')} />
+          <QuickAction icon={ShieldCheck} label="Security" onClick={() => onNavigate('security', 'styles')} />
           <QuickAction icon={Settings2} label="System & connectivity" onClick={() => onNavigate('system', 'connectivity')} />
         </div>
       </div>

@@ -15,7 +15,7 @@ import { AdminUsersTab } from '@/components/admin/AdminUsersTab'
 import { AdminSystemTab } from '@/components/admin/AdminSystemTab'
 import { AdminAdvancedTab, type AdvancedView } from '@/components/admin/AdminAdvancedTab'
 import { AdminCompanionsTab, type CompanionView } from '@/components/admin/AdminCompanionsTab'
-import { AdminPrivacyTab } from '@/components/admin/AdminPrivacyTab'
+import { AdminSecurityTab } from '@/components/admin/AdminSecurityTab'
 import { AdminNewsTab } from '@/components/admin/AdminNewsTab'
 import { AdminFrigateTab } from '@/components/admin/AdminFrigateTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
@@ -191,7 +191,7 @@ export function AdminPage() {
         {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'voice'} />}
         {section === 'news'       && <AdminNewsTab />}
         {section === 'frigate'    && <AdminFrigateTab />}
-        {section === 'privacy'    && <AdminPrivacyTab openSignal={openSignal} />}
+        {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}
       </div>

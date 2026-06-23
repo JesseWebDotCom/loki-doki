@@ -12,6 +12,7 @@ import { UserAvatar } from '@/components/shared/UserAvatar'
 import { CONTENT_DIALS, type ContentDialValues } from '@/components/shared/contentDials'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { AdminAccordion } from '@/components/admin/AdminAccordion'
+import { ContentProfilesManager } from '@/components/admin/ContentProfilesManager'
 import { AdminStorageTab } from '@/components/admin/AdminStorageTab'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1189,6 +1190,12 @@ export function AdminUsersTab({ openSignal }: { openSignal?: string } = {}) {
             )}
           </div>
         </div>
+      </AdminAccordion>
+
+      <AdminAccordion id="profiles" title="Content Profiles"
+        description="Named per-category content ceilings. Assign one to each user above; new accounts get the default. A companion can never exceed the user's profile."
+        openSignal={openSignal} defaultOpen={false}>
+        <ContentProfilesManager embedded />
       </AdminAccordion>
 
       <AdminAccordion id="storage" title="Storage"
