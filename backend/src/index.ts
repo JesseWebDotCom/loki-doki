@@ -80,6 +80,7 @@ import { feeds as feedsRoute } from '@/routes/feeds'
 import { seedSystemFeeds } from '@/lib/feeds/seed'
 import { startFeedPoller, refreshSystemFeeds } from '@/lib/feeds/poller'
 import { startYoutubeReconcile } from '@/lib/youtube/reconcile'
+import { backfillYoutubeTitleEntities } from '@/lib/youtube/titleBackfill'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
@@ -164,6 +165,8 @@ startFeedPoller()
 // This re-scans each subscription deeply ~weekly to backfill those missed rows. See reconcile.ts.
 startYoutubeReconcile()
 void backfillAllThumbnails().catch(() => {})
+// One-time: decode HTML entities in titles stored before ingestion-side decoding.
+void backfillYoutubeTitleEntities().catch(() => {})
 // Disk cache for YouTube artwork: evict non-subscribed images 24h after fetch, and
 // conditionally re-validate subscribed channel art every 24h. Runs ~30s after boot too.
 startImageCacheMaintenance()

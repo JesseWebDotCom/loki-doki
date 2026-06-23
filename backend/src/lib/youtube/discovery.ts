@@ -12,6 +12,7 @@
 // we hit the network at most once per TTL regardless of how many users load Home.
 
 import { logger } from '@/lib/logger'
+import { decodeEntities } from '@/lib/youtube/text'
 import { innertubeChannelAvatar, tryInnertube, type ItVideo } from './innertube'
 
 // A browser-like UA is required — most Invidious instances serve a Cloudflare/bot
@@ -63,8 +64,8 @@ function invidiousToItVideo(v: any): ItVideo | null {
   const views = typeof v?.viewCount === 'number' ? `${v.viewCount.toLocaleString()} views` : null
   return {
     videoId,
-    title: v.title,
-    author: v.author ?? null,
+    title: decodeEntities(v.title),
+    author: v.author ? decodeEntities(v.author) : null,
     channelId: v.authorId ?? null,
     channelThumb: null,
     thumbnailUrl: ytThumb(videoId),
@@ -83,8 +84,8 @@ function pipedToItVideo(v: any): ItVideo | null {
   const views = typeof v?.views === 'number' ? `${v.views.toLocaleString()} views` : null
   return {
     videoId,
-    title: v.title,
-    author: v.uploaderName ?? null,
+    title: decodeEntities(v.title),
+    author: v.uploaderName ? decodeEntities(v.uploaderName) : null,
     channelId,
     channelThumb: unwrapPipedAvatar(v.uploaderAvatar),
     thumbnailUrl: ytThumb(videoId),

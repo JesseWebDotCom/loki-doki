@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { innertubeResolveChannel } from '@/lib/youtube/innertube'
 import { ytDlpBin } from '@/lib/youtube/ytdlp'
+import { decodeEntities } from '@/lib/youtube/text'
 
 const execFileAsync = promisify(execFile)
 
@@ -115,7 +116,7 @@ async function resolveChannel(url: string): Promise<ResolvedSubscription> {
   const channelId = (typeof j.channel_id === 'string' && j.channel_id) || extractChannelId(j.channel_url) || extractChannelId(url)
   if (!channelId) throw new Error(`Could not resolve channel_id from: ${url}`)
 
-  const title = (j.channel || j.uploader || j.title || '').toString().trim()
+  const title = decodeEntities((j.channel || j.uploader || j.title || '').toString().trim())
   const uploaderId = (j.uploader_id || '').toString().trim()
   const handle = uploaderId.startsWith('@') ? uploaderId : (uploaderId ? `@${uploaderId}` : null)
 
@@ -140,7 +141,7 @@ async function resolvePlaylist(url: string): Promise<ResolvedSubscription> {
   return {
     kind: 'playlist',
     externalId: playlistId,
-    title: (j.title || '').toString().trim() || url,
+    title: decodeEntities((j.title || '').toString().trim()) || url,
     handle: null,
     thumbnailUrl,
     description: (j.description || '').toString().trim() || null,
@@ -162,7 +163,7 @@ async function resolveChannelHtml(url: string): Promise<ResolvedSubscription> {
 
   // Best-effort title
   const titleMatch = html.match(/<title>([^<]+)<\/title>/)
-  const rawTitle = titleMatch?.[1]?.replace(' - YouTube', '').trim() ?? url
+  const rawTitle = decodeEntities(titleMatch?.[1]?.replace(' - YouTube', '').trim() ?? url)
 
   // Avatar URL lives in ytInitialData under "avatar" > "thumbnails"
   const avatarMatch = html.match(/"avatar"\s*:\s*\{"thumbnails"\s*:\s*\[\{"url"\s*:\s*"([^"]+)"/)

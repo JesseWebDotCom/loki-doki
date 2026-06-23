@@ -4,6 +4,7 @@
 //   Playlist: https://www.youtube.com/feeds/videos.xml?playlist_id=PL…
 
 import { eq, and, isNull, or, like, inArray } from 'drizzle-orm'
+import { decodeEntities } from '@/lib/youtube/text'
 import { db } from '@/db'
 import { ytSubscriptions, ytVideos, ytChannelCache } from '@/db/schema'
 import { logger } from '@/lib/logger'
@@ -19,7 +20,9 @@ const FETCH_TIMEOUT_MS = 10_000
 
 function extractTag(block: string, tag: string): string {
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))
-  return m ? m[1]!.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim() : ''
+  // RSS/Atom text is XML-entity-encoded (&amp;, &#39;, …) — decode so titles and
+  // author names aren't stored as "Foo &amp; Bar".
+  return m ? decodeEntities(m[1]!.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim()) : ''
 }
 
 function extractAttr(block: string, tag: string, attr: string): string {

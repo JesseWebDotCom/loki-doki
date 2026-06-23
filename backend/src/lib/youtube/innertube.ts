@@ -7,6 +7,7 @@
 // (the real watch-page "Up next"), trending, handle/URL resolution, and player metadata.
 
 import { logger } from '@/lib/logger'
+import { decodeEntities } from '@/lib/youtube/text'
 
 // ── Wire protocol ──────────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ export interface ItChannel {
 }
 
 const runsToText = (runs?: Array<{ text?: string }>): string => (runs ?? []).map(r => r.text ?? '').join('')
-const textOf = (node: any): string => node?.simpleText ?? runsToText(node?.runs) ?? ''
+const textOf = (node: any): string => decodeEntities(node?.simpleText ?? runsToText(node?.runs) ?? '')
 
 function fixProtoRelative(url: string | null | undefined): string | null {
   if (!url) return null
@@ -101,7 +102,7 @@ function ownerOf(r: any): { author: string | null; channelId: string | null } {
     r?.longBylineText?.runs?.[0] ??
     r?.shortBylineText?.runs?.[0]
   return {
-    author: run?.text ?? null,
+    author: run?.text ? decodeEntities(run.text) : null,
     channelId: run?.navigationEndpoint?.browseEndpoint?.browseId ?? null,
   }
 }
@@ -120,7 +121,7 @@ function channelThumbOf(r: any): string | null {
 function parseVideoRenderer(r: any): ItVideo | null {
   const videoId = r?.videoId
   if (!videoId || typeof videoId !== 'string') return null
-  const title = r?.title?.runs?.[0]?.text ?? r?.title?.simpleText ?? r?.headline?.simpleText ?? ''
+  const title = decodeEntities(r?.title?.runs?.[0]?.text ?? r?.title?.simpleText ?? r?.headline?.simpleText ?? '')
   if (!title) return null
   const { author, channelId } = ownerOf(r)
   return {
