@@ -39,7 +39,7 @@ export interface ReaderItem {
   isHidden: boolean
 }
 
-export interface ReaderCollection { id: string; ownerId: string | null; name: string; sortOrder: number }
+export interface ReaderCollection { id: string; ownerId: string | null; name: string; icon: string | null; color: string | null; sortOrder: number }
 export interface ReaderTag { id: string; ownerId: string | null; name: string }
 
 export interface ListParams {
@@ -112,6 +112,14 @@ export async function createCollection(name: string): Promise<string> {
   const res = await fetch('/api/reader/collections', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ name }) })
   if (!res.ok) throw new Error('Failed to create collection')
   return (await res.json()).id
+}
+export async function updateCollection(id: string, body: Partial<{ name: string; icon: string | null; color: string | null; sortOrder: number }>): Promise<void> {
+  const res = await fetch(`/api/reader/collections/${id}`, { ...opts, method: 'PATCH', headers: J, body: JSON.stringify(body) })
+  if (!res.ok) throw new Error('Failed to update collection')
+}
+export async function deleteCollection(id: string): Promise<void> {
+  const res = await fetch(`/api/reader/collections/${id}`, { ...opts, method: 'DELETE' })
+  if (!res.ok) throw new Error('Failed to delete collection')
 }
 
 export async function listTags(): Promise<ReaderTag[]> {

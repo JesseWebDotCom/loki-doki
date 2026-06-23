@@ -984,6 +984,8 @@ export const readerCollections = sqliteTable('reader_collections', {
   id: text('id').primaryKey(),
   ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  icon: text('icon'),
+  color: text('color'),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })

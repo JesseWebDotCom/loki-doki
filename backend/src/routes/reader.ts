@@ -213,12 +213,14 @@ readerRouter.post('/collections', requireAuth, async (c) => {
 readerRouter.patch('/collections/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const body = await c.req.json<Partial<{ name: string; sortOrder: number }>>()
+  const body = await c.req.json<Partial<{ name: string; icon: string | null; color: string | null; sortOrder: number }>>()
   const existing = await db.select().from(readerCollections)
     .where(and(eq(readerCollections.id, id), eq(readerCollections.ownerId, user.id))).then((r) => r[0])
   if (!existing) return c.json({ error: 'Not found' }, 404)
   await db.update(readerCollections).set({
     name: body.name !== undefined ? body.name.trim() : existing.name,
+    icon: body.icon !== undefined ? body.icon : existing.icon,
+    color: body.color !== undefined ? body.color : existing.color,
     sortOrder: body.sortOrder !== undefined ? body.sortOrder : existing.sortOrder,
   }).where(eq(readerCollections.id, id))
   return c.json({ ok: true })

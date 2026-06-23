@@ -1,10 +1,13 @@
 import { useRef, useState } from 'react'
-import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Library, Circle, Archive, Bookmark, FileText, Plus, FolderOpen, Tag, Upload, Download, Settings2, type LucideIcon } from 'lucide-react'
+import { Library, Circle, Archive, Bookmark, FileText, Plus, FolderOpen, Tag, Upload, Download, Settings2, Pencil, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
-import { listCollections, listTags, importBookmarksHtml, createCollection } from '@/lib/reader/api'
+import { listCollections, listTags, importBookmarksHtml, createCollection, type ReaderCollection } from '@/lib/reader/api'
+import { getIconChoice } from '@/components/shared/IconPicker'
+import { resolveProjectColor } from '@/components/shared/ColorPicker'
+import { CollectionEditor } from './CollectionEditor'
 
 // A rail link that is "active" based on the current path + search params (filters
 // live in the query string, which NavLink can't match on its own).
@@ -22,9 +25,32 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="mb-1 mt-5 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">{children}</p>
 }
 
+// A collection row: navigates like a FilterLink, but renders the collection's chosen icon/color
+// and reveals an edit button on hover.
+function CollectionRow({ collection, active, onEdit }: { collection: ReaderCollection; active: boolean; onEdit: () => void }) {
+  const Icon = getIconChoice(collection.icon)?.Icon ?? FolderOpen
+  const color = collection.color ? resolveProjectColor(collection.color) : undefined
+  return (
+    <div className={cn('group flex items-center gap-1 rounded-xl pr-1 transition-colors',
+      active ? 'bg-accent' : 'hover:bg-accent/50')}>
+      <Link to={`/reader/collection/${collection.id}`}
+        className={cn('flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+          active ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground')}>
+        <Icon className="size-[18px] shrink-0" style={color ? { color } : undefined} />
+        <span className="truncate">{collection.name}</span>
+      </Link>
+      <button onClick={(e) => { e.preventDefault(); onEdit() }} aria-label={`Edit ${collection.name}`}
+        className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100">
+        <Pencil className="size-3.5" />
+      </button>
+    </div>
+  )
+}
+
 export function ReaderRail({ onSave }: { onSave: () => void }) {
   const qc = useQueryClient()
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const [params] = useSearchParams()
   const { id: collectionParam } = useParams()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -32,6 +58,7 @@ export function ReaderRail({ onSave }: { onSave: () => void }) {
   const { data: collections = [] } = useQuery({ queryKey: ['reader-collections'], queryFn: listCollections })
   const { data: tags = [] } = useQuery({ queryKey: ['reader-tags'], queryFn: listTags })
   const [newCollection, setNewCollection] = useState<string | null>(null) // null = not creating
+  const [editing, setEditing] = useState<ReaderCollection | null>(null)
   const creatingRef = useRef(false) // guard Enter + blur both firing the submit
 
   async function submitNewCollection(e: React.FormEvent) {
@@ -82,7 +109,7 @@ export function ReaderRail({ onSave }: { onSave: () => void }) {
 
       <SectionLabel>Collections</SectionLabel>
       {collections.map(c => (
-        <FilterLink key={c.id} to={`/reader/collection/${c.id}`} icon={FolderOpen} label={c.name} active={collectionParam === c.id} />
+        <CollectionRow key={c.id} collection={c} active={collectionParam === c.id} onEdit={() => setEditing(c)} />
       ))}
       {newCollection !== null ? (
         <form onSubmit={submitNewCollection} className="px-1 py-1">
@@ -127,6 +154,10 @@ export function ReaderRail({ onSave }: { onSave: () => void }) {
         </a>
         <input ref={fileRef} type="file" accept=".html,text/html" className="hidden" onChange={onImportFile} />
       </div>
+
+      <CollectionEditor open={editing !== null} collection={editing}
+        onOpenChange={(o) => { if (!o) setEditing(null) }}
+        onDeleted={() => { if (editing && collectionParam === editing.id) navigate('/reader') }} />
     </nav>
   )
 }

@@ -1070,6 +1070,8 @@ export function runMigrations() {
       id TEXT NOT NULL PRIMARY KEY,
       owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
+      icon TEXT,
+      color TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
@@ -1138,6 +1140,11 @@ export function runMigrations() {
         VALUES (new.rowid, new.title, new.excerpt, new.content_text);
     END;
   `)
+
+  // icon/color added to reader_collections after its initial inline CREATE; back-fill for
+  // existing DBs so the collection editor (name/icon/color) can read/write them.
+  addColumn('reader_collections', 'icon', 'TEXT')
+  addColumn('reader_collections', 'color', 'TEXT')
 
   // One-time, idempotent: fold existing Organizr-style bookmarks into reader_items as
   // Live links (reusing the bookmark id so re-runs are no-ops). The old table is left
