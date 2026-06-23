@@ -1,10 +1,10 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Library, Circle, Archive, Bookmark, FileText, Plus, FolderOpen, Tag, Upload, Download, Settings2, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
-import { listCollections, listTags, importBookmarksHtml } from '@/lib/reader/api'
+import { listCollections, listTags, importBookmarksHtml, createCollection } from '@/lib/reader/api'
 
 // A rail link that is "active" based on the current path + search params (filters
 // live in the query string, which NavLink can't match on its own).
@@ -31,6 +31,22 @@ export function ReaderRail({ onSave }: { onSave: () => void }) {
 
   const { data: collections = [] } = useQuery({ queryKey: ['reader-collections'], queryFn: listCollections })
   const { data: tags = [] } = useQuery({ queryKey: ['reader-tags'], queryFn: listTags })
+  const [newCollection, setNewCollection] = useState<string | null>(null) // null = not creating
+  const creatingRef = useRef(false) // guard Enter + blur both firing the submit
+
+  async function submitNewCollection(e: React.FormEvent) {
+    e.preventDefault()
+    if (creatingRef.current) return
+    const name = (newCollection ?? '').trim()
+    if (!name) { setNewCollection(null); return }
+    creatingRef.current = true
+    try {
+      await createCollection(name)
+      qc.invalidateQueries({ queryKey: ['reader-collections'] })
+      toast.success(`Created "${name}"`)
+    } catch { toast.error('Failed to create collection') }
+    finally { creatingRef.current = false; setNewCollection(null) }
+  }
 
   const isLibraryRoot = pathname === '/reader' || pathname === '/reader/'
   const status = params.get('status')
@@ -64,12 +80,27 @@ export function ReaderRail({ onSave }: { onSave: () => void }) {
       <FilterLink to="/reader?type=live" icon={Bookmark} label="Live links" active={type === 'live'} />
       <FilterLink to="/reader?type=offline" icon={FileText} label="Offline articles" active={type === 'offline'} />
 
-      {collections.length > 0 && <>
-        <SectionLabel>Collections</SectionLabel>
-        {collections.map(c => (
-          <FilterLink key={c.id} to={`/reader/collection/${c.id}`} icon={FolderOpen} label={c.name} active={collectionParam === c.id} />
-        ))}
-      </>}
+      <SectionLabel>Collections</SectionLabel>
+      {collections.map(c => (
+        <FilterLink key={c.id} to={`/reader/collection/${c.id}`} icon={FolderOpen} label={c.name} active={collectionParam === c.id} />
+      ))}
+      {newCollection !== null ? (
+        <form onSubmit={submitNewCollection} className="px-1 py-1">
+          <input
+            autoFocus
+            value={newCollection}
+            onChange={e => setNewCollection(e.target.value)}
+            onBlur={submitNewCollection}
+            placeholder="Collection name…"
+            className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
+          />
+        </form>
+      ) : (
+        <button onClick={() => setNewCollection('')}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
+          <Plus className="size-[18px]" /> New collection
+        </button>
+      )}
 
       {tags.length > 0 && <>
         <SectionLabel>Tags</SectionLabel>

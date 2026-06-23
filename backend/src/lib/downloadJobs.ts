@@ -25,7 +25,7 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'archive-article'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'archive-article' | 'reader-thumb'
 export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local'
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
@@ -357,6 +357,11 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runArchiveArticleJob(job.refId, onProgress, signal)  // refId = reader_items.id
       return
     }
+    case 'reader-thumb': {
+      const { runReaderThumbnailJob } = await import('@/lib/reader/thumbnail')
+      await runReaderThumbnailJob(job.refId, onProgress, signal)  // refId = reader_items.id
+      return
+    }
   }
 }
 
@@ -378,6 +383,28 @@ export async function enqueueArchiveArticle(readerItemId: string, label: string)
       id: randomUUID(), type: 'archive-article', refId: readerItemId, variantKey: null,
       domain: 'local', sizeClass: 'small', label: label.slice(0, 120), priority: 50,
       status: 'pending', attempts: 0, maxAttempts: 4, nextEligibleAt: null, lastError: null,
+      progress: null, createdAt: now, updatedAt: now,
+    })
+  }
+  kickScheduler()
+}
+
+/** Enqueue a screenshot-thumbnail render for a reader_items row (live bookmarks). Idempotent
+ *  per item; a finished/failed prior job is reset so a re-request re-renders. */
+export async function enqueueReaderThumbnail(readerItemId: string, label: string): Promise<void> {
+  const now = new Date()
+  const existing = await db.select().from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'reader-thumb'), eq(downloadJobs.refId, readerItemId)))
+    .then((r) => r[0])
+  if (existing) {
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+  } else {
+    await db.insert(downloadJobs).values({
+      id: randomUUID(), type: 'reader-thumb', refId: readerItemId, variantKey: null,
+      domain: 'local', sizeClass: 'small', label: label.slice(0, 120), priority: 40,
+      status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
       progress: null, createdAt: now, updatedAt: now,
     })
   }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bookmark, FileText, Loader2 } from 'lucide-react'
+import { Bookmark, FileText, Loader2, Plus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,7 @@ export function ReaderSaveDialog({ open, onClose }: { open: boolean; onClose: ()
   const [title, setTitle] = useState('')
   const [tags, setTags] = useState('')
   const [collectionId, setCollectionId] = useState('')
+  const [newCollection, setNewCollection] = useState<string | null>(null) // null = pick existing
   const [favicon, setFavicon] = useState<string | null>(null)
   const [probing, setProbing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -24,7 +25,7 @@ export function ReaderSaveDialog({ open, onClose }: { open: boolean; onClose: ()
   const { data: collections = [] } = useQuery({ queryKey: ['reader-collections'], queryFn: listCollections })
 
   useEffect(() => {
-    if (!open) { setType('offline'); setUrl(''); setTitle(''); setTags(''); setCollectionId(''); setFavicon(null) }
+    if (!open) { setType('offline'); setUrl(''); setTitle(''); setTags(''); setCollectionId(''); setNewCollection(null); setFavicon(null) }
   }, [open])
 
   // Probe the URL (favicon + page title) once it looks complete.
@@ -49,9 +50,13 @@ export function ReaderSaveDialog({ open, onClose }: { open: boolean; onClose: ()
       await createItem({
         type, url: url.trim(), title: title.trim() || undefined,
         faviconUrl: favicon ?? undefined,
-        collectionId: collectionId || undefined,
+        // Either an existing collection (collectionId) or a new one by name (server creates it).
+        collectionId: newCollection === null ? (collectionId || undefined) : undefined,
+        collectionName: newCollection?.trim() || undefined,
         tags: tags.split(',').map(t => t.trim()).filter(Boolean),
       })
+      // The server renders + screenshots (offline: full archive; live: thumbnail) via the job
+      // queue, so the card's screenshot fills in shortly. No client-side capture needed.
       toast.success(type === 'offline' ? 'Saving article for offline reading…' : 'Bookmark saved')
       qc.invalidateQueries({ queryKey: ['reader-items'] })
       onClose()
@@ -87,12 +92,23 @@ export function ReaderSaveDialog({ open, onClose }: { open: boolean; onClose: ()
           </div>
           <Input placeholder="Title (optional)" value={title} onChange={e => setTitle(e.target.value)} />
           <Input placeholder="Tags, comma-separated (optional)" value={tags} onChange={e => setTags(e.target.value)} />
-          {collections.length > 0 && (
-            <select value={collectionId} onChange={e => setCollectionId(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
-              <option value="">No collection</option>
-              {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+          {newCollection === null ? (
+            <div className="flex gap-2">
+              <select value={collectionId} onChange={e => setCollectionId(e.target.value)}
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                <option value="">No collection</option>
+                {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <Button type="button" variant="outline" onClick={() => { setNewCollection(''); setCollectionId('') }}>
+                <Plus className="size-4" /> New
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Input placeholder="New collection name" value={newCollection} autoFocus
+                onChange={e => setNewCollection(e.target.value)} />
+              <Button type="button" variant="ghost" onClick={() => setNewCollection(null)}>Cancel</Button>
+            </div>
           )}
         </div>
 
