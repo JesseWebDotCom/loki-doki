@@ -26,7 +26,15 @@ notificationsRoute.get('/', requireAuth, async (c) => {
     .orderBy(desc(notifications.createdAt))
     .limit(50)
   const unreadCount = rows.filter(r => r.readAt === null).length
-  return c.json({ notifications: rows, unreadCount })
+  // createdAt/readAt are Drizzle `timestamp` columns → Date objects, which would
+  // JSON-serialize to ISO strings. The frontend expects epoch ms numbers
+  // (timeAgo math), so normalize here — otherwise relative times render "NaNd ago".
+  const serialized = rows.map(r => ({
+    ...r,
+    createdAt: r.createdAt instanceof Date ? r.createdAt.getTime() : r.createdAt,
+    readAt: r.readAt instanceof Date ? r.readAt.getTime() : r.readAt,
+  }))
+  return c.json({ notifications: serialized, unreadCount })
 })
 
 // ── GET /api/notifications/unread-count ───────────────────────────────────────

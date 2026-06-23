@@ -354,7 +354,12 @@ function notifLabel(n: AppNotification): string {
 }
 
 function timeAgo(ts: number): string {
-  const diff = Math.floor((Date.now() - ts) / 1000);
+  // Accept epoch ms numbers; tolerate ISO strings / bad values so a malformed
+  // timestamp degrades to "just now" instead of "NaNd ago".
+  const ms = typeof ts === "number" ? ts : Date.parse(ts as unknown as string);
+  if (!Number.isFinite(ms)) return "just now";
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 0) return "just now";
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
