@@ -10,9 +10,15 @@ import {
 } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { safeFetch } from '@/lib/ssrfGuard'
-import { enqueueArchiveArticle } from '@/lib/downloadJobs'
+import { enqueueArchiveArticle, enqueueReaderThumbnail } from '@/lib/downloadJobs'
 import { stripHtml } from '@/lib/content/extract'
 import { summarizeArticle, askArticle } from '@/lib/reader/ai'
+import { dataDir } from '@/lib/download'
+import { ARCHIVE_ROOT } from '@/lib/reader/snapshot'
+import { renderedHtmlPath } from '@/lib/reader/archive'
+import { join, normalize, dirname } from 'node:path'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 import type { AppEnv } from '@/types'
 
 const readerRouter = new Hono<AppEnv>()
@@ -375,7 +381,9 @@ readerRouter.post('/', requireAuth, async (c) => {
   })
 
   if (body.tags?.length) await setItemTags(id, await resolveTagIds(user.id, body.tags))
+  // Offline → full archive (server-renders + screenshots); live → screenshot thumbnail only.
   if (type === 'offline') await enqueueArchiveArticle(id, body.title?.trim() || body.url.trim())
+  else await enqueueReaderThumbnail(id, body.title?.trim() || body.url.trim())
 
   const item = await db.select().from(readerItems).where(eq(readerItems.id, id)).then((r) => r[0])
   return c.json({ item })
@@ -392,6 +400,114 @@ readerRouter.get('/:id', requireAuth, async (c) => {
   if (!item) return c.json({ error: 'Not found' }, 404)
   const tagMap = await tagsByItem([id])
   return c.json({ item: { ...item, tags: tagMap.get(id) ?? [], isGlobal: item.ownerId === null, canEdit: item.ownerId === user.id } })
+})
+
+// ── Serve full-page offline snapshot (index.html + assets/*) ─────────────────────
+// The reader's "Full page" iframe and the reader view's localized <img> tags both load
+// from here. Same-origin GET → the session cookie authenticates automatically.
+
+const SNAPSHOT_CT: Record<string, string> = {
+  html: 'text/html; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+  avif: 'image/avif', ico: 'image/x-icon', bmp: 'image/bmp',
+  woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf',
+}
+
+// Detect common image types from leading magic bytes (for extensionless saved assets).
+function sniffContentType(b: Buffer): string | null {
+  if (b.length < 12) return null
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg'
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png'
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif'
+  if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
+  if (b.toString('ascii', 4, 12) === 'ftypavif') return 'image/avif'
+  if (b.toString('ascii', 0, 5) === '<?xml' || b.toString('ascii', 0, 4) === '<svg') return 'image/svg+xml'
+  return null
+}
+
+readerRouter.get('/:id/archive/*', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const item = await db.select().from(readerItems)
+    .where(and(eq(readerItems.id, id), or(isNull(readerItems.ownerId), eq(readerItems.ownerId, user.id))))
+    .then((r) => r[0])
+  if (!item) return c.json({ error: 'Not found' }, 404)
+
+  // Subpath after `/archive/`; default to index.html. Reject traversal. Files live under
+  // reader-archive/<id>/ regardless of snapshotPath (thumbnails exist for live items too).
+  const path = new URL(c.req.url).pathname
+  let sub = decodeURIComponent(path.split(`/${id}/archive/`)[1] ?? '') || 'index.html'
+  sub = normalize(sub).replace(/^(\.\.(\/|\\|$))+/, '')
+  if (sub.includes('..')) return c.json({ error: 'Forbidden' }, 403)
+
+  const baseDir = join(dataDir, ARCHIVE_ROOT, id)
+  const full = normalize(join(baseDir, sub))
+  if (full !== baseDir && !full.startsWith(baseDir + '/')) return c.json({ error: 'Forbidden' }, 403)
+
+  let bytes: Buffer
+  try {
+    bytes = await readFile(full)
+  } catch {
+    return c.json({ error: 'Not found' }, 404)
+  }
+  const ext = sub.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? ''
+  // Extensionless assets (og:images often have no extension) are saved as .bin → sniff the
+  // real type from magic bytes so the browser renders them correctly.
+  c.header('Content-Type', SNAPSHOT_CT[ext] ?? sniffContentType(bytes) ?? 'application/octet-stream')
+  c.header('Cache-Control', 'private, max-age=86400')
+  // Snapshot HTML is sandboxed at the iframe; assets are local-only.
+  return c.body(new Uint8Array(bytes))
+})
+
+// ── Client-captured screenshot (thumbnail) ───────────────────────────────────────
+// The frontend renders the page in a same-origin proxied iframe and rasterizes it to PNG
+// (html-to-image), then posts the bytes here. Works for live bookmarks AND offline articles.
+
+const MAX_THUMB_BYTES = 8 * 1024 * 1024
+
+readerRouter.post('/:id/thumbnail', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const item = await db.select().from(readerItems)
+    .where(and(eq(readerItems.id, id), eq(readerItems.ownerId, user.id))).then((r) => r[0])
+  if (!item) return c.json({ error: 'Not found' }, 404)
+
+  const buf = Buffer.from(await c.req.arrayBuffer())
+  if (buf.length === 0 || buf.length > MAX_THUMB_BYTES) return c.json({ error: 'Bad image' }, 400)
+  if (!(buf[0] === 0x89 && buf[1] === 0x50)) return c.json({ error: 'Expected PNG' }, 400) // PNG magic
+
+  const dir = join(dataDir, ARCHIVE_ROOT, id)
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'thumb.png'), buf)
+  await db.update(readerItems).set({ ogImagePath: 'thumb.png', updatedAt: new Date() }).where(eq(readerItems.id, id))
+  return c.json({ ok: true })
+})
+
+// ── Client-rendered page → faithful offline archive ──────────────────────────────
+// The frontend posts the fully-rendered DOM (JS executed in the user's browser via the
+// proxy iframe, URLs de-proxied back to their origins). We stash it and (re)enqueue the
+// archive job, which localizes assets off the rendered HTML instead of a static fetch.
+
+const MAX_RENDERED_BYTES = 25 * 1024 * 1024
+
+readerRouter.post('/:id/snapshot', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const item = await db.select().from(readerItems)
+    .where(and(eq(readerItems.id, id), eq(readerItems.ownerId, user.id))).then((r) => r[0])
+  if (!item) return c.json({ error: 'Not found' }, 404)
+
+  const { html } = await c.req.json<{ html?: string }>()
+  if (!html || html.length > MAX_RENDERED_BYTES) return c.json({ error: 'Bad html' }, 400)
+
+  const p = renderedHtmlPath(id)
+  await mkdir(dirname(p), { recursive: true })
+  await writeFile(p, html, 'utf8')
+  await db.update(readerItems)
+    .set({ type: 'offline', archiveState: 'pending', archiveError: null, updatedAt: new Date() })
+    .where(eq(readerItems.id, id))
+  await enqueueArchiveArticle(id, item.title || item.url)
+  return c.json({ ok: true })
 })
 
 // ── Update own item ──────────────────────────────────────────────────────────────
@@ -445,6 +561,9 @@ readerRouter.delete('/:id', requireAuth, async (c) => {
     .where(and(eq(readerItems.id, id), eq(readerItems.ownerId, user.id))).then((r) => r[0])
   if (!existing) return c.json({ error: 'Not found' }, 404)
   await db.delete(readerItems).where(eq(readerItems.id, id))
+  if (existing.snapshotPath) {
+    await rm(join(dataDir, existing.snapshotPath), { recursive: true, force: true }).catch(() => {})
+  }
   return c.json({ ok: true })
 })
 

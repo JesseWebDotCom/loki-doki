@@ -154,6 +154,10 @@ startImageCacheMaintenance()
 // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
 startYtdlpAutoUpdate()
 
+// Reader capture engine: resolve (and if needed download) a headless Chromium ahead of the
+// first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
+import('@/lib/reader/render').then((m) => m.ensureChromium()).catch(() => {})
+
 // Unload Ollama models on shutdown so they don't linger in VRAM between sessions.
 async function unloadOllamaModels() {
   const base = (process.env.OLLAMA_URL ?? 'http://localhost:11434').replace(/\/$/, '')

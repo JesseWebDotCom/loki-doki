@@ -20,6 +20,8 @@ export interface ReaderItem {
   faviconUrl: string | null
   excerpt: string | null
   contentHtml?: string | null
+  snapshotPath?: string | null
+  ogImagePath?: string | null
   wordCount: number
   readingMins: number
   status: ReaderStatus

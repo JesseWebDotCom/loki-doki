@@ -10,6 +10,7 @@ export interface ArticleReaderProps {
   title?: string | null
   byline?: string | null
   siteName?: string | null
+  faviconUrl?: string | null
   url?: string | null
   leadImage?: string | null
   contentHtml?: string | null
@@ -43,6 +44,7 @@ export function ArticleReader({
   title,
   byline,
   siteName,
+  faviconUrl,
   url,
   leadImage,
   contentHtml,
@@ -62,6 +64,10 @@ export function ArticleReader({
       <header className="max-w-[44rem] mx-auto mb-6">
         {title && <h1 className="text-3xl font-bold leading-tight text-foreground">{title}</h1>}
         <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+          {faviconUrl && (
+            <img src={faviconUrl} alt="" className="size-4 rounded-sm object-contain"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          )}
           {(siteName || host) && <span>{siteName || host}</span>}
           {byline && <span>· {byline}</span>}
           {!!readingMins && <span>· {readingMins} min read</span>}

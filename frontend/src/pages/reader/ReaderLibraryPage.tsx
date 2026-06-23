@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Globe, FileText, Bookmark, Loader2, Trash2, Archive, ExternalLink, AlertTriangle } from 'lucide-react'
+import { Globe, FileText, Bookmark, Loader2, Trash2, Archive, ExternalLink, AlertTriangle, FolderOpen, Check } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
-import { listItems, deleteItem, updateItem, type ReaderItem, type ListParams } from '@/lib/reader/api'
+import { listItems, deleteItem, updateItem, listCollections, type ReaderItem, type ListParams } from '@/lib/reader/api'
 
 function Favicon({ item }: { item: ReaderItem }) {
   if (item.faviconUrl) {
@@ -18,6 +22,12 @@ function Favicon({ item }: { item: ReaderItem }) {
 
 function host(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
+}
+
+// Locally-archived page thumbnail (og:image / first article image), served from the
+// snapshot dir. Null for items without a saved snapshot.
+function thumbUrl(item: ReaderItem): string | null {
+  return item.ogImagePath ? `/api/reader/${item.id}/archive/${item.ogImagePath}` : null
 }
 
 function ArchiveBadge({ item }: { item: ReaderItem }) {
@@ -48,6 +58,14 @@ export function ReaderLibraryPage() {
     collectionId: collectionParam || undefined,
     q: params.get('tag') ? undefined : (search.trim() || undefined),
   }), [params, collectionParam, search])
+
+  const { data: collections = [] } = useQuery({ queryKey: ['reader-collections'], queryFn: listCollections })
+
+  async function moveToCollection(item: ReaderItem, collectionId: string | null) {
+    await updateItem(item.id, { collectionId })
+    qc.invalidateQueries({ queryKey: ['reader-items'] })
+    toast.success(collectionId ? 'Moved to collection' : 'Removed from collection')
+  }
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['reader-items', filters],
@@ -100,6 +118,18 @@ export function ReaderLibraryPage() {
             <div key={item.id}
               className="group relative flex flex-col rounded-2xl border border-border/60 bg-card p-4 transition-colors hover:border-border">
               <button onClick={() => openItem(item)} className="flex-1 text-left">
+                {thumbUrl(item) && (
+                  <div className="relative -mx-4 -mt-4 mb-3 aspect-video overflow-hidden rounded-t-2xl border-b border-border/40 bg-muted/40">
+                    <img src={thumbUrl(item)!} alt="" loading="lazy"
+                      className="size-full object-cover"
+                      onError={(e) => { const el = e.currentTarget.parentElement; if (el) el.style.display = 'none' }} />
+                    {item.faviconUrl && (
+                      <img src={item.faviconUrl} alt="" loading="lazy"
+                        className="absolute bottom-2 left-2 size-6 rounded-md border border-border/40 bg-background/90 p-0.5 shadow-sm"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+                    )}
+                  </div>
+                )}
                 <div className="mb-2 flex items-center gap-2">
                   <Favicon item={item} />
                   <span className="truncate text-xs text-muted-foreground">{item.siteName || host(item.url)}</span>
@@ -112,13 +142,39 @@ export function ReaderLibraryPage() {
                 </div>
               </button>
               {item.canEdit && (
-                <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="absolute right-2 top-2 flex gap-1 rounded-lg bg-background/80 p-0.5 opacity-0 shadow-md ring-1 ring-border/60 backdrop-blur transition-opacity group-hover:opacity-100">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button title="Move to collection"
+                        className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><FolderOpen className="size-4" /></button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuLabel>Move to collection</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {collections.length === 0 && (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No collections yet — create one in the sidebar.</div>
+                      )}
+                      {collections.map(col => (
+                        <DropdownMenuItem key={col.id} onClick={() => moveToCollection(item, col.id)}>
+                          <FolderOpen className="size-4" />
+                          <span className="flex-1 truncate">{col.name}</span>
+                          {item.collectionId === col.id && <Check className="size-4" />}
+                        </DropdownMenuItem>
+                      ))}
+                      {item.collectionId && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => moveToCollection(item, null)}>Remove from collection</DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <a href={item.url} target="_blank" rel="noopener noreferrer" title="Open original"
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"><ExternalLink className="size-3.5" /></a>
+                    className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><ExternalLink className="size-4" /></a>
                   <button onClick={() => archive(item)} title="Archive"
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"><Archive className="size-3.5" /></button>
+                    className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><Archive className="size-4" /></button>
                   <button onClick={() => setConfirmDel(item)} title="Delete"
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-red-500/15 hover:text-red-400"><Trash2 className="size-3.5" /></button>
+                    className="rounded-md p-1.5 text-foreground/80 hover:bg-red-500/20 hover:text-red-400"><Trash2 className="size-4" /></button>
                 </div>
               )}
             </div>
