@@ -96,6 +96,7 @@ import { startFrigateMqtt } from '@/lib/frigate/mqtt'
 import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
+import { startPodGateway } from '@/lib/pod/gateway'
 import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/toolchain'
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
 import { listHealthyArchivePaths } from '@/lib/archives'
@@ -126,6 +127,10 @@ void startHomeAssistantSync()
 void startFrigateMqtt()
 maybeSpawnComfyUI()
 maybeSpawnVoiceServer()
+// Pod gateway: a Wyoming-protocol TCP listener that ESP32 satellites (and the
+// scripts/pod-test-satellite.ts harness) connect to. Reuses STT/TTS/LLM brains.
+// See plans/hardware-devices/pod-wyoming-architecture.md. Disable: POD_GATEWAY_ENABLED=0.
+startPodGateway()
 // Build the zoomed-out world basemap in the background if the maps toolchain is
 // installed but the overview hasn't been built yet (one-time, then cached).
 void maybeBuildWorldOverview()

@@ -2,35 +2,22 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { userPreferences, characters, userCharacters, conversations, messages, memories } from '@/db/schema'
+import { characters, userCharacters, conversations, messages, memories } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
-import { routePrompt } from '@/llm/router'
-import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
+import { ollamaChat } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
-import { buildBlock, extractSources } from '@/lib/blockBuilder'
-import { recallMemories, formatMemoriesForPrompt } from '@/memory/recall'
-import { getCachedMemoryBlock, setCachedMemoryBlock } from '@/memory/blockCache'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
-import { embed } from '@/llm/embed'
 import { getModel } from '@/lib/models'
 import { CATALOG } from '@/lib/catalog'
-import {
-  getProtections, getInteractionStyle,
-  buildInteractionFragment,
-  ProfanityStreamBuffer,
-} from '@/lib/protections'
-import { resolveToolConfig, isToolAllowed } from '@/lib/toolConfig'
-import { toolRegistry } from '@/tools'
-import { isFollowUp as isHAFollowUp, hasRecentContext as hasRecentHAContext } from '@/lib/homeAssistant/context'
-import { isOffline } from '@/lib/connectivity'
+import { getProtections, getInteractionStyle } from '@/lib/protections'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
-import { getLocaleSettings, buildLocalePrompt } from '@/routes/adminLocale'
+import { getLocaleSettings } from '@/routes/adminLocale'
 import {
   getCeiling, getUserCeiling, effectiveCeiling,
-  parseCharacterContent, characterGate, buildContentPrompt,
+  parseCharacterContent, characterGate,
 } from '@/lib/contentPolicy'
 import type { ContentDials } from '@/lib/contentPolicy'
-import { logger } from '@/lib/logger'
+import { runCompanionTurn, loadUserPrefs } from '@/lib/companionTurn'
 import * as genQueue from '@/lib/genQueue'
 import type { JobRunContext } from '@/lib/genQueue'
 import type { AppEnv } from '@/types'
@@ -148,7 +135,7 @@ chat.post('/stream', requireAuth, async (c) => {
   // Run getPrefs, character load, friendship lookup, locale settings, user protections,
   // and content ceilings (admin + user) in parallel
   const [prefs, charRow, existingRelation, locale, protections, interactionStyle, adminCeiling, userCeiling] = await Promise.all([
-    getPrefs(user.id),
+    loadUserPrefs(user.id),
     characterId
       ? db.select().from(characters).where(eq(characters.id, characterId)).limit(1).then(r => r[0] ?? null)
       : Promise.resolve(null),
@@ -398,257 +385,65 @@ function makeChatRun(p: ChatRunParams) {
         createdAt: new Date(),
       }).catch(() => {})
 
-      // ── Latency instrumentation ─────────────────────────────────────────────
-      const _t0 = performance.now()
-      const _lap = (label: string) => {
-        logger.info(`[CHAT-TIMING] ${label} +${(performance.now() - _t0).toFixed(0)}ms`)
-      }
-      // ────────────────────────────────────────────────────────────────────────
-
       const history: OllamaChatMessage[] = p.dbMessages.map((m) => ({
         role: m.role as 'user' | 'assistant' | 'system',
         content: m.content,
       }))
 
-      // ── Memory block (cached per conversation) ──────────────────────────────
-      let memoryBlock: string | null = null
-      const cachedMem = getCachedMemoryBlock(p.convId)
-      if (cachedMem) {
-        memoryBlock = cachedMem.memoryBlock
-        _lap('memory-done(cached)')
-      }
-
-      // ── Routing + memory in parallel ────────────────────────────────────────
-      const [routeResult, computedMemory] = await Promise.all([
-        routePrompt(p.message, history, p.model),
-        cachedMem
-          ? Promise.resolve(null as string | null)
-          : embed(p.message)
-              .then(async (embedding) => {
-                _lap('embed-done')
-                const recalled = await recallMemories(p.message, p.userId, p.characterId, embedding)
-                return formatMemoriesForPrompt(recalled, p.userId, p.characterId, embedding)
-              })
-              .catch(() => null as string | null),
-      ])
-
-      if (!cachedMem) {
-        memoryBlock = computedMemory
-        setCachedMemoryBlock(p.convId, memoryBlock)
-        _lap('memory-done(computed)')
-      }
-
-      _lap('route-done')
-      let { tool, args } = routeResult
-
-      // Home Assistant follow-ups ("I meant 20", "turn those off") carry no device
-      // keywords, so the router can't catch them. If we just ran an HA command in
-      // this conversation, treat an adjustment-shaped message as a follow-up to it.
-      if ((!tool || tool.id !== 'homeAssistant') && isHAFollowUp(p.message) && hasRecentHAContext(p.userId, p.convId)) {
-        const haTool = toolRegistry.find((t) => t.id === 'homeAssistant')
-        if (haTool) { tool = haTool; args = { text: p.message } }
-      }
-
-      if (tool && !await isToolAllowed(tool.id, p.userId)) {
-        tool = null
-        args = {}
-      }
-
-      const hasClientCoords = typeof p.clientLat === 'number' && typeof p.clientLng === 'number'
-      let ollamaMessages: OllamaChatMessage[] = [...history, { role: 'user', content: p.message }]
-
-      if (tool) {
-        ctx.emit('routing', JSON.stringify({ tool: tool.id }))
-
-        if (!tool.offline && await isOffline(p.userId)) {
-          ctx.emit('offline', JSON.stringify({ tool: tool.id }))
-          ollamaMessages = [
-            ...history,
-            { role: 'user', content: `${p.message}\n\n[${tool.name}]: Offline mode is enabled — this tool requires internet. Let the user know and suggest they enable online mode in Settings → Tools.` },
-          ]
-        } else {
-          const toolConfig = await resolveToolConfig(tool.id, p.userId)
-
-          toolConfig['_userId'] = p.userId
-          toolConfig['_isAdmin'] = p.userRole === 'admin'
-          toolConfig['_rawMessage'] = p.message
-          toolConfig['_conversationId'] = p.convId
-          toolConfig['_temperature_unit'] = p.locale.temperature
-          toolConfig['_measurement'] = p.locale.measurement
-          toolConfig['_currency'] = p.locale.currency
-
-          const userLocation = p.prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
-          if (userLocation?.displayName && !toolConfig['default_location']) {
-            toolConfig['default_location'] = userLocation.displayName
-          }
-          if (userLocation?.lat !== undefined) {
-            toolConfig['_lat'] = userLocation.lat
-            toolConfig['_lng'] = userLocation.lng
-          } else if (hasClientCoords) {
-            toolConfig['_lat'] = p.clientLat
-            toolConfig['_lng'] = p.clientLng
-          }
-
-          const result = await tool.execute(args, toolConfig)
-          _lap(`tool-execute-done(${tool.id})`)
-
-          if (result.offline) {
-            ctx.emit('offline', JSON.stringify({ tool: tool.id }))
-            ollamaMessages = [
-              ...history,
-              { role: 'user', content: `${p.message}\n\n[${tool.name}]: The service is offline or unavailable right now. Let the user know this specific tool is offline and suggest they try again later.` },
-            ]
-          } else if (result.success) {
-            ctx.emit('tool_data', JSON.stringify({ tool: tool.id, data: result.data }))
-
-            const block = buildBlock(tool.id, result.data)
-            if (block) ctx.emit('block', JSON.stringify(block))
-
-            const sources = extractSources(tool.id, result.data)
-            if (sources.length > 0) ctx.emit('sources', JSON.stringify(sources))
-
-            // ── Snappy path ──────────────────────────────────────────────────
-            // When a tool returns a finished, speakable reply (e.g. Home Assistant's
-            // own action confirmation), emit it directly and skip the LLM synthesis
-            // pass entirely. Saves the full prefill + generation round-trip.
-            if (typeof result.directReply === 'string' && result.directReply.trim()) {
-              const reply = result.directReply.trim()
-              const safeReply = p.maskProfanityActive
-                ? (await import('@/lib/protections')).maskProfanity(reply)
-                : reply
-              ctx.emit('token', safeReply)
-              const now = new Date()
-              await db.insert(messages).values({
-                id: p.assistantMessageId,
-                conversationId: p.convId,
-                role: 'assistant',
-                content: safeReply,
-                createdAt: now,
-              })
-              await db
-                .update(conversations)
-                .set({ updatedAt: now })
-                .where(eq(conversations.id, p.convId))
-              _lap(`direct-reply-done(${tool.id})`)
-              const directTitle = p.dbMessages.length === 0
-                ? (await generateConversationTitle(p.model, p.message, p.convId)) || p.convTitle
-                : p.convTitle
-              ctx.emit('done', JSON.stringify({ model: p.model, conversationId: p.convId, title: directTitle }))
-              return
-            }
-
-            const sourceList = sources.length > 0
-              ? `\n\nSources:\n${sources.map((s, i) => `[${i + 1}] ${s.title} — ${s.url}`).join('\n')}\n\nWhen referencing a specific source above, cite it inline as [1], [2], etc.`
-              : ''
-
-            ollamaMessages = [
-              ...history,
-              { role: 'user', content: `${p.message}\n\n[${tool.name} data]: ${JSON.stringify(result.data)}${sourceList}` },
-            ]
-          } else {
-            ctx.emit('tool_error', JSON.stringify({ tool: tool.id, error: result.error }))
-            ollamaMessages = [
-              ...history,
-              { role: 'user', content: `${p.message}\n\n[${tool.name} error]: ${result.error ?? 'Tool call failed'}. Acknowledge the failure briefly and suggest alternatives or next steps.` },
-            ]
-          }
-        }
-      }
-
-      // Build system prompt — keep stable across turns for Ollama KV cache reuse.
-      const _now = new Date()
-      const _date = _now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-      const _time = _now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-      const _storedLoc = p.prefs['user.location'] as { displayName?: string; lat?: number; lng?: number } | undefined
-      let _loc: string | null = _storedLoc?.displayName ?? null
-
-      if (!_loc && hasClientCoords) {
-        _loc = `coordinates ${p.clientLat!.toFixed(4)}, ${p.clientLng!.toFixed(4)}`
-        fetch(`http://localhost:${process.env.PORT ?? 3000}/api/users/${p.userId}/detect-location`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Cookie: p.cookieHeader },
-          body: JSON.stringify({ lat: p.clientLat, lng: p.clientLng }),
-        }).catch(() => {})
-      }
-
-      const _localeBlock = buildLocalePrompt(p.locale)
-
-      const systemParts: string[] = []
-      systemParts.push(await buildContentPrompt(p.activeDials))
-      systemParts.push(
-        [
-          `Today is ${_date}, and the current time is ${_time}.`,
-          p.userDisplayName ? `You are speaking with ${p.userDisplayName}.` : null,
-          _loc ? `They are located in ${_loc}.` : null,
-        ].filter(Boolean).join(' '),
-        _localeBlock,
+      // The generation pipeline (routing → tools/directReply → system prompt →
+      // LLM stream) lives in the shared runCompanionTurn so the Pod gateway reuses
+      // it verbatim. The route keeps the HTTP concerns: SSE plumbing, persistence,
+      // titles, and the `done` event.
+      const result = await runCompanionTurn(
+        {
+          userId: p.userId,
+          userRole: p.userRole,
+          userDisplayName: p.userDisplayName,
+          model: p.model,
+          options: p.options,
+          message: p.message,
+          characterId: p.characterId,
+          characterSystemPrompt: p.characterSystemPrompt,
+          uiContext: p.uiContext,
+          clientLat: p.clientLat,
+          clientLng: p.clientLng,
+          convId: p.convId,
+          history,
+          prefs: p.prefs,
+          cookieHeader: p.cookieHeader,
+          locale: p.locale,
+          interactionStyle: p.interactionStyle,
+          activeDials: p.activeDials,
+          maskProfanityActive: p.maskProfanityActive,
+        },
+        {
+          onToken: (text) => ctx.emit('token', text),
+          onEvent: (type, data) => ctx.emit(type, data),
+          signal: ctx.signal,
+        },
       )
-      if (p.characterSystemPrompt) systemParts.push(p.characterSystemPrompt)
-      if (memoryBlock) systemParts.push(memoryBlock)
-      if (p.uiContext) systemParts.push(p.uiContext)
-      // Tone (language/depth/candor). Content policy is handled by buildContentPrompt
-      // above; the legacy protection fragment is now folded into the content dials.
-      const _interactionFragment = buildInteractionFragment(p.interactionStyle)
-      if (_interactionFragment) systemParts.push(_interactionFragment)
 
-      if (systemParts.length > 0) {
-        ollamaMessages = [{ role: 'system', content: systemParts.join('\n\n') }, ...ollamaMessages]
-      }
+      // Cancelled mid-stream: original behavior persisted nothing and emitted no
+      // `done`. Preserve that.
+      if (!result.completed) return
 
-      const _ctxChars = ollamaMessages.reduce((n, m) => n + m.content.length, 0)
-      _lap(`stream-start msgs=${ollamaMessages.length} ~${Math.ceil(_ctxChars / 4)}tok`)
-      let fullResponse = ''
-      let firstToken = true
-      const profanityBuf = p.maskProfanityActive ? new ProfanityStreamBuffer() : null
+      const now = new Date()
+      await db.insert(messages).values({
+        id: p.assistantMessageId,
+        conversationId: p.convId,
+        role: 'assistant',
+        content: result.text,
+        createdAt: now,
+      })
+      await db
+        .update(conversations)
+        .set({ updatedAt: now })
+        .where(eq(conversations.id, p.convId))
 
-      for await (const chunk of ollamaChatStream(p.model, ollamaMessages, p.options)) {
-        // Respect explicit cancel signals
-        if (ctx.signal.aborted) break
-
-        if (chunk.message.content) {
-          if (firstToken) { _lap('first-token'); firstToken = false }
-          const raw = chunk.message.content
-          fullResponse += raw
-          const emitted = profanityBuf ? profanityBuf.flush(raw) : raw
-          if (emitted) ctx.emit('token', emitted)
-        }
-        if (chunk.done) {
-          // Drain any partial word left in the profanity buffer
-          if (profanityBuf) {
-            const tail = profanityBuf.drain()
-            if (tail) ctx.emit('token', tail)
-          }
-
-          const pe = chunk.prompt_eval_count ?? '?'
-          const ec = chunk.eval_count ?? '?'
-          const loadMs = chunk.load_duration ? Math.round(chunk.load_duration / 1e6) : 0
-          const peMs = chunk.prompt_eval_duration === undefined ? '?' :
-                       chunk.prompt_eval_duration === 0 ? '0(cached)' :
-                       Math.round(chunk.prompt_eval_duration / 1e6)
-          const totalMs = chunk.total_duration ? Math.round(chunk.total_duration / 1e6) : '?'
-          _lap(`llm-done prompt_eval=${pe} gen=${ec} load=${loadMs}ms prefill=${peMs}ms total=${totalMs}ms`)
-
-          const now = new Date()
-          await db.insert(messages).values({
-            id: p.assistantMessageId,
-            conversationId: p.convId,
-            role: 'assistant',
-            content: p.maskProfanityActive
-              ? (await import('@/lib/protections')).maskProfanity(fullResponse)
-              : fullResponse,
-            createdAt: now,
-          })
-          await db
-            .update(conversations)
-            .set({ updatedAt: now })
-            .where(eq(conversations.id, p.convId))
-
-          const finalTitle = p.dbMessages.length === 0
-            ? (await generateConversationTitle(p.model, p.message, p.convId)) || p.convTitle
-            : p.convTitle
-          ctx.emit('done', JSON.stringify({ model: p.model, conversationId: p.convId, title: finalTitle }))
-        }
-      }
+      const finalTitle = p.dbMessages.length === 0
+        ? (await generateConversationTitle(p.model, p.message, p.convId)) || p.convTitle
+        : p.convTitle
+      ctx.emit('done', JSON.stringify({ model: p.model, conversationId: p.convId, title: finalTitle }))
 
       // Memory extraction is handled out-of-band by the background sweep.
     } catch (err) {
@@ -685,20 +480,6 @@ async function generateConversationTitle(model: string, message: string, convId:
   } catch {
     return ''
   }
-}
-
-async function getPrefs(userId: string): Promise<Record<string, unknown>> {
-  const rows = await db.select().from(userPreferences).where(eq(userPreferences.userId, userId))
-  const out: Record<string, unknown> = {}
-  for (const r of rows) {
-    // Guard each parse: one malformed preference row must not 500 the whole stream.
-    try {
-      out[r.key] = JSON.parse(r.value)
-    } catch {
-      // skip the bad row; the caller falls back to defaults for a missing key
-    }
-  }
-  return out
 }
 
 function truncateTitle(text: string, maxLen = 50): string {

@@ -26,7 +26,7 @@ shell) is named explicitly.
 
 | Requirement | How it's met |
 | --- | --- |
-| Wake word, on-device | openWakeWord TFLite-Micro on the ESP32-S3 |
+| Wake word | Default: stream audio to the Host, openWakeWord runs **server-side**. On-device option: **microWakeWord** on the ESP32-S3 (openWakeWord is too large for an ESP32) |
 | Audio responses | I2S speaker; Host streams PCM back (`0x20` frames) |
 | Wireless | 2.4 GHz Wi-Fi + BLE 5 (BLE for provisioning) |
 | Unprompted responses (alarms/timers) | See *Unprompted-response mechanism* |
@@ -230,9 +230,10 @@ a no-print job; where only a custom cradle fits, order it from a print service.
 | Wider watch (vision) | M5Stack Tab5 (or 2.8"+OV2640) | ~$55 (~$30) | 5" (2.8") | ✅ | ✅ | ✅ | ✅ | ✅ (stock box) |
 
 **Common firmware base:** ESP32-S3 / ESP32-P4 (Tab5 and the P4-WIFI6 HMIs use
-ESP32-P4 + an ESP32-C6 for Wi-Fi 6) + PSRAM, openWakeWord
-TFLite-Micro, WebRTC-VAD, the binary WebSocket Pod protocol, BLE provisioning,
-OTA. Watches add RTC-backed local alarm scheduling; Dot/Show rely on the
+ESP32-P4 + an ESP32-C6 for Wi-Fi 6) + PSRAM, server-side openWakeWord (Pod
+streams audio) or on-device **microWakeWord**, WebRTC-VAD, the Wyoming satellite
+protocol (see `plans/hardware-devices/pod-wyoming-architecture.md`), BLE
+provisioning, OTA. Watches add RTC-backed local alarm scheduling; Dot/Show rely on the
 persistent Host connection for unprompted responses. The wall tablet is the one
 exception — a browser **Client** with no firmware, paired with an Atom Echo Pod
 for hands-free wake. So the whole lineup is just two things a non-technical user
