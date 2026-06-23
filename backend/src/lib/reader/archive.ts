@@ -8,8 +8,9 @@
 import { eq } from 'drizzle-orm'
 import { join } from 'node:path'
 import { readFile, rm } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
 import { db } from '@/db'
-import { readerItems } from '@/db/schema'
+import { readerItems, notifications } from '@/db/schema'
 import { capturePage } from '@/lib/reader/snapshot'
 import { renderPage } from '@/lib/reader/render'
 import { dataDir } from '@/lib/download'
@@ -17,6 +18,13 @@ import type { DownloadProgress } from '@/lib/download'
 
 // Where POST /reader/:id/snapshot stashes the browser-rendered HTML for the job to pick up.
 export const renderedHtmlPath = (itemId: string) => join(dataDir, 'tmp', `reader-render-${itemId}.html`)
+
+// Change-detection fingerprint: hash the reader-extracted plaintext with whitespace collapsed,
+// so cosmetic reflowing (re-wrapped lines, extra blank lines) doesn't read as a content change.
+function contentFingerprint(text: string | null | undefined): string {
+  const normalized = (text ?? '').replace(/\s+/g, ' ').trim()
+  return createHash('sha256').update(normalized).digest('hex')
+}
 
 export async function runArchiveArticleJob(
   readerItemId: string,
@@ -58,6 +66,13 @@ export async function runArchiveArticleJob(
     }, { renderedHtml, screenshotPng })
     const a = snap.reader
 
+    // Change detection: compare the new fingerprint against the one stored at the previous
+    // capture. A change only counts when there *was* a prior hash (so the first archive — and
+    // any backfill of an item that never had one — never reads as "changed").
+    const now = new Date()
+    const newHash = contentFingerprint(a.contentText)
+    const changed = !!item.contentHash && item.contentHash !== newHash
+
     await db.update(readerItems)
       .set({
         title: item.title || a.title || item.url,
@@ -72,13 +87,35 @@ export async function runArchiveArticleJob(
         ogImagePath: snap.thumbRel, // archive-relative thumbnail path (served via /archive/<thumbRel>)
         // Locally-saved favicon (offline-capable) when found; else keep the probe's remote one.
         faviconUrl: snap.faviconRel ? `/api/reader/${readerItemId}/archive/${snap.faviconRel}` : item.faviconUrl,
-        type: 'offline',
+        // Preserve the item's kind: a live bookmark stays "live" (still embeds in the reader)
+        // even though we now hold an offline snapshot for diffing. The manual "Save offline" /
+        // re-archive flows set type='offline' on the row *before* enqueueing, so those still win.
+        type: item.type,
+        contentHash: newHash,
+        lastCheckedAt: now,
+        contentChangedAt: changed ? now : item.contentChangedAt,
         archiveState: 'ready',
         archiveError: null,
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(eq(readerItems.id, readerItemId))
-    onProgress({ completed: 1, total: 1, speedBps: 0, etaSeconds: 0, note: `Done · ${snap.assetCount} assets` })
+
+    // Alert the owner when an auto-monitored page actually changed. Reuses the existing
+    // in-app notification badge (type 'system' → renders payload.message in the bell menu).
+    if (changed && item.alertOnChange && item.ownerId) {
+      await db.insert(notifications).values({
+        id: randomUUID(),
+        userId: item.ownerId,
+        type: 'system',
+        payload: JSON.stringify({
+          message: `"${item.title || a.title || item.url}" changed`,
+          kind: 'reader-change',
+          itemId: readerItemId,
+        }),
+        createdAt: now,
+      })
+    }
+    onProgress({ completed: 1, total: 1, speedBps: 0, etaSeconds: 0, note: `Done · ${snap.assetCount} assets${changed ? ' · changed' : ''}` })
   } catch (err) {
     // Mark failed for the UI; rethrow so the queue retries transient errors. A later
     // successful retry flips archive_state back to 'ready'.

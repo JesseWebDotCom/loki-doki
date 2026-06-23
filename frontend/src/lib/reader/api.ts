@@ -31,6 +31,11 @@ export interface ReaderItem {
   useEmbed: boolean
   category: string
   collectionId: string | null
+  autoUpdate: boolean
+  autoUpdateIntervalMins: number | null
+  alertOnChange: boolean
+  lastCheckedAt: string | null
+  contentChangedAt: string | null
   createdAt: string
   updatedAt: string
   tags: string[]
@@ -81,7 +86,7 @@ export async function createItem(body: CreateBody): Promise<ReaderItem> {
   return (await res.json()).item
 }
 
-export async function updateItem(id: string, body: Partial<{ title: string; status: ReaderStatus; collectionId: string | null; tags: string[]; category: string; useProxy: boolean; useEmbed: boolean }>): Promise<void> {
+export async function updateItem(id: string, body: Partial<{ title: string; status: ReaderStatus; collectionId: string | null; tags: string[]; category: string; useProxy: boolean; useEmbed: boolean; autoUpdate: boolean; autoUpdateIntervalMins: number | null; alertOnChange: boolean }>): Promise<void> {
   const res = await fetch(`/api/reader/${id}`, { ...opts, method: 'PATCH', headers: J, body: JSON.stringify(body) })
   if (!res.ok) throw new Error('Failed to update')
 }

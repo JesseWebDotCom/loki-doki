@@ -1128,26 +1128,65 @@ export function runMigrations() {
       PRIMARY KEY (item_id, tag_id)
     );
 
-    -- FTS5 over reader_items (external-content), kept in sync by triggers.
+    -- FTS5 over reader_items (external-content), kept in sync by triggers. url is indexed
+    -- so domain searches (e.g. amazon) match a saved link by its address, not just title.
     CREATE VIRTUAL TABLE IF NOT EXISTS reader_items_fts USING fts5(
-      title, excerpt, content_text,
+      title, excerpt, content_text, url,
       content='reader_items', content_rowid='rowid'
     );
     CREATE TRIGGER IF NOT EXISTS reader_items_ai AFTER INSERT ON reader_items BEGIN
-      INSERT INTO reader_items_fts(rowid, title, excerpt, content_text)
-        VALUES (new.rowid, new.title, new.excerpt, new.content_text);
+      INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
+        VALUES (new.rowid, new.title, new.excerpt, new.content_text, new.url);
     END;
     CREATE TRIGGER IF NOT EXISTS reader_items_ad AFTER DELETE ON reader_items BEGIN
-      INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text)
-        VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text);
+      INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text, url)
+        VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text, old.url);
     END;
     CREATE TRIGGER IF NOT EXISTS reader_items_au AFTER UPDATE ON reader_items BEGIN
-      INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text)
-        VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text);
-      INSERT INTO reader_items_fts(rowid, title, excerpt, content_text)
-        VALUES (new.rowid, new.title, new.excerpt, new.content_text);
+      INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text, url)
+        VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text, old.url);
+      INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
+        VALUES (new.rowid, new.title, new.excerpt, new.content_text, new.url);
     END;
   `)
+
+  // reader_items_fts gained a `url` column (so global/Reader search matches links by domain).
+  // Existing DBs created the FTS table before url existed; CREATE ... IF NOT EXISTS skipped the
+  // new definition, so rebuild + repopulate once when the column is absent. Guarded/idempotent.
+  try {
+    const ftsCols = sqlite.query(`PRAGMA table_info(reader_items_fts);`).all() as Array<{ name: string }>
+    if (ftsCols.length > 0 && !ftsCols.some((c) => c.name === 'url')) {
+      sqlite.exec(`
+        DROP TRIGGER IF EXISTS reader_items_ai;
+        DROP TRIGGER IF EXISTS reader_items_ad;
+        DROP TRIGGER IF EXISTS reader_items_au;
+        DROP TABLE IF EXISTS reader_items_fts;
+        CREATE VIRTUAL TABLE reader_items_fts USING fts5(
+          title, excerpt, content_text, url,
+          content='reader_items', content_rowid='rowid'
+        );
+        INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
+          SELECT rowid, title, excerpt, content_text, url FROM reader_items;
+        CREATE TRIGGER reader_items_ai AFTER INSERT ON reader_items BEGIN
+          INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
+            VALUES (new.rowid, new.title, new.excerpt, new.content_text, new.url);
+        END;
+        CREATE TRIGGER reader_items_ad AFTER DELETE ON reader_items BEGIN
+          INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text, url)
+            VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text, old.url);
+        END;
+        CREATE TRIGGER reader_items_au AFTER UPDATE ON reader_items BEGIN
+          INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text, url)
+            VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text, old.url);
+          INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
+            VALUES (new.rowid, new.title, new.excerpt, new.content_text, new.url);
+        END;
+      `)
+      console.warn('[migrations] rebuilt reader_items_fts with url column')
+    }
+  } catch (err) {
+    console.warn('[migrations] reader_items_fts url rebuild failed:', err instanceof Error ? err.message : err)
+  }
 
   // icon/color added to reader_collections after its initial inline CREATE; back-fill for
   // existing DBs so the collection editor (name/icon/color) can read/write them.

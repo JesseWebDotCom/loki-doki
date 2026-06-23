@@ -43,6 +43,7 @@ import { bookmarks } from '@/routes/bookmarks'
 import { adminBookmarks } from '@/routes/adminBookmarks'
 import { reader } from '@/routes/reader'
 import { adminReader } from '@/routes/adminReader'
+import { searchRouter } from '@/routes/search'
 import { appFeatures } from '@/routes/appFeatures'
 import { adminBriefing } from '@/routes/adminBriefing'
 import { maps } from '@/routes/maps'
@@ -158,6 +159,9 @@ startYtdlpAutoUpdate()
 // Reader capture engine: resolve (and if needed download) a headless Chromium ahead of the
 // first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
 import('@/lib/reader/render').then((m) => m.ensureChromium()).catch(() => {})
+// Reader auto-update: periodically re-archive items the user marked for monitoring, and alert
+// on content changes. Rides the download queue, so it's bounded the same way archiving is.
+import('@/lib/reader/autoUpdate').then((m) => m.startReaderAutoUpdatePoller()).catch(() => {})
 
 // Unload Ollama models on shutdown so they don't linger in VRAM between sessions.
 async function unloadOllamaModels() {
@@ -246,6 +250,7 @@ app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
 app.route('/api/reader', reader)
 app.route('/api/admin/reader', adminReader)
+app.route('/api/search', searchRouter)
 app.route('/api/app-features', appFeatures)
 app.route('/api/admin/briefing', adminBriefing)
 app.route('/api/maps', maps)

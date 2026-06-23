@@ -520,10 +520,17 @@ readerRouter.patch('/:id', requireAuth, async (c) => {
   const body = await c.req.json<Partial<{
     title: string; status: 'unread' | 'reading' | 'archived'; collectionId: string | null
     tags: string[]; category: string; useProxy: boolean; useEmbed: boolean; sortOrder: number
+    autoUpdate: boolean; autoUpdateIntervalMins: number | null; alertOnChange: boolean
   }>>()
   const existing = await db.select().from(readerItems)
     .where(and(eq(readerItems.id, id), eq(readerItems.ownerId, user.id))).then((r) => r[0])
   if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  const autoUpdate = body.autoUpdate !== undefined ? body.autoUpdate : existing.autoUpdate
+  // Turning monitoring ON for an item we've never captured: kick an immediate baseline archive
+  // so there's a fingerprint to diff against (and the first poll isn't a full interval away).
+  const turnedOn = autoUpdate && !existing.autoUpdate
+  const needsBaseline = turnedOn && !existing.contentHash
 
   await db.update(readerItems).set({
     title: body.title !== undefined ? body.title.trim() : existing.title,
@@ -534,10 +541,17 @@ readerRouter.patch('/:id', requireAuth, async (c) => {
     useProxy: body.useProxy !== undefined ? body.useProxy : existing.useProxy,
     useEmbed: body.useEmbed !== undefined ? body.useEmbed : existing.useEmbed,
     sortOrder: body.sortOrder !== undefined ? body.sortOrder : existing.sortOrder,
+    autoUpdate,
+    autoUpdateIntervalMins: body.autoUpdateIntervalMins !== undefined ? body.autoUpdateIntervalMins : existing.autoUpdateIntervalMins,
+    alertOnChange: body.alertOnChange !== undefined ? body.alertOnChange : existing.alertOnChange,
+    // Stamp lastCheckedAt when enabling so the poller waits a full interval before the *next*
+    // refresh (the baseline below covers "now"). Clear it when disabling.
+    lastCheckedAt: turnedOn ? new Date() : (autoUpdate ? existing.lastCheckedAt : null),
     updatedAt: new Date(),
   }).where(eq(readerItems.id, id))
 
   if (body.tags !== undefined) await setItemTags(id, await resolveTagIds(user.id, body.tags))
+  if (needsBaseline) await enqueueArchiveArticle(id, existing.title || existing.url, { force: true })
   return c.json({ ok: true })
 })
 

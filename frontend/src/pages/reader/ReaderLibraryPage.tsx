@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Globe, FileText, Bookmark, Loader2, Trash2, Archive, ExternalLink, AlertTriangle, FolderOpen, Check } from 'lucide-react'
+import { Globe, FileText, Bookmark, Loader2, Trash2, Archive, ExternalLink, AlertTriangle, FolderOpen, Check, Pencil } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -10,7 +10,10 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
-import { listItems, deleteItem, updateItem, listCollections, type ReaderItem, type ListParams } from '@/lib/reader/api'
+import { ReaderEditDialog } from '@/components/reader/ReaderEditDialog'
+import { getIconChoice } from '@/components/shared/IconPicker'
+import { resolveProjectColor } from '@/components/shared/ColorPicker'
+import { listItems, deleteItem, updateItem, listCollections, type ReaderItem, type ReaderCollection, type ListParams } from '@/lib/reader/api'
 
 function Favicon({ item }: { item: ReaderItem }) {
   if (item.faviconUrl) {
@@ -43,6 +46,18 @@ function ArchiveBadge({ item }: { item: ReaderItem }) {
   return <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300"><FileText className="size-3" />{item.readingMins || 1} min</span>
 }
 
+// The collection an item belongs to, rendered with the collection's chosen icon/color.
+function CollectionChip({ collection }: { collection: ReaderCollection }) {
+  const Icon = getIconChoice(collection.icon)?.Icon ?? FolderOpen
+  const color = collection.color ? resolveProjectColor(collection.color) : undefined
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-accent/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <Icon className="size-3" style={color ? { color } : undefined} />
+      {collection.name}
+    </span>
+  )
+}
+
 export function ReaderLibraryPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -50,6 +65,7 @@ export function ReaderLibraryPage() {
   const { id: collectionParam } = useParams()
   const [search, setSearch] = useState('')
   const [confirmDel, setConfirmDel] = useState<ReaderItem | null>(null)
+  const [editItem, setEditItem] = useState<ReaderItem | null>(null)
 
   const filters: ListParams = useMemo(() => ({
     status: (params.get('status') as ListParams['status']) || undefined,
@@ -60,6 +76,7 @@ export function ReaderLibraryPage() {
   }), [params, collectionParam, search])
 
   const { data: collections = [] } = useQuery({ queryKey: ['reader-collections'], queryFn: listCollections })
+  const collById = useMemo(() => new Map(collections.map(c => [c.id, c])), [collections])
 
   async function moveToCollection(item: ReaderItem, collectionId: string | null) {
     await updateItem(item.id, { collectionId })
@@ -136,8 +153,11 @@ export function ReaderLibraryPage() {
                 </div>
                 <p className="mb-2 line-clamp-2 font-semibold leading-snug">{item.title || item.url}</p>
                 {item.excerpt && <p className="mb-3 line-clamp-2 text-sm text-muted-foreground">{item.excerpt}</p>}
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <ArchiveBadge item={item} />
+                  {item.collectionId && item.collectionId !== collectionParam && collById.has(item.collectionId) && (
+                    <CollectionChip collection={collById.get(item.collectionId)!} />
+                  )}
                   {item.tags.slice(0, 2).map(t => <span key={t} className="rounded-full bg-accent/60 px-2 py-0.5 text-[10px] text-muted-foreground">{t}</span>)}
                 </div>
               </button>
@@ -169,6 +189,8 @@ export function ReaderLibraryPage() {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  <button onClick={() => setEditItem(item)} title="Edit"
+                    className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><Pencil className="size-4" /></button>
                   <a href={item.url} target="_blank" rel="noopener noreferrer" title="Open original"
                     className="rounded-md p-1.5 text-foreground/80 hover:bg-accent hover:text-foreground"><ExternalLink className="size-4" /></a>
                   <button onClick={() => archive(item)} title="Archive"
@@ -181,6 +203,8 @@ export function ReaderLibraryPage() {
           ))}
         </div>
       )}
+
+      <ReaderEditDialog item={editItem} open={!!editItem} onClose={() => setEditItem(null)} />
 
       <ConfirmDialog
         open={!!confirmDel}

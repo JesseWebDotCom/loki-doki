@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { toast } from '@/lib/toast'
 import { ArticleReader } from '@/components/shared/ArticleReader'
 import { ReaderAIPanel } from '@/components/reader/ReaderAIPanel'
+import { ReaderAutoUpdateMenu } from '@/components/reader/ReaderAutoUpdateMenu'
 import { getItem, updateItem, rearchiveItem } from '@/lib/reader/api'
 
 export function ReaderReadPage() {
@@ -73,6 +74,12 @@ export function ReaderReadPage() {
       )}
       {item.type === 'offline' && item.canEdit && (
         <Button variant="ghost" size="icon-sm" onClick={reArchive} title="Re-archive"><RotateCw className="size-4" /></Button>
+      )}
+      {item.canEdit && (
+        <ReaderAutoUpdateMenu item={item} onChanged={() => {
+          qc.invalidateQueries({ queryKey: ['reader-item', id] })
+          qc.invalidateQueries({ queryKey: ['reader-items'] })
+        }} />
       )}
       {item.canEdit && (
         <Button variant="ghost" size="icon-sm" onClick={toggleArchive} title={item.status === 'archived' ? 'Unarchive' : 'Archive'}><Archive className="size-4" /></Button>

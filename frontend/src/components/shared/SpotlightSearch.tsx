@@ -1,23 +1,22 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Dialog as RadixDialog } from "radix-ui";
 import {
   Search,
   Home,
-  MessageCircle,
   Sparkles,
-  Map,
-  Cloud,
-  Camera,
-  Clapperboard,
+  BookOpen,
   Globe,
-  LayoutGrid,
-  Lightbulb,
+  Package,
+  Play,
+  Newspaper,
+  Mic,
   type LucideIcon,
 } from "lucide-react";
 import { Dialog, DialogPortal, DialogOverlay, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import { categoryVisual } from "@/lib/archiveCategories";
+import { APP_GROUPS } from "@/lib/appCategories";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,26 +36,52 @@ interface LibraryItem {
   faviconUrl: string | null;
 }
 
-type SearchResult = NavItem | LibraryItem;
+// Mirrors backend SearchHit (routes/search.ts).
+interface ContentHit {
+  kind: "content";
+  type: "reader" | "news" | "bookmark" | "companion" | "device" | "youtube" | "podcast";
+  id: string;
+  title: string;
+  subtitle: string | null;
+  icon: string | null;
+  route: string;
+  group: string;
+}
+
+type SearchResult = NavItem | LibraryItem | ContentHit;
 
 // ── Static nav data ──────────────────────────────────────────────────────────
+//
+// The app list is derived from the canonical APP_GROUPS registry so every app is launchable
+// (the old hardcoded list of 10 missed News, YouTube, Home Inventory, Reader, and more). A few
+// destinations that live outside the category grid are prepended by hand.
+
+const EXTRA_NAV: NavItem[] = [
+  { kind: "nav", label: "Home",       href: "/",           icon: Home },
+  { kind: "nav", label: "Companions", href: "/companions", icon: Sparkles },
+];
 
 const NAV_ITEMS: NavItem[] = [
-  { kind: "nav", label: "Home",       href: "/",           icon: Home },
-  { kind: "nav", label: "Chat",       href: "/chat",       icon: MessageCircle },
-  { kind: "nav", label: "I'm Bored",  href: "/bored",      icon: Lightbulb },
-  { kind: "nav", label: "Characters", href: "/characters", icon: Sparkles },
-  { kind: "nav", label: "Categories", href: "/categories", icon: LayoutGrid },
-  { kind: "nav", label: "Maps",       href: "/maps",       icon: Map },
-  { kind: "nav", label: "Weather",    href: "/weather",    icon: Cloud },
-  { kind: "nav", label: "Imaging",    href: "/imaging",    icon: Camera },
-  { kind: "nav", label: "Video",      href: "/video",      icon: Clapperboard },
-  { kind: "nav", label: "Links",      href: "/links",      icon: Globe },
+  ...EXTRA_NAV,
+  ...APP_GROUPS.flatMap((g) =>
+    g.apps.map((a): NavItem => ({ kind: "nav", label: a.label, href: a.to, icon: a.icon })),
+  ),
 ];
+
+// Fallback glyph per content type when a hit has no image icon.
+const CONTENT_ICON: Record<ContentHit["type"], LucideIcon> = {
+  reader: BookOpen,
+  news: Newspaper,
+  bookmark: Globe,
+  companion: Sparkles,
+  device: Package,
+  youtube: Play,
+  podcast: Mic,
+};
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
 
-// ── Result row ───────────────────────────────────────────────────────────────
+// ── Result rows ──────────────────────────────────────────────────────────────
 
 function NavRow({ item, selected, onSelect, onHover }: {
   item: NavItem;
@@ -80,6 +105,46 @@ function NavRow({ item, selected, onSelect, onHover }: {
         <item.icon className="size-3.5" />
       </div>
       {item.label}
+    </button>
+  );
+}
+
+function ContentRow({ item, selected, onSelect, onHover }: {
+  item: ContentHit;
+  selected: boolean;
+  onSelect: () => void;
+  onHover: () => void;
+}) {
+  const [iconOk, setIconOk] = useState(true);
+  const Fallback = CONTENT_ICON[item.type];
+
+  return (
+    <button
+      onClick={onSelect}
+      onMouseEnter={onHover}
+      className={cn(
+        "flex w-[calc(100%-8px)] mx-1 items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+        selected ? "bg-foreground/8 text-foreground" : "text-foreground/60",
+      )}
+    >
+      <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-foreground/5 overflow-hidden">
+        {item.icon && iconOk ? (
+          <img
+            src={item.icon}
+            className="size-4 object-contain"
+            alt=""
+            onError={() => setIconOk(false)}
+          />
+        ) : (
+          <Fallback className="size-3.5" />
+        )}
+      </div>
+      <span className="flex-1 min-w-0 text-left">
+        <span className="block truncate">{item.title}</span>
+        {item.subtitle && (
+          <span className="block truncate text-xs text-foreground/35">{item.subtitle}</span>
+        )}
+      </span>
     </button>
   );
 }
@@ -140,6 +205,7 @@ export function SpotlightSearch() {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [archives, setArchives] = useState<LibraryItem[]>([]);
+  const [content, setContent] = useState<ContentHit[]>([]);
   const navigate = useNavigate();
 
   // Fetch archives once per dialog open
@@ -164,6 +230,35 @@ export function SpotlightSearch() {
 
   const q = query.trim().toLowerCase();
 
+  // Debounced content search across the user's saved items (Reader, links, companions, home
+  // inventory, YouTube). An aborter cancels the in-flight request whenever the query changes.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (q.length < 2) {
+      setContent([]);
+      abortRef.current?.abort();
+      return;
+    }
+    const ctrl = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = ctrl;
+    const t = setTimeout(() => {
+      fetch(`/api/search?q=${encodeURIComponent(q)}`, { credentials: "include", signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((d) => {
+          setContent(
+            (d.hits ?? []).map((h: Record<string, unknown>) => ({ kind: "content" as const, ...h }))
+          );
+        })
+        .catch(() => {});
+    }, 180);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q, open]);
+
   const filteredNav = q === ""
     ? NAV_ITEMS
     : NAV_ITEMS.filter((item) => item.label.toLowerCase().includes(q));
@@ -178,7 +273,20 @@ export function SpotlightSearch() {
         )
         .slice(0, 8);
 
-  const allResults: SearchResult[] = [...filteredNav, ...filteredLibraries];
+  // Group content hits by their backend `group`, preserving first-seen (provider) order.
+  const contentGroups: { group: string; hits: ContentHit[] }[] = [];
+  for (const hit of content) {
+    let g = contentGroups.find((x) => x.group === hit.group);
+    if (!g) { g = { group: hit.group, hits: [] }; contentGroups.push(g); }
+    g.hits.push(hit);
+  }
+
+  // Flat list drives keyboard navigation; section render walks the same order.
+  const allResults: SearchResult[] = [
+    ...filteredNav,
+    ...contentGroups.flatMap((g) => g.hits),
+    ...filteredLibraries,
+  ];
   const isEmpty = allResults.length === 0;
 
   // Keyboard global toggle
@@ -197,6 +305,7 @@ export function SpotlightSearch() {
     if (!open) return;
     setQuery("");
     setSelectedIndex(0);
+    setContent([]);
   }, [open]);
 
   useEffect(() => {
@@ -206,7 +315,8 @@ export function SpotlightSearch() {
   const select = useCallback(
     (item: SearchResult) => {
       if (item.kind === "nav") navigate(item.href);
-      else navigate(`/read/${item.sourceId}`);
+      else if (item.kind === "library") navigate(`/read/${item.sourceId}`);
+      else navigate(item.route);
       setOpen(false);
     },
     [navigate]
@@ -253,7 +363,7 @@ export function SpotlightSearch() {
                   select(allResults[selectedIndex]);
                 }
               }}
-              placeholder="Search apps and libraries..."
+              placeholder="Search apps, articles, links, and libraries..."
               className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/30"
             />
             <kbd className="inline-flex items-center rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/25 leading-none">
@@ -287,17 +397,42 @@ export function SpotlightSearch() {
                   </>
                 )}
 
+                {/* Content sections (Saved Articles, Links, Companions, …) */}
+                {contentGroups.map((cg) => {
+                  // Running offset = nav + all hits in earlier content groups.
+                  const earlier = contentGroups
+                    .slice(0, contentGroups.indexOf(cg))
+                    .reduce((n, g) => n + g.hits.length, 0);
+                  const base = filteredNav.length + earlier;
+                  return (
+                    <div key={cg.group}>
+                      <p className="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-foreground/25">
+                        {cg.group}
+                      </p>
+                      {cg.hits.map((hit, i) => {
+                        const idx = base + i;
+                        return (
+                          <ContentRow
+                            key={`${hit.type}:${hit.id}`}
+                            item={hit}
+                            selected={idx === selectedIndex}
+                            onSelect={() => select(hit)}
+                            onHover={() => setSelectedIndex(idx)}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
                 {/* Libraries section */}
                 {filteredLibraries.length > 0 && (
                   <>
-                    <p className={cn(
-                      "px-4 pb-1 text-[11px] font-medium uppercase tracking-wider text-foreground/25",
-                      filteredNav.length > 0 ? "pt-3" : "pt-2",
-                    )}>
+                    <p className="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-foreground/25">
                       Libraries
                     </p>
                     {filteredLibraries.map((item, i) => {
-                      const idx = filteredNav.length + i;
+                      const idx = filteredNav.length + content.length + i;
                       return (
                         <LibraryRow
                           key={item.sourceId}

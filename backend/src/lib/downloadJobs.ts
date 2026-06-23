@@ -366,14 +366,19 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
 }
 
 /** Enqueue an offline article archive for a reader_items row. Idempotent per item id;
- *  a failed/cancelled prior job is reset to pending. domain='local' serializes fetches. */
-export async function enqueueArchiveArticle(readerItemId: string, label: string): Promise<void> {
+ *  a failed/cancelled prior job is reset to pending. domain='local' serializes fetches.
+ *  Pass { force } for recurring auto-updates: a prior *completed* job is also reset so the
+ *  page is re-fetched (without force, a one-shot archive never re-runs). A running job is
+ *  never disturbed. */
+export async function enqueueArchiveArticle(readerItemId: string, label: string, opts: { force?: boolean } = {}): Promise<void> {
   const now = new Date()
   const existing = await db.select().from(downloadJobs)
     .where(and(eq(downloadJobs.type, 'archive-article'), eq(downloadJobs.refId, readerItemId)))
     .then((r) => r[0])
   if (existing) {
-    if (existing.status === 'failed' || existing.status === 'cancelled') {
+    const reset = existing.status === 'failed' || existing.status === 'cancelled' ||
+      (opts.force && existing.status === 'completed')
+    if (reset) {
       await db.update(downloadJobs)
         .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: now })
         .where(eq(downloadJobs.id, existing.id))
