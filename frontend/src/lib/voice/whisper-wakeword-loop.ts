@@ -153,6 +153,9 @@ export class WhisperWakewordLoop {
   private handleFinal(text: string): void {
     const norm = normalizePhrase(text)
     const idx = this.matchIndex(norm)
+    // Log EVERY final transcript + whether it matched, so a "didn't register" wake is
+    // visible: we see exactly what Whisper heard vs the phrase it's matching against.
+    console.info(`[wakeword/whisper] heard "${text}" → norm="${norm}" wants="${this.normalizedPhrase}" match=${idx >= 0}`)
     if (idx >= 0) {
       this.fireWakeIfMatch(text) // no-op if the partial already fired it (suppressed)
       const command = norm.slice(idx + this.normalizedPhrase.length).trim()

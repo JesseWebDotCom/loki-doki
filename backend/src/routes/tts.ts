@@ -52,7 +52,7 @@ tts.post('/stream', requireAuth, async (c) => {
     if (!character) return c.json({ code: 'character_not_found' }, 404)
   }
   // Per-character expressiveness (0–1) scales how far prosody swings from neutral.
-  const expr = character?.expressiveness != null ? clamp(character.expressiveness, 0, 1) : 0.6
+  const expr = character?.expressiveness != null ? clamp(character.expressiveness, 0, 1) : 0.9
   const rateScale = 1 + (rateScaleReq - 1) * expr
   const gain = 1 + (gainReq - 1) * expr
 
@@ -107,7 +107,6 @@ tts.post('/stream', requireAuth, async (c) => {
           controller.enqueue(encoder.encode(JSON.stringify(payload) + '\n'))
           if (i === 0) {
             logger.info(`[TTS-TIMING] first-audio +${(performance.now() - _t0).toFixed(0)}ms synth=${(performance.now() - _s).toFixed(0)}ms voice=${engineId}:${voiceId} sentences=${sentences.length}`)
-            logger.info(`[TTS-PROSODY] rateScale=${rateScale.toFixed(3)} gain=${gain.toFixed(3)} base=${baseRate} finalRate=${speechRate.toFixed(3)}`)
           }
         }
         if (!signal.aborted) controller.enqueue(encoder.encode(JSON.stringify({ done: true }) + '\n'))

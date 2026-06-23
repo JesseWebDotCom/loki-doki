@@ -34,24 +34,35 @@ export function useCompanionVoice(opts: {
 }) {
   const { text, streaming, characterId, voiceOn } = opts
   const consumed = useRef(0)
+  const prevText = useRef('')
   const prevStreaming = useRef(false)
+  // The tone (rate/gain) established by the first sentiment-bearing sentence of a reply,
+  // carried across its later neutral sentences so the WHOLE reply is shaded.
+  const replyTone = useRef<{ rateScale: number; gain: number } | null>(null)
 
   // Stop any in-flight TTS/audio when the component unmounts so the singleton
   // playback doesn't keep streaming and playing mid-utterance after teardown.
-  useEffect(() => () => { stopSpeech() }, [])
+  useEffect(() => () => { if (import.meta.env.DEV) console.log('[VOICE] stop: hook UNMOUNT'); stopSpeech() }, [])
 
-  // A new generation started: reset cursors and stop any prior audio.
+  // A new generation started: cut any audio still playing from the previous reply.
+  // (The cursor reset is driven by text identity below, NOT this edge — resetting
+  // `consumed` here while `text` still holds the old reply would re-speak it.)
   useEffect(() => {
-    if (streaming && !prevStreaming.current) {
-      consumed.current = 0
-      if (voiceOn) stopSpeech()
-    }
+    if (streaming && !prevStreaming.current && voiceOn) stopSpeech()
     prevStreaming.current = streaming
   }, [streaming, voiceOn])
 
   // Enqueue newly-completed chunks as the reply grows.
   useEffect(() => {
-    if (!voiceOn || !characterId) return
+    if (!voiceOn || !characterId) { prevText.current = text; return }
+    // A replaced reply (current text is NOT a continuation of what we've been
+    // reading) resets the cursor — otherwise a stale `consumed` slices into the
+    // middle of the new reply and speaks a stray fragment ("e what").
+    if (!text.startsWith(prevText.current) || consumed.current > text.length) {
+      consumed.current = 0
+      replyTone.current = null
+    }
+    prevText.current = text
     const pending = text.slice(consumed.current)
     let localConsumed = 0
     for (;;) {
@@ -62,9 +73,11 @@ export function useCompanionVoice(opts: {
       const chunk = stripEmotes(raw)
       if (chunk) {
         // Derive prosody from the RAW chunk (emotes intact) before they're stripped.
-        const { rateScale, gain } = prosodyForChunk(raw)
-        if (import.meta.env.DEV) console.debug('[VOICE] chunk:', JSON.stringify(chunk))
-        void enqueueSpeech({ text: chunk, characterId, rateScale, gain })
+        const p = prosodyForChunk(raw)
+        if (p.rateScale !== 1 || p.gain !== 1) replyTone.current = p
+        const tone = (p.rateScale !== 1 || p.gain !== 1) ? p : (replyTone.current ?? p)
+        if (import.meta.env.DEV) console.log(`[PROSODY] rate=${tone.rateScale.toFixed(2)} gain=${tone.gain.toFixed(2)} «${chunk.slice(0, 45)}»`)
+        void enqueueSpeech({ text: chunk, characterId, rateScale: tone.rateScale, gain: tone.gain })
       }
       localConsumed += end
     }
@@ -77,8 +90,11 @@ export function useCompanionVoice(opts: {
     const rawRest = text.slice(consumed.current)
     const rest = stripEmotes(rawRest)
     if (rest) {
-      const { rateScale, gain } = prosodyForChunk(rawRest)
-      void enqueueSpeech({ text: rest, characterId, rateScale, gain })
+      const p = prosodyForChunk(rawRest)
+      if (p.rateScale !== 1 || p.gain !== 1) replyTone.current = p
+      const tone = (p.rateScale !== 1 || p.gain !== 1) ? p : (replyTone.current ?? p)
+      if (import.meta.env.DEV) console.log(`[PROSODY] rate=${tone.rateScale.toFixed(2)} gain=${tone.gain.toFixed(2)} «${rest.slice(0, 45)}»`)
+      void enqueueSpeech({ text: rest, characterId, rateScale: tone.rateScale, gain: tone.gain })
       consumed.current = text.length
     }
   }, [streaming, text, voiceOn, characterId])

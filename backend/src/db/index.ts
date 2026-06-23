@@ -46,7 +46,13 @@ export function runMigrations() {
   try {
     migrate(db, { migrationsFolder: resolve(import.meta.dir, './migrations') })
   } catch (err) {
-    console.warn('[db] migration warning (non-fatal):', err instanceof Error ? err.message : err)
+    const msg = err instanceof Error ? err.message : String(err)
+    // The migrator re-runs migrations whose tables/columns the belt-and-suspenders
+    // CREATEs below already made — "already exists" is EXPECTED on every boot of an
+    // existing DB and is not a problem. Only surface genuinely unexpected failures.
+    if (!/already exists|duplicate column/i.test(msg)) {
+      console.warn('[db] migration warning (non-fatal):', msg)
+    }
   }
   // Belt-and-suspenders: ensure tables exist even if the Drizzle migration runner
   // skips them. The migrator runs ALL migrations in a single transaction, so one

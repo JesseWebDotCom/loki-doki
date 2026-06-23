@@ -41,7 +41,6 @@ export async function enqueueSpeech(opts: VoicePlaybackOptions): Promise<void> {
 }
 
 export function stopSpeech(): void {
-  if (import.meta.env.DEV) console.debug('[VOICE] stopSpeech via', new Error().stack?.split('\n')[2]?.trim())
   getVoicePlayback().stop()
 }
 

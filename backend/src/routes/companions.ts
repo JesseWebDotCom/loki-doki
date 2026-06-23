@@ -191,13 +191,13 @@ companions_.post('/companion', requireAuth, async (c) => {
 
   const persona = buildCompanionPrompt({ personalityPrompt: row.personalityPrompt, replyStyle: row.replyStyle, style: row.style, avatarConfig: row.avatarConfig })
   const hasImages = Array.isArray(body.images) && body.images.length > 0
-  // Model choice is latency-driven: this is the spoken/voice surface, so first-token
-  // time is everything. Logs showed the heavy 8B chat model takes 6–14s to first token
-  // here (large system prompt prefill every turn), which is what made voice "slow".
-  // The companion is a short-reply buddy, so use the fast model (granite ~3B, already
-  // kept warm for routing) for text. Vision still needs the VLM. The real /chat path
-  // keeps the full chat model.
-  const model = hasImages ? await getVisionModel() : await getFastModel()
+  // The fast model (granite ~3B) was chosen for latency, BUT it degenerates on
+  // emotional/complex prompts — it returns 1–3 word stubs ("I'm", "What's", "Oh no,
+  // that's") and stops, which is what looked like a "voice cutoff". The main chat
+  // model (8B) handles those fine (the chat surface, which uses it, works). Coherent
+  // replies beat fast garbage; keep_alive:-1 keeps it warm so only the first reply
+  // after a cold boot pays the load. Vision still needs the VLM.
+  const model = hasImages ? await getVisionModel() : await getModel()
   const charId = body.characterId
 
   // Memory recall gates time-to-first-token (the block must be in the system
@@ -295,12 +295,17 @@ companions_.post('/companion', requireAuth, async (c) => {
 
   const sys = [
     contentPrompt,
-    `You are the user's companion, chatting casually in a little floating bar. Keep replies short and conversational.${contextLine ? ` ${contextLine}` : ''}`,
+    `You are the user's companion, chatting casually in a little floating bar. Keep replies short and conversational.`,
     persona,
     candorFragment || null,
     body.uiContext ?? null,
     memoryBlock,
     briefingBlock,
+    // Volatile date/time/location goes LAST: the minute-by-minute time string used
+    // to sit near the front of the prompt and bust Ollama's KV-cache every minute,
+    // forcing a full re-prefill of the large stable prefix above. Keeping it at the
+    // tail lets the heavy persona/policy/memory prefix stay cached across turns.
+    contextLine || null,
   ].filter(Boolean).join('\n\n')
 
   const userMessage: OllamaChatMessage = {

@@ -55,11 +55,16 @@ function countOccurrences(text: string, re: RegExp): number {
   return (text.match(re) ?? []).length;
 }
 
+// Layer gate (see plans/voice-rebuild.md). Baseline = neutral (no rate/gain swing);
+// Layer 3 flips this on to add inflection.
+const PROSODY_ENABLED = true;
+
 /**
  * Derive prosody for a raw chunk. Sentiment sets the base; punctuation and
  * emphasis modulate it; emotes (if any) boost. Call BEFORE stripEmotes().
  */
 export function prosodyForChunk(rawChunk: string): ChunkProsody {
+  if (!PROSODY_ENABLED) return NEUTRAL_PROSODY;
   const t = rawChunk;
   let rate = 1;
   let gain = 1;
@@ -69,7 +74,7 @@ export function prosodyForChunk(rawChunk: string): ChunkProsody {
     rate = 1.14;
     gain = 1.08;
   } else if (SOMBER.test(t)) {
-    rate = 0.85;
+    rate = 0.91; // gently slower — not draggy
     gain = 0.9;
   }
 

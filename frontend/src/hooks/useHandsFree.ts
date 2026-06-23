@@ -28,16 +28,23 @@ import { getVoicePlayback, stopSpeech } from '@/lib/voice/voicePlaybackStore'
 // training, but a leftover phrase can never shadow a trained model.
 
 const TTS_MUTE_GRACE_MS = 400
-const REPLY_SAFETY_MS = 20000
+// Dead-reply guard only (a reply that NEVER produces audio). Cancelled the moment
+// audio starts, so it can't truncate a working reply — generous enough to outlast a
+// cold model load (20–30s to first token) before any audio has played.
+const REPLY_SAFETY_MS = 45000
 const POST_REPLY_TIMEOUT_MS = 8000
 // Phrase wake delivers the command via its own session; if the user says only
 // the wake phrase (no command), fall back to idle after this long.
 const WAKE_CAPTURE_TIMEOUT_MS = 7000
 
-// Conservative barge-in threshold from v2: AEC residual ≈ 0.01–0.02 RMS;
-// voiced speech ≈ 0.05+. Six frames @ ~8 ms each = ~48 ms hysteresis.
-const BARGE_IN_RMS_THRESHOLD = 0.07
-const BARGE_IN_CONSEC_FRAMES = 10
+// Barge-in must tell the USER talking over the companion apart from the
+// companion's OWN TTS bleeding speaker→mic (AEC only partially removes it). The
+// old 0.07 / 10-frame gate tripped on that echo and cut replies off after the
+// first word. Require a LOUDER, more SUSTAINED signal, and only arm barge-in
+// AFTER the echo-heavy TTS onset.
+const BARGE_IN_RMS_THRESHOLD = 0.16
+const BARGE_IN_CONSEC_FRAMES = 22   // ~175 ms of sustained voiced energy
+const BARGE_IN_ARM_MS = 700         // ignore the first 700 ms of playback (onset echo)
 
 // Continued conversation: cap auto-continuations so a background voice (TV, other
 // people) can't keep the loop alive forever. After this many follow-ups without a
@@ -88,6 +95,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
   // Tracks whether barge-in fired so we can skip the TTS mute grace.
   const bargeInFiredRef = useRef(false)
   const bargeInCountRef = useRef(0)
+  const bargeInArmedRef = useRef(false)
+  const bargeInArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const replySafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const continuationCountRef = useRef(0)
   const submitRef = useRef(submit)
   submitRef.current = submit
@@ -278,7 +288,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
 
           // Barge-in energy VAD — runs ONLY while TTS is playing so AEC
           // residual (which clears after TTS ends) never trips it.
-          if (st === 'replying' && ttsMutedRef.current) {
+          if (st === 'replying' && ttsMutedRef.current && bargeInArmedRef.current) {
             let sumSq = 0
             for (let i = 0; i < samples.length; i++) sumSq += samples[i]! * samples[i]!
             const rms = Math.sqrt(sumSq / Math.max(1, samples.length))
@@ -370,6 +380,16 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
     const offStart = pb.onPlaybackStart(() => {
       ttsMutedRef.current = true
       bargeInCountRef.current = 0
+      // Audio is now playing → the reply works; cancel the dead-reply safety so it
+      // can never abort a reply that's actively producing speech (the slow cold-start
+      // first reply was being truncated by this at 20s).
+      if (replySafetyRef.current) { clearTimeout(replySafetyRef.current); replySafetyRef.current = null }
+      // Arm barge-in only AFTER the echo-heavy onset so the companion's own TTS
+      // ramp can't trip it. A genuine interruption (user talks over it) almost
+      // never lands in the first 700 ms anyway.
+      bargeInArmedRef.current = false
+      if (bargeInArmTimerRef.current) clearTimeout(bargeInArmTimerRef.current)
+      bargeInArmTimerRef.current = setTimeout(() => { bargeInArmedRef.current = true }, BARGE_IN_ARM_MS)
       if (graceRef.current) {
         clearTimeout(graceRef.current)
         graceRef.current = null
@@ -415,7 +435,8 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
         dispatch({ type: 'post_reply_timeout' })
       }
     }, REPLY_SAFETY_MS)
-    return () => clearTimeout(t)
+    replySafetyRef.current = t
+    return () => { clearTimeout(t); if (replySafetyRef.current === t) replySafetyRef.current = null }
   }, [state, dispatch, closeStt])
 
   // Keep wake loop pointed at the active phrase/model.

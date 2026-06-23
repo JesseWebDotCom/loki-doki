@@ -8,6 +8,12 @@
 export function stripForSpeech(text: string): string {
   let s = text
 
+  // <action>…</action> stage directions → DROP tag + inner (incl. streaming/unclosed).
+  s = s.replace(/<action\b[^>]*>[^<]{0,200}<\/(?:action\s*>|>)?/gi, ' ')
+  s = s.replace(/<action\b[^>]*>[^<]*$/gi, ' ')
+  // <i>/<em>/<b> emphasis carry real words → UNWRAP (strip markers, keep inner).
+  s = s.replace(/<\/?[a-z][^>]*>/gi, ' ')
+
   // Code: drop fenced blocks, unwrap inline code.
   s = s.replace(/```[\s\S]*?```/g, ' ')
   s = s.replace(/`([^`\n]+)`/g, '$1')
@@ -20,16 +26,11 @@ export function stripForSpeech(text: string): string {
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '$1')
   s = s.replace(/__([^_\n]+)__/g, '$1')
 
-  // Single *…* / _…_ spans = roleplay actions/emotes (*sigh*, *winks*) → DROP.
+  // Single *…* / _…_ spans = roleplay emotes → DROP (**bold** already unwrapped above).
   s = s.replace(/(?<!\w)\*[^*\n]+\*(?!\w)/g, ' ')
   s = s.replace(/(?<!\w)_[^_\n]+_(?!\w)/g, ' ')
-
-  // Short parenthetical asides/emotes ((sigh), (laughs softly)) → DROP.
+  // Short parenthetical / bracketed asides → DROP.
   s = s.replace(/\([^()]{0,40}\)/g, ' ')
-
-  // Bracketed stage directions + unfilled template placeholders
-  // ([laughs], [insert time here], [name]) → DROP. (Markdown links were already
-  // converted to their label text above, so this won't strip those.)
   s = s.replace(/\[[^\]\n]{0,60}\]/g, ' ')
 
   // Stray leftover emphasis markers.

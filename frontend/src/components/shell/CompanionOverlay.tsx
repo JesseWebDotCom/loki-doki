@@ -23,18 +23,22 @@ import { toast } from '@/lib/toast'
 const ANCHOR = 'pointer-events-auto fixed bottom-6 left-1/2 z-[9999] -translate-x-1/2'
 
 // ── Indicator (status only, non-interactive) — exact v2 glow/pulse states ────────
-type IndicatorState = 'off' | 'on-idle' | 'on-active'
+type IndicatorState = 'off' | 'on-idle' | 'on-active' | 'on-followup'
 const INDICATOR_CLASS: Record<IndicatorState, string> = {
   off: 'bg-transparent text-white/35',
   'on-idle': 'bg-white/10 text-white/80 ring-1 ring-white/20 shadow-[0_0_8px_rgba(255,255,255,0.15)]',
   'on-active': 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-400 shadow-[0_0_22px_#34d399] animate-pulse',
+  // Follow-up window: listening for your reply WITHOUT a wake word. Sky pulse so it's
+  // clearly distinct from idle (white) and active capture (emerald).
+  'on-followup': 'bg-sky-500/20 text-sky-300 ring-1 ring-sky-400 shadow-[0_0_18px_#38bdf8] animate-pulse',
 }
 function Indicator({ icon: Icon, label, state, onClick }: { icon: typeof Ear; label: string; state: IndicatorState; onClick?: () => void }) {
   const cls = cn('flex size-9 items-center justify-center rounded-full transition-all', INDICATOR_CLASS[state], onClick && 'cursor-pointer hover:brightness-125')
-  const aria = `${label}: ${state === 'on-active' ? 'active' : state === 'on-idle' ? 'on' : 'off'}`
+  const aria = `${label}: ${state === 'on-active' ? 'active' : state === 'on-followup' ? 'listening for follow-up' : state === 'on-idle' ? 'on' : 'off'}`
+  const titleText = state === 'on-followup' ? 'Listening — reply now, no wake word needed' : `${label} — click to toggle`
   if (onClick) {
     return (
-      <button type="button" aria-label={aria} title={`${label} — click to toggle`} onClick={onClick} className={cls}>
+      <button type="button" aria-label={aria} title={titleText} onClick={onClick} className={cls}>
         <Icon className="size-[18px]" />
       </button>
     )
@@ -339,6 +343,12 @@ export function CompanionOverlay() {
   // Only the owning tab speaks; a non-owner stays silent even if it generated text.
   const voiceMode = (voiceOn || handsFreeOn) && !!voiceCharacter && isVoiceOwner
   useCompanionVoice({ text: replyText, streaming, characterId: voiceCharacter?.id, voiceOn: voiceMode })
+  // Layer-config diagnostic (plans/voice-rebuild.md): logs voice + wakeword/hands-free
+  // state so it's always clear which layer is active during testing.
+  useEffect(() => {
+    const wake = voiceCharacter?.wakeWordPhrase?.trim() || voiceCharacter?.wakeWordModelId || 'none'
+    console.log(`[VOICE-STATE] app=${pathname} voiceOn=${voiceOn} handsFree=${handsFreeOn} voiceMode=${voiceMode} owner=${isVoiceOwner} wakeword="${wake}" hfState=${handsFree.state}`)
+  }, [pathname, voiceOn, handsFreeOn, voiceMode, isVoiceOwner, voiceCharacter, handsFree.state])
   // Losing ownership mid-utterance (user switched to another tab) cuts the audio
   // here so the handoff is clean and the new owner is the only one talking.
   useEffect(() => { if (!isVoiceOwner) stopSpeech() }, [isVoiceOwner])
@@ -357,7 +367,8 @@ export function CompanionOverlay() {
   const listeningState: IndicatorState =
     !handsFreeOn ? 'off'
     : handsFree.state === 'capturing' || handsFree.state === 'wake-detected' ? 'on-active'
-    : handsFree.state === 'idle' || handsFree.state === 'post-reply-listen' || handsFree.state === 'engaging' || handsFree.state === 'suspended' ? 'on-idle'
+    : handsFree.state === 'post-reply-listen' ? 'on-followup'   // speak without the wake word
+    : handsFree.state === 'idle' || handsFree.state === 'engaging' || handsFree.state === 'suspended' ? 'on-idle'
     : 'off'
   // Indicators double as toggles: dim = off, lit = enabled, pulsing = active.
   const talkState: IndicatorState = !voiceOn ? 'off' : talkActive ? 'on-active' : 'on-idle'

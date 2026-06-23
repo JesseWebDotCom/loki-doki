@@ -6,35 +6,47 @@
 // XML tags are what LLMs produce most reliably — they're trained on vast amounts
 // of HTML/XML and consistently follow explicit XML tag instructions.
 //
-// Fallback (catches models that ignore the instruction or older responses):
-//   *laughs softly*   *winks*
+// CRITICAL distinction:
+//  • <action>…</action> is the INSTRUCTED stage-direction format → DROP tag + inner
+//    (we never want to speak/print "raises an eyebrow").
+//  • <i> <em> <b> <strong> are HTML EMPHASIS on REAL words the model means to say,
+//    e.g. "Oh no, that's <i>terrible to hear</i>" → UNWRAP (keep the words). Dropping
+//    their inner text deletes reply content and collapses the reply to a fragment.
+//  • *winks* is the asterisk emote fallback → DROP.
 
-/** Matches <action>...</action>, <action>...</>, or <action>...</ (malformed close — model writes `</` then continues sentence). Capture group 1 = inner action text. */
-export const ACTION_TAG_RE = /<action>([^<]{1,120})<\/(?:action\s*>|>)?/gi
+/** <action>…</action> (tolerant of attributes / malformed close). Capture group 1 = inner. */
+export const ACTION_TAG_RE = /<action\b[^>]*>([^<]{1,200})<\/(?:action\s*>|>)?/gi
 
 /** Matches *action* fallback. No capture — inner text extracted by slicing. */
 export const ASTERISK_EMOTE_RE = /\*[^*\n]{1,80}\*/g
 
-/** Remove all emote markers, collapsing leftover whitespace. */
-export function stripEmotes(text: string): string {
-  return text
+function stripTags(s: string): string {
+  return s
+    // <action>…</action> stage directions → drop tag + inner.
     .replace(ACTION_TAG_RE, ' ')
-    .replace(ASTERISK_EMOTE_RE, ' ')
-    .replace(/ {2,}/g, ' ')
-    .replace(/^ +| +$/gm, '')
-    .trim()
+    // A still-streaming <action> with no close yet → drop it + inner to end.
+    .replace(/<action\b[^>]*>[^<]*$/gi, ' ')
+    // <i>/<em>/<b> emphasis + any stray/orphan/self-closing tag → UNWRAP (keep words).
+    .replace(/<\/?[a-z][^>]*>/gi, '')
+    // Bare partial tag at the very end while streaming ("<i", "</").
+    .replace(/<\/?[a-z]*$/gi, '')
+}
+
+function tidy(s: string): string {
+  return s.replace(/[ \t]{2,}/g, ' ').replace(/^ +| +$/gm, '').trim()
+}
+
+/** Remove all emote markers (tags + *asterisks*) for TTS. */
+export function stripEmotes(text: string): string {
+  return tidy(stripTags(text).replace(ASTERISK_EMOTE_RE, ' '))
 }
 
 /**
- * Remove only XML-style <action> emote tags for display — leaves *asterisk* patterns alone
- * so markdown italic rendering works. Use this for chat display; use stripEmotes for TTS.
+ * Remove stage-direction tags for display, but leave *asterisk* patterns alone so
+ * markdown italic rendering works. Use this for chat display; stripEmotes for TTS.
  */
 export function stripEmotesForDisplay(text: string): string {
-  return text
-    .replace(ACTION_TAG_RE, ' ')
-    .replace(/ {2,}/g, ' ')
-    .replace(/^ +| +$/gm, '')
-    .trim()
+  return tidy(stripTags(text))
 }
 
 /** Extract the action text from all <action> tags in order of appearance. */

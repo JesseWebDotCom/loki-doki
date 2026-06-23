@@ -20,6 +20,7 @@ export function useCompanionStream() {
 
   const submit = useCallback(async (text: string, characterId: string, uiContext?: string | null, images?: string[]) => {
     if ((!text.trim() && (!images || images.length === 0)) || !characterId) return
+    if (import.meta.env.DEV) console.log('[COMPANION] you:', JSON.stringify(text))
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -56,7 +57,10 @@ export function useCompanionStream() {
         }
       }
       historyRef.current = [...historyRef.current, { role: 'assistant', content: acc }]
-    } catch { /* aborted or failed */ }
+      if (import.meta.env.DEV) console.log(`[COMPANION] reply (${acc.length} chars):`, JSON.stringify(acc))
+    } catch (e) {
+      if (import.meta.env.DEV) console.log(`[COMPANION] reply ABORTED/failed at ${acc.length} chars:`, JSON.stringify(acc), String(e))
+    }
     finally { setStreaming(false); abortRef.current = null }
   }, [])
 

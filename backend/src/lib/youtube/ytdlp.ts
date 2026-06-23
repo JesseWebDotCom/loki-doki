@@ -17,7 +17,7 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { chmod, mkdir, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { dataDir } from '@/lib/download'
@@ -69,11 +69,26 @@ export async function withYtDlpSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function versionOf(bin: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 10_000 })
-    return stdout.trim() || null
-  } catch { return null }
+// Probe `--version`. The managed binary is a self-contained PyInstaller bundle whose
+// FIRST cold start (right after a download or a reboot, under heavy boot load) can take
+// many seconds while it unpacks — so use a generous timeout and an optional retry before
+// giving up. A false negative here used to trigger a needless full re-download.
+async function versionOf(bin: string, attempts = 1): Promise<string | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 30_000 })
+      const v = stdout.trim()
+      if (v) return v
+    } catch { /* slow cold start or transient failure — retry */ }
+  }
+  return null
+}
+
+// A present managed binary is only "corrupt" if it's implausibly small (an interrupted
+// write). A real binary that merely failed to answer --version in time is NOT corrupt
+// and must not be re-downloaded.
+function looksCorrupt(path: string): boolean {
+  try { return statSync(path).size < 1_000_000 } catch { return true }
 }
 
 async function selfUpdate(bin: string): Promise<boolean> {
@@ -119,15 +134,23 @@ export async function ensureYtDlp(force = false): Promise<void> {
     const last = (await getAppSetting(CHECKED_KEY)) as number | null
     const due = force || !last || Date.now() - last > CHECK_INTERVAL_MS
 
-    if (existsSync(MANAGED_PATH) && (await versionOf(MANAGED_PATH))) {
-      // 1. A managed copy already exists and runs — prefer it and let it self-update.
+    if (existsSync(MANAGED_PATH)) {
+      // 1. A managed copy exists — prefer it. Verify it runs (with a retry, tolerant of a
+      // slow cold start) BEFORE deciding to touch the network.
       resolvedBin = MANAGED_PATH
-      if (due) await selfUpdate(MANAGED_PATH)
-    } else if (existsSync(MANAGED_PATH)) {
-      // 1b. A managed copy exists but can't report a version → corrupt/partial (e.g. an
-      // interrupted write from an older build). Re-provision; fall back to PATH if that fails.
-      logger.warn('[yt-dlp] managed binary present but unusable — re-downloading')
-      if (!(await downloadManaged()) && (await versionOf('yt-dlp'))) resolvedBin = 'yt-dlp'
+      if (await versionOf(MANAGED_PATH, 2)) {
+        // Runs fine — only reach out to self-update when a check is actually due.
+        if (due) await selfUpdate(MANAGED_PATH)
+      } else if (looksCorrupt(MANAGED_PATH)) {
+        // Genuinely broken (partial/tiny write) → re-provision; fall back to PATH.
+        logger.warn('[yt-dlp] managed binary corrupt (too small) — re-downloading')
+        if (!(await downloadManaged()) && (await versionOf('yt-dlp'))) resolvedBin = 'yt-dlp'
+      } else {
+        // Present and plausibly intact, but --version didn't answer (almost always
+        // transient boot-time load). KEEP it — do not re-download; the next due cycle
+        // self-updates it. This is the fix for needless boot re-downloads.
+        logger.warn('[yt-dlp] managed binary present; version probe timed out — keeping it (will retry next cycle)')
+      }
     } else if (await versionOf('yt-dlp')) {
       // 2. A system install is on PATH.
       resolvedBin = 'yt-dlp'
@@ -141,7 +164,7 @@ export async function ensureYtDlp(force = false): Promise<void> {
       await downloadManaged()
     }
 
-    const v = await versionOf(resolvedBin)
+    const v = await versionOf(resolvedBin, 2)
     if (v) {
       await setAppSetting(VERSION_KEY, v)
       logger.info(`[yt-dlp] active binary: ${resolvedBin} (version ${v})`)
