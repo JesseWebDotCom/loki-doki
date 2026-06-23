@@ -29,6 +29,7 @@ interface AdminCompanion {
   wakeWordModelId: string | null
   wakeWordPhrase: string | null
   speechRate: number | null
+  expressiveness: number | null
   renderer: string
   style: string | null
   seed: string | null
@@ -43,7 +44,7 @@ type Draft = Omit<AdminCompanion, 'id'> & { id: string | null }
 
 const BLANK: Draft = {
   id: null, name: '', personalityPrompt: '', backstory: '', phoneticName: '',
-  replyStyle: 'balanced', voiceId: '', ttsVoice: '', wakeWordModelId: '', wakeWordPhrase: '', speechRate: null, renderer: 'dicebear',
+  replyStyle: 'balanced', voiceId: '', ttsVoice: '', wakeWordModelId: '', wakeWordPhrase: '', speechRate: null, expressiveness: null, renderer: 'dicebear',
   style: 'avataaars', seed: randomSeed(), avatarConfig: {}, category: 'everyday', isActive: true, published: true,
   content: { ...MIN_DIALS, candor: 'balanced' },
 }
@@ -363,7 +364,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
     const body = {
       name: draft.name, personalityPrompt: draft.personalityPrompt, backstory: draft.backstory || null,
       phoneticName: draft.phoneticName || null, replyStyle: draft.replyStyle, voiceId: draft.voiceId || null,
-      ttsVoice: draft.ttsVoice || null, wakeWordModelId: null, wakeWordPhrase: draft.wakeWordPhrase || null, speechRate: draft.speechRate,
+      ttsVoice: draft.ttsVoice || null, wakeWordModelId: null, wakeWordPhrase: draft.wakeWordPhrase || null, speechRate: draft.speechRate, expressiveness: draft.expressiveness,
       renderer: draft.renderer, style: draft.style, seed: draft.seed, avatarConfig: draft.avatarConfig,
       category: draft.category, isActive: draft.isActive, published: draft.published, content: draft.content,
     }
@@ -544,6 +545,13 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                   </Field>
                   <Field label="Speech rate">
                     <input type="number" step="0.05" min="0.8" max="1.3" value={draft.speechRate ?? ''} onChange={(e) => set('speechRate', e.target.value === '' ? null : Number(e.target.value))} className="ld-input" placeholder="1.0" />
+                  </Field>
+                  {/* How far emote/punctuation prosody swings from neutral (0 = flat narrator, 1 = theatrical). */}
+                  <Field label="Expressiveness">
+                    <div className="flex items-center gap-2">
+                      <input type="range" min="0" max="1" step="0.05" value={draft.expressiveness ?? 0.6} onChange={(e) => set('expressiveness', Number(e.target.value))} className="flex-1" />
+                      <span className="text-xs tabular-nums w-9 text-right">{(draft.expressiveness ?? 0.6).toFixed(2)}</span>
+                    </div>
                   </Field>
                 </div>
               )}

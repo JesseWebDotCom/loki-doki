@@ -108,6 +108,7 @@ export function runMigrations() {
       wake_word_model_id TEXT,
       wake_word_phrase TEXT,
       speech_rate REAL,
+      expressiveness REAL,
       content_dials TEXT,
       category TEXT,
       created_by TEXT NOT NULL,
@@ -454,6 +455,7 @@ export function runMigrations() {
   addColumn('characters', 'tts_voice', 'TEXT')
   addColumn('characters', 'wake_word_model_id', 'TEXT')
   addColumn('characters', 'speech_rate', 'REAL')
+  addColumn('characters', 'expressiveness', 'REAL')  // prosody swing 0–1; null = default
   // Content-policy: per-character content config (dials + candor) as JSON
   addColumn('characters', 'content_dials', 'TEXT')
   // Companion Store category key (e.g. 'everyday', 'mature'); null = uncategorized
@@ -1315,5 +1317,29 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS idx_frigate_events_created_at ON frigate_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_frigate_events_announce ON frigate_events(announce, spoken);
+  `)
+
+  // Physical Pod devices (ESP32 voice satellites). Each is bound to a user (and
+  // optional companion + wake word) and authenticates the Wyoming gateway socket
+  // with a long-lived token. See plans/hardware-devices/pod-wyoming-architecture.md.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS devices (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      character_id TEXT,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'pod',
+      wake_word TEXT,
+      token_hash TEXT,
+      pairing_code TEXT,
+      pairing_expires_at INTEGER,
+      capabilities TEXT,
+      last_seen_at INTEGER,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE SET NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS devices_token_hash_unique ON devices(token_hash);
+    CREATE INDEX IF NOT EXISTS devices_user_id ON devices(user_id);
   `)
 }

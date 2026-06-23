@@ -17,6 +17,10 @@ export interface VoicePlaybackOptions {
   characterId?: string | null;
   speechRate?: number;
   sentencePause?: number;
+  /** Per-chunk emote-driven multiplier on the character's base speech rate. */
+  rateScale?: number;
+  /** Per-chunk emote-driven loudness gain applied to the synthesized PCM. */
+  gain?: number;
 }
 
 export class VoicePlayback {
@@ -76,6 +80,8 @@ export class VoicePlayback {
       characterId: opts.characterId || undefined,
       speechRate: opts.speechRate ?? 1.0,
       sentencePause: opts.sentencePause ?? 0.3,
+      rateScale: opts.rateScale ?? 1.0,
+      gain: opts.gain ?? 1.0,
     };
 
     const predecessorDrained = this.dispatchTail;

@@ -46,6 +46,10 @@ export function stripForSpeech(text: string): string {
   // Tidy whitespace + punctuation left dangling by removals.
   s = s.replace(/[ \t]{2,}/g, ' ')
   s = s.replace(/\s+([.,!?;:])/g, '$1')
+  // Soft line wraps: a single newline mid-sentence (not after terminal punctuation)
+  // is a wrap, not a sentence end — join it so "a news\nsite?" isn't chopped into
+  // two utterances. Paragraph breaks (blank lines) and post-terminator newlines stay.
+  s = s.replace(/([^\n.!?…])[ \t]*\n[ \t]*(?=\S)/g, '$1 ')
   s = s.replace(/\n{2,}/g, '\n')
   return s.trim()
 }

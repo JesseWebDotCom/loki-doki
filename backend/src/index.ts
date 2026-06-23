@@ -98,6 +98,7 @@ import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
 import { startPodGateway } from '@/lib/pod/gateway'
+import { pod } from '@/routes/pod'
 import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/toolchain'
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
 import { listHealthyArchivePaths } from '@/lib/archives'
@@ -260,6 +261,7 @@ app.route('/api/admin/voice', adminVoice)
 app.route('/api/admin/wakewords', adminWakewords)
 app.route('/api/voice', voice)
 app.route('/api/stt', createSttRoute(upgradeWebSocket))
+app.route('/api/pod', pod)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
 app.route('/api/reader', reader)

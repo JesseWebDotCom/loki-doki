@@ -52,6 +52,7 @@ export function toCompanionPayload(row: CompanionRow) {
     wakeWordModelId: row.wakeWordModelId,
     wakeWordPhrase: row.wakeWordPhrase,
     speechRate: row.speechRate,
+    expressiveness: row.expressiveness,
     renderer: row.renderer,
     style: row.style,
     seed: row.seed,

@@ -27,7 +27,7 @@ export const kokoroEngine: TtsEngine = {
       signal: opts.signal,
     })
     if (!res.ok) throw new Error('tts_engine_error')
-    const { pcmB64, sampleRate } = wavToPcm(await res.arrayBuffer())
+    const { pcmB64, sampleRate } = wavToPcm(await res.arrayBuffer(), { gain: opts.gain })
     return { sentence, sample_rate: sampleRate, pcm_b64: pcmB64 }
   },
 

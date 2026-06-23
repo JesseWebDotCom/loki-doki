@@ -26,6 +26,8 @@ export interface SynthOptions {
   voice: string
   /** 0.8–1.3 speech rate multiplier. */
   speechRate?: number
+  /** Linear amplitude gain applied to the synthesized PCM (emote dynamics). */
+  gain?: number
   /** For the cloning engine: absolute path to the reference WAV. */
   speakerWavPath?: string
   /** Abort the upstream sidecar fetch when the client disconnects. */

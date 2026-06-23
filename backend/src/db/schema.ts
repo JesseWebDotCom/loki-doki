@@ -63,6 +63,8 @@ export const characters = sqliteTable('characters', {
   wakeWordModelId: text('wake_word_model_id'),
   wakeWordPhrase: text('wake_word_phrase'),
   speechRate: real('speech_rate'),       // 0.8–1.3 multiplier; null = engine default
+  // 0–1: how far emote/punctuation prosody swings from neutral. null = default (0.6).
+  expressiveness: real('expressiveness'),
   // Content config: JSON { profanity, sexual, violence, substances, candor }. The
   // character's fixed, non-negotiable content identity — gated by the user's ceiling.
   // null = all dials off (most widely usable). See @/lib/contentPolicy.
@@ -112,6 +114,23 @@ export const wakeWordCatalog = sqliteTable('wake_word_catalog', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Physical Pod devices (ESP32 voice satellites). Bound to a user + optional
+// companion/wake word; the Wyoming gateway authenticates the socket via tokenHash.
+export const devices = sqliteTable('devices', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  characterId: text('character_id').references(() => characters.id, { onDelete: 'set null' }),
+  name: text('name').notNull(),
+  kind: text('kind').notNull().default('pod'),   // dot | show | watch | tablet | pod
+  wakeWord: text('wake_word'),                    // optional per-device detector id
+  tokenHash: text('token_hash'),                  // SHA-256 of the device token; null until paired
+  pairingCode: text('pairing_code'),              // short-lived code; null once redeemed
+  pairingExpiresAt: integer('pairing_expires_at', { mode: 'timestamp' }),
+  capabilities: text('capabilities'),             // JSON: { screen, camera, sampleRate }
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
 // Created on first interaction between a user and a character

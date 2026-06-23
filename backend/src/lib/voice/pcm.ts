@@ -9,8 +9,14 @@ export interface PcmResult {
   sampleRate: number
 }
 
-/** Parse a WAV container into mono int16 PCM, base64-encoded. */
-export function wavToPcm(buf: ArrayBuffer): PcmResult {
+/**
+ * Parse a WAV container into mono int16 PCM, base64-encoded. An optional linear
+ * `gain` (default 1) scales amplitude before quantization — used for emote-driven
+ * loudness (whisper ≈ 0.55, emphatic ≈ 1.1). Hard-clamped; a soft limiter is a
+ * later refinement.
+ */
+export function wavToPcm(buf: ArrayBuffer, opts?: { gain?: number }): PcmResult {
+  const gain = opts?.gain ?? 1
   const view = new DataView(buf)
   if (view.byteLength < 12 || str(view, 0, 4) !== 'RIFF' || str(view, 8, 4) !== 'WAVE') {
     throw new Error('not_a_wav')
@@ -52,7 +58,7 @@ export function wavToPcm(buf: ArrayBuffer): PcmResult {
       const p = dataOffset + (f * channels + ch) * bytesPerSample
       acc += readSampleInt16(view, p, audioFormat, bitsPerSample)
     }
-    mono[f] = clampInt16(acc / channels)
+    mono[f] = softClip((acc / channels) * gain)
   }
 
   return { pcmB64: int16ToB64(mono), sampleRate }
@@ -69,6 +75,19 @@ function readSampleInt16(view: DataView, p: number, fmt: number, bits: number): 
 function clampInt16(v: number): number {
   const r = Math.round(v)
   return r > 32767 ? 32767 : r < -32768 ? -32768 : r
+}
+
+// Soft-knee limiter: below the knee, samples pass through linearly; above it,
+// a tanh curve compresses toward the ceiling so emote gain (>1) can't hard-clip
+// loud passages into buzzy distortion. In-range samples take the fast path.
+const PEAK = 32767
+const KNEE = 0.85 * PEAK
+function softClip(v: number): number {
+  const a = v < 0 ? -v : v
+  if (a <= KNEE) return clampInt16(v)
+  const over = (a - KNEE) / (PEAK - KNEE)
+  const shaped = KNEE + (PEAK - KNEE) * Math.tanh(over)
+  return clampInt16(v < 0 ? -shaped : shaped)
 }
 
 /** Base64-encode an Int16Array as little-endian bytes. */

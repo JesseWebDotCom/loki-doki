@@ -41,6 +41,7 @@ export async function enqueueSpeech(opts: VoicePlaybackOptions): Promise<void> {
 }
 
 export function stopSpeech(): void {
+  if (import.meta.env.DEV) console.debug('[VOICE] stopSpeech via', new Error().stack?.split('\n')[2]?.trim())
   getVoicePlayback().stop()
 }
 
@@ -130,7 +131,7 @@ export function useCharacterCaption(active: boolean): string {
 // Sentence-boundary detector — same pattern as useCompanionVoice.
 // Require uppercase or digit after the space so abbreviations (e.g., i.e., R.E.M.)
 // don't false-fire as sentence boundaries.
-const SENTENCE_RE = /[.!?]+(?=\s+[A-Z0-9]|\s*$)|\n+/g
+const SENTENCE_RE = /[.!?]+(?=\s+[A-Z0-9]|\s*$)|\n{2,}/g
 
 /** Strip markdown syntax from caption text so it reads as plain speech. */
 function stripMarkdown(text: string): string {

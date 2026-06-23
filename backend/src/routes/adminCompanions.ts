@@ -31,6 +31,7 @@ interface CompanionInput {
   wakeWordModelId?: string | null
   wakeWordPhrase?: string | null
   speechRate?: number | null
+  expressiveness?: number | null
   renderer?: string
   style?: string | null
   seed?: string | null
@@ -75,6 +76,7 @@ adminCompanions.post('/', requireAdmin, async (c) => {
     wakeWordModelId,
     wakeWordPhrase,
     speechRate: body.speechRate ?? null,
+    expressiveness: body.expressiveness ?? null,
     renderer: body.renderer ?? 'dicebear',
     style: body.style ?? null,
     seed: body.seed ?? null,
@@ -115,6 +117,7 @@ adminCompanions.patch('/:id', requireAdmin, async (c) => {
     update['wakeWordPhrase'] = body.wakeWordPhrase?.trim() || null
   }
   if (body.speechRate !== undefined) update['speechRate'] = body.speechRate
+  if (body.expressiveness !== undefined) update['expressiveness'] = body.expressiveness
   if (body.renderer !== undefined) update['renderer'] = body.renderer
   if (body.style !== undefined) update['style'] = body.style
   if (body.seed !== undefined) update['seed'] = body.seed

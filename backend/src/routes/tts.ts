@@ -12,6 +12,7 @@ import {
   voiceConfig,
 } from '@/lib/voice'
 import { stripForSpeech } from '@/lib/voice/speechText'
+import { refineSentence } from '@/lib/voice/prosodyText'
 import { kokoroEngine } from '@/lib/voice/engines/kokoroEngine'
 import { logger } from '@/lib/logger'
 
@@ -23,6 +24,10 @@ interface TtsStreamBody {
   characterId?: string
   speechRate?: number
   sentencePause?: number
+  /** Per-chunk emote multiplier on the resolved base rate (default 1). */
+  rateScale?: number
+  /** Per-chunk emote loudness gain applied to the PCM (default 1). */
+  gain?: number
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -37,15 +42,24 @@ tts.post('/stream', requireAuth, async (c) => {
   const text = stripForSpeech(body.text ?? '')
   if (!text) return c.json({ code: 'empty_text' }, 400)
 
-  const speechRateReq = clamp(body.speechRate ?? 1.0, 0.8, 1.3)
-  const sentencePause = clamp(body.sentencePause ?? 0.3, 0.1, 0.8)
+  // Emote-driven prosody (frontend-derived, default 1 for non-companion callers).
+  const rateScaleReq = clamp(body.rateScale ?? 1.0, 0.7, 1.3)
+  const gainReq = clamp(body.gain ?? 1.0, 0.4, 1.2)
 
   let character: typeof characters.$inferSelect | undefined
   if (body.characterId) {
     ;[character] = await db.select().from(characters).where(eq(characters.id, body.characterId)).limit(1)
     if (!character) return c.json({ code: 'character_not_found' }, 404)
   }
-  const speechRate = character?.speechRate != null ? clamp(character.speechRate, 0.8, 1.3) : speechRateReq
+  // Per-character expressiveness (0–1) scales how far prosody swings from neutral.
+  const expr = character?.expressiveness != null ? clamp(character.expressiveness, 0, 1) : 0.6
+  const rateScale = 1 + (rateScaleReq - 1) * expr
+  const gain = 1 + (gainReq - 1) * expr
+
+  // Base rate (character override → request → 1.0), then the emote rateScale
+  // modulates it; the product is clamped to Kokoro's usable range.
+  const baseRate = character?.speechRate ?? body.speechRate ?? 1.0
+  const speechRate = clamp(baseRate * rateScale, 0.8, 1.3)
 
   // Resolve the voice: explicit request → character → user → app default.
   const appDefault = await voiceConfig.appDefaultVoice()
@@ -79,17 +93,21 @@ tts.post('/stream', requireAuth, async (c) => {
           if (signal.aborted) break
           let payload
           const _s = performance.now()
+          // Normalize punctuation (question intonation, ellipsis) + per-sentence pause.
+          const refined = refineSentence(sentences[i]!)
           try {
-            payload = await engine.synthesize(sentences[i]!, { voice: voiceId, speechRate, signal })
+            payload = await engine.synthesize(refined.text, { voice: voiceId, speechRate, gain, signal })
           } catch (e) {
             if (signal.aborted) break
             controller.enqueue(encoder.encode(JSON.stringify({ error: (e as Error).message }) + '\n'))
             break
           }
-          payload.sentence_pause = i < sentences.length - 1 ? sentencePause : 0
+          payload.display_text = sentences[i]! // captions show the original text
+          payload.sentence_pause = i < sentences.length - 1 ? refined.pausePost : 0
           controller.enqueue(encoder.encode(JSON.stringify(payload) + '\n'))
           if (i === 0) {
             logger.info(`[TTS-TIMING] first-audio +${(performance.now() - _t0).toFixed(0)}ms synth=${(performance.now() - _s).toFixed(0)}ms voice=${engineId}:${voiceId} sentences=${sentences.length}`)
+            logger.info(`[TTS-PROSODY] rateScale=${rateScale.toFixed(3)} gain=${gain.toFixed(3)} base=${baseRate} finalRate=${speechRate.toFixed(3)}`)
           }
         }
         if (!signal.aborted) controller.enqueue(encoder.encode(JSON.stringify({ done: true }) + '\n'))
