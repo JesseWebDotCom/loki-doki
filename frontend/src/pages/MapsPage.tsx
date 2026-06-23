@@ -371,8 +371,20 @@ export function MapsPage(): JSX.Element {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const left = globeView && window.innerWidth >= 768 ? 400 : 0;
-    map.setPadding({ top: 0, right: 0, bottom: 0, left });
+    const apply = () => {
+      const left = globeView && window.innerWidth >= 768 ? 400 : 0;
+      map.setPadding({ top: 0, right: 0, bottom: 0, left });
+    };
+    // setPadding() is a jumpTo under the hood, so it stops any in-flight camera
+    // animation. A flyTo diving in from the globe crosses the globe→map zoom
+    // threshold, which flips globeView and re-runs this effect — applying padding
+    // mid-flight would abort the dive half-way (the locate button's "stops at the
+    // wrong zoom, click again to finish" bug). Defer to moveend while moving.
+    if (map.isMoving()) {
+      map.once("moveend", apply);
+      return () => map.off("moveend", apply);
+    }
+    apply();
   }, [globeView]);
 
   // Render a live "you are here" dot wherever the browser reports the user.
@@ -410,7 +422,14 @@ export function MapsPage(): JSX.Element {
       }
       return;
     }
-    mapRef.current?.flyTo({ center: [loc.lon, loc.lat], zoom: 17, essential: true });
+    // Pass padding explicitly so the dive animates the globe's left:400 padding
+    // back to 0 and lands the location centered (not shoved right behind the dock).
+    mapRef.current?.flyTo({
+      center: [loc.lon, loc.lat],
+      zoom: 17,
+      padding: { top: 0, right: 0, bottom: 0, left: 0 },
+      essential: true,
+    });
     setActivePanel(null);
     let place: PlaceResult | null = null;
     try {
