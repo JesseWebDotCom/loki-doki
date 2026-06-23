@@ -101,53 +101,75 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
     const open100 = openLabels(draft.dials)
     const isDefault = defaultSlug === draft.slug
     return (
-      <div className="max-w-xl">
-        <button onClick={closeEditor} className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ChevronLeft className="size-4" /> All profiles
-        </button>
+      <div className="max-w-3xl">
+        {/* Breadcrumb + back */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <button onClick={closeEditor}
+            className="flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <ChevronLeft className="size-4" /> Profiles
+          </button>
+          <ChevronRight className="size-3.5 text-muted-foreground/60" />
+          <h3 className="min-w-0 truncate text-base font-semibold">{draft.name || 'New profile'}</h3>
+          {draft.isBuiltin && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">built-in</span>}
+          {isDefault && <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-medium text-brand">default</span>}
+        </div>
 
         <div className="space-y-4">
-          <div className="space-y-2">
-            <input
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              disabled={draft.isBuiltin}
-              placeholder="Profile name"
-              className="w-full bg-transparent text-lg font-semibold outline-none border-b border-border/40 focus:border-border pb-1 disabled:opacity-100"
-            />
-            <textarea
-              value={draft.description}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-              placeholder="Description"
-              rows={2}
-              className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-brand/60 resize-y"
-            />
-            <div className="flex items-center gap-2">
-              {draft.isBuiltin && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">built-in</span>}
-              {isDefault
-                ? <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-medium text-brand">default for new accounts</span>
-                : <button onClick={() => void makeDefault(draft.slug)} className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"><Star className="size-2.5" /> Make default</button>}
+          {/* Name + description */}
+          <div className="grid gap-4 rounded-xl border border-border/50 bg-card/40 p-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
+              <input
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                disabled={draft.isBuiltin}
+                placeholder="Profile name"
+                className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-brand/60 disabled:opacity-60"
+              />
+              {draft.isBuiltin && <p className="text-[11px] text-muted-foreground">Built-in name can't be changed.</p>}
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Description</label>
+              <input
+                value={draft.description}
+                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                placeholder="What this profile is for"
+                className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-brand/60"
+              />
             </div>
           </div>
 
-          <div className="rounded-xl border border-border/50 bg-card/40 p-3">
+          {/* Category limits */}
+          <div className="rounded-xl border border-border/50 bg-card/40 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold">Category limits</p>
+              <p className="text-xs text-muted-foreground">off → unrestricted</p>
+            </div>
             <ContentDialGroup values={draft.dials} onDial={(k: DialKey, v) => setDraft({ ...draft, dials: { ...draft.dials, [k]: v } })} />
           </div>
 
           {open100.length > 0 && (
-            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
               <ShieldAlert className="size-3.5 text-amber-500 mt-0.5 shrink-0" />
               <p className="text-xs text-amber-700 dark:text-amber-400">
-                Unrestricted: {open100.join(', ')}. No limit on these topics (minors &amp; mass-casualty weapons always blocked).
+                Unrestricted: {open100.join(', ')}. No limit on these topics (sexual content involving minors &amp; mass-casualty weapons always blocked).
               </p>
             </div>
           )}
 
-          <div className="flex items-center gap-2">
+          {/* Actions */}
+          <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-4">
             <button onClick={() => void save()} disabled={saving}
-              className="flex items-center gap-2 rounded-lg bg-foreground px-3 py-2 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50">
-              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save
+              className="flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50">
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save changes
             </button>
+            {!isDefault && (
+              <button onClick={() => void makeDefault(draft.slug)}
+                className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <Star className="size-4" /> Make default
+              </button>
+            )}
+            <div className="flex-1" />
             {!draft.isBuiltin && (
               <button onClick={() => setDelTarget(draft)} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-destructive hover:bg-muted transition-colors">
                 <Trash2 className="size-4" /> Delete
@@ -165,38 +187,39 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
 
   // ── List (master) ───────────────────────────────────────────────────────────
   return (
-    <div className="max-w-2xl">
-      <div className="mb-4 flex items-start justify-between gap-3">
+    <div className="max-w-3xl">
+      <div className="mb-4 flex items-end justify-between gap-3">
         {!embedded ? (
           <div>
             <h2 className="text-base font-semibold">Content Profiles</h2>
             <p className="text-sm text-muted-foreground">Named per-category ceilings assigned to users. New accounts get the default; a companion can never exceed the user's profile.</p>
           </div>
-        ) : <span />}
-        <button onClick={() => void create()} className="flex shrink-0 items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-sm font-semibold text-background transition-opacity hover:opacity-90">
-          <Plus className="size-3.5" /> New
+        ) : (
+          <p className="text-sm text-muted-foreground">Pick a profile to edit its category limits.</p>
+        )}
+        <button onClick={() => void create()} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-sm font-semibold text-background transition-opacity hover:opacity-90">
+          <Plus className="size-3.5" /> New profile
         </button>
       </div>
 
-      <div className="rounded-xl border border-border/50 divide-y divide-border/30 overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-border/50 divide-y divide-border/40">
         {profiles.map((p) => (
-          <button key={p.slug} onClick={() => openEditor(p)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left bg-card hover:bg-muted/50 transition-colors">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium truncate">{p.name}</span>
-                {defaultSlug === p.slug && <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand shrink-0">default</span>}
-                {p.isBuiltin && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground shrink-0">built-in</span>}
+          <button key={p.slug} onClick={() => openEditor(p)}
+            className="flex w-full items-center gap-3 bg-card px-4 py-3 text-left transition-colors hover:bg-muted/50">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-sm font-medium">{p.name}</span>
+                {defaultSlug === p.slug && <span className="rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">default</span>}
+                {p.isBuiltin && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">built-in</span>}
               </div>
-              {p.description && <p className="text-xs text-muted-foreground truncate mt-0.5">{p.description}</p>}
+              {p.description && <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{p.description}</p>}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-[11px] text-muted-foreground">{summarize(p.dials)}</span>
-              <ChevronRight className="size-4 text-muted-foreground" />
-            </div>
+            <span className="shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">{summarize(p.dials)}</span>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
           </button>
         ))}
       </div>
-      <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground"><Check className="size-3" /> Assign profiles to users in Admin → Users.</p>
+      <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground"><Check className="size-3" /> Assign profiles to users in the Accounts section above.</p>
     </div>
   )
 }

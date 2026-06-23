@@ -91,13 +91,19 @@ export function dialsEqual(a: ContentDialValues, b: ContentDialValues): boolean 
 }
 
 // ── Segmented control ───────────────────────────────────────────────────────────
-export function Segmented({ value, options, onChange }: {
+// Equal-width columns so multiple controls line up vertically. Pass a width via
+// `className` (e.g. "w-[300px]"); without it the control fills its parent.
+export function Segmented({ value, options, onChange, className }: {
   value: string
   options: { value: string; label: string; disabled?: boolean }[]
   onChange: (v: string) => void
+  className?: string
 }) {
   return (
-    <div className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
+    <div
+      className={cn('grid gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5', className)}
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+    >
       {options.map((o) => (
         <button
           key={o.value}
@@ -105,7 +111,7 @@ export function Segmented({ value, options, onChange }: {
           disabled={o.disabled}
           onClick={() => { if (!o.disabled) onChange(o.value) }}
           className={cn(
-            'rounded-md px-2.5 py-1 text-xs transition-colors',
+            'truncate rounded-md px-2 py-1 text-center text-xs transition-colors',
             value === o.value ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
             o.disabled && 'cursor-not-allowed opacity-30',
           )}
@@ -119,7 +125,8 @@ export function Segmented({ value, options, onChange }: {
 
 // ── Dial group ───────────────────────────────────────────────────────────────────
 // `ceiling` (optional) disables levels above the cap — used in user settings so a user
-// can't exceed the admin instance ceiling.
+// can't exceed the admin instance ceiling. Rows are divided and the controls are a
+// fixed width so every category lines up.
 export function ContentDialGroup({ values, ceiling, includeCandor, candor, onDial, onCandor }: {
   values: ContentDialValues
   ceiling?: ContentDialValues | null
@@ -129,14 +136,15 @@ export function ContentDialGroup({ values, ceiling, includeCandor, candor, onDia
   onCandor?: (value: Candor) => void
 }) {
   return (
-    <div className="space-y-3">
+    <div className="divide-y divide-border/40">
       {CONTENT_DIALS.map((d) => (
-        <div key={d.key} className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">{d.label}</p>
-            <p className="text-xs text-muted-foreground">{d.help}</p>
+        <div key={d.key} className="flex items-center justify-between gap-4 py-2.5 first:pt-0">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium leading-tight">{d.label}</p>
+            <p className="text-xs text-muted-foreground leading-tight mt-0.5">{d.help}</p>
           </div>
           <Segmented
+            className="w-[300px] shrink-0"
             value={values[d.key]}
             onChange={(v) => onDial(d.key, v)}
             options={d.levels.map((l) => ({
@@ -147,12 +155,12 @@ export function ContentDialGroup({ values, ceiling, includeCandor, candor, onDia
         </div>
       ))}
       {includeCandor && onCandor && (
-        <div className="flex items-center justify-between gap-4 border-t border-border/30 pt-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">{CANDOR_DEF.label}</p>
-            <p className="text-xs text-muted-foreground">{CANDOR_DEF.help}</p>
+        <div className="flex items-center justify-between gap-4 py-2.5">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium leading-tight">{CANDOR_DEF.label}</p>
+            <p className="text-xs text-muted-foreground leading-tight mt-0.5">{CANDOR_DEF.help}</p>
           </div>
-          <Segmented value={candor ?? 'balanced'} onChange={(v) => onCandor(v as Candor)} options={CANDOR_DEF.levels} />
+          <Segmented className="w-[300px] shrink-0" value={candor ?? 'balanced'} onChange={(v) => onCandor(v as Candor)} options={CANDOR_DEF.levels} />
         </div>
       )}
     </div>
