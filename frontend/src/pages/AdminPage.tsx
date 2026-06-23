@@ -18,6 +18,7 @@ import { AdminCompanionsTab, type CompanionView } from '@/components/admin/Admin
 import { AdminSecurityTab } from '@/components/admin/AdminSecurityTab'
 import { AdminNewsTab } from '@/components/admin/AdminNewsTab'
 import { AdminFrigateTab } from '@/components/admin/AdminFrigateTab'
+import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
 
@@ -190,6 +191,7 @@ export function AdminPage() {
         {section === 'apps'       && <AdminAppsTab openSignal={openSignal} />}
         {section === 'companions' && <AdminCompanionsTab view={(sub as CompanionView) ?? 'voice'} />}
         {section === 'news'       && <AdminNewsTab />}
+        {section === 'devices'    && <AdminDevicesTab />}
         {section === 'frigate'    && <AdminFrigateTab />}
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}

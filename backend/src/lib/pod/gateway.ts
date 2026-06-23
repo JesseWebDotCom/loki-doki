@@ -13,6 +13,7 @@
 import { logger } from '@/lib/logger'
 import { WyomingDecoder, encodeEvent } from '@/lib/pod/wyoming'
 import { SatelliteSession } from '@/lib/pod/satelliteSession'
+import { registerPod, unregisterPod } from '@/lib/pod/registry'
 
 interface SocketState {
   decoder: WyomingDecoder
@@ -36,10 +37,9 @@ export function startPodGateway(): void {
       port,
       socket: {
         open(socket) {
-          conns.set(socket, {
-            decoder: new WyomingDecoder(),
-            session: new SatelliteSession((ev) => socket.write(encodeEvent(ev))),
-          })
+          const session = new SatelliteSession((ev) => socket.write(encodeEvent(ev)))
+          conns.set(socket, { decoder: new WyomingDecoder(), session })
+          registerPod(session) // make it reachable by the scheduler / push producers
           logger.info('[pod] satellite connected')
         },
         data(socket, data) {
@@ -48,19 +48,29 @@ export function startPodGateway(): void {
           for (const ev of st.decoder.push(new Uint8Array(data))) st.session.handle(ev)
         },
         close(socket) {
-          conns.get(socket)?.session.close()
+          const st = conns.get(socket)
+          if (st) { unregisterPod(st.session); st.session.close() }
           conns.delete(socket)
           logger.info('[pod] satellite disconnected')
         },
         error(socket, error) {
           logger.warn(`[pod] socket error: ${(error as Error).message}`)
-          conns.get(socket)?.session.close()
+          const st = conns.get(socket)
+          if (st) { unregisterPod(st.session); st.session.close() }
           conns.delete(socket)
         },
       },
     })
     logger.info(`[pod] Wyoming gateway listening on tcp://0.0.0.0:${port}`)
   } catch (e) {
-    logger.error(`[pod] failed to start gateway on :${port}: ${(e as Error).message}`)
+    const msg = (e as Error).message
+    // Port already held — almost always a previous backend instance that hasn't
+    // released :${port} yet (common right after a hot-reload or a SIGKILL). The
+    // gateway is optional, so warn and continue instead of logging a scary error.
+    if (/EADDRINUSE|address already in use|Failed to listen/i.test(msg)) {
+      logger.warn(`[pod] gateway port :${port} already in use — skipping (a previous instance may still hold it; set POD_GATEWAY_ENABLED=0 to disable).`)
+    } else {
+      logger.error(`[pod] failed to start gateway on :${port}: ${msg}`)
+    }
   }
 }

@@ -99,6 +99,7 @@ import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
 import { startPodGateway } from '@/lib/pod/gateway'
+import { startPodScheduler } from '@/lib/pod/scheduler'
 import { pod } from '@/routes/pod'
 import { maybeBuildWorldGeoJSON, maybeBuildWorldOverview } from '@/lib/maps/toolchain'
 import { stopGraphHopper } from '@/lib/maps/graphhopper'
@@ -136,6 +137,9 @@ maybeSpawnVoiceServer()
 // scripts/pod-test-satellite.ts harness) connect to. Reuses STT/TTS/LLM brains.
 // See plans/hardware-devices/pod-wyoming-architecture.md. Disable: POD_GATEWAY_ENABLED=0.
 startPodGateway()
+// Server-side scheduler: fires alarms/timers to a user's connected Pods over the
+// persistent gateway socket (additive to the browser Time app's own firing).
+startPodScheduler()
 // Build the zoomed-out world basemap in the background if the maps toolchain is
 // installed but the overview hasn't been built yet (one-time, then cached).
 void maybeBuildWorldOverview()

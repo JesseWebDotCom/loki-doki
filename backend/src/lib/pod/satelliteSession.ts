@@ -25,6 +25,7 @@ import { stripForSpeech } from '@/lib/voice/speechText'
 import { runPodBrain } from '@/lib/pod/brain'
 import { WakeDetector, wakeAvailable } from '@/lib/pod/wake'
 import { authenticateDeviceToken } from '@/lib/pod/devices'
+import type { PodFireEvent, PodFireTarget } from '@/lib/pod/registry'
 import {
   audioChunk,
   audioStart,
@@ -37,7 +38,7 @@ import {
 
 type Send = (ev: WyomingEvent) => void
 
-export class SatelliteSession {
+export class SatelliteSession implements PodFireTarget {
   private send: Send
   private stt: SttSession | null = null
   private inRate = 16000
@@ -109,6 +110,25 @@ export class SatelliteSession {
     this.stt?.close()
     this.stt = null
     if (this.wake) { this.wake.onDetect = null; this.wake = null }
+  }
+
+  // ── PodFireTarget: server-pushed events (scheduler / notifications) ──────────
+
+  /** The user this connection is bound to — used by the scheduler to target Pods. */
+  get boundUserId(): string | null {
+    return this.userId
+  }
+
+  /** Push an unprompted alarm/timer event. The Pod shows its ring screen + tone. */
+  fire(event: PodFireEvent): void {
+    if (this.closed) return
+    this.send({
+      type: 'user-event',
+      data: { name: 'fire', kind: event.kind, label: event.label, tone: event.tone ?? null, announce: event.announce ?? true },
+    })
+    logger.info(`[pod] pushed ${event.kind} "${event.label}" to device`)
+    // TODO(phase-1+): if event.announce, have the companion speak it (this.speak)
+    // once we're confident it won't collide with an in-flight capture/turn.
   }
 
   // ── Inbound audio → wake/STT ────────────────────────────────────────────────
