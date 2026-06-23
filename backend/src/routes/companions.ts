@@ -19,7 +19,7 @@ import { writeFirstMetMemory } from '@/lib/friendshipMemory'
 import { getCachedBriefing } from '@/lib/briefing/cache'
 import { ensureBriefingWarm, DEFAULT_BRIEFING_KEY } from '@/lib/briefing/refresh'
 import {
-  getCeiling, getUserCeiling, effectiveCeiling,
+  getUserCeiling, clampDials,
   parseCharacterContent, characterGate, buildContentPrompt,
 } from '@/lib/contentPolicy'
 import { buildInteractionFragment, ProfanityStreamBuffer, maskProfanity } from '@/lib/protections'
@@ -93,17 +93,15 @@ export async function getVisibleCompanions(userId: string, isAdmin: boolean): Pr
 companions_.get('/', requireAuth, async (c) => {
   const user = c.get('user')
   await ensureDefaultCompanions(user.id)
-  const [rows, adminCeiling, userCeiling] = await Promise.all([
+  const [rows, userCeiling] = await Promise.all([
     getVisibleCompanions(user.id, user.role === 'admin'),
-    getCeiling(),
-    getUserCeiling(user.id, user.role),
+    getUserCeiling(user.id),
   ])
-  // Attach a per-user eligibility gate: a character is locked when its content config
-  // exceeds the effective ceiling (stricter of admin and user).
-  const effCeiling = effectiveCeiling(adminCeiling, userCeiling)
+  // Attach a per-user content gate: which categories the user's profile clamps below
+  // the character's authored level (display hint only — characters are never blocked).
   return c.json(rows.map((row) => ({
     ...toCompanionPayload(row),
-    gate: characterGate(parseCharacterContent(row.contentDials).dials, effCeiling),
+    gate: characterGate(parseCharacterContent(row.contentDials).dials, userCeiling),
   })))
 })
 
@@ -216,7 +214,7 @@ companions_.post('/companion', requireAuth, async (c) => {
   // memory adds no wall-clock beyond the tool routing that was already there.
   const history = (body.history ?? []).slice(-6).map((m) => ({ role: m.role, content: m.content }))
   const offlineMode = await isOffline(user.id)
-  const [{ userContent, directReply }, computedMemory, prefsRows, existingRelation, adminCeiling] = await Promise.all([
+  const [{ userContent, directReply }, computedMemory, prefsRows, existingRelation, userCeiling] = await Promise.all([
     runToolTurn({ message: body.message, history, userId: user.id, userRole: user.role, model, offline: offlineMode }),
     cachedMem
       ? Promise.resolve(null as string | null)
@@ -230,7 +228,7 @@ companions_.post('/companion', requireAuth, async (c) => {
     db.select({ createdAt: userCharacters.createdAt }).from(userCharacters)
       .where(and(eq(userCharacters.userId, user.id), eq(userCharacters.characterId, body.characterId)))
       .limit(1).then(r => r[0] ?? null),
-    getCeiling(),
+    getUserCeiling(user.id),
   ])
   const memoryBlock = cachedMem ? cachedMem.memoryBlock : computedMemory
   if (!cachedMem) setCachedMemoryBlock(memKey, memoryBlock)
@@ -248,16 +246,13 @@ companions_.post('/companion', requireAuth, async (c) => {
 
   const prefs = Object.fromEntries(prefsRows.map(r => [r.key, JSON.parse(r.value)]))
   // ── Content policy ─────────────────────────────────────────────────────────
-  // A character runs at its own config (can't be compromised) and is usable only if
-  // every dial sits within the effective ceiling (stricter of admin and user).
-  const effCeiling = effectiveCeiling(adminCeiling, await getUserCeiling(user.id, user.role))
+  // A character runs at its own authored config, CLAMPED to the user's ceiling
+  // (their assigned profile) — it can never exceed what the account permits.
+  const activeDials = clampDials(parseCharacterContent(row.contentDials).dials, userCeiling)
   const charContent = parseCharacterContent(row.contentDials)
-  if (!characterGate(charContent.dials, effCeiling).usable) {
-    return c.json({ error: 'This character exceeds your content settings.' }, 403)
-  }
-  const contentPrompt = await buildContentPrompt(charContent.dials)
+  const contentPrompt = buildContentPrompt(activeDials)
   const candorFragment = buildInteractionFragment({ language: 'conversational', depth: 'balanced', candor: charContent.candor })
-  const maskProfanityActive = charContent.dials.profanity === 'off'
+  const maskProfanityActive = activeDials.profanity === 'off'
 
   // Snappy path: a tool that returned a finished, speakable reply (alarm/timer
   // confirmations, etc.) is emitted verbatim, with no LLM rephrasing, so it can't get

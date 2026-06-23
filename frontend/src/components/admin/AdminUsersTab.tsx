@@ -9,7 +9,8 @@ import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { UserAvatar } from '@/components/shared/UserAvatar'
-import { ContentDialGroup, MAX_DIALS, type ContentDialValues, type DialKey } from '@/components/shared/contentDials'
+import { CONTENT_DIALS, type ContentDialValues } from '@/components/shared/contentDials'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { AdminAccordion } from '@/components/admin/AdminAccordion'
 import { AdminStorageTab } from '@/components/admin/AdminStorageTab'
 
@@ -645,38 +646,74 @@ function UserGeneralTab({ user, onUpdate }: {
   )
 }
 
-// ── Per-user content ceiling (parental control) ───────────────────────────────
+// ── Per-user content profile assignment ───────────────────────────────────────
+
+interface ProfileOption { slug: string; name: string; description: string; dials: ContentDialValues }
 
 function UserContentCeiling({ userId }: { userId: string }) {
-  const [ceiling, setCeiling] = useState<ContentDialValues | null>(null)
+  const [profiles, setProfiles] = useState<ProfileOption[]>([])
+  const [assigned, setAssigned] = useState<string | null>(null)
+  const [pending, setPending] = useState<ProfileOption | null>(null)  // awaiting 100%-open confirmation
 
   useEffect(() => {
-    apiFetch<{ ceiling: ContentDialValues }>(`/api/admin/content/users/${userId}/ceiling`)
-      .then((d) => setCeiling(d?.ceiling ?? null))
+    void Promise.all([
+      apiFetch<{ profiles: ProfileOption[] }>(`/api/admin/content/profiles`),
+      apiFetch<{ slug: string }>(`/api/admin/content/users/${userId}/profile`),
+    ]).then(([p, a]) => { setProfiles(p?.profiles ?? []); setAssigned(a?.slug ?? null) })
   }, [userId])
 
-  async function setDial(key: DialKey, value: string) {
-    if (!ceiling) return
-    const next = { ...ceiling, [key]: value }
-    setCeiling(next)
-    const r = await fetch(`/api/admin/content/users/${userId}/ceiling`, {
+  async function commit(slug: string) {
+    const prev = assigned
+    setAssigned(slug)
+    const r = await fetch(`/api/admin/content/users/${userId}/profile`, {
       method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ceiling: next }),
+      body: JSON.stringify({ slug }),
     })
-    if (r.ok) toast.success('Content limit updated'); else toast.error('Failed to save')
+    if (r.ok) toast.success('Profile assigned')
+    else { setAssigned(prev); toast.error('Failed to assign profile') }
   }
 
-  if (!ceiling) return null
+  function choose(slug: string) {
+    if (slug === assigned) return
+    const profile = profiles.find((p) => p.slug === slug)
+    const open100 = profile ? CONTENT_DIALS.filter((d) => profile.dials[d.key] === 'unrestricted') : []
+    // Any profile with one or more fully-open categories → confirm first.
+    if (open100.length > 0) { setPending(profile!); return }
+    void commit(slug)
+  }
+
+  const pendingOpen = pending ? CONTENT_DIALS.filter((d) => pending.dials[d.key] === 'unrestricted').map((d) => d.label) : []
+
   return (
-    <div className="rounded-xl border border-border/50 bg-card/50 p-3 space-y-3">
+    <div className="rounded-xl border border-border/50 bg-card/50 p-3 space-y-2">
       <div>
-        <p className="text-sm font-medium leading-tight">Maximum content level</p>
+        <p className="text-sm font-medium leading-tight">Content profile</p>
         <p className="text-xs text-muted-foreground mt-0.5">
-          The highest level this user can ever reach — they cannot raise their own settings past this.
-          New non-admin accounts start fully restricted.
+          Sets this user's ceiling across every category. New accounts start on the default profile.
+          A companion can never exceed the user's profile.
         </p>
       </div>
-      <ContentDialGroup values={ceiling} ceiling={MAX_DIALS} onDial={setDial} />
+      <select
+        value={assigned ?? ''}
+        onChange={(e) => choose(e.target.value)}
+        className="w-full rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm outline-none focus:border-brand/60"
+      >
+        {assigned === null && <option value="" disabled>Loading…</option>}
+        {profiles.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
+      </select>
+      {assigned && (() => {
+        const p = profiles.find((x) => x.slug === assigned)
+        return p?.description ? <p className="text-xs text-muted-foreground">{p.description}</p> : null
+      })()}
+
+      <ConfirmDialog
+        open={!!pending}
+        onOpenChange={(o) => { if (!o) setPending(null) }}
+        title={`Assign "${pending?.name}" — fully unrestricted categories`}
+        description={`This profile sets these categories to 100% (no limit): ${pendingOpen.join(', ')}. The user and their companions will be able to discuss these topics without restriction. Only sexual content involving minors and mass-casualty weapons remain blocked. Continue?`}
+        confirmLabel="Assign anyway"
+        onConfirm={() => { if (pending) void commit(pending.slug); setPending(null) }}
+      />
     </div>
   )
 }

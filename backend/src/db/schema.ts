@@ -577,6 +577,22 @@ export const notifications = sqliteTable('notifications', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ── Content profiles ──────────────────────────────────────────────────────────
+// A named set of per-category content ceilings, assigned to users. Built-ins are
+// seeded at boot; admins can edit them and create their own. `dials` is a JSON
+// Record<DialKey, level>. See lib/contentPolicy.ts.
+export const contentProfiles = sqliteTable('content_profiles', {
+  id: text('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  description: text('description'),
+  dials: text('dials').notNull(),               // JSON Record<DialKey, level>
+  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ── Frigate camera integration ────────────────────────────────────────────────
 // One row per notable Frigate event. Two producers:
 //   • 'genai'  — the OpenAI-compatible shim (kind 'description'): what the VLM told

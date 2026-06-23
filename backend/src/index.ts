@@ -90,6 +90,7 @@ import { holidaysRoute } from '@/routes/holidays'
 import { localEventsRoute } from '@/routes/localEvents'
 import { time } from '@/routes/time'
 import { startHomeAssistantSync } from '@/lib/homeAssistant'
+import { seedContentProfiles } from '@/lib/contentPolicy'
 import { frigate } from '@/routes/frigate'
 import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
@@ -122,6 +123,8 @@ setInterval(() => { void pruneExpiredSessions().catch(() => {}) }, 60 * 60 * 100
 // that may not even be running. setup.ts calls warmupModel() itself once the user chooses.
 void (async () => { if ((await getAppSetting('first_run_complete')) === true) warmupModel() })()
 void startHomeAssistantSync()
+// Seed built-in content profiles + backfill user assignments (idempotent).
+void seedContentProfiles().catch((e) => logger.warn(`[content] profile seed failed: ${e}`))
 // Connect to the (remote) Frigate broker if configured — drives camera event
 // notifications + companion announcements. No-op until an admin sets it up.
 void startFrigateMqtt()

@@ -4,66 +4,78 @@ import { db } from '@/db'
 import { users } from '@/db/schema'
 import { requireAdmin } from '@/middleware/auth'
 import {
-  DEFAULT_SAFETY_FLOOR, setSafetyFloor, resetSafetyFloor,
-  getCeiling, setCeiling, getUserAdminCeiling, setUserAdminCeiling, MAX_DIALS, DIAL_LEVELS,
+  CONTENT_CATEGORIES, DIAL_LEVELS, MAX_DIALS,
+  listProfiles, getProfile, createProfile, updateProfile, deleteProfile,
+  getDefaultProfileSlug, setDefaultProfileSlug,
+  getUserProfileSlug, setUserProfileSlug, unrestrictedCategories,
 } from '@/lib/contentPolicy'
-import { getAppSetting } from '@/lib/settings'
 import type { AppEnv } from '@/types'
 
 const adminContent = new Hono<AppEnv>()
 
-// ── Safety floor (always-on, admin-editable) ─────────────────────────────────────
-adminContent.get('/floor', requireAdmin, async (c) => {
-  const stored = await getAppSetting('content.floor')
-  const isCustom = typeof stored === 'string' && stored.trim().length > 0
-  const prompt = isCustom ? (stored as string) : DEFAULT_SAFETY_FLOOR
-  return c.json({ prompt, isCustom, default: DEFAULT_SAFETY_FLOOR })
+// Category metadata for the admin UI (axes, levels, labels).
+adminContent.get('/categories', requireAdmin, (c) => {
+  return c.json({
+    categories: CONTENT_CATEGORIES.map((cat) => ({
+      key: cat.key, label: cat.label, help: cat.help,
+      levels: cat.levels.map((l) => ({ value: l.value, label: l.label })),
+    })),
+    levels: DIAL_LEVELS, max: MAX_DIALS,
+  })
 })
 
-adminContent.put('/floor', requireAdmin, async (c) => {
-  const { prompt } = (await c.req.json()) as { prompt: string }
-  if (typeof prompt !== 'string' || !prompt.trim()) {
-    return c.json({ error: 'prompt is required' }, 400)
-  }
-  await setSafetyFloor(prompt)
-  return c.json({ ok: true, prompt: prompt.trim() })
+// ── Profiles ───────────────────────────────────────────────────────────────────
+adminContent.get('/profiles', requireAdmin, async (c) => {
+  const [profiles, defaultSlug] = await Promise.all([listProfiles(), getDefaultProfileSlug()])
+  return c.json({ profiles, defaultSlug })
 })
 
-adminContent.delete('/floor', requireAdmin, async (c) => {
-  await resetSafetyFloor()
-  return c.json({ ok: true, prompt: DEFAULT_SAFETY_FLOOR })
+adminContent.post('/profiles', requireAdmin, async (c) => {
+  const body = (await c.req.json()) as { name?: string; description?: string; dials?: Record<string, unknown> }
+  if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400)
+  const profile = await createProfile(body.name, body.description ?? '', body.dials ?? {})
+  return c.json({ ok: true, profile })
 })
 
-// ── Instance content ceiling ─────────────────────────────────────────────────────
-adminContent.get('/ceiling', requireAdmin, async (c) => {
-  const ceiling = await getCeiling()
-  return c.json({ ceiling, max: MAX_DIALS, levels: DIAL_LEVELS })
+adminContent.put('/profiles/:slug', requireAdmin, async (c) => {
+  const slug = c.req.param('slug')
+  const body = (await c.req.json()) as { name?: string; description?: string; dials?: Record<string, unknown> }
+  const profile = await updateProfile(slug, body)
+  if (!profile) return c.json({ error: 'not found' }, 404)
+  return c.json({ ok: true, profile })
 })
 
-adminContent.put('/ceiling', requireAdmin, async (c) => {
-  const body = (await c.req.json()) as { ceiling?: Record<string, unknown> }
-  const ceiling = await setCeiling(body.ceiling ?? {})
-  return c.json({ ok: true, ceiling })
+adminContent.delete('/profiles/:slug', requireAdmin, async (c) => {
+  const res = await deleteProfile(c.req.param('slug'))
+  if (!res.ok) return c.json({ error: res.error }, 400)
+  return c.json({ ok: true })
 })
 
-// ── Per-user content ceiling (parental control) ──────────────────────────────────
-// The admin-enforced maximum a specific user can never exceed. Defaults: admins → full,
-// everyone else → fully censored (so a new child account is safe until raised here).
-adminContent.get('/users/:userId/ceiling', requireAdmin, async (c) => {
+adminContent.put('/default-profile', requireAdmin, async (c) => {
+  const { slug } = (await c.req.json()) as { slug?: string }
+  if (!slug || !(await getProfile(slug))) return c.json({ error: 'unknown profile' }, 400)
+  await setDefaultProfileSlug(slug)
+  return c.json({ ok: true, defaultSlug: slug })
+})
+
+// ── Per-user assignment ──────────────────────────────────────────────────────────
+adminContent.get('/users/:userId/profile', requireAdmin, async (c) => {
   const userId = c.req.param('userId')
   const [u] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1)
   if (!u) return c.json({ error: 'User not found' }, 404)
-  const ceiling = await getUserAdminCeiling(userId, u.role)
-  return c.json({ ceiling, max: MAX_DIALS, levels: DIAL_LEVELS })
+  return c.json({ slug: await getUserProfileSlug(userId) })
 })
 
-adminContent.put('/users/:userId/ceiling', requireAdmin, async (c) => {
+adminContent.put('/users/:userId/profile', requireAdmin, async (c) => {
   const userId = c.req.param('userId')
   const [u] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1)
   if (!u) return c.json({ error: 'User not found' }, 404)
-  const body = (await c.req.json()) as { ceiling?: Record<string, unknown> }
-  const ceiling = await setUserAdminCeiling(userId, body.ceiling ?? {})
-  return c.json({ ok: true, ceiling })
+  const { slug } = (await c.req.json()) as { slug?: string }
+  const profile = slug ? await getProfile(slug) : null
+  if (!profile) return c.json({ error: 'unknown profile' }, 400)
+  await setUserProfileSlug(userId, slug!)
+  // Surface which categories this assignment opens to 100%, so the UI can warn.
+  return c.json({ ok: true, slug, unrestricted: unrestrictedCategories(profile.dials) })
 })
 
 export { adminContent }

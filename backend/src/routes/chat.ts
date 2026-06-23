@@ -13,8 +13,7 @@ import { getProtections, getInteractionStyle } from '@/lib/protections'
 import { writeFirstMetMemory } from '@/lib/friendshipMemory'
 import { getLocaleSettings } from '@/routes/adminLocale'
 import {
-  getCeiling, getUserCeiling, effectiveCeiling,
-  parseCharacterContent, characterGate,
+  getUserCeiling, clampDials, parseCharacterContent,
 } from '@/lib/contentPolicy'
 import type { ContentDials } from '@/lib/contentPolicy'
 import { runCompanionTurn, loadUserPrefs } from '@/lib/companionTurn'
@@ -134,7 +133,7 @@ chat.post('/stream', requireAuth, async (c) => {
 
   // Run getPrefs, character load, friendship lookup, locale settings, user protections,
   // and content ceilings (admin + user) in parallel
-  const [prefs, charRow, existingRelation, locale, protections, interactionStyle, adminCeiling, userCeiling] = await Promise.all([
+  const [prefs, charRow, existingRelation, locale, protections, interactionStyle, userCeiling] = await Promise.all([
     loadUserPrefs(user.id),
     characterId
       ? db.select().from(characters).where(eq(characters.id, characterId)).limit(1).then(r => r[0] ?? null)
@@ -147,20 +146,17 @@ chat.post('/stream', requireAuth, async (c) => {
     getLocaleSettings(),
     getProtections(user.id),
     getInteractionStyle(user.id),
-    getCeiling(),
-    getUserCeiling(user.id, user.role),
+    getUserCeiling(user.id),
   ])
 
   // ── Resolve the active content dials ──────────────────────────────────────────
-  // Effective ceiling = stricter of admin and user, per dial. A plain chat runs at
-  // that ceiling. A character runs at its OWN config (it can't be compromised) and is
-  // usable only if every dial sits within the ceiling; otherwise it's locked.
-  const effCeiling = effectiveCeiling(adminCeiling, userCeiling)
+  // The user's ceiling = their assigned content profile (optionally self-lowered).
+  // A character runs at its OWN authored config, but is CLAMPED to the user's ceiling
+  // per category — it can never exceed what the account permits (rather than being
+  // blocked outright).
+  const effCeiling = userCeiling
   const charContent = charRow ? parseCharacterContent(charRow.contentDials) : null
-  const activeDials: ContentDials = charContent ? charContent.dials : effCeiling
-  if (charContent && !characterGate(charContent.dials, effCeiling).usable) {
-    return c.json({ error: 'This character exceeds your content settings.' }, 403)
-  }
+  const activeDials: ContentDials = charContent ? clampDials(charContent.dials, effCeiling) : effCeiling
   // Candor is delivery: from the character for a character chat, else the user's style.
   const activeInteractionStyle = charContent
     ? { ...interactionStyle, candor: charContent.candor }

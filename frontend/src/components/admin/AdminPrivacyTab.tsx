@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Lock, Plus, RefreshCw, RotateCcw, Save, ShieldAlert, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { AdminAccordion } from '@/components/admin/AdminAccordion'
-import { ContentDialGroup, MAX_DIALS, normalizeDials } from '@/components/shared/contentDials'
-import type { ContentDialValues, DialKey } from '@/components/shared/contentDials'
+import { ContentProfilesManager } from '@/components/admin/ContentProfilesManager'
 
 interface PrivacySettings {
   enabled: boolean
@@ -15,12 +14,6 @@ interface KeywordsData {
   keywords: string[]
   isCustom: boolean
   defaults: string[]
-}
-
-interface SafetyPromptData {
-  prompt: string
-  isCustom: boolean
-  default: string
 }
 
 interface LoraRow {
@@ -65,21 +58,14 @@ export function AdminPrivacyTab({ openSignal }: { openSignal?: string } = {}) {
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<{ scanned: number; flagged: number } | null>(null)
   const kwInputRef = useRef<HTMLInputElement>(null)
-  const [safetyPromptData, setSafetyPromptData] = useState<SafetyPromptData | null>(null)
-  const [promptText, setPromptText] = useState('')
-  const [promptSaving, setPromptSaving] = useState(false)
-  const [promptSaved, setPromptSaved] = useState(false)
-  const [ceiling, setCeiling] = useState<ContentDialValues>({ ...MAX_DIALS })
 
   // "Saved!" badge timers, kept in refs so we can clear them on unmount
   // (and clear a previous one before scheduling a new one).
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const kwSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const promptSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => {
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     if (kwSavedTimerRef.current) clearTimeout(kwSavedTimerRef.current)
-    if (promptSavedTimerRef.current) clearTimeout(promptSavedTimerRef.current)
   }, [])
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -97,16 +83,6 @@ export function AdminPrivacyTab({ openSignal }: { openSignal?: string } = {}) {
     fetch('/api/privacy/admin/keywords', { credentials: 'include', signal })
       .then(r => r.ok ? r.json() : null)
       .then((d: KeywordsData | null) => { if (live() && d) setKeywordsData(d) })
-      .catch(() => {})
-
-    fetch('/api/admin/content/floor', { credentials: 'include', signal })
-      .then(r => r.ok ? r.json() : null)
-      .then((d: SafetyPromptData | null) => { if (live() && d) { setSafetyPromptData(d); setPromptText(d.prompt) } })
-      .catch(() => {})
-
-    fetch('/api/admin/content/ceiling', { credentials: 'include', signal })
-      .then(r => r.ok ? r.json() : null)
-      .then((d: { ceiling: ContentDialValues } | null) => { if (live() && d) setCeiling(normalizeDials(d.ceiling, MAX_DIALS)) })
       .catch(() => {})
   }, [])
 
@@ -215,88 +191,14 @@ export function AdminPrivacyTab({ openSignal }: { openSignal?: string } = {}) {
     } finally { setScanning(false) }
   }
 
-  const savePrompt = async () => {
-    setPromptSaving(true)
-    try {
-      const res = await fetch('/api/admin/content/floor', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: promptText }),
-        credentials: 'include',
-      })
-      if (res.ok) {
-        setSafetyPromptData(d => d ? { ...d, isCustom: true, prompt: promptText } : d)
-        setPromptSaved(true)
-        if (promptSavedTimerRef.current) clearTimeout(promptSavedTimerRef.current)
-        promptSavedTimerRef.current = setTimeout(() => setPromptSaved(false), 2000)
-      }
-    } finally { setPromptSaving(false) }
-  }
-
-  const resetPrompt = async () => {
-    const res = await fetch('/api/admin/content/floor', { method: 'DELETE', credentials: 'include' })
-    if (res.ok && safetyPromptData) {
-      setPromptText(safetyPromptData.default)
-      setSafetyPromptData(d => d ? { ...d, isCustom: false, prompt: d.default } : d)
-    }
-  }
-
-  const saveCeiling = (key: DialKey, value: string) => {
-    const next = { ...ceiling, [key]: value }
-    setCeiling(next)
-    void fetch('/api/admin/content/ceiling', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ceiling: next }),
-      credentials: 'include',
-    })
-  }
-
   if (!settings) {
     return <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">Loading…</div>
   }
 
   return (
     <div className="space-y-3 p-5">
-      {/* Safety Floor */}
-      {safetyPromptData && (
-        <AdminAccordion id="safety-floor" title="Safety Floor (always enforced)"
-          description="Injected at the top of every conversation and never overridden by content settings."
-          openSignal={openSignal} defaultOpen>
-          <div className="space-y-3">
-            {safetyPromptData.isCustom && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Customized</span>
-                <button onClick={() => void resetPrompt()}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  <RotateCcw className="size-3" /> Reset to default
-                </button>
-              </div>
-            )}
-            <textarea
-              value={promptText}
-              onChange={e => setPromptText(e.target.value)}
-              rows={14}
-              className="w-full rounded-xl border border-border/60 bg-background px-3 py-2.5 text-xs font-mono text-foreground outline-none focus:border-brand/60 resize-y"
-            />
-            <div className="flex items-center gap-3">
-              <button onClick={() => void savePrompt()} disabled={promptSaving || promptText.trim() === safetyPromptData.prompt}
-                className="flex items-center gap-2 rounded-lg bg-foreground px-3 py-2 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50">
-                <Save className="size-3.5" />
-                {promptSaving ? 'Saving…' : promptSaved ? 'Saved!' : 'Save prompt'}
-              </button>
-              <p className="text-xs text-muted-foreground">Users can turn off safe mode in Settings → Privacy.</p>
-            </div>
-          </div>
-        </AdminAccordion>
-      )}
-
-      {/* Instance Content Ceiling */}
-      <AdminAccordion id="content-ceiling" title="Instance Content Ceiling"
-        description="The hardest cap for this server. No user setting or character can exceed it; the safety floor still applies underneath."
-        openSignal={openSignal}>
-        <ContentDialGroup values={ceiling} onDial={saveCeiling} />
-      </AdminAccordion>
+      {/* Content Profiles (replaces the old safety floor + instance ceiling) */}
+      <ContentProfilesManager openSignal={openSignal} />
 
       {/* Privacy Mode */}
       <AdminAccordion id="privacy-mode" title="Privacy Mode"

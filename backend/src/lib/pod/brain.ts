@@ -17,8 +17,7 @@ import { buildCompanionPrompt } from '@/lib/companionPrompt'
 import { getProtections, getInteractionStyle } from '@/lib/protections'
 import { getLocaleSettings } from '@/routes/adminLocale'
 import {
-  getCeiling, getUserCeiling, effectiveCeiling,
-  parseCharacterContent, characterGate,
+  getUserCeiling, clampDials, parseCharacterContent,
 } from '@/lib/contentPolicy'
 import type { ContentDials } from '@/lib/contentPolicy'
 import type { OllamaChatMessage } from '@/llm/ollama'
@@ -69,7 +68,7 @@ async function buildTurnParams(
   opts: PodBrainOptions,
 ): Promise<CompanionTurnParams | null> {
   const characterId = opts.characterId ?? null
-  const [user, prefs, charRow, locale, protections, interactionStyle, adminCeiling, userCeiling] = await Promise.all([
+  const [user, prefs, charRow, locale, protections, interactionStyle, userCeiling] = await Promise.all([
     db.select().from(users).where(eq(users.id, opts.userId)).limit(1).then((r) => r[0] ?? null),
     loadUserPrefs(opts.userId),
     characterId
@@ -78,17 +77,14 @@ async function buildTurnParams(
     getLocaleSettings(),
     getProtections(opts.userId),
     getInteractionStyle(opts.userId),
-    getCeiling(),
-    getUserCeiling(opts.userId, 'user'),
+    getUserCeiling(opts.userId),
   ])
   if (!user) return null
 
-  // Content dials: effective ceiling for plain chat; a character runs its own
-  // config and is locked if it exceeds the ceiling (same rule as the chat route).
-  const effCeiling = effectiveCeiling(adminCeiling, userCeiling)
+  // Content dials: the user's profile ceiling; a character runs its own config
+  // CLAMPED to that ceiling (same rule as the chat route).
   const charContent = charRow ? parseCharacterContent(charRow.contentDials) : null
-  if (charContent && !characterGate(charContent.dials, effCeiling).usable) return null
-  const activeDials: ContentDials = charContent ? charContent.dials : effCeiling
+  const activeDials: ContentDials = charContent ? clampDials(charContent.dials, userCeiling) : userCeiling
   const activeInteractionStyle = charContent
     ? { ...interactionStyle, candor: charContent.candor }
     : interactionStyle

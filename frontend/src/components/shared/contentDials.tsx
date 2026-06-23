@@ -3,7 +3,11 @@ import { cn } from '@/lib/cn'
 // Shared content-policy dial UI + metadata. Used by user settings (capped by the
 // admin ceiling), the admin instance-ceiling editor, and the character studio.
 
-export type DialKey = 'profanity' | 'sexual' | 'violence' | 'substances'
+// Mirror of backend lib/contentPolicy.ts CONTENT_CATEGORIES — keep in sync. Every
+// axis tops out at `unrestricted`. Behavior is owned by the backend; this is UI only.
+export type DialKey =
+  | 'profanity' | 'sexual' | 'violence' | 'substances'
+  | 'crime' | 'hate' | 'selfHarm' | 'privacy'
 export type Candor = 'gentle' | 'balanced' | 'blunt'
 export type ContentDialValues = Record<DialKey, string>
 
@@ -14,15 +18,25 @@ export interface DialDef {
   levels: { value: string; label: string }[]
 }
 
+const U = { value: 'unrestricted', label: 'Unrestricted' }
+
 export const CONTENT_DIALS: DialDef[] = [
   { key: 'profanity', label: 'Profanity', help: 'Swearing and vulgar language',
-    levels: [{ value: 'off', label: 'Clean' }, { value: 'mild', label: 'Mild' }, { value: 'full', label: 'Full' }] },
-  { key: 'sexual', label: 'Sexual', help: 'Romantic and sexual content',
-    levels: [{ value: 'off', label: 'None' }, { value: 'suggestive', label: 'Suggestive' }, { value: 'explicit', label: 'Explicit' }] },
-  { key: 'violence', label: 'Violence', help: 'Violence and gore in fiction',
-    levels: [{ value: 'off', label: 'None' }, { value: 'moderate', label: 'Moderate' }, { value: 'graphic', label: 'Graphic' }] },
-  { key: 'substances', label: 'Substances & crime', help: 'Frank discussion of drugs and crime',
-    levels: [{ value: 'off', label: 'None' }, { value: 'discuss', label: 'Discuss' }, { value: 'detailed', label: 'Detailed' }] },
+    levels: [{ value: 'off', label: 'Clean' }, { value: 'mild', label: 'Mild' }, U] },
+  { key: 'sexual', label: 'Sexual content', help: 'Romantic and sexual content',
+    levels: [{ value: 'off', label: 'None' }, { value: 'suggestive', label: 'Suggestive' }, U] },
+  { key: 'violence', label: 'Violence & gore', help: 'Violence and gore in fiction',
+    levels: [{ value: 'off', label: 'None' }, { value: 'moderate', label: 'Moderate' }, U] },
+  { key: 'substances', label: 'Drugs & alcohol', help: 'Discussion of drugs and intoxicants',
+    levels: [{ value: 'off', label: 'None' }, { value: 'discuss', label: 'Discuss' }, U] },
+  { key: 'crime', label: 'Crime & illicit how-to', help: 'Crime, fraud, hacking, weapons',
+    levels: [{ value: 'off', label: 'None' }, { value: 'discuss', label: 'Discuss' }, U] },
+  { key: 'hate', label: 'Hate & harassment', help: 'Slurs and demeaning content',
+    levels: [{ value: 'off', label: 'None' }, { value: 'fiction', label: 'In fiction' }, U] },
+  { key: 'selfHarm', label: 'Self-harm', help: 'Suicide and self-harm topics',
+    levels: [{ value: 'off', label: 'Care' }, { value: 'discuss', label: 'Discuss' }, U] },
+  { key: 'privacy', label: 'Privacy & people', help: 'Information about real people',
+    levels: [{ value: 'off', label: 'Strict' }, { value: 'public', label: 'Public info' }, U] },
 ]
 
 export const CANDOR_DEF = {
@@ -31,8 +45,8 @@ export const CANDOR_DEF = {
 }
 
 export const DIAL_KEYS = CONTENT_DIALS.map((d) => d.key)
-export const MIN_DIALS: ContentDialValues = { profanity: 'off', sexual: 'off', violence: 'off', substances: 'off' }
-export const MAX_DIALS: ContentDialValues = { profanity: 'full', sexual: 'explicit', violence: 'graphic', substances: 'detailed' }
+export const MIN_DIALS: ContentDialValues = Object.fromEntries(DIAL_KEYS.map((k) => [k, 'off'])) as ContentDialValues
+export const MAX_DIALS: ContentDialValues = Object.fromEntries(DIAL_KEYS.map((k) => [k, 'unrestricted'])) as ContentDialValues
 
 const LEVEL_ORDER: Record<DialKey, string[]> = Object.fromEntries(
   CONTENT_DIALS.map((d) => [d.key, d.levels.map((l) => l.value)]),
@@ -57,11 +71,15 @@ export function formatGateReason(blockedBy: { dial: string; required: string }[]
   }).join(', ')
 }
 
+// Legacy top values (pre-`unrestricted` rename) coerced on read.
+const LEGACY_ALIAS: Record<string, string> = { full: 'unrestricted', explicit: 'unrestricted', graphic: 'unrestricted', detailed: 'unrestricted' }
+
 export function normalizeDials(raw: Partial<Record<DialKey, unknown>> | null | undefined, fallback = MIN_DIALS): ContentDialValues {
   const out = { ...fallback }
   if (raw && typeof raw === 'object') {
     for (const k of DIAL_KEYS) {
-      const v = raw[k]
+      let v = raw[k]
+      if (typeof v === 'string' && LEGACY_ALIAS[v] && LEVEL_ORDER[k].includes(LEGACY_ALIAS[v]!)) v = LEGACY_ALIAS[v]
       if (typeof v === 'string' && LEVEL_ORDER[k].includes(v)) out[k] = v
     }
   }

@@ -1275,6 +1275,21 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_maps_saved_pins_user_id ON maps_saved_pins(user_id);
   `)
 
+  // Content profiles (named per-category content ceilings, assigned to users)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS content_profiles (
+      id TEXT NOT NULL PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      dials TEXT NOT NULL,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `)
+
   // Frigate camera integration
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS frigate_events (

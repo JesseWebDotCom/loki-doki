@@ -244,7 +244,7 @@ usersRoute.get('/:id/preferences', requireAuth, async (c) => {
 // Otherwise a non-admin (e.g. a child) could PATCH their own prefs to disable parental
 // controls: `protections` (set via the admin-only PUT /:id/protections), `uncensored_images`
 // (removes the image safety prefix), `safe_mode` (legacy content-ceiling bypass).
-const ADMIN_ONLY_PREF_KEYS = new Set(['protections', 'uncensored_images', 'safe_mode', 'content_ceiling'])
+const ADMIN_ONLY_PREF_KEYS = new Set(['protections', 'uncensored_images', 'safe_mode', 'content_ceiling', 'content_profile'])
 
 // Set preferences — admin or self
 usersRoute.patch('/:id/preferences', requireAuth, async (c) => {
