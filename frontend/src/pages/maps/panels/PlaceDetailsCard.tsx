@@ -22,6 +22,7 @@ import { PoiIcon } from "../PoiIcon";
 import type { PlaceResult } from "../types";
 import { sharePlaceToClipboard } from "../use-share-place";
 import { usePlaceDescription } from "./use-place-description";
+import { ResidentialDetails } from "./ResidentialDetails";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -383,6 +384,9 @@ export function PlaceDetailsCard({
           </div>
         );
       })() : null}
+
+      {/* Residential address → property + resident lookup (renders nothing for businesses) */}
+      <ResidentialDetails place={place} />
     </section>
   );
 }

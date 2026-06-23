@@ -1348,4 +1348,93 @@ export function runMigrations() {
     CREATE UNIQUE INDEX IF NOT EXISTS devices_token_hash_unique ON devices(token_hash);
     CREATE INDEX IF NOT EXISTS devices_user_id ON devices(user_id);
   `)
+
+  // Generic read-through lookup cache (property/people scrapers and future tools).
+  // data holds the JSON result ("null" = cached negative); expires_at is epoch ms.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS lookup_cache (
+      key TEXT NOT NULL PRIMARY KEY,
+      namespace TEXT NOT NULL,
+      data TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_lookup_cache_namespace ON lookup_cache(namespace);
+    CREATE INDEX IF NOT EXISTS idx_lookup_cache_expires ON lookup_cache(expires_at);
+  `)
+
+  // Per-user enable overrides for on-disk markdown skills (see schema.ts skillEnabled).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS skill_enabled (
+      user_id TEXT NOT NULL,
+      skill_name TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      source TEXT NOT NULL DEFAULT 'user_toggle',
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, skill_name),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `)
+
+  // Voice memos — recorded audio + best-effort transcript (Phase 3).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS voice_memos (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      session_id TEXT,
+      path TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      transcript TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_memos_user ON voice_memos(user_id, created_at);
+  `)
+
+  // Document RAG — project file attachments + embedded chunks (Phase 5).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS project_documents (
+      id TEXT NOT NULL PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      blob_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      chunk_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_documents_project ON project_documents(project_id);
+
+    CREATE TABLE IF NOT EXISTS document_chunks (
+      id TEXT NOT NULL PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      embedding BLOB,
+      loc TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (document_id) REFERENCES project_documents(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_chunks_project ON document_chunks(project_id);
+    CREATE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks(document_id);
+
+    CREATE TABLE IF NOT EXISTS generated_documents (
+      id TEXT NOT NULL PRIMARY KEY,
+      project_id TEXT,
+      conversation_id TEXT,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      preset TEXT,
+      markdown TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_generated_documents_user ON generated_documents(user_id, created_at);
+  `)
 }

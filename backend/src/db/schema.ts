@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, unique, uniqueIndex, real, index, primaryKey } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, unique, uniqueIndex, real, index, primaryKey, blob } from 'drizzle-orm/sqlite-core'
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -893,6 +893,19 @@ export const mapsPoiEnrichments = sqliteTable('maps_poi_enrichments', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── Generic lookup cache ─────────────────────────────────────────────────────────
+// Read-through TTL cache shared by any tool that scrapes a slow/rate-limited external
+// source (property lookup, people lookup, …). One row per (namespace, key); `data` is
+// the JSON-serialised result — including JSON `null` to mark a "fetched but empty"
+// negative result so we don't re-scrape a miss every time. `expiresAt` is epoch ms.
+export const lookupCache = sqliteTable('lookup_cache', {
+  key: text('key').primaryKey(),         // `${namespace}:${sha256(key)}`
+  namespace: text('namespace').notNull(),
+  data: text('data').notNull(),          // JSON-encoded payload (may be "null")
+  expiresAt: integer('expires_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+})
+
 // ─── Time / Clock App ───────────────────────────────────────────────────────────
 // World-clock locations, alarms, and timer presets. All per-user. The `tone` column
 // references either a synthesized built-in ("builtin:<key>") or a saved music track
@@ -1120,3 +1133,67 @@ export const readerItemTags = sqliteTable('reader_item_tags', {
   itemId: text('item_id').notNull().references(() => readerItems.id, { onDelete: 'cascade' }),
   tagId: text('tag_id').notNull().references(() => readerTags.id, { onDelete: 'cascade' }),
 }, t => ({ pk: primaryKey({ columns: [t.itemId, t.tagId] }) }))
+
+// ─── Skills / Bundles ───────────────────────────────────────────────────────────
+// User-authored markdown "skills" (frontmatter + body) shape the companion's reply.
+// The skill definitions live on disk (family scope: {dataDir}/skills/*.md, default off;
+// personal scope: {dataDir}/users/{userId}/skills/*.md, default on). This table only
+// records per-user enable overrides — a missing row means "use the scope default".
+// `source` audits how the row got its value (user_toggle | admin_assign | default).
+export const skillEnabled = sqliteTable('skill_enabled', {
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  skillName: text('skill_name').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull(),
+  source: text('source').notNull().default('user_toggle'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.userId, t.skillName] }) }))
+
+// ─── Voice memos ────────────────────────────────────────────────────────────────
+// Recorded audio (stored as 16 kHz mono WAV) + a best-effort whisper transcript.
+export const voiceMemos = sqliteTable('voice_memos', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sessionId: text('session_id'),
+  path: text('path').notNull(),
+  mime: text('mime').notNull(),
+  durationMs: integer('duration_ms').notNull(),
+  transcript: text('transcript'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ─── Document RAG (project attachments + chunks + generated docs) ────────────────
+export const projectDocuments = sqliteTable('project_documents', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  userId: text('user_id').notNull(),
+  filename: text('filename').notNull(),
+  mime: text('mime').notNull(),
+  size: integer('size').notNull(),
+  blobPath: text('blob_path').notNull(),
+  status: text('status').notNull().default('pending'),   // pending | ready | failed
+  chunkCount: integer('chunk_count').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const documentChunks = sqliteTable('document_chunks', {
+  id: text('id').primaryKey(),
+  documentId: text('document_id').notNull().references(() => projectDocuments.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull(),
+  chunkIndex: integer('chunk_index').notNull(),
+  text: text('text').notNull(),
+  embedding: blob('embedding'),         // Float32Array bytes
+  loc: text('loc'),                     // e.g. "p.5" or "§2"
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const generatedDocuments = sqliteTable('generated_documents', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id'),
+  conversationId: text('conversation_id'),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  preset: text('preset'),
+  markdown: text('markdown').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})

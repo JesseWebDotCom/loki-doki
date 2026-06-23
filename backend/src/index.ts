@@ -86,10 +86,14 @@ import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
 import { dictionaryRoute } from '@/routes/dictionary'
 import { recipesRoute } from '@/routes/recipes'
+import { showtimesRoute } from '@/routes/showtimes'
+import { skillsRoute, adminSkillsRoute } from '@/routes/skills'
+import { voiceMemosRoute } from '@/routes/voiceMemos'
 import { medicalRoute } from '@/routes/medical'
 import { holidaysRoute } from '@/routes/holidays'
 import { localEventsRoute } from '@/routes/localEvents'
 import { time } from '@/routes/time'
+import { lookup } from '@/routes/lookup'
 import { startHomeAssistantSync } from '@/lib/homeAssistant'
 import { seedContentProfiles } from '@/lib/contentPolicy'
 import { frigate } from '@/routes/frigate'
@@ -310,10 +314,15 @@ app.route('/api/logo', logoRoute)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)
 app.route('/api/recipes', recipesRoute)
+app.route('/api/showtimes', showtimesRoute)
+app.route('/api/skills', skillsRoute)
+app.route('/api/admin/users', adminSkillsRoute)
+app.route('/api/voice/memos', voiceMemosRoute)
 app.route('/api/medical', medicalRoute)
 app.route('/api/holidays', holidaysRoute)
 app.route('/api/local-events', localEventsRoute)
 app.route('/api/time', time)
+app.route('/api/lookup', lookup)
 app.route('/api/admin/storage', adminStorage)
 
 // Docs site — served at /docs/* in both dev and prod (static, no auth required)

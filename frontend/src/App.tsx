@@ -65,8 +65,11 @@ import { DocsPage } from '@/pages/DocsPage'
 import { NewsPage } from '@/pages/NewsPage'
 import { OnThisDayPage } from '@/pages/OnThisDayPage'
 import { RecipesPage } from '@/pages/RecipesPage'
+import { ShowtimesPage } from '@/pages/ShowtimesPage'
+import { SkillsPage } from '@/pages/SkillsPage'
 import { JokePage } from '@/pages/JokePage'
 import { UnitConverterPage } from '@/pages/UnitConverterPage'
+import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
 import { YoutubeLayout } from '@/components/youtube/YoutubeLayout'
 import { YoutubeHomePage } from '@/pages/youtube/YoutubeHomePage'
@@ -285,8 +288,11 @@ export default function App() {
                 <Route path="/on-this-day" element={<OnThisDayPage />} />
                 <Route path="/moon-phase" element={<MoonPhasePage />} />
                 <Route path="/recipes" element={<RecipesPage />} />
+                <Route path="/showtimes" element={<ShowtimesPage />} />
+                <Route path="/skills" element={<SkillsPage />} />
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
+                <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
                 <Route path="/time" element={<TimePage />} />
                 <Route path="/dictionary" element={<DictionaryPage />} />

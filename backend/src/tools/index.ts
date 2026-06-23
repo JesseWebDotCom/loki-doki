@@ -82,6 +82,12 @@ import { timeTool } from './time'
 import { converterTool } from './converter'
 import { readerLibraryTool } from './readerLibrary'
 import { saveToReaderTool } from './saveToReader'
+import { propertyLookupTool } from './propertyLookup'
+import { peopleLookupTool } from './peopleLookup'
+import { mapsTool } from './maps'
+import { repairTool } from './repair'
+import { knowledgeTool } from './knowledge'
+import { showtimesTool } from './showtimes'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -111,4 +117,10 @@ export const toolRegistry: Tool[] = [
   converterTool,
   readerLibraryTool,
   saveToReaderTool,
+  propertyLookupTool,
+  peopleLookupTool,
+  mapsTool,
+  repairTool,
+  knowledgeTool,
+  showtimesTool,
 ]
