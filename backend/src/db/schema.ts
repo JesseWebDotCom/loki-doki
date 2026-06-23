@@ -571,9 +571,40 @@ export const homeDeviceLinks = sqliteTable('home_device_links', {
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system'] }).notNull(),
+  type: text('type', { enum: ['install_request', 'install_complete', 'download_complete', 'system', 'frigate_event'] }).notNull(),
   payload: text('payload').notNull().default('{}'),
   readAt: integer('read_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ── Frigate camera integration ────────────────────────────────────────────────
+// One row per notable Frigate event. Two producers:
+//   • 'genai'  — the OpenAI-compatible shim (kind 'description'): what the VLM told
+//                Frigate, logged for the admin history.
+//   • 'mqtt'   — the event consumer (kinds 'object' | 'plate' | 'review'): the
+//                source of truth for notifications + companion announcements,
+//                because it carries camera/label/sub_label/plate/zone/severity.
+// `announce` marks rows that should be spoken aloud; `spoken` is claimed by the
+// first client that voices it so other open tabs don't double-speak.
+export const frigateEvents = sqliteTable('frigate_events', {
+  id: text('id').primaryKey(),
+  source: text('source', { enum: ['genai', 'mqtt'] }).notNull(),
+  kind: text('kind', { enum: ['object', 'plate', 'review', 'description'] }).notNull(),
+  camera: text('camera'),
+  eventId: text('event_id'),            // Frigate tracked-object / review id
+  label: text('label'),                 // person, car, dog, ...
+  subLabel: text('sub_label'),          // delivery brand / recognized name
+  plate: text('plate'),                 // normalized recognized plate
+  plateName: text('plate_name'),        // friendly name if the plate is known
+  zones: text('zones'),                 // JSON array of zone names
+  severity: text('severity'),           // normal | suspicious | dangerous (reviews)
+  title: text('title'),
+  description: text('description'),      // VLM / genai text
+  score: real('score'),
+  snapshotUrl: text('snapshot_url'),
+  clipUrl: text('clip_url'),
+  announce: integer('announce', { mode: 'boolean' }).notNull().default(false),
+  spoken: integer('spoken', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 

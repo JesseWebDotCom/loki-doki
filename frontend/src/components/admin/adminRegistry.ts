@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, EyeOff, Store, LayoutDashboard, Newspaper } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, EyeOff, Store, LayoutDashboard, Newspaper, Camera } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -102,6 +102,12 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     id: 'news', label: 'News', icon: Newspaper,
     keywords: ['news', 'rss', 'feed', 'category', 'categories', 'headlines', 'shared'],
     description: 'Shared News categories and their RSS feeds (visible to everyone)',
+    subsections: [],
+  },
+  {
+    id: 'frigate', label: 'Frigate', icon: Camera,
+    keywords: ['frigate', 'nvr', 'camera', 'cameras', 'cctv', 'security', 'genai', 'license plate', 'lpr', 'delivery', 'mqtt'],
+    description: 'Frigate NVR integration — VLM GenAI provider, camera event notifications and announcements',
     subsections: [],
   },
   {

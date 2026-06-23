@@ -90,6 +90,9 @@ import { holidaysRoute } from '@/routes/holidays'
 import { localEventsRoute } from '@/routes/localEvents'
 import { time } from '@/routes/time'
 import { startHomeAssistantSync } from '@/lib/homeAssistant'
+import { frigate } from '@/routes/frigate'
+import { adminFrigate } from '@/routes/adminFrigate'
+import { startFrigateMqtt } from '@/lib/frigate/mqtt'
 import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
@@ -118,6 +121,9 @@ setInterval(() => { void pruneExpiredSessions().catch(() => {}) }, 60 * 60 * 100
 // that may not even be running. setup.ts calls warmupModel() itself once the user chooses.
 void (async () => { if ((await getAppSetting('first_run_complete')) === true) warmupModel() })()
 void startHomeAssistantSync()
+// Connect to the (remote) Frigate broker if configured — drives camera event
+// notifications + companion announcements. No-op until an admin sets it up.
+void startFrigateMqtt()
 maybeSpawnComfyUI()
 maybeSpawnVoiceServer()
 // Build the zoomed-out world basemap in the background if the maps toolchain is
@@ -278,6 +284,8 @@ app.route('/api/jokes', jokesDedicatedRoute)
 app.route('/api/tv-shows', tvShowsRoute)
 app.route('/api/admin/home-assistant', adminHomeAssistant)
 app.route('/api/home-assistant', homeAssistantRoute)
+app.route('/api/frigate', frigate)
+app.route('/api/admin/frigate', adminFrigate)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/podcasts', podcastsRoute)
 app.route('/api/music', music)

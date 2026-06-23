@@ -14,6 +14,7 @@ import { SetupProgressProvider } from '@/context/SetupProgressContext'
 import { PodcastPlaybackProvider } from '@/context/PodcastPlaybackContext'
 import { YoutubePlaybackProvider } from '@/context/YoutubePlaybackContext'
 import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
+import { FrigateAnnounceProvider } from '@/context/FrigateAnnounceContext'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
 import { PrivacyOverlay } from '@/components/shared/PrivacyOverlay'
 import { ServerHealthBanner } from '@/components/shared/ServerHealthBanner'
@@ -209,6 +210,7 @@ export default function App() {
           <PodcastPlaybackProvider>
           <YoutubePlaybackProvider>
           <TimeAlarmProvider>
+          <FrigateAnnounceProvider>
           <ChatProvider>
           <Routes>
             {/* Setup wizard — its own guard handles all setup state */}
@@ -324,6 +326,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </ChatProvider>
+          </FrigateAnnounceProvider>
           <AlarmRingDialog />
           </TimeAlarmProvider>
           </YoutubePlaybackProvider>

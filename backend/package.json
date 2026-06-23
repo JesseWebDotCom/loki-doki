@@ -18,6 +18,7 @@
     "geotiff": "^3.0.5",
     "hono": "^4.7.0",
     "kokoro-js": "^1.2.1",
+    "mqtt": "^5.15.1",
     "obscenity": "^0.4.6",
     "osm-pbf-parser": "^2.3.0",
     "pino": "^10.3.1",

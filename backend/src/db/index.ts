@@ -1274,4 +1274,31 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_voice_samples_character_id ON voice_samples(character_id);
     CREATE INDEX IF NOT EXISTS idx_maps_saved_pins_user_id ON maps_saved_pins(user_id);
   `)
+
+  // Frigate camera integration
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS frigate_events (
+      id TEXT NOT NULL PRIMARY KEY,
+      source TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      camera TEXT,
+      event_id TEXT,
+      label TEXT,
+      sub_label TEXT,
+      plate TEXT,
+      plate_name TEXT,
+      zones TEXT,
+      severity TEXT,
+      title TEXT,
+      description TEXT,
+      score REAL,
+      snapshot_url TEXT,
+      clip_url TEXT,
+      announce INTEGER NOT NULL DEFAULT 0,
+      spoken INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_frigate_events_created_at ON frigate_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_frigate_events_announce ON frigate_events(announce, spoken);
+  `)
 }

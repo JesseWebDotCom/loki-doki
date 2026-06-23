@@ -330,6 +330,7 @@ function notifIcon(type: AppNotification["type"]) {
     case "install_request":   return Download;
     case "install_complete":  return CheckCircle2;
     case "download_complete": return HardDrive;
+    case "frigate_event":     return Camera;
     default:                  return Bell;
   }
 }
