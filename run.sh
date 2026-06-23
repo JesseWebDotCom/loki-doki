@@ -36,6 +36,27 @@ kill_port() {
   lsof -ti ":$1" | xargs kill -9 2>/dev/null || true
 }
 
+# Completely stop any previous instance before starting. Killing the dev servers
+# (or their ports) is NOT enough: the backend spawns detached sidecars (ComfyUI,
+# voice server, kiwix, GraphHopper, the Wyoming pod gateway) that outlive it and
+# pile up across runs, eventually starving the machine of memory. Free every known
+# port, then sweep this project's dev runtimes + spawned children by path so
+# nothing lingers. Scoped to "$ROOT" / specific signatures so unrelated work on the
+# machine is never touched.
+stop_existing() {
+  echo "Stopping any previous instance (servers + sidecars)..."
+  # App + every sidecar listener: vite, backend, ComfyUI, voice, kiwix,
+  # GraphHopper (+admin), pod gateway.
+  for p in 5173 3000 8188 8091 8090 8002 8003 10700; do kill_port "$p"; done
+  # Belt-and-suspenders for anything that crashed without releasing its port.
+  pkill -f "bun run --hot src/index.ts"            2>/dev/null || true  # backend (dev)
+  pkill -f "$ROOT/frontend/node_modules/.bin/vite" 2>/dev/null || true  # frontend (vite)
+  pkill -f "$ROOT/data/comfyui"                    2>/dev/null || true  # ComfyUI (python)
+  pkill -f "bun run dev"                           2>/dev/null || true  # leftover dev wrappers
+  # Let the OS release the ports before we rebind them.
+  sleep 1
+}
+
 # Unload Ollama models on exit so they don't linger in VRAM across sessions.
 # The backend's own SIGTERM handler runs first; this is the fallback for crashes.
 cleanup() {
@@ -70,8 +91,7 @@ EOF
 }
 trap cleanup EXIT
 
-kill_port 5173
-kill_port 3000
+stop_existing
 
 echo "Starting backend..."
 cd "$ROOT/backend"
