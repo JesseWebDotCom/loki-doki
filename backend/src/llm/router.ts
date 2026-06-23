@@ -27,6 +27,13 @@ const CONVERSATIONAL_THRESHOLD = 0.40
 // "how do I / how to" (routes to youtube/recipes) and "when is" (routes to datetime).
 const SEARCH_INTENT_RE = /\b(what is|what are|what was|what were|who is|who was|who are|who played|who starred|who directed|who wrote|who sang|who voiced|who invented|who created|who founded|who made|tell me about|tell me more about|explain to me|explain what|how does|how do|how did|how many|how much|how long|how far|how tall|how old|how big|when did|when was|when were|where is|where was|where are|where were|where did|have you heard of|do you know about|what happened to|what's up with|search for|look up|find out about|can you find out|can you look up|can you search)\b/i
 
+// Follow-up lookup commands whose SUBJECT lives in the prior turns, not the
+// command itself ("why don't you look it up", "google it", "search that",
+// "fact-check it"). These must NOT use the literal-passthrough fast path — that
+// would search the command text. They route to a history-aware Tier 2 so the
+// query is reconstructed from conversation context.
+const CONTEXTUAL_LOOKUP_RE = /\b(?:look\s+(?:it|that|this|him|her|them|those|these)\s+up|google\s+(?:it|that|this|him|her|them)|search\s+(?:it|that|this)|find\s+(?:it|that|this)\s+out|look\s+into\s+(?:it|that|this)|fact[-\s]?check\s+(?:it|that|this)|verify\s+(?:it|that|this)|can\s+you\s+(?:look|check|verify|confirm))\b/i
+
 // How many candidates to pass to the Tier 2 LLM. Search is always injected on top
 // so factual questions that score low on embeddings still reach the search tool.
 const TIER2_TOP_N = 5
@@ -136,6 +143,22 @@ export async function routePrompt(
   if (GREETING_RE.test(prompt.trim())) {
     logger.info(`[ROUTER] path=greeting msg="${excerpt}"`)
     return { tool: null, args: {} }
+  }
+
+  // Fast path: a contextual lookup command ("look it up", "google it"). The thing
+  // to search lives in earlier turns, so route to a history-aware Tier 2 (search
+  // only) that rebuilds the query from context — never a literal passthrough.
+  if (CONTEXTUAL_LOOKUP_RE.test(prompt)) {
+    const searchTool = toolRegistry.find((t) => t.id === 'search')
+    if (searchTool) {
+      if (model) {
+        logger.info(`[ROUTER] path=contextual-lookup→tier2 msg="${excerpt}"`)
+        return tier2Call(model, prompt, history, [searchTool])
+      }
+      // No router model available — degrade to literal passthrough (best effort).
+      logger.info(`[ROUTER] path=contextual-lookup-passthrough msg="${excerpt}"`)
+      return { tool: searchTool, args: searchTool.passMessage ? { [searchTool.passMessage]: prompt } : {} }
+    }
   }
 
   // Fast path: regex beats embeddings for information-seeking patterns.
