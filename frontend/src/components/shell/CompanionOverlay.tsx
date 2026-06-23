@@ -368,7 +368,9 @@ export function CompanionOverlay() {
     !handsFreeOn ? 'off'
     : handsFree.state === 'capturing' || handsFree.state === 'wake-detected' ? 'on-active'
     : handsFree.state === 'post-reply-listen' ? 'on-followup'   // speak without the wake word
-    : handsFree.state === 'idle' || handsFree.state === 'engaging' || handsFree.state === 'suspended' ? 'on-idle'
+    // 'replying' (TTS speaking): keep the mic icon LIT — barge-in is active, you can
+    // talk over it. (It used to fall through to 'off', which looked like you couldn't.)
+    : handsFree.state === 'idle' || handsFree.state === 'engaging' || handsFree.state === 'suspended' || handsFree.state === 'replying' ? 'on-idle'
     : 'off'
   // Indicators double as toggles: dim = off, lit = enabled, pulsing = active.
   const talkState: IndicatorState = !voiceOn ? 'off' : talkActive ? 'on-active' : 'on-idle'

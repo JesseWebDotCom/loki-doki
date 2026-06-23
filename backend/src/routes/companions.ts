@@ -215,7 +215,7 @@ companions_.post('/companion', requireAuth, async (c) => {
   // memory adds no wall-clock beyond the tool routing that was already there.
   const history = (body.history ?? []).slice(-6).map((m) => ({ role: m.role, content: m.content }))
   const offlineMode = await isOffline(user.id)
-  const [{ userContent, directReply }, computedMemory, prefsRows, existingRelation, userCeiling] = await Promise.all([
+  const [{ userContent, directReply, toolId }, computedMemory, prefsRows, existingRelation, userCeiling] = await Promise.all([
     runToolTurn({ message: body.message, history, userId: user.id, userRole: user.role, model, offline: offlineMode }),
     cachedMem
       ? Promise.resolve(null as string | null)
@@ -322,7 +322,11 @@ companions_.post('/companion', requireAuth, async (c) => {
 
   c.header('X-Accel-Buffering', 'no')
   _lap(`stream-start msgs=${messages.length}`)
+  logger.info(`[COMPANION-ROUTE] tool=${toolId ?? 'none'} offline=${offlineMode} msg="${body.message.slice(0, 60)}"`)
   return streamSSE(c, async (stream) => {
+    // Tell the client which tool (if any) handled this turn, so "is it looking things
+    // up or making them up?" is visible without digging in the backend log.
+    await stream.writeSSE({ event: 'routing', data: JSON.stringify({ tool: toolId ?? null, offline: offlineMode }) })
     let reply = ''
     let firstToken = true
     // Mask profanity in the emitted stream when the active profanity dial is off.

@@ -124,7 +124,20 @@ export class WhisperWakewordLoop {
 
   private matchIndex(normText: string): number {
     if (!this.normalizedPhrase) return -1 // empty phrase must never match
-    return normText.indexOf(this.normalizedPhrase)
+    const exact = normText.indexOf(this.normalizedPhrase)
+    if (exact >= 0) return exact
+    // Fuzzy fallback: whisper-tiny often mis-spells an uncommon phrase ("hey velvit",
+    // "hey velvets", "a velvet"). Slide a phrase-sized word window across the transcript
+    // and accept a close edit-distance match. Tight threshold so random speech can't trip it.
+    const p = this.normalizedPhrase
+    const maxEdits = Math.max(1, Math.floor(p.length * 0.2))
+    const phraseWordCount = p.split(' ').length
+    const words = normText.split(' ').filter(Boolean)
+    for (let i = 0; i + phraseWordCount <= words.length; i++) {
+      const window = words.slice(i, i + phraseWordCount).join(' ')
+      if (levenshtein(window, p) <= maxEdits) return normText.indexOf(words[i]!)
+    }
+    return -1
   }
 
   /** Emit the wake event (rate-limited) if the text contains the phrase. */
@@ -178,4 +191,23 @@ export class WhisperWakewordLoop {
 
 function normalizePhrase(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+/** Classic edit distance (insert/delete/substitute), for fuzzy wake-phrase matching. */
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  let prev = new Array(n + 1)
+  let curr = new Array(n + 1)
+  for (let j = 0; j <= n; j++) prev[j] = j
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+    }
+    ;[prev, curr] = [curr, prev]
+  }
+  return prev[n]
 }

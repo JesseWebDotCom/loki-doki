@@ -72,7 +72,9 @@ export class VoicePlayback {
     const abort = new AbortController();
     this.aborts.push(abort);
     this.inflight += 1;
-    this.notify(true);
+    // Do NOT flip "playing" true here: that lit the speaking glow ~300–500ms before
+    // any sound (during the TTS fetch/synth). We flip it on actual playback start
+    // (scheduler.onPlaybackStart, wired in ensureScheduler) so the visual matches audio.
 
     const body = {
       text: opts.text,
@@ -204,6 +206,9 @@ export class VoicePlayback {
     const ctx = new Ctor();
     this.scheduler = new TTSPlaybackScheduler(ctx);
     attachCharacterBridge(this.scheduler);
+    // "playing" (and the speaking glow) now follows REAL audio: true when the first
+    // buffer actually starts, false when playback drains (and nothing's still fetching).
+    this.scheduler.onPlaybackStart(() => this.notify(true));
     this.scheduler.onPlaybackEnd(() => this.maybeNotifyEnd());
     for (const l of this.pendingStartListeners) this.scheduler.onPlaybackStart(l);
     for (const l of this.pendingEndListeners) this.scheduler.onPlaybackEnd(l);

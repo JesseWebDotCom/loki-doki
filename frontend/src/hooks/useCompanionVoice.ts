@@ -18,12 +18,32 @@ import { prosodyForChunk } from '@/lib/voice/prosody'
 // concerning!"), which is far more jarring than waiting for the first full sentence.
 // Uppercase/digit lookahead keeps abbreviations (e.g., Dr.) from false-firing.
 const SENTENCE_BOUNDARY = /[.!?]+(?=\s+[A-Z0-9]|\s*$)|\n{2,}/g
+// Clause boundaries (comma/semicolon/colon/dash followed by space) — used ONLY to
+// flush a long run-on sentence so audio starts without waiting for the whole thing.
+const CLAUSE_BOUNDARY = /[,;:](?=\s)|\s[—–-](?=\s)/g
+const WHOLE_SENTENCE_MAX = 130 // sentences up to this length play whole (no splitting)
+const CLAUSE_FLUSH_MIN = 50    // never flush a clause shorter than this
 
-// End offset of the next complete sentence in `sub`, or -1 if none yet.
+// End offset of the next chunk in `sub`, or -1 if none yet. Prefer a real sentence
+// end; but if a sentence is running long with no terminator in sight, flush at the
+// last clause boundary so a 200-char run-on doesn't block the first audio. Short
+// sentences are never clause-split (avoids "Oh no," / "that's" fragments).
 function nextBoundary(sub: string): number {
   SENTENCE_BOUNDARY.lastIndex = 0
   const term = SENTENCE_BOUNDARY.exec(sub)
-  return term ? term.index + term[0].length : -1
+  const termEnd = term ? term.index + term[0].length : -1
+  if (termEnd >= 0 && termEnd <= WHOLE_SENTENCE_MAX) return termEnd // whole sentence wins
+  if (sub.length >= WHOLE_SENTENCE_MAX - 20) {
+    CLAUSE_BOUNDARY.lastIndex = 0
+    let clauseEnd = -1
+    let m: RegExpExecArray | null
+    while ((m = CLAUSE_BOUNDARY.exec(sub)) !== null) {
+      const e = m.index + m[0].length
+      if (e >= CLAUSE_FLUSH_MIN && e <= WHOLE_SENTENCE_MAX) clauseEnd = e // last in range
+    }
+    if (clauseEnd > 0) return clauseEnd
+  }
+  return termEnd
 }
 
 export function useCompanionVoice(opts: {

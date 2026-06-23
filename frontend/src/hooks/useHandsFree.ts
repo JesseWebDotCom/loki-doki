@@ -42,9 +42,13 @@ const WAKE_CAPTURE_TIMEOUT_MS = 7000
 // old 0.07 / 10-frame gate tripped on that echo and cut replies off after the
 // first word. Require a LOUDER, more SUSTAINED signal, and only arm barge-in
 // AFTER the echo-heavy TTS onset.
-const BARGE_IN_RMS_THRESHOLD = 0.16
-const BARGE_IN_CONSEC_FRAMES = 22   // ~175 ms of sustained voiced energy
+const BARGE_IN_RMS_THRESHOLD = 0.10 // above AEC echo residual (~0.02), below clear speech
+const BARGE_IN_CONSEC_FRAMES = 12   // ~95 ms of sustained voiced energy
 const BARGE_IN_ARM_MS = 700         // ignore the first 700 ms of playback (onset echo)
+const PREROLL_SAMPLES = 4800        // ~300ms @ 16kHz — rolling pre-roll during the reply
+                                    // (captures the onset of an interrupting word).
+const PREROLL_MAX_SAMPLES = 24000   // ~1.5s hard cap once barge-in has fired (covers the
+                                    // gap until the STT socket opens, without growing forever).
 
 // Continued conversation: cap auto-continuations so a background voice (TV, other
 // people) can't keep the loop alive forever. After this many follow-ups without a
@@ -97,6 +101,9 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
   const bargeInCountRef = useRef(0)
   const bargeInArmedRef = useRef(false)
   const bargeInArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bargeInPeakRef = useRef(0)
+  const prerollRef = useRef<Float32Array[]>([])
+  const prerollLenRef = useRef(0)
   const replySafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const continuationCountRef = useRef(0)
   const submitRef = useRef(submit)
@@ -125,13 +132,18 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
   }, [setState])
 
   // ── STT lifecycle ────────────────────────────────────────────────────────
-  const openStt = useCallback(() => {
+  const openStt = useCallback((withPreroll = false) => {
     if (sttRef.current?.isOpen) return
     const stt = new SttCapture()
     sttRef.current = stt
     const ok = stt.open(
       {
         onReady: () => {
+          // Replay the pre-roll (the audio captured just before barge-in fired) so the
+          // user's first interrupting word reaches STT instead of being clipped.
+          if (withPreroll) for (const f of prerollRef.current) stt.sendFrame(f)
+          prerollRef.current = []
+          prerollLenRef.current = 0
           // capture_open only applies from wake-detected state.
           if (stateRef.current === 'wake-detected') dispatch({ type: 'capture_open' })
         },
@@ -281,6 +293,23 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           // only runs during `idle` state.
           if (!ttsMutedRef.current) wakeRef.current?.pushFrame(samples)
 
+          // Buffer mic audio we want but can't send yet, so barge-in never clips the
+          // user's opening words. Two parts: a short rolling pre-roll DURING the reply
+          // (the word onset), PLUS everything in the gap between barge-in firing and the
+          // STT socket actually opening — that gap was silently dropping whole words.
+          // Once barge-in has fired (st==='capturing') the TTS is stopped, so this audio
+          // is clean (no echo). Flushed into STT in openStt's onReady.
+          if (!sttRef.current?.isOpen && (st === 'replying' || st === 'capturing')) {
+            prerollRef.current.push(samples.slice())
+            prerollLenRef.current += samples.length
+            // Trim to a short rolling window WHILE PLAYING; once capturing, keep all
+            // frames (up to a hard cap) so nothing in the gap is lost.
+            const cap = st === 'replying' ? PREROLL_SAMPLES : PREROLL_MAX_SAMPLES
+            while (prerollLenRef.current > cap && prerollRef.current.length > 1) {
+              prerollLenRef.current -= prerollRef.current.shift()!.length
+            }
+          }
+
           // STT: send frames during capturing and post-reply-listen.
           if (sttRef.current?.isOpen && (st === 'capturing' || st === 'post-reply-listen')) {
             sttRef.current.sendFrame(samples)
@@ -292,14 +321,16 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
             let sumSq = 0
             for (let i = 0; i < samples.length; i++) sumSq += samples[i]! * samples[i]!
             const rms = Math.sqrt(sumSq / Math.max(1, samples.length))
+            if (rms > bargeInPeakRef.current) bargeInPeakRef.current = rms
             if (rms >= BARGE_IN_RMS_THRESHOLD) {
               bargeInCountRef.current++
               if (bargeInCountRef.current >= BARGE_IN_CONSEC_FRAMES) {
                 bargeInCountRef.current = 0
                 bargeInFiredRef.current = true
+                console.info(`[barge-in] FIRED — interrupting (rms=${rms.toFixed(3)} ≥ ${BARGE_IN_RMS_THRESHOLD})`)
                 stopSpeech()
                 dispatch({ type: 'barge_in' })
-                openStt()
+                openStt(true) // replay the pre-roll so the first interrupting word isn't lost
               }
             } else {
               bargeInCountRef.current = 0
@@ -380,6 +411,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
     const offStart = pb.onPlaybackStart(() => {
       ttsMutedRef.current = true
       bargeInCountRef.current = 0
+      bargeInPeakRef.current = 0
       // Audio is now playing → the reply works; cancel the dead-reply safety so it
       // can never abort a reply that's actively producing speech (the slow cold-start
       // first reply was being truncated by this at 20s).
@@ -389,13 +421,14 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
       // never lands in the first 700 ms anyway.
       bargeInArmedRef.current = false
       if (bargeInArmTimerRef.current) clearTimeout(bargeInArmTimerRef.current)
-      bargeInArmTimerRef.current = setTimeout(() => { bargeInArmedRef.current = true }, BARGE_IN_ARM_MS)
+      bargeInArmTimerRef.current = setTimeout(() => { bargeInArmedRef.current = true; console.info('[barge-in] armed — interruption now possible') }, BARGE_IN_ARM_MS)
       if (graceRef.current) {
         clearTimeout(graceRef.current)
         graceRef.current = null
       }
     })
     const offEnd = pb.onPlaybackEnd(() => {
+      console.info(`[barge-in] reply ended — peak mic rms while speaking=${bargeInPeakRef.current.toFixed(3)} (fires at ≥${BARGE_IN_RMS_THRESHOLD} for ${BARGE_IN_CONSEC_FRAMES} frames)`)
       // After barge-in the user is already speaking — skip the grace period
       // so the STT socket receives their frames immediately.
       const bargeInFired = bargeInFiredRef.current

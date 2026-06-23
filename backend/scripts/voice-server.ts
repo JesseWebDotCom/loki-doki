@@ -19,11 +19,12 @@ import { KokoroTTS } from 'kokoro-js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = parseInt(process.env.VOICE_SERVER_PORT ?? '8091')
 const KOKORO_MODEL = process.env.KOKORO_MODEL ?? 'onnx-community/Kokoro-82M-v1.0-ONNX'
-// tiny.en is ~2-3× faster than base.en on CPU — the right default for the
-// always-on Whisper wakeword loop (matching a short fixed phrase needs little
-// accuracy). Set WHISPER_MODEL=onnx-community/whisper-base.en for more accurate
-// full-command transcription if needed.
-const WHISPER_MODEL = process.env.WHISPER_MODEL ?? 'onnx-community/whisper-tiny.en'
+// base.en is the accuracy/speed sweet spot. tiny.en is faster but mis-transcribes
+// real commands badly ("who is" → "was", drops leading words like "no"), which made
+// both the wake phrase and the captured command unreliable. base.en (q8) is still
+// near-real-time for these short utterances. Override with WHISPER_MODEL (e.g.
+// onnx-community/whisper-small.en for even better accuracy, or whisper-tiny.en for speed).
+const WHISPER_MODEL = process.env.WHISPER_MODEL ?? 'onnx-community/whisper-base.en'
 // Node uses onnxruntime-node, whose device is 'cpu'. Overridable via VOICE_DEVICE.
 const DEVICE = (process.env.VOICE_DEVICE ?? 'cpu') as 'cpu' | 'wasm'
 // q4 ≈ 2× faster than q8 on CPU (~0.45s vs ~0.8s/sentence) with a small quality

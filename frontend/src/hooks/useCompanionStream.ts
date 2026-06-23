@@ -53,6 +53,7 @@ export function useCompanionStream() {
           else if (line.startsWith('data:')) {
             const data = line.slice(line.charAt(5) === ' ' ? 6 : 5)
             if (event === 'token') { acc += data; setResponse(acc) }
+            else if (event === 'routing' && import.meta.env.DEV) console.log('[COMPANION] routing:', data)
           }
         }
       }
