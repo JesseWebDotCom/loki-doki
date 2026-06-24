@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Clapperboard, Loader2 } from 'lucide-react'
+import { Clapperboard, Loader2, Search, Bookmark, Headphones, Monitor } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
 import { getMoviesHome, searchMovies, movieTo, type MovieSummary } from '@/lib/movies/api'
 import { getWatchlist } from '@/lib/library/api'
+import { EmptyAppState } from '@/components/shared/EmptyAppState'
 
 const MOVIES_GRADIENT = 'linear-gradient(135deg,#1e1b4b,#6d28d9)'
 
@@ -75,10 +76,18 @@ function HomeShelves() {
   const hasContent = (shelves && shelves.length) || watchlistPosters.length
   if (!hasContent) {
     return (
-      <div className="flex flex-col items-center gap-2 py-24 text-center text-muted-foreground">
-        <Clapperboard className="size-10 opacity-20" />
-        <p className="text-sm">Couldn&rsquo;t load movies right now. Try a search.</p>
-      </div>
+      <EmptyAppState
+        icon={Clapperboard}
+        gradient={MOVIES_GRADIENT}
+        title="Movies, watchlists & where to stream"
+        tagline="Search any film, see where to stream it, build your watchlist, and let AI produce a deep-dive audio analysis — everything in one place."
+        features={[
+          { icon: Search, title: 'Search any title', desc: 'Millions of films with posters, ratings, and genre info.' },
+          { icon: Monitor, title: 'Where to stream', desc: 'JustWatch integration shows every streaming option for your region.' },
+          { icon: Bookmark, title: 'Watchlist', desc: 'Save movies to your queue before you\'re ready to commit.' },
+          { icon: Headphones, title: 'AI movie deep-dive', desc: 'Your companion produces a cinematic audio analysis of any film.' },
+        ]}
+      />
     )
   }
 

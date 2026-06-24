@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Search, Music, Film, Tv, Loader2, ExternalLink, ChevronRight } from 'lucide-react'
+import { Search, Music, Film, Tv, Loader2, ExternalLink, ChevronRight, ListMusic } from 'lucide-react'
+import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
@@ -171,13 +172,18 @@ export function VideosTab() {
       </form>
 
       {videos.length === 0 && !loading && (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 py-20 text-center">
-          <div className="mb-4 flex size-16 items-center justify-center rounded-2xl bg-orange-500/10">
-            <Music className="size-8 text-orange-500/60" />
-          </div>
-          <p className="font-semibold">Music Videos</p>
-          <p className="mt-1 text-sm text-muted-foreground">Search for an artist or song to get started.</p>
-        </div>
+        <EmptyAppState
+          icon={Music}
+          gradient="linear-gradient(135deg,#f97316,#ea580c)"
+          title="Music videos with artist context"
+          tagline="Search any artist or song — play the video while the app pulls up a Wikipedia bio and shows you where their music has appeared in films and TV shows."
+          features={[
+            { icon: Search, title: 'Any artist or song', desc: 'Search by name, song title, or album to find official music videos.' },
+            { icon: Film, title: 'Soundtrack links', desc: 'See which movies and shows a song appeared in — tap to jump there.' },
+            { icon: ExternalLink, title: 'Artist bio', desc: 'Wikipedia artist panel loads automatically alongside the video.' },
+            { icon: ListMusic, title: 'Queue playback', desc: 'All search results queue up — press next to keep the music going.' },
+          ]}
+        />
       )}
 
       {loading && <div className="flex justify-center py-16"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>}

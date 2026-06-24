@@ -3,6 +3,7 @@ import {
   Music, Sparkles, Shuffle, ListMusic, Play, Pause, Download, Trash2, Loader2,
   RefreshCw, Upload, Pencil, Check, Save, X, Radio, Video,
 } from 'lucide-react'
+import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -218,9 +219,34 @@ function GenerateTab({ onSaved }: { onSaved: () => void }) {
       {/* Variants + save */}
       <div className="space-y-4">
         {!variants.length && !busy && !error ? (
-          <div className="flex h-full min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 text-center text-sm text-muted-foreground">
-            <Music className="mb-2 size-8 opacity-50" />
-            Pick a style and hit Generate to hear six takes.
+          <div className="space-y-4 rounded-2xl border border-dashed border-border/50 bg-muted/10 p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl" style={{ background: GRADIENT }}>
+                <Sparkles className="size-5 text-white" />
+              </div>
+              <div>
+                <p className="font-semibold">Original music, rendered offline</p>
+                <p className="text-xs text-muted-foreground">Pick a style and hit Generate — you'll get 6 unique takes.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: Music, title: 'Full tracks', desc: '8-bar songs with intro, development, and outro.' },
+                { icon: ListMusic, title: 'Loops & beds', desc: 'Short repeating patterns for podcasts and video.' },
+                { icon: Sparkles, title: '6 variations', desc: 'Each run produces 6 distinct takes to compare.' },
+                { icon: Download, title: 'Save to Library', desc: 'Keep what you like — download as WAV any time.' },
+              ].map((f) => (
+                <div key={f.title} className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-card/50 p-3">
+                  <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-orange-500/15">
+                    <f.icon className="size-3.5 text-orange-500" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold">{f.title}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{f.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <TrackVariantGrid<Variant>
@@ -398,9 +424,34 @@ function RemixTab({ onSaved }: { onSaved: () => void }) {
 
       <div className="space-y-4">
         {!parsed ? (
-          <div className="flex h-full min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 text-center text-sm text-muted-foreground">
-            <Shuffle className="mb-2 size-8 opacity-50" />
-            Import a MIDI file to restyle it.
+          <div className="space-y-4 rounded-2xl border border-dashed border-border/50 bg-muted/10 p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl" style={{ background: GRADIENT }}>
+                <Shuffle className="size-5 text-white" />
+              </div>
+              <div>
+                <p className="font-semibold">Restyle any MIDI in a new genre</p>
+                <p className="text-xs text-muted-foreground">Drop a .mid file on the left — your melody stays, everything else gets rebuilt.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: Music, title: 'Melody preserved', desc: 'Your original notes are kept — only the style changes.' },
+                { icon: Shuffle, title: 'Genre restyle', desc: 'Pick from 10+ genres to rebuild the backing track.' },
+                { icon: Sparkles, title: '6 takes', desc: 'Compare 6 different restyle variations side by side.' },
+                { icon: Download, title: 'Export as WAV', desc: 'Save your favorite remix to Library and download it.' },
+              ].map((f) => (
+                <div key={f.title} className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-card/50 p-3">
+                  <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-orange-500/15">
+                    <f.icon className="size-3.5 text-orange-500" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold">{f.title}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{f.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <TrackVariantGrid variants={variants} loading={busy} error={error} selectedKey={selected}
@@ -518,10 +569,18 @@ function LibraryTab({ reloadKey }: { reloadKey: number }) {
 
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   if (!tracks.length) return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 py-16 text-center text-sm text-muted-foreground">
-      <ListMusic className="mb-2 size-8 opacity-50" />
-      No saved tracks yet. Generate or remix something to fill your library.
-    </div>
+    <EmptyAppState
+      icon={ListMusic}
+      gradient={GRADIENT}
+      title="Your music library"
+      tagline="Tracks you generate or remix are saved here — ready to play, rename, or download as WAV whenever you want."
+      features={[
+        { icon: Sparkles, title: 'Generated tracks', desc: 'Original MIDI + SoundFont music rendered fully offline in any style.' },
+        { icon: Shuffle, title: 'MIDI remixes', desc: 'Upload a .mid and restyle it — melody stays, groove gets rebuilt.' },
+        { icon: Download, title: 'WAV download', desc: 'Export any track to your device in full-quality WAV format.' },
+        { icon: Pencil, title: 'Rename & manage', desc: 'Organize your collection — rename or delete tracks any time.' },
+      ]}
+    />
   )
   return <div className="space-y-2">{tracks.map((t) => <TrackRow key={t.id} track={t} onChanged={load} />)}</div>
 }

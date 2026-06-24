@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, Tv } from 'lucide-react'
+import { Loader2, Tv, Search, BookOpen, Bookmark, Headphones } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
 import { getShowsHome, searchShowsApi, type ShowSummary } from '@/lib/shows/api'
 import { getContinueWatching, getWatchlist } from '@/lib/library/api'
+import { EmptyAppState } from '@/components/shared/EmptyAppState'
 
 const SHOWS_GRADIENT = 'linear-gradient(135deg,#0c4a6e,#0284c7)'
 
@@ -93,10 +94,18 @@ function HomeShelves() {
   }
   if (!shelves || !shelves.length) {
     return (
-      <div className="flex flex-col items-center gap-2 py-24 text-center text-muted-foreground">
-        <Tv className="size-10 opacity-20" />
-        <p className="text-sm">Couldn&rsquo;t load shows right now. Try a search.</p>
-      </div>
+      <EmptyAppState
+        icon={Tv}
+        gradient={SHOWS_GRADIENT}
+        title="Every TV show, tracked in one place"
+        tagline="Search 250,000+ series from TVMaze, add them to your watchlist, and let AI turn any episode into a podcast — no subscription required."
+        features={[
+          { icon: Search, title: 'Search any series', desc: 'Titles, cast, genres — across every network and streaming service.' },
+          { icon: BookOpen, title: 'Track your progress', desc: 'Continue Watching keeps you one tap from your next episode.' },
+          { icon: Bookmark, title: 'Watchlist', desc: 'Queue up shows before you start — never lose a recommendation.' },
+          { icon: Headphones, title: 'AI episode podcasts', desc: 'Your companion produces a full audio recap for any episode.' },
+        ]}
+      />
     )
   }
   return (

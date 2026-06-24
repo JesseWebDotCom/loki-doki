@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Package, AlertTriangle, ChevronRight, Loader2, CheckCircle2, Clock, WifiOff } from 'lucide-react'
+import { Plus, Package, AlertTriangle, ChevronRight, Loader2, CheckCircle2, Clock, WifiOff, Camera, FileText, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/cn'
 import { PageShell } from '@/components/shared/PageShell'
+import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { DeviceSheet } from './home/DeviceSheet'
 import { AddDeviceModal } from './home/AddDeviceModal'
 import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
@@ -275,17 +276,23 @@ export function HomeInventoryPage() {
             <WarrantyAlerts devices={devices} />
 
             {devices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                <div className="text-5xl">🏠</div>
-                <p className="text-lg font-medium">No devices yet</p>
-                <p className="text-sm text-muted-foreground max-w-xs">
-                  Add your appliances, electronics, and equipment. Upload a photo and we'll find the manual and support info automatically.
-                </p>
-                <Button onClick={() => setShowAdd(true)} className="mt-2">
-                  <Plus className="size-4 mr-1.5" />
-                  Add your first device
-                </Button>
-              </div>
+              <EmptyAppState
+                icon={Package}
+                gradient="linear-gradient(135deg,#1e3a5f,#1d4ed8)"
+                title="Your home, fully documented"
+                tagline="Add any appliance, device, or piece of equipment. Upload a photo and we'll find the manual, support info, and warranty details automatically."
+                actions={
+                  <Button onClick={() => setShowAdd(true)}>
+                    <Plus className="mr-1.5 size-4" />Add your first device
+                  </Button>
+                }
+                features={[
+                  { icon: Camera, title: 'Photo identification', desc: 'Snap a label — AI reads the model number to find the manual.' },
+                  { icon: FileText, title: 'Auto-fetched manuals', desc: 'PDF user manuals downloaded and stored locally for offline access.' },
+                  { icon: AlertTriangle, title: 'Warranty alerts', desc: 'See which warranties are expiring — never miss a claim window.' },
+                  { icon: Wrench, title: 'Service log', desc: 'Track repairs and maintenance dates for every device you own.' },
+                ]}
+              />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {devices.map(device => (

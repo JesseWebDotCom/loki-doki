@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
-import { Play, Radio } from 'lucide-react'
+import { Play, Radio, Headphones, Mic, Music, Download, Tv, BookOpen } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { usePodcastFeed, continueListening, newEpisodes, type FeedEpisode } from '@/lib/podcast/useFeed'
@@ -8,6 +9,7 @@ import { EpisodeRow } from '@/components/podcast/EpisodeRow'
 import { SectionHead, CardGridSkeleton } from '@/components/store/SectionHead'
 import { toTrack } from '@/lib/podcast/api'
 import { fmtTime } from '@/lib/podcast/format'
+import { EmptyAppState } from '@/components/shared/EmptyAppState'
 
 function greeting() {
   const h = new Date().getHours()
@@ -30,11 +32,26 @@ export function ListenNowPage() {
       {isLoading ? (
         <CardGridSkeleton count={4} />
       ) : data && data.all.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-20 text-center">
-          <Radio className="size-10 text-muted-foreground/30" />
-          <p className="text-sm text-muted-foreground">No episodes yet.</p>
-          <Link to="/podcasts/library" className="text-sm font-medium text-brand hover:underline">Create your first show</Link>
-        </div>
+        <EmptyAppState
+          icon={Headphones}
+          gradient="linear-gradient(135deg,#6d28d9,#db2777)"
+          title="AI-produced podcasts from any show or movie"
+          tagline="Your companion writes, narrates, and produces a full podcast episode for any series or film — with music, stingers, and chapters — entirely offline."
+          actions={
+            <Link to="/podcasts/library">
+              <Button><Mic className="mr-1.5 size-4" />Create your first show</Button>
+            </Link>
+          }
+          features={[
+            { icon: Mic, title: 'AI narration', desc: 'Your companion hosts every episode in their own voice and style.' },
+            { icon: Music, title: 'Original stingers', desc: 'Intro and outro music generated live to match each show\'s mood.' },
+            { icon: Tv, title: 'Any series or film', desc: 'Create episodes for any show — batch by season or dive deep into a movie.' },
+            { icon: BookOpen, title: 'Chapter markers', desc: 'Auto-timestamps let you jump straight to any segment of an episode.' },
+            { icon: Play, title: 'Continuous playback', desc: 'A persistent mini player keeps your episode going as you navigate.' },
+            { icon: Download, title: 'Take it offline', desc: 'Download episodes to your device and listen anywhere.' },
+          ]}
+          footnote="All narration and music runs on your local hardware — no external APIs required."
+        />
       ) : (
         <>
           {cont.length > 0 && (
