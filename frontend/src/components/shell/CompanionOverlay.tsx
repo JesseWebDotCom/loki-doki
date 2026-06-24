@@ -94,7 +94,7 @@ function CompanionMenu({ open, onClose, anchorClass }: { open: boolean; onClose:
   const navigate = useNavigate()
   // Quick-switch favorites (excluding whoever's already active), capped at 5 avatar chips.
   const quickFavorites = characters.filter((ch) => favorites.includes(ch.id) && ch.id !== character?.id).slice(0, 5)
-  const { size, setSize, captions, captionStyle, setCaptions, setCaptionStyle, voiceOn, handsFreeOn, setVoice, setHandsFree } = useCompanionState()
+  const { size, setSize, captions, captionStyle, setCaptions, setCaptionStyle, voiceOn, handsFreeOn, setVoice, setHandsFree, position, setPosition } = useCompanionState()
   // Close on any pointer-down outside the menu. A plain `fixed inset-0` backdrop can't be
   // used: an ancestor of the overlay sets `transform` (translate-x centering), which becomes
   // the containing block for fixed descendants, so the backdrop wouldn't actually cover the
@@ -158,7 +158,19 @@ function CompanionMenu({ open, onClose, anchorClass }: { open: boolean; onClose:
         <div className="my-2 h-px bg-white/[0.07]" />
 
         {/* ── Display — connected segmented control: exactly one size at a time ── */}
-        <SectionLabel>Display</SectionLabel>
+        <div className="flex items-center justify-between pr-0.5">
+          <SectionLabel>Display</SectionLabel>
+          {position && (
+            <button
+              type="button"
+              onClick={() => { setPosition(null); onClose() }}
+              title="Snap back to the bottom center"
+              className="mb-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-white/45 transition-colors hover:bg-white/10 hover:text-white/80"
+            >
+              Reset position
+            </button>
+          )}
+        </div>
         <div className="flex rounded-lg bg-black/40 p-0.5">
           {DISPLAY_MODES.map((m) => (
             <button
@@ -275,7 +287,7 @@ export function CompanionOverlay() {
   const chat = useChatContext()
   const companion = useCompanionStream()
   const { companion: character, companions, isLoading } = useActiveCompanion()
-  const { size, captions, captionStyle, voiceOn, handsFreeOn, setVoice, setHandsFree, setCaptions } = useCompanionState()
+  const { size, captions, captionStyle, voiceOn, handsFreeOn, position, setVoice, setHandsFree, setCaptions, setPosition } = useCompanionState()
 
   const isOnChat = pathname.startsWith('/chat')
   const { getContextBlock } = useUIContext()
@@ -429,6 +441,79 @@ export function CompanionOverlay() {
 
   const [menuOpen, setMenuOpen] = useState(false)
 
+  // ── Free-drag: grab the avatar to move the whole overlay anywhere; the drop
+  // position is persisted (companionState → localStorage) and restored on reload.
+  // The avatar also opens the menu on click, so we only treat a press as a drag
+  // once it moves past a small threshold and then swallow the trailing click.
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false)
+  const didDragRef = useRef(false)
+  // ox = element's left; ob = element's distance from the viewport bottom (we anchor
+  // the bottom edge so captions growing above the avatar don't shift it — see below).
+  const dragStart = useRef<{ px: number; py: number; ox: number; ob: number; w: number; h: number } | null>(null)
+  const DRAG_MARGIN = 8
+
+  const onHandlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return // left button only
+    const el = wrapperRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    dragStart.current = { px: e.clientX, py: e.clientY, ox: rect.left, ob: window.innerHeight - rect.bottom, w: rect.width, h: rect.height }
+    didDragRef.current = false
+    setDragging(true)
+  }, [])
+
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e: PointerEvent) => {
+      const d = dragStart.current
+      if (!d) return
+      const dx = e.clientX - d.px
+      const dy = e.clientY - d.py
+      // Ignore micro-movements so a plain click still opens the menu.
+      if (!didDragRef.current && Math.hypot(dx, dy) < 4) return
+      didDragRef.current = true
+      const x = Math.min(Math.max(DRAG_MARGIN, d.ox + dx), window.innerWidth - d.w - DRAG_MARGIN)
+      // Dragging down (dy > 0) reduces the distance from the bottom.
+      const y = Math.min(Math.max(DRAG_MARGIN, d.ob - dy), window.innerHeight - d.h - DRAG_MARGIN)
+      setPosition({ x, y })
+    }
+    const onUp = () => setDragging(false)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    const prevSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.userSelect = prevSelect
+    }
+  }, [dragging, setPosition])
+
+  // Keep a saved position on-screen across viewport resizes (e.g. window shrunk,
+  // or saved on a larger monitor). Skips while hidden (mobile) where rect is 0×0.
+  useEffect(() => {
+    if (!position) return
+    const clamp = () => {
+      const el = wrapperRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      if (rect.width === 0) return
+      const x = Math.min(Math.max(DRAG_MARGIN, position.x), window.innerWidth - rect.width - DRAG_MARGIN)
+      const y = Math.min(Math.max(DRAG_MARGIN, position.y), window.innerHeight - rect.height - DRAG_MARGIN)
+      if (x !== position.x || y !== position.y) setPosition({ x, y })
+    }
+    clamp()
+    window.addEventListener('resize', clamp)
+    return () => window.removeEventListener('resize', clamp)
+  }, [position, setPosition])
+
+  // When the user has dragged the overlay, swap the default bottom-center anchor
+  // for absolute left/bottom. `posStyle` is applied to whichever mode-root renders.
+  const positioned = !!position
+  const posStyle = positioned ? { left: position!.x, bottom: position!.y } : undefined
+  const rootCls = (anchored: string, free: string) => (positioned ? free : anchored)
+
   // Shown when this tab wants voice but another open tab currently owns the mic +
   // audio (focus-follows-tab). Surfaced in every display mode so a silent tab is
   // never mistaken for a broken one.
@@ -470,8 +555,12 @@ export function CompanionOverlay() {
 
   // Clicking the avatar opens the companion menu (same as right-click). The avatar
   // never moves between modes, so the click is always reliable; display modes are
-  // switched from the menu's picker.
-  const openMenu = useCallback(() => setMenuOpen(true), [])
+  // switched from the menu's picker. A click that concludes a drag is swallowed so
+  // dropping the overlay doesn't also pop the menu open.
+  const openMenu = useCallback(() => {
+    if (didDragRef.current) { didDragRef.current = false; return }
+    setMenuOpen(true)
+  }, [])
 
   const handleSend = useCallback(async (text: string, attachments?: File[]) => {
     // Fall back to the first available companion when none is explicitly selected,
@@ -539,9 +628,11 @@ export function CompanionOverlay() {
       <button
         type="button"
         aria-label="Companion menu"
+        title="Click for menu · drag to move"
         onClick={openMenu}
         onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true) }}
-        className="overflow-hidden rounded-full"
+        onPointerDown={onHandlePointerDown}
+        className={cn('overflow-hidden rounded-full touch-none', dragging ? 'cursor-grabbing' : 'cursor-grab')}
         style={{ width: px, height: px }}
       >
         {avatarNode(px, true)}
@@ -571,7 +662,12 @@ export function CompanionOverlay() {
   if (size === 'pill') {
     return (
       <div
-        className="pointer-events-auto fixed bottom-3 left-1/2 z-[9999] hidden -translate-x-1/2 md:block"
+        ref={wrapperRef}
+        style={posStyle}
+        className={cn(
+          'pointer-events-auto fixed z-[9999] hidden md:block',
+          rootCls('bottom-3 left-1/2 -translate-x-1/2', ''),
+        )}
         onMouseEnter={onPillEnter}
         onMouseLeave={onPillLeave}
       >
@@ -596,9 +692,11 @@ export function CompanionOverlay() {
               <button
                 type="button"
                 aria-label="Companion menu"
+                title="Click for menu · drag to move"
                 onClick={openMenu}
                 onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true) }}
-                className="flex items-center gap-2 rounded-full border border-white/10 bg-black/70 px-3 py-1.5 shadow-2xl backdrop-blur-xl transition-transform hover:scale-105"
+                onPointerDown={onHandlePointerDown}
+                className={cn('flex items-center gap-2 rounded-full border border-white/10 bg-black/70 px-3 py-1.5 shadow-2xl backdrop-blur-xl transition-transform touch-none hover:scale-105', dragging ? 'cursor-grabbing' : 'cursor-grab')}
               >
                 <span className="flex size-6 items-center justify-center overflow-hidden rounded-full">{avatarNode(24)}</span>
                 <span className={cn('size-1.5 shrink-0 rounded-full', ledClass)} />
@@ -623,7 +721,11 @@ export function CompanionOverlay() {
   // ── Docked (avatar + composer) ────────────────────────────────────────────────
   if (size === 'collapsed') {
     return (
-      <div className={cn(ANCHOR, 'hidden w-full max-w-md px-4 md:block')}>
+      <div
+        ref={wrapperRef}
+        style={posStyle}
+        className={cn('hidden md:block', rootCls(cn(ANCHOR, 'w-full max-w-md px-4'), 'pointer-events-auto fixed z-[9999] w-[28rem]'))}
+      >
         {thinking ? <TypingIndicator /> : <Subtitle text={captionText} style={captionStyle} />}
         {otherTabHint}
         <div className="flex items-center gap-2">
@@ -645,7 +747,11 @@ export function CompanionOverlay() {
 
   // ── Max (avatar + composer + indicators/settings) ─────────────────────────────
   return (
-    <div className={cn(ANCHOR, 'hidden w-full max-w-xl px-4 md:block')}>
+    <div
+      ref={wrapperRef}
+      style={posStyle}
+      className={cn('hidden md:block', rootCls(cn(ANCHOR, 'w-full max-w-xl px-4'), 'pointer-events-auto fixed z-[9999] w-[36rem]'))}
+    >
       {thinking ? <TypingIndicator /> : <Subtitle text={captionText} style={captionStyle} />}
       <div className="flex items-end gap-2">
         {avatarButton(88)}

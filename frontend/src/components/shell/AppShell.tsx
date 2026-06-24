@@ -277,12 +277,15 @@ export function AppShell() {
         <YoutubeMiniBar />
         <PodcastPlayerBar />
 
-        {/* Floating companion — the global input + persistent animated buddy (desktop) */}
-        <CompanionOverlay />
-
         {/* Bottom tab bar — mobile only (hosts the companion at its center) */}
         <BottomTabBar />
       </div>
+
+      {/* Floating companion — the global input + persistent animated buddy (desktop).
+          Lives OUTSIDE the right column so its z-[9999] competes with the sidebar's
+          stacking context directly; otherwise the column's own z-10 traps it and the
+          dragged overlay slides under the sidebar. */}
+      <CompanionOverlay />
     </div>
   );
 }
