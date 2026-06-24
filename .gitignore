@@ -26,3 +26,7 @@ __pycache__/
 *.pyc
 *.tsbuildinfo
 docs/.astro/
+
+# Compiled TS output emitted next to source (backend runs the .ts directly under Bun;
+# the .js twins are build artifacts — the repo tracks only .ts in src).
+backend/src/**/*.js
