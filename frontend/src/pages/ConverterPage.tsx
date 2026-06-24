@@ -150,6 +150,7 @@ export function ConverterPage() {
       <PageHeader
         variant="compact"
         title="File Converter"
+        subtitle="Convert images, audio, and video between formats — locally, no upload needed."
         gradient={GRADIENT}
         icon={<FileType className="size-7 text-white" />}
       />

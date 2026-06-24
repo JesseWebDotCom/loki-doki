@@ -33,11 +33,14 @@ export function StoreRail({ installedCount }: { installedCount: number }) {
 
   return (
     <nav className="sticky top-0 hidden h-fit w-52 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
-      <div className="mb-4 flex items-center gap-2.5 px-2">
-        <span className="flex size-8 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-sm">
+      <div className="mb-4 flex items-start gap-2.5 px-2">
+        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-sm">
           <Sparkles className="size-4" />
         </span>
-        <span className="text-base font-bold tracking-tight">App Store</span>
+        <div>
+          <p className="text-base font-bold leading-tight tracking-tight">App Store</p>
+          <p className="text-[11px] leading-snug text-muted-foreground">Install apps and extensions for your hub.</p>
+        </div>
       </div>
 
       <RailLink to="/app-store" icon={Home} label="Home" end />

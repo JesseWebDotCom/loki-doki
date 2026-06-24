@@ -23,11 +23,14 @@ export function PodcastRail({ shows, onCreate }: { shows: Show[]; onCreate: () =
   const myShows = shows.filter(s => s.isOwn)
   return (
     <nav className="sticky top-0 hidden h-fit w-56 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
-      <div className="mb-4 flex items-center gap-2.5 px-2">
-        <span className="flex size-8 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-sm">
+      <div className="mb-4 flex items-start gap-2.5 px-2">
+        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-sm">
           <Mic className="size-4" />
         </span>
-        <span className="text-base font-bold tracking-tight">Podcasts</span>
+        <div>
+          <p className="text-base font-bold leading-tight tracking-tight">Podcasts</p>
+          <p className="text-[11px] leading-snug text-muted-foreground">AI-produced shows from any series or film.</p>
+        </div>
       </div>
 
       <RailLink to="/podcasts" icon={Home} label="Listen Now" end />

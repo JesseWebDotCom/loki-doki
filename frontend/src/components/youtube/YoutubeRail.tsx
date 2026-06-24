@@ -1,7 +1,7 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Home, Clock, Heart, History, Download, Settings2, SlidersHorizontal, type LucideIcon,
+  Home, Clock, Heart, History, Download, Settings2, SlidersHorizontal, Video, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { ChannelAvatar } from '@/components/youtube/media'
@@ -42,6 +42,15 @@ export function YoutubeRail({ onManage }: { onManage: () => void }) {
 
   return (
     <nav className="hidden h-full min-h-0 w-60 shrink-0 flex-col overflow-y-auto overscroll-none border-r border-border/40 px-3 py-5 lg:flex">
+      <div className="mb-4 flex items-start gap-2.5 px-2">
+        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white shadow-sm">
+          <Video className="size-4" />
+        </span>
+        <div>
+          <p className="text-base font-bold leading-tight tracking-tight">YouTube</p>
+          <p className="text-[11px] leading-snug text-muted-foreground">Watch, subscribe, and save videos offline.</p>
+        </div>
+      </div>
       <RailLink to="/youtube" icon={Home} label="Home" end />
       <RailLink to="/youtube/settings" icon={SlidersHorizontal} label="Settings" />
 

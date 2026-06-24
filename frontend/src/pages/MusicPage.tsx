@@ -635,6 +635,8 @@ export function MusicPage() {
           </div>
         </div>
 
+        {subtitle && <p className="-mt-2 mb-4 text-sm text-muted-foreground">{subtitle}</p>}
+
         {tab === 'listen' && <ListenTab />}
         {tab === 'radio' && <RadioTab />}
         {tab === 'videos' && <VideosTab />}

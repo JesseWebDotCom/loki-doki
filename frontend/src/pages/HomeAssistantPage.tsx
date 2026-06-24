@@ -353,6 +353,7 @@ export function HomeAssistantPage() {
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-white/30">Smart Home</p>
           <h1 className="text-2xl font-black tracking-tight leading-none text-foreground">Home Assistant</h1>
+          <p className="mt-1 text-xs text-muted-foreground/70">Control your smart home devices and automations.</p>
         </div>
         {merged.length > 0 && (
           <div className="text-right">

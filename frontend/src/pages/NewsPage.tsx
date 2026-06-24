@@ -92,6 +92,7 @@ export function NewsPage() {
       <PageHeader
         variant="compact"
         title="News"
+        subtitle="Global headlines, local news, and your RSS feeds — all in one place."
         gradient={GRADIENT}
         icon={<Newspaper className="size-7 text-white" />}
         actions={

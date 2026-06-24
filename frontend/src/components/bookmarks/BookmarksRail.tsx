@@ -94,6 +94,15 @@ export function BookmarksRail({ onSave }: { onSave: () => void }) {
 
   return (
     <nav className="hidden h-full min-h-0 w-60 shrink-0 flex-col overflow-y-auto overscroll-none border-r border-border/40 px-3 py-5 lg:flex">
+      <div className="mb-3 flex items-start gap-2.5 px-2">
+        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white shadow-sm">
+          <Bookmark className="size-4" />
+        </span>
+        <div>
+          <p className="text-base font-bold leading-tight tracking-tight">Bookmarks</p>
+          <p className="text-[11px] leading-snug text-muted-foreground">Save links and archive articles offline.</p>
+        </div>
+      </div>
       <button onClick={onSave}
         className="mb-3 flex items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
         <Plus className="size-4" /> Save

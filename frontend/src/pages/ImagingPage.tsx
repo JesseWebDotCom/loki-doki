@@ -1269,6 +1269,15 @@ export function ImagingPage() {
             <h2 className="relative text-sm font-semibold">
               {activeTab === 'generate' ? 'Generate' : activeTab === 'edit' ? 'Edit' : activeTab === 'recognize' ? 'Recognize' : 'Logo'}
             </h2>
+            <p className="relative mt-0.5 text-[11px] leading-snug text-muted-foreground">
+              {activeTab === 'generate'
+                ? 'Create images from text prompts using local AI models.'
+                : activeTab === 'edit'
+                ? 'Enhance, transform, and retouch any photo — fully offline.'
+                : activeTab === 'recognize'
+                ? 'Analyze images — describe scenes, read text, detect objects.'
+                : 'Generate logos and icons from a text description.'}
+            </p>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
