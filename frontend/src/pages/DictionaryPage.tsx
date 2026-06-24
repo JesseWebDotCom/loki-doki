@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { PageShell } from '@/components/shared/PageShell'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/cn'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 interface Definition { definition: string; example?: string }
 interface Meaning { partOfSpeech: string; definitions: Definition[] }
@@ -59,7 +59,7 @@ export function DictionaryPage() {
     if (word) setSubmittedWord(word)
   }, [inputValue])
 
-  useBreadcrumbSearch({
+  useAppHeader({
     query: inputValue,
     setQuery: setInputValue,
     onSubmit: handleSubmit,
@@ -85,8 +85,11 @@ export function DictionaryPage() {
         {/* Empty state */}
         {showEmpty && (
           <div className="flex flex-col items-center gap-3 py-24 text-center">
-            <BookOpen className="size-12 text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">Look up a word</p>
+            <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-600/20">
+              <BookOpen className="size-7 text-blue-400" />
+            </div>
+            <p className="text-base font-semibold">Dictionary</p>
+            <p className="max-w-xs text-sm text-muted-foreground">Search any word for definitions, phonetics, usage examples, and audio pronunciation.</p>
           </div>
         )}
 

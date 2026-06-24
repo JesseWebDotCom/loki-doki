@@ -128,7 +128,10 @@ export function BoredPage() {
     <PageShell>
       {/* Title row */}
       <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <h1 className="text-xl font-black tracking-tight">I'm Bored</h1>
+        <div>
+          <h1 className="text-xl font-black tracking-tight">I'm Bored</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">Curated activity suggestions for any mood or energy level.</p>
+        </div>
         <button
           onClick={() => void load()}
           disabled={loading}

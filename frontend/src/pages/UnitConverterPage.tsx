@@ -146,6 +146,7 @@ export function UnitConverterPage() {
       <PageHeader
         variant="compact"
         title="Unit Converter"
+        subtitle="Convert length, weight, temperature, volume, and more."
         gradient={GRADIENT}
         icon={<ArrowLeftRight className="size-7 text-white" />}
       />

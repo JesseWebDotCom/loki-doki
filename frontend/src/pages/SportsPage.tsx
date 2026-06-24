@@ -120,6 +120,7 @@ export function SportsPage() {
       <PageHeader
         variant="compact"
         title="Sports"
+        subtitle="Live scores and upcoming games across major leagues."
         gradient="linear-gradient(135deg,#14532d,#16a34a)"
         icon={<Trophy className="size-7 text-white" />}
       />

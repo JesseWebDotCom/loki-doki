@@ -190,6 +190,7 @@ export function ReverseLookupPage(): JSX.Element {
       <PageHeader
         variant="compact"
         title="Reverse Lookup"
+        subtitle="Find people and property details by address, phone number, or name."
         gradient={GRADIENT}
         icon={<SearchIcon className="size-7 text-white" />}
       />

@@ -5,7 +5,7 @@ import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 interface MedicalResult {
   gist: string | null
@@ -44,7 +44,7 @@ export function MedicalPage() {
     if (q) setSubmittedQuery(q)
   }, [input])
 
-  useBreadcrumbSearch({
+  useAppHeader({
     query: input,
     setQuery: setInput,
     onSubmit: handleSubmit,
@@ -62,6 +62,7 @@ export function MedicalPage() {
       <PageHeader
         variant="compact"
         title="Medical Reference"
+        subtitle="Look up symptoms, conditions, medications, and health information."
         gradient="linear-gradient(135deg,#164e63,#0891b2)"
         icon={<HeartPulse className="size-7 text-white" />}
       />

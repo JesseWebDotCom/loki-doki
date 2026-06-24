@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Clapperboard, ChevronDown, ChevronUp, ExternalLink, Loader2, PlayCircle, WifiOff } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 interface TheaterGroup { theater_name: string; times: string[] }
 interface ShowMovie {
@@ -126,7 +126,7 @@ export function ShowtimesPage() {
   useEffect(() => { if (zip) void load(zip) /* eslint-disable-next-line */ }, [])
 
   const onSubmit = useCallback(() => { void load(query) }, [load, query])
-  useBreadcrumbSearch({
+  useAppHeader({
     query,
     setQuery,
     onSubmit,
@@ -139,7 +139,10 @@ export function ShowtimesPage() {
   return (
     <PageShell gradient="linear-gradient(135deg,#1e1b4b,#6d28d9)" GhostIcon={Clapperboard}>
       <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <h1 className="text-xl font-black tracking-tight">Showtimes</h1>
+        <div>
+          <h1 className="text-xl font-black tracking-tight">Showtimes</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">Movie showtimes at theaters near you.</p>
+        </div>
         {data && <span className="text-xs text-muted-foreground">{data.theater_count} theaters near {data.zip}</span>}
       </div>
 

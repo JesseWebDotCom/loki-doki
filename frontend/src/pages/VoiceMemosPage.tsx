@@ -107,7 +107,10 @@ export function VoiceMemosPage() {
   return (
     <PageShell gradient="linear-gradient(135deg,#0c4a6e,#0891b2)" GhostIcon={Mic2}>
       <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <h1 className="text-xl font-black tracking-tight">Voice Memos</h1>
+        <div>
+          <h1 className="text-xl font-black tracking-tight">Voice Memos</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">Record, save, and transcribe audio notes offline.</p>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-8 sm:px-5">

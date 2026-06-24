@@ -12,7 +12,7 @@ import {
 import { PageShell } from '@/components/shared/PageShell'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 interface Meal {
   id: string
@@ -230,7 +230,7 @@ export function RecipesPage() {
   }, [])
 
   const onSubmit = useCallback(() => { void handleSearch(query) }, [handleSearch, query])
-  useBreadcrumbSearch({
+  useAppHeader({
     query,
     setQuery,
     onSubmit,
@@ -252,7 +252,10 @@ export function RecipesPage() {
   return (
     <PageShell gradient="linear-gradient(135deg,#7c2d12,#ea580c)" GhostIcon={UtensilsCrossed}>
       <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <h1 className="text-xl font-black tracking-tight">Recipes</h1>
+        <div>
+          <h1 className="text-xl font-black tracking-tight">Recipes</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">AI-suggested meals with ingredients and step-by-step instructions.</p>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-6 sm:px-5">

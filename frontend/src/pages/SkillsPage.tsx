@@ -234,7 +234,10 @@ export function SkillsPage() {
   return (
     <PageShell gradient="linear-gradient(135deg,#312e81,#7c3aed)" GhostIcon={Sparkles}>
       <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-        <h1 className="text-xl font-black tracking-tight">Skills</h1>
+        <div>
+          <h1 className="text-xl font-black tracking-tight">Skills</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">Custom instructions that shape how your companion responds.</p>
+        </div>
         <Button size="sm" onClick={() => setEditor({ editing: null })}>
           <Plus className="size-4" /> Author a skill
         </Button>

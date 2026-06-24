@@ -174,7 +174,10 @@ export function HolidaysPage() {
       {/* Header row */}
       <div className="flex flex-col gap-3 px-5 pt-5 pb-3 shrink-0">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-black tracking-tight">Holidays</h1>
+          <div>
+            <h1 className="text-xl font-black tracking-tight">Holidays</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground">Public holidays and observances by country and year.</p>
+          </div>
           {/* Year selector */}
           <div className="flex items-center gap-1">
             <button

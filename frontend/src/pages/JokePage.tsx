@@ -51,6 +51,7 @@ export function JokePage() {
         variant="compact"
         eyebrow="Entertainment"
         title="Joke of the Day"
+        subtitle="A new punchline delivered fresh every day."
         gradient="linear-gradient(135deg,#78350f,#d97706)"
         icon={<Smile className="size-7 text-white" />}
       />
