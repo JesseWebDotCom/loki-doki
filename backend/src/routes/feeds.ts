@@ -7,7 +7,7 @@ import { discoverFeeds } from '@/lib/feeds/discover'
 import { refreshFeed, refreshUserFeeds } from '@/lib/feeds/poller'
 import { extractArticle } from '@/lib/content/extract'
 import { getInterests, setInterestsText, recordFeedback, scoreItems } from '@/lib/feeds/classifier'
-import { promoteToReader, unpromoteFromReader } from '@/routes/reader'
+import { promoteToBookmarks, unpromoteFromBookmarks } from '@/routes/bookmarks'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -262,9 +262,9 @@ feedsRouter.patch('/items/:id', async (c) => {
 
   // Promote/unpromote into the Reader library.
   if (body.saved === true) {
-    await promoteToReader(item, user.id).catch((err) => logger.warn(`[feeds] promote failed: ${err}`))
+    await promoteToBookmarks(item, user.id).catch((err) => logger.warn(`[feeds] promote failed: ${err}`))
   } else if (body.saved === false) {
-    await unpromoteFromReader(itemId, user.id).catch(() => {})
+    await unpromoteFromBookmarks(itemId, user.id).catch(() => {})
   }
   return c.json({ ok: true })
 })

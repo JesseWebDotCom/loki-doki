@@ -16,7 +16,8 @@ import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
 import { ensureSummary } from '@/lib/youtube/summarize'
 import { exportsDir, backfillSavedHeights, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
-import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeRelated, innertubePlayerMeta, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
+import { cachedLookup } from '@/lib/lookupCache'
 import { fetchPopular, fetchTrending, enrichChannelThumbs } from '@/lib/youtube/discovery'
 import { getSkipSegments, getUserSkipCategories } from '@/lib/youtube/sponsorblock'
 import { getVotes } from '@/lib/youtube/returndislike'
@@ -762,9 +763,18 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     return s ?? null
   }
 
+  // Avatar: prefer the subscription's stored thumbnail; otherwise fetch the channel's avatar
+  // via InnerTube (cached) so non-subscribed channels (e.g. opening a trailer cold) still show
+  // their logo instead of a letter placeholder.
+  const avatarFor = async (sub: { thumbnailUrl: string | null } | null, channelId: string | null | undefined): Promise<string | null> => {
+    if (sub?.thumbnailUrl) return sub.thumbnailUrl
+    if (!channelId) return null
+    return cachedLookup('yt-channel-avatar', channelId, 7 * 24 * 60 * 60 * 1000, () => innertubeChannelAvatar(channelId))
+  }
+
   if (v?.description) {
     const sub = await subFor(v.channelId)
-    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: sub?.thumbnailUrl ?? null, description: v.description, summary: v.summary, durationSec: v.durationSec, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
+    return c.json({ videoId, title: v.title, author: v.author, channelId: v.channelId, channelThumb: await avatarFor(sub, v.channelId), description: v.description, summary: v.summary, durationSec: v.durationSec, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
   }
 
   // Fast metadata path: InnerTube's player endpoint (structured JSON, no subprocess).
@@ -776,7 +786,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     const sub = await subFor(channelId)
     return c.json({
       videoId, title: it.title, author: it.author ?? v?.author ?? null, channelId,
-      channelThumb: sub?.thumbnailUrl ?? null, description: it.description ?? v?.description ?? null,
+      channelThumb: await avatarFor(sub, channelId), description: it.description ?? v?.description ?? null,
       summary: v?.summary ?? null, durationSec: it.durationSec ?? v?.durationSec ?? null,
       positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null,
     })
@@ -801,7 +811,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
       title: m.title ?? v?.title ?? '',
       author: m.channel ?? m.uploader ?? v?.author ?? null,
       channelId,
-      channelThumb: sub?.thumbnailUrl ?? null,
+      channelThumb: await avatarFor(sub, channelId),
       description: m.description ?? v?.description ?? null,
       summary: v?.summary ?? null,
       durationSec: m.duration ?? v?.durationSec ?? null,
@@ -811,7 +821,7 @@ youtubeRoute.get('/video/:videoId', async (c) => {
     })
   } catch {
     const sub = await subFor(v?.channelId)
-    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: sub?.thumbnailUrl ?? null, description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
+    return c.json({ videoId, title: v?.title ?? '', author: v?.author ?? null, channelId: v?.channelId ?? null, channelThumb: await avatarFor(sub, v?.channelId), description: v?.description ?? null, summary: v?.summary ?? null, durationSec: v?.durationSec ?? null, positionSec, subscribed: !!sub, subscriptionId: sub?.id ?? null })
   }
 })
 

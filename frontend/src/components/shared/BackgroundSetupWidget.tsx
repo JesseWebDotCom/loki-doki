@@ -4,6 +4,7 @@ import { Loader2, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, PackageOp
 import { cn } from '@/lib/cn'
 import { useSetupProgress } from '@/context/SetupProgressContext'
 import { useAuth } from '@/context/AuthContext'
+import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 
 // Corner card showing the background download queue (the non-essential set finishing
 // after boot). Minimizable, but not dismissable until done — so failures stay visible.
@@ -11,8 +12,11 @@ export function BackgroundSetupWidget() {
   const { status, retryFailed } = useSetupProgress()
   const { user, welcomeComplete } = useAuth()
   const { pathname } = useLocation()
+  const { track } = useYoutubePlayback()
   const [minimized, setMinimized] = useState(false)
   const [retrying, setRetrying] = useState(false)
+  // Shift up when the footer player is visible so we don't overlap it.
+  const bottomClass = track ? 'bottom-20' : 'bottom-4'
 
   // Setup has its own inline progress; nothing to show before login or when idle/clean.
   if (!status || pathname.startsWith('/setup') || pathname.startsWith('/login')) return null
@@ -53,7 +57,7 @@ export function BackgroundSetupWidget() {
       <button
         type="button"
         onClick={() => setMinimized(false)}
-        className="fixed bottom-4 right-4 z-[120] flex items-center gap-2 rounded-full border border-border/60 bg-card px-3.5 py-2 text-sm font-medium shadow-lg hover:bg-muted transition-colors"
+        className={cn("fixed right-4 z-[120] transition-[bottom] duration-200 flex items-center gap-2 rounded-full border border-border/60 bg-card px-3.5 py-2 text-sm font-medium shadow-lg hover:bg-muted", bottomClass)}
       >
         {allDone ? <CheckCircle2 className="size-4 text-emerald-400" /> : <Loader2 className="size-4 animate-spin text-violet-400" />}
         Setting up · {status.pct}%
@@ -63,7 +67,7 @@ export function BackgroundSetupWidget() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[120] w-80 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-xl animate-in slide-in-from-bottom-2">
+    <div className={cn("fixed right-4 z-[120] transition-[bottom] duration-200 w-80 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-xl animate-in slide-in-from-bottom-2", bottomClass)}>
       <div className="flex items-center justify-between gap-2 border-b border-border/50 px-4 py-2.5">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <PackageOpen className="size-4 text-violet-400" />

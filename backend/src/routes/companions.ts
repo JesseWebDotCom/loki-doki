@@ -11,6 +11,7 @@ import { getModel, getFastModel, getVisionModel } from '@/lib/models'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
 import { runToolTurn } from '@/lib/toolTurn'
 import { isOffline } from '@/lib/connectivity'
+import { companionsAllowed } from '@/lib/consent'
 import { embed } from '@/llm/embed'
 import { recallMemories, formatMemoriesForPrompt } from '@/memory/recall'
 import { getCachedMemoryBlock, setCachedMemoryBlock, invalidateMemoryBlock } from '@/memory/blockCache'
@@ -161,6 +162,10 @@ companions_.put('/favorites', requireAuth, async (c) => {
 // (used when the chat app is open) records conversations.
 companions_.post('/companion', requireAuth, async (c) => {
   const user = c.get('user')
+  // Consent gate — companions are disabled unless the user has consented to them.
+  if (!(await companionsAllowed(user.id))) {
+    return c.json({ error: 'companions_disabled', message: 'AI companions are disabled. Enable them in Settings → consent.' }, 403)
+  }
   const body = (await c.req.json()) as {
     characterId: string
     message: string

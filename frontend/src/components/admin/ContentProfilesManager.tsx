@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Plus, Trash2, Save, Star, Loader2, ShieldAlert, ChevronRight, ChevronLeft, Check } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Plus, Trash2, Star, Loader2, ShieldAlert, ChevronRight, ChevronLeft, Check } from 'lucide-react'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ContentDialGroup, MIN_DIALS, normalizeDials, CONTENT_DIALS } from '@/components/shared/contentDials'
 import type { ContentDialValues, DialKey } from '@/components/shared/contentDials'
@@ -37,10 +37,12 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [defaultSlug, setDefaultSlug] = useState<string>('locked')
   const [loading, setLoading] = useState(true)
-  const [editingSlug, setEditingSlug] = useState<string | null>(null)  // null = list view
+  const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [draft, setDraft] = useState<Profile | null>(null)
   const [saving, setSaving] = useState(false)
   const [delTarget, setDelTarget] = useState<Profile | null>(null)
+  const draftRef = useRef<Profile | null>(null)
+  draftRef.current = draft
 
   const load = useCallback((selectSlug?: string) => {
     setLoading(true)
@@ -59,19 +61,24 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
   useEffect(() => { load() }, [load])
 
   const openEditor = (p: Profile) => { setDraft({ ...p }); setEditingSlug(p.slug) }
-  const closeEditor = () => { setEditingSlug(null); setDraft(null) }
+  const closeEditor = () => { setEditingSlug(null); setDraft(null); load() }
 
-  const save = async () => {
-    if (!draft) return
+  const saveDraft = async (p: Profile) => {
     setSaving(true)
     try {
-      const r = await fetch(`/api/admin/content/profiles/${draft.slug}`, {
+      const r = await fetch(`/api/admin/content/profiles/${p.slug}`, {
         ...opts, method: 'PUT', headers: J,
-        body: JSON.stringify({ name: draft.name, description: draft.description, dials: draft.dials }),
+        body: JSON.stringify({ name: p.name, description: p.description, dials: p.dials }),
       })
       if (!r.ok) throw new Error()
-      toast.success('Profile saved'); closeEditor(); load()
-    } catch { toast.error('Failed to save profile') } finally { setSaving(false) }
+    } catch { toast.error('Failed to save') } finally { setSaving(false) }
+  }
+
+  const setDial = (k: DialKey, v: string) => {
+    if (!draft) return
+    const next = { ...draft, dials: { ...draft.dials, [k]: v } }
+    setDraft(next)
+    void saveDraft(next)
   }
 
   const makeDefault = async (slug: string) => {
@@ -83,7 +90,7 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
     const r = await fetch('/api/admin/content/profiles', { ...opts, method: 'POST', headers: J, body: JSON.stringify({ name: 'New profile', dials: MIN_DIALS }) })
     if (!r.ok) { toast.error('Failed to create profile'); return }
     const { profile } = await r.json() as { profile: Profile }
-    load(profile.slug)  // reload and jump straight into the editor
+    load(profile.slug)
   }
 
   const doDelete = async () => {
@@ -101,38 +108,54 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
     const open100 = openLabels(draft.dials)
     const isDefault = defaultSlug === draft.slug
     return (
-      <div className="max-w-3xl">
-        {/* Breadcrumb + back */}
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        {/* Header — back nav + profile identity + actions all in one bar */}
+        <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
           <button onClick={closeEditor}
-            className="flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <ChevronLeft className="size-4" /> Profiles
           </button>
-          <ChevronRight className="size-3.5 text-muted-foreground/60" />
-          <h3 className="min-w-0 truncate text-base font-semibold">{draft.name || 'New profile'}</h3>
-          {draft.isBuiltin && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">built-in</span>}
-          {isDefault && <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-medium text-brand">default</span>}
+          <ChevronRight className="size-3.5 text-muted-foreground/40 shrink-0" />
+          <span className="min-w-0 truncate text-sm font-semibold">{draft.name || 'New profile'}</span>
+          {draft.isBuiltin && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">built-in</span>}
+          {isDefault && <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-medium text-brand shrink-0">default</span>}
+          <div className="flex-1" />
+          {saving && <Loader2 className="size-3.5 animate-spin text-muted-foreground shrink-0" />}
+          {!isDefault && (
+            <button onClick={() => void makeDefault(draft.slug)}
+              className="flex items-center gap-1.5 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0">
+              <Star className="size-3.5" /> Make default
+            </button>
+          )}
+          {!draft.isBuiltin && (
+            <button onClick={() => setDelTarget(draft)}
+              className="rounded-lg p-1.5 text-muted-foreground hover:text-destructive hover:bg-muted transition-colors shrink-0">
+              <Trash2 className="size-4" />
+            </button>
+          )}
         </div>
 
-        <div className="space-y-4">
+        <div className="p-5 space-y-4">
           {/* Name + description */}
-          <div className="grid gap-4 rounded-xl border border-border/50 bg-card/40 p-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Name</label>
               <input
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                onBlur={() => { if (draftRef.current) void saveDraft(draftRef.current) }}
                 disabled={draft.isBuiltin}
                 placeholder="Profile name"
                 className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-brand/60 disabled:opacity-60"
               />
               {draft.isBuiltin && <p className="text-[11px] text-muted-foreground">Built-in name can't be changed.</p>}
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Description</label>
               <input
                 value={draft.description}
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                onBlur={() => { if (draftRef.current) void saveDraft(draftRef.current) }}
                 placeholder="What this profile is for"
                 className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-brand/60"
               />
@@ -140,12 +163,12 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
           </div>
 
           {/* Category limits */}
-          <div className="rounded-xl border border-border/50 bg-card/40 p-4">
+          <div>
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold">Category limits</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Category limits</p>
               <p className="text-xs text-muted-foreground">off → unrestricted</p>
             </div>
-            <ContentDialGroup values={draft.dials} onDial={(k: DialKey, v) => setDraft({ ...draft, dials: { ...draft.dials, [k]: v } })} />
+            <ContentDialGroup values={draft.dials} onDial={setDial} />
           </div>
 
           {open100.length > 0 && (
@@ -156,26 +179,6 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
               </p>
             </div>
           )}
-
-          {/* Actions */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-4">
-            <button onClick={() => void save()} disabled={saving}
-              className="flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50">
-              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save changes
-            </button>
-            {!isDefault && (
-              <button onClick={() => void makeDefault(draft.slug)}
-                className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                <Star className="size-4" /> Make default
-              </button>
-            )}
-            <div className="flex-1" />
-            {!draft.isBuiltin && (
-              <button onClick={() => setDelTarget(draft)} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-destructive hover:bg-muted transition-colors">
-                <Trash2 className="size-4" /> Delete
-              </button>
-            )}
-          </div>
         </div>
 
         <ConfirmDialog open={!!delTarget} onOpenChange={(o) => { if (!o) setDelTarget(null) }}
@@ -187,7 +190,7 @@ export function ContentProfilesManager({ embedded = false }: { embedded?: boolea
 
   // ── List (master) ───────────────────────────────────────────────────────────
   return (
-    <div className="max-w-3xl">
+    <div>
       <div className="mb-4 flex items-end justify-between gap-3">
         {!embedded ? (
           <div>

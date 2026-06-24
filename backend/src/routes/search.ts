@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import {
-  readerItems, bookmarks, characters, homeDevices,
+  bookmarks, characters, homeDevices,
   ytDownloads, ytCollections, ytVideos, ytSubscriptions,
   feedItems, feeds, podcastEpisodes, podcastShows,
 } from '@/db/schema'
@@ -20,7 +20,7 @@ const searchRouter = new Hono<AppEnv>()
 // libraries stay client-side in SpotlightSearch — this covers everything that lives in the DB.
 
 export interface SearchHit {
-  type: 'reader' | 'news' | 'bookmark' | 'companion' | 'device' | 'youtube' | 'podcast'
+  type: 'bookmark' | 'news' | 'companion' | 'device' | 'youtube' | 'podcast'
   id: string
   title: string
   subtitle: string | null
@@ -49,46 +49,26 @@ function likePattern(q: string): string {
 
 type Provider = (userId: string, q: string) => Promise<SearchHit[]>
 
-// Saved articles / links / feed items captured in the Reader. FTS now indexes `url`, so a
+// Saved bookmarks: live links, offline articles, and promoted feed items. FTS indexes `url`, so a
 // domain term ("amazon") matches by address, not just title. Includes shared (ownerId null) rows.
-const readerProvider: Provider = async (userId, q) => {
+const bookmarksProvider: Provider = async (userId, q) => {
   const match = buildMatch(q)
   if (!match) return []
-  const rows = await db.select().from(readerItems)
-    .where(and(
-      or(isNull(readerItems.ownerId), eq(readerItems.ownerId, userId)),
-      sql`reader_items.rowid IN (SELECT rowid FROM reader_items_fts WHERE reader_items_fts MATCH ${match})`,
-    ))
-    .orderBy(desc(readerItems.createdAt))
-    .limit(PER_PROVIDER)
-  return rows.map((r) => ({
-    type: 'reader' as const,
-    id: r.id,
-    title: r.title || r.url,
-    subtitle: r.siteName || r.url,
-    icon: r.faviconUrl,
-    route: `/reader/read/${r.id}`,
-    group: 'Saved Articles',
-  }))
-}
-
-// Organizr-style bookmarks (global + personal). Matches label or URL.
-const bookmarkProvider: Provider = async (userId, q) => {
-  const pattern = likePattern(q)
   const rows = await db.select().from(bookmarks)
     .where(and(
       or(isNull(bookmarks.ownerId), eq(bookmarks.ownerId, userId)),
-      or(like(bookmarks.label, pattern), like(bookmarks.url, pattern)),
+      sql`bookmarks.rowid IN (SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ${match})`,
     ))
+    .orderBy(desc(bookmarks.createdAt))
     .limit(PER_PROVIDER)
   return rows.map((r) => ({
     type: 'bookmark' as const,
     id: r.id,
-    title: r.label,
-    subtitle: r.url,
-    icon: r.icon,
-    route: `/links/${r.id}`,
-    group: 'Links',
+    title: r.title || r.url,
+    subtitle: r.siteName || r.url,
+    icon: r.faviconUrl,
+    route: `/bookmarks/read/${r.id}`,
+    group: 'Bookmarks',
   }))
 }
 
@@ -163,7 +143,7 @@ const newsProvider: Provider = async (userId, q) => {
     title: r.title || r.url || 'Untitled',
     subtitle: r.feedTitle || r.url,
     icon: r.favicon || r.imageUrl,
-    route: `/feeds/read/${r.id}`,
+    route: `/news/read/${r.id}`,
     group: 'News & Feeds',
   }))
 }
@@ -239,9 +219,8 @@ const podcastProvider: Provider = async (userId, q) => {
 }
 
 const PROVIDERS: Provider[] = [
-  readerProvider,
+  bookmarksProvider,
   newsProvider,
-  bookmarkProvider,
   youtubeProvider,
   podcastProvider,
   companionProvider,

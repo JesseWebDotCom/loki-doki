@@ -33,9 +33,15 @@ export interface HomeLayout {
   canvas: HomeRow[]
 }
 
+// A fresh install should never land on a blank home. These widgets all return
+// content with zero configuration (world news + historical events), so a brand
+// new user sees a populated screen they can then customise or rearrange.
 const DEFAULT_LAYOUT: HomeLayout = {
   header: { weather: true, jokes: true, sports: true, locked: false },
-  canvas: [],
+  canvas: [
+    { id: 'default-news', cols: [{ toolId: 'news', colSpan: 2 }] },
+    { id: 'default-on-this-day', cols: [{ toolId: 'on-this-day', colSpan: 2 }] },
+  ],
 }
 
 async function getSystemDefaultLayout(): Promise<HomeLayout> {

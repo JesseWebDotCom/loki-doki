@@ -8,6 +8,10 @@ export interface YtMiniTrack {
   author: string | null
   channelThumb?: string | null
   localKind?: 'audio' | 'video'
+  /** Live audio stream URL (radio, etc.) — skips the YouTube IFrame entirely. */
+  streamUrl?: string
+  /** Thumbnail override for non-YouTube content (e.g. station favicon). */
+  thumbnail?: string
   durationSec?: number | null
 }
 
@@ -22,6 +26,11 @@ interface YoutubePlaybackCtx {
   hasPrev: boolean
   /** Hand a queue (current + up-next) to the mini-player, starting at `index`/`startSec`. */
   dock: (queue: YtMiniTrack[], index: number, startSec: number) => void
+  /** Dock a single video and pop the mini-player open in its larger (expanded) form — used by
+   *  the Shows/Movies trailer & theme thumbnails. */
+  playExpanded: (track: YtMiniTrack) => void
+  /** Bumped each time playExpanded is called, so the mini-player can react and expand. */
+  expandRequest: number
   /** Advance / go back through the queue (auto-advance + the skip buttons). */
   next: () => void
   prev: () => void
@@ -40,12 +49,21 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
   const [index, setIndex] = useState(0)
   const [startSec, setStartSec] = useState(0)
   const [positionSec, setPositionSec] = useState(0)
+  const [expandRequest, setExpandRequest] = useState(0)
 
   const dock = useCallback((q: YtMiniTrack[], i: number, start: number) => {
     setQueue(q)
     setIndex(Math.max(0, Math.min(i, q.length - 1)))
     setStartSec(start)
     setPositionSec(start)
+  }, [])
+
+  const playExpanded = useCallback((t: YtMiniTrack) => {
+    setQueue([t])
+    setIndex(0)
+    setStartSec(0)
+    setPositionSec(0)
+    setExpandRequest((n) => n + 1)
   }, [])
 
   const next = useCallback(() => {
@@ -72,8 +90,8 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
   const value = useMemo<YoutubePlaybackCtx>(() => ({
     track, startSec, positionSec,
     hasNext: index + 1 < queue.length, hasPrev: index > 0,
-    dock, next, prev, reportPosition, close, clearDock,
-  }), [track, startSec, positionSec, index, queue.length, dock, next, prev, reportPosition, close, clearDock])
+    dock, playExpanded, expandRequest, next, prev, reportPosition, close, clearDock,
+  }), [track, startSec, positionSec, index, queue.length, dock, playExpanded, expandRequest, next, prev, reportPosition, close, clearDock])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

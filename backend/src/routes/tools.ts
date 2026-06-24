@@ -6,6 +6,7 @@ import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { toolRegistry } from '@/tools'
 import { weatherTool } from '@/tools/weather'
 import { resolveToolConfig } from '@/lib/toolConfig'
+import { isPlexConfigured } from '@/lib/plex'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
 import type { AppEnv } from '@/types'
@@ -23,6 +24,9 @@ tools.get('/', requireAuth, async (c) => {
   const enabledMap: Record<string, boolean> = {}
   for (const row of enabledRows) enabledMap[row.toolId] = JSON.parse(row.value) as boolean
 
+  // Plex only counts as enabled once a server URL + token are configured.
+  const plexConfigured = await isPlexConfigured()
+
   return c.json(
     toolRegistry.map(t => ({
       id: t.id,
@@ -31,7 +35,7 @@ tools.get('/', requireAuth, async (c) => {
       offline: t.offline,
       examples: t.examples,
       configSchema: t.configSchema ?? [],
-      enabled: enabledMap[t.id] !== false,
+      enabled: t.id === 'plex' ? plexConfigured && enabledMap[t.id] !== false : enabledMap[t.id] !== false,
       dataSources: t.dataSources,
     }))
   )

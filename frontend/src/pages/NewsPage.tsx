@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Newspaper, RefreshCw, WifiOff, Plus, MoreHorizontal, EyeOff, Settings2, Trash2 } from 'lucide-react'
+import { Loader2, Newspaper, RefreshCw, WifiOff, Plus, MoreHorizontal, EyeOff, Settings2, Trash2, Rss, Circle, Bookmark, Upload, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -20,34 +20,48 @@ import {
   hideCategory, unhideCategory, createPersonalCategory, deletePersonalCategory,
   type NewsCategory,
 } from '@/lib/news/useNews'
-import { listFeeds, addFeed, deleteFeed, refreshFeedApi, type Feed } from '@/lib/feeds/api'
+import { listFeeds, addFeed, deleteFeed, refreshFeedApi, importOpml, type Feed } from '@/lib/feeds/api'
+import { FeedListView, type FeedScope } from '@/components/news/FeedListView'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
 const GRADIENT = 'linear-gradient(135deg,#1e3a5f,#0f766e)'
 
+const SCOPES: { key: FeedScope; label: string; icon: typeof Rss }[] = [
+  { key: 'all', label: 'All', icon: Rss },
+  { key: 'unread', label: 'Unread', icon: Circle },
+  { key: 'saved', label: 'Saved', icon: Bookmark },
+]
+
 export function NewsPage() {
   const qc = useQueryClient()
-  const [activeId, setActiveId] = useState<string | null>(null)
+  // `sel` is either a category id, or `scope:<all|unread|saved>` for the power feed reader.
+  const [sel, setSel] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [addFeedOpen, setAddFeedOpen] = useState(false)
   const [managing, setManaging] = useState<NewsCategory | null>(null)
   const [deleting, setDeleting] = useState<NewsCategory | null>(null)
+  const opmlRef = useRef<HTMLInputElement>(null)
 
   const { data: categories = [] } = useQuery(newsCategoriesQueryOptions())
   const visible = useMemo(() => categories.filter((c) => !c.hidden), [categories])
   const hidden = useMemo(() => categories.filter((c) => c.hidden), [categories])
 
-  // Resolve the active category: the clicked tab if still visible, else ?tab=, else the first.
+  const scope: FeedScope | null = sel?.startsWith('scope:') ? (sel.slice(6) as FeedScope) : null
+
+  // Resolve the active category (only when not in a feed scope): the clicked tab if still
+  // visible, else ?tab=, else the first.
   const active = useMemo(() => {
-    if (activeId && visible.some((c) => c.id === activeId)) return visible.find((c) => c.id === activeId)!
+    if (scope) return null
+    if (sel && visible.some((c) => c.id === sel)) return visible.find((c) => c.id === sel)!
     const param = new URLSearchParams(window.location.search).get('tab')
     return visible.find((c) => c.slug === param || c.id === param) ?? visible[0] ?? null
-  }, [activeId, visible])
+  }, [sel, scope, visible])
 
-  usePublishUIContext({ label: 'News', description: `User is reading ${active?.name ?? ''} news.` })
+  usePublishUIContext({ label: 'News', description: scope ? `User is browsing their ${scope} feeds.` : `User is reading ${active?.name ?? ''} news.` })
 
   const { data: items = [], isLoading, isError, refetch } = useQuery({
     ...newsQueryOptions(active?.id ?? ''),
-    enabled: !!active,
+    enabled: !!active && !scope,
   })
   const status = !active ? 'empty' : isLoading ? 'loading' : isError || items.length === 0 ? 'error' : 'ready'
 
@@ -58,14 +72,19 @@ export function NewsPage() {
 
   async function onHide(cat: NewsCategory) {
     await hideCategory(cat.id)
-    if (active?.id === cat.id) setActiveId(null)
+    if (active?.id === cat.id) setSel(null)
     toast.success(`Hid ${cat.name}`)
     invalidateCats()
   }
   async function onUnhide(cat: NewsCategory) {
     await unhideCategory(cat.id)
-    setActiveId(cat.id)
+    setSel(cat.id)
     invalidateCats()
+  }
+  async function onOpml(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]; if (!f) return
+    try { const n = await importOpml(await f.text()); toast.success(`Imported ${n} feeds`); qc.invalidateQueries({ queryKey: ['feeds'] }) }
+    catch { toast.error('Import failed') } finally { if (opmlRef.current) opmlRef.current.value = '' }
   }
 
   return (
@@ -78,12 +97,24 @@ export function NewsPage() {
         actions={
           <div className="flex items-center gap-2">
             <div className="inline-flex max-w-[60vw] items-center gap-1 overflow-x-auto rounded-full border border-white/20 bg-black/20 p-1 backdrop-blur-sm">
+              {SCOPES.map((s) => (
+                <Button
+                  key={s.key}
+                  size="sm"
+                  variant={scope === s.key ? 'default' : 'ghost'}
+                  onClick={() => setSel(`scope:${s.key}`)}
+                  className={`shrink-0 gap-1.5 ${scope !== s.key ? 'text-white/70 hover:bg-white/10 hover:text-white' : ''}`}
+                >
+                  <s.icon className="size-3.5" />{s.label}
+                </Button>
+              ))}
+              {visible.length > 0 && <span className="mx-0.5 h-5 w-px shrink-0 bg-white/20" />}
               {visible.map((c) => (
                 <Button
                   key={c.id}
                   size="sm"
                   variant={active?.id === c.id ? 'default' : 'ghost'}
-                  onClick={() => setActiveId(c.id)}
+                  onClick={() => setSel(c.id)}
                   className={`shrink-0 ${active?.id !== c.id ? 'text-white/70 hover:bg-white/10 hover:text-white' : ''}`}
                 >
                   {c.name}
@@ -120,6 +151,15 @@ export function NewsPage() {
                 <DropdownMenuItem onClick={() => setAddOpen(true)}>
                   <Plus className="mr-2 size-4" /> New category
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setAddFeedOpen(true)}>
+                  <Rss className="mr-2 size-4" /> Add feed
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => opmlRef.current?.click()}>
+                  <Upload className="mr-2 size-4" /> Import OPML
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <a href="/api/feeds/opml/export"><Globe className="mr-2 size-4" /> Export OPML</a>
+                </DropdownMenuItem>
                 {hidden.length > 0 && (
                   <>
                     <DropdownMenuSeparator />
@@ -139,6 +179,7 @@ export function NewsPage() {
       />
 
       <div className="px-5 pb-10">
+        {scope ? <FeedListView scope={scope} /> : (<>
         {status === 'loading' && (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -189,12 +230,21 @@ export function NewsPage() {
             )}
           </div>
         )}
+        </>)}
       </div>
+
+      <input ref={opmlRef} type="file" accept=".opml,.xml,text/xml" className="hidden" onChange={onOpml} />
 
       <AddCategoryDialog
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        onCreated={(id) => { setActiveId(id); invalidateCats() }}
+        onCreated={(id) => { setSel(id); invalidateCats() }}
+      />
+
+      <AddFeedDialog
+        open={addFeedOpen}
+        onClose={() => setAddFeedOpen(false)}
+        onAdded={() => { qc.invalidateQueries({ queryKey: ['feeds'] }); qc.invalidateQueries({ queryKey: ['feed-items'] }) }}
       />
 
       {managing && (
@@ -215,7 +265,7 @@ export function NewsPage() {
         onConfirm={async () => {
           if (deleting) {
             await deletePersonalCategory(deleting.id)
-            if (active?.id === deleting.id) setActiveId(null)
+            if (active?.id === deleting.id) setSel(null)
             toast.success('Category deleted')
             invalidateCats()
           }
@@ -223,6 +273,31 @@ export function NewsPage() {
         }}
       />
     </PageShell>
+  )
+}
+
+function AddFeedDialog({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: () => void }) {
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit() {
+    if (!url.trim()) return
+    setBusy(true)
+    try { await addFeed({ url: url.trim() }); toast.success('Feed added'); setUrl(''); onAdded(); onClose() }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to add feed') }
+    finally { setBusy(false) }
+  }
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>Add a feed</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">Paste a site or RSS/Atom URL — we'll find the feed automatically. It shows up under All / Unread.</p>
+        <Input autoFocus placeholder="https://example.com or .../feed.xml" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void submit() }} />
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={busy}>{busy && <Loader2 className="mr-1.5 size-4 animate-spin" />}Add</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

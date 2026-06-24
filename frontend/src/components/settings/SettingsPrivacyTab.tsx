@@ -43,6 +43,7 @@ export function SettingsPrivacyTab() {
   const [candor, setCandor] = useState<Candor>('balanced')
   const [ceiling, setCeiling] = useState<ContentDialValues>({ ...MAX_DIALS })
   const [style, setStyle] = useState<Record<string, unknown>>({})
+  const [manual, setManual] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -79,20 +80,22 @@ export function SettingsPrivacyTab() {
 
   const applyDial = (key: DialKey, value: string) => {
     const next = { ...dials, [key]: value }
-    setDials(next); void persist(next, candor)
+    setManual(true); setDials(next); void persist(next, candor)
   }
-  const applyCandor = (value: Candor) => { setCandor(value); void persist(dials, value) }
+  const applyCandor = (value: Candor) => { setManual(true); setCandor(value); void persist(dials, value) }
 
   const applyPreset = (preset: Preset) => {
-    if (preset === 'custom') return
+    if (preset === 'custom') { setManual(true); return }
     const target = preset === 'safe' ? { ...MIN_DIALS } : clampToCeiling({ ...MAX_DIALS }, ceiling)
     const nextCandor: Candor = preset === 'safe' ? 'balanced' : 'blunt'
-    setDials(target); setCandor(nextCandor); void persist(target, nextCandor)
+    setManual(false); setDials(target); setCandor(nextCandor); void persist(target, nextCandor)
   }
 
   if (!loaded) return <p className="text-sm text-muted-foreground">Loading…</p>
 
-  const preset = detectPreset(dials, candor)
+  // "Custom" is sticky once chosen (or once a dial is touched) so it stays highlighted
+  // even when the dials happen to line up with a preset; otherwise we auto-detect.
+  const preset: Preset = manual ? 'custom' : detectPreset(dials, candor)
   const presets: { id: Preset; label: string; icon: typeof ShieldCheck; desc: string }[] = [
     { id: 'safe', label: 'Safe', icon: ShieldCheck, desc: 'Clean and family-friendly' },
     { id: 'open', label: 'Open', icon: Flame, desc: 'Unfiltered, blunt, explicit' },
@@ -118,7 +121,6 @@ export function SettingsPrivacyTab() {
             className={cn(
               'flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-colors',
               preset === id ? 'border-brand bg-brand/5' : 'border-border/60 hover:bg-muted/50',
-              id === 'custom' && 'cursor-default',
             )}
           >
             <Icon className={cn('size-4', preset === id ? 'text-brand' : 'text-muted-foreground')} />

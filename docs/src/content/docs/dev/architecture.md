@@ -1,13 +1,13 @@
 ---
 title: Architecture Overview
-description: High-level architecture of loki-doki-v3, a single-server, offline-first AI home hub.
+description: High-level architecture of Loki Doki, a single-server, offline-first AI home hub.
 sidebar:
   order: 1
 ---
 
 ## Overview
 
-loki-doki-v3 is a **single-server, multi-user home application**. All AI processing runs locally, no data leaves the home network. The entire stack starts from one `run.sh` script.
+Loki Doki is a **single-server, multi-user home application**. All AI processing runs locally, no data leaves the home network. The entire stack starts from one `run.sh` script.
 
 ---
 

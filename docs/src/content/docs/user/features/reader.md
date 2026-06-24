@@ -1,51 +1,61 @@
 ---
-title: Links
-description: A launcher for your home network services and the sites you visit most.
+title: Reader
+description: Your personal reading library — save pages and articles, read them clean, and keep it all on your own server.
 sidebar:
   order: 13
 ---
 
-A launcher for your own home network and the sites you choose. Personal links are private to you. Nothing here is shared with, or tracked by, anyone outside your home.
+Reader is your own private reading library. Save the pages you want to come back to, save articles for offline reading, organize everything into collections and tags, and read it all in a clean, distraction-free view. Nothing leaves your home server.
 
 ## Overview
 
-The Links page is a bookmark launcher for your home network services (media servers, smart home dashboards, the router admin page), the sites you visit often, and personal shortcuts. It is built for a home where you run your own services and want one tidy place to reach them.
+Reader keeps the things you want to read in one tidy place. Two kinds of things live here:
 
-## Opening a Link
+- **Live links**: a saved bookmark to a page that opens the real site (in a new tab, or embedded inside Loki Doki).
+- **Offline articles**: a full copy of a page saved to your server so you can read it later, cleaned up and even with the internet down.
 
-Each link is a card showing its icon, label, and URL. How it opens depends on how the link is set up:
+Open Reader from the **Reader** app. The sidebar on the left is how you move around: **All**, quick filters for **Unread** and **Archived**, a **Type** section to see just **Live links** or **Offline articles**, your **Collections**, and your **Tags**.
 
-- **Open in a new tab** (the default): tapping the card opens the site in a real browser tab.
-- **Embed in app**: tapping the card opens the site inside Loki Doki in a full-screen viewer, so you stay in context.
+## Saving a Page
 
-Either way, every card also has an **Open in new tab** button if you want to break out to a real tab.
+Tap **Save** in the sidebar, paste a URL, and choose how to keep it:
 
-## Adding Your Own Links
+- **Live link** keeps a bookmark to the page.
+- **Offline article** saves a full copy to your server. Loki Doki fetches and archives the page in the background (you'll see a "Saving" badge flip to a reading-time estimate when it's ready).
 
-1. Open the Links page
-2. Tap **Add link**
-3. Enter a **Label** and a **URL**
-4. Optionally set a **Category** (links are grouped by category)
-5. Choose whether to **Embed in app**
+When you type a URL, Loki Doki quietly checks that the site is reachable and grabs its title and icon for you. You can drop the item straight into a **collection**, add **tags**, and decide whether a live link should **embed in the app** or open in a real browser tab.
 
-When you type a URL, Loki Doki quietly checks whether the site is reachable and grabs its icon for you. If you turn on **Embed in app** and the site refuses to be embedded, the form tells you and offers **Proxy mode**, which routes the site through your own server so it can still display inside the app.
+### Save from your browser
 
-Your personal links are only visible to you. You can edit or delete any link you created.
+In **Reader → Settings** there's a **Save to Loki** bookmarklet you can drag to your browser's bookmarks bar. On any page, click it to save that page to Reader without installing an extension. On a phone, install Loki Doki to your home screen and it shows up in the **Share** sheet, so you can share any page to Reader.
 
-## Global Links
+## Reading
 
-Global links are set up by your admin and appear for everyone in the home. They typically include shared services like the media server, the photo library, the network dashboard, or the router. You can't edit global links, but you can **hide** any global link you don't want cluttering your own page.
+Tap any item to open it:
 
-## The Embedded Viewer
+- **Offline articles** open in a clean **reader view** — just the text, byline, and images, matched to your light or dark theme. A reading-time estimate sits at the top. If a page was saved with its full layout, you can flip between **Reader** and **Full page** to see the original look. There's also an **AI panel** to get a quick summary of the article or ask a question about it.
+- **Live links** open the real site. If the link is set to embed, it loads full-screen inside Loki Doki; otherwise it opens in a new browser tab.
 
-When you open an embedded link, it loads in a full-screen frame with a small toolbar:
+As you open offline articles they're marked **Reading**, and you can **Archive** anything you're done with so it drops out of your main list (Archived items are still searchable). You can re-archive an offline page any time to grab a fresh copy.
 
-- **Back / Forward / Reload**: navigate within the site
-- **Proxy mode toggle** (the ⇄ icon): if a site won't load, flip this on to route it through your server
-- **Open in new tab**: break out to a real browser tab
+## Collections and Tags
 
-If an embedded site can't load (some apps block embedding entirely), the viewer shows a friendly message with a button to open it directly instead. The viewer also matches your light or dark theme where it can.
+- **Collections** are folders you make in the sidebar — "Recipes", "To read", "Work", whatever you like. Give each a color and icon. Move any item into a collection from its card.
+- **Tags** are lightweight labels. Add as many as you want to an item; tapping a tag in the sidebar filters down to everything that carries it.
+
+A search box at the top searches across your whole library — titles, summaries, the saved text of offline articles, and even the web address, so searching a site name finds links to that site.
+
+## Importing and Exporting Bookmarks
+
+Reader speaks the standard browser bookmarks format:
+
+- **Import bookmarks** (in the sidebar): pick the `bookmarks.html` file your browser exports and Reader brings them all in as live links. Bookmark folders become collections automatically.
+- **Export bookmarks**: download your saved links back out as a standard `bookmarks.html` file you can load into any browser.
+
+## Shared Links
+
+Your admin can pin a few **shared links** that show up for everyone in the home — things like the family page or a shared dashboard. You can't edit those, but you can **hide** any shared link you don't want cluttering your library.
 
 ## Your Privacy
 
-Personal links live only in your account on your own server. Nothing about which links you keep, or which ones you open, leaves your home.
+Your library lives only in your account on your own server. The articles you save, the collections you build, and which items you open never leave your home. Offline articles are stored as your own private copy on the server, so they're there even when the original page changes or goes away.

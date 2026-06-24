@@ -17,7 +17,7 @@ import { env, pipeline } from '@huggingface/transformers'
 import { KokoroTTS } from 'kokoro-js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PORT = parseInt(process.env.VOICE_SERVER_PORT ?? '8091')
+const PORT = parseInt(process.env.VOICE_SERVER_PORT ?? '8092')
 const KOKORO_MODEL = process.env.KOKORO_MODEL ?? 'onnx-community/Kokoro-82M-v1.0-ONNX'
 // base.en is the accuracy/speed sweet spot. tiny.en is faster but mis-transcribes
 // real commands badly ("who is" → "was", drops leading words like "no"), which made

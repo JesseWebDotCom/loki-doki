@@ -1,96 +1,139 @@
 ---
-title: Links
-description: Organizr-style bookmarks with global and personal scopes, an embedded iframe viewer, and a same-origin reverse proxy.
+title: Reader
+description: A personal reading library — live bookmarks + offline article archives, collections, tags, FTS, and a headless-Chromium capture engine.
 sidebar:
   order: 14
 ---
 
 ## Overview
 
-The Links page is an Organizr-style bookmark launcher. It supports **global bookmarks** (admin-managed, visible to all users) and **personal bookmarks** (per-user). Bookmarks can open in a new tab or embed inside the app via an iframe viewer; embedded sites that block framing can be served through a same-origin reverse proxy.
+Reader is a per-user reading library. Each saved item (`reader_items`) is either a **live link** (a bookmark that opens the real site, in a new tab or an embedded/proxied iframe) or an **offline article** (a full server-side copy you can read with the network down). Items organize into **collections** and **tags**, are full-text searchable, and offline articles render in a cleaned **reader view** with a **Full page** snapshot toggle and an AI summarize/ask panel.
+
+A small set of **global** items (`ownerId = null`) are admin-managed and shown to everyone; they're always live links. Reader also receives **promoted feed items** (saved RSS articles) and shares its data model with the legacy Links bookmarks feature it replaced.
 
 ---
 
-## Data Model
+## Data Model (`backend/src/db/schema.ts`)
 
-The `bookmarks` table (`backend/src/db/schema.ts`):
+### `reader_items`
 
 ```ts
-bookmarks
-  id          text  primary key
-  ownerId     text  → users.id (onDelete: cascade); NULL = global
-  label       text  not null
-  url         text  not null
-  icon        text  nullable (favicon URL, or a named-icon key)
-  category    text  not null, default 'Other'
-  sortOrder   integer  not null, default 0
-  useProxy    integer (boolean)  not null, default false
-  useEmbed    integer (boolean)  not null, default false
-  createdAt   integer (timestamp)
-  updatedAt   integer (timestamp)
+reader_items
+  id            text  primary key
+  ownerId       text  → users.id (cascade); NULL = global/admin
+  source        'bookmark' | 'article' | 'feed'
+  sourceRef     text  nullable  // e.g. 'feed:<feedItemId>' for promoted feed items
+  type          'live' | 'offline'
+  url           text  not null
+  title, byline, siteName, faviconUrl, excerpt   text
+  contentHtml   text  // sanitized article body (offline)
+  contentText   text  // plaintext, drives FTS / RAG / change-detection
+  wordCount, readingMins   integer
+  status        'unread' | 'reading' | 'archived'
+  archiveState  'none' | 'pending' | 'fetching' | 'ready' | 'failed'
+  archiveError  text
+  readAt        timestamp
+  useProxy, useEmbed   boolean
+  category      text  default 'Other'
+  collectionId  text  → reader_collections.id (set null)
+  sortOrder     integer
+  // change monitoring
+  autoUpdate            boolean
+  autoUpdateIntervalMins integer  nullable (null → daily)
+  alertOnChange         boolean
+  contentHash           text   // sha256 of normalized contentText (diff baseline)
+  lastCheckedAt, contentChangedAt   timestamp
+  // capture artifacts (under data/reader-archive/<id>/)
+  screenshotPath, snapshotPath, ogImagePath   text
+  isAdult       boolean
+  createdAt, updatedAt   timestamp
 ```
 
-Global bookmarks have `ownerId = null`; personal bookmarks are scoped to `ownerId = user.id`.
+### Supporting tables
 
-Per-user hiding of global bookmarks is **not** a column. It lives in `user_preferences` under the key `bookmarks.hidden` as a JSON array of bookmark ids.
+- `reader_collections` — `id`, `ownerId`, `name`, `icon`, `color`, `sortOrder`. Per-user folders.
+- `reader_tags` — `id`, `ownerId`, `name`. Per-user tag vocabulary.
+- `reader_item_tags` — join table (`itemId`, `tagId`), composite PK.
+- `reader_items_fts` — FTS5 external-content virtual table over `reader_items` (`title`, `excerpt`, `content_text`, **`url`**), kept in sync by `reader_items_ai/ad/au` triggers (defined inline in `backend/src/db/index.ts`). `url` is indexed so a domain query (e.g. `amazon`) matches a saved link by its address, not just its title. There's a guarded one-time rebuild that adds the `url` column to FTS tables created before it existed.
 
----
-
-## Routes
-
-### `/api/bookmarks` (`backend/src/routes/bookmarks.ts`, `requireAuth`)
-
-- `GET /probe?url=...`: registered before `/:id`. Uses `safeFetch` (SSRF-guarded against internal/loopback/metadata ranges, including redirect hops) to report `{ reachable, framesBlocked, faviconUrl }`. `framesBlocked` is derived from `X-Frame-Options` or a `frame-ancestors` CSP directive; the favicon is parsed from the HTML `<link rel=icon>` or falls back to `/favicon.ico`.
-- `GET /`: returns global + this user's bookmarks. Each row is decorated with `isGlobal` (`ownerId === null`), `canEdit` (`ownerId === user.id`), and `isHidden` (global and present in the user's `bookmarks.hidden` list).
-- `POST /`: create a personal bookmark (`ownerId = user.id`, default category `Other`).
-- `PATCH /:id` / `DELETE /:id`: update/delete, scoped to `ownerId = user.id` (404 otherwise).
-- `PUT /hide/:id` / `DELETE /hide/:id`: add/remove a global bookmark id from the user's `bookmarks.hidden` preference.
-
-### `/api/admin/bookmarks` (`backend/src/routes/adminBookmarks.ts`, `requireAdmin`)
-
-- `GET /` lists global bookmarks (`ownerId IS NULL`); `POST /` creates them (`ownerId = null`, default category `Services`); `PATCH /:id` / `DELETE /:id` edit/delete by id with no owner scoping.
-
-### `/api/proxy` (`backend/src/routes/proxy.ts`, `requireAuth`)
-
-Transparent reverse proxy used when `useProxy` is on. `GET /:id` fetches the exact bookmark URL; `GET /:id/*` fetches `targetOrigin/<subpath>`. Authorization: the bookmark must be global or owned by the caller (403 otherwise). The target is `assertPublicUrl`-guarded (SSRF) since bookmark URLs are user-controlled and the server sits next to Ollama/ComfyUI/router admin.
-
-For HTML responses it injects `<base href="/api/proxy/:id/">`, strips inline CSP `<meta>` tags, and rewrites same-origin absolute URLs and absolute paths in `href`/`src`/`action` and CSS `url(...)` to stay within the proxy. Frame-blocking headers are stripped **only** when not `X-Frame-Options: DENY` (a hard DENY is passed through so the browser still refuses); `SAMEORIGIN` is safe to strip because the proxy serves from our origin. Redirects to the same origin are rewritten back into proxy paths.
-
-All three routers are mounted in `backend/src/index.ts` at `/api/bookmarks`, `/api/admin/bookmarks`, and `/api/proxy`.
+Per-user hiding of global items is **not** a column — it lives in `user_preferences` under the key `bookmarks.hidden` (a JSON array of item ids), reusing the legacy Links pref key.
 
 ---
 
-## LinksPage (`frontend/src/pages/LinksPage.tsx`)
+## Backend Routes
 
-Route `/links`. Loads `GET /api/bookmarks`, derives the category list, and renders a responsive grid grouped by category, sorted by `sortOrder` then label. Each card:
+### `/api/reader` (`backend/src/routes/reader.ts`, `requireAuth`)
 
-- If `useEmbed`, links to `/links/:id` (the embedded viewer); otherwise it's an `<a target="_blank">`.
-- Shows an `ExternalLink` button always, plus `Pencil`/`Trash2` when `canEdit`.
-- Hidden global bookmarks render at reduced opacity.
+- `GET /probe?url=...` — registered before `/:id`. `safeFetch` (SSRF-guarded) reports `{ reachable, framesBlocked, faviconUrl, title }`. `framesBlocked` derives from `X-Frame-Options` / CSP `frame-ancestors`; favicon + title parse from the HTML.
+- `GET /` — list global + own items. Filters: `status`, `type`, `collectionId`, `tag`, `q` (FTS5, prefix-matches the last token). Heavy `contentHtml`/`contentText` omitted from the list; each row decorated with `tags`, `isGlobal`, `canEdit`, `isHidden`.
+- `POST /` — create. `live` → immediate, enqueues a thumbnail job; `offline` → `archiveState='pending'`, enqueues the full archive job. Resolves `collectionName`/`tags`.
+- `GET /:id` — one item with full content + tags.
+- `PATCH /:id` / `DELETE /:id` — owner-scoped (404 otherwise). PATCH covers title/status/collection/tags/category/useProxy/useEmbed and the auto-update fields; flipping `autoUpdate` on for a never-captured item kicks a baseline archive.
+- `POST /:id/rearchive` — re-run the archive job for an offline item.
+- `POST /:id/snapshot` — accepts client-rendered DOM (JS executed in the user's proxied iframe, URLs de-proxied) and (re)enqueues the archive job to localize assets off it.
+- `POST /:id/thumbnail` — accepts a client-rasterized PNG (`html-to-image`) → `og_image_path` = `thumb.png`.
+- `GET /:id/archive/*` — serves the full-page offline snapshot (`index.html` + localized `assets/*`) and thumbnails from `data/reader-archive/<id>/`. Path-traversal guarded; content-type sniffed from magic bytes for extensionless assets.
+- `GET /collections`, `POST /collections`, `PATCH/DELETE /collections/:id` — owner-scoped collections.
+- `GET /tags` — owner tags (created implicitly when applied to items).
+- `POST /import/html`, `GET /export/html` — Netscape `bookmarks.html` import/export (Shiori-style). Import flattens nested folders one level; the nearest `<H3>` folder becomes a collection. Export emits live links only.
+- `POST /:id/summarize`, `POST /:id/ask` — AI TL;DR (+ auto-tags, persisted to the excerpt/tags for own items) and ask-the-article, via `lib/reader/ai.ts`.
+- `PUT/DELETE /hide/:id` — add/remove a global item id from the user's `bookmarks.hidden` pref.
 
-The add/edit dialog (`BookmarkFormDialog`) debounces a call to `/api/bookmarks/probe` on URL change: it auto-fills the icon from the discovered favicon and auto-enables `useProxy` when the probe reports `reachable && framesBlocked`. Admins get a **Manage global** link to `/admin/links`.
+Two exported helpers, `promoteToReader` / `unpromoteFromReader`, are called by the Feeds save handler to mirror a saved RSS item into the library as a `source='feed'` offline item (idempotent per `ownerId`+`sourceRef`).
+
+### `/api/admin/reader` (`backend/src/routes/adminReader.ts`, `requireAdmin`)
+
+Manages global items (`ownerId IS NULL`, always `type='live'`). `GET /` lists, `POST /` creates (default category `Services`), `PATCH/DELETE /:id` edit/delete by id with no owner scoping.
+
+### Mounting (`backend/src/index.ts`)
+
+`/api/reader` and `/api/admin/reader` are mounted alongside the still-present legacy `/api/bookmarks` and `/api/admin/bookmarks`. Boot also calls `lib/reader/render.ensureChromium()` and `lib/reader/autoUpdate.startReaderAutoUpdatePoller()`.
 
 ---
 
-## LinkViewPage (`frontend/src/pages/LinkViewPage.tsx`)
+## Capture / Archive Engine (`backend/src/lib/reader/`)
 
-Route `/links/:id`. The embedded iframe viewer. `src` is `bookmark.url` normally, or `/api/proxy/:id` when `useProxy` is set. Chrome bar:
+The default capture path is **server headless Chromium** (`render.ts`, Playwright) — the page renders in a real browser (JS executes), yielding fully-rendered HTML + a screenshot. It runs inside the `archive-article` download-queue job (`archive.ts`), so every save path (UI, bookmarklet, companion tool, scheduled refresh) works without the user's browser open. `ensureChromium()` prefers an installed Playwright Chromium, then a system Chrome/Edge channel, then self-installs Playwright's Chromium under `data/bin/playwright`.
 
-- **Back / Forward** drive `iframe.contentWindow.history` (best-effort; cross-origin frames may not cooperate).
-- **Reload** remounts the iframe via a key bump.
-- **Proxy toggle** (⇄) PATCHes `useProxy` on the bookmark, then reloads.
-- **Open in new tab** escape hatch.
+`archive.ts` produces **both** a full-page snapshot (every asset downloaded under `data/reader-archive/<id>/` via `snapshot.capturePage`) and a cleaned reader view (`contentHtml`/`contentText`, images repointed at local copies), so the UI toggles Reader ⇄ Full page entirely offline. Fallbacks (client-rendered snapshot via `POST /:id/snapshot`, then static fetch) are handled upstream. `thumbnail.ts` generates card thumbnails. SSRF is enforced on the top URL and every subresource since URLs are user-controlled and the server sits next to Ollama/ComfyUI/the router.
 
-It best-effort injects an inverting CSS filter into the iframe document for dark theme (wrapped in try/catch; cross-origin frames silently skip). On `onError` it shows a fallback with **Try again** and **Open directly**.
+**Change monitoring** (`autoUpdate.ts`): a poller (default cadence: items with no explicit interval refresh daily) re-archives `autoUpdate` items when due. It hashes the normalized `contentText` (`contentHash`) so cosmetic reflow doesn't read as a change; when the reader-text actually changes and `alertOnChange` is set, the owner gets a notification.
 
 ---
 
-## Admin: AdminLinksTab (`frontend/src/components/admin/AdminLinksTab.tsx`)
+## Frontend
 
-Reached at `/admin/links`. Lists global bookmarks grouped by category and reuses the same probe-driven form dialog as LinksPage. Supports add / edit / delete of global bookmarks. There is no drag-and-drop reorder; `sortOrder` exists in the schema but is not edited from this tab.
+### Routes (`frontend/src/App.tsx`)
+
+`/reader` mounts `ReaderLayout` (`components/reader/ReaderLayout.tsx`), which renders the rail + an `<Outlet>`:
+
+- index → `ReaderLibraryPage` (`pages/reader/ReaderLibraryPage.tsx`)
+- `collection/:id` → `ReaderLibraryPage` (collection-filtered)
+- `read/:id` → `ReaderReadPage` (`pages/reader/ReaderReadPage.tsx`)
+- `settings` → `ReaderSettingsPage` (`pages/reader/ReaderSettingsPage.tsx`)
+
+All `/api/reader/*` calls go through the typed wrappers in `frontend/src/lib/reader/api.ts`.
+
+> Not part of Reader: `/read/:sourceId` → `ReaderPage` is the **ZIM offline-library** reader (see the [Library](/dev/subsystems/library/) subsystem), unrelated to this feature despite the similar name.
+
+### Rail (`components/reader/ReaderRail.tsx`)
+
+The left sidebar: a **Save** button; filters **All / Unread / Archived**; a **Type** section (**Live links / Offline articles**); the user's **Collections** (with inline create + a `CollectionEditor` for icon/color/delete); a **Tags** cloud; and a footer with **Settings**, **Import bookmarks** (uploads a `bookmarks.html` → `POST /import/html`), and **Export bookmarks** (links straight to `GET /export/html`). Filters live in the query string, so the rail computes its own active state.
+
+### Library page
+
+`ReaderLibraryPage` renders a card grid (thumbnail, favicon, title, excerpt, an archive/reading-time badge, collection chip, tags). Cards poll while any item is mid-archive so badges flip to ready. Live un-embedded links open in a new tab; everything else opens `read/:id`. Per-card actions (own items): move-to-collection, edit, open original, archive/unarchive, delete. Search comes from the shared breadcrumb search box.
+
+### Read page
+
+`ReaderReadPage` — live links embed the site (`/api/proxy/:id` when `useProxy`); offline articles render `ArticleReader` (cleaned, locally-imaged) with a **Reader ⇄ Full page** toggle (the full snapshot loads `/:id/archive/index.html` in a sandboxed iframe), a re-archive button, the `ReaderAutoUpdateMenu`, an archive toggle, and the `ReaderAIPanel` (summarize / ask). Opening an unread offline article flips it to `reading`.
+
+### Settings + admin surface
+
+`ReaderSettingsPage` shows `SettingsSaveToLokiTab` (the **Save to Loki** bookmarklet + mobile share-sheet hint) to everyone, plus an admin-only **Global links** section that renders `AdminLinksTab` (manages the global, admin-shared live links via `/api/admin/reader`). There is no separate admin-panel nav entry for Reader; global-link management lives here in the app's own Settings.
 
 ---
 
-## Personal Bookmarks
+## Legacy Links surface (retired, still in the tree)
 
-Users add their own from LinksPage via `POST /api/bookmarks`. They are scoped to `ownerId` and never visible to other users or admins. Users can also hide (not delete) any global bookmark for themselves via the `bookmarks.hidden` preference.
+Reader replaced the old **Links** feature. The legacy `LinksPage` (`/links`), `LinkViewPage` (`/links/:id`), the `/api/bookmarks` + `/api/admin/bookmarks` + `/api/proxy` routes, and the standalone `AdminLinksTab` admin tab still exist in the codebase but are **out of the navigation / retired and slated for removal**. (`AdminLinksTab` itself is reused, embedded inside Reader's Settings, for managing global shared links.) This is a docs-level note — no code change is implied.

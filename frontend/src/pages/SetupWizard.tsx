@@ -5,6 +5,7 @@ import {
   Bot, Eye, Database, Wand2, Mic, Server, Route, ScanFace, Film, Eraser, Library,
   Map as MapIcon, Ear, MessageSquare, Image as ImageIcon, Users, Home, Lightbulb,
   MapPin, Navigation, ShieldCheck, WifiOff, Lock as LockIcon, AlertTriangle, Globe,
+  ShieldQuestion,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
@@ -76,17 +77,18 @@ interface ModelDownload {
 
 // ── Wizard steps ──────────────────────────────────────────────────────────────
 
-type Step = 'welcome' | 'profile' | 'pin' | 'area' | 'components' | 'download'
+type Step = 'welcome' | 'profile' | 'pin' | 'consent' | 'area' | 'components' | 'download'
 
-const STEP_ORDER: Step[] = ['welcome', 'profile', 'pin', 'area', 'components', 'download']
+const STEP_ORDER: Step[] = ['welcome', 'profile', 'pin', 'consent', 'area', 'components', 'download']
 
 const STEP_META: Record<Step, { icon: React.ComponentType<{ className?: string }>; label: string; sub: string }> = {
-  welcome:    { icon: Sparkles,   label: 'Welcome',      sub: 'What you get' },
-  profile:    { icon: Users,      label: 'Your profile', sub: 'Admin account' },
-  pin:        { icon: Lock,       label: 'Secure it',    sub: 'Optional PIN' },
-  area:       { icon: MapPin,     label: 'Your area',    sub: 'Location & units' },
-  components: { icon: Package,    label: 'Your AI',      sub: 'Models & features' },
-  download:   { icon: Download,   label: 'Install',      sub: 'Download & finish' },
+  welcome:    { icon: Sparkles,        label: 'Welcome',      sub: 'What you get' },
+  profile:    { icon: Users,           label: 'Your profile', sub: 'Admin account' },
+  pin:        { icon: Lock,            label: 'Secure it',    sub: 'Optional PIN' },
+  consent:    { icon: ShieldQuestion,  label: 'Permissions',  sub: 'What you allow' },
+  area:       { icon: MapPin,          label: 'Your area',    sub: 'Location & units' },
+  components: { icon: Package,         label: 'Your AI',      sub: 'Models & features' },
+  download:   { icon: Download,        label: 'Install',      sub: 'Download & finish' },
 }
 
 // ── Input style ───────────────────────────────────────────────────────────────
@@ -537,6 +539,136 @@ function PinStep({ userId, onNext, onSkip, canSkip = true }: { userId: string; o
   )
 }
 
+// ── Consent step (risky-capability permissions) ─────────────────────────────────
+
+type ConsentKey = 'uncensored' | 'internet' | 'companions' | 'liability'
+
+interface ConsentDefinition { key: ConsentKey; label: string; risk: string; ifDenied: string }
+
+interface ConsentState {
+  uncensored: boolean
+  internet: boolean
+  companions: boolean
+  liability: boolean
+  acceptedAt: string | null
+  version: number
+}
+
+interface ConsentResponse { consents: ConsentState; definitions: ConsentDefinition[]; version: number }
+
+function ConsentToggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button type="button" onClick={() => onChange(!checked)}
+      className={cn('relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors', checked ? 'bg-violet-500' : 'bg-muted')}>
+      <span className={cn('pointer-events-none inline-block size-5 transform rounded-full bg-white shadow-lg ring-0 transition-transform', checked ? 'translate-x-5' : 'translate-x-0')} />
+    </button>
+  )
+}
+
+function ConsentStep({ onNext }: { onNext: () => void }) {
+  const [definitions, setDefinitions] = useState<ConsentDefinition[]>([])
+  const [consents, setConsents] = useState<ConsentState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetch('/api/consent', { credentials: 'include' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: ConsentResponse | null) => {
+        if (!d) { setError('Could not load permissions.'); return }
+        setDefinitions(d.definitions); setConsents(d.consents)
+      })
+      .catch(() => setError('Could not load permissions.'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const set = (key: ConsentKey, value: boolean) => setConsents((c) => (c ? { ...c, [key]: value } : c))
+
+  async function continueNext() {
+    if (!consents) return
+    setSaving(true); setError('')
+    try {
+      await fetch('/api/consent', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          uncensored: consents.uncensored, internet: consents.internet,
+          companions: consents.companions, liability: consents.liability, accept: true,
+        }),
+      })
+      onNext()
+    } catch { setError('Could not save your choices.'); setSaving(false) }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex w-full flex-col items-center justify-center gap-3 py-16">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Loading permissions…</p>
+      </div>
+    )
+  }
+  if (!consents) return <p className="text-sm text-red-400 py-8">{error || 'Permissions unavailable.'}</p>
+
+  // Liability is presented as a required acceptance, separate from the capability toggles.
+  const toggles = (['uncensored', 'internet', 'companions'] as ConsentKey[])
+    .map((key) => definitions.find((d) => d.key === key))
+    .filter((d): d is ConsentDefinition => !!d)
+  const liability = definitions.find((d) => d.key === 'liability')
+
+  return (
+    <div className="w-full space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div>
+        <h2 className="text-2xl font-black tracking-tight">What you allow</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          You're in control. Leaving any of these off keeps that feature in its safe default - you can change them anytime in Admin → Security.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {toggles.map((def) => (
+          <div key={def.key} className="flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold leading-tight">{def.label}</p>
+              <p className="mt-1 text-xs text-muted-foreground leading-snug">{def.risk}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug">{def.ifDenied}</p>
+            </div>
+            <ConsentToggle checked={consents[def.key]} onChange={(v) => set(def.key, v)} />
+          </div>
+        ))}
+      </div>
+
+      {liability && (
+        <button type="button" onClick={() => set('liability', !consents.liability)}
+          className={cn('flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-colors',
+            consents.liability ? 'border-violet-500/40 bg-violet-500/10' : 'border-amber-500/40 bg-amber-500/5')}>
+          <span className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border-2 transition-all',
+            consents.liability ? 'border-violet-500 bg-violet-500' : 'border-amber-500/60 bg-transparent')}>
+            {consents.liability && <CheckCircle2 className="size-3.5 text-white" />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold leading-tight">{liability.label}</p>
+            <p className="mt-1 text-xs text-muted-foreground leading-snug">{liability.risk}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug">{liability.ifDenied}</p>
+          </div>
+        </button>
+      )}
+
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      <div className="flex items-center justify-end">
+        <button type="button" onClick={continueNext} disabled={saving || !consents.liability} className={primaryBtn}>
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <>Continue <ChevronRight className="size-4" /></>}
+        </button>
+      </div>
+      {!consents.liability && (
+        <p className="text-right text-[11px] text-muted-foreground/70 -mt-3">
+          Accept the use-at-your-own-risk waiver to continue.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Area step (location + units) ────────────────────────────────────────────────
 
 const CURRENCIES = [
@@ -645,7 +777,7 @@ function AreaStep({ onNext }: { onNext: () => void }) {
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Measurement</p>
           <ToggleGroup value={locale.measurement} onChange={v => setLocale(s => ({ ...s, measurement: v }))}
-            options={[{ value: 'imperial', label: 'Imperial' }, { value: 'metric', label: 'Metric' }]} />
+            options={[{ value: 'imperial', label: 'Imperial (mi, ft, lb)' }, { value: 'metric', label: 'Metric (km, m, kg)' }]} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
@@ -1606,7 +1738,8 @@ export function SetupWizard({ startStep = 'profile' }: SetupWizardProps) {
     <WizardShell step={step} onNavigate={goTo} maxIdx={maxIdx}>
       {step === 'welcome'  && <WelcomeStep onNext={() => goTo('profile')} />}
       {step === 'profile'  && <ProfileStep onNext={handleProfileNext} editMode={!!userId} initial={profileInitial} />}
-      {step === 'pin' && userId && <PinStep userId={userId} onNext={() => goTo('area')} onSkip={() => goTo('area')} canSkip={false} />}
+      {step === 'pin' && userId && <PinStep userId={userId} onNext={() => goTo('consent')} onSkip={() => goTo('consent')} canSkip={false} />}
+      {step === 'consent'  && <ConsentStep onNext={() => goTo('area')} />}
       {step === 'area'     && <AreaStep onNext={() => goTo('components')} />}
       {step === 'components' && <ModelsStep onNext={handleModelsNext} initialTier={downloadTier} initialIds={downloadIds} initialComponents={downloadComponentIds.length ? downloadComponentIds : null} />}
       {step === 'download' && (

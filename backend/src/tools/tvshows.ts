@@ -130,7 +130,7 @@ function deriveAnswerPayload(data: {
 
 export const tvShowsTool: Tool = {
   id: 'tvshows',
-  name: 'TV Shows',
+  name: 'Shows',
   description: 'Look up TV show details, cast, seasons, and recent news via TVMaze',
   offline: false,
   dataSources: [

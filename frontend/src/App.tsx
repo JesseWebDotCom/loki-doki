@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { ThemeProvider } from '@/context/ThemeContext'
@@ -41,14 +41,11 @@ import { ReaderPage } from '@/pages/ReaderPage'
 import { CategoryPage } from '@/pages/CategoryPage'
 import { CategoriesPage } from '@/pages/CategoriesPage'
 import { AllAppsPage } from '@/pages/AllAppsPage'
-import { LinksPage } from '@/pages/LinksPage'
-import { LinkViewPage } from '@/pages/LinkViewPage'
-import { ReaderLayout } from '@/components/reader/ReaderLayout'
-import { ReaderLibraryPage } from '@/pages/reader/ReaderLibraryPage'
-import { ReaderReadPage } from '@/pages/reader/ReaderReadPage'
-import { ReaderSettingsPage } from '@/pages/reader/ReaderSettingsPage'
-import { FeedsPage } from '@/pages/FeedsPage'
-import { FeedReaderPage } from '@/pages/FeedReaderPage'
+import { BookmarksLayout } from '@/components/bookmarks/BookmarksLayout'
+import { BookmarksLibraryPage } from '@/pages/bookmarks/BookmarksLibraryPage'
+import { BookmarkReadPage } from '@/pages/bookmarks/BookmarkReadPage'
+import { BookmarksSettingsPage } from '@/pages/bookmarks/BookmarksSettingsPage'
+import { NewsReadPage } from '@/pages/news/NewsReadPage'
 import { SavePage } from '@/pages/SavePage'
 import { BoredPage } from '@/pages/BoredPage'
 import { VideoPage } from '@/pages/VideoPage'
@@ -88,7 +85,10 @@ import { PodcastLibraryPage } from '@/pages/podcast/PodcastLibraryPage'
 import { ShowDetailPage } from '@/pages/podcast/ShowDetailPage'
 import { PodcastAdminPage } from '@/pages/podcast/PodcastAdminPage'
 import { DictionaryPage } from '@/pages/DictionaryPage'
-import { TvShowsPage } from '@/pages/TvShowsPage'
+import { ShowsHomePage } from '@/pages/shows/ShowsHomePage'
+import { ShowDetailPage as ShowsDetailPage } from '@/pages/shows/ShowDetailPage'
+import { MoviesHomePage } from '@/pages/movies/MoviesHomePage'
+import { MovieDetailPage } from '@/pages/movies/MovieDetailPage'
 import { WhereToWatchPage } from '@/pages/WhereToWatchPage'
 import { MedicalPage } from '@/pages/MedicalPage'
 import { SportsPage } from '@/pages/SportsPage'
@@ -118,6 +118,12 @@ function Placeholder({ label }: { label: string }) {
       {label} — coming soon
     </div>
   )
+}
+
+// Legacy /feeds/read/:id → /news/read/:id (Feeds merged into News), preserving the article id.
+function FeedRedirect() {
+  const { id = '' } = useParams()
+  return <Navigate to={`/news/read/${id}`} replace />
 }
 
 // ── Setup guard ───────────────────────────────────────────────────────────────
@@ -201,6 +207,24 @@ function AuthGuard() {
   return <Outlet />
 }
 
+// Lightweight guard for the bookmarklet/share capture popup. Needs a session, but must NOT
+// go through the boot screen or welcome wizard — it's a tiny chrome-less "save this" surface.
+function SaveGuard() {
+  const { user, configured, firstRunComplete, loading } = useAuth()
+  if (loading) return <AppLoading />
+  if (!configured || !firstRunComplete) return <Navigate to="/setup" replace />
+  if (!user) return <Navigate to="/login" replace />
+  return <Outlet />
+}
+
+// The global background-setup widget shouldn't intrude on chrome-less surfaces (the capture
+// popup, login, setup) — only show it inside the actual app.
+function GlobalSetupWidget() {
+  const { pathname } = useLocation()
+  if (pathname === '/save' || pathname === '/login' || pathname === '/setup') return null
+  return <BackgroundSetupWidget />
+}
+
 export default function App() {
   return (
     <ServerHealthProvider>
@@ -245,16 +269,18 @@ export default function App() {
                 <Route path="/apps" element={<AllAppsPage />} />
                 <Route path="/categories" element={<CategoriesPage />} />
                 <Route path="/category/:category" element={<CategoryPage />} />
-                <Route path="/links" element={<LinksPage />} />
-                <Route path="/links/:id" element={<LinkViewPage />} />
-                <Route path="/reader" element={<ReaderLayout />}>
-                  <Route index element={<ReaderLibraryPage />} />
-                  <Route path="collection/:id" element={<ReaderLibraryPage />} />
-                  <Route path="read/:id" element={<ReaderReadPage />} />
-                  <Route path="settings" element={<ReaderSettingsPage />} />
+                <Route path="/bookmarks" element={<BookmarksLayout />}>
+                  <Route index element={<BookmarksLibraryPage />} />
+                  <Route path="collection/:id" element={<BookmarksLibraryPage />} />
+                  <Route path="read/:id" element={<BookmarkReadPage />} />
+                  <Route path="settings" element={<BookmarksSettingsPage />} />
                 </Route>
-                <Route path="/feeds" element={<FeedsPage />} />
-                <Route path="/feeds/read/:itemId" element={<FeedReaderPage />} />
+                {/* Backward-compat redirects: the app was renamed Reader/Links → Bookmarks. */}
+                <Route path="/reader/*" element={<Navigate to="/bookmarks" replace />} />
+                <Route path="/links/*" element={<Navigate to="/bookmarks" replace />} />
+                {/* Feeds merged into News: bare /feeds → News; the article reader lives at /news/read/:id. */}
+                <Route path="/feeds" element={<Navigate to="/news" replace />} />
+                <Route path="/feeds/read/:id" element={<FeedRedirect />} />
                 <Route path="/companions" element={<CompanionStoreLayout />}>
                   <Route index element={<CompanionHomePage />} />
                   <Route path="browse" element={<CompanionBrowsePage />} />
@@ -286,6 +312,7 @@ export default function App() {
                 </Route>
                 <Route path="/home-inventory" element={<HomeInventoryPage />} />
                 <Route path="/news" element={<NewsPage />} />
+                <Route path="/news/read/:id" element={<NewsReadPage />} />
                 <Route path="/on-this-day" element={<OnThisDayPage />} />
                 <Route path="/moon-phase" element={<MoonPhasePage />} />
                 <Route path="/recipes" element={<RecipesPage />} />
@@ -298,7 +325,12 @@ export default function App() {
                 <Route path="/converter" element={<ConverterPage />} />
                 <Route path="/time" element={<TimePage />} />
                 <Route path="/dictionary" element={<DictionaryPage />} />
-                <Route path="/tv-shows" element={<TvShowsPage />} />
+                <Route path="/shows" element={<ShowsHomePage />} />
+                <Route path="/shows/:id" element={<ShowsDetailPage />} />
+                {/* Renamed from "TV Shows" — keep old links working. */}
+                <Route path="/tv-shows" element={<Navigate to="/shows" replace />} />
+                <Route path="/movies" element={<MoviesHomePage />} />
+                <Route path="/movies/:ref" element={<MovieDetailPage />} />
                 <Route path="/where-to-watch" element={<WhereToWatchPage />} />
                 <Route path="/medical" element={<MedicalPage />} />
                 <Route path="/sports" element={<SportsPage />} />
@@ -319,9 +351,6 @@ export default function App() {
                 <Route path="/settings/:section?" element={<SettingsPage />} />
               </Route>
 
-              {/* Capture popup (bookmarklet / share target) — authenticated but chrome-less */}
-              <Route path="/save" element={<SavePage />} />
-
               {/* Admin-only routes */}
               <Route element={<AdminGuard />}>
                 <Route element={<AppShell />}>
@@ -330,12 +359,19 @@ export default function App() {
               </Route>
             </Route>
 
+            {/* Capture popup (bookmarklet / share target) — authenticated but chrome-less:
+                no boot screen, no welcome wizard, no setup widget. */}
+            <Route element={<SaveGuard />}>
+              <Route path="/save" element={<SavePage />} />
+            </Route>
+
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </ChatProvider>
           </FrigateAnnounceProvider>
           <AlarmRingDialog />
+          <GlobalSetupWidget />
           </TimeAlarmProvider>
           </YoutubePlaybackProvider>
           </PodcastPlaybackProvider>
@@ -347,7 +383,6 @@ export default function App() {
         <AppToaster />
       </ThemeProvider>
       <ServerHealthBanner />
-      <BackgroundSetupWidget />
     </AuthProvider>
     </SetupProgressProvider>
     </ServerHealthProvider>

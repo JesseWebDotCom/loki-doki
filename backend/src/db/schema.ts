@@ -475,23 +475,8 @@ export const imageLoraUserLoraGrants = sqliteTable('image_lora_user_lora_grants'
   userLoraUnique: unique().on(t.userId, t.loraId),
 }))
 
-// ─── Bookmarks (Organizr-style links to self-hosted services) ─────────────────
-
-// owner_id = null → admin-created global bookmark (visible to all users)
-// owner_id = user_id → personal bookmark (visible to that user only)
-export const bookmarks = sqliteTable('bookmarks', {
-  id: text('id').primaryKey(),
-  ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
-  label: text('label').notNull(),
-  url: text('url').notNull(),
-  icon: text('icon'),
-  category: text('category').notNull().default('Other'),
-  sortOrder: integer('sort_order').notNull().default(0),
-  useProxy: integer('use_proxy', { mode: 'boolean' }).notNull().default(false),
-  useEmbed: integer('use_embed', { mode: 'boolean' }).notNull().default(false),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
-})
+// NOTE: the legacy Organizr-style `bookmarks` table was removed — live links now live
+// in the unified Bookmarks library (see the `bookmarks` table below, formerly bookmarks).
 
 // ─── ZIM Archives (offline content via kiwix-serve) ───────────────────────────
 
@@ -844,8 +829,8 @@ export const podcastEpisodes = sqliteTable('podcast_episodes', {
 export const podcastEpisodeSources = sqliteTable('podcast_episode_sources', {
   id: text('id').primaryKey(),
   episodeId: text('episode_id').notNull().references(() => podcastEpisodes.id, { onDelete: 'cascade' }),
-  sourceType: text('source_type', { enum: ['youtube'] }).notNull().default('youtube'),
-  sourceId: text('source_id').notNull(),   // e.g. the YouTube videoId
+  sourceType: text('source_type', { enum: ['youtube', 'tvshow', 'movie'] }).notNull().default('youtube'),
+  sourceId: text('source_id').notNull(),   // YouTube videoId, TVMaze episode id, or movie title
   title: text('title'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
@@ -971,7 +956,7 @@ export const clockTimerRuns = sqliteTable('clock_timer_runs', {
 // ─── Feeds (RSS/Atom reader; absorbs curated News as system feeds) ──────────────
 // user_id = null → system/curated feed (the News presets, visible to everyone).
 // Items are stored once per feed (shared for system feeds); only feed_item_state is
-// per-user. Saving an item promotes a copy into reader_items, so feed_items prunes freely.
+// per-user. Saving an item promotes a copy into bookmarks, so feed_items prunes freely.
 
 // A folder is also a News "category". userId=null → shared/built-in category visible to all;
 // slug marks the fixed built-ins ('global'/'local'); locked blocks feed editing on built-ins.
@@ -1035,7 +1020,7 @@ export const feedItemState = sqliteTable('feed_item_state', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   itemId: text('item_id').notNull().references(() => feedItems.id, { onDelete: 'cascade' }),
   read: integer('read', { mode: 'boolean' }).notNull().default(false),
-  saved: integer('saved', { mode: 'boolean' }).notNull().default(false),  // promoted to reader_items
+  saved: integer('saved', { mode: 'boolean' }).notNull().default(false),  // promoted to bookmarks
   readAt: integer('read_at', { mode: 'timestamp' }),
 }, t => ({
   userItemUnique: unique().on(t.userId, t.itemId),
@@ -1060,12 +1045,12 @@ export const feedItemScores = sqliteTable('feed_item_scores', {
   scoredAt: integer('scored_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userItemUnique: unique().on(t.userId, t.itemId) }))
 
-// ─── Reader (read-it-later library; absorbs Links/bookmarks) ───────────────────
+// ─── Bookmarks (the unified saved-content library; absorbs Links/Reader) ───────
 // The single home for everything saved: Live links (dashboards/services, like the old
-// bookmarks) and Offline articles (extracted full text). owner_id = null → global/admin.
+// Organizr bookmarks) and Offline articles (extracted full text). owner_id = null → global/admin.
 // Saved feed items are promoted here (source='feed'). source='bookmark' = a Live link.
 
-export const readerCollections = sqliteTable('reader_collections', {
+export const bookmarkCollections = sqliteTable('bookmark_collections', {
   id: text('id').primaryKey(),
   ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
@@ -1075,13 +1060,13 @@ export const readerCollections = sqliteTable('reader_collections', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
-export const readerTags = sqliteTable('reader_tags', {
+export const bookmarkTags = sqliteTable('bookmark_tags', {
   id: text('id').primaryKey(),
   ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
 })
 
-export const readerItems = sqliteTable('reader_items', {
+export const bookmarks = sqliteTable('bookmarks', {
   id: text('id').primaryKey(),
   ownerId: text('owner_id').references(() => users.id, { onDelete: 'cascade' }),  // null = global/admin
   source: text('source', { enum: ['bookmark', 'article', 'feed'] }).notNull().default('bookmark'),
@@ -1104,10 +1089,10 @@ export const readerItems = sqliteTable('reader_items', {
   useProxy: integer('use_proxy', { mode: 'boolean' }).notNull().default(false),
   useEmbed: integer('use_embed', { mode: 'boolean' }).notNull().default(false),
   category: text('category').notNull().default('Other'),
-  collectionId: text('collection_id').references(() => readerCollections.id, { onDelete: 'set null' }),
+  collectionId: text('collection_id').references(() => bookmarkCollections.id, { onDelete: 'set null' }),
   sortOrder: integer('sort_order').notNull().default(0),
   // ── Auto-update / change monitoring ──
-  // autoUpdate: periodically re-archive this item on a schedule (see lib/reader/autoUpdate.ts).
+  // autoUpdate: periodically re-archive this item on a schedule (see lib/bookmarks/autoUpdate.ts).
   // intervalMins null → default cadence. alertOnChange: notify the owner when a refresh detects
   // the page's reader-text changed. contentHash is the sha256 of the normalized contentText at the
   // last capture; the diff baseline. last/contentChangedAt power "due" + the "updated" badge.
@@ -1121,17 +1106,44 @@ export const readerItems = sqliteTable('reader_items', {
   screenshotPath: text('screenshot_path'),
   snapshotPath: text('snapshot_path'),
   ogImagePath: text('og_image_path'),
+  // ── Archiver depth (ArchiveBox-style extractors) ──
+  // pdfPath/mediaPath: archive-relative paths to a printed PDF and captured page media (yt-dlp),
+  // served via /api/bookmarks/:id/archive/<rel>. captureMedia: opt-in to run yt-dlp on archive
+  // (off by default — most pages have no media and it's expensive). archiveOrgUrl: a Wayback
+  // Machine permalink saved as an off-box fallback when local capture fails.
+  pdfPath: text('pdf_path'),
+  mediaPath: text('media_path'),
+  captureMedia: integer('capture_media', { mode: 'boolean' }).notNull().default(false),
+  archiveOrgUrl: text('archive_org_url'),
   isAdult: integer('is_adult', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({
-  ownerStatusIdx: index('reader_items_owner_status_idx').on(t.ownerId, t.status),
-  sourceRefIdx: index('reader_items_source_ref_idx').on(t.source, t.sourceRef),
+  ownerStatusIdx: index('bookmarks_owner_status_idx').on(t.ownerId, t.status),
+  sourceRefIdx: index('bookmarks_source_ref_idx').on(t.source, t.sourceRef),
 }))
 
-export const readerItemTags = sqliteTable('reader_item_tags', {
-  itemId: text('item_id').notNull().references(() => readerItems.id, { onDelete: 'cascade' }),
-  tagId: text('tag_id').notNull().references(() => readerTags.id, { onDelete: 'cascade' }),
+// ─── Bookmark snapshot history (versioned captures) ───────────────────────────
+// One row per archive capture, so re-archiving builds a timeline instead of silently
+// overwriting. Stores the reader view at that point in time (contentHtml/text) so an old
+// version stays viewable, plus the fingerprint to mark which captures actually changed.
+export const bookmarkSnapshots = sqliteTable('bookmark_snapshots', {
+  id: text('id').primaryKey(),
+  bookmarkId: text('bookmark_id').notNull().references(() => bookmarks.id, { onDelete: 'cascade' }),
+  capturedAt: integer('captured_at', { mode: 'timestamp' }).notNull(),
+  title: text('title'),
+  contentHtml: text('content_html'),
+  contentText: text('content_text'),
+  wordCount: integer('word_count').notNull().default(0),
+  contentHash: text('content_hash'),
+  changed: integer('changed', { mode: 'boolean' }).notNull().default(false),
+}, t => ({
+  bookmarkIdx: index('bookmark_snapshots_bookmark_idx').on(t.bookmarkId, t.capturedAt),
+}))
+
+export const bookmarkItemTags = sqliteTable('bookmark_item_tags', {
+  itemId: text('item_id').notNull().references(() => bookmarks.id, { onDelete: 'cascade' }),
+  tagId: text('tag_id').notNull().references(() => bookmarkTags.id, { onDelete: 'cascade' }),
 }, t => ({ pk: primaryKey({ columns: [t.itemId, t.tagId] }) }))
 
 // ─── Skills / Bundles ───────────────────────────────────────────────────────────
@@ -1220,3 +1232,29 @@ export const pronunciations = sqliteTable('pronunciations', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
+
+// Shared watchlist for the Shows + Movies apps. refId is the TVMaze show id (shows) or the
+// title (movies — JustWatch/Fandango share no stable numeric id). One row per user+title.
+export const mediaWatchlist = sqliteTable('media_watchlist', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  mediaType: text('media_type', { enum: ['show', 'movie'] }).notNull(),
+  refId: text('ref_id').notNull(),
+  title: text('title').notNull(),
+  posterUrl: text('poster_url'),
+  subtitle: text('subtitle'),  // network/year — shown on watchlist cards
+  status: text('status', { enum: ['want', 'watching', 'completed', 'dropped'] }).notNull().default('want'),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userItemUnique: unique().on(t.userId, t.mediaType, t.refId) }))
+
+// Per-episode watched marks for shows — drives episode checkmarks + "Continue Watching".
+export const showWatchedEpisodes = sqliteTable('show_watched_episodes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tvmazeId: integer('tvmaze_id').notNull(),
+  episodeId: integer('episode_id').notNull(),
+  season: integer('season').notNull(),
+  number: integer('number'),
+  watchedAt: integer('watched_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userEpUnique: unique().on(t.userId, t.episodeId) }))

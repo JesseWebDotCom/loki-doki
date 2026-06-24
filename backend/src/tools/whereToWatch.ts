@@ -1,4 +1,5 @@
 import type { Tool, ToolResult } from './index'
+import { webStreamingFallback, type WebProvider } from '@/lib/titles/streamingFallback'
 
 // JustWatch GraphQL — public endpoint, no API key required. Ported from loki-doki-v2.
 // Supports three modes: lookup (where is a title streaming), popular (top titles),
@@ -485,12 +486,20 @@ async function runLookup(rawQuery: string, country: string, language: string, ob
   const theaters = allOffers.filter(p => p.offerType === 'CINEMA')
   const providers = allOffers.filter(p => p.offerType !== 'CINEMA')
 
+  const resolvedTitle = String(content.title ?? title)
+  const resolvedYear = typeof content.originalReleaseYear === 'number' ? content.originalReleaseYear : null
+  // JustWatch under-reports free/ad-supported services (and some titles entirely). When it
+  // has no streaming options — and the title isn't theatrical-only — check secondary sources
+  // (web search) so the answer isn't a false "not available". Skip for in-cinema titles, where
+  // the web is dominated by "when will it come to X" speculation.
+  const webProviders = providers.length === 0 && theaters.length === 0 ? await webStreamingFallback(resolvedTitle, resolvedYear) : []
+
   const data = {
     mode: 'lookup' as const,
     found: true,
-    title: String(content.title ?? title),
+    title: resolvedTitle,
     objectType: String((node ?? best).objectType ?? '').toUpperCase(),
-    year: typeof content.originalReleaseYear === 'number' ? content.originalReleaseYear : null,
+    year: resolvedYear,
     shortDescription: String(content.shortDescription ?? ''),
     ageCertification: String(content.ageCertification ?? ''),
     runtimeMinutes: typeof content.runtime === 'number' ? content.runtime : null,
@@ -499,6 +508,7 @@ async function runLookup(rawQuery: string, country: string, language: string, ob
     country,
     providers,
     theaters,
+    webProviders,
   }
 
   return { success: true, data: { ...data, answer_payload: deriveLookupPayload(data) } }
@@ -555,22 +565,32 @@ async function runBrowse(mode: 'popular' | 'new', country: string, language: str
 function deriveLookupPayload(data: {
   title: string; year: number | null; country: string; providers: Provider[]; theaters: Provider[]
   runtimeMinutes: number | null; ageCertification: string; shortDescription: string; justwatchUrl: string
+  webProviders?: WebProvider[]
 }) {
   const yearText = data.year ? ` (${data.year})` : ''
   const theaterNames = data.theaters.map(t => t.name).join(', ')
   const inTheaters = data.theaters.length > 0
+  const webNames = (data.webProviders ?? []).map(w => w.name)
 
   const highlights: string[] = []
   if (data.ageCertification) highlights.push(`Rating: ${data.ageCertification}`)
   if (data.runtimeMinutes && data.runtimeMinutes > 0) highlights.push(`Runtime: ${data.runtimeMinutes} minutes`)
   if (inTheaters) highlights.push(`In theaters — tickets via ${theaterNames}`)
   for (const p of data.providers.slice(0, 6)) highlights.push(`${p.name}: ${p.label}`)
+  if (!data.providers.length && webNames.length) highlights.push(`Reported online (verify): ${webNames.join(', ')}`)
 
   const sources = data.justwatchUrl ? [{ url: data.justwatchUrl, title: data.title }] : []
   const depth_available = Boolean(data.shortDescription) || data.providers.length > 6
 
-  // No streaming options.
+  // No streaming options on JustWatch — fall back to what secondary (web) sources report.
   if (!data.providers.length) {
+    if (webNames.length) {
+      const gist =
+        `JustWatch lists no ${data.country} streaming for ${data.title}${yearText}, but other sources report it on ` +
+        `${webNames.slice(0, 4).join(', ')} (often free/ad-supported services JustWatch misses — worth verifying).` +
+        (inTheaters ? ` It's also in theaters now (tickets via ${theaterNames}).` : '')
+      return { gist, highlights, sources, depth_available: true }
+    }
     const gist = inTheaters
       ? `${data.title}${yearText} is in theaters now (tickets via ${theaterNames}); it isn't streaming in ${data.country} yet.`
       : `${data.title}${yearText} doesn't appear to be streaming in ${data.country} right now.`

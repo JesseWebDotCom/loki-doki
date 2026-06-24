@@ -17,6 +17,7 @@ export function buildBlock(toolId: string, data: unknown): Block | null {
       case 'where-to-watch': return buildWhereToWatchBlock(data)
       case 'holidays':     return buildHolidaysBlock(data)
       case 'contentRating': return buildContentRatingBlock(data)
+      case 'play_music':   return buildPlayMusicBlock(data)
       default:             return null
     }
   } catch {
@@ -360,6 +361,37 @@ function buildHolidaysBlock(data: unknown): Block | null {
       partial: d.partial,
       holiday: d.holiday,
       holidays: d.holidays,
+    },
+  }
+}
+
+function buildPlayMusicBlock(data: unknown): Block | null {
+  const d = data as {
+    topVideoId?: string
+    topTitle?: string
+    topArtist?: string | null
+    query?: string
+    type?: string
+    deeplink?: string
+    videos?: Array<{ videoId: string; title: string; artist?: string | null; thumbnail?: string; durationSec?: number | null }>
+  }
+  if (!d.topVideoId || !d.topTitle || !d.query) return null
+  return {
+    kind: 'play_music',
+    data: {
+      query: d.query,
+      type: d.type ?? 'song',
+      topVideoId: d.topVideoId,
+      topTitle: d.topTitle,
+      topArtist: d.topArtist ?? null,
+      deeplink: d.deeplink ?? `/music?tab=videos&q=${encodeURIComponent(d.query)}`,
+      videos: (d.videos ?? []).map(v => ({
+        videoId: v.videoId,
+        title: v.title,
+        artist: v.artist ?? null,
+        thumbnail: v.thumbnail ?? `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
+        durationSec: v.durationSec ?? null,
+      })),
     },
   }
 }

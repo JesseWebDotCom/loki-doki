@@ -126,6 +126,67 @@ function customAdapter(_userId: string, params?: Record<string, unknown>): Promi
   return Promise.resolve({ label: (params?.label as string | undefined) ?? 'Custom', items: text ? [text] : [] })
 }
 
+// One TV episode → discussion material. The hosts recap/react to THIS episode; the synopsis
+// is supplied by the queueing route (TVMaze), and we enrich with a best-effort Wikipedia
+// lookup for the episode/season so the hosts have more than a one-line logline to chew on.
+async function tvshowAdapter(params?: Record<string, unknown>): Promise<SegmentContent> {
+  const showName = String(params?.showName ?? '')
+  const episodeName = String(params?.episodeName ?? '')
+  const season = params?.season != null ? Number(params.season) : null
+  const number = params?.number != null ? Number(params.number) : null
+  const synopsis = String(params?.synopsis ?? '')
+  const genres = Array.isArray(params?.genres) ? (params!.genres as string[]) : []
+
+  const code = season != null ? `Season ${season}${number != null ? `, Episode ${number}` : ''}` : ''
+  const heading = `${showName} — "${episodeName}"${code ? ` (${code})` : ''}`
+
+  const items: string[] = []
+  items.push(
+    `This episode of ${showName}${genres.length ? ` (a ${genres.join('/')} series)` : ''}: ${heading}.` +
+      (synopsis ? `\nWhat happens: ${synopsis}` : '\n(No official synopsis available — discuss based on the title and what is known.)'),
+  )
+
+  // Best-effort encyclopedic enrichment (plot detail, production notes, reception).
+  try {
+    const { wikipediaSearch } = await import('@/lib/wikipediaSearch')
+    const wiki = await wikipediaSearch(`${showName} ${episodeName} episode`, 1)
+    if (wiki[0]?.snippet) items.push(`Background (Wikipedia): ${wiki[0].snippet.slice(0, 600)}`)
+  } catch {
+    /* enrichment is optional */
+  }
+
+  return { label: showName || 'TV Episode', items }
+}
+
+// One movie → a single deep-dive discussion. Pulls the plot/overview + reception from
+// Wikipedia and web search so the hosts can talk through the film as commentators.
+async function movieAdapter(params?: Record<string, unknown>): Promise<SegmentContent> {
+  const title = String(params?.title ?? '')
+  const year = params?.year != null ? Number(params.year) : null
+  const overview = String(params?.overview ?? '')
+
+  const items: string[] = []
+  if (overview) items.push(`${title}${year ? ` (${year})` : ''}: ${overview}`)
+
+  try {
+    const { wikipediaSearch } = await import('@/lib/wikipediaSearch')
+    const wiki = await wikipediaSearch(`${title} ${year ?? ''} film`, 1)
+    if (wiki[0]?.snippet) items.push(`Overview & plot (Wikipedia): ${wiki[0].snippet.slice(0, 900)}`)
+  } catch {
+    /* optional */
+  }
+  try {
+    const { getReviews } = await import('@/lib/titles/reviews')
+    const reviews = await getReviews(title, year ? String(year) : null, 'movie')
+    if (reviews?.summary) items.push(`Critical & audience reception: ${reviews.summary}`)
+  } catch {
+    /* optional */
+  }
+
+  if (!items.length) items.push(`${title}${year ? ` (${year})` : ''} — discuss the film based on what is known.`)
+  return { label: title || 'Movie', items }
+}
+
 export async function runAdapter(segment: ShowSegment, userId: string, userFirstName: string): Promise<SegmentContent> {
   try {
     switch (segment.type) {
@@ -135,6 +196,8 @@ export async function runAdapter(segment: ShowSegment, userId: string, userFirst
       case 'onThisDay': return await onThisDayAdapter(userId, segment.params)
       case 'weather':   return await weatherAdapter(userId, segment.params)
       case 'custom':    return await customAdapter(userId, segment.params)
+      case 'tvshow':    return await tvshowAdapter(segment.params)
+      case 'movie':     return await movieAdapter(segment.params)
       default:          return { label: segment.label ?? segment.type, items: [] }
     }
   } catch {

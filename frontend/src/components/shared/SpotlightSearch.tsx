@@ -6,7 +6,6 @@ import {
   Home,
   Sparkles,
   BookOpen,
-  Globe,
   Package,
   Play,
   Newspaper,
@@ -41,7 +40,7 @@ interface LibraryItem {
 // Mirrors backend SearchHit (routes/search.ts).
 interface ContentHit {
   kind: "content";
-  type: "reader" | "news" | "bookmark" | "companion" | "device" | "youtube" | "podcast";
+  type: "bookmark" | "news" | "companion" | "device" | "youtube" | "podcast";
   id: string;
   title: string;
   subtitle: string | null;
@@ -79,9 +78,8 @@ const NAV_ITEMS: NavItem[] = [
 
 // Fallback glyph per content type when a hit has no image icon.
 const CONTENT_ICON: Record<ContentHit["type"], LucideIcon> = {
-  reader: BookOpen,
   news: Newspaper,
-  bookmark: Globe,
+  bookmark: BookOpen,
   companion: Sparkles,
   device: Package,
   youtube: Play,

@@ -91,6 +91,15 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            if ((err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {
+              if ('writeHead' in res) { res.writeHead(503); res.end() }
+              return
+            }
+            console.error('[proxy]', err.message)
+          })
+        },
       },
       // Any path served by the backend as static files (not a React route) needs
       // an entry here. Without it, Vite catches the request and serves the SPA

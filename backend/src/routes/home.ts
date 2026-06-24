@@ -10,6 +10,7 @@ import { requireAuth } from '@/middleware/auth'
 import { dataDir } from '@/lib/download'
 import { lookupDevice } from '@/lib/home/lookup'
 import { getVisionModel, getModel } from '@/lib/models'
+import { screenImage, logCsamBlock } from '@/lib/safety/csamGuard'
 import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
 import type { AppEnv } from '@/types'
 
@@ -302,6 +303,13 @@ home.post('/devices/:id/identify', requireAuth, async (c) => {
 
   const imageBytes = await Bun.file(photoPath).arrayBuffer()
   const base64 = Buffer.from(imageBytes).toString('base64')
+
+  // Device photos are user uploads — screen before the VLM reads them.
+  const photoVerdict = await screenImage(base64)
+  if (photoVerdict.flagged) {
+    logCsamBlock('home device photo', c.get('user').id, photoVerdict.reason ?? 'photo')
+    return c.json({ error: 'content_blocked', message: 'This image was blocked by a safety policy.' }, 403)
+  }
 
   // ── Pass 1: OCR — Apple Vision (macOS) first, VLM fallback ───────────────────
   // Apple Vision is the same engine as iPhone/Photos text recognition.

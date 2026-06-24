@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { Bell, Home, Info, Palette, Shield, UserCircle, Wrench } from 'lucide-react'
+import { Bell, Home, Info, Palette, SlidersHorizontal, UserCircle, Wrench } from 'lucide-react'
 import { PanelLayout, type PanelSection } from '@/components/shared/PanelLayout'
 import { SettingsProfileTab } from '@/components/settings/SettingsProfileTab'
 import { SettingsToolsTab } from '@/components/settings/SettingsToolsTab'
@@ -7,6 +7,7 @@ import { SettingsAppearanceTab } from '@/components/settings/SettingsAppearanceT
 import { SettingsHomeTab } from '@/components/settings/SettingsHomeTab'
 import { SettingsAboutTab } from '@/components/settings/SettingsAboutTab'
 import { SettingsPrivacyTab } from '@/components/settings/SettingsPrivacyTab'
+import { SettingsNotificationsTab } from '@/components/settings/SettingsNotificationsTab'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 
 const SECTIONS: PanelSection[] = [
@@ -14,18 +15,10 @@ const SECTIONS: PanelSection[] = [
   { id: 'home',          label: 'Home',            icon: Home       },
   { id: 'tools',         label: 'Tools',           icon: Wrench     },
   { id: 'appearance',    label: 'Appearance',      icon: Palette    },
-  { id: 'privacy',       label: 'Privacy',         icon: Shield     },
+  { id: 'content',       label: 'Content',         icon: SlidersHorizontal },
   { id: 'notifications', label: 'Notifications',   icon: Bell       },
   { id: 'about',         label: 'About',           icon: Info       },
 ]
-
-function Placeholder({ label }: { label: string }) {
-  return (
-    <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-      {label}
-    </div>
-  )
-}
 
 export function SettingsPage() {
   const { section = 'profile' } = useParams<{ section?: string }>()
@@ -43,8 +36,8 @@ export function SettingsPage() {
       {section === 'home'          && <SettingsHomeTab />}
       {section === 'tools'         && <SettingsToolsTab />}
       {section === 'appearance'    && <SettingsAppearanceTab />}
-      {section === 'privacy'       && <SettingsPrivacyTab />}
-      {section === 'notifications' && <Placeholder label="Notifications — coming soon" />}
+      {section === 'content'       && <SettingsPrivacyTab />}
+      {section === 'notifications' && <SettingsNotificationsTab />}
       {section === 'about'         && <SettingsAboutTab />}
     </PanelLayout>
   )

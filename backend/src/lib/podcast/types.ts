@@ -7,7 +7,7 @@ export interface ShowHost {
   role: 'host' | 'co-host' | 'guest' | 'narrator'
 }
 
-export type SegmentType = 'youtube' | 'news' | 'sports' | 'weather' | 'onThisDay' | 'custom'
+export type SegmentType = 'youtube' | 'news' | 'sports' | 'weather' | 'onThisDay' | 'custom' | 'tvshow' | 'movie'
 
 export interface ShowSegment {
   type: SegmentType

@@ -101,7 +101,7 @@ export function Segmented({ value, options, onChange, className }: {
 }) {
   return (
     <div
-      className={cn('grid gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5', className)}
+      className={cn('grid gap-1 rounded-lg border border-border bg-muted p-1', className)}
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       {options.map((o) => (
@@ -111,8 +111,10 @@ export function Segmented({ value, options, onChange, className }: {
           disabled={o.disabled}
           onClick={() => { if (!o.disabled) onChange(o.value) }}
           className={cn(
-            'truncate rounded-md px-2 py-1 text-center text-xs transition-colors',
-            value === o.value ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+            'truncate rounded-md px-3 py-1.5 text-center text-xs font-medium transition-all',
+            value === o.value
+              ? 'bg-foreground text-background shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted-foreground/10',
             o.disabled && 'cursor-not-allowed opacity-30',
           )}
         >
@@ -136,15 +138,14 @@ export function ContentDialGroup({ values, ceiling, includeCandor, candor, onDia
   onCandor?: (value: Candor) => void
 }) {
   return (
-    <div className="divide-y divide-border/40">
+    <div className="grid gap-2 sm:grid-cols-2">
       {CONTENT_DIALS.map((d) => (
-        <div key={d.key} className="flex items-center justify-between gap-4 py-2.5 first:pt-0">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium leading-tight">{d.label}</p>
-            <p className="text-xs text-muted-foreground leading-tight mt-0.5">{d.help}</p>
+        <div key={d.key} className="flex flex-col gap-2 rounded-lg border border-border/50 bg-background/50 px-3 py-2.5">
+          <div>
+            <p className="text-xs font-semibold leading-tight">{d.label}</p>
+            <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{d.help}</p>
           </div>
           <Segmented
-            className="w-[300px] shrink-0"
             value={values[d.key]}
             onChange={(v) => onDial(d.key, v)}
             options={d.levels.map((l) => ({
@@ -155,12 +156,12 @@ export function ContentDialGroup({ values, ceiling, includeCandor, candor, onDia
         </div>
       ))}
       {includeCandor && onCandor && (
-        <div className="flex items-center justify-between gap-4 py-2.5">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium leading-tight">{CANDOR_DEF.label}</p>
-            <p className="text-xs text-muted-foreground leading-tight mt-0.5">{CANDOR_DEF.help}</p>
+        <div className="flex flex-col gap-2 rounded-lg border border-border/50 bg-background/50 px-3 py-2.5">
+          <div>
+            <p className="text-xs font-semibold leading-tight">{CANDOR_DEF.label}</p>
+            <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{CANDOR_DEF.help}</p>
           </div>
-          <Segmented className="w-[300px] shrink-0" value={candor ?? 'balanced'} onChange={(v) => onCandor(v as Candor)} options={CANDOR_DEF.levels} />
+          <Segmented value={candor ?? 'balanced'} onChange={(v) => onCandor(v as Candor)} options={CANDOR_DEF.levels} />
         </div>
       )}
     </div>

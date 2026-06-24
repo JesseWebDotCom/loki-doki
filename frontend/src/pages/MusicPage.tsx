@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Music, Sparkles, Shuffle, ListMusic, Play, Pause, Download, Trash2, Loader2,
-  RefreshCw, Upload, Pencil, Check, Save, X,
+  RefreshCw, Upload, Pencil, Check, Save, X, Radio, Video,
 } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageShell } from '@/components/shared/PageShell'
@@ -20,11 +21,17 @@ import {
   saveTrack, listTracks, renameTrack, deleteTrack, trackAudioUrl,
   type MusicTrack, type TrackKind,
 } from '@/lib/music/api'
+import { ListenTab } from '@/pages/music/ListenTab'
+import { VideosTab } from '@/pages/music/VideosTab'
+import { RadioTab } from '@/pages/music/RadioTab'
 
 const GRADIENT = 'linear-gradient(135deg,#f97316,#fb923c)'
 
-type Tab = 'generate' | 'remix' | 'library'
+type Tab = 'listen' | 'radio' | 'videos' | 'generate' | 'remix' | 'library'
 const NAV: { id: Tab; icon: React.ElementType; label: string }[] = [
+  { id: 'listen', icon: Radio, label: 'Listen' },
+  { id: 'radio', icon: Music, label: 'AI Radio' },
+  { id: 'videos', icon: Video, label: 'Videos' },
   { id: 'generate', icon: Sparkles, label: 'Generate' },
   { id: 'remix', icon: Shuffle, label: 'Remix' },
   { id: 'library', icon: ListMusic, label: 'Library' },
@@ -522,33 +529,56 @@ function LibraryTab({ reloadKey }: { reloadKey: number }) {
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export function MusicPage() {
-  const [tab, setTab] = useState<Tab>('generate')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlTab = searchParams.get('tab') as Tab | null
+  const [tab, setTab] = useState<Tab>(urlTab ?? 'listen')
   const [reloadKey, setReloadKey] = useState(0)
   const bumpLibrary = useCallback(() => setReloadKey((n) => n + 1), [])
 
+  // Sync tab state when URL param changes (e.g. companion deeplink).
+  useEffect(() => {
+    if (urlTab && urlTab !== tab) setTab(urlTab)
+  }, [urlTab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function switchTab(t: Tab) {
+    setTab(t)
+    setSearchParams((p) => { p.set('tab', t); return p }, { replace: true })
+  }
+
+  const subtitle = {
+    listen: 'Stream 40,000+ live radio stations worldwide.',
+    radio: 'AI-hosted stations — your companion DJs between tracks.',
+    videos: 'YouTube music videos with artist info & soundtrack history.',
+    generate: 'Create original tracks — fully offline.',
+    remix: 'Restyle a MIDI file in any genre.',
+    library: 'Your saved tracks.',
+  }[tab]
+
   return (
     <PageShell gradient={GRADIENT} GhostIcon={Music}>
-      <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl text-white" style={{ background: GRADIENT }}>
-            <Music className="size-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold">Music</h1>
-            <p className="text-sm text-muted-foreground">Generate, remix, and save tracks — fully offline.</p>
+      <div className="mx-auto w-full max-w-5xl flex-1 px-4 pt-5 pb-8 sm:px-6">
+        {/* Tab nav */}
+        <div className="mb-6 overflow-x-auto">
+          <div className="flex gap-0.5 rounded-2xl border border-border/50 bg-muted/30 p-1">
+            {NAV.map((n) => (
+              <button key={n.id} type="button" onClick={() => switchTab(n.id)}
+                className={cn(
+                  'flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-all',
+                  tab === n.id
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}>
+                <n.icon className="size-4" />
+                <span className="hidden sm:inline">{n.label}</span>
+                <span className="sm:hidden">{n.label.split(' ')[0]}</span>
+              </button>
+            ))}
           </div>
         </div>
 
-        <div className="mb-5 flex gap-1 border-b border-border/40">
-          {NAV.map((n) => (
-            <button key={n.id} type="button" onClick={() => setTab(n.id)}
-              className={cn('-mb-px flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-semibold transition-colors',
-                tab === n.id ? 'border-brand text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
-              <n.icon className="size-4" /> {n.label}
-            </button>
-          ))}
-        </div>
-
+        {tab === 'listen' && <ListenTab />}
+        {tab === 'radio' && <RadioTab />}
+        {tab === 'videos' && <VideosTab />}
         {tab === 'generate' && <GenerateTab onSaved={bumpLibrary} />}
         {tab === 'remix' && <RemixTab onSaved={bumpLibrary} />}
         {tab === 'library' && <LibraryTab reloadKey={reloadKey} />}

@@ -326,9 +326,11 @@ export async function maybeUpdateSearXNG(force = false): Promise<void> {
     const before = (() => { try { return execGit(['rev-parse', 'HEAD']) } catch { return '' } })()
     const branch = (() => { try { return execGit(['rev-parse', '--abbrev-ref', 'HEAD']) } catch { return 'master' } })()
     logger.info(`[searxng] checking for updates (branch ${branch})…`)
-    // Shallow checkout → fetch the tip and hard-reset (a normal `pull` can't fast-forward a depth-1 clone).
-    execGit(['fetch', '--depth', '1', 'origin', branch])
-    execGit(['reset', '--hard', 'FETCH_HEAD'])
+    // Shallow checkout → fetch the tip and hard-reset (a normal `pull` can't fast-forward
+    // a depth-1 clone). Use the async run() helper so the event loop stays unblocked
+    // during the network fetch — execSync here would stall health probes for up to 60s.
+    await run('git', ['fetch', '--depth', '1', 'origin', branch], { cwd: SEARXNG_DIR })
+    await run('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: SEARXNG_DIR })
     const after = (() => { try { return execGit(['rev-parse', 'HEAD']) } catch { return '' } })()
 
     await setAppSetting(CHECKED_KEY, Date.now())
@@ -397,5 +399,43 @@ export async function searxngSearch(query: string, limit = 5, timeoutMs = 6000):
       .filter(r => r.url && r.title)
       .slice(0, limit)
       .map(r => ({ title: r.title!, snippet: r.content ?? '', url: r.url! }))
+  } catch { return [] }
+}
+
+export interface SearxImage { title: string; imageUrl: string; thumbnailUrl: string; source: string; width: number | null; height: number | null }
+
+/**
+ * Image search via the local SearXNG JSON API (categories=images). Returns up to `limit`
+ * images ordered by SearXNG's relevance, largest-first within ties. [] when not ready or on
+ * failure — never throws. Used to source backdrop/wallpaper art keylessly.
+ */
+export async function searxngImageSearch(query: string, limit = 8, timeoutMs = 7000): Promise<SearxImage[]> {
+  if (state.current !== 'ready') return []
+  const q = query.trim()
+  if (!q) return []
+  try {
+    const url = `${searxngUrl()}/search?q=${encodeURIComponent(q)}&format=json&categories=images&safesearch=1`
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
+    if (!res.ok) return []
+    const data = await res.json() as {
+      results?: Array<{ title?: string; img_src?: string; thumbnail_src?: string; thumbnail?: string; source?: string; img_format?: string; resolution?: string }>
+    }
+    const parseDim = (r: { resolution?: string }): [number | null, number | null] => {
+      const m = (r.resolution ?? '').match(/(\d+)\s*[x×]\s*(\d+)/)
+      return m ? [Number(m[1]), Number(m[2])] : [null, null]
+    }
+    return (data.results ?? [])
+      .filter(r => r.img_src)
+      .map(r => {
+        const [width, height] = parseDim(r)
+        return {
+          title: r.title ?? '',
+          imageUrl: r.img_src!,
+          thumbnailUrl: r.thumbnail_src ?? r.thumbnail ?? r.img_src!,
+          source: r.source ?? '',
+          width, height,
+        }
+      })
+      .slice(0, limit)
   } catch { return [] }
 }

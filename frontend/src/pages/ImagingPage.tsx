@@ -567,7 +567,7 @@ export function ImagingPage() {
   const sentLoraWeightsRef = useRef(sentLoraWeights)
   sentLoraWeightsRef.current = sentLoraWeights
   const [autoMode, setAutoMode] = useState(true)
-  const [autoPhase, setAutoPhase] = useState<'idle' | 'checking' | 'correcting'>('idle')
+  const [autoPhase, setAutoPhase] = useState<'idle' | 'checking' | 'correcting' | 'blocked'>('idle')
   const autoCheckFiredRef = useRef(false)
   const lastGenParamsRef = useRef<{ params: Parameters<typeof generate>[0]; isAdult: boolean } | null>(null)
   // Tracks whether the component is still mounted, so the history loaders
@@ -582,6 +582,7 @@ export function ImagingPage() {
   const [selectedEditHistoryId, setSelectedEditHistoryId] = useState<string | null>(null)
   const [imageGenAvailable, setImageGenAvailable] = useState<boolean | null>(null)
   const [imageGenState, setImageGenState] = useState<'ready' | 'warming' | 'offline' | 'not_installed' | null>(null)
+  const [repairJob, setRepairJob] = useState<{ label: string; pct: number | null } | null>(null)
   const [codeformerAvailable, setCodeformerAvailable] = useState(false)
   const [gfpganAvailable, setGfpganAvailable] = useState(false)
   const [faceRestoreNodeAvailable, setFaceRestoreNodeAvailable] = useState(false)
@@ -683,10 +684,11 @@ export function ImagingPage() {
 
     fetch('/api/image/status', { signal: ctrl.signal })
       .then(r => r.ok ? r.json() : { ok: false })
-      .then((data: { ok: boolean; state?: string; codeformerAvailable?: boolean; gfpganAvailable?: boolean; faceRestoreNodeAvailable?: boolean; upscaleAvailable?: boolean; photoRestoreAvailable?: boolean }) => {
+      .then((data: { ok: boolean; state?: string; repairJob?: { label: string; pct: number | null } | null; codeformerAvailable?: boolean; gfpganAvailable?: boolean; faceRestoreNodeAvailable?: boolean; upscaleAvailable?: boolean; photoRestoreAvailable?: boolean }) => {
         if (cancelled) return
         setImageGenAvailable(data.ok)
         setImageGenState((data.state as 'ready' | 'warming' | 'offline' | 'not_installed') ?? (data.ok ? 'ready' : 'offline'))
+        setRepairJob(data.repairJob ?? null)
         setCodeformerAvailable(data.codeformerAvailable ?? false)
         setGfpganAvailable(data.gfpganAvailable ?? false)
         setFaceRestoreNodeAvailable(data.faceRestoreNodeAvailable ?? false)
@@ -700,24 +702,33 @@ export function ImagingPage() {
     return () => { cancelled = true; ctrl.abort() }
   }, [])
 
+  // Poll /api/image/status continuously while ComfyUI is installed:
+  //   • 3s when warming or a repair job is active (need fast UI updates)
+  //   • 10s when ready and idle (catches repair jobs that appear after page load,
+  //     e.g. when a generation fails and triggers scanAndRepairCorruptImageModels)
   useEffect(() => {
-    if (imageGenState !== 'warming') return
+    if (!imageGenState || imageGenState === 'not_installed' || imageGenState === 'offline') return
     let cancelled = false
     const ctrl = new AbortController()
-    const id = setInterval(() => {
+    const pollStatus = () => {
       fetch('/api/image/status', { signal: ctrl.signal })
         .then(r => r.ok ? r.json() : { ok: false })
-        .then((data: { ok: boolean; state?: string }) => {
+        .then((data: { ok: boolean; state?: string; repairJob?: { label: string; pct: number | null } | null }) => {
           if (cancelled) return
-          if (data.state === 'ready') {
+          setRepairJob(data.repairJob ?? null)
+          if (data.state === 'ready' && !data.repairJob) {
             setImageGenAvailable(true)
+            setImageGenState('ready')
+          } else if (data.state === 'ready') {
             setImageGenState('ready')
           }
         })
         .catch(() => {})
-    }, 5_000)
+    }
+    const interval = (imageGenState === 'warming' || !!repairJob) ? 3_000 : 10_000
+    const id = setInterval(pollStatus, interval)
     return () => { cancelled = true; ctrl.abort(); clearInterval(id) }
-  }, [imageGenState])
+  }, [imageGenState, repairJob])
 
   useEffect(() => {
     let cancelled = false
@@ -744,6 +755,19 @@ export function ImagingPage() {
       loadHistory()
       setSelectedHistoryId(gen.imageId)
       setAutoPhase('idle')
+    }
+    // Re-fetch status immediately on error so a repair job created by the failure
+    // (scanAndRepairCorruptImageModels) is surfaced right away rather than waiting
+    // for the next slow poll cycle.
+    if (gen.status === 'error') {
+      fetch('/api/image/status')
+        .then(r => r.ok ? r.json() : null)
+        .then((data: { ok: boolean; state?: string; repairJob?: { label: string; pct: number | null } | null } | null) => {
+          if (!data) return
+          setRepairJob(data.repairJob ?? null)
+          setImageGenAvailable(data.ok)
+        })
+        .catch(() => {})
     }
   }, [gen.status, gen.imageId])
 
@@ -781,9 +805,19 @@ export function ImagingPage() {
         if (!res.ok) { setAutoPhase('idle'); return }
         const data = await res.json() as {
           match: boolean
+          blocked?: boolean
           seen?: string
           correctedPrompt?: string
           correctedWeights?: Record<string, number>
+        }
+
+        // Safety veto — cancel the running job and stop. Do NOT retry/correct.
+        if (data.blocked) {
+          if (capturedImageId) cancel(capturedImageId)
+          await new Promise(r => setTimeout(r, 300))
+          reset()
+          setAutoPhase('blocked')
+          return
         }
 
         if (data.match) { setAutoPhase('idle'); return }
@@ -1242,7 +1276,21 @@ export function ImagingPage() {
             {/* ── Generate panel ──────────────────────────────────────────── */}
             {activeTab === 'generate' && (
               <>
-                {imageGenAvailable === false && (
+                {repairJob && (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400 space-y-1.5">
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="size-3 animate-spin shrink-0" />
+                      <span>Re-downloading <span className="font-medium">{repairJob.label}</span> — a model file was corrupted and is being automatically repaired.</span>
+                    </span>
+                    {repairJob.pct !== null && (
+                      <div className="w-full h-1.5 rounded-full bg-amber-500/20 overflow-hidden">
+                        <div className="h-full rounded-full bg-amber-500 transition-all duration-500" style={{ width: `${repairJob.pct}%` }} />
+                      </div>
+                    )}
+                    <span className="text-amber-500/70">{repairJob.pct !== null ? `${repairJob.pct}% complete` : 'Queued…'} — generation will resume automatically when done.</span>
+                  </div>
+                )}
+                {imageGenAvailable === false && !repairJob && (
                   <div className={cn('rounded-xl border px-3 py-2.5 text-xs',
                     imageGenState === 'warming'
                       ? 'border-sky-500/30 bg-sky-500/10 text-sky-400'
@@ -1819,7 +1867,7 @@ export function ImagingPage() {
                   <X className="size-4" /> Cancel
                 </Button>
               ) : (
-                <Button onClick={handleGenerate} disabled={!prompt.trim() || imageGenAvailable === false || pending}
+                <Button onClick={handleGenerate} disabled={!prompt.trim() || imageGenAvailable === false || !!repairJob || pending}
                   className="w-full gap-2 h-12 rounded-2xl font-semibold text-base"
                   style={{ background: 'linear-gradient(135deg,#6366f1,#ec4899)', border: 'none' }}>
                   {pending ? <Loader2 className="size-5 animate-spin" /> : <Wand2 className="size-5" />} Generate
@@ -1910,6 +1958,16 @@ export function ImagingPage() {
               {/* ── Generation result ──────────────────────────────────────── */}
               {activeTab === 'generate' && (
                 <>
+                  {/* Safety veto — generation stopped by content policy */}
+                  {autoPhase === 'blocked' && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 p-6 text-center">
+                      <ImageOff className="size-9 text-red-400" />
+                      <p className="text-sm text-white font-medium">Generation stopped</p>
+                      <p className="text-xs text-white/60 max-w-xs">This image was stopped by a content-safety policy and cannot be produced.</p>
+                      <Button size="sm" variant="secondary" onClick={() => setAutoPhase('idle')}>Dismiss</Button>
+                    </div>
+                  )}
+
                   {/* Auto correcting — between cancel and re-generate */}
                   {autoPhase === 'correcting' && gen.status !== 'generating' && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">

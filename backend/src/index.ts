@@ -33,7 +33,7 @@ import { adminUninstall } from '@/routes/adminUninstall'
 import { archives } from '@/routes/archives'
 import { adminArchives } from '@/routes/adminArchives'
 import { jobs as downloadJobsRoute } from '@/routes/jobs'
-import { resumeDownloadJobs } from '@/lib/downloadJobs'
+import { resumeDownloadJobs, scanAndRepairCorruptImageModels } from '@/lib/downloadJobs'
 import { companions } from '@/routes/companions'
 import { adminCompanions } from '@/routes/adminCompanions'
 import { adminVoice } from '@/routes/adminVoice'
@@ -42,8 +42,6 @@ import { voice } from '@/routes/voice'
 import { createSttRoute } from '@/routes/stt'
 import { bookmarks } from '@/routes/bookmarks'
 import { adminBookmarks } from '@/routes/adminBookmarks'
-import { reader } from '@/routes/reader'
-import { adminReader } from '@/routes/adminReader'
 import { searchRouter } from '@/routes/search'
 import { appFeatures } from '@/routes/appFeatures'
 import { adminBriefing } from '@/routes/adminBriefing'
@@ -56,6 +54,7 @@ import { home } from '@/routes/home'
 import { privacy } from '@/routes/privacy'
 import { adminContent } from '@/routes/adminContent'
 import { content } from '@/routes/content'
+import { consent } from '@/routes/consent'
 import { adminLocale } from '@/routes/adminLocale'
 import { notificationsRoute } from '@/routes/notifications'
 import { appStore } from '@/routes/appStore'
@@ -69,11 +68,18 @@ import { sportsRoute } from '@/routes/sports'
 import { jokeRoute } from '@/routes/joke'
 import { jokesDedicatedRoute } from '@/routes/jokes'
 import { tvShowsRoute } from '@/routes/tvShows'
+import { showsRoute } from '@/routes/shows'
+import { moviesRoute } from '@/routes/movies'
+import { mediaRoute } from '@/routes/media'
+import { libraryRoute } from '@/routes/library'
+import { plexRoute } from '@/routes/plex'
 import { adminHomeAssistant } from '@/routes/adminHomeAssistant'
 import { homeAssistantRoute } from '@/routes/homeAssistant'
 import { youtubeRoute } from '@/routes/youtube'
 import { podcastsRoute } from '@/routes/podcasts'
 import { music } from '@/routes/music'
+import { musicInfo } from '@/routes/musicInfo'
+import { musicRadio } from '@/routes/musicRadio'
 import { logoRoute } from '@/routes/logo'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
@@ -83,6 +89,7 @@ import { startFeedPoller, refreshSystemFeeds } from '@/lib/feeds/poller'
 import { startYoutubeReconcile } from '@/lib/youtube/reconcile'
 import { backfillYoutubeTitleEntities } from '@/lib/youtube/titleBackfill'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
+import { mediaImageCacheSweep } from '@/lib/titles/imageProxy'
 import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
 import { dictionaryRoute } from '@/routes/dictionary'
@@ -138,10 +145,26 @@ void (async () => { if ((await getAppSetting('first_run_complete')) === true) wa
 void startHomeAssistantSync()
 // Seed built-in content profiles + backfill user assignments (idempotent).
 void seedContentProfiles().catch((e) => logger.warn(`[content] profile seed failed: ${e}`))
+// Seed the app default voice once so the admin UI shows a real voice instead of
+// "Not set". The resolver already falls back to kokoro:af_heart at runtime, but
+// persisting it makes the default explicit and editable. Idempotent.
+void (async () => {
+  if (!(await getAppSetting('voice.app_default_voice'))) {
+    await setAppSetting('voice.app_default_voice', 'kokoro:af_heart')
+  }
+})().catch((e) => logger.warn(`[voice] default-voice seed failed: ${e}`))
 // Connect to the (remote) Frigate broker if configured — drives camera event
 // notifications + companion announcements. No-op until an admin sets it up.
 void startFrigateMqtt()
-maybeSpawnComfyUI()
+// Scan image model .safetensors files for corruption before spawning ComfyUI — a
+// corrupt checkpoint causes an inscrutable generation error rather than a clear
+// install failure. Deletes bad files and re-queues them so the repair is automatic.
+scanAndRepairCorruptImageModels()
+  .then(repaired => {
+    if (repaired.length) logger.warn(`[image] quarantined ${repaired.length} corrupt model file(s) at boot: ${repaired.join(', ')}`)
+    maybeSpawnComfyUI()
+  })
+  .catch(() => { maybeSpawnComfyUI() })
 maybeSpawnVoiceServer()
 // Web-search metasearch sidecar: start fast with the current checkout, then (when a
 // weekly check is due) pull the latest SearXNG so its engine adapters stay current —
@@ -192,16 +215,19 @@ void backfillYoutubeTitleEntities().catch(() => {})
 // Disk cache for YouTube artwork: evict non-subscribed images 24h after fetch, and
 // conditionally re-validate subscribed channel art every 24h. Runs ~30s after boot too.
 startImageCacheMaintenance()
+// Bound the Shows/Movies media-image disk cache: sweep oldest art when over the ceiling.
+setTimeout(() => void mediaImageCacheSweep(), 60_000)
+setInterval(() => void mediaImageCacheSweep(), 24 * 60 * 60 * 1000)
 // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
 // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
 startYtdlpAutoUpdate()
 
-// Reader capture engine: resolve (and if needed download) a headless Chromium ahead of the
+// Bookmarks capture engine: resolve (and if needed download) a headless Chromium ahead of the
 // first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
-import('@/lib/reader/render').then((m) => m.ensureChromium()).catch(() => {})
-// Reader auto-update: periodically re-archive items the user marked for monitoring, and alert
+import('@/lib/bookmarks/render').then((m) => m.ensureChromium()).catch(() => {})
+// Bookmarks auto-update: periodically re-archive items the user marked for monitoring, and alert
 // on content changes. Rides the download queue, so it's bounded the same way archiving is.
-import('@/lib/reader/autoUpdate').then((m) => m.startReaderAutoUpdatePoller()).catch(() => {})
+import('@/lib/bookmarks/autoUpdate').then((m) => m.startBookmarkAutoUpdatePoller()).catch(() => {})
 
 // Unload Ollama models on shutdown so they don't linger in VRAM between sessions.
 async function unloadOllamaModels() {
@@ -301,8 +327,9 @@ app.route('/api/stt', createSttRoute(upgradeWebSocket))
 app.route('/api/pod', pod)
 app.route('/api/bookmarks', bookmarks)
 app.route('/api/admin/bookmarks', adminBookmarks)
-app.route('/api/reader', reader)
-app.route('/api/admin/reader', adminReader)
+// Deprecated alias: archives captured before the Reader→Bookmarks rename baked
+// `/api/reader/<id>/archive/*` asset URLs into their saved HTML. Keep serving them.
+app.route('/api/reader', bookmarks)
 app.route('/api/search', searchRouter)
 app.route('/api/app-features', appFeatures)
 app.route('/api/admin/briefing', adminBriefing)
@@ -315,6 +342,7 @@ app.route('/api/home', home)
 app.route('/api/privacy', privacy)
 app.route('/api/admin/content', adminContent)
 app.route('/api/content', content)
+app.route('/api/consent', consent)
 app.route('/api/admin/locale', adminLocale)
 app.route('/api/notifications', notificationsRoute)
 app.route('/api/app-store', appStore)
@@ -329,6 +357,11 @@ app.route('/api/sports', sportsRoute)
 app.route('/api/joke', jokeRoute)
 app.route('/api/jokes', jokesDedicatedRoute)
 app.route('/api/tv-shows', tvShowsRoute)
+app.route('/api/shows', showsRoute)
+app.route('/api/movies', moviesRoute)
+app.route('/api/media', mediaRoute)
+app.route('/api/library', libraryRoute)
+app.route('/api/plex', plexRoute)
 app.route('/api/admin/home-assistant', adminHomeAssistant)
 app.route('/api/home-assistant', homeAssistantRoute)
 app.route('/api/frigate', frigate)
@@ -336,6 +369,8 @@ app.route('/api/admin/frigate', adminFrigate)
 app.route('/api/youtube', youtubeRoute)
 app.route('/api/podcasts', podcastsRoute)
 app.route('/api/music', music)
+app.route('/api/music/info', musicInfo)
+app.route('/api/music/radio', musicRadio)
 app.route('/api/logo', logoRoute)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)

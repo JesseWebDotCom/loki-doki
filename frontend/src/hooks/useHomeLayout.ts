@@ -22,9 +22,15 @@ export interface HomeLayout {
   canvas: HomeRow[]
 }
 
+// Fallback shown only until /api/home-layout responds. Mirrors the backend's
+// default so a fresh user never flashes an empty home; the server's resolved
+// layout (system default or the user's own) replaces this on load.
 const DEFAULT_LAYOUT: HomeLayout = {
   header: { weather: true, jokes: true, sports: true, locked: false },
-  canvas: [],
+  canvas: [
+    { id: 'default-news', cols: [{ toolId: 'news', colSpan: 2 }] },
+    { id: 'default-on-this-day', cols: [{ toolId: 'on-this-day', colSpan: 2 }] },
+  ],
 }
 
 export interface UseHomeLayoutResult {

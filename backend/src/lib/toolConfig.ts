@@ -2,6 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '@/db'
 import { toolGlobalConfig, toolUserConfig, toolUserPermissions } from '@/db/schema'
 import { toolRegistry } from '@/tools'
+import { isPlexConfigured } from '@/lib/plex'
 
 // Merges: schema defaults → global config → user config (highest priority)
 // The internal __enabled key is excluded — tools never see it.
@@ -45,5 +46,7 @@ export async function isToolAllowed(toolId: string, userId: string): Promise<boo
 
   if (enabledRow[0] && JSON.parse(enabledRow[0].value) === false) return false
   if (permRow[0]?.state === 'deny') return false
+  // Plex stays disabled until a server URL + token are configured (Admin → Features → Plex).
+  if (toolId === 'plex' && !(await isPlexConfigured())) return false
   return true
 }

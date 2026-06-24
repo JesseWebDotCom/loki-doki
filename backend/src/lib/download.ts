@@ -1,4 +1,4 @@
-import { existsSync, statSync, chmodSync, createWriteStream } from 'node:fs'
+import { existsSync, statSync, chmodSync, createWriteStream, openSync, readSync, closeSync, unlinkSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, basename } from 'node:path'
 import { spawn, execSync } from 'node:child_process'
@@ -18,6 +18,42 @@ export interface DownloadProgress {
   speedBps: number
   etaSeconds: number
   status?: string
+}
+
+// ── Safetensors validation ────────────────────────────────────────────────────
+// Validates that a .safetensors file's header is complete AND that all described
+// tensor byte ranges fit within the actual file size — identical to the check
+// Python's safetensors library performs, so a corrupt file is caught here rather
+// than surfacing as a cryptic ComfyUI execution_error at generation time.
+
+export function validateSafetensorsFile(filePath: string): boolean {
+  try {
+    const size = statSync(filePath).size
+    if (size < 8) return false
+    const fd = openSync(filePath, 'r')
+    const lenBuf = Buffer.allocUnsafe(8)
+    readSync(fd, lenBuf, 0, 8, 0)
+    const headerLen = Number(lenBuf.readBigUInt64LE(0))
+    // Sanity-cap: no legitimate model header exceeds 64 MB
+    if (headerLen > 64 * 1024 * 1024 || size < 8 + headerLen) { closeSync(fd); return false }
+    const headerBuf = Buffer.allocUnsafe(headerLen)
+    readSync(fd, headerBuf, 0, headerLen, 8)
+    closeSync(fd)
+    // Parse tensor descriptors — each has data_offsets: [start, end]; find max end.
+    const header = JSON.parse(headerBuf.toString('utf8')) as Record<string, unknown>
+    let maxOffset = 0
+    for (const val of Object.values(header)) {
+      if (typeof val !== 'object' || val === null) continue
+      const offsets = (val as Record<string, unknown>)['data_offsets']
+      if (Array.isArray(offsets) && offsets.length >= 2) {
+        const end = offsets[1] as number
+        if (end > maxOffset) maxOffset = end
+      }
+    }
+    return size >= 8 + headerLen + maxOffset
+  } catch {
+    return false
+  }
 }
 
 // ── Generic URL download with resume support ──────────────────────────────────
@@ -64,6 +100,14 @@ async function downloadUrl(
   try { await p } finally { if (downloadLocks.get(destRelative) === p) downloadLocks.delete(destRelative) }
 }
 
+function throwIfCorruptSafetensors(destPath: string): void {
+  if (!destPath.endsWith('.safetensors')) return
+  if (!validateSafetensorsFile(destPath)) {
+    try { unlinkSync(destPath) } catch { /* already gone */ }
+    throw new Error(`Downloaded .safetensors file is incomplete — the download was interrupted. It has been removed and will be retried automatically: ${basename(destPath)}`)
+  }
+}
+
 async function _downloadUrlImpl(
   url: string,
   destRelative: string,
@@ -94,6 +138,7 @@ async function _downloadUrlImpl(
   // 416 = the server says we already have everything
   if (res.status === 416) {
     try { await rename(partPath, destPath) } catch (e) { if (!existsSync(destPath)) throw e }
+    throwIfCorruptSafetensors(destPath)
     return
   }
 
@@ -136,6 +181,7 @@ async function _downloadUrlImpl(
       fileStream.end((err?: Error | null) => (err ? rej(err) : res())),
     )
     try { await rename(partPath, destPath) } catch (e) { if (!existsSync(destPath)) throw e }
+    throwIfCorruptSafetensors(destPath)
   } catch (err) {
     fileStream.destroy()
     throw err
@@ -584,8 +630,8 @@ export async function downloadTaesdModels(
 // madebyollin's fp16-fix variant is numerically stable at fp16/bfloat16 and is
 // the correct choice for ComfyUI on Apple Silicon (MPS backend).
 
-const SDXL_VAE_URL  = 'https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.safetensors'
-const SDXL_VAE_DEST = 'comfyui/models/vae/sdxl_vae.safetensors'
+const SDXL_VAE_URL       = 'https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.safetensors'
+export const SDXL_VAE_DEST = 'comfyui/models/vae/sdxl_vae.safetensors'
 
 export function isSdxlVaeInstalled(): boolean {
   return existsSync(join(dataDir, SDXL_VAE_DEST))

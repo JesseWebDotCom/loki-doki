@@ -189,6 +189,24 @@ export interface ContentRatingBlockData {
   fallback: boolean
 }
 
+export interface PlayMusicVideo {
+  videoId: string
+  title: string
+  artist: string | null
+  thumbnail: string
+  durationSec: number | null
+}
+
+export interface PlayMusicBlockData {
+  query: string
+  type: string
+  topVideoId: string
+  topTitle: string
+  topArtist: string | null
+  deeplink: string
+  videos: PlayMusicVideo[]
+}
+
 export type Block =
   | { kind: 'weather'; data: WeatherBlockData }
   | { kind: 'content_rating'; data: ContentRatingBlockData }
@@ -204,3 +222,4 @@ export type Block =
   | { kind: 'image_gen'; data: ImageGenBlockData }
   | { kind: 'where_to_watch'; data: WhereToWatchBlockData }
   | { kind: 'holidays'; data: HolidaysBlockData }
+  | { kind: 'play_music'; data: PlayMusicBlockData }

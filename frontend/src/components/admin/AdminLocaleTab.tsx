@@ -120,8 +120,8 @@ export function AdminLocaleTab() {
           value={settings.measurement}
           onChange={v => setSettings(s => ({ ...s, measurement: v }))}
           options={[
-            { value: 'imperial', label: 'Imperial' },
-            { value: 'metric',   label: 'Metric' },
+            { value: 'imperial', label: 'Imperial (mi, ft, lb)' },
+            { value: 'metric',   label: 'Metric (km, m, kg)' },
           ]}
         />
 

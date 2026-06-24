@@ -47,7 +47,7 @@ stop_existing() {
   echo "Stopping any previous instance (servers + sidecars)..."
   # App + every sidecar listener: vite, backend, ComfyUI, voice, kiwix,
   # GraphHopper (+admin), pod gateway.
-  for p in 5173 3000 8188 8091 8090 8002 8003 10700; do kill_port "$p"; done
+  for p in 5173 3000 8188 8092 8091 8090 8002 8003 10700; do kill_port "$p"; done
   # Belt-and-suspenders for anything that crashed without releasing its port.
   pkill -f "bun run --hot src/index.ts"            2>/dev/null || true  # backend (dev)
   pkill -f "$ROOT/frontend/node_modules/.bin/vite" 2>/dev/null || true  # frontend (vite)

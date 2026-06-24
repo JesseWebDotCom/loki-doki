@@ -15,6 +15,7 @@ interface UseNotificationsReturn {
   loadNotifications: () => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
+  clearAll: () => Promise<void>;
 }
 
 export function useNotifications(): UseNotificationsReturn {
@@ -73,6 +74,16 @@ export function useNotifications(): UseNotificationsReturn {
     }
   }
 
+  async function clearAll() {
+    try {
+      await fetch("/api/notifications", { method: "DELETE", credentials: "include" });
+      setNotifications([]);
+      setUnreadCount(0);
+    } catch {
+      // ignore
+    }
+  }
+
   useEffect(() => {
     void fetchUnreadCount();
     intervalRef.current = setInterval(() => { void fetchUnreadCount(); }, 30_000);
@@ -81,5 +92,5 @@ export function useNotifications(): UseNotificationsReturn {
     };
   }, []);
 
-  return { unreadCount, notifications, loadNotifications, markRead, markAllRead };
+  return { unreadCount, notifications, loadNotifications, markRead, markAllRead, clearAll };
 }

@@ -13,7 +13,7 @@ async function setting(key: string): Promise<string | null> {
 
 /** The Bun voice-server (Kokoro TTS + Whisper STT). */
 export async function voiceServerUrl(): Promise<string> {
-  return (await setting('voice.server_url')) ?? process.env.VOICE_SERVER_URL ?? 'http://localhost:8091'
+  return (await setting('voice.server_url')) ?? process.env.VOICE_SERVER_URL ?? 'http://localhost:8092'
 }
 
 /** Kokoro TTS endpoint base (same server as STT by default). */

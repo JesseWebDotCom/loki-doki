@@ -8,7 +8,10 @@ import { ensureNode } from '@/lib/node'
 // Manages the Bun voice-server sidecar (Kokoro TTS + Whisper STT). Mirrors the
 // kiwix sidecar pattern: spawn detached, poll /health, expose install detection.
 
-export const VOICE_PORT = parseInt(process.env.VOICE_SERVER_PORT ?? '8091')
+// NOTE: 8091 is taken by the SearXNG sidecar (see lib/searxng.ts). Keep these on
+// distinct ports — when both bound 8091, macOS routed localhost:8091 to SearXNG's
+// 127.0.0.1 bind and every TTS request silently hit the wrong server (no audio).
+export const VOICE_PORT = parseInt(process.env.VOICE_SERVER_PORT ?? '8092')
 const BACKEND_DIR = join(import.meta.dir, '../..')
 const VOICE_SCRIPT = join(BACKEND_DIR, 'scripts/voice-server.ts')
 

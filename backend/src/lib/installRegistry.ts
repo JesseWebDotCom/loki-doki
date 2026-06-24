@@ -35,6 +35,8 @@ import {
   isBiRefNetNodeInstalled,
   isStingerSoundfontInstalled,
   downloadStingerSoundfont,
+  isSdxlVaeInstalled,
+  downloadSdxlVae,
   type DownloadProgress,
 } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI } from '@/lib/comfyui'
@@ -200,6 +202,11 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     id: 'gfpgan', group: 'image', label: 'GFPGAN',
     isInstalled: isGFPGANInstalled,
     repair: (onP, sig) => downloadGFPGANModel(onP, sig),
+  },
+  {
+    id: 'sdxl-vae', group: 'image', label: 'SDXL VAE (fp16-fix)',
+    isInstalled: isSdxlVaeInstalled,
+    repair: (onP, sig) => downloadSdxlVae(onP, sig),
   },
   {
     id: 'podcast-stinger-sf', group: 'podcast', label: 'Podcast Stinger SoundFont',

@@ -6,6 +6,7 @@ import type { Socket } from 'bun'
 import { logger } from '@/lib/logger'
 
 import { getActiveOllamaUrl } from '@/lib/remoteEngine'
+import { applyTextFloor } from '@/lib/safety/textFloor'
 
 // Resolves to the remote Ollama host when an admin has paired one, else local/env.
 export const ollamaUrl = () => getActiveOllamaUrl()
@@ -103,6 +104,8 @@ export async function ollamaChat(
   options?: Record<string, unknown>,
   format?: unknown,
 ): Promise<OllamaChatChunk> {
+  // Centralized text safety floor — covers every non-vision generative call here.
+  messages = applyTextFloor(messages)
   const res = await fetch(`${ollamaUrl()}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -126,6 +129,8 @@ export function ollamaChatStream(
   messages: OllamaChatMessage[],
   options?: Record<string, unknown>,
 ): AsyncGenerator<OllamaChatChunk> {
+  // Centralized text safety floor (skipped for vision / already-floored companion calls).
+  messages = applyTextFloor(messages)
   const payload = JSON.stringify({ model, messages, stream: true, keep_alive: -1, options, think: false })
   const base = new URL(ollamaUrl())
 

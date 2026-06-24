@@ -13,6 +13,7 @@ import { ImageBlock } from './ImageBlock'
 import { WhereToWatchCard } from './WhereToWatchCard'
 import { HolidaysCard } from './HolidaysCard'
 import { ContentRatingCard } from './ContentRatingCard'
+import { MusicPlayBlock } from './MusicPlayBlock'
 import type { Block } from './types'
 
 export type { Block }
@@ -35,6 +36,7 @@ export const BlockRenderer = memo(function BlockRenderer({ block }: { block: Blo
     case 'where_to_watch': return <WhereToWatchCard data={block.data} />
     case 'holidays':       return <HolidaysCard data={block.data} />
     case 'content_rating': return <ContentRatingCard data={block.data} />
+    case 'play_music':     return <MusicPlayBlock data={block.data} />
     default:               return null
   }
 })

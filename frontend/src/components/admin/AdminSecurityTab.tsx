@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Lock, Plus, RefreshCw, RotateCcw, Save, ShieldAlert, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { ConsentManager } from '@/components/admin/ConsentManager'
 
-// Security admin area. One section with three views (styles / filtering /
-// privacy-mode), driven by the `view` prop from the admin nav. Content profiles
-// live under Admin → Users.
+// Security admin area. One section with several views (styles / filtering /
+// privacy-mode / consent), driven by the `view` prop from the admin nav. Content
+// profiles live under Admin → Users.
 
-export type SecurityView = 'styles' | 'filtering' | 'privacy-mode'
+export type SecurityView = 'styles' | 'filtering' | 'privacy-mode' | 'consent'
 
 export function AdminSecurityTab({ view }: { view?: string }) {
   const v = (view ?? 'styles') as SecurityView
@@ -15,6 +16,7 @@ export function AdminSecurityTab({ view }: { view?: string }) {
       {v === 'styles' && <StylesPanel />}
       {v === 'filtering' && <FilteringPanel />}
       {v === 'privacy-mode' && <PrivacyModePanel />}
+      {v === 'consent' && <ConsentManager />}
     </div>
   )
 }

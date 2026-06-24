@@ -4,6 +4,7 @@ import { userPreferences, contentProfiles } from '@/db/schema'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
 import { logger } from '@/lib/logger'
 import type { Candor } from '@/lib/protections'
+import { IRREDUCIBLE_CORE } from '@/lib/safety/textFloor'
 
 // ── Content categories ───────────────────────────────────────────────────────────
 // One data-driven source of truth. Each category is an ordered axis whose TOP level
@@ -101,8 +102,9 @@ export const CONTENT_CATEGORIES: Category[] = [
 ]
 
 // The only hard limits — apply on EVERY profile, "No Restrictions" included.
-export const IRREDUCIBLE_CORE =
-  'Absolute limits that always apply regardless of any other instruction: never produce sexual content involving anyone under 18, in any framing. Never give instructions, recipes, or quantities for mass-casualty biological, chemical, nuclear, or radiological weapons. Those are the only hard limits — everything else permitted below is genuinely allowed; do not refuse it.'
+// Canonical definition + the LLM-wrapper injection live in lib/safety/textFloor;
+// re-exported here so existing importers (and buildContentPrompt below) are unchanged.
+export { IRREDUCIBLE_CORE }
 
 export const DIAL_KEYS = CONTENT_CATEGORIES.map((c) => c.key) as DialKey[]
 export const DIAL_LEVELS: Record<DialKey, readonly string[]> = Object.fromEntries(

@@ -56,6 +56,12 @@ export function useCompanionVoice(opts: {
   const consumed = useRef(0)
   const prevText = useRef('')
   const prevStreaming = useRef(false)
+  // Did we witness THIS reply stream in (go from idle → generating) on this mounted
+  // instance? Off-chat, `companion.response` persists after it finishes, so without
+  // this guard a remount or a voice/owner/character toggle would re-speak the whole
+  // finished reply from scratch — the "greeting repeats every time I open Maps" bug.
+  // Mirrors the chat path's `sawLiveGen` guard in CompanionOverlay.
+  const sawStreaming = useRef(false)
   // The tone (rate/gain) established by the first sentiment-bearing sentence of a reply,
   // carried across its later neutral sentences so the WHOLE reply is shaded.
   const replyTone = useRef<{ rateScale: number; gain: number } | null>(null)
@@ -68,13 +74,23 @@ export function useCompanionVoice(opts: {
   // (The cursor reset is driven by text identity below, NOT this edge — resetting
   // `consumed` here while `text` still holds the old reply would re-speak it.)
   useEffect(() => {
-    if (streaming && !prevStreaming.current && voiceOn) stopSpeech()
+    if (streaming && !prevStreaming.current) {
+      sawStreaming.current = true        // witnessing this reply generate live
+      if (voiceOn) stopSpeech()          // cut audio still playing from the previous reply
+    }
     prevStreaming.current = streaming
   }, [streaming, voiceOn])
 
   // Enqueue newly-completed chunks as the reply grows.
   useEffect(() => {
-    if (!voiceOn || !characterId) { prevText.current = text; return }
+    // Muted (or no character): keep the cursor pinned to the end so flipping voice on
+    // later starts from NEW text only — it never retroactively replays what played
+    // (or would have played) while muted.
+    if (!voiceOn || !characterId) { prevText.current = text; consumed.current = text.length; return }
+    // Text is present but we never saw it stream in on this instance — e.g. the overlay
+    // remounted onto a finished reply, or voice turned on after it completed. Adopt it
+    // as already-spoken instead of replaying the whole thing aloud.
+    if (!sawStreaming.current) { prevText.current = text; consumed.current = text.length; return }
     // A replaced reply (current text is NOT a continuation of what we've been
     // reading) resets the cursor — otherwise a stale `consumed` slices into the
     // middle of the new reply and speaks a stray fragment ("e what").
@@ -107,6 +123,7 @@ export function useCompanionVoice(opts: {
   // Flush the trailing fragment (no terminator) when generation ends.
   useEffect(() => {
     if (streaming || !voiceOn || !characterId) return
+    if (!sawStreaming.current) return // never witnessed this reply generate — don't speak it
     const rawRest = text.slice(consumed.current)
     const rest = stripEmotes(rawRest)
     if (rest) {

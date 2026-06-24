@@ -130,6 +130,9 @@ export const ADMIN_SECTIONS: AdminSection[] = [
       { id: 'privacy-mode', label: 'Privacy Mode', kind: 'view',
         keywords: ['pin', 'hide', 'reveal', 'privacy', 'lock', 'timeout'],
         description: 'PIN-gated hiding of adult styles and generated content' },
+      { id: 'consent', label: 'Consent', kind: 'view',
+        keywords: ['consent', 'uncensored', 'internet', 'offline', 'companions', 'liability', 'permissions'],
+        description: 'User consent for risky capabilities' },
     ],
   },
   {

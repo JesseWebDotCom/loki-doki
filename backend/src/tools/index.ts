@@ -80,14 +80,16 @@ import { sportsTool } from './sports'
 import { homeAssistantTool } from './homeAssistant'
 import { timeTool } from './time'
 import { converterTool } from './converter'
-import { readerLibraryTool } from './readerLibrary'
-import { saveToReaderTool } from './saveToReader'
+import { bookmarksLibraryTool } from './bookmarksLibrary'
+import { saveToBookmarksTool } from './saveToBookmarks'
 import { propertyLookupTool } from './propertyLookup'
 import { peopleLookupTool } from './peopleLookup'
 import { mapsTool } from './maps'
 import { repairTool } from './repair'
 import { knowledgeTool } from './knowledge'
 import { showtimesTool } from './showtimes'
+import { playMusicTool } from './playMusic'
+import { plexTool } from './plex'
 
 export const toolRegistry: Tool[] = [
   weatherTool,
@@ -115,12 +117,14 @@ export const toolRegistry: Tool[] = [
   homeAssistantTool,
   timeTool,
   converterTool,
-  readerLibraryTool,
-  saveToReaderTool,
+  bookmarksLibraryTool,
+  saveToBookmarksTool,
   propertyLookupTool,
   peopleLookupTool,
   mapsTool,
   repairTool,
   knowledgeTool,
   showtimesTool,
+  playMusicTool,
+  plexTool,
 ]

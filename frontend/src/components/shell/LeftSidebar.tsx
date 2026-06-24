@@ -3,16 +3,11 @@ import { useGenerationContext } from "@/context/GenerationContext";
 import { usePrivacy } from "@/context/PrivacyContext";
 import { useBusyAppPaths } from "@/context/SetupProgressContext";
 import {
-  Bell,
   BookMarked,
-  Camera,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clapperboard,
   Cloud,
-  Download,
-  HardDrive,
   Home,
   Lightbulb,
   Map as MapIcon,
@@ -64,7 +59,8 @@ import { useNavPreferences } from "@/hooks/useNavPreferences";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useConnectivity } from "@/hooks/useConnectivity";
-import { useNotifications, type AppNotification } from "@/hooks/useNotifications";
+import { useNotifications } from "@/hooks/useNotifications";
+import { notifIcon, notifLabel, timeAgo } from "@/lib/notifications";
 import { toast } from "@/lib/toast";
 
 interface AppEntry {
@@ -82,7 +78,7 @@ const ALL_APPS: AppEntry[] = APP_GROUPS.flatMap(g =>
 
 // App-level feature flags gated by admin toggle
 function useAppFeatures() {
-  const [features, setFeatures] = useState<Record<string, boolean>>({ links: true })
+  const [features, setFeatures] = useState<Record<string, boolean>>({ bookmarks: true })
   useEffect(() => {
     fetch("/api/app-features", { credentials: "include" })
       .then(r => r.json())
@@ -324,47 +320,8 @@ function ArchiveIconLink({ archive }: { archive: RecentArchive }) {
 }
 
 // ── Notification helpers ────────────────────────────────────────────────────
-
-function notifIcon(type: AppNotification["type"]) {
-  switch (type) {
-    case "install_request":   return Download;
-    case "install_complete":  return CheckCircle2;
-    case "download_complete": return HardDrive;
-    case "frigate_event":     return Camera;
-    default:                  return Bell;
-  }
-}
-
-function notifLabel(n: AppNotification): string {
-  try {
-    const p = JSON.parse(n.payload) as Record<string, string>;
-    switch (n.type) {
-      case "install_request":
-        return `${p.requestedByName ?? "Someone"} requested ${p.toolName ?? "a tool"}`;
-      case "install_complete":
-        return `${p.toolName ?? "Tool"} was installed`;
-      case "download_complete":
-        return `${p.name ?? "File"} download complete`;
-      default:
-        return p.message ?? "System notification";
-    }
-  } catch {
-    return "Notification";
-  }
-}
-
-function timeAgo(ts: number): string {
-  // Accept epoch ms numbers; tolerate ISO strings / bad values so a malformed
-  // timestamp degrades to "just now" instead of "NaNd ago".
-  const ms = typeof ts === "number" ? ts : Date.parse(ts as unknown as string);
-  if (!Number.isFinite(ms)) return "just now";
-  const diff = Math.floor((Date.now() - ms) / 1000);
-  if (diff < 0) return "just now";
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
+// notifIcon / notifLabel / timeAgo live in @/lib/notifications, shared with the
+// Settings → Notifications tab.
 
 function BadgeCount({ count }: { count: number }) {
   if (count <= 0) return null;

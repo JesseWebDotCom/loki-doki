@@ -494,15 +494,3 @@ interface HomeLayout    { header: HomeLayoutHeader; canvas: HomeRow[] }
 **Legacy migration:** On first `GET /api/home-layout` with no existing layout, the API reads `home.highlights` preferences (sports/jokes booleans) and seeds `header` from them.
 
 ---
-
-## Consent System - REMOVED
-
-The prior `hasFeatureConsent` / `hasToolConsent` system has been fully removed. Do not reference:
-- `backend/src/lib/consent.ts` (deleted)
-- `backend/src/routes/adminConsent.ts` (deleted)
-- `GET/POST/DELETE /api/admin/consent` (routes gone)
-- `ConsentModal.tsx` (deleted)
-- `AdminDataAccessTab.tsx` (deleted)
-- `ServiceConsentCard.tsx` still exists but only exports the `DataSource` type; `ConsentWarningFooter` is dead code
-
-All tools and briefing run unconditionally. Install-time disclosure in `InstallDisclosureModal` replaces consent gating.

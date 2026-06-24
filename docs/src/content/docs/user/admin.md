@@ -19,7 +19,6 @@ The panel is organized into groups, each with its own pages:
 | **Features** | Install status for chat and intelligence, image generation, and voice models, plus other capabilities |
 | **Apps** | Install or remove apps for the household, review install requests, and app settings |
 | **Companions** | Create and configure companions and characters, set per-companion voices and wake words, and tune the daily briefing |
-| **Links** | Add and manage the global bookmarks shown to everyone |
 | **Privacy & Content** | The safety floor, the content ceiling per user, Privacy Mode (the adult-content PIN and countdown), adult-keyword detection, and style adult flags |
 | **Podcasts** | Defaults and management for AI-generated podcast shows |
 | **Users** | Create and manage accounts |

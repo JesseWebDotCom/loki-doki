@@ -2,7 +2,7 @@
 // Modeled on youtube/feed.ts (overlap guard, bounded concurrency, stale loop) with
 // added ETag/Last-Modified conditional GET and per-host spacing for user feeds.
 //
-// Saved items are promoted into reader_items (a separate permanent store), so feed_items
+// Saved items are promoted into bookmarks (a separate permanent store), so feed_items
 // can be pruned freely here — no "never delete saved" carve-out.
 
 import { and, desc, eq, inArray } from 'drizzle-orm'

@@ -1,8 +1,8 @@
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import { mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { mkdirSync, existsSync, renameSync } from 'node:fs'
+import { dirname, resolve, join } from 'node:path'
 import * as schema from './schema'
 
 const dbPath = process.env.DATABASE_URL ?? resolve(import.meta.dir, '../../../data/app.db')
@@ -75,6 +75,85 @@ export function runMigrations() {
       console.warn('[db] migration warning (non-fatal):', msg)
     }
   }
+
+  // ── One-time rename: Reader → Bookmarks (in-place, data preserved) ──────────────
+  // The read-it-later "Reader" library was renamed to "Bookmarks". Rename its tables in
+  // place (so existing saved items survive), dropping the dead legacy Organizr `bookmarks`
+  // table first to free the name, and discarding the old FTS5 mirror (rebuilt under the new
+  // name by the belt-and-suspenders block + backfill below). Guarded + idempotent: each step
+  // only runs when the old name still exists and the new one does not. MUST run before the
+  // CREATE TABLE IF NOT EXISTS block, or an empty `bookmarks` would shadow the real data.
+  try {
+    const tableExists = (name: string) =>
+      sqlite.query(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name) != null
+    const hasColumn = (table: string, col: string) => {
+      try {
+        return (sqlite.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some((c) => c.name === col)
+      } catch { return false }
+    }
+    // Legacy Organizr bookmarks table is identifiable by its `label` column; the new library has none.
+    if (tableExists('bookmarks') && hasColumn('bookmarks', 'label')) {
+      // Preserve any not-yet-folded legacy bookmarks as Live links before dropping (data-safe;
+      // prior boots already folded most via the now-removed standalone migration).
+      if (tableExists('reader_items')) {
+        sqlite.exec(`
+          INSERT INTO reader_items
+            (id, owner_id, source, type, url, title, favicon_url, category,
+             use_proxy, use_embed, sort_order, status, archive_state,
+             word_count, reading_mins, is_adult, created_at, updated_at)
+          SELECT b.id, b.owner_id, 'bookmark', 'live', b.url, b.label, b.icon, b.category,
+             b.use_proxy, b.use_embed, b.sort_order, 'unread', 'none',
+             0, 0, 0, b.created_at, b.updated_at
+          FROM bookmarks b
+          WHERE NOT EXISTS (SELECT 1 FROM reader_items r WHERE r.id = b.id);
+        `)
+      }
+      sqlite.exec(`DROP TABLE IF EXISTS bookmarks;`)
+      console.warn('[migrations] folded + dropped dead legacy Organizr bookmarks table')
+    }
+    // Drop the old FTS mirror + triggers first so the table renames don't have to rewrite them.
+    if (tableExists('reader_items_fts')) {
+      sqlite.exec(`
+        DROP TRIGGER IF EXISTS reader_items_ai;
+        DROP TRIGGER IF EXISTS reader_items_ad;
+        DROP TRIGGER IF EXISTS reader_items_au;
+        DROP TABLE IF EXISTS reader_items_fts;
+      `)
+    }
+    if (tableExists('reader_collections') && !tableExists('bookmark_collections')) {
+      sqlite.exec(`ALTER TABLE reader_collections RENAME TO bookmark_collections;`)
+    }
+    if (tableExists('reader_tags') && !tableExists('bookmark_tags')) {
+      sqlite.exec(`ALTER TABLE reader_tags RENAME TO bookmark_tags;`)
+    }
+    if (tableExists('reader_items') && !tableExists('bookmarks')) {
+      sqlite.exec(`
+        ALTER TABLE reader_items RENAME TO bookmarks;
+        DROP INDEX IF EXISTS reader_items_owner_status_idx;
+        DROP INDEX IF EXISTS reader_items_source_ref_idx;
+        CREATE INDEX IF NOT EXISTS bookmarks_owner_status_idx ON bookmarks(owner_id, status);
+        CREATE INDEX IF NOT EXISTS bookmarks_source_ref_idx ON bookmarks(source, source_ref);
+      `)
+      console.warn('[migrations] renamed reader_items → bookmarks')
+    }
+    if (tableExists('reader_item_tags') && !tableExists('bookmark_item_tags')) {
+      sqlite.exec(`ALTER TABLE reader_item_tags RENAME TO bookmark_item_tags;`)
+    }
+    // Migrate stored identifiers that referenced the old "links" app id.
+    sqlite.exec(`UPDATE app_settings SET key='app_feature.bookmarks' WHERE key='app_feature.links' AND NOT EXISTS (SELECT 1 FROM app_settings WHERE key='app_feature.bookmarks');`)
+    sqlite.exec(`UPDATE user_preferences SET value=replace(value,'"links"','"bookmarks"') WHERE key IN ('nav.pinned_apps','nav.recent_apps') AND value LIKE '%"links"%';`)
+    // Move the on-disk archive directory to match BOOKMARK_ARCHIVE_ROOT (relative paths stay valid).
+    const dataDir = dirname(dbPath)
+    const oldArchive = join(dataDir, 'bookmark-archive')
+    const newArchive = join(dataDir, 'bookmark-archive')
+    if (existsSync(oldArchive) && !existsSync(newArchive)) {
+      renameSync(oldArchive, newArchive)
+      console.warn('[migrations] moved bookmark-archive → bookmark-archive')
+    }
+  } catch (err) {
+    console.warn('[migrations] reader→bookmarks rename failed:', err instanceof Error ? err.message : err)
+  }
+
   // Belt-and-suspenders: ensure tables exist even if the Drizzle migration runner
   // skips them. The migrator runs ALL migrations in a single transaction, so one
   // bad/ordered-wrong statement anywhere rolls the whole thing back and NOTHING is
@@ -942,24 +1021,10 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS podcast_shows_owner_idx ON podcast_shows(owner_user_id);
   `)
 
-  // Bookmarks (Organizr-style links). Only ever created by migrations 0011-0013, which
-  // are in the rolled-back batch — so without this inline CREATE every bookmarks endpoint
-  // throws "no such table: bookmarks" on a fresh install. owner_id null = admin/global.
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS bookmarks (
-      id TEXT NOT NULL PRIMARY KEY,
-      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-      label TEXT NOT NULL,
-      url TEXT NOT NULL,
-      icon TEXT,
-      category TEXT NOT NULL DEFAULT 'Other',
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      use_proxy INTEGER NOT NULL DEFAULT 0,
-      use_embed INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-  `)
+  // NOTE: the legacy Organizr-style bookmarks CREATE that used to live here was removed.
+  // The unified Bookmarks library (formerly Reader) is now created in the belt-and-suspenders
+  // block below (search for "CREATE TABLE IF NOT EXISTS bookmarks"). Keeping the old schema
+  // here would win the race on a fresh install and create a table with the wrong columns.
 
   // Time / Clock app: world-clock locations, alarms, timer presets (migration 0020)
   sqlite.exec(`
@@ -1018,7 +1083,7 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_clock_timer_runs_user_id ON clock_timer_runs(user_id);
   `)
 
-  // Feeds (RSS reader) + Reader (read-it-later library). Created in FK-dependency order.
+  // Feeds (RSS reader) + Bookmarks (read-it-later library). Created in FK-dependency order.
   // The journal stops before these, so this inline block is the authoritative schema.
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS feed_folders (
@@ -1097,7 +1162,7 @@ export function runMigrations() {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS feed_item_scores_unique ON feed_item_scores(user_id, item_id);
 
-    CREATE TABLE IF NOT EXISTS reader_collections (
+    CREATE TABLE IF NOT EXISTS bookmark_collections (
       id TEXT NOT NULL PRIMARY KEY,
       owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
@@ -1106,12 +1171,12 @@ export function runMigrations() {
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS reader_tags (
+    CREATE TABLE IF NOT EXISTS bookmark_tags (
       id TEXT NOT NULL PRIMARY KEY,
       owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS reader_items (
+    CREATE TABLE IF NOT EXISTS bookmarks (
       id TEXT NOT NULL PRIMARY KEY,
       owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       source TEXT NOT NULL DEFAULT 'bookmark',
@@ -1134,7 +1199,7 @@ export function runMigrations() {
       use_proxy INTEGER NOT NULL DEFAULT 0,
       use_embed INTEGER NOT NULL DEFAULT 0,
       category TEXT NOT NULL DEFAULT 'Other',
-      collection_id TEXT REFERENCES reader_collections(id) ON DELETE SET NULL,
+      collection_id TEXT REFERENCES bookmark_collections(id) ON DELETE SET NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
       auto_update INTEGER NOT NULL DEFAULT 0,
       auto_update_interval_mins INTEGER,
@@ -1149,87 +1214,83 @@ export function runMigrations() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS reader_items_owner_status_idx ON reader_items(owner_id, status);
-    CREATE INDEX IF NOT EXISTS reader_items_source_ref_idx ON reader_items(source, source_ref);
-    CREATE TABLE IF NOT EXISTS reader_item_tags (
-      item_id TEXT NOT NULL REFERENCES reader_items(id) ON DELETE CASCADE,
-      tag_id TEXT NOT NULL REFERENCES reader_tags(id) ON DELETE CASCADE,
+    CREATE INDEX IF NOT EXISTS bookmarks_owner_status_idx ON bookmarks(owner_id, status);
+    CREATE INDEX IF NOT EXISTS bookmarks_source_ref_idx ON bookmarks(source, source_ref);
+    CREATE TABLE IF NOT EXISTS bookmark_item_tags (
+      item_id TEXT NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+      tag_id TEXT NOT NULL REFERENCES bookmark_tags(id) ON DELETE CASCADE,
       PRIMARY KEY (item_id, tag_id)
     );
-
-    -- FTS5 over reader_items (external-content), kept in sync by triggers. url is indexed
-    -- so domain searches (e.g. amazon) match a saved link by its address, not just title.
-    CREATE VIRTUAL TABLE IF NOT EXISTS reader_items_fts USING fts5(
-      title, excerpt, content_text, url,
-      content='reader_items', content_rowid='rowid'
+    CREATE TABLE IF NOT EXISTS bookmark_snapshots (
+      id TEXT NOT NULL PRIMARY KEY,
+      bookmark_id TEXT NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+      captured_at INTEGER NOT NULL,
+      title TEXT,
+      content_html TEXT,
+      content_text TEXT,
+      word_count INTEGER NOT NULL DEFAULT 0,
+      content_hash TEXT,
+      changed INTEGER NOT NULL DEFAULT 0
     );
-    CREATE TRIGGER IF NOT EXISTS reader_items_ai AFTER INSERT ON reader_items BEGIN
-      INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
+    CREATE INDEX IF NOT EXISTS bookmark_snapshots_bookmark_idx ON bookmark_snapshots(bookmark_id, captured_at);
+
+    -- FTS5 over bookmarks (external-content), kept in sync by triggers. url is indexed
+    -- so domain searches (e.g. amazon) match a saved link by its address, not just title.
+    CREATE VIRTUAL TABLE IF NOT EXISTS bookmarks_fts USING fts5(
+      title, excerpt, content_text, url,
+      content='bookmarks', content_rowid='rowid'
+    );
+    CREATE TRIGGER IF NOT EXISTS bookmarks_ai AFTER INSERT ON bookmarks BEGIN
+      INSERT INTO bookmarks_fts(rowid, title, excerpt, content_text, url)
         VALUES (new.rowid, new.title, new.excerpt, new.content_text, new.url);
     END;
-    CREATE TRIGGER IF NOT EXISTS reader_items_ad AFTER DELETE ON reader_items BEGIN
-      INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text, url)
+    CREATE TRIGGER IF NOT EXISTS bookmarks_ad AFTER DELETE ON bookmarks BEGIN
+      INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, excerpt, content_text, url)
         VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text, old.url);
     END;
-    CREATE TRIGGER IF NOT EXISTS reader_items_au AFTER UPDATE ON reader_items BEGIN
-      INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text, url)
+    CREATE TRIGGER IF NOT EXISTS bookmarks_au AFTER UPDATE ON bookmarks BEGIN
+      INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, excerpt, content_text, url)
         VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text, old.url);
-      INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
+      INSERT INTO bookmarks_fts(rowid, title, excerpt, content_text, url)
         VALUES (new.rowid, new.title, new.excerpt, new.content_text, new.url);
     END;
   `)
 
-  // reader_items_fts gained a `url` column (so global/Reader search matches links by domain).
-  // Existing DBs created the FTS table before url existed; CREATE ... IF NOT EXISTS skipped the
-  // new definition, so rebuild + repopulate once when the column is absent. Guarded/idempotent.
+  // Backfill bookmarks_fts from existing rows. The belt-and-suspenders CREATE above makes the
+  // FTS mirror but its triggers only fire on FUTURE writes — so after a fresh create OR the
+  // Reader→Bookmarks rename (which dropped the old mirror), existing rows are unindexed until we
+  // 'rebuild'. Guarded/idempotent: only runs when the mirror is empty but the table has rows.
   try {
-    const ftsCols = sqlite.query(`PRAGMA table_info(reader_items_fts);`).all() as Array<{ name: string }>
-    if (ftsCols.length > 0 && !ftsCols.some((c) => c.name === 'url')) {
-      sqlite.exec(`
-        DROP TRIGGER IF EXISTS reader_items_ai;
-        DROP TRIGGER IF EXISTS reader_items_ad;
-        DROP TRIGGER IF EXISTS reader_items_au;
-        DROP TABLE IF EXISTS reader_items_fts;
-        CREATE VIRTUAL TABLE reader_items_fts USING fts5(
-          title, excerpt, content_text, url,
-          content='reader_items', content_rowid='rowid'
-        );
-        INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
-          SELECT rowid, title, excerpt, content_text, url FROM reader_items;
-        CREATE TRIGGER reader_items_ai AFTER INSERT ON reader_items BEGIN
-          INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
-            VALUES (new.rowid, new.title, new.excerpt, new.content_text, new.url);
-        END;
-        CREATE TRIGGER reader_items_ad AFTER DELETE ON reader_items BEGIN
-          INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text, url)
-            VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text, old.url);
-        END;
-        CREATE TRIGGER reader_items_au AFTER UPDATE ON reader_items BEGIN
-          INSERT INTO reader_items_fts(reader_items_fts, rowid, title, excerpt, content_text, url)
-            VALUES ('delete', old.rowid, old.title, old.excerpt, old.content_text, old.url);
-          INSERT INTO reader_items_fts(rowid, title, excerpt, content_text, url)
-            VALUES (new.rowid, new.title, new.excerpt, new.content_text, new.url);
-        END;
-      `)
-      console.warn('[migrations] rebuilt reader_items_fts with url column')
+    const ftsCount = (sqlite.query(`SELECT count(*) AS c FROM bookmarks_fts`).get() as { c: number }).c
+    const rowCount = (sqlite.query(`SELECT count(*) AS c FROM bookmarks`).get() as { c: number }).c
+    if (ftsCount === 0 && rowCount > 0) {
+      sqlite.exec(`INSERT INTO bookmarks_fts(bookmarks_fts) VALUES('rebuild');`)
+      console.warn(`[migrations] backfilled bookmarks_fts (${rowCount} rows)`)
     }
   } catch (err) {
-    console.warn('[migrations] reader_items_fts url rebuild failed:', err instanceof Error ? err.message : err)
+    console.warn('[migrations] bookmarks_fts backfill failed:', err instanceof Error ? err.message : err)
   }
 
-  // icon/color added to reader_collections after its initial inline CREATE; back-fill for
+  // icon/color added to bookmark_collections after its initial inline CREATE; back-fill for
   // existing DBs so the collection editor (name/icon/color) can read/write them.
-  addColumn('reader_collections', 'icon', 'TEXT')
-  addColumn('reader_collections', 'color', 'TEXT')
+  addColumn('bookmark_collections', 'icon', 'TEXT')
+  addColumn('bookmark_collections', 'color', 'TEXT')
 
-  // Auto-update / change-monitoring columns added to reader_items after its initial inline
-  // CREATE; back-fill for existing DBs (see lib/reader/autoUpdate.ts + archive.ts).
-  addColumn('reader_items', 'auto_update', 'INTEGER NOT NULL DEFAULT 0')
-  addColumn('reader_items', 'auto_update_interval_mins', 'INTEGER')
-  addColumn('reader_items', 'alert_on_change', 'INTEGER NOT NULL DEFAULT 0')
-  addColumn('reader_items', 'content_hash', 'TEXT')
-  addColumn('reader_items', 'last_checked_at', 'INTEGER')
-  addColumn('reader_items', 'content_changed_at', 'INTEGER')
+  // Auto-update / change-monitoring columns added to bookmarks after its initial inline
+  // CREATE; back-fill for existing DBs (see lib/bookmarks/autoUpdate.ts + archive.ts).
+  addColumn('bookmarks', 'auto_update', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('bookmarks', 'auto_update_interval_mins', 'INTEGER')
+  addColumn('bookmarks', 'alert_on_change', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('bookmarks', 'content_hash', 'TEXT')
+  addColumn('bookmarks', 'last_checked_at', 'INTEGER')
+  addColumn('bookmarks', 'content_changed_at', 'INTEGER')
+
+  // Archiver-depth columns (PDF / page-media / archive.org fallback) added after the initial
+  // CREATE; back-fill for existing DBs (see lib/bookmarks/archive.ts + render.ts).
+  addColumn('bookmarks', 'pdf_path', 'TEXT')
+  addColumn('bookmarks', 'media_path', 'TEXT')
+  addColumn('bookmarks', 'capture_media', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('bookmarks', 'archive_org_url', 'TEXT')
 
   // News categories: feed_folders doubles as the News category table. Back-fill slug/locked
   // for existing DBs, and relax user_id to nullable (shared/built-in categories have userId=null).
@@ -1271,20 +1332,8 @@ export function runMigrations() {
     console.warn('[migrations] feed_folders rebuild failed:', err instanceof Error ? err.message : err)
   }
 
-  // One-time, idempotent: fold existing Organizr-style bookmarks into reader_items as
-  // Live links (reusing the bookmark id so re-runs are no-ops). The old table is left
-  // in place. The AFTER INSERT trigger populates FTS for migrated rows.
-  sqlite.exec(`
-    INSERT INTO reader_items
-      (id, owner_id, source, type, url, title, favicon_url, category,
-       use_proxy, use_embed, sort_order, status, archive_state,
-       word_count, reading_mins, is_adult, created_at, updated_at)
-    SELECT b.id, b.owner_id, 'bookmark', 'live', b.url, b.label, b.icon, b.category,
-       b.use_proxy, b.use_embed, b.sort_order, 'unread', 'none',
-       0, 0, 0, b.created_at, b.updated_at
-    FROM bookmarks b
-    WHERE NOT EXISTS (SELECT 1 FROM reader_items r WHERE r.id = b.id);
-  `)
+  // (The legacy Organizr-bookmarks → Live-links fold now happens inside the Reader→Bookmarks
+  //  rename block above, before the old table is dropped.)
 
   // Hot-path indexes for foreign-key / scope lookups. All idempotent (IF NOT EXISTS),
   // so they are safe to (re)run on every boot. Mirror any new index here too.
@@ -1479,5 +1528,28 @@ export function runMigrations() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS media_watchlist (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      media_type TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      poster_url TEXT,
+      subtitle TEXT,
+      status TEXT NOT NULL DEFAULT 'want',
+      added_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS media_watchlist_unique ON media_watchlist(user_id, media_type, ref_id);
+    CREATE TABLE IF NOT EXISTS show_watched_episodes (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tvmaze_id INTEGER NOT NULL,
+      episode_id INTEGER NOT NULL,
+      season INTEGER NOT NULL,
+      number INTEGER,
+      watched_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS show_watched_episodes_unique ON show_watched_episodes(user_id, episode_id);
   `)
 }

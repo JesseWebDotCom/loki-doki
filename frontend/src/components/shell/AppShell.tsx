@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useLocation, useNavigate, Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import {
   ExternalLink, Home, LayoutGrid, Loader2, Locate, Lock, MapPin, Search, Settings,
-  ShieldCheck, Sparkles, Terminal, User, X,
+  ShieldCheck, ShoppingBag, Sparkles, Terminal, User, X,
   type LucideIcon,
 } from "lucide-react";
 import { AppBreadcrumb, type BreadcrumbCrumb } from "@/components/shared/AppBreadcrumb";
@@ -28,6 +28,7 @@ import { useNewsPrefetch } from "@/lib/news/useNews";
 const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: string; gradient?: string }> = {
   "/categories": { title: "Categories", icon: LayoutGrid,  color: "#6d28d9", gradient: "linear-gradient(135deg,#4c1d95,#c026d3)" },
   "/companions": { title: "Companions", icon: Sparkles,    color: "#f59e0b", gradient: "linear-gradient(135deg,#92400e,#f59e0b)" },
+  "/app-store":  { title: "App Store",  icon: ShoppingBag, color: "#6366f1", gradient: "linear-gradient(135deg,#4338ca,#6366f1)" },
   "/me":         { title: "Me",         icon: User,        color: "#6b7280" },
   "/settings":   { title: "Settings",   icon: Settings,    color: "#6b7280" },
   "/admin":      { title: "Admin",      icon: ShieldCheck, color: "#dc2626" },
@@ -45,9 +46,9 @@ export function AppShell() {
   // Full-bleed apps own their full height and let the companion float over them.
   // isReader (ZIM reader at /read/:id + docs) provides its OWN breadcrumb header, so the
   // standard one is suppressed there. NOTE: match "/read/" (trailing slash) so the Reader
-  // app at "/reader" is NOT caught — it uses the standard breadcrumb like other apps.
+  // app at "/bookmarks" is NOT caught — it uses the standard breadcrumb like other apps.
   const isReader = pathname.startsWith("/read/") || pathname.startsWith("/docs");
-  const isFullBleed = pathname.startsWith("/maps") || isReader || pathname.startsWith("/imaging") || pathname.startsWith("/video") || pathname.startsWith("/youtube") || pathname.startsWith("/reader");
+  const isFullBleed = pathname.startsWith("/maps") || isReader || pathname.startsWith("/imaging") || pathname.startsWith("/video") || pathname.startsWith("/youtube") || pathname.startsWith("/bookmarks");
   const { conversations, conversationId, currentProject } = useChatContext();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -64,15 +65,19 @@ export function AppShell() {
   // Registry lookup: APP_GROUPS first, then standalone pages.
   const appItem  = getAppByPath(pathname);
   const appGroup = appItem ? getGroupByAppPath(pathname) : null;
-  const standaloneMeta = !appItem
-    ? Object.entries(STANDALONE_META).find(([k]) => pathname.startsWith(k))?.[1] ?? null
+  const standaloneEntry = !appItem
+    ? Object.entries(STANDALONE_META).find(([k]) => pathname.startsWith(k)) ?? null
     : null;
+  const standaloneMeta = standaloneEntry?.[1] ?? null;
 
   // /category/:name pages — resolve visual from the app-group or archive-category registry.
   const isCategory = pathname.startsWith("/category/");
   const categorySlug = isCategory ? (pathname.split("/")[2] ?? "") : "";
   const categoryGroupMeta    = isCategory ? getAppGroup(categorySlug) : null;
   const categoryArchiveMeta  = isCategory ? categoryVisual(decodeURIComponent(categorySlug)) : null;
+  // Root path for the current app — makes the last breadcrumb crumb clickable.
+  const pageRootHref: string | undefined =
+    appItem?.to ?? standaloneEntry?.[0] ?? (isCategory ? pathname : undefined);
 
   const pageTitle = isCategory
     ? decodeURIComponent(categorySlug || "Category")
@@ -210,7 +215,7 @@ export function AppShell() {
                 ...(activeConvTitle ? [{ label: activeConvTitle, truncate: true } as BreadcrumbCrumb] : []),
               ];
             }
-            return [home, ...(groupCrumb ? [groupCrumb] : []), { label: pageTitle, ...lastIconProps(PageIcon) }];
+            return [home, ...(groupCrumb ? [groupCrumb] : []), { label: pageTitle, href: pageRootHref, ...lastIconProps(PageIcon) }];
           })()}>
             {breadcrumbSearch && (
               <>

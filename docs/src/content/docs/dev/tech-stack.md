@@ -1,6 +1,6 @@
 ---
 title: Tech Stack
-description: Full technology stack for loki-doki-v3, runtime, UI, backend, and AI integrations.
+description: Full technology stack for Loki Doki, runtime, UI, backend, and AI integrations.
 sidebar:
   order: 2
 ---

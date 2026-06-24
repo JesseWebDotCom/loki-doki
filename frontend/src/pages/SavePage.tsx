@@ -5,7 +5,8 @@ import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { Input } from '@/components/ui/input'
 import { detectSaveTarget } from '@/lib/saveTarget'
-import { createItem } from '@/lib/reader/api'
+import { createItem } from '@/lib/bookmarks/api'
+import { useAuth } from '@/context/AuthContext'
 
 // Capture dispatcher opened by the bookmarklet / PWA share target as a same-origin
 // popup, so the session cookie is sent (SameSite=Strict allows top-level navigation).
@@ -26,9 +27,12 @@ function ActionButton({ icon: Icon, label, onClick, busy, done }: { icon: typeof
 }
 
 export function SavePage() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [params] = useSearchParams()
   const rawUrl = params.get('url') ?? ''
   const [title, setTitle] = useState(params.get('title') ?? '')
+  const [makeGlobal, setMakeGlobal] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
 
@@ -56,7 +60,7 @@ export function SavePage() {
     if (!res.ok) throw new Error('Failed to add to Watch Later')
   }
   async function saveReader(type: 'live' | 'offline') {
-    await createItem({ type, url: rawUrl, title: title.trim() || undefined })
+    await createItem({ type, url: rawUrl, title: title.trim() || undefined, makeGlobal: isAdmin && makeGlobal })
   }
 
   if (!rawUrl) {
@@ -72,6 +76,16 @@ export function SavePage() {
         </a>
 
         <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className="mb-4" />
+
+        {isAdmin && (
+          <label className="mb-4 flex items-start gap-2 rounded-lg border border-border bg-card/50 p-3 text-sm">
+            <input type="checkbox" checked={makeGlobal} onChange={e => setMakeGlobal(e.target.checked)} className="mt-0.5 size-4 rounded border-border" />
+            <span>
+              <span className="font-medium">Share with everyone</span>
+              <span className="block text-xs text-muted-foreground">Saves as a global bookmark visible to all users. Off = only you can see it.</span>
+            </span>
+          </label>
+        )}
 
         <div className="space-y-2">
           {target.type === 'youtube' ? (

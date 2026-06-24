@@ -39,10 +39,11 @@ export function AppBreadcrumb({ crumbs, children, className }: AppBreadcrumbProp
           ? <Icon className="size-3.5 shrink-0" style={crumb.iconStyle} />
           : null
         );
-        const isCurrent = !crumb.href && i === crumbs.length - 1;
         const labelEl = crumb.truncate
           ? <span className="truncate max-w-[14rem]">{crumb.label}</span>
           : crumb.label;
+
+        const isLast = i === crumbs.length - 1;
 
         return (
           <Fragment key={i}>
@@ -52,12 +53,17 @@ export function AppBreadcrumb({ crumbs, children, className }: AppBreadcrumbProp
             {crumb.href ? (
               <Link
                 to={crumb.href}
-                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                className={cn(
+                  "flex items-center gap-1 text-sm transition-colors shrink-0",
+                  isLast
+                    ? "font-medium hover:opacity-70 min-w-0"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
               >
                 {iconEl}
                 {labelEl}
               </Link>
-            ) : isCurrent ? (
+            ) : isLast ? (
               <span className="flex items-center gap-1 text-sm font-medium shrink-0 min-w-0">
                 {iconEl}
                 {labelEl}

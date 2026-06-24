@@ -8,6 +8,7 @@ import { requireAuth } from '@/middleware/auth'
 import { db } from '@/db'
 import { analysisResults } from '@/db/schema'
 import { getVisionModel } from '@/lib/models'
+import { screenImage, logCsamBlock } from '@/lib/safety/csamGuard'
 import { ollamaChat, ollamaList } from '@/llm/ollama'
 import { dataDir } from '@/lib/download'
 
@@ -310,6 +311,14 @@ vision.post('/analyze', requireAuth, async (c) => {
   const ext = imageFile.type.includes('png') ? 'png' : 'jpg'
   const imagePath = join(analysisDir, `${id}.${ext}`)
   const imageBuffer = Buffer.from(await imageFile.arrayBuffer())
+
+  // Screen the upload before it touches disk or the VLM — refuse CSAM at the door.
+  const screenVerdict = await screenImage(imageBuffer.toString('base64'))
+  if (screenVerdict.flagged) {
+    logCsamBlock('vision analyze upload', user.id, screenVerdict.reason ?? 'upload')
+    return c.json({ error: 'content_blocked', message: 'This image was blocked by a safety policy and cannot be analyzed.' }, 403)
+  }
+
   await Bun.write(imagePath, imageBuffer)
 
   // Insert building row

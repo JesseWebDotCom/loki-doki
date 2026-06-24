@@ -10,11 +10,13 @@
 // resume rather than restart.
 
 import { randomUUID } from 'node:crypto'
+import { existsSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
 import { db } from '@/db'
 import { downloadJobs } from '@/db/schema'
 import { CATALOG, ROLE_SETTINGS_KEY } from '@/lib/catalog'
-import { pullOllama, downloadHfFile } from '@/lib/download'
+import { pullOllama, downloadHfFile, validateSafetensorsFile, dataDir, SDXL_VAE_DEST } from '@/lib/download'
 import type { DownloadProgress } from '@/lib/download'
 import { downloadArchive, syncKiwixWithArchives } from '@/lib/archives'
 import { getKiwixState } from '@/lib/kiwix'
@@ -25,7 +27,7 @@ import { isDownloadBlocked } from '@/lib/connectivity'
 import { killByCommandLine } from '@/lib/platform'
 import { logger } from '@/lib/logger'
 
-export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'archive-article' | 'reader-thumb'
+export type JobType = 'model' | 'archive' | 'map' | 'component' | 'storage-move' | 'yt-media' | 'yt-export' | 'podcast-generate' | 'bookmark-archive' | 'bookmark-thumb'
 export type Domain = 'ollama' | 'huggingface' | 'kiwix' | 'maps' | 'comfyui' | 'github' | 'local'
 
 const LARGE_THRESHOLD = 2_000_000_000  // ≥2 GB is "large"
@@ -224,8 +226,15 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
   await db.update(downloadJobs).set({ status: 'running', updatedAt: new Date() }).where(eq(downloadJobs.id, job.id))
   logger.info(`[jobs] start ${job.type}:${job.refId} (${job.label})`)
 
+  // Bytes already on disk when this attempt began (kiwix/HF resume from a .part file). Used
+  // below to tell "stalled, no progress" (counts an attempt) from "advancing but the mirror
+  // hiccupped" (resume, don't burn the attempt budget) for large resumable downloads.
+  const startCompleted = (() => { try { return JSON.parse(job.progress ?? '{}').completed ?? 0 } catch { return 0 } })()
+  let lastCompleted = startCompleted
+
   let lastWrite = 0
   const onProgress = (p: DownloadProgress & { note?: string }) => {
+    lastCompleted = p.completed
     const t = Date.now()
     if (t - lastWrite < PROGRESS_WRITE_MS && p.completed < p.total) return
     lastWrite = t
@@ -253,6 +262,15 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
       // a row cancelJob already flipped to 'cancelled' (else the scheduler re-runs it).
       await db.update(downloadJobs).set({ status: 'pending', updatedAt: new Date() })
         .where(and(eq(downloadJobs.id, job.id), eq(downloadJobs.status, 'running')))
+    } else if (job.type === 'archive' && lastCompleted > startCompleted) {
+      // The download advanced this attempt but the mirror stalled before finishing. It resumes
+      // from the .part file, so keep retrying WITHOUT spending the attempt budget — a finite
+      // file that gains bytes every attempt always converges. (A truly stuck download makes no
+      // progress and falls through to the normal attempt-counting branch below, so it still
+      // gives up.) This stops large ZIM downloads from "failing" with most of the file in hand.
+      await db.update(downloadJobs).set({ status: 'pending', nextEligibleAt: new Date(Date.now() + BACKOFF_BASE_MS), lastError: String(err), updatedAt: new Date() })
+        .where(and(eq(downloadJobs.id, job.id), eq(downloadJobs.status, 'running')))
+      logger.warn(`[jobs] ↻ ${job.type}:${job.refId} stalled at ${lastCompleted} bytes — resuming (attempt not counted)`)
     } else {
       const attempts = job.attempts + 1
       // Guard on status='running' just like the abort branch above: if cancelJob flipped the
@@ -352,28 +370,28 @@ async function runJob(job: typeof downloadJobs.$inferSelect, onProgress: (p: Dow
       await runPodcastGenerateJob(payload, onProgress, signal)
       return
     }
-    case 'archive-article': {
-      const { runArchiveArticleJob } = await import('@/lib/reader/archive')
-      await runArchiveArticleJob(job.refId, onProgress, signal)  // refId = reader_items.id
+    case 'bookmark-archive': {
+      const { runArchiveArticleJob } = await import('@/lib/bookmarks/archive')
+      await runArchiveArticleJob(job.refId, onProgress, signal)  // refId = bookmarks.id
       return
     }
-    case 'reader-thumb': {
-      const { runReaderThumbnailJob } = await import('@/lib/reader/thumbnail')
-      await runReaderThumbnailJob(job.refId, onProgress, signal)  // refId = reader_items.id
+    case 'bookmark-thumb': {
+      const { runBookmarkThumbnailJob } = await import('@/lib/bookmarks/thumbnail')
+      await runBookmarkThumbnailJob(job.refId, onProgress, signal)  // refId = bookmarks.id
       return
     }
   }
 }
 
-/** Enqueue an offline article archive for a reader_items row. Idempotent per item id;
+/** Enqueue an offline article archive for a bookmarks row. Idempotent per item id;
  *  a failed/cancelled prior job is reset to pending. domain='local' serializes fetches.
  *  Pass { force } for recurring auto-updates: a prior *completed* job is also reset so the
  *  page is re-fetched (without force, a one-shot archive never re-runs). A running job is
  *  never disturbed. */
-export async function enqueueArchiveArticle(readerItemId: string, label: string, opts: { force?: boolean } = {}): Promise<void> {
+export async function enqueueArchiveArticle(bookmarkId: string, label: string, opts: { force?: boolean } = {}): Promise<void> {
   const now = new Date()
   const existing = await db.select().from(downloadJobs)
-    .where(and(eq(downloadJobs.type, 'archive-article'), eq(downloadJobs.refId, readerItemId)))
+    .where(and(eq(downloadJobs.type, 'bookmark-archive'), eq(downloadJobs.refId, bookmarkId)))
     .then((r) => r[0])
   if (existing) {
     const reset = existing.status === 'failed' || existing.status === 'cancelled' ||
@@ -385,7 +403,7 @@ export async function enqueueArchiveArticle(readerItemId: string, label: string,
     }
   } else {
     await db.insert(downloadJobs).values({
-      id: randomUUID(), type: 'archive-article', refId: readerItemId, variantKey: null,
+      id: randomUUID(), type: 'bookmark-archive', refId: bookmarkId, variantKey: null,
       domain: 'local', sizeClass: 'small', label: label.slice(0, 120), priority: 50,
       status: 'pending', attempts: 0, maxAttempts: 4, nextEligibleAt: null, lastError: null,
       progress: null, createdAt: now, updatedAt: now,
@@ -394,12 +412,12 @@ export async function enqueueArchiveArticle(readerItemId: string, label: string,
   kickScheduler()
 }
 
-/** Enqueue a screenshot-thumbnail render for a reader_items row (live bookmarks). Idempotent
+/** Enqueue a screenshot-thumbnail render for a bookmarks row (live bookmarks). Idempotent
  *  per item; a finished/failed prior job is reset so a re-request re-renders. */
-export async function enqueueReaderThumbnail(readerItemId: string, label: string): Promise<void> {
+export async function enqueueBookmarkThumbnail(bookmarkId: string, label: string): Promise<void> {
   const now = new Date()
   const existing = await db.select().from(downloadJobs)
-    .where(and(eq(downloadJobs.type, 'reader-thumb'), eq(downloadJobs.refId, readerItemId)))
+    .where(and(eq(downloadJobs.type, 'bookmark-thumb'), eq(downloadJobs.refId, bookmarkId)))
     .then((r) => r[0])
   if (existing) {
     await db.update(downloadJobs)
@@ -407,13 +425,120 @@ export async function enqueueReaderThumbnail(readerItemId: string, label: string
       .where(eq(downloadJobs.id, existing.id))
   } else {
     await db.insert(downloadJobs).values({
-      id: randomUUID(), type: 'reader-thumb', refId: readerItemId, variantKey: null,
+      id: randomUUID(), type: 'bookmark-thumb', refId: bookmarkId, variantKey: null,
       domain: 'local', sizeClass: 'small', label: label.slice(0, 120), priority: 40,
       status: 'pending', attempts: 0, maxAttempts: 2, nextEligibleAt: null, lastError: null,
       progress: null, createdAt: now, updatedAt: now,
     })
   }
   kickScheduler()
+}
+
+// ── Safetensors integrity scan ────────────────────────────────────────────────
+
+/** Reset or insert a component download job, regardless of its current status.
+ *  Used after deleting a corrupt file to guarantee a re-download is queued. */
+async function forceRequeueComponent(componentId: string, label: string): Promise<void> {
+  const now = new Date()
+  // Derive domain + sizeClass from the catalog or fall back to sensible defaults.
+  const m = CATALOG.find(x => x.id === componentId)
+  const domain: Domain  = 'huggingface'
+  const sizeClass       = m && m.approxBytes >= LARGE_THRESHOLD ? 'large' as const : 'small' as const
+  const priority        = 30
+
+  const existing = await db.select().from(downloadJobs)
+    .where(and(eq(downloadJobs.type, 'component'), eq(downloadJobs.refId, componentId)))
+    .then(r => r[0])
+
+  if (existing) {
+    await db.update(downloadJobs)
+      .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: now })
+      .where(eq(downloadJobs.id, existing.id))
+  } else {
+    await db.insert(downloadJobs).values({
+      id: randomUUID(), type: 'component', refId: componentId, variantKey: null,
+      domain, sizeClass, label, priority,
+      status: 'pending', attempts: 0, maxAttempts: 6, nextEligibleAt: null, lastError: null,
+      progress: null, createdAt: now, updatedAt: now,
+    })
+  }
+}
+
+/** Scan all installed .safetensors image-model files at boot.
+ *  Validates each header + tensor-range; deletes and re-queues any corrupt file.
+ *  Called before ComfyUI spawns so a bad model never causes a generation error. */
+export async function scanAndRepairCorruptImageModels(): Promise<string[]> {
+  const repaired: string[] = []
+
+  // Collect candidate files: catalog IMAGE_ROLES models + SDXL VAE.
+  type Candidate = { componentId: string; filePath: string; label: string }
+  const candidates: Candidate[] = []
+
+  for (const m of CATALOG) {
+    if (!IMAGE_ROLES.has(m.role)) continue
+    const dest = m.url?.dest ?? m.hf?.dest ?? m.hfFiles?.[0]?.dest
+    if (!dest || !dest.endsWith('.safetensors')) continue
+    const fullPath = join(dataDir, dest)
+    if (!existsSync(fullPath)) continue
+    candidates.push({ componentId: m.id, filePath: fullPath, label: m.label })
+  }
+
+  const vaePath = join(dataDir, SDXL_VAE_DEST)
+  if (existsSync(vaePath)) {
+    candidates.push({ componentId: 'sdxl-vae', filePath: vaePath, label: 'SDXL VAE (fp16-fix)' })
+  }
+
+  for (const { componentId, filePath, label } of candidates) {
+    if (validateSafetensorsFile(filePath)) continue
+    logger.warn(`[image] corrupt .safetensors file detected, removing and re-queuing: ${filePath}`)
+    try { unlinkSync(filePath) } catch { /* already gone */ }
+    repaired.push(label)
+    try {
+      await recordInstalled(componentId)  // ensure boot reconcile picks it up too
+      await forceRequeueComponent(componentId, label)
+    } catch (e) {
+      logger.warn(`[image] failed to re-queue repair for ${componentId}: ${e}`)
+    }
+  }
+
+  if (repaired.length) kickScheduler()
+  return repaired
+}
+
+/** Force-queue a repair job for a specific image model component (exported so
+ *  the status endpoint can queue a repair when it detects a missing/corrupt file
+ *  without waiting for a generation attempt to fail first). */
+export async function forceRequeueImageModel(componentId: string, label: string): Promise<void> {
+  await recordInstalled(componentId)
+  await forceRequeueComponent(componentId, label)
+  kickScheduler()
+}
+
+/** Returns the first active (pending or running) repair job for an image model,
+ *  or null if none. Used by /api/image/status to block generation while a
+ *  model file is being re-downloaded after corruption detection. */
+export async function getImageRepairJob(): Promise<{ label: string; pct: number | null } | null> {
+  const imageComponentIds = [
+    'sdxl-vae',
+    ...CATALOG.filter(m => IMAGE_ROLES.has(m.role)).map(m => m.id),
+  ]
+  const row = await db.select({ label: downloadJobs.label, progress: downloadJobs.progress })
+    .from(downloadJobs)
+    .where(and(
+      eq(downloadJobs.type, 'component'),
+      inArray(downloadJobs.refId, imageComponentIds),
+      inArray(downloadJobs.status, ['pending', 'running']),
+    ))
+    .orderBy(asc(downloadJobs.priority), asc(downloadJobs.createdAt))
+    .limit(1)
+    .then(r => r[0])
+  if (!row) return null
+  let pct: number | null = null
+  try {
+    const p = JSON.parse(row.progress ?? 'null') as { completed?: number; total?: number } | null
+    if (p?.total && p.total > 0) pct = Math.round((p.completed ?? 0) / p.total * 100)
+  } catch { /* ignore */ }
+  return { label: row.label, pct }
 }
 
 // ── Boot resume + status + admin actions ─────────────────────────────────────────

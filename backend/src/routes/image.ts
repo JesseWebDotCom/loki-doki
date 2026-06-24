@@ -45,11 +45,14 @@ import { detectStyle, applyStyleToPrompt } from '@/lib/imageStyles'
 import type { ImageStyle } from '@/lib/imageStyles'
 import { selectLoras } from '@/lib/loraRouter'
 import { getAdultKeywords, detectIsAdult } from '@/lib/adultDetection'
+import { screenPrompt, screenImage, hasMinorIndicator, logCsamBlock } from '@/lib/safety/csamGuard'
 import { ollamaChat } from '@/llm/ollama'
 import { getModel, getVisionModel } from '@/lib/models'
 import type { SelectedLora } from '@/lib/loraRouter'
 import * as genQueue from '@/lib/genQueue'
 import type { JobRunContext } from '@/lib/genQueue'
+import { scanAndRepairCorruptImageModels, getImageRepairJob, forceRequeueImageModel } from '@/lib/downloadJobs'
+import { validateSafetensorsFile } from '@/lib/download'
 import type { AppEnv } from '@/types'
 
 const image = new Hono<AppEnv>()
@@ -190,6 +193,24 @@ async function getCheckpointName(): Promise<string> {
     return `${modelId}.safetensors`
   }
   return 'juggernaut-xl-ragnarok.safetensors'
+}
+
+/** Returns the active checkpoint's on-disk path and catalog ID/label. */
+async function getActiveCheckpointInfo(): Promise<{ id: string; path: string; label: string } | null> {
+  try {
+    const modelId = await getAppSetting('image_model') as string | null
+    const id = modelId ?? 'juggernaut-xl-ragnarok'
+    const entry = CATALOG.find(m => m.id === id && m.role === 'image_gen')
+    if (entry) {
+      const dest = entry.url?.dest ?? entry.hf?.dest ?? entry.hfFiles?.[0]?.dest
+      if (dest) return { id: entry.id, path: join(dataDir, dest), label: entry.label }
+    }
+    // Fallback: assume standard checkpoints directory
+    const name = await getCheckpointName()
+    return { id, path: join(dataDir, 'comfyui/models/checkpoints', name), label: name.replace('.safetensors', '') }
+  } catch {
+    return null
+  }
 }
 
 async function getRouterModel(): Promise<string> {
@@ -607,6 +628,14 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
                 } else if (detail.includes('Broken pipe')) {
                   void restartComfyUI()
                   done(new Error('Image service restarted — please try again in ~15 seconds'))
+                } else if (detail.includes('deserializing header') || detail.includes('incomplete metadata') || detail.includes('file not fully covered')) {
+                  // A safetensors model file is corrupted or was not fully downloaded.
+                  // Trigger an async scan to delete the bad file and re-queue its download.
+                  void scanAndRepairCorruptImageModels().catch(() => {})
+                  const tbText = traceback?.join('\n') ?? ''
+                  const fileMatch = tbText.match(/['"]([^'"]+\.(?:safetensors|pth|ckpt|pt))['"]/i)
+                  const hint = fileMatch ? ` (${fileMatch[1].split('/').pop()})` : ''
+                  done(new Error(`A model file${hint} is corrupted and has been queued for automatic re-download — try again in a few minutes.`))
                 } else {
                   done(new Error(`ComfyUI execution error: ${detail}`))
                 }
@@ -629,7 +658,27 @@ function makeComfyRun(imageId: string, payload: ComfyGenPayload, startedAt: numb
       const imgRes = await fetch(`${comfyUrl()}/view?${qs.toString()}`, { signal: AbortSignal.timeout(30_000) })
       if (!imgRes.ok) throw new Error(`ComfyUI /view ${imgRes.status}`)
 
-      await writeFile(imagePath, Buffer.from(await imgRes.arrayBuffer()))
+      const outBuf = Buffer.from(await imgRes.arrayBuffer())
+
+      // Output backstop — the only layer that sees the *result*, so it catches what the
+      // prompt/input checks can't: adult→child transforms, face swaps, hidden-face bodies,
+      // mislabeled LoRAs. Risk-gated to keep normal generation fast: still-image face
+      // swaps/inpaints always, and txt2img only when the prompt carries a minor cue.
+      // (Video/i2v outputs are animations, not screenable stills; i2v input is screened
+      // at submit instead.) Fails CLOSED on a flag — the file is never persisted.
+      const screenOutput =
+        payload.pipeline === 'face_id' ||
+        payload.pipeline === 'face_inpaint' ||
+        (payload.pipeline === 'txt2img' && hasMinorIndicator(payload.positive))
+      if (screenOutput) {
+        const verdict = await screenImage(outBuf.toString('base64'))
+        if (verdict.flagged) {
+          logCsamBlock(`output:${payload.pipeline}`, imageId, verdict.reason ?? 'output')
+          throw new Error('Blocked by content-safety policy')
+        }
+      }
+
+      await writeFile(imagePath, outBuf)
 
       await db.update(generatedImages).set({
         state: 'ready',
@@ -1054,7 +1103,18 @@ image.post('/preview-check', requireAuth, async (c) => {
     previewBase64: string
     loras: Array<{ id: string; name: string; weight: number }>
   }>()
-  if (!prompt?.trim() || !previewBase64) return c.json({ match: true })
+  if (!previewBase64) return c.json({ match: true })
+
+  // Safety screen first: the in-progress image is already in hand and the VLM is
+  // already being spun up here, so this is near-free. Unlike the quality check this
+  // fails CLOSED — a positive flag tells the client to cancel the running job.
+  const safety = await screenImage(previewBase64)
+  if (safety.flagged) {
+    logCsamBlock('image preview', c.get('user').id, safety.reason ?? 'preview')
+    return c.json({ match: false, blocked: true, reason: 'safety' })
+  }
+
+  if (!prompt?.trim()) return c.json({ match: true })
 
   try {
     const visionModel = await getVisionModel()
@@ -1118,15 +1178,38 @@ image.get('/status', async (c) => {
   if (memState === 'warming' || memState === 'installing') {
     return c.json({ ok: false, state: 'warming', url: comfyUrl(), ...availability })
   }
-  if (memState === 'ready') {
-    return c.json({ ok: true, state: 'ready', url: comfyUrl(), ...availability })
+  // Validate the active checkpoint file every status call — this is the earliest
+  // possible signal that a model is missing/corrupt, before any generation attempt.
+  // A synchronous file-existence + header check catches both boot-scan deletions and
+  // corrupt-but-present files, surfacing them immediately on page load.
+  async function checkCheckpoint(): Promise<{ label: string; pct: number | null } | null> {
+    const info = await getActiveCheckpointInfo()
+    if (!info) return null
+    const missing  = !existsSync(info.path)
+    const corrupt  = !missing && !validateSafetensorsFile(info.path)
+    if (!missing && !corrupt) return null
+    // File is gone or invalid — delete it (if still present) and queue a repair.
+    if (corrupt) { try { require('node:fs').unlinkSync(info.path) } catch { /* ignore */ } }
+    void forceRequeueImageModel(info.id, info.label).catch(() => {})
+    const job = await getImageRepairJob().catch(() => null)
+    return job ?? { label: info.label, pct: null }
   }
-  try {
-    const r = await fetch(`${comfyUrl()}/system_stats`, { signal: AbortSignal.timeout(2_000) })
-    if (r.ok) { markComfyUIReady(); return c.json({ ok: true, state: 'ready', url: comfyUrl(), ...availability }) }
-  } catch { /* not running */ }
-  void maybeSpawnComfyUI()
-  return c.json({ ok: false, state: 'warming', url: comfyUrl(), ...availability })
+
+  const comfyReady = memState === 'ready' || await (async () => {
+    try {
+      const r = await fetch(`${comfyUrl()}/system_stats`, { signal: AbortSignal.timeout(2_000) })
+      if (r.ok) { markComfyUIReady(); return true }
+    } catch { /* not running */ }
+    return false
+  })()
+
+  if (!comfyReady) {
+    void maybeSpawnComfyUI()
+    return c.json({ ok: false, state: 'warming', url: comfyUrl(), ...availability })
+  }
+
+  const repairJob = await checkCheckpoint() ?? await getImageRepairJob().catch(() => null)
+  return c.json({ ok: !repairJob, state: 'ready', repairJob, url: comfyUrl(), ...availability })
 })
 
 image.post('/reference-face', requireAuth, async (c) => {
@@ -1199,6 +1282,14 @@ image.post('/generate', requireAuth, async (c) => {
 
   const pipeline = selectPipeline(body)
 
+  // CSAM floor — runs before any GPU work and is NOT bypassable by uncensored consent.
+  // Refusing a blocked prompt here costs nothing (no generation is started).
+  const promptVerdict = screenPrompt(`${body.prompt ?? ''} ${body.negativePrompt ?? ''}`)
+  if (promptVerdict.blocked) {
+    logCsamBlock('image/video prompt', user.id, promptVerdict.reason ?? 'prompt')
+    return c.json({ error: 'content_blocked', message: 'This request was blocked by a safety policy and cannot be generated.' }, 403)
+  }
+
   // Availability gates — return structured 422s before health-checking
   if (body.refId && !faceIdAvailable()) {
     return c.json({ error: 'face_id_not_installed', message: 'Face identity requires IP-Adapter FaceID to be installed.' }, 422)
@@ -1218,6 +1309,26 @@ image.post('/generate', requireAuth, async (c) => {
     if (!body.imageBase64) return c.json({ error: 'imageBase64 is required', message: 'An input image is required.' }, 400)
   } else {
     if (!body.prompt?.trim()) return c.json({ error: 'prompt is required' }, 400)
+  }
+
+  // Image→video animates a supplied photo into new footage — a prompt blocklist can't
+  // see the input, so screen the pixels. Fails CLOSED on an affirmative flag; fails
+  // open (logs) if the classifier itself errors, so a down VLM doesn't break i2v.
+  if (pipeline === 'i2v' && body.imageBase64) {
+    const verdict = await screenImage(body.imageBase64)
+    if (verdict.flagged) {
+      logCsamBlock('i2v input image', user.id, verdict.reason ?? 'image')
+      return c.json({ error: 'content_blocked', message: 'This image was blocked by a safety policy and cannot be animated.' }, 403)
+    }
+  }
+
+  // "Transform a supplied person image toward a child" pattern — e.g. a face swap
+  // (refId) or face inpaint where the sexual signal lives in the input image and the
+  // minor signal lives in the prompt, so neither single-surface check catches it.
+  // There is no legitimate reason to condition/edit a person photo with a minor cue.
+  if ((body.refId || body.imageBase64) && pipeline !== 'bg_remove' && hasMinorIndicator(body.prompt ?? '')) {
+    logCsamBlock('image transform + minor cue', user.id, 'input image + age term in prompt')
+    return c.json({ error: 'content_blocked', message: 'This request was blocked by a safety policy and cannot be generated.' }, 403)
   }
 
   // Quick health check
@@ -1501,6 +1612,16 @@ image.post('/edit', requireAuth, async (c) => {
   } else {
     const bytes  = await sourceFile!.arrayBuffer()
     imageBase64  = Buffer.from(bytes).toString('base64')
+  }
+
+  // Screen UPLOADED edit inputs (not our own already-generated images) — running an
+  // upload through an edit op (upscale/restore/etc.) must not launder illegal material.
+  if (sourceFile) {
+    const verdict = await screenImage(imageBase64)
+    if (verdict.flagged) {
+      logCsamBlock('image edit upload', user.id, verdict.reason ?? 'upload')
+      return c.json({ error: 'content_blocked', message: 'This image was blocked by a safety policy and cannot be edited.' }, 403)
+    }
   }
 
   // Map op to pipeline

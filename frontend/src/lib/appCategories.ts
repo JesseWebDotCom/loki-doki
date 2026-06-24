@@ -1,8 +1,8 @@
 import {
   ArrowLeftRight, BookOpen, Brain, CalendarDays, Clapperboard, Clock, CloudSun, Compass,
   Code2, FileType, Gamepad2, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
-  Map as MapIcon, MapPin, MessageSquare, Mic, Monitor, Moon, Music, Newspaper, Package, Play,
-  Rss, Search, Settings2, Smile, Sparkles, Trophy, Tv, UtensilsCrossed, type LucideIcon,
+  Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package, Play,
+  Search, Settings2, Smile, Sparkles, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
 } from "lucide-react";
 
 export interface AppItem {
@@ -45,20 +45,11 @@ export const APP_GROUPS: AppGroup[] = [
         id: "news",
         to: "/news",
         label: "News",
-        description: "Local & global headlines",
+        description: "Headlines & your RSS feeds",
         gradient: "linear-gradient(135deg,#1e3a5f,#1a5c4a)",
         color: "#0d9488",
         icon: Newspaper,
         toolId: "news",
-      },
-      {
-        id: "feeds",
-        to: "/feeds",
-        label: "Feeds",
-        description: "Your RSS reader",
-        gradient: "linear-gradient(135deg,#7c2d12,#c2410c)",
-        color: "#ea580c",
-        icon: Rss,
       },
       {
         id: "on-this-day",
@@ -119,8 +110,9 @@ export const APP_GROUPS: AppGroup[] = [
     color: "#c026d3",
     icon: Brain,
     apps: [
-      { id: "chat",    to: "/chat",    label: "Chat",   description: "AI companion, always offline",   gradient: "linear-gradient(135deg,#3a0a72,#6d28d9)", color: "#7c3aed", icon: MessageSquare },
-      { id: "imaging", to: "/imaging", label: "Images", description: "Generate & edit with AI",        gradient: "linear-gradient(135deg,#6d28d9,#db2777)", color: "#db2777", icon: ImageIcon },
+      { id: "chat",       to: "/chat",       label: "Chat",       description: "AI companion, always offline",   gradient: "linear-gradient(135deg,#3a0a72,#6d28d9)", color: "#7c3aed", icon: MessageSquare },
+      { id: "companions", to: "/companions", label: "Companions", description: "Browse and customize companions", gradient: "linear-gradient(135deg,#1d4ed8,#7c3aed)", color: "#6366f1", icon: Users },
+      { id: "imaging",    to: "/imaging",    label: "Images",     description: "Generate & edit with AI",        gradient: "linear-gradient(135deg,#6d28d9,#db2777)", color: "#db2777", icon: ImageIcon },
       { id: "video",   to: "/video",   label: "Video",  description: "Text & image to video",          gradient: "linear-gradient(135deg,#db2777,#f97316)", color: "#ea580c", icon: Clapperboard },
       { id: "music",   to: "/music",   label: "Music",  description: "Generate & remix music",         gradient: "linear-gradient(135deg,#f97316,#fb923c)", color: "#f97316", icon: Music },
       { id: "skills",  to: "/skills",  label: "Skills", description: "Custom companion behaviors",     gradient: "linear-gradient(135deg,#312e81,#7c3aed)", color: "#7c3aed", icon: Sparkles },
@@ -148,7 +140,8 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "bored",          to: "/bored",          label: "I'm Bored",      description: "Find something to do",               gradient: "linear-gradient(135deg,#3b0d8a,#7c3aed)", color: "#8b5cf6", icon: Lightbulb },
       { id: "jokes",          to: "/jokes",          label: "Joke of the Day", description: "A fresh dad joke daily",              gradient: "linear-gradient(135deg,#78350f,#d97706)", color: "#d97706", icon: Smile,          toolId: "jokes" },
       { id: "where-to-watch", to: "/where-to-watch", label: "Where to Watch",  description: "Find where to stream any title",      gradient: "linear-gradient(135deg,#1e1b4b,#7c3aed)", color: "#7c3aed", icon: Tv,             toolId: "where-to-watch" },
-      { id: "tv-shows",       to: "/tv-shows",       label: "TV Shows",        description: "Search show details and episodes",    gradient: "linear-gradient(135deg,#0c4a6e,#0284c7)", color: "#0284c7", icon: Monitor,        toolId: "tvshows" },
+      { id: "shows",          to: "/shows",          label: "Shows",           description: "Discover TV series — streaming, trailers & reviews", gradient: "linear-gradient(135deg,#0c4a6e,#0284c7)", color: "#0284c7", icon: Tv,             toolId: "tvshows" },
+      { id: "movies",         to: "/movies",         label: "Movies",          description: "Discover films — streaming, showtimes, trailers & reviews", gradient: "linear-gradient(135deg,#1e1b4b,#6d28d9)", color: "#7c3aed", icon: Clapperboard },
       { id: "youtube",        to: "/youtube",        label: "YouTube",         description: "Search and watch YouTube videos",     gradient: "linear-gradient(135deg,#7f1d1d,#dc2626)", color: "#dc2626", icon: Play,           toolId: "youtube" },
       { id: "podcasts",       to: "/podcasts",       label: "Podcasts",        description: "AI-generated shows from your content", gradient: "linear-gradient(135deg,#0f172a,#6d28d9)", color: "#7c3aed", icon: Mic },
       { id: "recipes",        to: "/recipes",        label: "Recipes",         description: "Discover meals to cook tonight",      gradient: "linear-gradient(135deg,#7c2d12,#ea580c)", color: "#ea580c", icon: UtensilsCrossed, toolId: "recipes" },
@@ -175,7 +168,7 @@ export const APP_GROUPS: AppGroup[] = [
     color: "#2563eb",
     icon: Settings2,
     apps: [
-      { id: "links",          to: "/reader",         label: "Reader",         description: "Bookmarks, links & saved articles", gradient: "linear-gradient(135deg,#14532d,#166534)", color: "#16a34a", icon: BookOpen,        feature: "links" },
+      { id: "bookmarks",      to: "/bookmarks",      label: "Bookmarks",      description: "Saved links, articles & offline archives", gradient: "linear-gradient(135deg,#14532d,#166534)", color: "#16a34a", icon: BookOpen,        feature: "bookmarks" },
       { id: "home-inventory", to: "/home-inventory", label: "Home Inventory", description: "Track devices & appliances",  gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Package,         feature: "home-inventory", toolId: "home_inventory" },
       { id: "home-assistant", to: "/home-assistant", label: "Home Assistant", description: "Control smart home devices",  gradient: "linear-gradient(135deg,#1c1917,#57534e)", color: "#78716c", icon: Home,            feature: "homeAssistant",  toolId: "homeAssistant" },
       { id: "unit-converter", to: "/unit-converter", label: "Unit Converter", description: "Convert length, weight, and more", gradient: "linear-gradient(135deg,#134e4a,#0d9488)", color: "#0d9488", icon: ArrowLeftRight },

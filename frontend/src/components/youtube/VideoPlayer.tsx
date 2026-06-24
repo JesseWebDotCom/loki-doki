@@ -235,7 +235,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, {
     else if (y) { try { next ? y.mute?.() : y.unMute?.() } catch { /* noop */ } }
     setMuted(next)
   }
-  const fullscreen = () => { wrapRef.current?.requestFullscreen?.().catch(() => {}) }
+  // Toggle: exit if already fullscreen (so the button works both ways), else request.
+  const fullscreen = () => {
+    const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void }
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      try { (document.exitFullscreen ?? doc.webkitExitFullscreen)?.call(document) } catch { /* noop */ }
+      return
+    }
+    const el = wrapRef.current as (HTMLElement & { webkitRequestFullscreen?: () => void }) | null
+    try { (el?.requestFullscreen ?? el?.webkitRequestFullscreen)?.call(el) } catch { /* noop */ }
+  }
 
   // Apply an embed quality level (best-effort — modern YouTube often ignores this and
   // keeps auto, but the API still accepts the hint).

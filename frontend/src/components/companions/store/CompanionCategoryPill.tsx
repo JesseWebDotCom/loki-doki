@@ -9,10 +9,14 @@ export function CompanionCategoryPill({ category, className }: { category: Compa
     <Link
       to={`/companions/category/${category.key}`}
       className={cn(
-        'group flex items-center gap-3 rounded-2xl border border-border/40 bg-card px-4 py-3.5',
-        'transition-colors hover:border-border hover:bg-accent/40',
+        'group relative flex items-center gap-3 overflow-hidden rounded-2xl border px-4 py-3.5',
+        'transition-all hover:scale-[1.01] hover:brightness-110',
         className,
       )}
+      style={{
+        borderColor: `color-mix(in oklab, ${category.color} 45%, transparent)`,
+        backgroundImage: `linear-gradient(135deg, color-mix(in oklab, ${category.color} 22%, transparent), color-mix(in oklab, ${category.color} 7%, transparent))`,
+      }}
     >
       <span
         className="flex size-9 shrink-0 items-center justify-center rounded-xl shadow-sm"
