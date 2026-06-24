@@ -15,7 +15,7 @@
 
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { userPreferences } from '@/db/schema'
+import { userPreferences, chatDocuments } from '@/db/schema'
 import { routePrompt } from '@/llm/router'
 import { ollamaChatStream } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
@@ -31,6 +31,7 @@ import { isOffline } from '@/lib/connectivity'
 import { buildLocalePrompt } from '@/routes/adminLocale'
 import { buildContentPrompt } from '@/lib/contentPolicy'
 import type { ContentDials } from '@/lib/contentPolicy'
+import { activeSkillsBlock } from '@/lib/skills/resolver'
 import { logger } from '@/lib/logger'
 
 // Structured side-channel events (mirror the chat route's SSE taxonomy). Data is
@@ -276,6 +277,40 @@ export async function runCompanionTurn(
   if (p.characterSystemPrompt) systemParts.push(p.characterSystemPrompt)
   if (memoryBlock) systemParts.push(memoryBlock)
   if (p.uiContext) systemParts.push(p.uiContext)
+  // User-authored skills active for this user (best-effort; never breaks a turn).
+  try {
+    const skillsBlock = await activeSkillsBlock(p.userId)
+    if (skillsBlock) systemParts.push(skillsBlock)
+  } catch (e) {
+    logger.warn(`[skills] active-skills block failed: ${e}`)
+  }
+
+  // Documents the user attached to this conversation — stuffed (budgeted) so the
+  // companion can answer questions about them. Best-effort; never breaks a turn.
+  try {
+    const docs = await db
+      .select({ filename: chatDocuments.filename, text: chatDocuments.text })
+      .from(chatDocuments)
+      .where(eq(chatDocuments.conversationId, p.convId))
+    if (docs.length > 0) {
+      const BUDGET = 8000
+      const parts: string[] = []
+      let len = 0
+      for (const d of docs) {
+        const slice = d.text.slice(0, Math.max(0, BUDGET - len))
+        if (!slice) break
+        parts.push(`### ${d.filename}\n${slice}${slice.length < d.text.length ? '\n…(truncated)' : ''}`)
+        len += slice.length
+        if (len >= BUDGET) break
+      }
+      systemParts.push(
+        '## Attached documents\nThe user attached these documents to this conversation. ' +
+        'Use them to answer questions; quote or cite the filename when relevant.\n\n' + parts.join('\n\n'),
+      )
+    }
+  } catch (e) {
+    logger.warn(`[chat-docs] attachment block failed: ${e}`)
+  }
   // Tone (language/depth/candor). Content policy is handled by buildContentPrompt
   // above; the legacy protection fragment is now folded into the content dials.
   const _interactionFragment = buildInteractionFragment(p.interactionStyle)

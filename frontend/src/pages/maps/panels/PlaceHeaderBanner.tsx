@@ -5,6 +5,8 @@ import { cn } from "@/lib/cn";
 import { poiBgColorFromCategory } from "../poi-colors";
 import { poiCategoryIconId } from "../poi-icons";
 import { poiLucideIcon } from "../poi-lucide-icons";
+import { isResidentialPlace } from "../residential";
+import { loadSatelliteSnapshot, peekSatelliteSnapshot } from "../satellite-snapshot";
 import type { PlaceResult } from "../types";
 
 // ── image fetchers ────────────────────────────────────────────────────────────
@@ -162,14 +164,19 @@ export function PlaceHeaderBanner({ place }: { place: PlaceResult }): JSX.Elemen
   );
   const [logoVisible, setLogoVisible] = useState(false);
 
-  // Double-buffer cross-fade: bottom stays fully visible while top loads in.
-  // Lazy init from cache so hasPhoto=true on first render for repeat visits.
-  const [bottomPhoto, setBottomPhoto] = useState<string | null>(() => resolvedPhotoCache.get(place.place_id) ?? null);
+  // Double-buffer cross-fade. On every place change the bottom layer (current
+  // image) starts fading out immediately; the new image loads into the top layer
+  // and fades in over whatever's left, then is promoted to the bottom. An opaque
+  // image fading 0→100 over another reads as a smooth cross-fade; with no new
+  // photo the bottom just finishes fading out to the placeholder icon.
+  const [bottomPhoto, setBottomPhoto] = useState<string | null>(null);
+  const [bottomOn, setBottomOn] = useState(true);
   const [topPhoto, setTopPhoto] = useState<string | null>(null);
   const [topLoaded, setTopLoaded] = useState(false);
   // Logo only shown after fetch resolves with no photo — never during loading.
-  const [fetchDone, setFetchDone] = useState(() => !!resolvedPhotoCache.get(place.place_id));
+  const [fetchDone, setFetchDone] = useState(false);
   const swapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const iconId = poiCategoryIconId(place.kind ?? null);
@@ -182,36 +189,62 @@ export function PlaceHeaderBanner({ place }: { place: PlaceResult }): JSX.Elemen
   }, [place.place_id, brandSrc, favSrc]);
 
   useEffect(() => {
+    // Tile preliminaries have no real identity yet — leave the current image and
+    // any in-flight fetch untouched, don't fetch or flash the icon.
+    if (place.place_id.startsWith("tile:")) return;
+
     if (swapTimerRef.current) clearTimeout(swapTimerRef.current);
+    if (fadeOutTimerRef.current) clearTimeout(fadeOutTimerRef.current);
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Skip remote photo fetches for tile preliminaries — no real identity yet.
-    // Keep fetchDone=false so the logo never flashes during this brief phase.
-    if (place.place_id.startsWith("tile:")) {
-      setTopPhoto(null);
-      setTopLoaded(false);
-      setBottomPhoto(null);
-      setFetchDone(false);
-      return () => { controller.abort(); };
-    }
-
-    // Cached from this session — show immediately, logo never appears.
-    const cached = resolvedPhotoCache.get(place.place_id);
-    if (cached) {
-      setBottomPhoto(cached);
-      setTopPhoto(null);
-      setTopLoaded(false);
-      setFetchDone(true);
-      return () => { controller.abort(); };
-    }
-
-    // Immediately wipe both layers so the previous POI's photo never bleeds through.
+    // Start fading the current image out *immediately* so selecting a new POI
+    // registers at once — we don't wait for the new image to load (that made it
+    // look like nothing happened). The new one cross-fades in over it once ready;
+    // if it's slow, the old finishes fading to the gradient/icon in the meantime.
     setTopPhoto(null);
     setTopLoaded(false);
-    setBottomPhoto(null);
     setFetchDone(false);
+    setBottomOn(false);
+    fadeOutTimerRef.current = setTimeout(() => {
+      setBottomPhoto(null);
+      setBottomOn(true);
+    }, 700);
+
+    // New photo found → load it into the top layer; handleTopLoad fades it in and
+    // promotes it to the bottom (always after the fade-out above has reset).
+    const fadeIn = (url: string): void => {
+      if (controller.signal.aborted) return;
+      setTopPhoto(url);
+      setTopLoaded(false);
+      setFetchDone(true);
+    };
+    // No photo → the old image is already fading out; let the icon follow.
+    const noPhoto = (): void => {
+      if (controller.signal.aborted) return;
+      setFetchDone(true);
+    };
+
+    const cached = resolvedPhotoCache.get(place.place_id);
+    if (cached) {
+      fadeIn(cached);
+      return () => { controller.abort(); };
+    }
+
+    // Homes have no Wikipedia entry — stitch a satellite snapshot of the lot.
+    if (isResidentialPlace(place)) {
+      const memo = peekSatelliteSnapshot(place.place_id);
+      if (memo) {
+        fadeIn(memo);
+        return () => { controller.abort(); };
+      }
+      void loadSatelliteSnapshot(place.place_id, place.lat, place.lon).then((url) => {
+        if (url) fadeIn(url);
+        else noPhoto(); // offline / no tiles
+      });
+      return () => { controller.abort(); };
+    }
 
     // Run all three paths in parallel; pick best available by priority.
     void Promise.all([
@@ -223,29 +256,31 @@ export function PlaceHeaderBanner({ place }: { place: PlaceResult }): JSX.Elemen
         ? Promise.resolve(null)
         : fetchWikiSearchPhoto(place.title, place.kind ?? null, controller.signal),
     ]).then(([wikiUrl, wikidataUrl, searchUrl]) => {
-      if (controller.signal.aborted) return;
       const photo = wikiUrl ?? wikidataUrl ?? searchUrl ?? null;
       if (photo) {
         resolvedPhotoCache.set(place.place_id, photo);
         _persistCache(resolvedPhotoCache);
-        setTopPhoto(photo);
-        setTopLoaded(false);
         void _cacheLocally(place.place_id, photo);
+        fadeIn(photo);
+      } else {
+        noPhoto();
       }
-      // Only now allow logo to appear — and only if no photo was found.
-      setFetchDone(true);
     });
 
     return () => {
       if (swapTimerRef.current) clearTimeout(swapTimerRef.current);
+      if (fadeOutTimerRef.current) clearTimeout(fadeOutTimerRef.current);
       controller.abort();
     };
   }, [place.place_id, place.wiki_url, place.brand_qid, place.title]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleTopLoad() {
-    setTopLoaded(true);
+    setTopLoaded(true); // incoming fades in over the current image → cross-fade
     swapTimerRef.current = setTimeout(() => {
+      // Promote the now fully-faded-in image to the stable bottom layer. It's at
+      // full opacity already, so this hand-off is seamless (no re-fade).
       setBottomPhoto(topPhoto);
+      setBottomOn(true);
       setTopPhoto(null);
       setTopLoaded(false);
     }, 750);
@@ -297,13 +332,17 @@ export function PlaceHeaderBanner({ place }: { place: PlaceResult }): JSX.Elemen
         )}
       </div>
 
-      {/* Bottom layer: stable fully-visible photo */}
+      {/* Bottom layer: the current image. Holds while a new one loads, then
+          dissolves out (bottomOn=false) when the next place has no photo. */}
       {bottomPhoto ? (
         <img
           src={bottomPhoto}
           alt=""
           aria-hidden
-          className="absolute inset-0 h-full w-full object-cover"
+          className={cn(
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-700",
+            bottomOn ? "opacity-100" : "opacity-0",
+          )}
           onError={() => {
             resolvedPhotoCache.delete(place.place_id);
             _persistCache(resolvedPhotoCache);

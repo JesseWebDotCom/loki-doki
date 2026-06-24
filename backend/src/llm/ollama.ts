@@ -5,7 +5,10 @@ import type { IncomingMessage } from 'node:http'
 import type { Socket } from 'bun'
 import { logger } from '@/lib/logger'
 
-export const ollamaUrl = () => process.env.OLLAMA_URL ?? 'http://localhost:11434'
+import { getActiveOllamaUrl } from '@/lib/remoteEngine'
+
+// Resolves to the remote Ollama host when an admin has paired one, else local/env.
+export const ollamaUrl = () => getActiveOllamaUrl()
 
 // A connected-but-silent Ollama would otherwise hang the caller forever and,
 // for chat jobs, never free the genQueue slot. These bound that wait.

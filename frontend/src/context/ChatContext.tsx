@@ -5,6 +5,7 @@ import type { Block } from '@/components/chat/blocks/BlockRenderer'
 import type { Source } from '@/lib/transformCitations'
 import { useUIContext } from '@/context/UIContextProvider'
 import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
+import { toast } from '@/lib/toast'
 
 // ── Projects ─────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,12 @@ interface ChatContextValue {
   setInput: (v: string) => void
   submit: (characterId?: string, textOverride?: string) => void
   stop: () => void
+
+  /** Documents attached to the next message (extracted text, sent + persisted on submit). */
+  attachedDocs: { filename: string; text: string; chars: number }[]
+  attachDocument: (file: File) => Promise<void>
+  removeAttachedDoc: (index: number) => void
+  attachingDoc: boolean
   /** Navigate to /chat and auto-submit a prompt as a fresh conversation. */
   queuePrompt: (text: string) => void
   pendingAutoPrompt: string | null
@@ -103,6 +110,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages]             = useState<Message[]>([])
   const [input, setInput]                   = useState('')
   const [isGenerating, setIsGenerating]     = useState(false)
+  const [attachedDocs, setAttachedDocs]     = useState<{ filename: string; text: string; chars: number }[]>([])
+  const [attachingDoc, setAttachingDoc]     = useState(false)
   const [queuePosition, setQueuePosition]   = useState<number | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations]   = useState<Conversation[]>([])
@@ -395,6 +404,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setConversations((prev) => prev.map((c) => c.id === id ? { ...c, pinned } : c))
   }, [])
 
+  // ── Document attachments ─────────────────────────────────────────────────────
+
+  const attachDocument = useCallback(async (file: File) => {
+    setAttachingDoc(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await fetch('/api/chat/extract', { method: 'POST', credentials: 'include', body: fd })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error((data as { error?: string }).error ?? 'Could not read that file')
+      const d = data as { filename: string; text: string; chars: number }
+      setAttachedDocs((prev) => [...prev, { filename: d.filename, text: d.text, chars: d.chars }])
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setAttachingDoc(false)
+    }
+  }, [])
+
+  const removeAttachedDoc = useCallback((index: number) => {
+    setAttachedDocs((prev) => prev.filter((_, i) => i !== index))
+  }, [])
+
   // ── Submit / Stream ─────────────────────────────────────────────────────────
 
   const submit = useCallback((characterId?: string, textOverride?: string) => {
@@ -410,6 +442,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setIsGenerating(true)
     setQueuePosition(null)
 
+    // Snapshot + clear attachments — they're persisted to the conversation on this turn.
+    const sendAttachments = attachedDocs.map((d) => ({ filename: d.filename, text: d.text }))
+    setAttachedDocs([])
+
     const uiContext = getContextBlock()
     // Placeholder with a temp id; server will confirm the real assistantMessageId via gen event
     const placeholderId = crypto.randomUUID()
@@ -422,7 +458,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const currentProjectId = currentProjectRef.current?.id ?? undefined
 
     streamChat(
-      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId },
+      { message: text, conversationId: currentConvId ?? undefined, characterId: charId, uiContext, projectId: currentProjectId, attachments: sendAttachments.length ? sendAttachments : undefined },
       controller.signal,
       {
         onGen: ({ genId, conversationId: serverConvId, assistantMessageId }) => {
@@ -539,7 +575,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         },
       },
     )
-  }, [input, isGenerating, conversationId, getContextBlock])
+  }, [input, isGenerating, conversationId, getContextBlock, attachedDocs])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -571,6 +607,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   return (
     <ChatContext.Provider value={{
       messages, isGenerating, queuePosition, input, setInput, submit, stop,
+      attachedDocs, attachDocument, removeAttachedDoc, attachingDoc,
       queuePrompt, pendingAutoPrompt, clearPendingAutoPrompt,
       conversationId, conversations,
       loadConversation, newConversation, deleteConversation, pinConversation, refreshConversations,
@@ -664,7 +701,7 @@ async function consumeSSEStream(
 
 /** Start a new chat generation (POST). */
 async function streamChat(
-  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string },
+  body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; attachments?: { filename: string; text: string }[] },
   signal: AbortSignal,
   { onGen, onQueue, onSeq, onToken, onBlock, onSources, onDone, onError }: StreamCallbacks,
 ) {

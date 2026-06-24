@@ -12,6 +12,7 @@ import { getIconChoice } from '@/components/shared/IconPicker'
 import { ProjectEditor } from '@/components/chat/ProjectEditor'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ChatListRow } from '@/components/chat/ChatListRow'
+import { ProjectDocumentsPanel } from '@/components/chat/ProjectDocumentsPanel'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -154,6 +155,9 @@ export function ProjectPage() {
             </p>
           </div>
         )}
+
+        {/* Documents + long-form generation */}
+        <ProjectDocumentsPanel projectId={project.id} />
 
         {/* Conversations */}
         <div className="mt-6">

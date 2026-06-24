@@ -1197,3 +1197,26 @@ export const generatedDocuments = sqliteTable('generated_documents', {
   markdown: text('markdown').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
+
+// ─── Chat document attachments ──────────────────────────────────────────────────
+// A document (PDF/text/HTML) dropped into a conversation. Its extracted text is
+// stuffed into the prompt for that conversation's turns ("ask about this PDF").
+export const chatDocuments = sqliteTable('chat_documents', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  filename: text('filename').notNull(),
+  text: text('text').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ─── TTS pronunciation lexicon ──────────────────────────────────────────────────
+// Global admin-managed respellings applied to text before synthesis (audio only —
+// on-screen captions keep the original spelling). Ported from v1 /audio/pronunciation.
+export const pronunciations = sqliteTable('pronunciations', {
+  id: text('id').primaryKey(),
+  term: text('term').notNull(),            // word/phrase to match (case-insensitive, whole-word)
+  replacement: text('replacement').notNull(), // phonetic respelling fed to the TTS engine
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})

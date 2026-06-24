@@ -19,6 +19,15 @@ export interface ToolTurn {
   directReply?: string
 }
 
+// A tool ran successfully but returned no findings — e.g. web search with an empty
+// `results` array. Used to send a "found nothing, don't make it up" instruction to
+// the model rather than the normal "use this data" one.
+function isEmptyResult(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false
+  const d = data as { results?: unknown }
+  return Array.isArray(d.results) && d.results.length === 0
+}
+
 async function userLocationPref(userId: string): Promise<{ displayName?: string; lat?: number; lng?: number } | null> {
   try {
     const [row] = await db
@@ -72,6 +81,17 @@ export async function runToolTurn(opts: {
     if (result.success) {
       if (typeof result.directReply === 'string' && result.directReply.trim()) {
         return { userContent: opts.message, toolId: tool.id, directReply: result.directReply.trim() }
+      }
+      // The tool ran fine but found nothing (e.g. a web search on a name that came
+      // through garbled from speech — "Vinnie Jones" → "vunny jones"). Without an
+      // explicit signal the model treats the empty payload as license to answer from
+      // its own memory and confidently deny the subject exists ("never heard of him").
+      // Tell it the search came up empty and to recover gracefully instead.
+      if (isEmptyResult(result.data)) {
+        return {
+          userContent: `${opts.message}\n\n[${tool.name}]: No results found. Do NOT claim the subject doesn't exist or that you've never heard of it — the name may be misspelled or misheard from speech. Briefly say you couldn't find anything on it, and if it closely resembles someone or something well-known, ask if that's who they meant.`,
+          toolId: tool.id,
+        }
       }
       return { userContent: `${opts.message}\n\n[${tool.name} data]: ${JSON.stringify(result.data)}\n\nUse this data to answer in your own voice, conversationally.`, toolId: tool.id }
     }

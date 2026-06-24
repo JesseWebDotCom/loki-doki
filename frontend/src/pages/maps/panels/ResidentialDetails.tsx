@@ -7,51 +7,12 @@ import {
   type PropertyDetails,
   type PersonRecord,
 } from "@/lib/lookupApi";
+import { isResidentialPlace, parsePlaceAddress } from "../residential";
 import type { PlaceResult } from "../types";
 
 // Property + resident lookup for a clicked residential address. Renders nothing unless the
 // place looks like a home we can resolve to a house/street/city/state. Property data is
 // public assessor record (VGSI); residents come from the free ThatsThem directory.
-
-interface ParsedAddress {
-  house: string;
-  street: string;
-  city: string;
-  state: string;
-  zip?: string;
-}
-
-/** Pull house/street/city/state out of a clicked place, or null if it isn't an address. */
-function parsePlaceAddress(place: PlaceResult): ParsedAddress | null {
-  const lines = [place.title, ...place.address_lines, place.subtitle]
-    .map((l) => (l ?? "").trim())
-    .filter(Boolean);
-
-  // Street = first line beginning with a house number.
-  const streetLine = lines.find((l) => /^\d+[A-Za-z]?(?:-\d+)?\s+\S/.test(l));
-  if (!streetLine) return null;
-  const sm = streetLine.match(/^(\d+(?:-\d+)?[A-Za-z]?)\s+(.+)$/);
-  if (!sm) return null;
-  const house = sm[1];
-  // Drop a trailing ", City, ST ..." if the street line itself carried the locality.
-  const street = sm[2].split(",")[0].trim();
-
-  // City + state: the first line carrying a 2-letter state token.
-  let city = "";
-  let state = "";
-  let zip: string | undefined;
-  for (const l of lines) {
-    const m = l.match(/([A-Za-z .'-]+),\s*([A-Z]{2})\b[,\s]*(\d{5}(?:-\d{4})?)?/);
-    if (m) {
-      city = m[1].replace(/^\d+\s+\S.*?,\s*/, "").trim();
-      state = m[2];
-      zip = m[3];
-      break;
-    }
-  }
-  if (!city || !state) return null;
-  return { house, street, city, state, zip };
-}
 
 function fmtMoney(v: string | null): string | null {
   if (!v) return null;
@@ -71,7 +32,7 @@ function Stat({ label, value }: { label: string; value: string }): JSX.Element {
 export function ResidentialDetails({ place }: { place: PlaceResult }): JSX.Element | null {
   const parsed = parsePlaceAddress(place);
   // Skip clearly-commercial POIs — those are handled by the normal business card.
-  const eligible = parsed != null && !place.website && !place.business_attrs;
+  const eligible = isResidentialPlace(place);
 
   const [property, setProperty] = useState<PropertyDetails | null>(null);
   const [residents, setResidents] = useState<PersonRecord[]>([]);

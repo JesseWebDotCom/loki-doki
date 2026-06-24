@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Square, Plus, X } from 'lucide-react'
+import { ArrowUp, Square, Plus, X, FileText, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { RippleButton } from '@/components/shared/RippleButton'
+import { useChatContext } from '@/context/ChatContext'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,8 @@ interface Props {
 export function CompanionComposer({ onSend, onStop, isGenerating = false, isThinking = false, placeholder = 'Message LokiDoki…', autoFocus = false, onTyping, focusKey, visionAvailable = true }: Props) {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
+  // Document attachments live in chat context (extracted text persists to the conversation).
+  const { attachedDocs, attachDocument, removeAttachedDoc, attachingDoc } = useChatContext()
   const inputRef = useRef<HTMLInputElement>(null)
   const photosInputRef = useRef<HTMLInputElement>(null)
   const filesInputRef = useRef<HTMLInputElement>(null)
@@ -45,8 +48,10 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
 
   function send() {
     const text = value.trim()
-    if (!text && attachments.length === 0) return
-    const finalText = DETAIL_PHRASES.test(text) ? `${text}${DETAIL_SUFFIX}` : text
+    if (!text && attachments.length === 0 && attachedDocs.length === 0) return
+    // Doc-only send (no typed question) gets a sensible default prompt so the turn isn't empty.
+    const base = text || (attachedDocs.length > 0 ? 'Please summarize the attached document(s).' : text)
+    const finalText = DETAIL_PHRASES.test(base) ? `${base}${DETAIL_SUFFIX}` : base
     onSend(finalText, attachments.length > 0 ? attachments : undefined)
     setValue('')
     setAttachments([])
@@ -54,7 +59,14 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
 
   function addFiles(files: FileList | null) {
     if (!files) return
-    setAttachments(prev => [...prev, ...Array.from(files)].slice(0, 4))
+    const images: File[] = []
+    for (const f of Array.from(files)) {
+      // Images → vision attachments (sent via onSend). Everything else → document
+      // extraction (text stuffed into the conversation context on submit).
+      if (f.type.startsWith('image/')) images.push(f)
+      else void attachDocument(f)
+    }
+    if (images.length) setAttachments(prev => [...prev, ...images].slice(0, 4))
   }
 
   function removeAttachment(index: number) {
@@ -66,17 +78,31 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
     <div className={cn(
       'rounded-[calc(1rem-1.5px)] border border-border bg-card transition-all focus-within:border-brand/50',
     )}>
-      {/* Attachment chips */}
-      {attachments.length > 0 && (
+      {/* Attachment chips (images + documents) */}
+      {(attachments.length > 0 || attachedDocs.length > 0 || attachingDoc) && (
         <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
           {attachments.map((file, i) => (
-            <div key={i} className="flex items-center gap-1 rounded-lg bg-muted px-2 py-1 text-xs max-w-[120px]">
+            <div key={`img-${i}`} className="flex items-center gap-1 rounded-lg bg-muted px-2 py-1 text-xs max-w-[120px]">
               <span className="truncate text-foreground/70">{file.name}</span>
               <button onClick={() => removeAttachment(i)} className="shrink-0 text-muted-foreground hover:text-foreground">
                 <X className="size-3" />
               </button>
             </div>
           ))}
+          {attachedDocs.map((doc, i) => (
+            <div key={`doc-${i}`} className="flex items-center gap-1 rounded-lg bg-brand/10 px-2 py-1 text-xs max-w-[140px]" title={`${doc.chars.toLocaleString()} chars`}>
+              <FileText className="size-3 shrink-0 text-brand" />
+              <span className="truncate text-foreground/70">{doc.filename}</span>
+              <button onClick={() => removeAttachedDoc(i)} className="shrink-0 text-muted-foreground hover:text-foreground">
+                <X className="size-3" />
+              </button>
+            </div>
+          ))}
+          {attachingDoc && (
+            <div className="flex items-center gap-1 rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" /> reading…
+            </div>
+          )}
         </div>
       )}
 
@@ -154,7 +180,7 @@ export function CompanionComposer({ onSend, onStop, isGenerating = false, isThin
         ) : (
           <RippleButton
             onClick={send}
-            disabled={!value.trim() && attachments.length === 0}
+            disabled={!value.trim() && attachments.length === 0 && attachedDocs.length === 0}
             rippleColor="var(--background)"
             className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-foreground text-background transition-colors disabled:opacity-20"
           >

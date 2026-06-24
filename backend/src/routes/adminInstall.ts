@@ -8,6 +8,7 @@ import { setAppSetting } from '@/lib/settings'
 import { invalidateRouterModelCache } from '@/lib/models'
 import { pullOllama, dataDir, isWeatherIconsInstalled } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR } from '@/lib/comfyui'
+import { isSearXNGInstalled } from '@/lib/searxng'
 import { isKiwixInstalled } from '@/lib/kiwix'
 import { isWakewordCoreInstalled, isWakewordTrainInstalled } from '@/lib/download'
 import { isVoiceServerInstalled } from '@/lib/voiceServer'
@@ -44,6 +45,13 @@ adminInstall.get('/', requireAdmin, (c) => {
       description: 'libzim — ZIM reader required to browse offline Wikipedia, iFixit, Khan Academy, and more',
       installed: isKiwixInstalled(),
       approxBytes: 15_000_000,
+    },
+    {
+      id: 'searxng',
+      label: 'Web Search Engine (SearXNG)',
+      description: 'Local SearXNG metasearch — aggregates Google/Brave/Startpage server-side so web search works where direct scraping is blocked. Self-updates weekly. Source: github.com/searxng/searxng (AGPL-3.0).',
+      installed: isSearXNGInstalled(),
+      approxBytes: 300_000_000,
     },
     {
       id: 'voice-core',

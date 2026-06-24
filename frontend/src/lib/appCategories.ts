@@ -124,6 +124,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "video",   to: "/video",   label: "Video",  description: "Text & image to video",          gradient: "linear-gradient(135deg,#db2777,#f97316)", color: "#ea580c", icon: Clapperboard },
       { id: "music",   to: "/music",   label: "Music",  description: "Generate & remix music",         gradient: "linear-gradient(135deg,#f97316,#fb923c)", color: "#f97316", icon: Music },
       { id: "skills",  to: "/skills",  label: "Skills", description: "Custom companion behaviors",     gradient: "linear-gradient(135deg,#312e81,#7c3aed)", color: "#7c3aed", icon: Sparkles },
+      { id: "voice-memos", to: "/voice-memos", label: "Voice Memos", description: "Record & transcribe notes", gradient: "linear-gradient(135deg,#0c4a6e,#0891b2)", color: "#0891b2", icon: Mic },
     ],
   },
   {

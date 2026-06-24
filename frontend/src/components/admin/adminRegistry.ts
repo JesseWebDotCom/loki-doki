@@ -161,6 +161,12 @@ export const ADMIN_SECTIONS: AdminSection[] = [
         description: 'Live application and ComfyUI logs' },
     ],
   },
+  {
+    id: 'engine', label: 'Engine', icon: Cpu,
+    keywords: ['engine', 'remote', 'ollama', 'gpu', 'offload', 'inference', 'llm', 'host'],
+    description: 'Run inference on a remote Ollama host',
+    subsections: [],
+  },
 ]
 
 export function findSection(id: string | undefined): AdminSection | undefined {

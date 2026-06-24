@@ -38,6 +38,7 @@ import {
   type DownloadProgress,
 } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI } from '@/lib/comfyui'
+import { isSearXNGInstalled, installSearXNG, maybeSpawnSearXNG } from '@/lib/searxng'
 import { isKiwixInstalled, installKiwixTools } from '@/lib/kiwix'
 import { isVoiceServerInstalled, installVoiceModels, maybeSpawnVoiceServer } from '@/lib/voiceServer'
 import { isMapsToolchainInstalled, installMapsToolchain } from '@/lib/maps/toolchain'
@@ -121,6 +122,14 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     id: 'kiwix-tools', group: 'library', label: 'Offline Library Runtime',
     isInstalled: isKiwixInstalled,
     repair: (onP, sig) => installKiwixTools(statusAdapter(onP), sig),
+  },
+  {
+    id: 'searxng', group: 'search', label: 'Web Search Engine (SearXNG)',
+    isInstalled: isSearXNGInstalled,
+    repair: async (onP, sig) => {
+      await installSearXNG((msg) => statusAdapter(onP)(msg), sig)
+      maybeSpawnSearXNG()
+    },
   },
   {
     id: 'voice-core', group: 'voice', label: 'Voice (Kokoro TTS + Whisper STT)',

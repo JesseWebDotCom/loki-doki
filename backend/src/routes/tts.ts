@@ -13,6 +13,7 @@ import {
 } from '@/lib/voice'
 import { stripForSpeech } from '@/lib/voice/speechText'
 import { refineSentence } from '@/lib/voice/prosodyText'
+import { applyPronunciations } from '@/lib/voice/pronunciation'
 import { kokoroEngine } from '@/lib/voice/engines/kokoroEngine'
 import { logger } from '@/lib/logger'
 
@@ -95,8 +96,10 @@ tts.post('/stream', requireAuth, async (c) => {
           const _s = performance.now()
           // Normalize punctuation (question intonation, ellipsis) + per-sentence pause.
           const refined = refineSentence(sentences[i]!)
+          // Apply the pronunciation lexicon to the AUDIO text only (captions below use the original).
+          const spoken = await applyPronunciations(refined.text)
           try {
-            payload = await engine.synthesize(refined.text, { voice: voiceId, speechRate, gain, signal })
+            payload = await engine.synthesize(spoken, { voice: voiceId, speechRate, gain, signal })
           } catch (e) {
             if (signal.aborted) break
             controller.enqueue(encoder.encode(JSON.stringify({ error: (e as Error).message }) + '\n'))

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Play, Star, AudioLines } from 'lucide-react'
+import { Play, Star, AudioLines, SpellCheck, Plus, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/cn'
 import { speak } from '@/lib/voice/voicePlaybackStore'
+import { toast } from '@/lib/toast'
 
 // ── Static Kokoro voice catalog ──────────────────────────────────────────────
 const VOICE_CATALOG: Record<string, { character: string[] }> = {
@@ -285,6 +286,101 @@ export function VoiceDefaults() {
           </div>
         </DialogContent>
       </Dialog>
+    </section>
+  )
+}
+
+// ── Pronunciation lexicon ─────────────────────────────────────────────────────
+// Global respellings applied to TTS audio (captions keep original spelling).
+
+interface Pronunciation { id: string; term: string; replacement: string }
+
+export function PronunciationLexicon() {
+  const [rows, setRows] = useState<Pronunciation[]>([])
+  const [term, setTerm] = useState('')
+  const [replacement, setReplacement] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/voice/pronunciations', { credentials: 'include' })
+      if (r.ok) setRows((await r.json() as { pronunciations: Pronunciation[] }).pronunciations ?? [])
+    } catch { /* offline */ }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  const add = async () => {
+    if (!term.trim() || !replacement.trim()) return
+    setSaving(true)
+    try {
+      const r = await fetch('/api/admin/voice/pronunciations', {
+        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ term: term.trim(), replacement: replacement.trim() }),
+      })
+      if (!r.ok) throw new Error()
+      setRows((await r.json() as { pronunciations: Pronunciation[] }).pronunciations ?? [])
+      setTerm(''); setReplacement('')
+    } catch { toast.error('Could not save') }
+    finally { setSaving(false) }
+  }
+
+  const remove = async (id: string) => {
+    setRows((cur) => cur.filter((r) => r.id !== id))
+    await fetch(`/api/admin/voice/pronunciations/${id}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
+  }
+
+  const previewText = useMemo(() => (term.trim() ? `This says ${term.trim()}.` : ''), [term])
+
+  return (
+    <section className="rounded-2xl border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <SpellCheck className="size-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Pronunciation</h3>
+        <span className="text-xs text-muted-foreground">Respell names/words so the voice says them right</span>
+      </div>
+
+      <div className="space-y-3 p-4">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-[8rem] flex-1">
+            <label className="text-[11px] font-medium text-muted-foreground">Word / phrase</label>
+            <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Loki"
+              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm" />
+          </div>
+          <div className="min-w-[8rem] flex-1">
+            <label className="text-[11px] font-medium text-muted-foreground">Say it like</label>
+            <input value={replacement} onChange={(e) => setReplacement(e.target.value)} placeholder="Loh-kee"
+              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm" />
+          </div>
+          {previewText && replacement.trim() && (
+            <button type="button" title="Preview" onClick={() => void speak({ text: `This says ${replacement.trim()}.` })}
+              className="flex size-9 items-center justify-center rounded-lg bg-foreground/5 text-muted-foreground hover:text-foreground">
+              <Play className="size-3.5 fill-current" />
+            </button>
+          )}
+          <button type="button" onClick={() => void add()} disabled={saving || !term.trim() || !replacement.trim()}
+            className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            <Plus className="size-4" /> Add
+          </button>
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="py-2 text-xs text-muted-foreground">No custom pronunciations yet.</p>
+        ) : (
+          <div className="divide-y divide-border/60">
+            {rows.map((r) => (
+              <div key={r.id} className="flex items-center gap-2 py-2 text-sm">
+                <span className="font-medium">{r.term}</span>
+                <span className="text-muted-foreground">→</span>
+                <span className="flex-1 text-muted-foreground">{r.replacement}</span>
+                <button onClick={() => void remove(r.id)} className="text-muted-foreground hover:text-destructive">
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   )
 }

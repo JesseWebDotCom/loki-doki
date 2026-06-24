@@ -17,6 +17,22 @@ sqlite.exec('PRAGMA busy_timeout = 5000;')
 
 export const db = drizzle(sqlite, { schema })
 
+/** Flatten an Error and its `cause` chain into one searchable string. */
+function errorChainText(err: unknown): string {
+  const parts: string[] = []
+  let cur: unknown = err
+  for (let depth = 0; cur != null && depth < 6; depth++) {
+    if (cur instanceof Error) {
+      parts.push(cur.message)
+      cur = (cur as { cause?: unknown }).cause
+    } else {
+      parts.push(String(cur))
+      break
+    }
+  }
+  return parts.join(' | ')
+}
+
 function addColumn(table: string, column: string, definition: string) {
   try {
     sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
@@ -46,10 +62,15 @@ export function runMigrations() {
   try {
     migrate(db, { migrationsFolder: resolve(import.meta.dir, './migrations') })
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
     // The migrator re-runs migrations whose tables/columns the belt-and-suspenders
     // CREATEs below already made — "already exists" is EXPECTED on every boot of an
     // existing DB and is not a problem. Only surface genuinely unexpected failures.
+    //
+    // The bun-sqlite migrator wraps the real SQLite error: err.message is just
+    // "Failed to run the query '<sql>'", and the actual reason ("table X already
+    // exists") lives in err.cause. Walk the whole cause chain so the benign case is
+    // recognised and doesn't spam a scary warning on every boot.
+    const msg = errorChainText(err)
     if (!/already exists|duplicate column/i.test(msg)) {
       console.warn('[db] migration warning (non-fatal):', msg)
     }
@@ -1436,5 +1457,27 @@ export function runMigrations() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_generated_documents_user ON generated_documents(user_id, created_at);
+  `)
+
+  // Chat document attachments + TTS pronunciation lexicon.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS chat_documents (
+      id TEXT NOT NULL PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_documents_conversation ON chat_documents(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS pronunciations (
+      id TEXT NOT NULL PRIMARY KEY,
+      term TEXT NOT NULL,
+      replacement TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `)
 }

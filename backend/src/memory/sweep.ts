@@ -44,6 +44,13 @@ const EPISODE_MESSAGE_THRESHOLD = 20
 // would re-enter and double-process the same conversations. Skip while busy.
 let sweeping = false
 
+// Yield the event loop back to the HTTP server. bun:sqlite is synchronous and runs on
+// the main thread, so a sweep that loops over many conversations back-to-back monopolises
+// the loop — and EVERY request (including the no-op /api/health probe) stalls together
+// until it finishes, which the frontend pollers surface as a burst of 500s. A macrotask
+// yield between conversations lets queued requests run in the gaps.
+const yieldToLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
 async function runJudgeSweep(): Promise<void> {
   if (sweeping) return
   sweeping = true
@@ -87,6 +94,9 @@ async function doJudgeSweep(): Promise<void> {
     )
 
   for (const conv of candidates) {
+    // Let any queued HTTP requests run between conversations so the sweep never holds
+    // the synchronous SQLite thread long enough to stall the liveness probe.
+    await yieldToLoop()
     try {
       // Find the most recent message in this conversation
       const [latest] = await db

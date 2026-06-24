@@ -18,7 +18,9 @@ const CHAR_CAP = 700
 const WEAVE_INSTRUCTION =
   'You ambiently know the local/world context above. Weave a detail in ONLY when it is ' +
   "genuinely relevant to what the user said (their day, plans, weather, or current events). " +
-  'Do not recite it, list it, or bring it up unprompted. Stay brief and natural.'
+  'Do not recite it, list it, or bring it up unprompted. But if the user asks directly about ' +
+  'something here, engage and share what you know — never brush them off as "old news" or ' +
+  'steer them back to their day. Stay brief and natural.'
 
 function itemLine(it: BriefingItem, max = 90): string {
   let s = it.title.trim()

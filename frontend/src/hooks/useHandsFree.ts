@@ -102,6 +102,7 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
   const bargeInArmedRef = useRef(false)
   const bargeInArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bargeInPeakRef = useRef(0)
+  const bargeInLogRef = useRef(0)
   const prerollRef = useRef<Float32Array[]>([])
   const prerollLenRef = useRef(0)
   const replySafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -317,12 +318,19 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
 
           // Barge-in energy VAD — runs ONLY while TTS is playing so AEC
           // residual (which clears after TTS ends) never trips it.
-          if (st === 'replying' && ttsMutedRef.current && bargeInArmedRef.current) {
+          if (st === 'replying' && ttsMutedRef.current) {
             let sumSq = 0
             for (let i = 0; i < samples.length; i++) sumSq += samples[i]! * samples[i]!
             const rms = Math.sqrt(sumSq / Math.max(1, samples.length))
             if (rms > bargeInPeakRef.current) bargeInPeakRef.current = rms
-            if (rms >= BARGE_IN_RMS_THRESHOLD) {
+            // Live monitor (~every 25 frames ≈ 0.2s): shows whether barge-in is armed
+            // and the current mic RMS vs the fire threshold, so a "barge-in not working"
+            // is diagnosable from the console — is it never arming, or is your voice
+            // (after echo-cancellation) just never crossing the threshold?
+            if ((bargeInLogRef.current = (bargeInLogRef.current + 1) % 25) === 0) {
+              console.info(`[barge-in] monitor armed=${bargeInArmedRef.current} rms=${rms.toFixed(3)} thr=${BARGE_IN_RMS_THRESHOLD} consec=${bargeInCountRef.current}`)
+            }
+            if (bargeInArmedRef.current && rms >= BARGE_IN_RMS_THRESHOLD) {
               bargeInCountRef.current++
               if (bargeInCountRef.current >= BARGE_IN_CONSEC_FRAMES) {
                 bargeInCountRef.current = 0

@@ -158,6 +158,7 @@ interface AdminCapDef {
 
 const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'tesseract',     label: 'Home Inventory', description: 'Snap a photo — AI identifies your devices and tracks warranties (Tesseract OCR)', bytes: 30_000_000,  requires: [],            base: true, icon: Home },
+  { id: 'searxng',       label: 'Web Search',      description: 'Local SearXNG metasearch — aggregates Google/Brave/Startpage so web search works where direct scraping is blocked. Auto-updates weekly. Source: github.com/searxng/searxng (AGPL-3.0)', bytes: 300_000_000, requires: [],            icon: Globe },
   { id: 'voice-core',   label: 'Voice',           description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                       bytes: 320_000_000, requires: [],                       icon: Mic  },
   { id: 'wakeword-core', label: 'Wake Word',       description: 'Hands-free "Hey Jarvis" activation',                                               bytes: 6_000_000,  requires: ['voice-core'],            icon: Ear  },
 ]

@@ -25,6 +25,8 @@ interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+  description?: string;
+  gradient?: string;
 }
 
 interface LibraryItem {
@@ -57,14 +59,21 @@ type SearchResult = NavItem | LibraryItem | ContentHit;
 // destinations that live outside the category grid are prepended by hand.
 
 const EXTRA_NAV: NavItem[] = [
-  { kind: "nav", label: "Home",       href: "/",           icon: Home },
-  { kind: "nav", label: "Companions", href: "/companions", icon: Sparkles },
+  { kind: "nav", label: "Home",       href: "/",           icon: Home,     description: "Your dashboard", gradient: "linear-gradient(135deg,#1e293b,#475569)" },
+  { kind: "nav", label: "Companions", href: "/companions", icon: Sparkles, description: "Browse AI companions", gradient: "linear-gradient(135deg,#3a0a72,#db2777)" },
 ];
 
 const NAV_ITEMS: NavItem[] = [
   ...EXTRA_NAV,
   ...APP_GROUPS.flatMap((g) =>
-    g.apps.map((a): NavItem => ({ kind: "nav", label: a.label, href: a.to, icon: a.icon })),
+    g.apps.map((a): NavItem => ({
+      kind: "nav",
+      label: a.label,
+      href: a.to,
+      icon: a.icon,
+      description: a.description,
+      gradient: a.gradient,
+    })),
   ),
 ];
 
@@ -98,13 +107,18 @@ function NavRow({ item, selected, onSelect, onHover }: {
         selected ? "bg-foreground/8 text-foreground" : "text-foreground/60",
       )}
     >
-      <div className={cn(
-        "flex size-7 shrink-0 items-center justify-center rounded-lg",
-        selected ? "bg-foreground/10" : "bg-foreground/5",
-      )}>
-        <item.icon className="size-3.5" />
+      <div
+        className="flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-white/10"
+        style={item.gradient ? { background: item.gradient } : undefined}
+      >
+        <item.icon className={cn("size-3.5", item.gradient && "text-white")} />
       </div>
-      {item.label}
+      <span className="flex-1 min-w-0 text-left">
+        <span className="block truncate">{item.label}</span>
+        {item.description && (
+          <span className="block truncate text-xs text-foreground/35">{item.description}</span>
+        )}
+      </span>
     </button>
   );
 }

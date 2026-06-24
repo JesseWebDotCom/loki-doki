@@ -2,8 +2,9 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { characters, userCharacters, conversations, messages, memories } from '@/db/schema'
+import { characters, userCharacters, conversations, messages, memories, chatDocuments } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
+import { extractText } from '@/lib/rag/ingest'
 import { ollamaChat } from '@/llm/ollama'
 import type { OllamaChatMessage } from '@/llm/ollama'
 import { buildCompanionPrompt } from '@/lib/companionPrompt'
@@ -22,6 +23,25 @@ import type { JobRunContext } from '@/lib/genQueue'
 import type { AppEnv } from '@/types'
 
 const chat = new Hono<AppEnv>()
+
+// Max characters of extracted document text kept per attachment.
+const MAX_DOC_CHARS = 20_000
+
+// Extract text from an uploaded document so the client can attach it to a message.
+// Stateless — the returned text is sent back with the chat message and persisted then.
+chat.post('/extract', requireAuth, async (c) => {
+  const form = await c.req.formData().catch(() => null)
+  const file = form?.get('file')
+  if (!(file instanceof File) || file.size === 0) return c.json({ error: 'file required' }, 400)
+  if (file.size > 25 * 1024 * 1024) return c.json({ error: 'file too large (max 25 MB)' }, 400)
+  try {
+    const text = (await extractText(file.name, file.type, new Uint8Array(await file.arrayBuffer()))).slice(0, MAX_DOC_CHARS)
+    if (!text.trim()) return c.json({ error: 'No readable text found in that file' }, 422)
+    return c.json({ filename: file.name, text, chars: text.length })
+  } catch (e) {
+    return c.json({ error: `Could not read that file: ${e}` }, 400)
+  }
+})
 
 // The per-conversation memory block is computed once and reused for every
 // subsequent turn (see @/memory/blockCache for the rationale). Keyed by convId.
@@ -113,7 +133,7 @@ chat.patch('/conversations/:id', requireAuth, async (c) => {
 chat.post('/stream', requireAuth, async (c) => {
   const user = c.get('user')
 
-  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng } = (await c.req.json()) as {
+  const { message, conversationId: incomingConvId, characterId, uiContext, projectId, clientLat, clientLng, attachments } = (await c.req.json()) as {
     message: string
     conversationId?: string
     characterId?: string
@@ -121,6 +141,7 @@ chat.post('/stream', requireAuth, async (c) => {
     projectId?: string
     clientLat?: number | null
     clientLng?: number | null
+    attachments?: { filename: string; text: string }[]
   }
 
   // Validate the message before it flows into the token budget / title generation.
@@ -228,6 +249,24 @@ chat.post('/stream', requireAuth, async (c) => {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+  }
+
+  // Persist any newly-attached documents to this conversation. companionTurn loads
+  // them by conversation id each turn, so the model can reference them across the chat.
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    const now = new Date()
+    const rows = attachments
+      .filter((a) => a?.text?.trim() && a?.filename)
+      .slice(0, 5)
+      .map((a) => ({
+        id: crypto.randomUUID(),
+        conversationId: convId!,
+        userId: user.id,
+        filename: String(a.filename).slice(0, 200),
+        text: String(a.text).slice(0, 20_000),
+        createdAt: now,
+      }))
+    if (rows.length) await db.insert(chatDocuments).values(rows).catch(() => {})
   }
 
   // Load recent messages then trim to a token budget so prefill stays fast.

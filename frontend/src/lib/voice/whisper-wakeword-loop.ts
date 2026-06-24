@@ -122,27 +122,40 @@ export class WhisperWakewordLoop {
     stt?.close()
   }
 
-  private matchIndex(normText: string): number {
-    if (!this.normalizedPhrase) return -1 // empty phrase must never match
+  /**
+   * Locate the wake phrase in normalized text. Returns the {start,end} char span of
+   * the match (so the command can be sliced from `end`), or null. Tries exact, then
+   * a fuzzy fallback for whisper-tiny's mis-spellings of uncommon phrases.
+   */
+  private match(normText: string): { start: number; end: number } | null {
+    if (!this.normalizedPhrase) return null // empty phrase must never match
     const exact = normText.indexOf(this.normalizedPhrase)
-    if (exact >= 0) return exact
-    // Fuzzy fallback: whisper-tiny often mis-spells an uncommon phrase ("hey velvit",
-    // "hey velvets", "a velvet"). Slide a phrase-sized word window across the transcript
-    // and accept a close edit-distance match. Tight threshold so random speech can't trip it.
+    if (exact >= 0) return { start: exact, end: exact + this.normalizedPhrase.length }
+
+    // Fuzzy fallback: whisper-tiny mangles uncommon phrases ("hey velvet" → "hey
+    // belfit", "hey velen", "hay velvet"). Slide a phrase-sized word window and accept
+    // a match by EITHER a close edit distance OR an equal phonetic skeleton — the
+    // latter catches voiced/unvoiced slips (velvet→belfit) that are several edits
+    // apart but sound the same. Thresholds stay tight enough that random speech
+    // shouldn't trip a distinctive multi-word phrase.
     const p = this.normalizedPhrase
-    const maxEdits = Math.max(1, Math.floor(p.length * 0.2))
+    const maxEdits = Math.max(1, Math.round(p.length * 0.3))
+    const pKey = phoneticKey(p)
     const phraseWordCount = p.split(' ').length
     const words = normText.split(' ').filter(Boolean)
     for (let i = 0; i + phraseWordCount <= words.length; i++) {
       const window = words.slice(i, i + phraseWordCount).join(' ')
-      if (levenshtein(window, p) <= maxEdits) return normText.indexOf(words[i]!)
+      if (levenshtein(window, p) <= maxEdits || phoneticKey(window) === pKey) {
+        const start = i === 0 ? 0 : words.slice(0, i).join(' ').length + 1
+        return { start, end: start + window.length }
+      }
     }
-    return -1
+    return null
   }
 
   /** Emit the wake event (rate-limited) if the text contains the phrase. */
   private fireWakeIfMatch(text: string): void {
-    if (this.matchIndex(normalizePhrase(text)) < 0) return
+    if (!this.match(normalizePhrase(text))) return
     const now = Date.now()
     if (this.lastFireAt !== null && now - this.lastFireAt < POST_WAKE_SUPPRESS_MS) return
     this.lastFireAt = now
@@ -156,8 +169,8 @@ export class WhisperWakewordLoop {
    *  echo and the final command delivery so both agree on what counts. */
   private commandPortion(text: string): string {
     const norm = normalizePhrase(text)
-    const idx = this.matchIndex(norm)
-    if (idx >= 0) return norm.slice(idx + this.normalizedPhrase.length).trim()
+    const m = this.match(norm)
+    if (m) return norm.slice(m.end).trim()
     return this.awaitingCommand ? norm.trim() : ''
   }
 
@@ -165,13 +178,13 @@ export class WhisperWakewordLoop {
    *  trailing words as the command, so "hey loki <command>" works in one breath. */
   private handleFinal(text: string): void {
     const norm = normalizePhrase(text)
-    const idx = this.matchIndex(norm)
+    const m = this.match(norm)
     // Log EVERY final transcript + whether it matched, so a "didn't register" wake is
     // visible: we see exactly what Whisper heard vs the phrase it's matching against.
-    console.info(`[wakeword/whisper] heard "${text}" → norm="${norm}" wants="${this.normalizedPhrase}" match=${idx >= 0}`)
-    if (idx >= 0) {
+    console.info(`[wakeword/whisper] heard "${text}" → norm="${norm}" wants="${this.normalizedPhrase}" match=${!!m}`)
+    if (m) {
       this.fireWakeIfMatch(text) // no-op if the partial already fired it (suppressed)
-      const command = norm.slice(idx + this.normalizedPhrase.length).trim()
+      const command = norm.slice(m.end).trim()
       if (command) {
         this.awaitingCommand = false
         this.onCommand?.(command)
@@ -191,6 +204,33 @@ export class WhisperWakewordLoop {
 
 function normalizePhrase(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+// Confusable-consonant classes — whisper routinely swaps within these (voiced↔unvoiced
+// and same place of articulation). Vowels are intentionally absent so they get dropped.
+const CONSONANT_FOLD: Record<string, string> = {
+  b: 'f', v: 'f', f: 'f', p: 'f',          // labials
+  d: 't', t: 't',                          // dentals
+  g: 'k', k: 'k', c: 'k', q: 'k',          // velars
+  s: 'z', z: 'z', x: 'z',                  // sibilants
+  m: 'n', n: 'n',                          // nasals
+  j: 'j', l: 'l', r: 'r', h: 'h', w: 'w', y: 'y',
+}
+
+/**
+ * Reduce text to a rough phonetic skeleton: drop vowels, fold confusable consonants to
+ * one representative, collapse runs. "velvet"→"flft", "belfit"→"flft", so whisper's
+ * voiced/unvoiced mis-hearings of a wake word still match. Spaces are preserved so the
+ * word count is kept.
+ */
+function phoneticKey(s: string): string {
+  let out = ''
+  for (const ch of s.toLowerCase()) {
+    if (ch === ' ') { out += ' '; continue }
+    const f = CONSONANT_FOLD[ch]
+    if (f) out += f  // unmapped chars (vowels, digits) are dropped
+  }
+  return out.replace(/(.)\1+/g, '$1').replace(/\s+/g, ' ').trim()
 }
 
 /** Classic edit distance (insert/delete/substitute), for fuzzy wake-phrase matching. */

@@ -27,12 +27,50 @@ const CONVERSATIONAL_THRESHOLD = 0.40
 // "how do I / how to" (routes to youtube/recipes) and "when is" (routes to datetime).
 const SEARCH_INTENT_RE = /\b(what is|what are|what was|what were|who is|who was|who are|who played|who starred|who directed|who wrote|who sang|who voiced|who invented|who created|who founded|who made|tell me about|tell me more about|explain to me|explain what|how does|how do|how did|how many|how much|how long|how far|how tall|how old|how big|when did|when was|when were|where is|where was|where are|where were|where did|have you heard of|do you know about|what happened to|what's up with|search for|look up|find out about|can you find out|can you look up|can you search)\b/i
 
+// A message shaped like a question — leads with an interrogative or ends with "?".
+// Used so a LOW-confidence question still escalates to Tier 2 (which always includes
+// search) instead of dropping to the conversational "no tool → answer from memory"
+// path, where the model would invent facts ("what is Claude Mythos?" → a made-up
+// Highlander character) rather than look them up. Greetings are filtered earlier.
+const QUESTION_RE = /^(?:who|what|what'?s|whats|whatre|whens?|where'?s|where|which|whose|why|how|is|are|was|were|do|does|did|can|could|will|would|has|have|had|should)\b|\?\s*$/i
+
+// Pure social/chitchat questions that need no tool — short-circuit so they don't pay a
+// Tier 2 round trip just because QUESTION_RE matched ("how are you", "what's up").
+const SOCIAL_QUESTION_RE = /^(?:how (?:are|r|have) (?:you|u|ya|been)|how'?s it going|how'?s your|what'?s up|whats up|what are you (?:up to|doing)|are you (?:ok|okay|there|sure|free|busy))\b/i
+
 // Follow-up lookup commands whose SUBJECT lives in the prior turns, not the
 // command itself ("why don't you look it up", "google it", "search that",
 // "fact-check it"). These must NOT use the literal-passthrough fast path — that
 // would search the command text. They route to a history-aware Tier 2 so the
 // query is reconstructed from conversation context.
 const CONTEXTUAL_LOOKUP_RE = /\b(?:look\s+(?:it|that|this|him|her|them|those|these)\s+up|google\s+(?:it|that|this|him|her|them)|search\s+(?:it|that|this)|find\s+(?:it|that|this)\s+out|look\s+into\s+(?:it|that|this)|fact[-\s]?check\s+(?:it|that|this)|verify\s+(?:it|that|this)|can\s+you\s+(?:look|check|verify|confirm))\b/i
+
+// Continuation / elaboration follow-ups ("tell me more", "go on", "what else")
+// whose SUBJECT lives in the PRIOR turns, not this message. A bare "tell me more"
+// scores near-zero on every tool example and isn't question-shaped, so it would
+// fall to the no-tool "answer from memory" path — where the companion, having lost
+// the original tool data (only raw user messages survive in history, not the
+// augmented turn that carried the search results), deflects ("that's old news")
+// instead of fetching detail. Route these to a history-aware Tier 2 search so the
+// topic is reconstructed from context and re-looked-up. Anchored to short messages
+// so longer sentences that merely start with these words don't get hijacked; the
+// explicit-subject form ("tell me more about X") is caught by SEARCH_INTENT_RE first.
+const CONTINUATION_RE = /^(?:tell me more|more (?:about|on) (?:it|that|this|him|her|them)|go on|keep going|carry on|continue|elaborate(?: on (?:it|that|this))?|expand on (?:it|that|this)|what else|anything else|say more|what happened|then what|what(?:'s| is)? next|and then|what about (?:it|that|him|her|them|this))\b[\s.!?]*$/i
+
+// Backchannel / emotional reactions ("wow", "no way", "really?", "oh man",
+// "seriously?") — the user is reacting, not asking for anything. These must
+// short-circuit to a plain conversational reply. Without this, the "?"-ending
+// ones ("really?", "no way?", "for real?") match QUESTION_RE below and get
+// needlessly escalated to a Tier 2 search round-trip (and risk an unwanted
+// lookup); the rest waste an embed call. Anchored to whole-message reactions of
+// one or two units so "wow what happened to X" still falls through to routing.
+const REACTION_UNIT =
+  "(?:no way|oh man|oh no|oh wow|oh my(?: god| gosh)?|my god|for real|no kidding|" +
+  "you'?re kidding|shut up|get out|that'?s (?:crazy|wild|insane|nuts|awful|terrible|" +
+  "amazing|hilarious|funny|something)|wow|whoa|wo+ah|omg|omfg|geez|jeez|sheesh|" +
+  "yikes|dang|damn|oof|ugh|huh|hmm+|really|seriously|srsly|wild|crazy|insane|nuts|" +
+  "unbelievable|incredible|lo+l|lmao|lmfao|rofl|haha+|bruh)"
+const REACTION_RE = new RegExp(`^(?:${REACTION_UNIT}[\\s,!.?]*){1,2}$`, 'i')
 
 // How many candidates to pass to the Tier 2 LLM. Search is always injected on top
 // so factual questions that score low on embeddings still reach the search tool.
@@ -145,6 +183,14 @@ export async function routePrompt(
     return { tool: null, args: {} }
   }
 
+  // Fast path: emotional reactions / backchannels ("wow", "no way", "really?") —
+  // the user is reacting, not requesting. Answer conversationally; never let a
+  // "?"-ending reaction escalate to a search.
+  if (REACTION_RE.test(prompt.trim())) {
+    logger.info(`[ROUTER] path=reaction msg="${excerpt}"`)
+    return { tool: null, args: {} }
+  }
+
   // Fast path: a contextual lookup command ("look it up", "google it"). The thing
   // to search lives in earlier turns, so route to a history-aware Tier 2 (search
   // only) that rebuilds the query from context — never a literal passthrough.
@@ -158,6 +204,19 @@ export async function routePrompt(
       // No router model available — degrade to literal passthrough (best effort).
       logger.info(`[ROUTER] path=contextual-lookup-passthrough msg="${excerpt}"`)
       return { tool: searchTool, args: searchTool.passMessage ? { [searchTool.passMessage]: prompt } : {} }
+    }
+  }
+
+  // Fast path: continuation follow-up ("tell me more", "go on") with prior turns
+  // to draw on. The subject is reconstructed from history by a Tier 2 search call —
+  // never a literal passthrough (that would search "tell me more"). If the prior
+  // topic was just chitchat, Tier 2 returns no-tool and we fall through to a normal
+  // conversational reply.
+  if (CONTINUATION_RE.test(prompt.trim()) && model && history.length > 0) {
+    const searchTool = toolRegistry.find((t) => t.id === 'search')
+    if (searchTool) {
+      logger.info(`[ROUTER] path=continuation→tier2 msg="${excerpt}"`)
+      return tier2Call(model, prompt, history, [searchTool])
     }
   }
 
@@ -223,10 +282,20 @@ export async function routePrompt(
     return tier2Call(model, prompt, history, [bestTool])
   }
 
-  // ── Tier 0: low confidence — clearly not a tool request, skip Tier 2 ────────
+  // ── Tier 0: low confidence ──────────────────────────────────────────────────
+  // Normally "not a tool request" → skip Tier 2. BUT a question-shaped prompt that
+  // merely scored low (garbled STT, an unusual proper noun the examples don't cover)
+  // must NOT fall to "answer from memory" — that's how the model ends up inventing
+  // facts for things it should look up. Escalate genuine questions (not social
+  // chitchat) to Tier 2 with search included; let it decide search vs. no-tool.
   if (bestScore < CONVERSATIONAL_THRESHOLD) {
-    logger.info(`[ROUTER] path=conversational score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
-    return { tool: null, args: {} }
+    const trimmed = prompt.trim()
+    const isQuestion = QUESTION_RE.test(trimmed) && !SOCIAL_QUESTION_RE.test(trimmed)
+    if (!(isQuestion && model)) {
+      logger.info(`[ROUTER] path=conversational score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
+      return { tool: null, args: {} }
+    }
+    logger.info(`[ROUTER] path=tier2-question score=${bestScore.toFixed(3)} top3=[${top3log}] msg="${excerpt}"`)
   }
 
   // ── Tier 2: LLM decides — search always included so factual questions never fall through ──

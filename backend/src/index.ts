@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { HTTPException } from 'hono/http-exception'
 import { serveStatic, createBunWebSocket } from 'hono/bun'
 import { runMigrations, db } from '@/db'
 import { logger } from '@/lib/logger'
@@ -89,6 +90,8 @@ import { recipesRoute } from '@/routes/recipes'
 import { showtimesRoute } from '@/routes/showtimes'
 import { skillsRoute, adminSkillsRoute } from '@/routes/skills'
 import { voiceMemosRoute } from '@/routes/voiceMemos'
+import { adminRemoteEngineRoute } from '@/routes/adminRemoteEngine'
+import { loadRemoteEngine } from '@/lib/remoteEngine'
 import { medicalRoute } from '@/routes/medical'
 import { holidaysRoute } from '@/routes/holidays'
 import { localEventsRoute } from '@/routes/localEvents'
@@ -100,6 +103,7 @@ import { frigate } from '@/routes/frigate'
 import { adminFrigate } from '@/routes/adminFrigate'
 import { startFrigateMqtt } from '@/lib/frigate/mqtt'
 import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
+import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
 import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
 import { startPodGateway } from '@/lib/pod/gateway'
@@ -110,6 +114,8 @@ import { stopGraphHopper } from '@/lib/maps/graphhopper'
 import { listHealthyArchivePaths } from '@/lib/archives'
 
 runMigrations()
+// Seed the remote-engine override cache so ollamaUrl() resolves correctly from boot.
+void loadRemoteEngine()
 // One-time grandfather: installs that finished setup BEFORE the offline-content welcome
 // wizard existed already chose their library/maps in the old flow, so mark it seen for
 // them. Brand-new installs boot here before setup completes (first_run_complete=false),
@@ -137,6 +143,14 @@ void seedContentProfiles().catch((e) => logger.warn(`[content] profile seed fail
 void startFrigateMqtt()
 maybeSpawnComfyUI()
 maybeSpawnVoiceServer()
+// Web-search metasearch sidecar: start fast with the current checkout, then (when a
+// weekly check is due) pull the latest SearXNG so its engine adapters stay current —
+// a stale checkout silently rots as upstream sites change. Both calls no-op if it
+// isn't installed. The update self-gates on a persisted timestamp + restarts only when
+// the checkout actually moved; a daily timer catches long-running instances.
+maybeSpawnSearXNG()
+void maybeUpdateSearXNG()
+setInterval(() => void maybeUpdateSearXNG(), 24 * 60 * 60 * 1000)
 // Pod gateway: a Wyoming-protocol TCP listener that ESP32 satellites (and the
 // scripts/pod-test-satellite.ts harness) connect to. Reuses STT/TTS/LLM brains.
 // See plans/hardware-devices/pod-wyoming-architecture.md. Disable: POD_GATEWAY_ENABLED=0.
@@ -215,6 +229,7 @@ async function unloadOllamaModels() {
 async function stopSidecars() {
   try { await stopKiwix() } catch { /* best-effort */ }
   try { stopComfyUI() } catch { /* best-effort */ }
+  try { stopSearXNG() } catch { /* best-effort */ }
   try { stopVoiceServer() } catch { /* best-effort */ }
   try { stopGraphHopper() } catch { /* best-effort */ }
 }
@@ -238,6 +253,17 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 app.use('*', requestLogger)
+
+// Global error boundary: without this, any throw from a route handler surfaces as a
+// bare, body-less 500 that's indistinguishable from a transient stall — so a real bug
+// looks identical to a hot-reload blip. Log the route + message (so it's diagnosable)
+// and return structured JSON. HTTPExceptions carry their own intended status/response.
+app.onError((err, c) => {
+  if (err instanceof HTTPException) return err.getResponse()
+  const msg = err instanceof Error ? err.message : String(err)
+  logger.error({ err, method: c.req.method, path: c.req.path }, `unhandled error: ${c.req.method} ${c.req.path} — ${msg}`)
+  return c.json({ error: 'Internal Server Error' }, 500)
+})
 
 // Cheap, unauthenticated liveness probe so the frontend can tell "backend is down"
 // apart from "request failed" and surface/recover instead of hanging silently.
@@ -318,6 +344,7 @@ app.route('/api/showtimes', showtimesRoute)
 app.route('/api/skills', skillsRoute)
 app.route('/api/admin/users', adminSkillsRoute)
 app.route('/api/voice/memos', voiceMemosRoute)
+app.route('/api/admin/remote-engine', adminRemoteEngineRoute)
 app.route('/api/medical', medicalRoute)
 app.route('/api/holidays', holidaysRoute)
 app.route('/api/local-events', localEventsRoute)

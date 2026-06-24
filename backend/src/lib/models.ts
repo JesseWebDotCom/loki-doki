@@ -6,6 +6,7 @@ import { EMBED_MODEL, ROUTER_EMBED_MODEL } from '@/llm/embed'
 import { initRouter } from '@/llm/router'
 import { logger } from '@/lib/logger'
 import { CATALOG } from '@/lib/catalog'
+import { getRemoteModelOverride } from '@/lib/remoteEngine'
 
 async function getSetting(key: string): Promise<string | null> {
   const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1)
@@ -13,6 +14,9 @@ async function getSetting(key: string): Promise<string | null> {
 }
 
 export async function getModel(): Promise<string> {
+  // A paired remote engine supplies its own model name (the local one may not exist there).
+  const remote = getRemoteModelOverride()
+  if (remote) return remote
   return (await getSetting('model')) ?? process.env.MODEL ?? 'llama3.1:8b'
 }
 

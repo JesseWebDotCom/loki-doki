@@ -67,6 +67,7 @@ import { OnThisDayPage } from '@/pages/OnThisDayPage'
 import { RecipesPage } from '@/pages/RecipesPage'
 import { ShowtimesPage } from '@/pages/ShowtimesPage'
 import { SkillsPage } from '@/pages/SkillsPage'
+import { VoiceMemosPage } from '@/pages/VoiceMemosPage'
 import { JokePage } from '@/pages/JokePage'
 import { UnitConverterPage } from '@/pages/UnitConverterPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
@@ -290,6 +291,7 @@ export default function App() {
                 <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/showtimes" element={<ShowtimesPage />} />
                 <Route path="/skills" element={<SkillsPage />} />
+                <Route path="/voice-memos" element={<VoiceMemosPage />} />
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />

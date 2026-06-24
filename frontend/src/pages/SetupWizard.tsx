@@ -143,6 +143,7 @@ interface Capability {
 // Non-base capabilities are enqueued to the background job manager after boot.
 const CAPABILITIES: Capability[] = [
   { id: 'tesseract',     label: 'Home Inventory',     description: 'Snap a photo — AI identifies your devices and tracks warranties (Tesseract OCR)', bytes: 30_000_000,  defaultOn: true,  requires: [],             base: true, icon: Home },
+  { id: 'searxng',       label: 'Web Search',          description: 'High-quality web search via a local SearXNG metasearch engine — aggregates Google, Brave & Startpage so search works where direct scraping is blocked', bytes: 300_000_000, defaultOn: true,  requires: [],             icon: Globe },
   { id: 'voice-core',   label: 'Voice',               description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                        bytes: 320_000_000, defaultOn: false, requires: [],             icon: Mic },
   { id: 'wakeword-core', label: 'Wake Word',          description: 'Hands-free “Hey Jarvis” activation',                                                bytes: 6_000_000,   defaultOn: false, requires: ['voice-core'], icon: Ear },
 ]
