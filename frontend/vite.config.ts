@@ -88,6 +88,16 @@ export default defineConfig({
         proxyTimeout: 0,
         timeout: 0,
       },
+      // YouTube proxy stream: long-lived media stream with a SLOW first byte on a cold resolve
+      // (~4s while the backend resolves the URL before any data flows). The default proxy timeout
+      // kills that gap → the browser gets a 500 and the media element reports a format error. Same
+      // treatment as the SSE endpoints above. Listed before /api so it matches first.
+      '/api/youtube/stream': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        proxyTimeout: 0,
+        timeout: 0,
+      },
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,

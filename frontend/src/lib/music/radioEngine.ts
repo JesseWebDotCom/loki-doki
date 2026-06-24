@@ -1,22 +1,19 @@
 // AI Radio playback engine — runs the whole station experience from a global context so it
 // survives navigation.
 //
-//   deck0 / deck1  — ping-pong song players (full music videos, streamed audio-only)
-//   bed            — a genre-matched YouTube INSTRUMENTAL (no vocals), looped low under the DJ
+//   deck0 / deck1  — ping-pong song players (full songs, streamed audio-only)
 //   dj             — Kokoro TTS voice
 //
-// All four are plain <audio> elements mixed by animating `.volume`. We deliberately do NOT
-// route them through Web Audio / createMediaElementSource — live YouTube proxy streams render
-// SILENT through it in Chrome (currentTime advances, no sound). That bug cost us a lot; .volume
-// is bulletproof for these streams.
+// Both decks and the voice are plain <audio> elements mixed by animating `.volume`. We deliberately
+// do NOT route them through Web Audio / createMediaElementSource — live YouTube proxy streams render
+// SILENT through it in Chrome (currentTime advances, no sound). `.volume` is bulletproof here.
 //
-// Timing model (a real radio DJ talks OVER the music, never instead of it):
-//  • The current song starts IMMEDIATELY (only the unavoidable ~3s cold stream resolve), at
-//    full volume — not after the DJ. The DJ intro is generated while it plays.
-//  • The DJ then talks OVER the song: it ducks, the instrumental bed swells up, the DJ speaks,
-//    then the song returns to full.
-//  • At a transition the outgoing song's tail (~3s) and the incoming song's head (~5s) play
-//    ducked under the DJ; the next song is pre-buffered on the idle deck so it's instant.
+// There is no separate instrumental "bed" — a SONG is always the backing track under the DJ:
+//  • The first song starts immediately at a low bed level; the DJ talks over it; then it swells to
+//    full. (No DJ-first dead air, no cold-start bed to resolve.)
+//  • At each transition the incoming song comes in at bed level under the DJ while the outgoing one
+//    fades out, the DJ talks over it, then the incoming song swells to full — always music under
+//    the voice. The next song is pre-buffered on the idle deck so the hand-off is instant.
 
 import { search as ytSearch, ytImageProxy, proxyStreamUrl, prewarmStream } from '@/lib/youtube/api'
 import { fetchDjSegment, fetchRadioQueue, base64WavToBlob } from '@/lib/music/radio'
@@ -56,14 +53,9 @@ export const initialRadioState: RadioState = {
 interface PreparedDj { text: string | null; blobUrl: string | null }
 
 // Levels (relative, 0..1) / timings.
-const TAIL = 3       // seconds the outgoing song stays audible (ducked) under the DJ
-const HEAD = 5       // seconds the incoming song plays (ducked) under the DJ before it owns the mix
-const DUCK = 0.12    // ducked song level while the DJ talks
-const BED = 0.16     // instrumental bed level under the DJ (low — it's just a backing wash)
-const FADE = 1300    // generic ramp length (ms)
-
-// Resolved bed videoId per station, cached for the page lifetime so re-tuning resolves instantly.
-const bedIdCache = new Map<string, string>()
+const TAIL = 3          // seconds before a song's end at which we start the transition
+const INTRO_BED = 0.22  // level a song plays at while it's the backing bed (DJ talks over it)
+const FADE = 1300       // generic ramp length (ms)
 
 // Strip the promo noise YouTube titles are littered with — "(Official Video)", "[OFFICIAL
 // VIDEO] [HD]", "| Official Music Video", "(Lyrics)", "(Remastered 2011)", "(4K)", etc. — for
@@ -100,7 +92,7 @@ function makeSilentWavUrl(): string {
   return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))
 }
 
-type ChKey = 'd0' | 'd1' | 'bed' | 'dj'
+type ChKey = 'd0' | 'd1' | 'dj'
 interface Channel { el: HTMLAudioElement; level: number; ramp?: ReturnType<typeof setInterval> }
 
 export class RadioEngine {
@@ -108,8 +100,6 @@ export class RadioEngine {
   private built = false
   private masterVol = 1
   private muted = false
-  private bedReady = false
-  private bedWanted = false   // is the bed SUPPOSED to be audible right now (DJ talking)?
   private silentUrl: string | null = null
   private unlocked = false
 
@@ -130,21 +120,17 @@ export class RadioEngine {
   private stale(runId: number) { return runId !== this.runId }
 
   // "Unlock" every element by playing a brief silent clip on each INSIDE the user gesture, so
-  // later programmatic play() calls (the bed/song after their async resolves) aren't blocked by
-  // the autoplay policy — the symptom being "loaded but didn't play". Must run synchronously
-  // from the click (start() does, before its first await). Silent clip ends on its own (~0.15s),
-  // so it never fights the real src set moments later.
+  // later programmatic play() calls (a deck/voice after their async resolves) aren't blocked by
+  // the autoplay policy — the symptom being "loaded but didn't play". Must run synchronously from
+  // the click (start() does, before its first await). The silent clip ends on its own (~0.15s), so
+  // it never fights the real src set moments later.
   private unlock() {
     if (this.unlocked || !this.built) return
     this.unlocked = true
     if (!this.silentUrl) this.silentUrl = makeSilentWavUrl()
     for (const k of Object.keys(this.ch) as ChKey[]) {
       const el = this.ch[k].el
-      // loop=false for the blessing: the bed is created with loop=true, and a LOOPING 0.15s
-      // silent clip kept the element perpetually mid-play — so when startBed() later swapped in
-      // the real src, Chrome swallowed the new stream's first `playing` event and bedReady never
-      // flipped during the intro. startBed() restores loop=true on the bed.
-      try { el.loop = false; el.src = this.silentUrl; el.volume = 0; el.play()?.catch(() => {}) } catch { /* noop */ }
+      try { el.src = this.silentUrl; el.volume = 0; el.play()?.catch(() => {}) } catch { /* noop */ }
     }
   }
 
@@ -152,11 +138,11 @@ export class RadioEngine {
   private ensureAudio() {
     if (this.built) return
     this.built = true
-    const mk = (level: number, loop = false): Channel => {
-      const el = new Audio(); el.preload = 'auto'; el.loop = loop
+    const mk = (level: number): Channel => {
+      const el = new Audio(); el.preload = 'auto'
       return { el, level }
     }
-    this.ch = { d0: mk(0), d1: mk(0), bed: mk(0, true), dj: mk(1) }
+    this.ch = { d0: mk(0), d1: mk(0), dj: mk(1) }
     ;(Object.keys(this.ch) as ChKey[]).forEach(k => this.applyVol(k))
   }
 
@@ -184,12 +170,6 @@ export class RadioEngine {
       if (i >= steps) { clearInterval(c.ramp!); c.ramp = undefined }
     }, 50)
   }
-
-  // The bed is a DJ-only layer. raiseBed() while the DJ talks; lowerBed() as the song takes
-  // over. bedWanted is authoritative so a bed that finishes its cold resolve LATE (mid-song)
-  // doesn't bleed in over the music, and the song's fade-in is always matched by a bed fade-out.
-  private raiseBed() { this.bedWanted = true; if (this.bedReady) this.ramp('bed', BED, 700) }
-  private lowerBed() { this.bedWanted = false; this.ramp('bed', 0, 1200) }
 
   // ── Fetch helpers ────────────────────────────────────────────────────────────
   private async loadQueue(st: DjStation): Promise<QueuedTrack[]> {
@@ -229,75 +209,15 @@ export class RadioEngine {
     return tracks.slice(0, 30)
   }
 
-  private async resolveBed(st: DjStation): Promise<string | null> {
-    const cached = bedIdCache.get(st.id)
-    if (cached) { prewarmStream(cached, 'audio'); return cached }
-    try {
-      const data = await ytSearch(st.bedQuery, null, 'videos')
-      const results = data.results ?? []
-      // The bed only needs to cover a ~20s DJ break (it loops), so pick the SHORTEST real clip
-      // (≥45s) — never the 1–10 hour compilations that rank first and are slow/heavy for yt-dlp.
-      const candidates = results.filter(v => v.durationSec != null && v.durationSec >= 45)
-      const pick = candidates.length
-        ? candidates.reduce((a, b) => (b.durationSec! < a.durationSec! ? b : a))
-        : (results.find(v => !/\b\d+\s*hours?\b/i.test(v.title)) ?? results[0])
-      const id = pick?.videoId ?? null
-      if (id) { bedIdCache.set(st.id, id); prewarmStream(id, 'audio') }
-      return id
-    } catch { return null }
-  }
-
-  // Resolve + start the looping genre instrumental at silent gain; mark ready when audio
-  // actually begins. Logged so a silent bed is diagnosable instead of a mystery.
-  private async startBed(runId: number, station: DjStation, attempt = 0) {
-    if (attempt === 0) this.bedReady = false
-    const bedId = await this.resolveBed(station)
-    if (this.stale(runId)) return
-    if (!bedId) { console.warn('[radio] no instrumental bed found for', station.bedQuery); return }
-    const el = this.ch.bed.el
-    el.loop = true   // restore the loop the autoplay-unlock turned off
-
-    // Mark the bed ready (and raise it if it's wanted) the moment it's ACTUALLY producing audio.
-    // We key off BOTH `playing` and `timeupdate` (currentTime advancing past the silent-clip
-    // length): Chrome can swallow the first `playing` event when we reassign src on the element
-    // the unlock left mid-play, and that single missed event used to leave bedReady stuck false
-    // for the whole first intro — `timeupdate` can't be swallowed, so it's the reliable signal.
-    const markReady = () => {
-      if (this.bedReady || this.stale(runId)) return
-      this.bedReady = true
-      console.info('[radio] bed ready', bedId)
-      if (this.bedWanted) this.ramp('bed', BED, 700)   // raise now if the DJ is still talking
-    }
-    el.onplaying = markReady
-    el.ontimeupdate = () => { if (el.currentTime > 0.2) markReady() }
-    el.onerror = () => {
-      console.warn('[radio] bed stream error', bedId, el.error?.message)
-      // Transient 502 from a cold resolve — re-request (re-resolves) and retry a couple times.
-      if (attempt < 2 && !this.stale(runId)) setTimeout(() => { void this.startBed(runId, station, attempt + 1) }, 1500)
-    }
-    this.ramp('bed', 0, 0)                  // start silent (raised only when wanted)
-    el.src = proxyStreamUrl(bedId, 'audio')
-    el.load()
-    prewarmStream(bedId, 'audio')
-    try { await el.play() } catch (e) { console.warn('[radio] bed play() rejected', e) }
-  }
-
-  private waitForBed(ms: number): Promise<void> {
-    if (this.bedReady) return Promise.resolve()
-    return new Promise(res => {
-      const start = Date.now()
-      const iv = setInterval(() => {
-        if (this.bedReady || Date.now() - start > ms) { clearInterval(iv); res() }
-      }, 100)
-    })
-  }
-
   private async prepareDj(args: {
     station: DjStation; track: QueuedTrack | null; next?: QueuedTrack | null
-    position: 'intro' | 'transition' | 'outro'
+    position: 'intro' | 'transition' | 'outro'; sayStation?: boolean
   }): Promise<PreparedDj> {
     const seg = await fetchDjSegment({
       genre: args.station.genre,
+      stationName: args.station.label,
+      // Always name the station on the intro; sprinkle it into ~1 in 3 transitions.
+      sayStation: args.sayStation ?? args.position === 'intro',
       trackName: args.track?.title,
       artistName: args.track?.author ?? undefined,
       nextTrackName: args.next?.title,
@@ -332,16 +252,7 @@ export class RadioEngine {
     }
   }
 
-  private onMeta(el: HTMLMediaElement): Promise<void> {
-    return new Promise(res => {
-      if (el.readyState >= 1) return res()
-      const h = () => { el.removeEventListener('loadedmetadata', h); res() }
-      el.addEventListener('loadedmetadata', h)
-      setTimeout(res, 3000)
-    })
-  }
-
-  // Play a DJ blob over the bed; resolves when the voice finishes (or on error/no-audio).
+  // Play a DJ blob over the song; resolves when the voice finishes (or on error/no-audio).
   private async speak(dj: PreparedDj): Promise<void> {
     if (!dj.blobUrl) { await new Promise(r => setTimeout(r, 2400)); return }
     const el = this.ch.dj.el
@@ -355,47 +266,22 @@ export class RadioEngine {
     URL.revokeObjectURL(dj.blobUrl)
   }
 
-  // Intro: the DJ opens the show over the instrumental bed (no song playing yet — the first
-  // song sits at the top of Up Next), then the song slides in for the DJ's final HEAD seconds
-  // and takes over full. `toDeck` is cued but NOT yet playing on entry.
-  private async introSegment(runId: number, toDeck: number, dj: PreparedDj) {
+  // Intro: the first song is ALREADY playing on `deck` at INTRO_BED level (its own bed). The DJ
+  // talks over it, then the song fades up to full and owns the mix.
+  private async introOverSong(runId: number, deck: number, dj: PreparedDj) {
     this.set({ djText: dj.text, djSpeaking: true })
-    this.raiseBed()
-
-    if (!dj.blobUrl) {
-      await new Promise(r => setTimeout(r, 2400))
-      if (this.stale(runId)) return
-    } else {
-      const el = this.ch.dj.el
-      el.src = dj.blobUrl
-      this.ramp('dj', 1, 0)
-      await this.onMeta(el)
-      const djDur = isFinite(el.duration) && el.duration > 0 ? el.duration : 4
-      const headDelay = Math.max(0, djDur - HEAD) * 1000
-      setTimeout(async () => {
-        if (this.stale(runId)) return
-        await this.playDeck(toDeck)
-        this.ramp(this.deckKey(toDeck), DUCK + 0.05, 1000)
-      }, headDelay)
-      await this.speak(dj)
-      if (this.stale(runId)) return
-    }
-
-    // Hand off: fade the bed out exactly as the song fades in.
-    this.lowerBed()
-    await this.playDeck(toDeck)
-    this.ramp(this.deckKey(toDeck), 1, FADE)
+    await this.speak(dj)                          // DJ talks over the bedding song
+    if (this.stale(runId)) return
+    this.ramp(this.deckKey(deck), 1, FADE)        // fade the song up to full
   }
 
-  // Talk OVER the currently-playing song (used for the outro): duck the song, swell the
-  // instrumental bed, speak, then bring the song back to full. No deck switch.
+  // Talk OVER the currently-playing song (used for the outro): duck the song to bed level, speak,
+  // then bring it back to full. No deck switch.
   private async talkOver(runId: number, deck: number, dj: PreparedDj) {
     this.set({ djText: dj.text, djSpeaking: true })
-    this.raiseBed()
-    this.ramp(this.deckKey(deck), DUCK, 700)
+    this.ramp(this.deckKey(deck), INTRO_BED, 700)   // duck to bed level (audible backing)
     await this.speak(dj)
     if (this.stale(runId)) return
-    this.lowerBed()
     this.ramp(this.deckKey(deck), 1, FADE)
     this.set({ djSpeaking: false, djText: null })
   }
@@ -428,48 +314,26 @@ export class RadioEngine {
     })
   }
 
-  // Transition: DJ over the outgoing song's tail + the incoming song's head, bed underneath.
+  // Transition: same shape as the intro. The INCOMING song comes in at bed level as the backing
+  // track, the outgoing one fades out, the DJ talks over the bed, then the incoming song swells to
+  // full. Guarantees there's always music under the DJ between songs.
   private async transition(runId: number, fromDeck: number, toDeck: number, dj: PreparedDj) {
     this.set({ djText: dj.text, djSpeaking: true })
-    this.raiseBed()
-    this.ramp(this.deckKey(fromDeck), DUCK, FADE)
 
-    if (!dj.blobUrl) {
-      await new Promise(r => setTimeout(r, 2400))
-      if (this.stale(runId)) return
-      return this.finishTransition(runId, fromDeck, toDeck)
-    }
+    // Bring the incoming song in at bed level; fade the outgoing one out under it.
+    await this.playDeck(toDeck)
+    if (this.stale(runId)) return
+    this.ramp(this.deckKey(toDeck), INTRO_BED, 900)
+    this.ramp(this.deckKey(fromDeck), 0, 1200)
+    setTimeout(() => { if (!this.stale(runId)) { try { this.deckEl(fromDeck).pause() } catch { /* noop */ } } }, 1300)
 
-    const el = this.ch.dj.el
-    el.src = dj.blobUrl
-    this.ramp('dj', 1, 0)
-    await this.onMeta(el)
-    const djDur = isFinite(el.duration) && el.duration > 0 ? el.duration : 4
+    // Let the outgoing song fade out and the bed settle for a beat before the DJ comes in.
+    await new Promise(r => setTimeout(r, 1300))
+    if (this.stale(runId)) return
 
-    // Outgoing song's tail fades out after its TAIL seconds.
-    setTimeout(() => {
-      if (this.stale(runId)) return
-      this.ramp(this.deckKey(fromDeck), 0, 1000)
-      setTimeout(() => { if (!this.stale(runId)) this.deckEl(fromDeck).pause() }, 1100)
-    }, TAIL * 1000)
-    // Incoming song's head comes in (ducked) for the DJ's final HEAD seconds.
-    const headDelay = Math.max(0, djDur - HEAD) * 1000
-    setTimeout(async () => {
-      if (this.stale(runId)) return
-      await this.playDeck(toDeck)
-      this.ramp(this.deckKey(toDeck), DUCK + 0.05, 1000)
-    }, headDelay)
-
+    // DJ talks over the bedding song, then it fades up to full.
     await this.speak(dj)
     if (this.stale(runId)) return
-    await this.finishTransition(runId, fromDeck, toDeck)
-  }
-
-  private async finishTransition(runId: number, fromDeck: number, toDeck: number) {
-    this.lowerBed()
-    this.ramp(this.deckKey(fromDeck), 0, 400)
-    setTimeout(() => { if (!this.stale(runId)) this.deckEl(fromDeck).pause() }, 450)
-    await this.playDeck(toDeck)
     this.ramp(this.deckKey(toDeck), 1, FADE)
   }
 
@@ -485,55 +349,40 @@ export class RadioEngine {
       queue: [], index: 0, currentTrack: null, nextTrack: null, djText: null, djSpeaking: false,
     })
 
-    // Resolve the genre instrumental bed FIRST, and give it exclusive use of the yt-dlp slots
-    // during the intro. On a cold start the bed and the first song used to resolve at the same
-    // instant; the bed usually lost that race (or 502'd on the burst and needed a retry), so its
-    // first `playing` event landed AFTER the DJ intro had already handed off — meaning the bed
-    // was silent for the whole intro and only appeared from the second song on. We defer the
-    // first song's resolve until the bed is actually playing.
-    void this.startBed(runId, station)
-
-    const queue = await this.loadQueue(station)
+    const songs = await this.loadQueue(station)
     if (this.stale(runId)) return
-    if (!queue.length) { this.stop(); return }
-    // DJ-first intro: nothing is "Now Playing" yet (currentTrack stays null) — the first song
-    // sits at the top of Up Next while the DJ introduces the show over the bed.
-    this.set({ queue, loading: false, phase: 'intro', index: 0, currentTrack: null, nextTrack: queue[0] })
+    if (!songs.length) { this.stop(); return }
+
+    // The first song is its own bed: it plays on a deck at a low bed level the moment the station
+    // starts, the DJ talks over it, then it swells to full. One stream, the proven deck path.
     this.deck = 0
+    this.set({ queue: songs, loading: false, phase: 'intro', index: 0, currentTrack: null, nextTrack: songs[0]! })
 
-    // Generate the intro voice in parallel with the bed coming up — both take a few seconds, so
-    // they overlap and neither alone gates the start.
-    const introP = this.prepareDj({ station, track: queue[0], position: 'intro' })
-
-    // Hold the intro until the bed is actually playing so the DJ ALWAYS opens over it (the cold
-    // first resolve, including a possible 502 + retry, can take several seconds). Generous cap so
-    // a genuinely dead bed still doesn't hang the station.
-    await this.waitForBed(8000)
+    this.cueSrc(0, songs[0]!.videoId)            // src + ramp to 0
+    await this.playDeck(0)                        // start it (retries on transient errors)
     if (this.stale(runId)) return
+    this.ramp(this.deckKey(0), INTRO_BED, 900)   // bring up to a low "bed" level
 
-    // Bed is up (or gave up) — only now resolve/pre-buffer the first song, with the slots free.
-    prewarmStream(queue[0].videoId, 'audio')
-    this.cueSrc(0, queue[0].videoId)
-
-    const intro = await introP
+    // Generate the DJ intro while the song beds underneath, then talk over it and fade up.
+    const intro = await this.prepareDj({ station, track: songs[0]!, position: 'intro' })
     if (this.stale(runId)) return
-    await this.introSegment(runId, 0, intro)
+    await this.introOverSong(runId, 0, intro)
     if (this.stale(runId)) return
-    // Now the first song owns the mix → it becomes Now Playing.
-    this.set({ currentTrack: queue[0], djSpeaking: false, djText: null })
+    // Song now owns the mix → it's Now Playing.
+    this.set({ currentTrack: songs[0]!, djSpeaking: false, djText: null })
 
-    for (let i = 0; i < queue.length; i++) {
+    for (let i = 0; i < songs.length; i++) {
       if (this.stale(runId)) return
-      const cur = queue[i]!
-      const next = queue[i + 1] ?? null
+      const cur = songs[i]!
+      const next = songs[i + 1] ?? null
       this.set({ index: i, currentTrack: cur, nextTrack: next, phase: 'playing' })
 
       const otherDeck = this.deck === 0 ? 1 : 0
       let preparedNext: Promise<PreparedDj> | null = null
       if (next) {
         prewarmStream(next.videoId, 'audio')
-        this.cueSrc(otherDeck, next.videoId)   // pre-buffer so the head-overlap is instant
-        preparedNext = this.prepareDj({ station, track: cur, next, position: 'transition' })
+        this.cueSrc(otherDeck, next.videoId)   // pre-buffer so the hand-off is instant
+        preparedNext = this.prepareDj({ station, track: cur, next, position: 'transition', sayStation: Math.random() < 0.34 })
       }
 
       await this.waitTail(runId, this.deck)
@@ -561,15 +410,13 @@ export class RadioEngine {
   stop() {
     this.runId++
     this.skipResolve = null
-    this.bedReady = false
-    this.bedWanted = false
     if (this.built) {
       (Object.keys(this.ch) as ChKey[]).forEach(k => {
         const c = this.ch[k]
         if (c.ramp) { clearInterval(c.ramp); c.ramp = undefined }
         try { c.el.pause() } catch { /* noop */ }
       })
-      this.ramp('d0', 0, 0); this.ramp('d1', 0, 0); this.ramp('bed', 0, 0); this.ramp('dj', 1, 0)
+      this.ramp('d0', 0, 0); this.ramp('d1', 0, 0); this.ramp('dj', 1, 0)
     }
     this.set({
       active: false, station: null, phase: 'idle', queue: [], index: 0,

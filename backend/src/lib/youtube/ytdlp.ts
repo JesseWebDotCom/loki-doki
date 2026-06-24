@@ -135,21 +135,29 @@ export async function ensureYtDlp(force = false): Promise<void> {
     const due = force || !last || Date.now() - last > CHECK_INTERVAL_MS
 
     if (existsSync(MANAGED_PATH)) {
-      // 1. A managed copy exists — prefer it. Verify it runs (with a retry, tolerant of a
-      // slow cold start) BEFORE deciding to touch the network.
-      resolvedBin = MANAGED_PATH
+      // 1. A managed copy exists — prefer it, but only COMMIT to it once it's verified to run.
+      // (Until then `resolvedBin` stays at its working default so a broken/hanging managed binary
+      // can't wedge stream resolution during the probe.)
       if (await versionOf(MANAGED_PATH, 2)) {
+        resolvedBin = MANAGED_PATH
         // Runs fine — only reach out to self-update when a check is actually due.
         if (due) await selfUpdate(MANAGED_PATH)
       } else if (looksCorrupt(MANAGED_PATH)) {
         // Genuinely broken (partial/tiny write) → re-provision; fall back to PATH.
         logger.warn('[yt-dlp] managed binary corrupt (too small) — re-downloading')
         if (!(await downloadManaged()) && (await versionOf('yt-dlp'))) resolvedBin = 'yt-dlp'
+      } else if (await versionOf('yt-dlp')) {
+        // Present and plausibly intact, but --version didn't answer. Do NOT trust it for live
+        // resolves (a broken-but-large managed binary that hangs on every spawn would otherwise
+        // wedge ALL stream resolution). Prefer a working PATH yt-dlp for now, and keep the managed
+        // copy on disk for the next self-update cycle rather than re-downloading.
+        resolvedBin = 'yt-dlp'
+        logger.warn('[yt-dlp] managed binary version probe timed out — falling back to PATH yt-dlp')
       } else {
-        // Present and plausibly intact, but --version didn't answer (almost always
-        // transient boot-time load). KEEP it — do not re-download; the next due cycle
-        // self-updates it. This is the fix for needless boot re-downloads.
-        logger.warn('[yt-dlp] managed binary present; version probe timed out — keeping it (will retry next cycle)')
+        // No working PATH yt-dlp either — fall back to the managed copy and hope it's just a slow
+        // cold start; the next due cycle self-updates it.
+        resolvedBin = MANAGED_PATH
+        logger.warn('[yt-dlp] managed binary present; version probe timed out and no PATH fallback — keeping it')
       }
     } else if (await versionOf('yt-dlp')) {
       // 2. A system install is on PATH.

@@ -16,6 +16,13 @@ export interface PcmResult {
  * later refinement.
  */
 export function wavToPcm(buf: ArrayBuffer, opts?: { gain?: number }): PcmResult {
+  const { samples, sampleRate } = wavToInt16(buf, opts)
+  return { pcmB64: int16ToB64(samples), sampleRate }
+}
+
+/** Like {@link wavToPcm} but returns the raw mono int16 samples (no base64 round-trip) —
+ *  used when the caller needs to splice/concatenate PCM before re-encoding. */
+export function wavToInt16(buf: ArrayBuffer, opts?: { gain?: number }): { samples: Int16Array; sampleRate: number } {
   const gain = opts?.gain ?? 1
   const view = new DataView(buf)
   if (view.byteLength < 12 || str(view, 0, 4) !== 'RIFF' || str(view, 8, 4) !== 'WAVE') {
@@ -61,7 +68,27 @@ export function wavToPcm(buf: ArrayBuffer, opts?: { gain?: number }): PcmResult 
     mono[f] = softClip((acc / channels) * gain)
   }
 
-  return { pcmB64: int16ToB64(mono), sampleRate }
+  return { samples: mono, sampleRate }
+}
+
+/** Wrap mono int16 PCM in a minimal 44-byte WAV container (the inverse of {@link wavToInt16}). */
+export function pcmToWav(pcm: Int16Array, sampleRate: number): Buffer {
+  const dataSize = pcm.byteLength
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0)
+  header.writeUInt32LE(36 + dataSize, 4)
+  header.write('WAVE', 8)
+  header.write('fmt ', 12)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)                 // PCM
+  header.writeUInt16LE(1, 22)                 // mono
+  header.writeUInt32LE(sampleRate, 24)
+  header.writeUInt32LE(sampleRate * 2, 28)    // byteRate = rate * channels * bytesPerSample
+  header.writeUInt16LE(2, 32)                 // block align = channels * bytesPerSample
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36)
+  header.writeUInt32LE(dataSize, 40)
+  return Buffer.concat([header, Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength)])
 }
 
 function readSampleInt16(view: DataView, p: number, fmt: number, bits: number): number {

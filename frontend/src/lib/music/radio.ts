@@ -61,6 +61,8 @@ export interface DjSegmentResult {
 
 export async function fetchDjSegment(params: {
   genre?: string
+  stationName?: string
+  sayStation?: boolean
   trackName?: string
   artistName?: string
   nextTrackName?: string

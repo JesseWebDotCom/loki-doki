@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import { ollamaChat } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
-import { voiceServerLocalUrl } from '@/lib/voiceServer'
+import { synthesizeWithPauses } from '@/lib/voice/synthSpeech'
 import { appDefaultVoice } from '@/lib/voice/config'
 import { wikipediaSearch } from '@/lib/wikipediaSearch'
 import { innertubeSearch, SEARCH_FILTERS } from '@/lib/youtube/innertube'
@@ -152,6 +152,8 @@ musicRadio.get('/genres', async (c) => {
 musicRadio.post('/dj-segment', async (c) => {
   type DjBody = {
     genre?: string
+    stationName?: string
+    sayStation?: boolean
     trackName?: string
     artistName?: string
     nextTrackName?: string
@@ -164,6 +166,8 @@ musicRadio.post('/dj-segment', async (c) => {
   const body: DjBody = await c.req.json<DjBody>().catch(() => ({} as DjBody))
 
   const genre = body.genre ?? 'music'
+  const stationName = body.stationName
+  const sayStation = body.sayStation && !!stationName
   const trackName = body.trackName
   const artistName = body.artistName
   const nextTrackName = body.nextTrackName
@@ -186,24 +190,28 @@ musicRadio.post('/dj-segment', async (c) => {
     ? `Work in exactly ONE quick, TRUE aside about the artist or song, drawn only from these facts (do not invent): ${facts}`
     : ''
 
+  // When asked, the DJ must name the station, like: "You're listening to Heavy Metal Thunder."
+  const stationLine = sayStation ? `Start by saying the listener is tuned to "${stationName}". ` : ''
+
   let djPrompt: string
   switch (position) {
     case 'intro':
-      djPrompt = `Kick off a ${genre} radio set. One or two snappy sentences — welcome listeners and tease "${trackName}"${artistName ? ` by ${artistName}` : ''}. ${aside} ${ctx} Fast and punchy, under 35 words.`
+      // Talks OVER the first song, so keep it tight — one or two short sentences.
+      djPrompt = `Open a ${genre} set. ${stationLine}Then name what's up now: "${trackName}"${artistName ? ` by ${artistName}` : ''}. ${ctx} Max 22 words. Example shape: "You're listening to ${stationName ?? 'the station'} — up now, ${trackName ?? 'a track'}${artistName ? ` by ${artistName}` : ''}."`
       break
     case 'outro':
-      djPrompt = `Wrap up the ${genre} set. Sign off warm and quick — mention that was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that last track'}. Under 25 words.`
+      djPrompt = `Sign off the ${genre} set in one short line. ${stationLine}Mention that was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that last track'}. Max 18 words.`
       break
     default: // transition
-      djPrompt = `You're between songs on a ${genre} station. That was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that track'}. ${aside} ${nextTrackName ? `Then tease what's next: "${nextTrackName}"${nextArtistName ? ` by ${nextArtistName}` : ''}.` : ''} ${ctx} Fast and punchy, under 35 words.`
+      djPrompt = `Between songs on a ${genre} station. ${stationLine}In one tight line, name that ${trackName ? `was "${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'track'}${nextTrackName ? ` and tease what's up next: "${nextTrackName}"${nextArtistName ? ` by ${nextArtistName}` : ''}` : ''}. ${aside} Max 24 words.`
   }
 
   try {
     const model = await getModel()
     const chat = await ollamaChat(model, [
-      { role: 'system', content: 'You are a fast-talking, charismatic radio DJ. Output ONLY the words you speak aloud — no stage directions, asterisks, or labels. Keep it tight, energetic, and conversational.' },
+      { role: 'system', content: 'You are a fast-talking, charismatic radio DJ. Output ONLY the words you speak aloud — no stage directions, asterisks, or labels. Be brief: one or two short sentences, never more. Tight, energetic, conversational.' },
       { role: 'user', content: djPrompt },
-    ], [], { temperature: 0.9, num_predict: 90 })
+    ], [], { temperature: 0.9, num_predict: 70 })
 
     // Clean up: strip stray markdown asterisks and any quotes the model wrapped the whole
     // line in, so the caption and the TTS read naturally.
@@ -221,18 +229,17 @@ musicRadio.post('/dj-segment', async (c) => {
       return c.json({ text, audio: null })
     }
 
-    const ttsRes = await fetch(`${voiceServerLocalUrl()}/synthesize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice: voiceId, speed: 1.3 }),
+    // Synthesize chunk-by-chunk with silence spliced between sentences and dashes, so the DJ
+    // phrases the line instead of rattling it off in one breath.
+    const wavBuf = await synthesizeWithPauses(text, {
+      voice: voiceId,
+      speed: 1.3,
       signal: AbortSignal.timeout(30_000),
     })
-
-    if (!ttsRes.ok) {
+    if (!wavBuf) {
       return c.json({ text, audio: null })
     }
 
-    const wavBuf = Buffer.from(await ttsRes.arrayBuffer())
     // Return multipart: JSON header + WAV audio encoded as base64 for simplicity.
     return c.json({
       text,
