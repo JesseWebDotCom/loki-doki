@@ -7,10 +7,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AppBreadcrumb, type BreadcrumbCrumb } from "@/components/shared/AppBreadcrumb";
+import { AppBackdrop } from "@/components/shared/AppBackdrop";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useBreadcrumbSearchConfig } from "@/context/BreadcrumbSearchContext";
+import { useAppHeaderConfig } from "@/context/BreadcrumbSearchContext";
 import { useAuth } from "@/context/AuthContext";
+import { classifyRoute } from "@/lib/routeChrome";
 import { AppIconTile } from "@/components/shared/AppIconTile";
 import { getAppByPath, getGroupByAppPath, getAppGroup } from "@/lib/appCategories";
 import { categoryVisual } from "@/lib/archiveCategories";
@@ -22,7 +24,7 @@ import { PodcastPlayerBar } from "@/components/podcast/PodcastPlayerBar";
 import { YoutubeMiniBar } from "@/components/youtube/YoutubeMiniBar";
 import { useChatContext } from "@/context/ChatContext";
 import { useUserLocation } from "@/hooks/useUserLocation";
-import { useNewsPrefetch } from "@/lib/news/useNews";
+import { useAppWarmer } from "@/lib/prefetch/useAppWarmer";
 
 // Pages not in APP_GROUPS (no category group in the breadcrumb).
 const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: string; gradient?: string }> = {
@@ -35,24 +37,21 @@ const STANDALONE_META: Record<string, { title: string; icon: LucideIcon; color: 
   "/devtools":   { title: "Dev Tools",  icon: Terminal,    color: "#6b7280" },
 };
 
-const PANEL_PREFIXES = ["/settings", "/admin", "/devtools"];
-
 export function AppShell() {
-  useNewsPrefetch();
+  // Smart caching: warm pinned + recent apps' data during idle time so they open instantly.
+  useAppWarmer();
   const { pathname } = useLocation();
-  const isHome = pathname === "/";
-  const isChat = pathname.startsWith("/chat");
-  const isPanel = PANEL_PREFIXES.some(p => pathname.startsWith(p));
   // Full-bleed apps own their full height and let the companion float over them.
   // isReader (ZIM reader at /read/:id + docs) provides its OWN breadcrumb header, so the
-  // standard one is suppressed there. NOTE: match "/read/" (trailing slash) so the Reader
-  // app at "/bookmarks" is NOT caught — it uses the standard breadcrumb like other apps.
-  const isReader = pathname.startsWith("/read/") || pathname.startsWith("/docs");
-  const isFullBleed = pathname.startsWith("/maps") || isReader || pathname.startsWith("/imaging") || pathname.startsWith("/video") || pathname.startsWith("/youtube") || pathname.startsWith("/bookmarks");
+  // standard one is suppressed there. shellBackdrop is true for standard scroller apps,
+  // which is where the shell paints the registry color/gradient tint.
+  const { isHome, isChat, isPanel, isReader, isFullBleed, shellBackdrop } = classifyRoute(pathname);
   const { conversations, conversationId, currentProject } = useChatContext();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const breadcrumbSearch = useBreadcrumbSearchConfig();
+  const breadcrumbSearch = useAppHeaderConfig();
+  // Bumped when the user clicks the app crumb; remounts the Outlet to "reload" the app.
+  const [reloadNonce, setReloadNonce] = useState(0);
   const { location, status, error: locationError, detect, setManual } = useUserLocation();
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [cityQuery, setCityQuery] = useState('');
@@ -75,9 +74,18 @@ export function AppShell() {
   const categorySlug = isCategory ? (pathname.split("/")[2] ?? "") : "";
   const categoryGroupMeta    = isCategory ? getAppGroup(categorySlug) : null;
   const categoryArchiveMeta  = isCategory ? categoryVisual(decodeURIComponent(categorySlug)) : null;
-  // Root path for the current app — makes the last breadcrumb crumb clickable.
+  // Root path for the current app — the app crumb navigates here AND reloads the app.
   const pageRootHref: string | undefined =
     appItem?.to ?? standaloneEntry?.[0] ?? (isCategory ? pathname : undefined);
+
+  // Clicking the app icon+name "reloads" the app: navigate to its root and remount the
+  // Outlet (resets internal tab/scroll/search/query state). Keyed by app root so layout
+  // apps keep their rail/player mounted during normal internal navigation.
+  const reloadApp = () => {
+    if (pageRootHref) navigate(pageRootHref);
+    setReloadNonce(n => n + 1);
+  };
+  const appReloadKey = `${pageRootHref ?? pathname}#${reloadNonce}`;
 
   const pageTitle = isCategory
     ? decodeURIComponent(categorySlug || "Category")
@@ -210,12 +218,12 @@ export function AppShell() {
               return [
                 home,
                 ...(groupCrumb ? [groupCrumb] : []),
-                { label: pageTitle, href: "/chat", icon: PageIcon ?? undefined },
+                { label: pageTitle, onClick: reloadApp, icon: PageIcon ?? undefined },
                 ...(currentProject ? [{ label: currentProject.name } as BreadcrumbCrumb] : []),
                 ...(activeConvTitle ? [{ label: activeConvTitle, truncate: true } as BreadcrumbCrumb] : []),
               ];
             }
-            return [home, ...(groupCrumb ? [groupCrumb] : []), { label: pageTitle, href: pageRootHref, ...lastIconProps(PageIcon) }];
+            return [home, ...(groupCrumb ? [groupCrumb] : []), { label: pageTitle, onClick: reloadApp, ...lastIconProps(PageIcon) }];
           })()}>
             {breadcrumbSearch && (
               <>
@@ -267,14 +275,19 @@ export function AppShell() {
 
         {/* Content. Full-bleed apps (chat, panels, maps) fill the whole height
             and let the floating companion overlay them. Other scrollers get
-            bottom padding so the companion bar doesn't occlude the last row. */}
+            bottom padding so the companion bar doesn't occlude the last row.
+            Standard scrollers get the app's registry color/gradient backdrop
+            painted by the shell (PageShell stays a transparent pass-through there). */}
         {isChat || isPanel || isFullBleed ? (
           <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-            <Outlet />
+            <Outlet key={appReloadKey} />
           </div>
         ) : (
-          <div id="main-scroll" className="flex-1 overflow-y-auto pb-28 md:pb-32">
-            <Outlet />
+          <div className="relative flex-1 min-h-0">
+            {shellBackdrop && <AppBackdrop gradient={pageGradient} GhostIcon={PageIcon ?? undefined} />}
+            <div id="main-scroll" className="relative z-10 h-full overflow-y-auto pb-28 md:pb-32">
+              <Outlet key={appReloadKey} />
+            </div>
           </div>
         )}
 

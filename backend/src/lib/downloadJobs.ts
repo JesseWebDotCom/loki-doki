@@ -35,6 +35,12 @@ const MAX_CONCURRENT = 4
 const BACKOFF_BASE_MS = 5_000
 const BACKOFF_MAX_MS = 5 * 60_000
 const PROGRESS_WRITE_MS = 1_000
+// A running byte-streaming download (model/archive) that reports no progress for this long is
+// considered hung. The watchdog aborts it so it requeues and resumes from its .part file instead
+// of sitting in 'running' forever (the cause of downloads "stuck at 39%" needing a manual retry).
+// Local CPU work (map builds) is intentionally excluded — its build phases are legitimately silent.
+const STALL_TIMEOUT_MS = 6 * 60_000
+const STALL_WATCHED_TYPES = new Set<JobType>(['model', 'archive'])
 
 export interface JobSpec {
   type: JobType
@@ -172,8 +178,12 @@ async function maybeSyncKiwix(): Promise<void> {
   await syncKiwixWithArchives()
 }
 
-interface RunningMeta { ctrl: AbortController; domain: string; sizeClass: string }
+interface RunningMeta { ctrl: AbortController; domain: string; sizeClass: string; type: JobType }
 const running = new Map<string, RunningMeta>()
+// Last time each running job reported progress; the stall watchdog compares against STALL_TIMEOUT_MS.
+const lastProgressAt = new Map<string, number>()
+// Jobs the watchdog force-aborted (vs. a user cancel or shutdown) so startJob's catch resumes them.
+const stalledJobs = new Set<string>()
 let tickScheduled = false
 let intervalStarted = false
 
@@ -183,8 +193,24 @@ function kickScheduler() { void tick() }
 export function startDownloadScheduler() {
   if (intervalStarted) return
   intervalStarted = true
-  setInterval(() => { void tick() }, 5_000)
+  setInterval(() => { checkStalledJobs(); void tick() }, 5_000)
   void tick()
+}
+
+/** Abort running model/archive downloads that have gone silent past STALL_TIMEOUT_MS. The abort
+ *  propagates to the fetch body read, so the job throws → requeues → resumes from its .part file,
+ *  instead of sitting in 'running' forever. */
+function checkStalledJobs(): void {
+  const now = Date.now()
+  for (const [id, meta] of running) {
+    if (!STALL_WATCHED_TYPES.has(meta.type)) continue
+    const last = lastProgressAt.get(id) ?? now
+    if (now - last <= STALL_TIMEOUT_MS) continue
+    stalledJobs.add(id)
+    lastProgressAt.set(id, now)  // debounce so we don't re-abort every tick while the abort lands
+    logger.warn(`[jobs] ⏱ stalled — no progress for ${Math.round((now - last) / 1000)}s, aborting to resume: ${id}`)
+    meta.ctrl.abort()
+  }
 }
 
 async function tick(): Promise<void> {
@@ -204,12 +230,20 @@ async function tick(): Promise<void> {
         .orderBy(asc(downloadJobs.priority), asc(downloadJobs.createdAt))
       const largeRunning = [...running.values()].some((r) => r.sizeClass === 'large')
       const domainsRunning = new Set([...running.values()].map((r) => r.domain))
-      const next = candidates.find((j) =>
-        !running.has(j.id) &&
-        !(j.sizeClass === 'large' && largeRunning) &&
-        !domainsRunning.has(j.domain) &&
-        prereqMet(j),
-      )
+      const next = candidates.find((j) => {
+        if (running.has(j.id)) return false
+        // At most one "large" download at a time, globally: a large archive is now internally
+        // parallel (aria2 saturates the link across mirrors), so running two would just split
+        // bandwidth and finish nothing sooner.
+        if (j.sizeClass === 'large' && largeRunning) return false
+        if (!prereqMet(j)) return false
+        // Per-domain serialization, EXCEPT small archive jobs — they're quick, the kiwix restart
+        // is coalesced across the batch, and letting them run alongside the one large archive
+        // gives the user fast wins instead of waiting behind an 80 GB download.
+        const smallArchive = j.type === 'archive' && j.sizeClass === 'small'
+        if (!smallArchive && domainsRunning.has(j.domain)) return false
+        return true
+      })
       if (!next) return
       void startJob(next)
       // Loop to try to fill another slot (its domain/large state is now reserved).
@@ -222,7 +256,8 @@ async function tick(): Promise<void> {
 
 async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
   const ctrl = new AbortController()
-  running.set(job.id, { ctrl, domain: job.domain, sizeClass: job.sizeClass })
+  running.set(job.id, { ctrl, domain: job.domain, sizeClass: job.sizeClass, type: job.type as JobType })
+  lastProgressAt.set(job.id, Date.now())
   await db.update(downloadJobs).set({ status: 'running', updatedAt: new Date() }).where(eq(downloadJobs.id, job.id))
   logger.info(`[jobs] start ${job.type}:${job.refId} (${job.label})`)
 
@@ -236,6 +271,7 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
   const onProgress = (p: DownloadProgress & { note?: string }) => {
     lastCompleted = p.completed
     const t = Date.now()
+    lastProgressAt.set(job.id, t)  // feed the stall watchdog on every report, before throttling
     if (t - lastWrite < PROGRESS_WRITE_MS && p.completed < p.total) return
     lastWrite = t
     // NOTE: must use .catch() (not `void`) — Drizzle queries are lazy and only execute
@@ -257,7 +293,15 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
     // DOMException (yt-dlp/podcast reject with a plain Error('Aborted')), which previously
     // fell into the retry branch and re-spawned the very job the user cancelled.
     const aborted = ctrl.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')
-    if (aborted) {
+    if (aborted && stalledJobs.has(job.id)) {
+      // The watchdog force-aborted a hung download. Resume from the .part file after a short
+      // backoff and DON'T spend the attempt budget — a resumable download that stalls but keeps
+      // its bytes always converges once the mirror recovers. Guarded on status='running' so a
+      // racing cancelJob is never resurrected.
+      await db.update(downloadJobs).set({ status: 'pending', nextEligibleAt: new Date(Date.now() + BACKOFF_BASE_MS), lastError: 'Stalled (no progress) — resuming', updatedAt: new Date() })
+        .where(and(eq(downloadJobs.id, job.id), eq(downloadJobs.status, 'running')))
+      logger.warn(`[jobs] ↻ ${job.type}:${job.refId} resuming after stall`)
+    } else if (aborted) {
       // Requeue a transient abort (shutdown), but only if still 'running' — never resurrect
       // a row cancelJob already flipped to 'cancelled' (else the scheduler re-runs it).
       await db.update(downloadJobs).set({ status: 'pending', updatedAt: new Date() })
@@ -287,6 +331,8 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
     }
   } finally {
     running.delete(job.id)
+    lastProgressAt.delete(job.id)
+    stalledJobs.delete(job.id)
     void tick()  // fill the freed slot
   }
 }
@@ -558,34 +604,69 @@ export async function resumeDownloadJobs(): Promise<void> {
   startDownloadScheduler()
 }
 
-// The setup widget tracks installation only. User-content jobs (podcast generation,
-// YouTube media/export, storage moves) flow through the same queue but must NOT show
-// up as "setup" — a failed episode is not a broken install.
-const SETUP_JOB_TYPES = new Set<JobType>(['model', 'archive', 'map', 'component'])
+// The status endpoint splits the queue into two user-facing tracks:
+//   • "setup"   — runtimes + models + components the app needs to function (finishes in minutes)
+//   • "content" — optional library content (ZIM archives, maps) that can be many GB and hours
+// Framing a 140 GB library download as "Setting up your apps … 87%" made a perfectly usable app
+// look broken for 12 hours; separating them lets setup finish fast and content download honestly
+// (real GB / speed / ETA) without blocking anything.
+// User-content jobs (podcast generation, YouTube media/export, storage moves) flow through the
+// same queue but belong to neither track — a failed episode is not a broken install.
+const SETUP_JOB_TYPES = new Set<JobType>(['model', 'component'])
+const CONTENT_JOB_TYPES = new Set<JobType>(['archive', 'map'])
 
 // A single corrupt progress blob must not 500 the whole status endpoint (which feeds the
 // setup widget for every job at once): fall back to null for the bad row only.
-function parseProgressBlob(blob: string | null): unknown {
+function parseProgressBlob(blob: string | null): { completed?: number; total?: number; speedBps?: number; etaSeconds?: number; note?: string } | null {
   if (!blob) return null
   try { return JSON.parse(blob) } catch { return null }
 }
 
-export async function getJobsStatus() {
-  const allRows = await db.select().from(downloadJobs).orderBy(asc(downloadJobs.priority), asc(downloadJobs.createdAt))
-  const rows = allRows.filter((r) => SETUP_JOB_TYPES.has(r.type as JobType))
+type JobRow = typeof downloadJobs.$inferSelect
+
+function summarize(rows: JobRow[]) {
   const counts = { total: rows.length, pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0 }
   for (const r of rows) counts[r.status as keyof typeof counts]++
   const active = counts.total - counts.completed - counts.failed - counts.cancelled
-  const pct = counts.total > 0 ? Math.round(((counts.completed) / counts.total) * 100) : 100
+  const pct = counts.total > 0 ? Math.round((counts.completed / counts.total) * 100) : 100
+
+  // Byte-level aggregate (drives the honest "X GB of Y GB · Z MB/s · ~N min left" readout).
+  // Only rows that have reported a real total contribute; pending rows of unknown size don't.
+  let downloadedBytes = 0
+  let totalBytes = 0
+  let speedBps = 0
+  for (const r of rows) {
+    const p = parseProgressBlob(r.progress)
+    if (p && typeof p.total === 'number' && p.total > 0) {
+      totalBytes += p.total
+      downloadedBytes += Math.min(p.completed ?? 0, p.total)
+    }
+    if (r.status === 'running' && typeof p?.speedBps === 'number') speedBps += p.speedBps
+  }
+  const etaSeconds = speedBps > 0 && totalBytes > downloadedBytes ? Math.round((totalBytes - downloadedBytes) / speedBps) : 0
+
   return {
-    counts, pct, active,
-    done: active === 0,
+    counts, pct, active, done: active === 0,
+    downloadedBytes, totalBytes, speedBps, etaSeconds,
     jobs: rows.map((r) => ({
       id: r.id, type: r.type, refId: r.refId, label: r.label, domain: r.domain,
       sizeClass: r.sizeClass, status: r.status, attempts: r.attempts, lastError: r.lastError,
       progress: parseProgressBlob(r.progress),
     })),
   }
+}
+
+export async function getJobsStatus() {
+  const allRows = await db.select().from(downloadJobs).orderBy(asc(downloadJobs.priority), asc(downloadJobs.createdAt))
+  const setupRows = allRows.filter((r) => SETUP_JOB_TYPES.has(r.type as JobType))
+  const contentRows = allRows.filter((r) => CONTENT_JOB_TYPES.has(r.type as JobType))
+
+  const setup = summarize(setupRows)
+  const content = summarize(contentRows)
+  // Top-level fields stay = setup+content combined for backward-compatible consumers
+  // (per-app "preparing" badges iterate `jobs`); the widget reads `setup` / `content`.
+  const combined = summarize([...setupRows, ...contentRows])
+  return { ...combined, setup, content }
 }
 
 export async function retryJob(id: string): Promise<void> {

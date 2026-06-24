@@ -3,9 +3,9 @@ import { useQuery } from '@tanstack/react-query'
 import { Loader2, Tv, Search, BookOpen, Bookmark, Headphones } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
-import { getShowsHome, searchShowsApi, type ShowSummary } from '@/lib/shows/api'
+import { showsHomeQueryOptions, searchShowsApi, type ShowSummary } from '@/lib/shows/api'
 import { getContinueWatching, getWatchlist } from '@/lib/library/api'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 
@@ -79,11 +79,7 @@ function PersonalShelves() {
 }
 
 function HomeShelves() {
-  const { data: shelves, isLoading } = useQuery({
-    queryKey: ['shows-home'],
-    queryFn: getShowsHome,
-    staleTime: 30 * 60 * 1000,
-  })
+  const { data: shelves, isLoading } = useQuery(showsHomeQueryOptions())
 
   if (isLoading) {
     return (
@@ -127,7 +123,7 @@ export function ShowsHomePage() {
   })
 
   const onSubmit = useCallback(() => setSubmitted(query.trim()), [query])
-  useBreadcrumbSearch({
+  useAppHeader({
     query,
     setQuery,
     onSubmit,

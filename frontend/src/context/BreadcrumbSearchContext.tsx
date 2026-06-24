@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
-export interface BreadcrumbSearchConfig {
+export interface AppHeaderConfig {
   query: string
   setQuery: (q: string) => void
   /** Omit for live filtering (no submit button rendered). */
@@ -18,17 +18,17 @@ export interface BreadcrumbSearchConfig {
   rightSlot?: ReactNode
 }
 
-type SetFn = (c: BreadcrumbSearchConfig | null) => void
+type SetFn = (c: AppHeaderConfig | null) => void
 
 // Two separate contexts on purpose: the SETTER never changes identity, so pages that
-// publish a config (useBreadcrumbSearch) subscribe ONLY to it and do NOT re-render when
+// publish a config (useAppHeader) subscribe ONLY to it and do NOT re-render when
 // the config value changes. Without this split, publishing would re-render the page,
 // which would produce a fresh `leftSlot` element, re-run the effect, and loop forever.
-const ConfigCtx = createContext<BreadcrumbSearchConfig | null>(null)
+const ConfigCtx = createContext<AppHeaderConfig | null>(null)
 const SetCtx = createContext<SetFn | null>(null)
 
 export function BreadcrumbSearchProvider({ children }: { children: ReactNode }) {
-  const [config, setConfig] = useState<BreadcrumbSearchConfig | null>(null)
+  const [config, setConfig] = useState<AppHeaderConfig | null>(null)
   const _set = useCallback(setConfig as SetFn, [])
   return (
     <SetCtx.Provider value={_set}>
@@ -37,15 +37,17 @@ export function BreadcrumbSearchProvider({ children }: { children: ReactNode }) 
   )
 }
 
-export function useBreadcrumbSearchConfig(): BreadcrumbSearchConfig | null {
+export function useAppHeaderConfig(): AppHeaderConfig | null {
   return useContext(ConfigCtx)
 }
 
 /**
- * Call in a page component to register breadcrumb actions (search, external link, settings).
- * Automatically cleared when the page unmounts.
+ * Call in a page component to register the app header actions (search, external link,
+ * settings, toggle slots). Automatically cleared when the page unmounts. This is the
+ * single sanctioned way for an app to populate the breadcrumb's action row — see the
+ * "App Header Contract" section in agents.md.
  */
-export function useBreadcrumbSearch(config: BreadcrumbSearchConfig) {
+export function useAppHeader(config: AppHeaderConfig) {
   const _set = useContext(SetCtx)!
 
   // Hold the latest config in a ref so callers don't have to memoize setQuery/onSubmit.
@@ -75,3 +77,13 @@ export function useBreadcrumbSearch(config: BreadcrumbSearchConfig) {
     return () => _set(null)
   }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, hasSubmit, setQuery, onSubmit, _set])
 }
+
+// ── Back-compat aliases ────────────────────────────────────────────────────────
+// The header system was originally named "breadcrumb search". These keep older call
+// sites working; prefer useAppHeader / AppHeaderConfig / useAppHeaderConfig in new code.
+/** @deprecated Use {@link AppHeaderConfig}. */
+export type BreadcrumbSearchConfig = AppHeaderConfig
+/** @deprecated Use {@link useAppHeader}. */
+export const useBreadcrumbSearch = useAppHeader
+/** @deprecated Use {@link useAppHeaderConfig}. */
+export const useBreadcrumbSearchConfig = useAppHeaderConfig

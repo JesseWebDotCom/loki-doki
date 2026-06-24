@@ -11,7 +11,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { BookmarkEditDialog } from '@/components/bookmarks/BookmarkEditDialog'
 import { getIconChoice } from '@/components/shared/IconPicker'
 import { resolveProjectColor } from '@/components/shared/ColorPicker'
@@ -106,7 +106,7 @@ export function BookmarksLibraryPage() {
     : 'Library'
 
   // Standard breadcrumb row: live search (Settings lives in the rail for all users).
-  useBreadcrumbSearch({
+  useAppHeader({
     query: search,
     setQuery: setSearch,
     placeholder: 'Search your library…',

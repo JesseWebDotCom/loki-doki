@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import {
   Home,
   Lightbulb,
@@ -312,7 +312,7 @@ export function HomeAssistantPage() {
   const totalOn = afterUnavailable.filter(isEntityOn).length
   const areaNames = [...new Set(merged.filter((e) => e.area).map((e) => e.area!))].sort()
 
-  useBreadcrumbSearch({
+  useAppHeader({
     query: filterQuery,
     setQuery: setFilterQuery,
     placeholder: 'Filter devices...',

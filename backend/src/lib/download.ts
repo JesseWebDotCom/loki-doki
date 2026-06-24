@@ -20,6 +20,30 @@ export interface DownloadProgress {
   status?: string
 }
 
+// A streamed download that delivers no bytes for this long is treated as hung: the read is
+// raced against a timer so a silently-stalled connection (socket alive, mirror frozen)
+// rejects instead of blocking forever. Resumable downloads (.part) just retry from disk.
+export const STREAM_IDLE_TIMEOUT_MS = 90_000
+
+/** Race a stream read against an idle timeout. Rejects if no chunk arrives within `idleMs`,
+ *  turning a silently-hung connection into a retriable error instead of an infinite hang. */
+export async function readWithIdleTimeout<T>(
+  reader: ReadableStreamDefaultReader<T>,
+  idleMs: number,
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Download stalled: no data for ${Math.round(idleMs / 1000)}s`)), idleMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 // ── Safetensors validation ────────────────────────────────────────────────────
 // Validates that a .safetensors file's header is complete AND that all described
 // tensor byte ranges fit within the actual file size — identical to the check
@@ -161,7 +185,7 @@ async function _downloadUrlImpl(
   try {
     while (true) {
       if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
-      const { done, value } = await reader.read()
+      const { done, value } = await readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS)
       if (done) break
 
       fileStream.write(value)
@@ -221,7 +245,7 @@ async function _pullOllamaStream(
     while (true) {
       if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
 
-      const { done, value } = await reader.read()
+      const { done, value } = await readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS)
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })

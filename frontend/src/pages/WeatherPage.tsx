@@ -22,6 +22,7 @@ import {
   getAdvisoryEffect,
 } from '@/lib/weather'
 import { WeatherHeroBg } from '@/components/weather/WeatherHeroBg'
+import { getWeatherCache, getWeatherCacheRaw, setWeatherCache } from '@/lib/weatherCache'
 
 // ─── Advice chips ─────────────────────────────────────────────────────────────
 
@@ -116,17 +117,8 @@ function dayLabel(isoDate: string, tz: string): string {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// ─── Module-level weather cache (survives route navigation) ──────────────────
-
-interface WeatherCache {
-  data: WeatherData
-  locationKey: string
-  ts: number
-  summary?: string | null
-  daySummaries?: Map<number, string | null>
-}
-let _wxCache: WeatherCache | null = null
-const WX_CACHE_TTL_MS = 5 * 60 * 1000
+// The cross-route weather cache lives in @/lib/weatherCache so the app prefetch warmer
+// can fill it ahead of the user opening the app (instant first paint).
 
 // ─── Alert banner ─────────────────────────────────────────────────────────────
 
@@ -187,12 +179,10 @@ const METRIC_LABELS: Record<HourlyMetric, string> = { temp: 'Temp', precip: 'Pre
 
 export function WeatherPage() {
   const { location, status: locStatus, detect } = useUserLocation()
-  const [data, setData] = useState<WeatherData | null>(() =>
-    _wxCache && Date.now() - _wxCache.ts < WX_CACHE_TTL_MS ? _wxCache.data : null
-  )
+  const [data, setData] = useState<WeatherData | null>(() => getWeatherCache()?.data ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const fresh = _wxCache && Date.now() - _wxCache.ts < WX_CACHE_TTL_MS ? _wxCache : null
+  const fresh = getWeatherCache()
   const [summary, setSummary] = useState<string | null>(() => fresh?.summary ?? null)
   const [alerts, setAlerts] = useState<WeatherAlert[]>([])
   const [metric, setMetric] = useState<HourlyMetric>('temp')
@@ -204,8 +194,9 @@ export function WeatherPage() {
 
   async function load() {
     if (!location) return
-    if (_wxCache && _wxCache.locationKey === location.displayName && Date.now() - _wxCache.ts < WX_CACHE_TTL_MS) {
-      const cached = _wxCache
+    const existing = getWeatherCache()
+    if (existing && existing.locationKey === location.displayName) {
+      const cached = existing
       setData(cached.data)
       if (cached.daySummaries) setDaySummaries(cached.daySummaries)
       const cachedAlerts = await fetchWeatherAlerts(location)
@@ -235,7 +226,7 @@ export function WeatherPage() {
         throw new Error(body.error ?? 'Weather request failed')
       }
       const d = await res.json() as WeatherData
-      _wxCache = { data: d, locationKey: location.displayName, ts: Date.now() }
+      setWeatherCache({ data: d, locationKey: location.displayName, ts: Date.now() })
       setData(d)
       setAlerts(activeAlerts)
       setSummary(null)
@@ -282,7 +273,8 @@ export function WeatherPage() {
       if (res.ok) {
         const { summary: s } = await res.json() as { summary: string | null }
         setSummary(s)
-        if (_wxCache && _wxCache.data === d) _wxCache.summary = s
+        const c = getWeatherCacheRaw()
+        if (c && c.data === d) c.summary = s
       }
     } catch {
       // summary is optional
@@ -313,7 +305,8 @@ export function WeatherPage() {
         const { summary: s } = await res.json() as { summary: string | null }
         setDaySummaries(prev => {
           const next = new Map([...prev, [i, s ?? '']])
-          if (_wxCache && _wxCache.data === d) _wxCache.daySummaries = next
+          const c = getWeatherCacheRaw()
+          if (c && c.data === d) c.daySummaries = next
           return next
         })
       }

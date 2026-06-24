@@ -1,6 +1,8 @@
 // Typed wrappers around the /api/shows/* endpoints, plus the shared media-image proxy
 // helper used by both the Shows and Movies apps.
 
+import type { UseQueryOptions } from '@tanstack/react-query'
+
 const opts: RequestInit = { credentials: 'include' }
 
 // Route external art through our cached proxy for known hosts; load anything else (e.g.
@@ -179,6 +181,12 @@ async function getJson<T>(url: string): Promise<T> {
 export async function getShowsHome(): Promise<ShowShelf[]> {
   const data = await getJson<{ shelves: ShowShelf[] }>('/api/shows/home')
   return data.shelves
+}
+
+// Shared query options for the Shows home shelves — consumed by both ShowsHomePage and
+// the prefetch warmer so the warmed cache key never drifts from what the page reads.
+export function showsHomeQueryOptions(): UseQueryOptions<ShowShelf[]> {
+  return { queryKey: ['shows-home'], queryFn: getShowsHome, staleTime: 30 * 60_000 }
 }
 
 export async function searchShowsApi(q: string): Promise<ShowSummary[]> {

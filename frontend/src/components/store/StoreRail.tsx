@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom'
-import { Home, LayoutGrid, Shapes, Sparkles, DownloadCloud, Inbox, type LucideIcon } from 'lucide-react'
+import { Home, LayoutGrid, Shapes, ShoppingBag, DownloadCloud, Inbox, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
+import { AppRailHeader } from '@/components/shared/AppRailHeader'
 
 function RailLink({ to, icon: Icon, label, end, badge }: {
   to: string; icon: LucideIcon; label: string; end?: boolean; badge?: number
@@ -33,15 +34,13 @@ export function StoreRail({ installedCount }: { installedCount: number }) {
 
   return (
     <nav className="sticky top-0 hidden h-fit w-52 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
-      <div className="mb-4 flex items-start gap-2.5 px-2">
-        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-sm">
-          <Sparkles className="size-4" />
-        </span>
-        <div>
-          <p className="text-base font-bold leading-tight tracking-tight">App Store</p>
-          <p className="text-[11px] leading-snug text-muted-foreground">Install apps and extensions for your hub.</p>
-        </div>
-      </div>
+      <AppRailHeader
+        title="App Store"
+        description="Install apps and extensions for your hub."
+        icon={ShoppingBag}
+        gradient="linear-gradient(135deg,#4338ca,#6366f1)"
+        className="mb-4"
+      />
 
       <RailLink to="/app-store" icon={Home} label="Home" end />
       <RailLink to="/app-store/browse" icon={LayoutGrid} label="Browse" />

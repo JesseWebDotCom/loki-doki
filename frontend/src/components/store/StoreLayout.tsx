@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { StoreActionsProvider } from '@/components/store/StoreActions'
 import { StoreRail } from '@/components/store/StoreRail'
 import { useStoreApps } from '@/lib/store/useStoreApps'
@@ -51,7 +51,7 @@ export function StoreLayout() {
   }, [query])
 
   const leftSlot = useMemo(() => <NavButtons />, [])
-  useBreadcrumbSearch({
+  useAppHeader({
     query,
     setQuery,
     placeholder: 'Search for apps and extensions…',

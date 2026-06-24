@@ -134,6 +134,98 @@ src/components/
 
 ## Shared Component Catalog
 
+### App Header Contract (read this first for any app page)
+
+Every app shares ONE header system so they look and behave identically. Do not hand-roll a
+header, a title row, or a background tint on an app page. The pieces:
+
+**1. Breadcrumb (automatic).** `AppShell` renders the breadcrumb (`Home / Group / App`) for every
+non-home app route from the `APP_GROUPS` registry (`src/lib/appCategories.ts`) — icon, name, and
+accent color all come from the registry. You get this for free; you do not render it.
+
+**2. Reload-on-click (automatic).** The app crumb (icon + name) is a button that reloads the app:
+it navigates to the app root and remounts the route (resetting tab/scroll/search/query state).
+Layout apps with a persistent rail/player (YouTube, Bookmarks, Chat) keep that rail mounted during
+normal internal navigation and only fully reload when the crumb is clicked — this works because the
+`Outlet` is keyed by **app root**, not full pathname. Nothing to wire per page.
+
+**3. Background tint (automatic).** The app's registry `color`/`gradient` tints the right panel
+(corner fade + ghost-icon watermark), like Chat. `AppShell` paints it for standard scroller apps;
+full-bleed / chat pages get it from `PageShell`. Keep your page root transparent and it shows
+through. See `AppBackdrop` below — you rarely use it directly.
+
+**4. Header actions (opt in via `useAppHeader`).** To add a search box, external link, admin
+settings gear, or global toggle buttons to the breadcrumb row, call **`useAppHeader(...)`** from
+`src/context/BreadcrumbSearchContext.tsx` in your page. This is the ONLY sanctioned way to populate
+the action row — never inject buttons into the breadcrumb yourself.
+
+```ts
+useAppHeader({
+  query, setQuery,            // search box (required to render the input)
+  onSubmit,                   // omit for live-filtering (no Search button)
+  placeholder: 'Search…',
+  loading,                    // spinner in the Search button
+  externalHref: 'https://…',  // external-link icon (new tab)
+  settingsHref: '/admin/…',   // admin-only gear (hidden for non-admins)
+  leftSlot, rightSlot,        // global toggle buttons (e.g. YouTube online/offline)
+})
+```
+
+The config auto-clears on unmount. `useAppHeader` (and `AppHeaderConfig`, `useAppHeaderConfig`) is
+the current name; `useBreadcrumbSearch` is a back-compat alias — prefer `useAppHeader` in new code.
+
+**5. Sub-tabs (use `AppTabBar`).** Tabbed apps keep their tab row in the page body (just under the
+breadcrumb) but render it via `AppTabBar` so every tabbed app looks identical. See below.
+
+**6. In-page app identity (icon tile + name).** Never hand-roll the app's icon tile with a hardcoded
+color — it drifts from the registry and the breadcrumb. The app's icon must render in its **registry
+gradient** (`app.gradient`) with the **registry icon** (`app.icon`):
+- Layout apps with a left rail (YouTube, Bookmarks, Podcasts, Companions, App Store) use
+  **`AppRailHeader`** (resolves icon+gradient from the registry by route).
+- Standard scroller apps use `PageHeader variant="compact"`, whose icon tile is painted with the
+  `gradient` you pass (use the app's registry gradient).
+
+---
+
+### `AppBackdrop` - `src/components/shared/AppBackdrop.tsx`
+
+The app color-identity layer: a corner-fade tint (from the app gradient) + a faint ghost-icon
+watermark. Render as an `absolute inset-0` sibling behind `relative z-10` content. Usually applied
+for you by `AppShell` / `PageShell` — only reach for it directly on a custom full-bleed surface.
+
+```ts
+{ gradient?: string; GhostIcon?: LucideIcon }
+```
+
+---
+
+### `AppTabBar` - `src/components/shared/AppTabBar.tsx`
+
+The standardized in-body sub-navigation pill row for tabbed apps (Music, etc.). Use it instead of
+hand-rolling a tab row.
+
+```ts
+{ tabs: AppTab<T>[]; value: T; onChange: (id: T) => void; className?: string }
+// AppTab: { id: T; label: string; icon?: LucideIcon; shortLabel?: string }
+```
+
+`shortLabel` (defaults to the first word of `label`) is shown on narrow screens.
+
+---
+
+### `AppRailHeader` - `src/components/shared/AppRailHeader.tsx`
+
+The standardized app-identity header for layout apps with a left rail. Renders the app's registry
+icon in its registry gradient tile (matching the breadcrumb tile) + name + description. Icon and
+gradient resolve from the registry by route; pass `icon`/`gradient` explicitly only for routes not
+in `APP_GROUPS` (e.g. App Store).
+
+```ts
+{ title: string; description: string; icon?: LucideIcon; gradient?: string; className?: string }
+```
+
+---
+
 ### `RichOptionSelect` - `src/components/shared/RichOptionSelect.tsx`
 
 A searchable dropdown/combobox with rich per-option content: title, subtitle/description, and badges. Built on `Radix Popover` + `Badge`.
@@ -232,15 +324,18 @@ onRetry?: () => void
 
 ### `PageShell` - `src/components/shared/PageShell.tsx`
 
-Full-page tinted background for app pages. Wraps the page's outer container with a subtle gradient tint (12% opacity) and a ghost-icon watermark in the bottom-right corner. Replaces hand-rolled `min-h-full bg-background` outer divs for any app that has its own color identity.
+Transparent page wrapper that carries the app's color identity. Delegates the tint to `AppBackdrop`
+and, importantly, only self-tints on full-bleed / chat routes that `AppShell` does NOT cover — on
+standard scroller apps the shell already paints the backdrop, so `PageShell` stays a transparent
+pass-through and the tint is applied exactly once. Existing pages can keep wrapping in `PageShell`
+unchanged; new standard apps don't need it at all (the shell tints them regardless).
 
 ```ts
-{ gradient: string; GhostIcon?: LucideIcon; children: ReactNode; className?: string }
+{ gradient?: string; GhostIcon?: LucideIcon; children: ReactNode; className?: string }
 ```
 
-Example: `<PageShell gradient="linear-gradient(135deg,#6366f1,#ec4899)" GhostIcon={Camera}>`
-
-Currently used by: ImagingPage, VideoPage, BoredPage, CategoryPage, HomeInventoryPage.
+The gradient/icon default to the current app's registry entry when omitted. Pass them explicitly
+only for a custom full-bleed surface.
 
 ---
 

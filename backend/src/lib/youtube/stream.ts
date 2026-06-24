@@ -80,10 +80,24 @@ function pickProgressive(streams: ItStreams, quality: StreamQuality): string | n
   return chosen?.url ?? null
 }
 
+// Pick the best adaptive audio-only URL the ANDROID_VR client offered: highest bitrate,
+// preferring m4a/mp4 (which a plain <audio> plays everywhere). These are pre-signed, so we
+// avoid a cold yt-dlp spawn entirely — this is what lets AI-Radio's instrumental bed and
+// songs resolve in well under a second instead of waiting seconds for the first subprocess.
+function pickAudio(streams: ItStreams): string | null {
+  const audio = streams.audio.filter(f => f.url)
+  if (!audio.length) return null
+  const m4a = audio.filter(f => /audio\/mp4|mp4a/i.test(f.mime))
+  const pool = m4a.length ? m4a : audio
+  const best = pool.reduce((a, b) => ((b.bitrate ?? 0) > (a.bitrate ?? 0) ? b : a))
+  return best?.url ?? null
+}
+
 /**
- * Resolve (and cache) a directly-playable URL for a video. Video streams try the fast
- * InnerTube/ANDROID path first (no subprocess) and fall back to yt-dlp; audio always uses
- * yt-dlp. `forceYtDlp` skips the fast path (used when an InnerTube URL has just 403'd).
+ * Resolve (and cache) a directly-playable URL for a video. Both video (progressive) and
+ * audio (best adaptive audio) try the fast InnerTube/ANDROID_VR path first (no subprocess)
+ * and fall back to yt-dlp. `forceYtDlp` skips the fast path (used when an InnerTube URL has
+ * just 403'd, since re-fetching it the same way would likely 403 again).
  */
 export async function resolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality = 'auto', forceYtDlp = false): Promise<string | null> {
   if (!isValidVideoId(videoId)) return null
@@ -108,11 +122,15 @@ export async function resolveStreamUrl(videoId: string, kind: StreamKind, qualit
 }
 
 async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: StreamQuality, forceYtDlp: boolean, key: string, now: number): Promise<string | null> {
-  // Fast path (video only): one JSON call to the ANDROID client beats spawning yt-dlp.
-  if (kind === 'video' && !forceYtDlp) {
+  // Fast path: one JSON call to the ANDROID_VR client (pre-signed, cipher-free URLs) beats
+  // spawning yt-dlp — for BOTH video (progressive) and audio (best adaptive audio). Audio used
+  // to always fall through to a cold yt-dlp spawn, which is why AI-Radio's first bed/song took
+  // seconds to resolve; now it resolves here in well under a second, falling back to yt-dlp
+  // only when InnerTube returns no usable format.
+  if (!forceYtDlp) {
     try {
       const streams = await innertubePlayerStreams(videoId)
-      const url = streams ? pickProgressive(streams, quality) : null
+      const url = streams ? (kind === 'audio' ? pickAudio(streams) : pickProgressive(streams, quality)) : null
       if (url && isAllowedUpstream(url)) {
         if (cache.size > 500) sweepExpired()
         cache.set(key, { url, expires: now + TTL_MS })
@@ -123,31 +141,41 @@ async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: St
     }
   }
 
-  try {
-    const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
-      '-f', formatFor(kind, quality),
-      '-g', '--no-warnings', '--no-playlist',
-      // Speedups: IPv6 paths to googlevideo often stall here; and probing every player
-      // client is wasteful — ANDROID_VR returns pre-signed progressive URLs (no n-sig /
-      // player-JS step) and the web clients cover anything it misses.
-      '--force-ipv4',
-      '--extractor-args', 'youtube:player_client=android_vr,web_safari,web',
-      `https://www.youtube.com/watch?v=${videoId}`,
-    ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }))
+  // yt-dlp failures are often transient — a cold burst of resolves from one IP can get rate-
+  // limited or time out under load, yet the very same video resolves fine a moment later. So
+  // retry a couple of times with backoff before giving up (this fixes the AI-Radio startup
+  // where the first song + bed resolve at once and one 502s).
+  let lastErr: unknown = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1200 * attempt))
+    try {
+      const { stdout } = await withYtDlpSlot(() => execFileAsync(ytDlpBin(), [
+        '-f', formatFor(kind, quality),
+        '-g', '--no-warnings', '--no-playlist',
+        // Speedups: IPv6 paths to googlevideo often stall here; and probing every player
+        // client is wasteful — ANDROID_VR returns pre-signed progressive URLs (no n-sig /
+        // player-JS step) and the web clients cover anything it misses.
+        '--force-ipv4',
+        '--extractor-args', 'youtube:player_client=android_vr,web_safari,web',
+        `https://www.youtube.com/watch?v=${videoId}`,
+      ], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }))
 
-    // -g prints one URL per selected stream; the first line is our progressive/audio URL.
-    const url = stdout.split('\n').map(l => l.trim()).find(Boolean) ?? null
-    if (!url || !isAllowedUpstream(url)) {
-      if (url) logger.warn(`[youtube/stream] refusing non-YouTube upstream host for ${videoId}`)
-      return null
+      // -g prints one URL per selected stream; the first line is our progressive/audio URL.
+      const url = stdout.split('\n').map(l => l.trim()).find(Boolean) ?? null
+      if (!url) { lastErr = 'empty output'; continue }       // transient — retry
+      if (!isAllowedUpstream(url)) {                          // permanent — don't retry
+        logger.warn(`[youtube/stream] refusing non-YouTube upstream host for ${videoId}`)
+        return null
+      }
+      if (cache.size > 500) sweepExpired() // keep the cache from growing unbounded
+      cache.set(key, { url, expires: now + TTL_MS })
+      return url
+    } catch (err) {
+      lastErr = err
     }
-    if (cache.size > 500) sweepExpired() // keep the cache from growing unbounded
-    cache.set(key, { url, expires: now + TTL_MS })
-    return url
-  } catch (err) {
-    logger.warn(`[youtube/stream] resolve failed for ${videoId} (${kind}): ${err}`)
-    return null
   }
+  logger.warn(`[youtube/stream] resolve failed for ${videoId} (${kind}) after retries: ${lastErr}`)
+  return null
 }
 
 function sweepExpired(): void {

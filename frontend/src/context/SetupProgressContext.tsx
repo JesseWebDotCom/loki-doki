@@ -17,12 +17,23 @@ export interface JobInfo {
   lastError: string | null
   progress: JobProgress | null
 }
-export interface JobsStatus {
+export interface JobGroup {
   counts: { total: number; pending: number; running: number; completed: number; failed: number; cancelled: number }
   pct: number
   active: number   // pending + running
   done: boolean
   jobs: JobInfo[]
+  // Byte-level aggregate for the honest "X GB of Y GB · Z/s · ~N left" readout.
+  downloadedBytes: number
+  totalBytes: number
+  speedBps: number
+  etaSeconds: number
+}
+// Top-level fields = setup+content combined (backward-compatible); `setup`/`content` split
+// the queue into the app-it-needs track and the optional-library-content track.
+export interface JobsStatus extends JobGroup {
+  setup: JobGroup
+  content: JobGroup
 }
 
 interface SetupProgress {
@@ -30,9 +41,11 @@ interface SetupProgress {
   refresh: () => void
   /** Re-queue every failed/skipped download, then refresh. */
   retryFailed: () => Promise<void>
+  /** Cancel a single in-flight/queued download, then refresh. */
+  cancelJob: (id: string) => Promise<void>
 }
 
-const Ctx = createContext<SetupProgress>({ status: null, refresh: () => {}, retryFailed: async () => {} })
+const Ctx = createContext<SetupProgress>({ status: null, refresh: () => {}, retryFailed: async () => {}, cancelJob: async () => {} })
 export function useSetupProgress(): SetupProgress { return useContext(Ctx) }
 
 // Map an in-flight job to the app route(s) it's preparing, so the nav can badge them.
@@ -118,5 +131,10 @@ export function SetupProgressProvider({ children }: { children: React.ReactNode 
     refresh()
   }
 
-  return <Ctx.Provider value={{ status, refresh, retryFailed }}>{children}</Ctx.Provider>
+  const cancelJob = async (id: string) => {
+    try { await fetch(`/api/jobs/${id}/cancel`, { method: 'POST', credentials: 'include' }) } catch { /* ignore */ }
+    refresh()
+  }
+
+  return <Ctx.Provider value={{ status, refresh, retryFailed, cancelJob }}>{children}</Ctx.Provider>
 }

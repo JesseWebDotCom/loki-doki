@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { clearPersistedCache } from '@/lib/prefetch/persist'
 
 export interface AuthUser {
   id: string
@@ -74,8 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetch('/api/auth/logout', { method: 'POST' })
     setUser(null)
     // Drop all cached query data so the next profile doesn't briefly see the previous
-    // user's data (query keys aren't user-scoped).
+    // user's data (query keys aren't user-scoped) — both in-memory and the persisted
+    // (IndexedDB) copy that PersistQueryClientProvider would otherwise rehydrate.
     queryClient.clear()
+    void clearPersistedCache()
   }, [queryClient])
 
   useEffect(() => { refetch() }, [refetch])

@@ -1319,7 +1319,10 @@ youtubeRoute.get('/stream/:videoId', async (c) => {
 youtubeRoute.get('/stream/:videoId/prewarm', async (c) => {
   const videoId = c.req.param('videoId')
   if (!isValidVideoId(videoId)) return c.json({ error: 'Invalid video id' }, 400)
-  void resolveStreamUrl(videoId, 'video', 'auto')
+  // Warm the SAME (videoId, kind) the caller will actually play — the cache is keyed by kind,
+  // so warming 'video' does nothing for an audio-only consumer like AI Radio.
+  const kind: StreamKind = c.req.query('kind') === 'audio' ? 'audio' : 'video'
+  void resolveStreamUrl(videoId, kind, 'auto')
   return c.body(null, 204)
 })
 

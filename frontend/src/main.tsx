@@ -1,13 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import './index.css'
 import 'katex/dist/katex.min.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/shared/ErrorBoundary.tsx'
+import { persistOptions } from './lib/prefetch/persist.ts'
 
 // Register the pmtiles:// protocol so MapLibre can read offline vector-tile
 // archives served by the maps backend. Guarded so HMR never double-registers.
@@ -41,18 +43,22 @@ if ('serviceWorker' in navigator) {
   }
 }
 
+// gcTime is deliberately long: prefetched queries have NO observer, so at the default
+// 5-min gcTime a boot-time/idle warm would be garbage-collected before the user clicks
+// the app. 30 min keeps warmed pinned-app data alive until it's needed. Per-query
+// staleTime still governs freshness (most warmed queries set their own).
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000, gcTime: 30 * 60_000 } },
 })
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
         <BrowserRouter>
           <App />
         </BrowserRouter>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </ErrorBoundary>
   </StrictMode>,
 )

@@ -40,6 +40,19 @@ export async function fetchGenres(): Promise<RadioGenre[]> {
   return data.genres
 }
 
+export interface RadioQueueTrack { videoId: string; title: string; author: string | null }
+
+/** Build a station queue from a YouTube Music radio mix (varied, genre-appropriate),
+ *  falling back server-side to plain search. `source` is 'ytmusic' | 'search'. */
+export async function fetchRadioQueue(q: string): Promise<{ tracks: RadioQueueTrack[]; source: string }> {
+  try {
+    const res = await fetch(`/api/music/radio/queue?q=${encodeURIComponent(q)}`, { credentials: 'include' })
+    if (!res.ok) return { tracks: [], source: 'none' }
+    const data = await res.json() as { tracks?: RadioQueueTrack[]; source?: string }
+    return { tracks: data.tracks ?? [], source: data.source ?? 'none' }
+  } catch { return { tracks: [], source: 'none' } }
+}
+
 export interface DjSegmentResult {
   text: string
   audio: string | null  // base64 WAV

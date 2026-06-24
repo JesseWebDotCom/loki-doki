@@ -1,87 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Film, Loader2, Tv, WifiOff } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface Provider {
-  name: string
-  offerType: string
-  label: string
-  url: string
-}
-
-interface TitleCard {
-  title: string
-  year: number | null
-  objectType: string
-  posterUrl: string
-  justwatchUrl: string
-  providers: Provider[]
-}
-
-interface BrowseResponse {
-  mode: 'popular' | 'new'
-  found: boolean
-  items: TitleCard[]
-  error?: string
-}
-
-interface LookupResponse {
-  mode: 'lookup'
-  found: boolean
-  title?: string
-  year?: number | null
-  posterUrl?: string
-  justwatchUrl?: string
-  providers?: Provider[]
-  error?: string
-}
-
-type ApiResponse = BrowseResponse | LookupResponse
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
+import {
+  whereToWatchPopularQueryOptions,
+  whereToWatchSearchQueryOptions,
+  type Provider,
+  type TitleCard,
+} from '@/lib/whereToWatch'
 
 const GRADIENT = 'linear-gradient(135deg,#1e1b4b,#7c3aed)'
-
-// ── Fetch helpers ─────────────────────────────────────────────────────────────
-
-async function fetchPopular(country = 'US'): Promise<TitleCard[]> {
-  const r = await fetch(
-    `/api/where-to-watch?mode=popular&country=${encodeURIComponent(country)}`,
-    { credentials: 'include' },
-  )
-  if (!r.ok) return []
-  const d = (await r.json()) as BrowseResponse
-  return d.items ?? []
-}
-
-async function fetchSearch(q: string, country = 'US'): Promise<TitleCard[]> {
-  const r = await fetch(
-    `/api/where-to-watch?q=${encodeURIComponent(q)}&country=${encodeURIComponent(country)}`,
-    { credentials: 'include' },
-  )
-  if (!r.ok) return []
-  const d = (await r.json()) as ApiResponse
-  if (d.mode === 'lookup') {
-    if (!d.found || !d.title) return []
-    const lookup = d as LookupResponse
-    return [
-      {
-        title: lookup.title!,
-        year: lookup.year ?? null,
-        objectType: '',
-        posterUrl: lookup.posterUrl ?? '',
-        justwatchUrl: lookup.justwatchUrl ?? '',
-        providers: lookup.providers ?? [],
-      },
-    ]
-  }
-  return (d as BrowseResponse).items ?? []
-}
 
 // ── Provider badge ────────────────────────────────────────────────────────────
 
@@ -202,8 +135,6 @@ function FilterChips({
 export function WhereToWatchPage() {
   const [query, setQuery] = useState('')
   const [activeQuery, setActiveQuery] = useState('')
-  const [items, setItems] = useState<TitleCard[]>([])
-  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [selectedProvider, setSelectedProvider] = useState('')
 
   usePublishUIContext({
@@ -213,46 +144,26 @@ export function WhereToWatchPage() {
       : 'Browsing popular titles on streaming services.',
   })
 
-  const loadPopular = useCallback(async () => {
-    setStatus('loading')
-    setItems([])
+  // Popular is always cached (and pre-warmed by the app prefetcher → instant on open);
+  // search runs only when there's an active query. The view shows one or the other.
+  const popular = useQuery(whereToWatchPopularQueryOptions())
+  const search = useQuery(whereToWatchSearchQueryOptions(activeQuery))
+
+  const active = !!activeQuery
+  const items: TitleCard[] = active ? (search.data ?? []) : (popular.data ?? [])
+  const loading = active ? search.isLoading : popular.isLoading
+  // "error" here means nothing to show (failed fetch or empty result) — same UX as before.
+  const status: 'loading' | 'ready' | 'error' = loading
+    ? 'loading'
+    : items.length > 0 ? 'ready' : 'error'
+
+  const doSearch = useCallback((q: string) => {
+    setActiveQuery(q.trim())
     setSelectedProvider('')
-    try {
-      const data = await fetchPopular()
-      setItems(data)
-      setStatus(data.length ? 'ready' : 'error')
-    } catch {
-      setStatus('error')
-    }
   }, [])
 
-  useEffect(() => {
-    void loadPopular()
-  }, [loadPopular])
-
-  const doSearch = useCallback(async (q: string) => {
-    const trimmed = q.trim()
-    if (!trimmed) {
-      setActiveQuery('')
-      setSelectedProvider('')
-      void loadPopular()
-      return
-    }
-    setActiveQuery(trimmed)
-    setStatus('loading')
-    setItems([])
-    setSelectedProvider('')
-    try {
-      const data = await fetchSearch(trimmed)
-      setItems(data)
-      setStatus(data.length ? 'ready' : 'error')
-    } catch {
-      setStatus('error')
-    }
-  }, [loadPopular])
-
-  const onSubmit = useCallback(() => { void doSearch(query) }, [doSearch, query])
-  useBreadcrumbSearch({
+  const onSubmit = useCallback(() => { doSearch(query) }, [doSearch, query])
+  useAppHeader({
     query,
     setQuery,
     onSubmit,
@@ -261,6 +172,11 @@ export function WhereToWatchPage() {
     externalHref: 'https://www.justwatch.com',
     settingsHref: '/admin/features?tool=where-to-watch',
   })
+
+  const retry = useCallback(() => {
+    if (activeQuery) void search.refetch()
+    else void popular.refetch()
+  }, [activeQuery, search, popular])
 
   // Collect unique provider names across all visible items
   const allProviders = Array.from(
@@ -294,11 +210,9 @@ export function WhereToWatchPage() {
       )}
 
       {/* Section header */}
-      {status !== 'idle' && (
-        <div className="px-5 pb-3">
-          <SectionHeader title={sectionTitle} />
-        </div>
-      )}
+      <div className="px-5 pb-3">
+        <SectionHeader title={sectionTitle} />
+      </div>
 
       {/* Loading */}
       {status === 'loading' && (
@@ -317,7 +231,7 @@ export function WhereToWatchPage() {
               : 'Could not load titles right now.'}
           </p>
           <button
-            onClick={() => (activeQuery ? void doSearch(activeQuery) : void loadPopular())}
+            onClick={retry}
             className="text-xs text-brand hover:underline"
           >
             Try again

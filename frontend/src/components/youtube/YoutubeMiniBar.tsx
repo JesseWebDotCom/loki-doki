@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Play, Pause, Maximize2, X, Loader2, SkipBack, SkipForward, Radio } from 'lucide-react'
+import { Play, Pause, Maximize2, X, Loader2, SkipBack, SkipForward } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
+import { useRadio } from '@/context/RadioContext'
+import { RadioMiniBar } from '@/components/music/RadioMiniBar'
 import { fileUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
 import { thumbUrl, fmtClock } from '@/lib/youtube/format'
 import { loadYTApi } from '@/lib/youtube/ytapi'
@@ -18,6 +20,7 @@ import { ChannelAvatar } from '@/components/youtube/media'
  */
 export function YoutubeMiniBar() {
   const pb = useYoutubePlayback()
+  const radio = useRadio()
   const pbRef = useRef(pb); pbRef.current = pb
   const navigate = useNavigate()
   const location = useLocation()
@@ -31,6 +34,7 @@ export function YoutubeMiniBar() {
   const [dur, setDur] = useState(0)
   const [expanded, setExpanded] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [favErr, setFavErr] = useState(false)
   const [win, setWin] = useState<{ x: number; y: number } | null>(null)
   const [winW, setWinW] = useState(288)
   const drag = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
@@ -130,6 +134,17 @@ export function YoutubeMiniBar() {
   }, [track?.videoId, online, hidden, isStream])
 
   useEffect(() => { if (hidden) { setExpanded(false); setWin(null) } }, [hidden])
+  useEffect(() => { setFavErr(false) }, [track?.videoId])
+
+  // Radio and YouTube are mutually exclusive audio — docking a video stops the station.
+  useEffect(() => { if (track && radio.active) radio.stop() }, [track?.videoId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Show the AI-Radio controller when a station is live, nothing's docked in the YT
+  // player, and we're not already on the full radio tab.
+  const onRadioTab = location.pathname === '/music' && new URLSearchParams(location.search).get('tab') === 'radio'
+  const showRadio = radio.active && !track && !onRadioTab
+    && !location.pathname.startsWith('/youtube/watch') && !location.pathname.startsWith('/youtube/shorts')
+  if (showRadio) return <RadioMiniBar />
 
   if (hidden) return null
 
@@ -290,13 +305,26 @@ export function YoutubeMiniBar() {
         <div className="flex items-center gap-3 px-4 py-2">
           {/* Thumbnail / station art */}
           <button onClick={isStream ? goWatch : toggleExpand}
-            className="relative aspect-video h-12 shrink-0 overflow-hidden rounded-md bg-muted"
+            className={cn(
+              'relative shrink-0 overflow-hidden rounded-md bg-muted',
+              isStream ? 'h-10 w-10' : 'aspect-video h-12',
+            )}
             aria-label={isStream ? 'Go to radio' : 'Pop out video'}>
-            {track!.thumbnail
-              ? <img src={thumbSrc} alt="" className="size-full object-cover" />
-              : isStream
-                ? <div className="flex size-full items-center justify-center"><Radio className="size-5 text-muted-foreground" /></div>
-                : <img src={thumbSrc} alt="" referrerPolicy="no-referrer" className="size-full object-cover" />}
+            {isStream ? (
+              <>
+                <div className="flex size-full items-center justify-center text-2xl leading-none">
+                  {track!.icon ?? '📻'}
+                </div>
+                {track!.thumbnail && !favErr && (
+                  <img src={track!.thumbnail} alt="" className="absolute inset-0 size-full object-cover"
+                    onError={() => setFavErr(true)} />
+                )}
+              </>
+            ) : track!.thumbnail ? (
+              <img src={thumbSrc} alt="" className="size-full object-cover" />
+            ) : (
+              <img src={thumbSrc} alt="" referrerPolicy="no-referrer" className="size-full object-cover" />
+            )}
             {isStream && loading && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                 <Loader2 className="size-4 animate-spin text-white" />

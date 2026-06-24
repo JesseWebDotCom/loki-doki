@@ -16,9 +16,11 @@ interface SortableNavItemProps {
   iconNode?: ReactNode;
   onUnpin: (id: string) => void;
   badge?: 'busy' | 'done' | null;
+  /** Warm this app's data on hover/focus (intent prefetch). */
+  onIntent?: () => void;
 }
 
-export function SortableNavItem({ id, label, href, icon: Icon, iconNode, onUnpin, badge }: SortableNavItemProps) {
+export function SortableNavItem({ id, label, href, icon: Icon, iconNode, onUnpin, badge, onIntent }: SortableNavItemProps) {
   const { pathname } = useLocation();
   const active = pathname === href || pathname.startsWith(href + "/");
 
@@ -45,6 +47,8 @@ export function SortableNavItem({ id, label, href, icon: Icon, iconNode, onUnpin
       {/* Link */}
       <Link
         to={href}
+        onPointerEnter={onIntent}
+        onFocus={onIntent}
         className={cn(
           "flex flex-1 items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors",
           active

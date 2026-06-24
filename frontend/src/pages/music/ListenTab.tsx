@@ -81,6 +81,7 @@ export function ListenTab() {
       author: [station.country, station.codec, station.bitrate ? `${station.bitrate}k` : null].filter(Boolean).join(' · ') || null,
       streamUrl: station.url,
       thumbnail: station.favicon || undefined,
+      icon: GENRE_ICONS[selectedGenre ?? ''] ?? '📻',
     }], 0, 0)
   }
 

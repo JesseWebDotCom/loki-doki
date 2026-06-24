@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { PageShell } from '@/components/shared/PageShell'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { TrackVariantGrid } from '@/components/shared/TrackVariantGrid'
+import { AppTabBar, type AppTab } from '@/components/shared/AppTabBar'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import {
@@ -29,7 +30,7 @@ import { RadioTab } from '@/pages/music/RadioTab'
 const GRADIENT = 'linear-gradient(135deg,#f97316,#fb923c)'
 
 type Tab = 'listen' | 'radio' | 'videos' | 'generate' | 'remix' | 'library'
-const NAV: { id: Tab; icon: React.ElementType; label: string }[] = [
+const NAV: AppTab<Tab>[] = [
   { id: 'listen', icon: Radio, label: 'Listen' },
   { id: 'radio', icon: Music, label: 'AI Radio' },
   { id: 'videos', icon: Video, label: 'Videos' },
@@ -617,23 +618,7 @@ export function MusicPage() {
     <PageShell gradient={GRADIENT} GhostIcon={Music}>
       <div className="mx-auto w-full max-w-5xl flex-1 px-4 pt-5 pb-8 sm:px-6">
         {/* Tab nav */}
-        <div className="mb-6 overflow-x-auto">
-          <div className="flex gap-0.5 rounded-2xl border border-border/50 bg-muted/30 p-1">
-            {NAV.map((n) => (
-              <button key={n.id} type="button" onClick={() => switchTab(n.id)}
-                className={cn(
-                  'flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-all',
-                  tab === n.id
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}>
-                <n.icon className="size-4" />
-                <span className="hidden sm:inline">{n.label}</span>
-                <span className="sm:hidden">{n.label.split(' ')[0]}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <AppTabBar tabs={NAV} value={tab} onChange={switchTab} className="mb-6" />
 
         {subtitle && <p className="-mt-2 mb-4 text-sm text-muted-foreground">{subtitle}</p>}
 

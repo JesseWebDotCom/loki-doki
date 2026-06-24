@@ -1,5 +1,6 @@
 import { NavLink, Link } from 'react-router-dom'
-import { Mic, Home, Compass, Library, Plus, Settings2, Lock, type LucideIcon } from 'lucide-react'
+import { Home, Compass, Library, Plus, Settings2, Lock, type LucideIcon } from 'lucide-react'
+import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 import { ShowCover } from '@/components/podcast/ShowCover'
@@ -23,15 +24,10 @@ export function PodcastRail({ shows, onCreate }: { shows: Show[]; onCreate: () =
   const myShows = shows.filter(s => s.isOwn)
   return (
     <nav className="sticky top-0 hidden h-fit w-56 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
-      <div className="mb-4 flex items-start gap-2.5 px-2">
-        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-sm">
-          <Mic className="size-4" />
-        </span>
-        <div>
-          <p className="text-base font-bold leading-tight tracking-tight">Podcasts</p>
-          <p className="text-[11px] leading-snug text-muted-foreground">AI-produced shows from any series or film.</p>
-        </div>
-      </div>
+      <AppRailHeader
+        title="Podcasts"
+        className="mb-4"
+      />
 
       <RailLink to="/podcasts" icon={Home} label="Listen Now" end />
       <RailLink to="/podcasts/browse" icon={Compass} label="Browse" />

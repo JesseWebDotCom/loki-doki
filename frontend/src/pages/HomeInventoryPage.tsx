@@ -7,7 +7,7 @@ import { PageShell } from '@/components/shared/PageShell'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { DeviceSheet } from './home/DeviceSheet'
 import { AddDeviceModal } from './home/AddDeviceModal'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
 export type DeviceCategory = 'appliance' | 'electronics' | 'vehicle' | 'tool' | 'furniture' | 'other'
 export type LookupStatus = 'pending' | 'complete' | 'failed' | 'skipped'
@@ -207,7 +207,7 @@ export function HomeInventoryPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category])
 
-  useBreadcrumbSearch({
+  useAppHeader({
     query: search,
     setQuery: handleSearch,
     placeholder: 'Search devices, brands, locations...',

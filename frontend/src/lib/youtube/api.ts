@@ -1,6 +1,8 @@
 // Typed wrappers around the /api/youtube/* endpoints (+ the podcast reverse-link),
 // consolidating the fetch helpers that used to live inline in YoutubePage.
 
+import type { UseQueryOptions } from '@tanstack/react-query'
+
 const opts: RequestInit = { credentials: 'include' }
 const J = { 'Content-Type': 'application/json' }
 
@@ -124,8 +126,8 @@ export const proxyStreamUrl = (videoId: string, kind: 'audio' | 'video' = 'video
 
 /** Warm the proxy-stream cache so a later hand-off to the mini-player plays instantly.
  *  Best-effort and fire-and-forget — failures are harmless (the stream just resolves cold). */
-export const prewarmStream = (videoId: string) =>
-  void fetch(`/api/youtube/stream/${videoId}/prewarm`, { credentials: 'include' }).catch(() => {})
+export const prewarmStream = (videoId: string, kind: 'audio' | 'video' = 'video') =>
+  void fetch(`/api/youtube/stream/${videoId}/prewarm${kind === 'audio' ? '?kind=audio' : ''}`, { credentials: 'include' }).catch(() => {})
 
 // ── InnerTube discovery: trending / channel / related ────────────────────────────
 
@@ -198,6 +200,20 @@ export async function getTrending(limit = 30): Promise<ItVideo[]> {
 export async function getPopular(limit = 30): Promise<ItVideo[]> {
   const r = await fetch(`/api/youtube/popular?limit=${limit}`, opts)
   return (await r.json() as { videos: ItVideo[] }).videos ?? []
+}
+
+// Shared query options for the YouTube home discovery shelves + sidebar subscriptions.
+// Consumed by YoutubeHomePage/YoutubeRail and the prefetch warmer so keys never drift.
+// `enabled: online` stays at the call site (it's a per-view concern); prefetchQuery
+// ignores `enabled`, so warming these is always safe.
+export function ytPopularQueryOptions(): UseQueryOptions<ItVideo[]> {
+  return { queryKey: ['yt-popular'], queryFn: () => getPopular(24), staleTime: 30 * 60_000 }
+}
+export function ytTrendingQueryOptions(): UseQueryOptions<ItVideo[]> {
+  return { queryKey: ['yt-trending'], queryFn: () => getTrending(24), staleTime: 30 * 60_000 }
+}
+export function ytSubsQueryOptions(): UseQueryOptions<Subscription[]> {
+  return { queryKey: ['yt-subs'], queryFn: getSubscriptions }
 }
 
 export async function getChannelPage(channelId: string, cursor?: string | null, tab: ChannelVideoTab = 'videos'): Promise<ChannelPage> {

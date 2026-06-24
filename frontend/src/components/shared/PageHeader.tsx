@@ -46,7 +46,10 @@ export function PageHeader(props: PageHeaderProps) {
         )}
         <div className="relative z-10 flex items-center gap-3 px-5 py-3">
           {icon && (
-            <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm ring-1 ring-white/20">
+            <div
+              className="flex size-14 shrink-0 items-center justify-center rounded-2xl shadow-sm ring-1 ring-white/10"
+              style={{ background: gradient }}
+            >
               {icon}
             </div>
           )}

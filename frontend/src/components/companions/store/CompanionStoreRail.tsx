@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
-import { Home, LayoutGrid, Shapes, Heart, Sparkles, Settings2, Lock, type LucideIcon } from 'lucide-react'
+import { Home, LayoutGrid, Shapes, Heart, Settings2, Lock, type LucideIcon } from 'lucide-react'
+import { AppRailHeader } from '@/components/shared/AppRailHeader'
 import { cn } from '@/lib/cn'
 import { useAuth } from '@/context/AuthContext'
 
@@ -31,15 +32,11 @@ export function CompanionStoreRail({ favoritesCount }: { favoritesCount: number 
 
   return (
     <nav className="sticky top-0 hidden h-fit w-52 shrink-0 flex-col gap-1 self-start border-r border-border/40 px-3 py-5 lg:flex">
-      <div className="mb-4 flex items-start gap-2.5 px-2">
-        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-sm">
-          <Sparkles className="size-4" />
-        </span>
-        <div>
-          <p className="text-base font-bold leading-tight tracking-tight">Companions</p>
-          <p className="text-[11px] leading-snug text-muted-foreground">Browse and select your AI companion.</p>
-        </div>
-      </div>
+      <AppRailHeader
+        title="Companions"
+        description="Browse and select your AI companion."
+        className="mb-4"
+      />
 
       <RailLink to="/companions" icon={Home} label="Home" end />
       <RailLink to="/companions/browse" icon={LayoutGrid} label="Browse" />

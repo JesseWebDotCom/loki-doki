@@ -9,6 +9,8 @@ export interface BreadcrumbCrumb {
   label: string;
   /** Renders as a Link when set; otherwise as plain text. */
   href?: string;
+  /** Renders as a button (takes precedence over href). Used by the last crumb to reload the app. */
+  onClick?: () => void;
   icon?: LucideIcon;
   iconStyle?: CSSProperties;
   /** Custom node that overrides icon+iconStyle (e.g. a gradient archive tile). */
@@ -50,7 +52,22 @@ export function AppBreadcrumb({ crumbs, children, className }: AppBreadcrumbProp
             {i > 0 && (
               <span className="text-muted-foreground/40 text-xs select-none shrink-0">/</span>
             )}
-            {crumb.href ? (
+            {crumb.onClick ? (
+              <button
+                type="button"
+                onClick={crumb.onClick}
+                title={isLast ? "Reload" : undefined}
+                className={cn(
+                  "flex items-center gap-1 text-sm transition-colors shrink-0",
+                  isLast
+                    ? "font-medium hover:opacity-70 min-w-0"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {iconEl}
+                {labelEl}
+              </button>
+            ) : crumb.href ? (
               <Link
                 to={crumb.href}
                 className={cn(

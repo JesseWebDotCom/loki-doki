@@ -12,6 +12,8 @@ export interface YtMiniTrack {
   streamUrl?: string
   /** Thumbnail override for non-YouTube content (e.g. station favicon). */
   thumbnail?: string
+  /** Emoji / text icon shown as fallback art when thumbnail is absent or fails (e.g. genre emoji for radio). */
+  icon?: string
   durationSec?: number | null
 }
 

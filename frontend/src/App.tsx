@@ -13,6 +13,7 @@ import { ServerHealthProvider } from '@/context/ServerHealthContext'
 import { SetupProgressProvider } from '@/context/SetupProgressContext'
 import { PodcastPlaybackProvider } from '@/context/PodcastPlaybackContext'
 import { YoutubePlaybackProvider } from '@/context/YoutubePlaybackContext'
+import { RadioProvider } from '@/context/RadioContext'
 import { TimeAlarmProvider } from '@/context/TimeAlarmContext'
 import { FrigateAnnounceProvider } from '@/context/FrigateAnnounceContext'
 import { AlarmRingDialog } from '@/components/time/AlarmRingDialog'
@@ -237,6 +238,7 @@ export default function App() {
           <PrivacyProvider>
           <PodcastPlaybackProvider>
           <YoutubePlaybackProvider>
+          <RadioProvider>
           <TimeAlarmProvider>
           <FrigateAnnounceProvider>
           <ChatProvider>
@@ -373,6 +375,7 @@ export default function App() {
           <AlarmRingDialog />
           <GlobalSetupWidget />
           </TimeAlarmProvider>
+          </RadioProvider>
           </YoutubePlaybackProvider>
           </PodcastPlaybackProvider>
           <PrivacyOverlay />

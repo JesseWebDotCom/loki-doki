@@ -6,10 +6,26 @@ import { ollamaChat } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
 import { voiceServerLocalUrl } from '@/lib/voiceServer'
 import { appDefaultVoice } from '@/lib/voice/config'
+import { wikipediaSearch } from '@/lib/wikipediaSearch'
+import { innertubeSearch, SEARCH_FILTERS } from '@/lib/youtube/innertube'
+import { ytmusicRadio } from '@/lib/youtube/ytmusic'
 import type { AppEnv } from '@/types'
 
 export const musicRadio = new Hono<AppEnv>()
 musicRadio.use('*', requireAuth)
+
+// Pull a clean encyclopedic snippet about the artist (and song, when distinctive)
+// so the DJ can drop a real, grounded aside instead of inventing one. Best-effort:
+// returns '' on any miss so the segment still generates without facts.
+async function lookupFacts(artist?: string, track?: string): Promise<string> {
+  if (!artist) return ''
+  try {
+    const q = track ? `${artist} ${track}` : artist
+    const hits = await wikipediaSearch(q, 1, 4000)
+    const lead = hits[0]?.snippet?.trim() ?? ''
+    return lead.slice(0, 700)
+  } catch { return '' }
+}
 
 // Rotate across radio-browser.info mirrors (they use DNS round-robin).
 const RB_BASE = 'https://de1.api.radio-browser.info/json'
@@ -71,6 +87,40 @@ musicRadio.get('/stations', async (c) => {
   }
 })
 
+// GET /api/music/radio/queue?q=<search> — build an AI-Radio station queue.
+// Strategy: search YouTube for the genre query, pick a random seed from the top hits, then
+// pull YouTube Music's auto-curated RADIO MIX off that seed (long, varied, genre-appropriate).
+// Falls back to the plain search results if the music radio comes up empty.
+musicRadio.get('/queue', async (c) => {
+  const q = c.req.query('q')?.trim()
+  if (!q) return c.json({ tracks: [] })
+
+  try {
+    const search = await innertubeSearch(q, 15, 0, 8000, 0, SEARCH_FILTERS.videos)
+    const vids = (search.videos ?? []).filter(v => v.videoId)
+    if (!vids.length) return c.json({ tracks: [] })
+
+    // Random seed → different mix each tune-in (the radio itself then adds the real variety).
+    const seed = vids[Math.floor(Math.random() * Math.min(vids.length, 6))]!
+    const radio = await ytmusicRadio(seed.videoId)
+
+    // Merge: music-radio mix first, then any search hits not already present, deduped.
+    const seen = new Set<string>()
+    const tracks: Array<{ videoId: string; title: string; author: string | null }> = []
+    for (const t of radio) {
+      if (seen.has(t.videoId)) continue
+      seen.add(t.videoId); tracks.push(t)
+    }
+    for (const v of vids) {
+      if (seen.has(v.videoId)) continue
+      seen.add(v.videoId); tracks.push({ videoId: v.videoId, title: v.title, author: v.author })
+    }
+    return c.json({ tracks: tracks.slice(0, 40), source: radio.length ? 'ytmusic' : 'search' })
+  } catch (err) {
+    return c.json({ tracks: [], error: String(err) })
+  }
+})
+
 // GET /api/music/radio/genres — popular genre tags from radio-browser.info
 musicRadio.get('/genres', async (c) => {
   // Return curated list; we don't need the full 1000+ tag list from the API.
@@ -125,29 +175,43 @@ musicRadio.post('/dj-segment', async (c) => {
 
   // Build a context-rich DJ prompt.
   const contextParts: string[] = []
-  if (weather) contextParts.push(`Current weather: ${weather}.`)
-  if (newsHeadline) contextParts.push(`Top news: ${newsHeadline}.`)
+  if (weather) contextParts.push(`Weather: ${weather}.`)
+  if (newsHeadline) contextParts.push(`News: ${newsHeadline}.`)
+  const ctx = contextParts.join(' ')
+
+  // Grounded facts for a quick aside — only on transitions, where the lookup latency is
+  // hidden behind the currently-playing song. Intro/outro stay fast (no Wikipedia call).
+  const facts = position === 'transition' ? await lookupFacts(artistName, trackName) : ''
+  const aside = facts
+    ? `Work in exactly ONE quick, TRUE aside about the artist or song, drawn only from these facts (do not invent): ${facts}`
+    : ''
 
   let djPrompt: string
   switch (position) {
     case 'intro':
-      djPrompt = `You are a charismatic radio DJ hosting a ${genre} station. Open the show with energy and warmth. Briefly welcome listeners, mention the genre/vibe, and tease the first song${trackName ? ` ("${trackName}"${artistName ? ` by ${artistName}` : ''})` : ''}. ${contextParts.join(' ')} Keep it under 60 words, natural, no markdown.`
+      djPrompt = `Kick off a ${genre} radio set. One or two snappy sentences — welcome listeners and tease "${trackName}"${artistName ? ` by ${artistName}` : ''}. ${aside} ${ctx} Fast and punchy, under 35 words.`
       break
     case 'outro':
-      djPrompt = `You are a radio DJ wrapping up a ${genre} station session. Sign off warmly. Thanks for listening, mention that was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that last track'}. Keep it under 40 words, natural, no markdown.`
+      djPrompt = `Wrap up the ${genre} set. Sign off warm and quick — mention that was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that last track'}. Under 25 words.`
       break
     default: // transition
-      djPrompt = `You are a radio DJ on a ${genre} station. Briefly transition between songs. ${trackName ? `That was "${trackName}"${artistName ? ` by ${artistName}` : ''}.` : ''} ${nextTrackName ? `Coming up: "${nextTrackName}"${nextArtistName ? ` by ${nextArtistName}` : ''}.` : ''} ${contextParts.join(' ')} Keep it natural, under 50 words, no markdown.`
+      djPrompt = `You're between songs on a ${genre} station. That was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that track'}. ${aside} ${nextTrackName ? `Then tease what's next: "${nextTrackName}"${nextArtistName ? ` by ${nextArtistName}` : ''}.` : ''} ${ctx} Fast and punchy, under 35 words.`
   }
 
   try {
     const model = await getModel()
     const chat = await ollamaChat(model, [
-      { role: 'system', content: 'You write short, natural radio DJ segments. Output ONLY the spoken text — no stage directions, no asterisks, no labels.' },
+      { role: 'system', content: 'You are a fast-talking, charismatic radio DJ. Output ONLY the words you speak aloud — no stage directions, asterisks, or labels. Keep it tight, energetic, and conversational.' },
       { role: 'user', content: djPrompt },
-    ], [], { temperature: 0.9, num_predict: 120 })
+    ], [], { temperature: 0.9, num_predict: 90 })
 
-    const text = chat.message?.content?.trim()
+    // Clean up: strip stray markdown asterisks and any quotes the model wrapped the whole
+    // line in, so the caption and the TTS read naturally.
+    const text = chat.message?.content
+      ?.replace(/\*/g, '')
+      .trim()
+      .replace(/^["'“”]+|["'“”]+$/g, '')
+      .trim()
     if (!text) return c.json({ error: 'LLM produced no content' }, 503)
 
     // Synthesize via Kokoro voice server.
@@ -160,7 +224,7 @@ musicRadio.post('/dj-segment', async (c) => {
     const ttsRes = await fetch(`${voiceServerLocalUrl()}/synthesize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice: voiceId, speed: 1.05 }),
+      body: JSON.stringify({ text, voice: voiceId, speed: 1.3 }),
       signal: AbortSignal.timeout(30_000),
     })
 

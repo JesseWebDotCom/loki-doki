@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation, useSearchParams } from 'react-router-
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { YoutubeRail } from '@/components/youtube/YoutubeRail'
 import { DownloadDialog, SaveDialog, ManageChannelsDialog, type DownloadTarget, type SaveTarget } from '@/components/youtube/dialogs'
 import { hydrateCollections } from '@/lib/youtube/collections'
@@ -89,7 +89,7 @@ export function YoutubeLayout() {
 
   // Publish the breadcrumb search + the Online/Offline toggle (upper-right).
   const rightSlot = useMemo(() => <ModeToggle mode={mode} onChange={setMode} />, [mode])
-  useBreadcrumbSearch({
+  useAppHeader({
     query,
     setQuery,
     onSubmit: () => { const t = query.trim(); if (t) navigate(`/youtube?q=${encodeURIComponent(t)}`) },

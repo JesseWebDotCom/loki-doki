@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Rss, Loader2 } from 'lucide-react'
 import { ChipRow, Chip } from '@/components/shared/ChipRow'
 import { ChannelAvatar } from '@/components/youtube/media'
-import { getHistory, getRecommended, getTrending, getPopular } from '@/lib/youtube/api'
+import { getHistory, getRecommended, ytPopularQueryOptions, ytTrendingQueryOptions } from '@/lib/youtube/api'
 import { useYtFeed, useYtSubs, useYtDownloads, buildChannels } from '@/lib/youtube/useData'
 import { isShort, savedToItem, historyToItem, itToItem, channelKey, type VideoItem } from '@/lib/youtube/types'
 import { qualityBadge } from '@/lib/youtube/format'
@@ -68,8 +68,8 @@ function HomeLanding() {
   const { data: recommended = [], isLoading: recommendedLoading } = useQuery({ queryKey: ['yt-recommended'], queryFn: getRecommended, enabled: online })
   // Discovery beyond your subscriptions. Popular = most-watched (reliable); Trending =
   // YouTube's trending tab (thinner, may be empty → shelf hides). Both privacy-front-end backed.
-  const { data: popular = [], isLoading: popularLoading } = useQuery({ queryKey: ['yt-popular'], queryFn: () => getPopular(24), enabled: online, staleTime: 30 * 60 * 1000 })
-  const { data: trending = [], isLoading: trendingLoading } = useQuery({ queryKey: ['yt-trending'], queryFn: () => getTrending(24), enabled: online, staleTime: 30 * 60 * 1000 })
+  const { data: popular = [], isLoading: popularLoading } = useQuery({ ...ytPopularQueryOptions(), enabled: online })
+  const { data: trending = [], isLoading: trendingLoading } = useQuery({ ...ytTrendingQueryOptions(), enabled: online })
 
   // Offline mirrors online exactly — same layout, sourced from the saved library.
   const offlineItems: VideoItem[] = useMemo(

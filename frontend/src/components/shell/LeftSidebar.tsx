@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SortableNavItem } from "./SortableNavItem";
 import { useNavPreferences } from "@/hooks/useNavPreferences";
+import { useIntentPrefetch } from "@/lib/prefetch/useIntentPrefetch";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useConnectivity } from "@/hooks/useConnectivity";
@@ -88,11 +89,16 @@ function useAppFeatures() {
   return features
 }
 
-function SectionHeading({ label }: { label: string }) {
+function SectionHeading({ label, count }: { label: string; count?: number }) {
   return (
-    <p className="px-3 pt-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 select-none">
-      {label}
-    </p>
+    <div className="flex items-center px-3 pt-3 pb-0.5 select-none">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex-1">
+        {label}
+      </p>
+      {count !== undefined && (
+        <span className="text-[10px] tabular-nums text-muted-foreground/40">{count}</span>
+      )}
+    </div>
   );
 }
 
@@ -103,6 +109,7 @@ function NavIconLink({
   exact,
   badge,
   gradient,
+  onIntent,
 }: {
   href: string;
   icon: LucideIcon;
@@ -110,6 +117,7 @@ function NavIconLink({
   exact?: boolean;
   badge?: 'busy' | 'done' | null;
   gradient?: string;
+  onIntent?: () => void;
 }) {
   const { pathname } = useLocation();
   const active = exact ? pathname === href : pathname.startsWith(href);
@@ -118,6 +126,8 @@ function NavIconLink({
     <div className="group/tip relative flex justify-center">
       <Link
         to={href}
+        onPointerEnter={onIntent}
+        onFocus={onIntent}
         className={cn(
           "relative flex size-10 items-center justify-center rounded-lg transition-colors",
           active
@@ -192,12 +202,14 @@ function NavItemWithPin({
   onPin,
   onUnpin,
   badge,
+  onIntent,
 }: {
   app: AppEntry;
   pinned: boolean;
   onPin: (id: string) => void;
   onUnpin: (id: string) => void;
   badge?: 'busy' | 'done' | null;
+  onIntent?: () => void;
 }) {
   const { pathname } = useLocation();
   const active = pathname === app.href || pathname.startsWith(app.href + "/");
@@ -205,6 +217,8 @@ function NavItemWithPin({
     <div className="relative flex group/item w-full items-center py-0.5">
       <Link
         to={app.href}
+        onPointerEnter={onIntent}
+        onFocus={onIntent}
         className={cn(
           "flex flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
           active
@@ -335,6 +349,7 @@ function BadgeCount({ count }: { count: number }) {
 export function LeftSidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const prefetch = useIntentPrefetch();
   const appFeatures = useAppFeatures();
   const { enabledToolIds } = useInstalledTools();
   const { pathname } = useLocation();
@@ -564,24 +579,28 @@ export function LeftSidebar() {
           </div>
         )}
 
-        {/* Scrollable nav */}
-        <nav className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-2 py-1">
+        {/* Nav: fixed top, scrollable pinned middle, fixed recent bottom */}
+        <nav className="flex-1 min-h-0 flex flex-col overflow-hidden px-2 py-1">
           {isWide ? (
             <>
-              {/* Home */}
-              <div className="py-0.5">
+              {/* Home + App Store — always visible */}
+              <div className="shrink-0 py-0.5">
                 <NavWideLink href="/" icon={Home} label="Home" exact />
               </div>
-
-              {/* App Store */}
-              <div className="py-0.5">
+              <div className="shrink-0 py-0.5">
                 <NavWideLink href="/app-store" icon={ShoppingBag} label="App Store" />
               </div>
 
-              {/* Pinned — draggable (apps + archives) */}
+              {/* Pinned heading — always visible */}
               {pinnedEntries.length > 0 && (
-                <div>
-                  <SectionHeading label="Pinned" />
+                <div className="shrink-0">
+                  <SectionHeading label="Pinned" count={pinnedEntries.length} />
+                </div>
+              )}
+
+              {/* Pinned items — scrollable, takes remaining space */}
+              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+                {pinnedEntries.length > 0 && (
                   <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                     <SortableContext
                       items={pinnedEntries.map((e) => e.id)}
@@ -598,6 +617,7 @@ export function LeftSidebar() {
                             iconNode={e.app.gradient ? <AppIconTile icon={e.app.icon} gradient={e.app.gradient} /> : undefined}
                             onUnpin={unpin}
                             badge={getAppBadge(e.app.href)}
+                            onIntent={() => prefetch(e.app.href)}
                           />
                         ) : (
                           <SortableNavItem
@@ -612,12 +632,12 @@ export function LeftSidebar() {
                       )}
                     </SortableContext>
                   </DndContext>
-                </div>
-              )}
+                )}
+              </div>
 
-              {/* Recent — apps + offline-library archives, most-recent first */}
+              {/* Recent — always visible at bottom (capped at 3 items) */}
               {recentEntries.length > 0 && (
-                <div>
+                <div className="shrink-0">
                   <SectionHeading label="Recent" />
                   {recentEntries.map((e) =>
                     e.kind === "app" ? (
@@ -628,6 +648,7 @@ export function LeftSidebar() {
                         onPin={pin}
                         onUnpin={unpin}
                         badge={getAppBadge(e.app.href)}
+                        onIntent={() => prefetch(e.app.href)}
                       />
                     ) : (
                       <ArchiveRecentRow key={`read:${e.archive.sourceId}`} archive={e.archive} onPin={pin} />
@@ -635,35 +656,38 @@ export function LeftSidebar() {
                   )}
                 </div>
               )}
-
             </>
           ) : (
-            // Narrow mode: Home, then pinned → recent icons
+            // Narrow mode: Home + App Store fixed, pinned scrollable, recent fixed
             <>
-              <div className="flex justify-center py-0.5">
+              <div className="shrink-0 flex justify-center py-0.5">
                 <NavIconLink href="/" icon={Home} label="Home" exact />
               </div>
-              <div className="flex justify-center py-0.5">
+              <div className="shrink-0 flex justify-center py-0.5">
                 <NavIconLink href="/app-store" icon={ShoppingBag} label="App Store" />
               </div>
-              {pinnedEntries.map((e) => (
-                <div key={e.id} className="flex justify-center py-0.5">
-                  {e.kind === "app" ? (
-                    <NavIconLink href={e.app.href} icon={e.app.icon} gradient={e.app.gradient} label={e.app.label} badge={getAppBadge(e.app.href)} />
-                  ) : (
-                    <ArchiveIconLink archive={e.archive} />
-                  )}
-                </div>
-              ))}
-              {recentEntries.map((e) => (
-                <div key={e.kind === "app" ? e.app.id : `read:${e.archive.sourceId}`} className="flex justify-center py-0.5">
-                  {e.kind === "app" ? (
-                    <NavIconLink href={e.app.href} icon={e.app.icon} gradient={e.app.gradient} label={e.app.label} badge={getAppBadge(e.app.href)} />
-                  ) : (
-                    <ArchiveIconLink archive={e.archive} />
-                  )}
-                </div>
-              ))}
+              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+                {pinnedEntries.map((e) => (
+                  <div key={e.id} className="flex justify-center py-0.5">
+                    {e.kind === "app" ? (
+                      <NavIconLink href={e.app.href} icon={e.app.icon} gradient={e.app.gradient} label={e.app.label} badge={getAppBadge(e.app.href)} onIntent={() => prefetch(e.app.href)} />
+                    ) : (
+                      <ArchiveIconLink archive={e.archive} />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="shrink-0">
+                {recentEntries.map((e) => (
+                  <div key={e.kind === "app" ? e.app.id : `read:${e.archive.sourceId}`} className="flex justify-center py-0.5">
+                    {e.kind === "app" ? (
+                      <NavIconLink href={e.app.href} icon={e.app.icon} gradient={e.app.gradient} label={e.app.label} badge={getAppBadge(e.app.href)} onIntent={() => prefetch(e.app.href)} />
+                    ) : (
+                      <ArchiveIconLink archive={e.archive} />
+                    )}
+                  </div>
+                ))}
+              </div>
             </>
           )}
         </nav>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { useCompanionStore } from '@/lib/companions/useCompanionStore'
 import { CompanionStoreRail } from '@/components/companions/store/CompanionStoreRail'
 
@@ -50,7 +50,7 @@ export function CompanionStoreLayout() {
   }, [query])
 
   const leftSlot = useMemo(() => <NavButtons />, [])
-  useBreadcrumbSearch({
+  useAppHeader({
     query,
     setQuery,
     placeholder: 'Search companions by name, vibe, or category…',

@@ -8,6 +8,7 @@ import { SpaceBackdrop } from "@/components/shared/SpaceBackdrop";
 import { useInstalledMapRegions } from "@/hooks/useMaps";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { usePublishUIContext } from "@/context/UIContextProvider";
+import { useAppHeader } from "@/context/BreadcrumbSearchContext";
 
 import { reverseGeocode, type ViewportCenter } from "./maps/api";
 import { usePOIPrefetch } from "./maps/use-poi-prefetch";
@@ -94,6 +95,10 @@ export function MapsPage(): JSX.Element {
   const [webglError, setWebglError] = useState<string | null>(null);
   const [deepLink] = useState<DeepLink | null>(initialDeepLinkRef.current);
   const [browseCategory, setBrowseCategory] = useState<string | null>(null);
+  // Search query is owned here (not in SearchPanel) because the search INPUT
+  // lives in the breadcrumb row per the app-header contract — see the
+  // useAppHeader call below. The dock's SearchPanel renders the results.
+  const [searchQuery, setSearchQuery] = useState(deepLink?.searchQuery ?? "");
   const selectedPoiRef = useRef<{ source: string; sourceLayer: string; id: string | number } | null>(null);
   const clickSeqRef = useRef(0);
   // True while the globe auto-rotation drives the camera — lets the moveend
@@ -129,6 +134,15 @@ export function MapsPage(): JSX.Element {
         ? `User is viewing the map — selected place: ${selectedPlace.title} (${selectedPlace.subtitle}).`
         : `User is viewing the map — selected place: ${selectedPlace.title}.`
       : "User is viewing the map.",
+  });
+  // Search + admin settings live in the breadcrumb row (app-header contract).
+  // Live filtering, so no onSubmit — typing drives the dock's SearchPanel.
+  // Selecting a place clears the box so its details replace the results.
+  useAppHeader({
+    query: searchQuery,
+    setQuery: (q) => { setSearchQuery(q); if (q) setBrowseCategory(null); },
+    placeholder: "Search places, addresses, ZIP…",
+    settingsHref: "/admin/features?tool=maps",
   });
   const { theme } = useMapTheme();
   const userLocation = useUserLocation();
@@ -485,7 +499,7 @@ export function MapsPage(): JSX.Element {
     mapRef,
     { selectedPoiRef, poiCacheRef, clickSeqRef },
     {
-      onSelectPlace: (place) => { setSelectedPlace(place); },
+      onSelectPlace: (place) => { setSelectedPlace(place); setSearchQuery(""); },
       onClearSelection: () => { setActivePanel(null); },
       onRecent: (place) => { pushRecent(place); setRecentsReloadKey((k) => k + 1); },
     },
@@ -494,6 +508,7 @@ export function MapsPage(): JSX.Element {
   function onSelectPlace(place: PlaceResult): void {
     setSelectedPlace(place);
     setActivePanel(null);
+    setSearchQuery("");
     pushRecent(place);
     setRecentsReloadKey((k) => k + 1);
     const map = mapRef.current;
@@ -589,7 +604,7 @@ export function MapsPage(): JSX.Element {
           className="absolute left-0 top-0 bottom-0 z-10 hidden md:flex flex-col w-[400px] overflow-hidden"
           style={{ backgroundColor: panelBg, boxShadow: "4px 0 24px 0 rgba(0,0,0,0.28)" }}
         >
-          {selectedPlace && !globeView ? (
+          {selectedPlace && !globeView && !searchQuery.trim() ? (
             <>
               <PlaceHeaderBanner place={selectedPlace} />
               <div className="flex-1 overflow-y-auto px-3 pb-6">
@@ -628,15 +643,14 @@ export function MapsPage(): JSX.Element {
                   </div>
                 </div>
               ) : null}
-              {activePanel === null ? (
+              {searchQuery.trim() || activePanel === null ? (
                 <SearchPanel
                   key={browseCategory ?? "__default__"}
                   viewportCenter={viewportCenter}
-                  initialQuery={browseCategory ? "" : (deepLink?.searchQuery ?? "")}
-                  initialCategory={browseCategory ?? deepLink?.searchCategory ?? null}
+                  query={searchQuery}
+                  initialCategory={searchQuery.trim() ? null : (browseCategory ?? deepLink?.searchCategory ?? null)}
                   onSelect={onSelectPlace}
                   recentsReloadKey={recentsReloadKey}
-                  onDirections={(place) => { setDirectionsTarget(place); setActivePanel("directions"); }}
                 />
               ) : (
                 <MapsPanelContent
@@ -648,7 +662,7 @@ export function MapsPage(): JSX.Element {
                   viewportCenter={viewportCenter}
                   selectedPlace={selectedPlace}
                   recentsReloadKey={recentsReloadKey}
-                  onCategorySelect={(slug) => { setBrowseCategory(slug); }}
+                  onCategorySelect={(slug) => { setBrowseCategory(slug); setSearchQuery(""); setActivePanel(null); }}
                   onCloseDirections={() => { setActivePanel(null); setRouteAlts([]); setSelectedAltIdx(0); setStepCoords(null); }}
                   onAltsChange={(alts, idx) => { setRouteAlts(alts); setSelectedAltIdx(idx); setStepCoords(null); }}
                   onStepFocus={(coords) => setStepCoords(coords)}

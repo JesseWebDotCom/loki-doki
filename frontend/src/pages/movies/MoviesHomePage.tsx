@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Clapperboard, Loader2, Search, Bookmark, Headphones, Monitor } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
-import { useBreadcrumbSearch } from '@/context/BreadcrumbSearchContext'
+import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
 import { getMoviesHome, searchMovies, movieTo, type MovieSummary } from '@/lib/movies/api'
 import { getWatchlist } from '@/lib/library/api'
@@ -110,7 +110,7 @@ export function MoviesHomePage() {
   })
 
   const onSubmit = useCallback(() => setSubmitted(query.trim()), [query])
-  useBreadcrumbSearch({
+  useAppHeader({
     query,
     setQuery,
     onSubmit,

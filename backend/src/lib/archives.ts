@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { existsSync, statSync, createWriteStream } from 'node:fs'
-import { mkdir, rename, rm } from 'node:fs/promises'
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
@@ -9,6 +9,9 @@ import { zimArchives, downloadJobs } from '@/db/schema'
 import { ZIM_CATALOG } from '@/lib/zimCatalog'
 import { kiwixZimDir, getZimBookName, restartKiwix, validateZimWindows } from '@/lib/kiwix'
 import { IS_WIN } from '@/lib/platform'
+import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from '@/lib/download'
+import { resolveZimFromCatalog } from '@/lib/kiwixCatalog'
+import { ensureAria2, downloadZimWithAria2 } from '@/lib/aria2'
 
 const BACKEND_DIR = join(import.meta.dir, '../..')
 
@@ -63,72 +66,130 @@ export async function downloadArchive(
 
   const note = async (msg: string) => onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, note: msg })
 
-  // ── 1. Resolve latest ZIM filename from the Kiwix download directory ───────────
-  await note('Resolving latest ZIM from Kiwix download server…')
+  // ── 1. Resolve the current dated filename + exact size + Metalink URL ───────────
+  // Prefer the OPDS catalog (exact filename, exact byte size, .meta4 mirror list). Fall back
+  // to scraping the HTML directory listing only if the catalog is unreachable — the old
+  // bare-directory scrape silently broke when that index started redirecting to hub.kiwix.org.
+  await note('Finding the latest version…')
   const kiwixName = variant.kiwixName
   const kiwixDir = source.kiwixDir
-  const dirRes = await fetch(`https://download.kiwix.org/zim/${kiwixDir}/`, {
-    headers: { 'User-Agent': 'loki-doki/1.0' },
-    signal: AbortSignal.timeout(45_000),
-  })
-  if (!dirRes.ok) throw new Error(`Download directory returned ${dirRes.status}`)
-  const dirHtml = await dirRes.text()
 
-  const escaped = kiwixName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const fileRegex = new RegExp(`href="(${escaped}_\\d{4}-\\d{2}\\.zim)"`, 'gi')
-  const fileNames = [...dirHtml.matchAll(fileRegex)].map((m) => m[1])
-  if (fileNames.length === 0) throw new Error(`No ZIM file found for '${kiwixName}' in download directory`)
+  let zimFileName: string
+  let downloadUrl: string
+  let meta4Url: string | null = null
+  let catalogSize = 0
+  let zimDate: string | null
 
-  const zimFileName = fileNames[fileNames.length - 1]
-  const downloadUrl = `https://download.kiwix.org/zim/${kiwixDir}/${zimFileName}`
-  const zimDate = zimFileName.match(/_(\d{4}-\d{2})\.zim$/)?.[1] ?? null
+  const resolved = await resolveZimFromCatalog(kiwixName, signal).catch(() => null)
+  if (resolved) {
+    zimFileName = resolved.fileName
+    downloadUrl = resolved.zimUrl
+    meta4Url = resolved.meta4Url
+    catalogSize = resolved.sizeBytes
+    zimDate = resolved.zimDate
+  } else {
+    // Legacy fallback: scrape the download directory HTML for the newest dated file.
+    const dirRes = await fetch(`https://download.kiwix.org/zim/${kiwixDir}/`, {
+      headers: { 'User-Agent': 'loki-doki/1.0' },
+      signal: AbortSignal.timeout(45_000),
+    })
+    if (!dirRes.ok) throw new Error(`Download directory returned ${dirRes.status}`)
+    const dirHtml = await dirRes.text()
+    const escaped = kiwixName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const fileRegex = new RegExp(`href="(${escaped}_\\d{4}-\\d{2}\\.zim)"`, 'gi')
+    const fileNames = [...dirHtml.matchAll(fileRegex)].map((m) => m[1])
+    if (fileNames.length === 0) throw new Error(`No ZIM file found for '${kiwixName}' (catalog + directory both failed)`)
+    zimFileName = fileNames[fileNames.length - 1]!
+    downloadUrl = `https://download.kiwix.org/zim/${kiwixDir}/${zimFileName}`
+    zimDate = zimFileName.match(/_(\d{4}-\d{2})\.zim$/)?.[1] ?? null
+  }
 
-  // ── 2. Download (resumable) ────────────────────────────────────────────────────
+  // ── 2. Download ──────────────────────────────────────────────────────────────
   const destDir = join(kiwixZimDir, sourceId)
   const destPath = join(destDir, zimFileName)
   const partPath = destPath + '.part'
   await mkdir(destDir, { recursive: true })
 
+  // aria2 downloads straight to the final filename and tracks progress in a sibling
+  // `.aria2` control file, so a file is only truly complete when that control file is gone.
+  const controlFile = destPath + '.aria2'
+  const alreadyComplete = existsSync(destPath) && !existsSync(controlFile)
+
   let didValidate = false
-  if (!existsSync(destPath)) {
-    let resumeFrom = 0
-    try { resumeFrom = statSync(partPath).size } catch { /* no partial */ }
-    const headers: Record<string, string> = { 'User-Agent': 'loki-doki/1.0' }
-    if (resumeFrom > 0) headers['Range'] = `bytes=${resumeFrom}-`
-
+  if (!alreadyComplete) {
     await note(`Downloading ${zimFileName}…`)
-    const dlRes = await fetch(downloadUrl, { signal, headers })
-    if (!dlRes.ok && dlRes.status !== 206) throw new Error(`Download failed: ${dlRes.status}`)
-    if (!dlRes.body) throw new Error('No response body')
 
-    const isPartial = dlRes.status === 206
-    const contentLen = parseInt(dlRes.headers.get('content-length') ?? '0', 10)
-    const total = isPartial ? resumeFrom + contentLen : contentLen
-    const reader = dlRes.body.getReader()
-    const fileStream = createWriteStream(partPath, { flags: isPartial ? 'a' : 'w' })
-
-    let completed = isPartial ? resumeFrom : 0
-    let lastTime = Date.now()
-    let lastBytes = completed
-    let lastEmit = 0
-
-    while (true) {
-      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError')
-      const { done, value } = await reader.read()
-      if (done) break
-      fileStream.write(value)
-      completed += value.length
-      const now = Date.now()
-      if (now - lastEmit >= 500 || completed >= total) {
-        const elapsed = (now - lastTime) / 1000
-        const speedBps = elapsed > 0 ? (completed - lastBytes) / elapsed : 0
-        const etaSeconds = speedBps > 0 ? (total - completed) / speedBps : 0
-        await onProgress({ completed, total, speedBps, etaSeconds })
-        lastTime = now; lastBytes = completed; lastEmit = now
+    // Fast path: aria2c fed an on-disk .meta4 pulls 16 segments across every Kiwix mirror at
+    // once (10–40× a single stream), with resume + multi-mirror failover + checksum verify.
+    const aria = meta4Url ? await ensureAria2() : null
+    if (aria && meta4Url) {
+      // Drop any leftover single-stream partial — aria2 resumes via its own .aria2 control
+      // file at destPath, so an old `.part` is just orphaned bytes.
+      if (existsSync(partPath)) await rm(partPath, { force: true }).catch(() => {})
+      const meta4Path = destPath + '.meta4'
+      const m4 = await fetch(meta4Url, { headers: { 'User-Agent': 'loki-doki/1.0' }, signal: AbortSignal.timeout(45_000) })
+      if (!m4.ok) throw new Error(`Metalink fetch failed: ${m4.status}`)
+      await writeFile(meta4Path, new Uint8Array(await m4.arrayBuffer()))
+      try {
+        await downloadZimWithAria2(aria, meta4Path, destDir, zimFileName, catalogSize, (p) => { void onProgress(p) }, signal)
+      } finally {
+        await rm(meta4Path, { force: true }).catch(() => {})
       }
+    } else {
+      // Fallback: single-stream resumable fetch (slower, but works without aria2 / catalog).
+      // Clear any partial left by a prior aria2 attempt — its layout differs from our .part.
+      if (existsSync(controlFile)) {
+        await rm(controlFile, { force: true }).catch(() => {})
+        await rm(destPath, { force: true }).catch(() => {})
+      }
+      let resumeFrom = 0
+      try { resumeFrom = statSync(partPath).size } catch { /* no partial */ }
+      const headers: Record<string, string> = { 'User-Agent': 'loki-doki/1.0' }
+      if (resumeFrom > 0) headers['Range'] = `bytes=${resumeFrom}-`
+
+      const dlRes = await fetch(downloadUrl, { signal, headers })
+      if (!dlRes.ok && dlRes.status !== 206) throw new Error(`Download failed: ${dlRes.status}`)
+      if (!dlRes.body) throw new Error('No response body')
+
+      const isPartial = dlRes.status === 206
+      const contentLen = parseInt(dlRes.headers.get('content-length') ?? '0', 10)
+      const total = isPartial ? resumeFrom + contentLen : contentLen
+      const reader = dlRes.body.getReader()
+      const fileStream = createWriteStream(partPath, { flags: isPartial ? 'a' : 'w' })
+
+      let completed = isPartial ? resumeFrom : 0
+      let lastTime = Date.now()
+      let lastBytes = completed
+      let lastEmit = 0
+
+      try {
+        while (true) {
+          if (signal.aborted) throw new DOMException('Cancelled', 'AbortError')
+          // Idle-timeout the read so a frozen mirror (socket open, no bytes) rejects instead of
+          // hanging in 'running' forever — the .part file lets the retry resume from here.
+          const { done, value } = await readWithIdleTimeout(reader, STREAM_IDLE_TIMEOUT_MS)
+          if (done) break
+          fileStream.write(value)
+          completed += value.length
+          const now = Date.now()
+          if (now - lastEmit >= 500 || completed >= total) {
+            const elapsed = (now - lastTime) / 1000
+            const speedBps = elapsed > 0 ? (completed - lastBytes) / elapsed : 0
+            const etaSeconds = speedBps > 0 ? (total - completed) / speedBps : 0
+            await onProgress({ completed, total, speedBps, etaSeconds })
+            lastTime = now; lastBytes = completed; lastEmit = now
+          }
+        }
+      } catch (err) {
+        // Flush+close the partial file so its on-disk size matches what we read, then surface the
+        // error: the job manager requeues and the next attempt resumes from the larger .part.
+        fileStream.destroy()
+        try { await reader.cancel() } catch { /* already closed */ }
+        throw err
+      }
+      await new Promise<void>((res, rej) => fileStream.end((err?: Error | null) => (err ? rej(err) : res())))
+      await rename(partPath, destPath)
     }
-    await new Promise<void>((res, rej) => fileStream.end((err?: Error | null) => (err ? rej(err) : res())))
-    await rename(partPath, destPath)
 
     // ── 2b. Validate (isolated) — a corrupt archive crashes libzim natively, which would
     // take down the whole ZIM server. Reject it here so the job retries instead.
