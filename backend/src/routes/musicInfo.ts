@@ -23,6 +23,7 @@ async function wikipediaSummary(title: string) {
   const d = await res.json() as {
     type?: string
     title?: string
+    description?: string
     extract?: string
     thumbnail?: { source?: string }
     content_urls?: { desktop?: { page?: string } }
@@ -30,10 +31,25 @@ async function wikipediaSummary(title: string) {
   if (d.type === 'disambiguation') return null
   return {
     title: d.title ?? title,
+    description: d.description ?? '',
     extract: d.extract ?? '',
     image: d.thumbnail?.source ?? null,
     url: d.content_urls?.desktop?.page ?? null,
   }
+}
+
+// Confirm a Wikipedia page is actually about THIS song — not a same-named topic (the classic trap:
+// "Columns" the song → the article on architectural columns). We check Wikipedia's own short
+// description and the opening sentence for music wording, or that the artist is named in the blurb.
+function looksLikeSong(info: { description?: string; extract?: string }, artist: string): boolean {
+  const desc = (info.description ?? '').toLowerCase()
+  const extract = (info.extract ?? '').toLowerCase()
+  const a = artist.trim().toLowerCase()
+  if (/\b(song|single|musical composition|instrumental|studio album|extended play)\b/.test(desc)) return true
+  if (/\bis an?\b[^.]*\b(song|single|track|composition|instrumental|recording)\b/.test(extract)) return true
+  // The artist is explicitly named in the summary — strong signal it's the right recording.
+  if (a.length > 2 && /[a-z]/.test(a) && extract.includes(a)) return true
+  return false
 }
 
 // GET /api/music/info/artist?q=ARTIST — Wikipedia bio + image
@@ -118,11 +134,17 @@ musicInfo.get('/song', async (c) => {
   const title = c.req.query('title')?.trim()
   if (!title) return c.json({ found: false })
   try {
-    const candidates = [`${title} (song)`, artist ? `${artist} ${title}` : '', title].filter(Boolean)
-    for (const cand of candidates) {
+    // Disambiguated page forms are inherently song articles, so accept them on sight. Wikipedia
+    // uses "<Title> (<Artist> song)" and "<Title> (song)" exactly for this.
+    const songForms = [artist ? `${title} (${artist} song)` : '', `${title} (song)`].filter(Boolean)
+    for (const cand of songForms) {
       const info = await wikipediaSummary(cand)
-      if (info && info.extract) return c.json({ found: true, ...info })
+      if (info?.extract) return c.json({ found: true, ...info })
     }
+    // Bare title is ambiguous ("Columns" → architectural columns), so only accept it when the page
+    // is clearly about a song / the artist is named in the blurb.
+    const info = await wikipediaSummary(title)
+    if (info?.extract && looksLikeSong(info, artist)) return c.json({ found: true, ...info })
     return c.json({ found: false })
   } catch {
     return c.json({ found: false })

@@ -77,10 +77,14 @@ function hashUrl(url: string): string {
 
 /** Read-through accessor for the /api/img proxy. Returns null for an unsafe host, an
  *  oversized/non-image response, or any upstream failure. */
+// Negative-cache TTL: 7 days. CoverArtArchive 404s are stable (art either exists or doesn't).
+const NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
 export async function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buffer; contentType: string } | null> {
   const hash = hashUrl(rawUrl)
   const bytesPath = join(CACHE_DIR, hash)
   const typePath = join(CACHE_DIR, `${hash}.t`)
+  const missingPath = join(CACHE_DIR, `${hash}.x`)
 
   if (existsSync(bytesPath)) {
     try {
@@ -94,7 +98,21 @@ export async function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buff
     }
   }
 
+  // Negative cache: skip upstream fetch if we recently got a 404/error for this URL.
+  if (existsSync(missingPath)) {
+    try {
+      const s = await stat(missingPath)
+      if (Date.now() - s.mtimeMs < NEGATIVE_CACHE_TTL_MS) return null
+      // Expired — fall through and retry
+      await unlink(missingPath).catch(() => {})
+    } catch { return null }
+  }
+
   if (!(await isSafePublicUrl(rawUrl))) return null
+
+  const markMissing = async () => {
+    try { await mkdir(CACHE_DIR, { recursive: true }); await writeFile(missingPath, '') } catch {}
+  }
 
   try {
     const res = await fetch(rawUrl, {
@@ -102,11 +120,11 @@ export async function getOrFetchProxyImage(rawUrl: string): Promise<{ data: Buff
       redirect: 'follow',
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
-    if (!res.ok) return null
+    if (!res.ok) { await markMissing(); return null }
     const contentType = (res.headers.get('content-type') ?? 'image/jpeg').split(';')[0]!.trim()
-    if (!contentType.startsWith('image/')) return null
+    if (!contentType.startsWith('image/')) { await markMissing(); return null }
     const buf = await res.arrayBuffer()
-    if (buf.byteLength === 0 || buf.byteLength > MAX_IMAGE_BYTES) return null
+    if (buf.byteLength === 0 || buf.byteLength > MAX_IMAGE_BYTES) { await markMissing(); return null }
     const data = Buffer.from(buf)
     await mkdir(CACHE_DIR, { recursive: true })
     await Promise.all([writeFile(bytesPath, data), writeFile(typePath, contentType)])
