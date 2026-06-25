@@ -7,7 +7,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -291,6 +291,7 @@ function AddFeedDialog({ open, onClose, onAdded }: { open: boolean; onClose: () 
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Add a feed</DialogTitle></DialogHeader>
+        <DialogDescription className="sr-only">Add an RSS or website feed.</DialogDescription>
         <p className="text-sm text-muted-foreground">Paste a site or RSS/Atom URL — we'll find the feed automatically. It shows up under All / Unread.</p>
         <Input autoFocus placeholder="https://example.com or .../feed.xml" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void submit() }} />
         <DialogFooter>
@@ -320,6 +321,7 @@ function AddCategoryDialog({ open, onClose, onCreated }: { open: boolean; onClos
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>New category</DialogTitle></DialogHeader>
+        <DialogDescription className="sr-only">Create a news category.</DialogDescription>
         <p className="text-sm text-muted-foreground">Give it a name, then add RSS feeds to fill it.</p>
         <Input autoFocus placeholder="e.g. Technology" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void submit() }} />
         <DialogFooter>
@@ -364,6 +366,7 @@ function ManageFeedsDialog({ category, onClose, onChanged }: { category: NewsCat
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>Manage feeds — {category.name}</DialogTitle></DialogHeader>
+        <DialogDescription className="sr-only">Add or remove feeds in this category.</DialogDescription>
 
         <div className="flex gap-2">
           <Input autoFocus placeholder="https://example.com or .../feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} />

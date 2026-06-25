@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Play, Star, AudioLines, SpellCheck, Plus, Trash2 } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/cn'
 import { speak } from '@/lib/voice/voicePlaybackStore'
 import { toast } from '@/lib/toast'
@@ -276,6 +276,7 @@ export function VoiceDefaults() {
       <Dialog open={voiceOpen} onOpenChange={setVoiceOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader><DialogTitle>Choose a default voice</DialogTitle></DialogHeader>
+          <DialogDescription className="sr-only">Pick the default text-to-speech voice.</DialogDescription>
           <div className="max-h-[65vh] overflow-y-auto pr-1">
             <VoicesBrowser
               voices={voices}

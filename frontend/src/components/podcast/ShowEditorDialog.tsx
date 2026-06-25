@@ -5,7 +5,7 @@ import {
   Loader2, X, Plus, Minus, Globe, RefreshCw, BookOpen, Users, Mic, BarChart2, Sparkles, Trash2, Lock,
   type LucideIcon,
 } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -269,6 +269,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
       <DialogContent className="max-h-[88vh] max-w-3xl gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border/40 px-5 py-4">
           <DialogTitle>{initial?.id ? 'Edit Show' : 'Create a New Show'}</DialogTitle>
+          <DialogDescription className="sr-only">Configure this podcast show's details.</DialogDescription>
         </DialogHeader>
 
         <div className="grid max-h-[calc(88vh-9rem)] grid-cols-1 gap-6 overflow-y-auto p-5 md:grid-cols-2">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Search } from 'lucide-react'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/cn'
 import { searchSettings, allEntries, findSection, type SearchHit } from './adminRegistry'
 
@@ -30,6 +30,7 @@ export function AdminCommandPalette({ open, onOpenChange, onNavigate }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
         <DialogTitle className="sr-only">Search admin settings</DialogTitle>
+        <DialogDescription className="sr-only">Jump to any admin setting or section.</DialogDescription>
         <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
           <Search className="size-4 shrink-0 text-muted-foreground" />
           <input

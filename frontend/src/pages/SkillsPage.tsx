@@ -3,7 +3,7 @@ import { Loader2, Plus, Sparkles, Trash2, Pencil } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -112,6 +112,7 @@ function SkillEditor({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEdit ? `Edit "${editing!.name}"` : 'Author a skill'}</DialogTitle>
+          <DialogDescription className="sr-only">Define the skill's name, trigger, and instructions.</DialogDescription>
         </DialogHeader>
 
         {loading ? (

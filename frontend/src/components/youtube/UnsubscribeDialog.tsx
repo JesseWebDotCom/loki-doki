@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Trash2 } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { getShows, deleteShow } from '@/lib/podcast/api'
 import { usePodcastPlayback } from '@/context/PodcastPlaybackContext'
 import { toast } from '@/lib/toast'
@@ -61,6 +61,7 @@ export function useUnsubscribeConfirm() {
       <DialogContent className="max-w-md gap-0 p-0">
         <DialogHeader className="border-b border-border/40 px-5 py-4">
           <DialogTitle>Unsubscribe from {pending?.name || 'this channel'}?</DialogTitle>
+          <DialogDescription className="sr-only">Stop receiving updates from this channel.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 px-5 py-4 text-sm">

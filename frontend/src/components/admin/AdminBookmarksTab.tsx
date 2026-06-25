@@ -5,10 +5,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 
 interface BookmarkRow {
   id: string
@@ -126,6 +127,7 @@ function BookmarkFormDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          <DialogDescription className="sr-only">Create or edit a bookmark.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
@@ -145,7 +147,7 @@ function BookmarkFormDialog({
                 {probing
                   ? <Loader2 className="size-3.5 text-muted-foreground animate-spin" />
                   : form.icon?.startsWith('http')
-                    ? <img src={form.icon} className="size-4 rounded-sm object-contain" alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+                    ? <img src={proxyImg(form.icon)} className="size-4 rounded-sm object-contain" alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
                     : null
                 }
               </span>

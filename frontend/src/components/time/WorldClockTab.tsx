@@ -3,7 +3,7 @@ import { Globe, MapPin, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { RichOptionSelect, type RichOptionGroup } from '@/components/shared/RichOptionSelect'
 import { useTimeApp } from '@/context/TimeAlarmContext'
@@ -108,6 +108,7 @@ export function WorldClockTab() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Add a city</DialogTitle></DialogHeader>
+          <DialogDescription className="sr-only">Search for a city to add to your world clock.</DialogDescription>
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>City</Label>

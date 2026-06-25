@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -175,6 +175,7 @@ export function AddDeviceModal({ open, onOpenChange, onAdded }: AddDeviceModalPr
           <DialogTitle>
             {step === 'capture' ? 'Add Device' : 'Confirm Details'}
           </DialogTitle>
+          <DialogDescription className="sr-only">Add a device to your home inventory.</DialogDescription>
         </DialogHeader>
 
         {/* Step 1: Capture */}

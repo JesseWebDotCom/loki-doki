@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, FileText, Loader2, Plus } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
@@ -69,6 +69,7 @@ export function BookmarkSaveDialog({ open, onClose }: { open: boolean; onClose: 
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Save to Bookmarks</DialogTitle></DialogHeader>
+        <DialogDescription className="sr-only">Save this page to your bookmarks.</DialogDescription>
 
         <div className="grid grid-cols-2 gap-2">
           {([

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -75,6 +75,7 @@ export function AlarmEditorDialog({ open, onOpenChange, alarm }: {
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{alarm ? 'Edit alarm' : 'New alarm'}</DialogTitle>
+          <DialogDescription className="sr-only">Set the alarm time, label, and options.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

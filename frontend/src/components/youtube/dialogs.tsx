@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -77,6 +77,7 @@ export function DownloadDialog({ target, onClose }: { target: DownloadTarget | n
     <Dialog open={!!target} onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="max-w-md gap-3 p-4">
         <DialogHeader><DialogTitle className="pr-8 text-sm font-semibold leading-snug">Download to this device</DialogTitle></DialogHeader>
+        <DialogDescription className="sr-only">Choose download quality and options.</DialogDescription>
         <p className="line-clamp-2 text-xs text-muted-foreground">{target?.title}</p>
         {phase === 'working' ? (
           <div className="space-y-3 py-2">
@@ -170,6 +171,7 @@ export function SaveDialog({ target, onClose, onSaved }: { target: SaveTarget | 
     <Dialog open={!!target} onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="max-w-md gap-3 p-4">
         <DialogHeader><DialogTitle className="pr-8 text-sm font-semibold leading-snug">Save offline</DialogTitle></DialogHeader>
+        <DialogDescription className="sr-only">Save this video for offline viewing.</DialogDescription>
         <p className="line-clamp-2 text-xs text-muted-foreground">{target?.title}</p>
         <div className="space-y-1.5">
           {videoTiers.map(t => (
@@ -292,6 +294,7 @@ export function ManageChannelsDialog({ open, onClose, onChanged }: { open: boole
     <Dialog open={open} onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="max-w-lg gap-4 p-4">
         <DialogHeader><DialogTitle className="text-sm font-semibold">Manage channels</DialogTitle></DialogHeader>
+        <DialogDescription className="sr-only">Add or remove channels for this podcast.</DialogDescription>
         <div className="space-y-3">
           <div className="flex gap-2">
             <input type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}

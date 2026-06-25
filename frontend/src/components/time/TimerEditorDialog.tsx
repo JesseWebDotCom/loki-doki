@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -57,6 +57,7 @@ export function TimerEditorDialog({ open, onOpenChange, timer }: {
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{timer ? 'Edit timer' : 'New timer'}</DialogTitle>
+          <DialogDescription className="sr-only">Set the timer duration and label.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
