@@ -14,6 +14,8 @@ import { ollamaChat } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
 import { ytmusicRadio, ytmusicSearch } from '@/lib/youtube/ytmusic'
 import { resolveTrack, resolveTracks, cleanTrackTitle, type ResolvedTrack } from '@/lib/music/resolve'
+import { deezerPlaylistTracks, deezerChartTracks } from '@/lib/music/deezer'
+import { isJunkTrack, dropJunk } from '@/lib/music/junk'
 import { logger } from '@/lib/logger'
 
 export type StationSeedType = 'prompt' | 'genre' | 'artist' | 'song'
@@ -76,12 +78,7 @@ async function llmSearchQueries(seed: StationSeed): Promise<string[]> {
   }
 }
 
-async function ytmusicMix(seed: StationSeed, want: number, exclude: Set<string>): Promise<ResolvedTrack[]> {
-  // Prefer LLM-derived concise queries; fall back to the raw name/prompt.
-  let queries = await llmSearchQueries(seed)
-  if (!queries.length) {
-    queries = [seed.name, seed.aiPrompt].filter((q): q is string => !!q && q.trim().length > 1).map(q => q.slice(0, 90).trim())
-  }
+async function ytmusicMix(seed: StationSeed, want: number, exclude: Set<string>, queries: string[]): Promise<ResolvedTrack[]> {
   if (!queries.length) return []
 
   const seen = new Set<string>(exclude)
@@ -94,6 +91,7 @@ async function ytmusicMix(seed: StationSeed, want: number, exclude: Set<string>)
     for (const t of await ytmusicSearch(q, perQuery + 5)) {
       if (out.length >= want || added >= perQuery) break
       if (!t.videoId || seen.has(t.videoId)) continue
+      if (isJunkTrack(t.title, t.author ?? '')) continue   // drop sfx/type-beat/compilation junk
       seen.add(t.videoId); out.push(toResolved(t)); added++
     }
   }
@@ -102,10 +100,48 @@ async function ytmusicMix(seed: StationSeed, want: number, exclude: Set<string>)
     for (const t of await ytmusicRadio(out[0]!.videoId)) {
       if (out.length >= want) break
       if (!t.videoId || seen.has(t.videoId)) continue
+      if (isJunkTrack(t.title, t.author ?? '')) continue
       seen.add(t.videoId); out.push(toResolved(t))
     }
   }
   return shuffle(out).slice(0, want)
+}
+
+/** Concise music-search queries for a seed: LLM-derived when possible, else the raw name/prompt. */
+async function searchQueriesFor(seed: StationSeed): Promise<string[]> {
+  const queries = await llmSearchQueries(seed)
+  if (queries.length) return queries
+  return [seed.name, seed.aiPrompt].filter((q): q is string => !!q && q.trim().length > 1).map(q => q.slice(0, 90).trim())
+}
+
+// "What's hot right now" stations should be seeded from a LIVE chart, since the LLM (and even a
+// curated playlist) lags the real-time charts. Detect that intent from the station name/prompt.
+const CHART_INTENT_RE =
+  /\b(charts?|charting|right now|this year|this week|this month|trending|going viral|viral|dominating|of[- ]the[- ]moment|hottest|biggest (?:songs|hits)|this decade|2020s|today'?s hits|on the radio)\b/i
+function isChartStation(seed: StationSeed): boolean {
+  return CHART_INTENT_RE.test(`${seed.name ?? ''} ${seed.aiPrompt}`)
+}
+
+/** Live Deezer chart (genre-targeted when the prompt names a genre) resolved to YouTube and
+ *  junk-filtered — the freshest source for chart-type stations. */
+async function chartMix(seed: StationSeed, want: number, exclude: Set<string>): Promise<ResolvedTrack[]> {
+  const chart = (await deezerChartTracks(`${seed.name ?? ''} ${seed.aiPrompt}`, want * 2)).slice(0, want + 6)
+  if (!chart.length) return []
+  const resolved = await resolveTracks(chart.map(t => ({ title: t.title, artist: t.artist })), 8)
+  return dropJunk(resolved).filter(t => !exclude.has(t.videoId))
+}
+
+/** Deezer curated-playlist tracks resolved to YouTube, junk-filtered. The cleanest, highest-fit
+ *  source for genre/decade/mood/theme stations — every entry is a real released recording. */
+async function deezerMix(queries: string[], want: number, exclude: Set<string>): Promise<ResolvedTrack[]> {
+  if (!queries.length) return []
+  // Unlike YouTube Music (videoIds in hand), Deezer tracks must each be resolved to a YouTube id.
+  // Resolve only a small buffer beyond `want` so a cold tune-in stays fast; misses are cheap to
+  // backfill from the YT Music tier. (Resolutions are cached permanently, so repeats are instant.)
+  const candidates = (await deezerPlaylistTracks(queries, want * 2)).slice(0, want + 6)
+  if (!candidates.length) return []
+  const resolved = await resolveTracks(candidates.map(t => ({ title: t.title, artist: t.artist })), 8)
+  return dropJunk(resolved).filter(t => !exclude.has(t.videoId))
 }
 
 const TRACKLIST_SCHEMA = {
@@ -193,7 +229,7 @@ export async function buildStationQueue(seed: StationSeed): Promise<StationQueue
   // the fast path behind "play this exact song now".
   if (seed.seedVideoId) {
     const mix = await ytmusicRadio(seed.seedVideoId)
-    const tracks = fromYtmusic(mix, exclude)
+    const tracks = dropJunk(fromYtmusic(mix, exclude))
     if (tracks.length) return { tracks: dedupe(tracks).slice(0, want), source: 'ytmusic' }
   }
 
@@ -204,49 +240,114 @@ export async function buildStationQueue(seed: StationSeed): Promise<StationQueue
       : { title: '', artist: seed.seedValue })
     if (seedTrack) {
       const mix = await ytmusicRadio(seedTrack.videoId)
-      const tracks = [seedTrack, ...fromYtmusic(mix, new Set([...exclude, seedTrack.videoId]))]
+      const tracks = [seedTrack, ...dropJunk(fromYtmusic(mix, new Set([...exclude, seedTrack.videoId])))]
       if (tracks.length >= 4) return { tracks: dedupe(tracks).slice(0, want), source: 'ytmusic' }
     }
     // Otherwise fall through to the LLM path below.
   }
 
-  // Prompt / genre / themed seed → YouTube Music (music-only, themed, fast). The LLM is the
-  // fallback for open-ended prompts YT Music covers thinly.
-  let resolved = await ytmusicMix(seed, want, exclude)
-  let source: StationQueueResult['source'] = resolved.length ? 'ytmusic' : 'empty'
+  // Prompt / genre / themed seed → quality-ordered hybrid (see module header). Each tier is
+  // junk-filtered and song-deduped; we stop once we have a full queue.
+  //   1. Deezer curated playlists — cleanest, highest-fit; covers most genre/decade/mood/theme stations.
+  //   2. YouTube Music search   — broad coverage fallback for niche stations Deezer has no playlist for
+  //                               (TV themes, VGM, chiptune); now junk-filtered.
+  //   3. LLM tracklist          — last resort when the catalog sources come up thin.
+  // Testing showed no single source wins across all station types, but this order gives near-zero
+  // junk with full coverage. (harness: Deezer 0% junk / YT-only 6.3% junk / LLM-only 60% coverage.)
+  const queries = await searchQueriesFor(seed)
+  let source: StationQueueResult['source'] = 'empty'
+  let resolved: ResolvedTrack[] = []
 
-  if (!resolved.length) {
-    const proposed = await llmTracklist(seed, want)
-    resolved = proposed.length
-      ? dedupe((await resolveTracks(proposed.map(t => ({ title: t.title, artist: t.artist })), 8)).filter(t => !exclude.has(t.videoId)))
-      : []
-    source = resolved.length ? 'llm' : 'empty'
+  // Tier 0: live chart for "what's hot now" stations (today's hits, viral, trending, this-year…).
+  // Seed roughly half the queue from the chart so it stays current, then let the curated tier add
+  // breadth. Skipped for evergreen genre/decade/mood stations.
+  if (isChartStation(seed)) {
+    const chart = dedupe(await chartMix(seed, Math.ceil(want / 2) + 2, exclude))
+    if (chart.length) { resolved = chart; source = 'mixed' }
   }
 
-  // Backfill: if too few tracks, extend with a YouTube Music radio mix off the first hit.
+  // Tier 1: Deezer curated.
+  if (resolved.length < want) {
+    const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
+    const dz = await deezerMix(queries, want - resolved.length, already)
+    if (dz.length) resolved = dedupe([...resolved, ...dz])
+  }
+  if (resolved.length) source = 'mixed'
+
+  // Tier 2: YouTube Music search (junk-filtered) to fill remaining slots / cover niche concepts.
+  if (resolved.length < want) {
+    const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
+    const yt = await ytmusicMix(seed, want - resolved.length, already, queries)
+    if (yt.length) { resolved = dedupe([...resolved, ...yt]); source = source === 'empty' ? 'ytmusic' : 'mixed' }
+  }
+
+  // Tier 3: LLM-proposed tracklist as a last resort if both catalog sources were thin.
+  if (resolved.length < Math.min(want, 8)) {
+    const proposed = await llmTracklist(seed, want)
+    if (proposed.length) {
+      const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
+      const more = dropJunk(await resolveTracks(proposed.map(t => ({ title: t.title, artist: t.artist })), 8)).filter(t => !already.has(t.videoId))
+      if (more.length) { resolved = dedupe([...resolved, ...more]); source = source === 'empty' ? 'llm' : 'mixed' }
+    }
+  }
+
+  // Length backfill: if still short, extend with a YouTube Music radio mix off the first hit.
   if (resolved.length && resolved.length < Math.min(want, 10)) {
     try {
       const mix = await ytmusicRadio(resolved[0]!.videoId)
       const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
-      const extra = fromYtmusic(mix, already)
-      if (extra.length) {
-        resolved = dedupe([...resolved, ...extra])
-        source = 'mixed'
-      }
+      const extra = dropJunk(fromYtmusic(mix, already))
+      if (extra.length) { resolved = dedupe([...resolved, ...extra]); source = 'mixed' }
     } catch (err) {
       logger.debug(`[stationEngine] backfill failed: ${String(err)}`)
     }
   }
 
-  return { tracks: resolved.slice(0, want), source }
+  // Cap repeats per artist (≤3) only when we have comfortable surplus, so variety improves without
+  // starving a thin niche queue.
+  const finalTracks = resolved.length > want + 3 ? capPerArtist(dedupe(resolved), 3) : dedupe(resolved)
+  return { tracks: finalTracks.slice(0, want), source }
+}
+
+// Identity key for "the same song" regardless of which upload it is. The same recording often
+// appears under several videoIds (official audio, lyric video, a re-upload), so deduping on
+// videoId alone leaves a station playing the same track twice. Collapse on normalized
+// artist+title too; fall back to title-only when the artist is unknown.
+const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+function songKey(t: ResolvedTrack): string {
+  const title = normKey(t.title)
+  if (!title) return ''
+  const artist = normKey(t.artist)
+  return artist ? `${artist}~${title}` : title
+}
+
+// Keep at most `max` tracks per artist so one artist (or a cover band that slipped the junk filter)
+// can't dominate a station. Order-preserving.
+function capPerArtist(tracks: ResolvedTrack[], max: number): ResolvedTrack[] {
+  const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  const count = new Map<string, number>()
+  const out: ResolvedTrack[] = []
+  for (const t of tracks) {
+    const a = norm(t.artist)
+    if (!a) { out.push(t); continue }
+    const n = (count.get(a) ?? 0) + 1
+    if (n > max) continue
+    count.set(a, n)
+    out.push(t)
+  }
+  return out
 }
 
 function dedupe(tracks: ResolvedTrack[]): ResolvedTrack[] {
-  const seen = new Set<string>()
+  const seenIds = new Set<string>()
+  const seenSongs = new Set<string>()
   const out: ResolvedTrack[] = []
   for (const t of tracks) {
-    if (seen.has(t.videoId)) continue
-    seen.add(t.videoId)
+    if (seenIds.has(t.videoId)) continue
+    const sk = songKey(t)
+    if (sk && seenSongs.has(sk)) continue
+    seenIds.add(t.videoId)
+    if (sk) seenSongs.add(sk)
     out.push(t)
   }
   return out

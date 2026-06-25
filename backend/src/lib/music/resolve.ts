@@ -36,7 +36,7 @@ export interface ResolvedTrack {
 // subtracts from the score unless the user explicitly asked for it (checked against the query).
 const NEGATIVE_TERMS = [
   'live', 'cover', 'reaction', 'remix', 'sped up', 'slowed', 'nightcore', 'karaoke',
-  'instrumental', 'tutorial', '8d audio', 'loop', '1 hour', '10 hours', 'mashup', 'parody',
+  'instrumental', 'backing track', 'tutorial', '8d audio', 'loop', '1 hour', '10 hours', 'mashup', 'parody',
 ]
 
 // Promo-noise tokens YouTube titles are littered with — used to strip bracketed groups and tails.

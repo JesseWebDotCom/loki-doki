@@ -1,0 +1,182 @@
+// Deezer is a keyless, CORS-open commercial music catalog. Unlike scraping YouTube Music search
+// (which surfaces junk "artists" literally named after the query, sound-effect libraries, parodies,
+// and hour-long compilations), every Deezer entry is a real, released recording with clean
+// artist/title metadata. We use two things from it:
+//
+//   1. Editorial / curated PLAYLISTS — Deezer's in-house editors (and trusted curators like
+//      Digster / Filtr) hand-build excellent themed playlists. These give us a high-fit, clean
+//      tracklist for a concept ("80s synth-pop hits" → Deezer Pop Editor's "80s Hits").
+//   2. Genre CHARTS — the current top tracks of a genre, for "what's hot now" stations.
+//
+// Everything Deezer returns is a song identity ({artist, title}); playback still happens through
+// our YouTube resolver + stream proxy. This module only sources candidate song lists.
+
+import { logger } from '@/lib/logger'
+
+const BASE = 'https://api.deezer.com'
+
+export interface DeezerTrack { title: string; artist: string }
+
+async function dz<T = any>(path: string, timeout = 9000): Promise<T | null> {
+  try {
+    const res = await fetch(`${BASE}${path}`, { signal: AbortSignal.timeout(timeout) })
+    if (!res.ok) throw new Error(`deezer ${path} → ${res.status}`)
+    return (await res.json()) as T
+  } catch (err) {
+    logger.debug(`[deezer] ${path} failed: ${String(err)}`)
+    return null
+  }
+}
+
+// Words too generic to prove a playlist actually matches the concept ("music", "hits", "the"…).
+const STOP = new Set('the of a an and to for with music hits hit songs song mix best top playlist vol volume edition'.split(' '))
+const toks = (s: string) => new Set((s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
+
+// Deezer (especially soundtrack/various-artists playlists) often jams a credit into the title:
+// "Eurythmics, Annie Lennox, Dave Stewart - Sweet Dreams", "Halle Bailey - Part of Your World",
+// "We Don't Talk About Bruno By Carolina Gaitán/...". Strip a leading "<credit> - " when the credit
+// before the first dash mentions the artist, and a trailing "By <...>" attribution. The resolver's
+// own cleaner handles the usual promo junk afterwards.
+function cleanDeezerTitle(title: string, artist: string): string {
+  let t = title
+  const dash = t.match(/^(.{0,80}?)\s[-–—]\s(.+)$/)
+  if (dash) {
+    const prefix = dash[1]!.toLowerCase()
+    const a0 = (artist.toLowerCase().split(/[,/&]|feat|ft\.?| x /)[0] ?? '').trim()
+    const firstWord = a0.split(/\s+/)[0] ?? ''
+    if (firstWord.length > 1 && prefix.includes(firstWord)) t = dash[2]!.trim()
+  }
+  t = t.replace(/\s+by\s+[^()]+$/i, '').trim()   // "… By Artist/ Artist"
+  return t || title
+}
+const meaningful = (s: Set<string>) => new Set([...s].filter((t) => t.length > 1 && !STOP.has(t)))
+
+// Prefer professionally-curated playlists: editorial accounts, a sane size (not a 1,500-track dump
+// or a 5-track sketch), and a title that overlaps the search concept.
+function scorePlaylist(p: any, queryToks: Set<string>): number {
+  const creator = (p?.user?.name ?? '').toLowerCase()
+  let s = 0
+  if (/\b(deezer|editor|digster|filtr|topsify|lofi girl)\b/.test(creator)) s += 6   // trusted curators
+  const titleToks = toks(p?.title ?? '')
+  for (const t of queryToks) if (titleToks.has(t)) s += 1
+  const n = p?.nb_tracks ?? 0
+  if (n >= 20 && n <= 300) s += 2
+  else if (n > 800) s -= 2
+  else if (n < 12) s -= 2
+  return s
+}
+
+// Fit guard: the playlist title must share a MEANINGFUL word with the query. Without this, a niche
+// concept with no real playlist ("90s Nickelodeon") silently grabs an unrelated editorial list
+// ("80s Hits") on the curator bonus alone — the worst failure mode we saw in testing.
+function fitsQuery(p: any, queryToks: Set<string>): boolean {
+  const q = meaningful(queryToks)
+  if (!q.size) return false
+  const titleToks = toks(p?.title ?? '')
+  for (const t of q) if (titleToks.has(t)) return true
+  return false
+}
+
+/**
+ * Find the best-fitting curated playlist for each query and merge their tracks (round-robin for
+ * variety), deduped by artist+title. Returns up to `limit` candidate songs. Queries should be
+ * concise music-search phrases ("90s grunge", "tarantino soundtrack"), not brand-y station names.
+ */
+export async function deezerPlaylistTracks(queries: string[], limit = 30, timeout = 9000): Promise<DeezerTrack[]> {
+  const chosen: any[] = []
+  const seenPlaylist = new Set<number>()
+  for (const q of queries) {
+    const data = await dz<{ data?: any[] }>(`/search/playlist?q=${encodeURIComponent(q)}&limit=8`, timeout)
+    const qToks = toks(q)
+    const ranked = (data?.data ?? [])
+      .filter((p) => fitsQuery(p, qToks))                 // must actually match the concept
+      .map((p) => ({ p, s: scorePlaylist(p, qToks) }))
+      .sort((a, b) => b.s - a.s)
+    if (ranked[0] && ranked[0].s > 0 && !seenPlaylist.has(ranked[0].p.id)) {
+      seenPlaylist.add(ranked[0].p.id)
+      chosen.push(ranked[0].p)
+    }
+  }
+  // Pull each chosen playlist's tracks.
+  const lists: DeezerTrack[][] = []
+  for (const p of chosen) {
+    const full = await dz<{ tracks?: { data?: any[] } }>(`/playlist/${p.id}`, timeout)
+    const tracks = (full?.tracks?.data ?? [])
+      .filter((t) => t?.title && t?.artist?.name)
+      .map((t) => ({ title: cleanDeezerTitle(t.title as string, t.artist.name as string), artist: t.artist.name as string }))
+    if (tracks.length) lists.push(tracks)
+  }
+  return roundRobin(lists, limit)
+}
+
+// Deezer genre ids (https://api.deezer.com/genre). chart/0 = the overall (all-genre) chart.
+// Each pattern maps a phrase that may appear in a station prompt to a genre's chart id; checked in
+// order, so put more specific genres first. Used to point a "what's hot now" station at the most
+// relevant live chart instead of the generic global one.
+const GENRE_CHART_PATTERNS: Array<[RegExp, number]> = [
+  [/\breggaeton|perreo|dembow\b/i, 122],
+  [/\bhip[- ]?hop|\brap\b|\btrap\b/i, 116],
+  [/\br&b|\brnb\b|neo[- ]?soul\b/i, 165],
+  [/\bsoul|funk|motown\b/i, 169],
+  [/\bhouse|techno|\bedm\b|electronic|electro\b/i, 106],
+  [/\bmetal|thrash|headbang/i, 464],
+  [/\balternative|indie\b/i, 85],
+  [/\bcountry\b/i, 84],
+  [/\bclassical|symphon|composer/i, 98],
+  [/\bjazz\b/i, 129],
+  [/\bblues\b/i, 153],
+  [/\breggae|roots|dub\b/i, 144],
+  [/\bfolk|acoustic\b/i, 466],
+  [/\blatin|salsa|bachata|cumbia\b/i, 197],
+  [/\bdance\b/i, 113],
+  [/\brock\b/i, 152],
+  [/\bpop\b/i, 132],
+]
+
+function chartIdFor(text: string): number {
+  for (const [re, id] of GENRE_CHART_PATTERNS) if (re.test(text)) return id
+  return 0   // overall chart
+}
+
+async function chartTracksById(id: number, limit: number, timeout: number): Promise<DeezerTrack[]> {
+  const data = await dz<{ data?: any[] }>(`/chart/${id}/tracks?limit=${Math.min(limit, 100)}`, timeout)
+  return (data?.data ?? [])
+    .filter((t) => t?.title && t?.artist?.name)
+    .map((t) => ({ title: cleanDeezerTitle(t.title as string, t.artist.name as string), artist: t.artist.name as string }))
+}
+
+/** The overall Deezer chart (top tracks across all genres) — for general "today's hits" stations. */
+export async function deezerTopChart(limit = 30, timeout = 9000): Promise<DeezerTrack[]> {
+  return chartTracksById(0, limit, timeout)
+}
+
+/**
+ * Current top tracks from the live Deezer chart most relevant to a station's text. Picks a genre
+ * chart when the prompt names a genre (e.g. "current rap hits" → the Rap/Hip-Hop chart), else the
+ * overall chart. This is what gives chart-type stations genuinely up-to-date songs (the LLM has no
+ * live chart knowledge).
+ */
+export async function deezerChartTracks(seedText: string, limit = 30, timeout = 9000): Promise<DeezerTrack[]> {
+  return chartTracksById(chartIdFor(seedText), limit, timeout)
+}
+
+// Interleave several lists so no single playlist dominates, deduping by normalized artist+title.
+function roundRobin(lists: DeezerTrack[][], limit: number): DeezerTrack[] {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const out: DeezerTrack[] = []
+  const seen = new Set<string>()
+  const queues = lists.map((l) => [...l])
+  let guard = 0
+  while (out.length < limit && queues.some((q) => q.length) && guard++ < 10000) {
+    for (const q of queues) {
+      if (!q.length) continue
+      const t = q.shift()!
+      const k = `${norm(t.artist)}~${norm(t.title)}`
+      if (k === '~' || seen.has(k)) continue
+      seen.add(k)
+      out.push(t)
+      if (out.length >= limit) break
+    }
+  }
+  return out
+}

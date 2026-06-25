@@ -26,6 +26,25 @@ export interface QueuedTrack {
   thumbnail: string
 }
 
+// Lightweight junk filter for the legacy preset-station path (raw YouTube results that don't pass
+// through the backend station engine). Mirrors backend/src/lib/music/junk.ts — drops sound-effect
+// uploads, "type beat" instrumentals, karaoke/tribute re-records, hour-long compilations, and
+// generic compilation "artists" whose name is only a vibe ("Lofi Hip-Hop Beats", "Chill Out").
+const JUNK_PHRASE = /\b(type ?beat|sound ?effects?|sfx|backing track|karaoke|made famous by|in the style of|originally performed|tribute to|greatest hits band|theme players|theme song library|song library|music band|cover band|lullaby version|rockabye|white noise|brown noise|nature sounds?|rain sounds?|sleep sounds?|asmr|full album|mega ?mix|continuous mix|non[- ]?stop mix|dj mix|chart hits|best selling|top \d{2,}|\d+\s*hours?\b|ringtone|no copyright|copyright[- ]free|royalty[- ]free|\bncs\b|\bbgm\b|\bplaylist\b)\b/i
+const GENERIC_TOKENS = new Set(('lofi lo fi beats beat chill chillhop chillout hits hit jazz jazzy music musica sounds sound playlist mix mixes study studying relax relaxing vibes vibe hop hiphop instrumental instrumentals bgm lounge ambient cafe coffee radio top best classic classics smooth deep focus sleep piano soft nation world party downtempo meditation yoga calm peaceful zen muzak background nightcore mood moods bossa nova soul funk groove grooves today todays sad the of and to for a an your my').split(' '))
+const isGenericName = (s: string): boolean => {
+  const toks = (s ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  return toks.length >= 2 && toks.every(x => GENERIC_TOKENS.has(x) || /^\d+$/.test(x) || x.length === 1)
+}
+function isJunkTrack(title: string, artist: string | null): boolean {
+  const t = title ?? ''
+  if (!t.trim()) return true
+  if (JUNK_PHRASE.test(`${t} ${artist ?? ''}`)) return true
+  if (isGenericName(artist ?? '')) return true
+  if (isGenericName(t)) return true
+  return false
+}
+
 export type RadioPhase = 'idle' | 'loading' | 'intro' | 'playing' | 'transition' | 'outro'
 
 export interface RadioState {
@@ -223,13 +242,23 @@ export class RadioEngine {
       }
     }
 
+    // Dedupe by videoId AND by song identity (normalized title+author), so the same recording
+    // uploaded under different videoIds can't appear twice in one station.
     const seen = new Set<string>()
+    const seenSongs = new Set<string>()
+    const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
     const tracks: QueuedTrack[] = []
     for (const v of raw) {
       if (!v.videoId || seen.has(v.videoId)) continue
+      if (isJunkTrack(v.title, v.author ?? null)) continue
+      const title = cleanTitle(v.title) || v.title
+      const t = normKey(title)
+      const songKey = t ? (v.author ? `${normKey(v.author)}~${t}` : t) : ''
+      if (songKey && seenSongs.has(songKey)) continue
       seen.add(v.videoId)
+      if (songKey) seenSongs.add(songKey)
       tracks.push({
-        videoId: v.videoId, title: cleanTitle(v.title) || v.title, author: v.author ?? null,
+        videoId: v.videoId, title, author: v.author ?? null,
         thumbnail: ytImageProxy(`https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`),
       })
     }
