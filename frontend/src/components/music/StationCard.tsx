@@ -13,7 +13,7 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
   const radio = useRadio()
   const navigate = useNavigate()
   const playing = radio.active && radio.station?.id === station.id
-  const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)) }
+  const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
   const open = () => (onOpen ? onOpen(station) : navigate(`/music/station/${station.id}`))
 
   return (

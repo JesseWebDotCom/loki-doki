@@ -36,7 +36,7 @@ export function MusicStationPage() {
   const s = data.station
 
   const refresh = () => { qc.invalidateQueries({ queryKey: ['music-stations'] }); qc.invalidateQueries({ queryKey: ['music-station', id] }) }
-  const play = () => radio.start(stationToDj(s))
+  const play = () => { radio.start(stationToDj(s)); navigate('/music/now-playing') }
   const favorite = async () => {
     try { await addFavorite({ kind: 'station', refId: s.id, title: s.name }); toast.success('Added to favorites') }
     catch { toast.error('Could not favorite') }

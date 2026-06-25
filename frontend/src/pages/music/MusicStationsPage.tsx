@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -21,6 +21,7 @@ function Grid({ stations }: { stations: Station[] }) {
 
 export function MusicStationsPage() {
   const radio = useRadio()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const { data: buckets } = useQuery({ queryKey: ['music-stations'], queryFn: listStations })
   const [editorOpen, setEditorOpen] = useState(false)
@@ -34,7 +35,8 @@ export function MusicStationsPage() {
     if (!instant) return
     radio.start(instantStationDj({ type: instantSeed, value: instant }))
     setParams(p => { p.delete('instant'); p.delete('seedType'); return p }, { replace: true })
-  }, [instant, instantSeed, radio, setParams])
+    navigate('/music/now-playing')
+  }, [instant, instantSeed, radio, setParams, navigate])
 
   const builtin = buckets?.builtin ?? []
   const order = buckets?.categories ?? []

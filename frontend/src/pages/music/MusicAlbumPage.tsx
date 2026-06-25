@@ -36,7 +36,7 @@ export function MusicAlbumPage() {
           <button onClick={() => album.artistMbid && navigate(`/music/artist/${album.artistMbid}`)} className="mt-1 text-sm font-medium text-muted-foreground hover:text-foreground">{album.artistName}</button>
           <div className="mt-3 flex gap-2">
             <Button onClick={playAlbum} disabled={!songs.length}><Play className="size-4 fill-current" /> Play</Button>
-            <Button variant="secondary" onClick={() => radio.start(instantStationDj({ type: 'artist', value: album.artistName }))}><Radio className="size-4" /> Artist station</Button>
+            <Button variant="secondary" onClick={() => { radio.start(instantStationDj({ type: 'artist', value: album.artistName })); navigate('/music/now-playing') }}><Radio className="size-4" /> Artist station</Button>
           </div>
         </div>
       </div>

@@ -35,7 +35,7 @@ export function MusicArtistPage() {
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button onClick={() => radio.start(instantStationDj({ type: 'artist', value: artist.name }))}><Radio className="size-4" /> Start station</Button>
+          <Button onClick={() => { radio.start(instantStationDj({ type: 'artist', value: artist.name })); navigate('/music/now-playing') }}><Radio className="size-4" /> Start station</Button>
           {artist.wikipediaUrl && (
             <Button variant="secondary" asChild><a href={artist.wikipediaUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> Wikipedia</a></Button>
           )}
