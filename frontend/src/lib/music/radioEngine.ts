@@ -207,8 +207,10 @@ export class RadioEngine {
       if (!Ctor) return
       this.actx = new Ctor()
       this.analyser = this.actx.createAnalyser()
-      this.analyser.fftSize = 256          // 128 frequency bins
-      this.analyser.smoothingTimeConstant = 0.8
+      this.analyser.fftSize = 512          // 256 bins → finer frequency resolution
+      this.analyser.smoothingTimeConstant = 0.55  // less internal smoothing → transients (kick/snare/hat) read
+      this.analyser.minDecibels = -85      // widen the dB window so loud music isn't bunched at the
+      this.analyser.maxDecibels = -12      // ceiling — gives real dynamic range / contrast between bands
       void this.actx.resume?.()            // we're inside the start()/playTrack() click gesture
       // Wire every deck up now, before anything plays — so the immediate-song path (playTrack)
       // is tapped just like the DJ-intro-first path (start). Sources persist for the lifetime.

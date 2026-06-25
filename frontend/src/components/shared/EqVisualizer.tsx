@@ -74,13 +74,19 @@ export function EqVisualizer({
 
     // Log-spaced peak of the FFT band for bar i (bass left → treble right).
     function realTarget(i: number, bins: number): number {
-      const usable = Math.floor(bins * 0.72) // upper bins are mostly empty for music
+      // Only map up to ~10kHz: streaming audio is low-passed and the top bins read ~0, which left
+      // the rightmost bars frozen. Confine the bars to where music actually has energy.
+      const usable = Math.floor(bins * 0.5)
       const lo = Math.floor(Math.pow(i / count, 1.7) * usable)
       const hi = Math.max(lo + 1, Math.floor(Math.pow((i + 1) / count, 1.7) * usable))
       let peak = 0
       for (let j = lo; j < hi && j < bins; j++) peak = Math.max(peak, freq[j]!)
-      // Normalize + a mild perceptual lift so quiet detail still shows.
-      return Math.max(REST, Math.min(1, Math.pow(peak / 255, 0.9) * 1.05))
+      // Gentle treble tilt offsets spectral roll-off so the right-hand bars move too.
+      const tilt = 1 + 0.6 * (i / Math.max(1, count - 1))
+      const v = Math.min(1, (peak / 255) * tilt)
+      // Gamma > 1 deepens the gaps between hits (quiet bands drop low, peaks stay tall) so bass
+      // thumps, snares, and hats stand apart instead of blending into a uniform high block.
+      return Math.max(REST, Math.pow(v, 1.6))
     }
 
     function draw() {
@@ -117,7 +123,7 @@ export function EqVisualizer({
       for (let i = 0; i < count; i++) {
         const target = analyser ? realTarget(i, freq.length) : REST
         const cur = amps[i]!
-        const k = target > cur ? 0.5 : 0.22 // snappy attack, smoother release
+        const k = target > cur ? 0.7 : 0.4 // fast attack so hits punch, quicker release so they don't smear
         const next = cur + (target - cur) * k
         amps[i] = next
         if (Math.abs(next - target) > 0.004) moving = true
