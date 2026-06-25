@@ -11,6 +11,8 @@ interface RadioCtx extends RadioState {
   playTrack: (t: { videoId: string; title: string; author?: string | null; thumbnail?: string }) => void
   stop: () => void
   skip: () => void
+  seek: (sec: number) => void
+  getAnalyser: () => AnalyserNode | null
   togglePause: () => void
   setVolume: (v: number) => void
   toggleMute: () => void
@@ -48,6 +50,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     playTrack: (t) => e.playTrack(t),
     stop: () => e.stop(),
     skip: () => e.skip(),
+    seek: (sec) => e.seek(sec),
+    getAnalyser: () => e.getAnalyser(),
     togglePause: () => e.togglePause(),
     setVolume: (v) => e.setVolume(v),
     toggleMute: () => e.toggleMute(),

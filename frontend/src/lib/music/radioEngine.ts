@@ -4,9 +4,12 @@
 //   deck0 / deck1  — ping-pong song players (full songs, streamed audio-only)
 //   dj             — Kokoro TTS voice
 //
-// Both decks and the voice are plain <audio> elements mixed by animating `.volume`. We deliberately
-// do NOT route them through Web Audio / createMediaElementSource — live YouTube proxy streams render
-// SILENT through it in Chrome (currentTime advances, no sound). `.volume` is bulletproof here.
+// Both decks and the voice are plain <audio> elements MIXED by animating `.volume` — keep mixing
+// off Web Audio; `.volume` is bulletproof. They ARE routed through a read-only Web-Audio analyser
+// tap for the EQ visualizer (source → destination + source → analyser); that's safe because the
+// decks play same-origin proxied bytes (/api/youtube/stream), not the cross-origin/redirected
+// googlevideo URLs that used to render SILENT through createMediaElementSource. See the analyser
+// section below.
 //
 // There is no separate instrumental "bed" — a SONG is always the backing track under the DJ:
 //  • The first song starts immediately at a low bed level; the DJ talks over it; then it swells to
@@ -131,6 +134,19 @@ export class RadioEngine {
   private skipResolve: (() => void) | null = null
   private resumeEls: HTMLMediaElement[] = []
 
+  // Real-audio analysis. Each deck is routed through Web Audio once — source → destination
+  // (audio) + source → analyser (read tap) — and that graph lives for the engine's lifetime
+  // (createMediaElementSource may only be called once per element, even across contexts, so we
+  // never tear it down). The element's own .volume crossfade still applies to the node, so mixing
+  // is unaffected. The old "this silences the stream" fear was stale: it only happened with
+  // cross-origin/redirected googlevideo URLs. The decks now play same-origin proxied bytes
+  // (/api/youtube/stream), which are not CORS-tainted, so the node carries real samples. The
+  // context is created + resumed inside the start()/playTrack() click gesture, and we tap eagerly
+  // there (before any deck plays) so both the station and the play-a-song paths light up.
+  private actx: AudioContext | null = null
+  private analyser: AnalyserNode | null = null
+  private tapped = new WeakSet<HTMLMediaElement>()
+
   private state: RadioState = { ...initialRadioState }
 
   constructor(private emit: (s: RadioState) => void) {}
@@ -181,6 +197,40 @@ export class RadioEngine {
     })
   }
   private lastPosSec = -1
+
+  /** Lazily build the shared AudioContext + AnalyserNode. Call from a user gesture (start)
+   *  so the context isn't born suspended. */
+  private ensureAnalyser() {
+    if (this.analyser || !this.built) return
+    try {
+      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!Ctor) return
+      this.actx = new Ctor()
+      this.analyser = this.actx.createAnalyser()
+      this.analyser.fftSize = 256          // 128 frequency bins
+      this.analyser.smoothingTimeConstant = 0.8
+      void this.actx.resume?.()            // we're inside the start()/playTrack() click gesture
+      // Wire every deck up now, before anything plays — so the immediate-song path (playTrack)
+      // is tapped just like the DJ-intro-first path (start). Sources persist for the lifetime.
+      ;(['d0', 'd1', 'dj'] as ChKey[]).forEach(k => this.tap(this.ch[k].el))
+    } catch { this.actx = null; this.analyser = null }
+  }
+
+  /** Route an element through Web Audio: source → destination (audio) + source → analyser (tap).
+   *  Idempotent per element (createMediaElementSource throws on a second call). Connecting to
+   *  destination keeps it audible the moment the (gesture-resumed) context starts running. */
+  private tap(el: HTMLMediaElement) {
+    if (!this.analyser || !this.actx || this.tapped.has(el)) return
+    try {
+      const src = this.actx.createMediaElementSource(el)
+      src.connect(this.actx.destination) // keep it audible
+      src.connect(this.analyser)          // parallel read tap
+      this.tapped.add(el)
+    } catch { /* already sourced or unsupported */ }
+  }
+
+  /** The live AnalyserNode for real-time frequency data, or null if analysis isn't available. */
+  getAnalyser(): AnalyserNode | null { return this.analyser }
 
   private deckKey(i: number): ChKey { return i === 0 ? 'd0' : 'd1' }
   private deckEl(i: number) { return this.ch[this.deckKey(i)].el }
@@ -308,10 +358,12 @@ export class RadioEngine {
   }
   private async playDeck(deck: number, attempt = 0): Promise<void> {
     const el = this.deckEl(deck)
-    try { await el.play() }
+    void this.actx?.resume?.()   // nudge the context to running so the first song is analysed too
+    try { await el.play(); this.tap(el) }
     catch (e) {
       // A 502 from a transient resolve failure surfaces as a load/format error. Reload (which
       // re-requests the stream → re-resolves on the backend) and retry a couple of times.
+      if (e instanceof DOMException && e.name === 'AbortError') return // intentional pause/skip
       if (attempt < 2 && el.error) {
         await new Promise(r => setTimeout(r, 1500))
         el.load()
@@ -333,7 +385,7 @@ export class RadioEngine {
     await new Promise<void>(res => {
       const fin = () => { el.onended = null; el.onerror = null; res() }
       el.onended = fin; el.onerror = fin
-      el.play().catch(fin)
+      el.play().then(() => this.tap(el)).catch(fin)
     })
     URL.revokeObjectURL(dj.blobUrl)
   }
@@ -414,6 +466,7 @@ export class RadioEngine {
     this.stop()
     this.ensureAudio()
     this.unlock()   // synchronous — must happen inside the click gesture
+    this.ensureAnalyser()   // build/resume the AudioContext while we still have the gesture
     const runId = ++this.runId
     // A saved global DJ preference overrides the station's own mode (and shows in the UI).
     if (this.djOverride) station = { ...station, djMode: this.djOverride }
@@ -493,6 +546,7 @@ export class RadioEngine {
     this.stop()
     this.ensureAudio()
     this.unlock()
+    this.ensureAnalyser()   // build/resume the AudioContext while we still have the gesture
     const runId = ++this.runId
     const first: QueuedTrack = {
       videoId: track.videoId,
@@ -589,6 +643,19 @@ export class RadioEngine {
     this.set({ paused })
   }
 
+  /** Scrub the currently-playing song to an absolute position (seconds). No-op during DJ
+   *  talk segments / before a song is live — seeking only makes sense on the active deck. */
+  seek(sec: number) {
+    if (!this.state.active || !this.built) return
+    const el = this.deckEl(this.deck)
+    const d = el.duration
+    if (!Number.isFinite(d) || d <= 0) return
+    const t = Math.max(0, Math.min(sec, d))
+    try { el.currentTime = t } catch { return }
+    this.lastPosSec = Math.floor(t)
+    this.set({ positionSec: t })
+  }
+
   setVolume(v: number) {
     const vol = Math.max(0, Math.min(1, v))
     this.masterVol = vol
@@ -603,5 +670,8 @@ export class RadioEngine {
     if (this.built) this.applyAll()
   }
 
+  // Keep the Web Audio graph intact across teardown/revival: createMediaElementSource can't be
+  // re-run on an element, so closing the context would permanently break analysis (and could
+  // strand the elements on a dead context). The engine instance is reused, so the graph persists.
   destroy() { this.stop() }
 }

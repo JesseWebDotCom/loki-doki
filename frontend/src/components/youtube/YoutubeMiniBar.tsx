@@ -10,6 +10,7 @@ import { proxyImg } from '@/lib/img'
 import { thumbUrl, fmtClock } from '@/lib/youtube/format'
 import { loadYTApi } from '@/lib/youtube/ytapi'
 import { ChannelAvatar } from '@/components/youtube/media'
+import { SeekBar } from '@/components/shared/SeekBar'
 
 /**
  * Persistent docked mini-player — shown app-wide for YouTube videos AND internet radio streams.
@@ -40,7 +41,6 @@ export function YoutubeMiniBar() {
   const [winW, setWinW] = useState(288)
   const drag = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
   const resize = useRef<{ sx: number; ow: number } | null>(null)
-  const barRef = useRef<HTMLDivElement>(null)
   const scrubbing = useRef(false)
 
   const track = pb.track
@@ -139,6 +139,9 @@ export function YoutubeMiniBar() {
 
   // Radio and YouTube are mutually exclusive audio — docking a video stops the station.
   useEffect(() => { if (track && radio.active) radio.stop() }, [track?.videoId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // ...and conversely, starting the radio closes any docked YouTube video, so the music doesn't
+  // play behind the YouTube mini-bar. Keyed on the radio becoming active / changing song.
+  useEffect(() => { if (radio.active && track) pb.close() }, [radio.active, radio.currentTrack?.videoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show the AI-Radio controller when a station is live, nothing's docked in the YT
   // player, and we're not already on the full radio tab.
@@ -150,7 +153,6 @@ export function YoutubeMiniBar() {
   if (hidden) return null
 
   const total = dur || track!.durationSec || 0
-  const pct = total > 0 ? (pos / total) * 100 : 0
   const seekTo = (sec: number) => { if (online) ytRef.current?.seekTo?.(sec, true); else if (videoRef.current) videoRef.current.currentTime = sec }
 
   const togglePlay = () => {
@@ -241,16 +243,6 @@ export function YoutubeMiniBar() {
     resize.current = null; e.stopPropagation()
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* not captured */ }
   }
-  const scrubFrom = (clientX: number) => {
-    const el = barRef.current; if (!el || total <= 0) return
-    const r = el.getBoundingClientRect()
-    const frac = Math.max(0, Math.min((clientX - r.left) / r.width, 1))
-    seekTo(frac * total); setPos(frac * total)
-  }
-  const onScrubDown = (e: React.PointerEvent) => { scrubbing.current = true; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); scrubFrom(e.clientX) }
-  const onScrubMove = (e: React.PointerEvent) => { if (scrubbing.current) scrubFrom(e.clientX) }
-  const onScrubUp = (e: React.PointerEvent) => { scrubbing.current = false; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* not captured */ } }
-
   const posClass = !expanded
     ? 'absolute bottom-2 left-4 h-12 aspect-video'
     : win ? 'fixed aspect-video' : 'absolute bottom-[calc(100%+0.5rem)] left-4 aspect-video'
@@ -377,13 +369,8 @@ export function YoutubeMiniBar() {
 
             {/* Progress bar — YouTube/offline only; streams are live */}
             {!isStream && (
-              <div ref={barRef} onPointerDown={onScrubDown} onPointerMove={onScrubMove} onPointerUp={onScrubUp}
-                className="group relative flex h-3 cursor-pointer touch-none items-center">
-                <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/20">
-                  <div className="h-full rounded-full bg-red-600" style={{ width: `${pct}%` }} />
-                </div>
-                <span className="absolute size-3 -translate-x-1/2 rounded-full bg-red-600 shadow transition-transform group-hover:scale-110" style={{ left: `${pct}%` }} />
-              </div>
+              <SeekBar pos={pos} total={total} onSeek={seekTo}
+                onScrubStateChange={(s) => { scrubbing.current = s }} />
             )}
           </div>
         </div>
