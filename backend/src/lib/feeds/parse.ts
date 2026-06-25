@@ -3,7 +3,7 @@
 // helpers are intentionally duplicated here rather than refactoring those working paths).
 
 export { stripHtml } from '@/lib/htmlText'
-import { stripHtml } from '@/lib/htmlText'
+import { stripHtml, decodeEntities } from '@/lib/htmlText'
 
 export interface ParsedEntry {
   guid: string                 // dedup key: <guid>/<id> → <link> → hash(title+pubDate)
@@ -46,7 +46,22 @@ function extractImage(block: string): string | null {
     if (w >= bestW) { best = url; bestW = w }
   }
   if (!best) best = block.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]*type=["']image/i)?.[1]
-  return best ? upscaleImage(best) : null
+  // Fallback: first <img> inside HTML content (Atom <content>, RSS <content:encoded>, <description>).
+  // Feeds like The Verge embed images only in the HTML body.
+  if (!best) {
+    const htmlBlock = block.match(/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/i)?.[1]
+      ?? block.match(/<content[^>]*type=["']html["'][^>]*>([\s\S]*?)<\/content>/i)?.[1]
+      ?? block.match(/<content[^>]*>([\s\S]*?)<\/content>/i)?.[1]
+      ?? block.match(/<description[^>]*>([\s\S]*?)<\/description>/i)?.[1]
+    if (htmlBlock) {
+      const html = decodeEntities(htmlBlock.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'))
+      const src = html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1]
+      if (src && /^https?:/i.test(src)) best = src
+    }
+  }
+  // XML attribute values encode `&` as `&amp;`; signed CDN URLs (e.g. Guardian's `?…&s=<hmac>`)
+  // 401 if the entities aren't decoded back to literal `&`.
+  return best ? upscaleImage(decodeEntities(best)) : null
 }
 
 // Atom <link rel="alternate" href> (or the first <link href>); RSS uses a text <link>.

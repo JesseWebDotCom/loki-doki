@@ -2,7 +2,7 @@
 // and the reactive tools. Mirrors the lightweight regex parser in tools/news.ts.
 
 import type { BriefingItem } from '../types'
-import { stripTags as stripHtml } from '@/lib/htmlText'
+import { stripTags as stripHtml, decodeEntities } from '@/lib/htmlText'
 export { stripTags as stripHtml } from '@/lib/htmlText'
 
 const BASE = 'https://news.google.com/rss'
@@ -88,7 +88,9 @@ function extractFeedImage(block: string): string | undefined {
     if (w >= bestW) { best = url; bestW = w }
   }
   if (!best) best = block.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]*type=["']image/i)?.[1]
-  return best ? upscaleImage(best) : undefined
+  // Decode XML entities so signed CDN URLs (e.g. Guardian's `?…&s=<hmac>`) keep a valid query
+  // string — `&amp;` left intact breaks the signature and the image 401s.
+  return best ? upscaleImage(decodeEntities(best)) : undefined
 }
 
 function parsePublisherRss(xml: string, source: string, limit: number): RssItem[] {
