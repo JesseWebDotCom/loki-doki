@@ -46,8 +46,8 @@ export const playMusicTool: Tool = {
           query: { type: 'string', description: 'The song title, artist, genre, or mood to search for' },
           type: {
             type: 'string',
-            enum: ['song', 'artist', 'genre', 'mood'],
-            description: 'What kind of music request this is',
+            enum: ['song', 'artist', 'genre', 'mood', 'station'],
+            description: 'What kind of music request this is. Use "station" for "make a station about X" / "start a … radio" requests.',
           },
         },
       },
@@ -92,8 +92,13 @@ export const playMusicTool: Tool = {
         durationSec: v.durationSec ?? null,
       }))
 
-      const label = type === 'genre' || type === 'mood' ? query : `"${top.title}"`
-      const directReply = `Playing ${label}${top.author && type !== 'genre' ? ` by ${top.author}` : ''} — opening Music Videos for you.`
+      // Map the request to an instant-station seed for the Music sub-app: artist/song play a
+      // station built around that entity; genre/mood/station play a prompt-driven station.
+      const seedType = type === 'song' ? 'song' : type === 'artist' ? 'artist' : 'genre'
+      const isStation = type === 'genre' || type === 'mood' || type === 'station'
+      const directReply = isStation
+        ? `Starting a ${query} station for you.`
+        : `Playing ${type === 'artist' ? query : `"${top.title}"`}${top.author && type !== 'artist' ? ` by ${top.author}` : ''} — opening it in Music.`
 
       return {
         success: true,
@@ -105,7 +110,7 @@ export const playMusicTool: Tool = {
           topTitle: top.title,
           topArtist: top.author ?? null,
           action: 'play_music',
-          deeplink: `/music?tab=videos&q=${encodeURIComponent(query)}&videoId=${top.videoId}`,
+          deeplink: `/music/stations?instant=${encodeURIComponent(query)}&seedType=${seedType}`,
         },
         directReply,
       }

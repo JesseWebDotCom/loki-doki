@@ -82,21 +82,40 @@ function setCached(key: string, items: NewsItem[]): void {
 
 // Items for a feed-backed category (the curated News store), deduped by title.
 async function itemsFromFolder(folderId: string, limit: number): Promise<NewsItem[]> {
-  const rows = await db.select({ it: feedItems, feedTitle: feeds.title }).from(feedItems)
-    .innerJoin(feeds, eq(feedItems.feedId, feeds.id))
-    .where(eq(feeds.folderId, folderId))
-    .orderBy(desc(feedItems.publishedAt), desc(feedItems.fetchedAt))
-    .limit(limit * 4)
+  const folderFeeds = await db.select({ id: feeds.id, title: feeds.title })
+    .from(feeds).where(eq(feeds.folderId, folderId))
+  if (folderFeeds.length === 0) return []
+
+  // Fetch top `limit` items per feed (sorted newest-first), then round-robin interleave.
+  // Pure date-sort would crowd out any feed whose articles are older than the others.
+  type Row = { it: typeof feedItems.$inferSelect; feedTitle: string | null }
+  const buckets: Row[][] = []
+  for (const feed of folderFeeds) {
+    const rows = await db.select({ it: feedItems })
+      .from(feedItems)
+      .where(eq(feedItems.feedId, feed.id))
+      .orderBy(desc(feedItems.publishedAt), desc(feedItems.fetchedAt))
+      .limit(limit)
+    buckets.push(rows.map((r) => ({ it: r.it, feedTitle: feed.title })))
+  }
+
+  // Interleave: pick item[0] from each bucket, then item[1], etc.
+  const maxLen = Math.max(...buckets.map((b) => b.length))
+  const merged: Row[] = []
+  for (let i = 0; i < maxLen; i++) {
+    for (const bucket of buckets) { if (bucket[i]) merged.push(bucket[i]) }
+  }
+
   const items: NewsItem[] = []
   const seen = new Set<string>()
-  for (const r of rows) {
+  for (const r of merged) {
     const title = r.it.title
     if (!title) continue
     const key = title.toLowerCase().slice(0, 60)
     if (seen.has(key)) continue
     seen.add(key)
     items.push({
-      title, url: r.it.url ?? undefined, source: r.feedTitle,
+      title, url: r.it.url ?? undefined, source: r.feedTitle ?? undefined,
       summary: r.it.summary ?? undefined, imageUrl: r.it.imageUrl ?? undefined,
       publishedAt: r.it.publishedAt ?? undefined,
     })

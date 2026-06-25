@@ -529,6 +529,7 @@ export function runMigrations() {
   `)
 
   // LoRA routing columns (from migration 0005 — belt-and-suspenders for DBs created via inline SQL)
+  addColumn('music_stations', 'category', 'TEXT')
   addColumn('image_loras', 'civitai_id', 'TEXT')
   addColumn('image_loras', 'when_to_use', 'TEXT')
   addColumn('image_loras', 'example_requests', `TEXT NOT NULL DEFAULT '[]'`)
@@ -690,6 +691,91 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS idx_music_tracks_user_id ON music_tracks(user_id);
     CREATE INDEX IF NOT EXISTS idx_music_tracks_parent ON music_tracks(parent_track_id);
+
+    CREATE TABLE IF NOT EXISTS music_resolve (
+      key TEXT NOT NULL PRIMARY KEY,
+      video_id TEXT,
+      title TEXT,
+      artist TEXT,
+      duration_sec INTEGER,
+      score REAL,
+      resolved_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS music_stations (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT,
+      name TEXT NOT NULL,
+      description TEXT,
+      ai_prompt TEXT NOT NULL DEFAULT '',
+      seed_type TEXT NOT NULL DEFAULT 'prompt',
+      seed_value TEXT,
+      icon_path TEXT,
+      banner_path TEXT,
+      accent TEXT,
+      dj_mode TEXT NOT NULL DEFAULT 'full',
+      visibility TEXT NOT NULL DEFAULT 'private',
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_music_stations_user ON music_stations(user_id);
+
+    CREATE TABLE IF NOT EXISTS music_playlists (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      cover_path TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_music_playlists_user ON music_playlists(user_id);
+
+    CREATE TABLE IF NOT EXISTS music_playlist_tracks (
+      id TEXT NOT NULL PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      mbid TEXT,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      artist TEXT,
+      duration_sec INTEGER,
+      position INTEGER NOT NULL DEFAULT 0,
+      added_at INTEGER NOT NULL,
+      FOREIGN KEY (playlist_id) REFERENCES music_playlists(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_music_pl_tracks_playlist ON music_playlist_tracks(playlist_id);
+
+    CREATE TABLE IF NOT EXISTS music_favorites (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      title TEXT,
+      artist TEXT,
+      mbid TEXT,
+      added_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_music_fav_user_kind_ref ON music_favorites(user_id, kind, ref_id);
+
+    CREATE TABLE IF NOT EXISTS music_history (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      mbid TEXT,
+      title TEXT NOT NULL,
+      artist TEXT,
+      station_id TEXT,
+      position_sec REAL NOT NULL DEFAULT 0,
+      played_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_music_history_user ON music_history(user_id, played_at);
   `)
 
   // Home inventory subsystem v2 — extra columns + links table

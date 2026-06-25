@@ -139,7 +139,7 @@ function SoundtrackSection({ showName }: { showName: string }) {
           <button
             key={i}
             type="button"
-            onClick={() => navigate(`/music?tab=videos&q=${encodeURIComponent(song.title)}`)}
+            onClick={() => navigate(`/music/browse?q=${encodeURIComponent(song.title)}`)}
             className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/40"
           >
             <span className="w-5 shrink-0 text-right text-xs text-muted-foreground">{i + 1}</span>

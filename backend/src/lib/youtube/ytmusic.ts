@@ -45,6 +45,50 @@ function collect(node: any, key: string, out: any[], limit: number): void {
   }
 }
 
+// Deep-find the first watch/videoId under a node.
+function findVideoId(node: any): string | null {
+  if (!node || typeof node !== 'object') return null
+  if (typeof node.videoId === 'string') return node.videoId
+  if (node.watchEndpoint?.videoId) return node.watchEndpoint.videoId
+  if (node.playlistItemData?.videoId) return node.playlistItemData.videoId
+  for (const k of Object.keys(node)) { const r = findVideoId(node[k]); if (r) return r }
+  return null
+}
+
+const flexText = (item: any, col: number): string | null =>
+  item?.flexColumns?.[col]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text ?? null
+
+/**
+ * Search YouTube Music for SONGS only (the `songs` result filter). Every result is a real music
+ * track — no film clips, camera reviews, video essays, or other non-music videos can appear,
+ * because YouTube Music's catalogue is music by construction. This is the robust source for
+ * prompt/themed stations (vs. blending mixed regular-YouTube playlists).
+ */
+export async function ytmusicSearch(query: string, limit = 25, timeout = 8000): Promise<MusicTrack[]> {
+  try {
+    // params = "songs" search filter (base64 protobuf, used as-is in the request body).
+    const data = await musicCall('search', { query, params: 'EgWKAQIIAWoMEAMQBBAJEAoQBRAV' }, timeout)
+    const items: any[] = []
+    collect(data, 'musicResponsiveListItemRenderer', items, 80)
+    const seen = new Set<string>()
+    const tracks: MusicTrack[] = []
+    for (const it of items) {
+      const videoId = findVideoId(it)
+      const title = flexText(it, 0)
+      if (!videoId || !title || seen.has(videoId)) continue
+      // The byline column is "Artist • Album • Duration" — first run is the primary artist.
+      const author = flexText(it, 1)
+      seen.add(videoId)
+      tracks.push({ videoId, title, author })
+      if (tracks.length >= limit) break
+    }
+    return tracks
+  } catch (err) {
+    logger.debug(`[ytmusic] search("${query}") failed: ${String(err)}`)
+    return []
+  }
+}
+
 /**
  * The radio mix seeded from a song — `next` endpoint with the RDAMVM<id> radio playlist.
  * Returns a long, deduped list of tracks (typically ~25, more via continuations we don't

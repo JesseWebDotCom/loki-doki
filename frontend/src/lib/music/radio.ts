@@ -53,6 +53,35 @@ export async function fetchRadioQueue(q: string): Promise<{ tracks: RadioQueueTr
   } catch { return { tracks: [], source: 'none' } }
 }
 
+/** Build a queue for an AI station (saved station id, or an inline prompt / artist-song seed)
+ *  via the station engine. The backend returns ResolvedTrack[]; we map artist→author to match
+ *  the radio engine's track shape. */
+export async function fetchStationQueue(body: {
+  stationId?: string
+  aiPrompt?: string
+  seedType?: 'prompt' | 'genre' | 'artist' | 'song'
+  seedValue?: string
+  seedVideoId?: string
+  name?: string
+  count?: number
+  excludeVideoIds?: string[]
+}): Promise<{ tracks: RadioQueueTrack[]; source: string }> {
+  try {
+    const res = await fetch('/api/music/stations/queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) return { tracks: [], source: 'none' }
+    const data = await res.json() as { tracks?: Array<{ videoId: string; title: string; artist?: string | null }>; source?: string }
+    return {
+      tracks: (data.tracks ?? []).map(t => ({ videoId: t.videoId, title: t.title, author: t.artist ?? null })),
+      source: data.source ?? 'none',
+    }
+  } catch { return { tracks: [], source: 'none' } }
+}
+
 export interface DjSegmentResult {
   text: string
   audio: string | null  // base64 WAV
@@ -70,6 +99,7 @@ export async function fetchDjSegment(params: {
   weather?: string
   newsHeadline?: string
   position?: 'intro' | 'transition' | 'outro'
+  style?: 'full' | 'minimal'
 }): Promise<DjSegmentResult | null> {
   try {
     const res = await fetch('/api/music/radio/dj-segment', {

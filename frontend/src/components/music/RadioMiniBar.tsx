@@ -1,6 +1,9 @@
 import { Pause, Play, SkipForward, X, Loader2, Mic } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
+import { proxyImg } from '@/lib/img'
+import { cn } from '@/lib/cn'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 
 /**
  * Compact AI-Radio control shown in the app-wide mini-player slot while a station
@@ -21,12 +24,12 @@ export function RadioMiniBar() {
       <div className="relative border-t border-border/60 bg-background/95 backdrop-blur-md shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
         <div className="flex items-center gap-3 px-4 py-2">
           {/* Now-playing art — current track thumbnail, station emoji as fallback */}
-          <button onClick={() => navigate('/music?tab=radio')}
+          <button onClick={() => navigate('/music/now-playing')}
             className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-md text-2xl leading-none"
             style={{ background: station ? `linear-gradient(135deg, ${station.color}, ${station.colorDark})` : undefined }}
             aria-label="Open AI Radio">
             {currentTrack?.thumbnail && (
-              <img src={currentTrack.thumbnail} alt="" className="absolute inset-0 size-full object-cover" />
+              <img src={proxyImg(currentTrack.thumbnail)} alt="" className="absolute inset-0 size-full object-cover" />
             )}
             {djSpeaking && currentTrack?.thumbnail && <div className="absolute inset-0 bg-black/45" />}
             {djSpeaking
@@ -40,7 +43,7 @@ export function RadioMiniBar() {
           </button>
 
           {/* Title + subtitle */}
-          <button onClick={() => navigate('/music?tab=radio')} className="min-w-0 flex-1 text-left">
+          <button onClick={() => navigate('/music/now-playing')} className="min-w-0 flex-1 text-left">
             <p className="truncate text-sm font-semibold">{title}</p>
             <span className="mt-0.5 flex items-center gap-1.5">
               <span className="inline-flex size-1.5 animate-pulse rounded-full bg-red-500" />
@@ -50,6 +53,22 @@ export function RadioMiniBar() {
 
           {/* Controls */}
           <div className="flex items-center justify-end gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className={cn('grid size-8 place-items-center rounded-full hover:text-foreground',
+                  (station?.djMode ?? 'full') === 'silent' ? 'text-muted-foreground/40' : 'text-muted-foreground')}
+                  aria-label="DJ mode" title="DJ mode">
+                  <Mic className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {([['full', 'Full DJ'], ['minimal', 'DJ minimal'], ['silent', 'Silent (no DJ)']] as const).map(([mode, label]) => (
+                  <DropdownMenuItem key={mode} onClick={() => radio.setDjMode(mode)}>
+                    {(station?.djMode ?? 'full') === mode ? '✓ ' : ''}{label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button onClick={radio.togglePause}
               className="grid size-9 place-items-center rounded-full bg-foreground text-background hover:opacity-90"
               aria-label={paused ? 'Resume' : 'Pause'}>

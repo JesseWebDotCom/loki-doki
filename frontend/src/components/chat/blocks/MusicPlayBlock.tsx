@@ -1,5 +1,6 @@
 import { Music, Play, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { proxyImg } from '@/lib/img'
 import type { PlayMusicBlockData } from './types'
 
 function fmtDur(sec: number | null): string {
@@ -13,10 +14,12 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
   const navigate = useNavigate()
   const top = data.videos[0]
 
-  function openMusicApp(videoId?: string) {
-    const q = encodeURIComponent(data.query)
-    const vid = videoId ?? data.topVideoId
-    navigate(`/music?tab=videos&q=${q}&videoId=${vid}`)
+  // Start an instant station in the Music sub-app: a specific result seeds a song station;
+  // the generic "open" seeds from the original query.
+  function openMusicApp(seed?: { title: string; artist?: string | null }) {
+    const value = seed ? `${seed.artist ? seed.artist + ' ' : ''}${seed.title}` : data.query
+    const seedType = seed ? 'song' : 'genre'
+    navigate(`/music/stations?instant=${encodeURIComponent(value)}&seedType=${seedType}`)
   }
 
   return (
@@ -33,12 +36,12 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
       {top && (
         <button
           type="button"
-          onClick={() => openMusicApp(top.videoId)}
+          onClick={() => openMusicApp(top)}
           className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/40"
         >
           <div className="relative shrink-0">
             <img
-              src={top.thumbnail}
+              src={proxyImg(top.thumbnail)}
               alt={top.title}
               className="h-12 w-[85px] rounded-md object-cover"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
@@ -63,11 +66,11 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
             <button
               key={v.videoId}
               type="button"
-              onClick={() => openMusicApp(v.videoId)}
+              onClick={() => openMusicApp(v)}
               className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/30"
             >
               <img
-                src={v.thumbnail}
+                src={proxyImg(v.thumbnail)}
                 alt={v.title}
                 className="h-8 w-14 shrink-0 rounded object-cover"
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}

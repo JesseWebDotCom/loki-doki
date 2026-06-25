@@ -81,6 +81,10 @@ import { podcastsRoute } from '@/routes/podcasts'
 import { music } from '@/routes/music'
 import { musicInfo } from '@/routes/musicInfo'
 import { musicRadio } from '@/routes/musicRadio'
+import { musicCatalog } from '@/routes/musicCatalog'
+import { musicStations } from '@/routes/musicStations'
+import { musicPlaylists } from '@/routes/musicPlaylists'
+import { musicLibrary } from '@/routes/musicLibrary'
 import { logoRoute } from '@/routes/logo'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
@@ -377,6 +381,10 @@ app.route('/api/podcasts', podcastsRoute)
 app.route('/api/music', music)
 app.route('/api/music/info', musicInfo)
 app.route('/api/music/radio', musicRadio)
+app.route('/api/music/catalog', musicCatalog)
+app.route('/api/music/stations', musicStations)
+app.route('/api/music/playlists', musicPlaylists)
+app.route('/api/music/library', musicLibrary)
 app.route('/api/logo', logoRoute)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)

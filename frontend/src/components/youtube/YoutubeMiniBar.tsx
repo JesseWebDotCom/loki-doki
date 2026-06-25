@@ -6,6 +6,7 @@ import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { useRadio } from '@/context/RadioContext'
 import { RadioMiniBar } from '@/components/music/RadioMiniBar'
 import { fileUrl, saveWatchState, ytImageProxy } from '@/lib/youtube/api'
+import { proxyImg } from '@/lib/img'
 import { thumbUrl, fmtClock } from '@/lib/youtube/format'
 import { loadYTApi } from '@/lib/youtube/ytapi'
 import { ChannelAvatar } from '@/components/youtube/media'
@@ -164,7 +165,7 @@ export function YoutubeMiniBar() {
   }
 
   const goWatch = () => {
-    if (isStream) { navigate('/music?tab=listen'); return }
+    if (isStream) { navigate('/music'); return }
     navigate(
       `/youtube/watch/${track!.videoId}${track!.localKind ? `?k=${track!.localKind}` : ''}`,
       { state: { title: track!.title, author: track!.author, channelThumb: track!.channelThumb ?? null } },
@@ -316,7 +317,7 @@ export function YoutubeMiniBar() {
                   {track!.icon ?? '📻'}
                 </div>
                 {track!.thumbnail && !favErr && (
-                  <img src={track!.thumbnail} alt="" className="absolute inset-0 size-full object-cover"
+                  <img src={proxyImg(track!.thumbnail)} alt="" className="absolute inset-0 size-full object-cover"
                     onError={() => setFavErr(true)} />
                 )}
               </>

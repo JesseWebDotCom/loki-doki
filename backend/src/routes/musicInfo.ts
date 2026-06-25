@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
+import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import type { AppEnv } from '@/types'
 
 export const musicInfo = new Hono<AppEnv>()
@@ -108,6 +109,85 @@ musicInfo.get('/track', async (c) => {
   } catch {
     return c.json({ appearances: [] })
   }
+})
+
+// GET /api/music/info/song?artist=X&title=Y — Wikipedia summary for a song (for the Now-Playing
+// info panel). Tries the song page, then "artist song", then falls back to the artist.
+musicInfo.get('/song', async (c) => {
+  const artist = c.req.query('artist')?.trim() ?? ''
+  const title = c.req.query('title')?.trim()
+  if (!title) return c.json({ found: false })
+  try {
+    const candidates = [`${title} (song)`, artist ? `${artist} ${title}` : '', title].filter(Boolean)
+    for (const cand of candidates) {
+      const info = await wikipediaSummary(cand)
+      if (info && info.extract) return c.json({ found: true, ...info })
+    }
+    return c.json({ found: false })
+  } catch {
+    return c.json({ found: false })
+  }
+})
+
+// ── Lyrics (LRCLIB) ────────────────────────────────────────────────────────────────
+// Free, keyless, open lyrics database with time-synced LRC. Cached hard (lyrics don't change).
+interface LyricLine { sec: number; text: string }
+interface LyricsResult { synced: LyricLine[] | null; plain: string | null; source: string }
+
+// Parse an LRC string ("[mm:ss.xx] words") into timestamped lines, dropping blank/timing-only ones.
+function parseLrc(lrc: string): LyricLine[] {
+  const out: LyricLine[] = []
+  for (const raw of lrc.split('\n')) {
+    const matches = [...raw.matchAll(/\[(\d+):(\d+)(?:\.(\d+))?\]/g)]
+    if (!matches.length) continue
+    const text = raw.replace(/\[(\d+):(\d+)(?:\.(\d+))?\]/g, '').trim()
+    for (const m of matches) {
+      const min = parseInt(m[1]!, 10), s = parseInt(m[2]!, 10), frac = m[3] ? parseInt(m[3].padEnd(3, '0').slice(0, 3), 10) / 1000 : 0
+      out.push({ sec: min * 60 + s + frac, text })
+    }
+  }
+  return out.sort((a, b) => a.sec - b.sec)
+}
+
+async function fetchLrclib(artist: string, title: string, duration?: number): Promise<LyricsResult> {
+  const headers = { 'User-Agent': MB_UA, Accept: 'application/json' }
+  // Exact match endpoint first (best, includes duration disambiguation).
+  try {
+    const p = new URLSearchParams({ artist_name: artist, track_name: title })
+    if (duration) p.set('duration', String(duration))
+    const res = await fetch(`https://lrclib.net/api/get?${p}`, { headers, signal: AbortSignal.timeout(7000) })
+    if (res.ok) {
+      const d = await res.json() as { syncedLyrics?: string | null; plainLyrics?: string | null }
+      if (d.syncedLyrics) return { synced: parseLrc(d.syncedLyrics), plain: d.plainLyrics ?? null, source: 'lrclib' }
+      if (d.plainLyrics) return { synced: null, plain: d.plainLyrics, source: 'lrclib' }
+    }
+  } catch { /* fall through to search */ }
+  // Fuzzy search fallback — first hit that has lyrics.
+  try {
+    const res = await fetch(`https://lrclib.net/api/search?${new URLSearchParams({ artist_name: artist, track_name: title })}`,
+      { headers, signal: AbortSignal.timeout(7000) })
+    if (res.ok) {
+      const arr = await res.json() as Array<{ syncedLyrics?: string | null; plainLyrics?: string | null }>
+      const hit = arr.find(x => x.syncedLyrics) ?? arr.find(x => x.plainLyrics)
+      if (hit?.syncedLyrics) return { synced: parseLrc(hit.syncedLyrics), plain: hit.plainLyrics ?? null, source: 'lrclib' }
+      if (hit?.plainLyrics) return { synced: null, plain: hit.plainLyrics, source: 'lrclib' }
+    }
+  } catch { /* give up */ }
+  return { synced: null, plain: null, source: 'none' }
+}
+
+// GET /api/music/info/lyrics?artist=X&title=Y&duration=Z — synced (or plain) lyrics from LRCLIB.
+musicInfo.get('/lyrics', async (c) => {
+  const artist = c.req.query('artist')?.trim() ?? ''
+  const title = c.req.query('title')?.trim()
+  if (!title) return c.json({ synced: null, plain: null, source: 'none' })
+  const durationRaw = c.req.query('duration')
+  const duration = durationRaw ? parseInt(durationRaw, 10) : undefined
+  const result = await cachedLookup<LyricsResult>(
+    'lrclib', `${artist}|${title}|${duration ?? ''}`, THIRTY_DAYS_MS,
+    () => fetchLrclib(artist, title, duration),
+  )
+  return c.json(result)
 })
 
 // GET /api/music/info/soundtrack?title=SHOW_TITLE — Songs from a show/movie's soundtrack

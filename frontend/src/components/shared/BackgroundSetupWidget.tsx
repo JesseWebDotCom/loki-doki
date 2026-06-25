@@ -6,6 +6,7 @@ import { fmtBytes } from '@/lib/youtube/format'
 import { useSetupProgress, type JobInfo, type JobGroup } from '@/context/SetupProgressContext'
 import { useAuth } from '@/context/AuthContext'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
+import { useRadio } from '@/context/RadioContext'
 
 // Corner card stack showing the background download queue. Two independent tracks:
 //   • Setup    — runtimes/models/components the app needs (finishes in minutes)
@@ -40,10 +41,11 @@ export function BackgroundSetupWidget() {
   const { user, welcomeComplete } = useAuth()
   const { pathname } = useLocation()
   const { track } = useYoutubePlayback()
+  const { active: radioActive } = useRadio()
   const [minimized, setMinimized] = useState(false)
   const [retrying, setRetrying] = useState(false)
-  // Shift up when the footer player is visible so we don't overlap it.
-  const bottomClass = track ? 'bottom-20' : 'bottom-4'
+  // Shift up when a footer player (YouTube dock or AI Radio mini-bar) is visible so we don't overlap it.
+  const bottomClass = track || radioActive ? 'bottom-20' : 'bottom-4'
 
   // Setup has its own inline progress; nothing to show before login or when idle/clean.
   if (!status || pathname.startsWith('/setup') || pathname.startsWith('/login')) return null

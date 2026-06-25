@@ -16,7 +16,7 @@
 //    the voice. The next song is pre-buffered on the idle deck so the hand-off is instant.
 
 import { search as ytSearch, ytImageProxy, proxyStreamUrl, prewarmStream } from '@/lib/youtube/api'
-import { fetchDjSegment, fetchRadioQueue, base64WavToBlob } from '@/lib/music/radio'
+import { fetchDjSegment, fetchRadioQueue, fetchStationQueue, base64WavToBlob } from '@/lib/music/radio'
 import type { DjStation } from '@/lib/music/radioStations'
 
 export interface QueuedTrack {
@@ -42,12 +42,16 @@ export interface RadioState {
   volume: number
   muted: boolean
   loading: boolean
+  positionSec: number   // playback position of the current song (drives synced lyrics)
+  durationSec: number   // current song length, when known
+  sleepAtMs: number | null  // epoch ms at which the sleep timer stops playback (null = off)
 }
 
 export const initialRadioState: RadioState = {
   active: false, station: null, queue: [], index: 0,
   currentTrack: null, nextTrack: null, djText: null, djSpeaking: false,
   phase: 'idle', paused: false, volume: 1, muted: false, loading: false,
+  positionSec: 0, durationSec: 0, sleepAtMs: null,
 }
 
 interface PreparedDj { text: string | null; blobUrl: string | null }
@@ -144,7 +148,20 @@ export class RadioEngine {
     }
     this.ch = { d0: mk(0), d1: mk(0), dj: mk(1) }
     ;(Object.keys(this.ch) as ChKey[]).forEach(k => this.applyVol(k))
+    // Broadcast playback position from whichever deck is currently "the song", throttled to
+    // ~1/sec so synced lyrics can track without flooding re-renders.
+    ;(['d0', 'd1'] as ChKey[]).forEach((k, i) => {
+      this.ch[k].el.ontimeupdate = () => {
+        if (this.deck !== i) return
+        const el = this.ch[k].el
+        const sec = Math.floor(el.currentTime)
+        if (sec === this.lastPosSec) return
+        this.lastPosSec = sec
+        this.set({ positionSec: el.currentTime, durationSec: Number.isFinite(el.duration) ? el.duration : 0 })
+      }
+    })
   }
+  private lastPosSec = -1
 
   private deckKey(i: number): ChKey { return i === 0 ? 'd0' : 'd1' }
   private deckEl(i: number) { return this.ch[this.deckKey(i)].el }
@@ -173,21 +190,37 @@ export class RadioEngine {
 
   // ── Fetch helpers ────────────────────────────────────────────────────────────
   private async loadQueue(st: DjStation): Promise<QueuedTrack[]> {
-    const q = st.ytQueries[Math.floor(Math.random() * st.ytQueries.length)]!
     let raw: Array<{ videoId: string; title: string; author: string | null }> = []
     let shuffle = false
-    try {
-      const res = await fetchRadioQueue(q)
-      raw = res.tracks
-      shuffle = res.source !== 'ytmusic'
-    } catch { /* fall through */ }
 
-    if (!raw.length) {
+    // AI station → station engine (saved id, prompt, or artist/song seed). The engine already
+    // orders the queue, so we don't shuffle its result.
+    const isAi = !!(st.stationId || st.aiPrompt || st.seedValue)
+    if (isAi) {
       try {
-        const data = await ytSearch(q, null, 'videos')
-        raw = (data.results ?? []).map(v => ({ videoId: v.videoId, title: v.title, author: v.author ?? null }))
-        shuffle = true
-      } catch { raw = [] }
+        const res = await fetchStationQueue({
+          stationId: st.stationId, aiPrompt: st.aiPrompt, seedType: st.seedType,
+          seedValue: st.seedValue, name: st.label, count: 12,
+        })
+        raw = res.tracks
+        shuffle = false
+      } catch { /* fall through to empty */ }
+    } else {
+      // Legacy preset station → YouTube Music radio mix off a random search query.
+      const q = st.ytQueries?.[Math.floor(Math.random() * st.ytQueries.length)] ?? st.genre ?? st.label
+      try {
+        const res = await fetchRadioQueue(q)
+        raw = res.tracks
+        shuffle = res.source !== 'ytmusic'
+      } catch { /* fall through */ }
+
+      if (!raw.length) {
+        try {
+          const data = await ytSearch(q, null, 'videos')
+          raw = (data.results ?? []).map(v => ({ videoId: v.videoId, title: v.title, author: v.author ?? null }))
+          shuffle = true
+        } catch { raw = [] }
+      }
     }
 
     const seen = new Set<string>()
@@ -213,16 +246,23 @@ export class RadioEngine {
     station: DjStation; track: QueuedTrack | null; next?: QueuedTrack | null
     position: 'intro' | 'transition' | 'outro'; sayStation?: boolean
   }): Promise<PreparedDj> {
+    // Honour the effective DJ mode (persisted override > station default): silent never speaks;
+    // minimal speaks on every segment but only to announce the song (no banter/asides).
+    const djMode = this.effectiveDjMode()
+    if (djMode === 'silent') return { text: null, blobUrl: null }
+    const minimal = djMode === 'minimal'
+
     const seg = await fetchDjSegment({
       genre: args.station.genre,
       stationName: args.station.label,
-      // Always name the station on the intro; sprinkle it into ~1 in 3 transitions.
-      sayStation: args.sayStation ?? args.position === 'intro',
+      // Name the station only on the intro; in minimal mode keep transitions song-only.
+      sayStation: minimal ? args.position === 'intro' : (args.sayStation ?? args.position === 'intro'),
       trackName: args.track?.title,
       artistName: args.track?.author ?? undefined,
       nextTrackName: args.next?.title,
       nextArtistName: args.next?.author ?? undefined,
       position: args.position,
+      style: minimal ? 'minimal' : 'full',
     })
     if (!seg) return { text: null, blobUrl: null }
     let blobUrl: string | null = null
@@ -254,6 +294,9 @@ export class RadioEngine {
 
   // Play a DJ blob over the song; resolves when the voice finishes (or on error/no-audio).
   private async speak(dj: PreparedDj): Promise<void> {
+    // Hard gate: if the user has silenced the DJ, never play voice — even a segment that was
+    // pre-generated for this transition before they toggled. Don't pause either; just continue.
+    if (this.effectiveDjMode() === 'silent') { if (dj.blobUrl) URL.revokeObjectURL(dj.blobUrl); return }
     if (!dj.blobUrl) { await new Promise(r => setTimeout(r, 2400)); return }
     const el = this.ch.dj.el
     el.src = dj.blobUrl
@@ -343,6 +386,8 @@ export class RadioEngine {
     this.ensureAudio()
     this.unlock()   // synchronous — must happen inside the click gesture
     const runId = ++this.runId
+    // A saved global DJ preference overrides the station's own mode (and shows in the UI).
+    if (this.djOverride) station = { ...station, djMode: this.djOverride }
 
     this.set({
       active: true, station, phase: 'loading', loading: true, paused: false,
@@ -361,7 +406,8 @@ export class RadioEngine {
     this.cueSrc(0, songs[0]!.videoId)            // src + ramp to 0
     await this.playDeck(0)                        // start it (retries on transient errors)
     if (this.stale(runId)) return
-    this.ramp(this.deckKey(0), INTRO_BED, 900)   // bring up to a low "bed" level
+    // Silent stations open at full volume (no DJ to bed under); otherwise duck to a bed level.
+    this.ramp(this.deckKey(0), this.effectiveDjMode() === 'silent' ? 1 : INTRO_BED, 900)
 
     // Generate the DJ intro while the song beds underneath, then talk over it and fade up.
     const intro = await this.prepareDj({ station, track: songs[0]!, position: 'intro' })
@@ -371,6 +417,12 @@ export class RadioEngine {
     // Song now owns the mix → it's Now Playing.
     this.set({ currentTrack: songs[0]!, djSpeaking: false, djText: null })
 
+    await this.playFrom(runId, station, songs)
+  }
+
+  // Run the transition loop over `songs`, assuming songs[0] is ALREADY playing on `this.deck`.
+  // Shared by start() (after its DJ intro) and playTrack() (after its instant first song).
+  private async playFrom(runId: number, station: DjStation, songs: QueuedTrack[]) {
     for (let i = 0; i < songs.length; i++) {
       if (this.stale(runId)) return
       const cur = songs[i]!
@@ -405,11 +457,81 @@ export class RadioEngine {
     if (!this.stale(runId)) this.stop()
   }
 
+  // Play a KNOWN song immediately (we already have the videoId) — cue + play right away, like
+  // clicking a YouTube video, with no LLM/queue build. The continuation mix is fetched in the
+  // background so the station keeps going after the first song.
+  async playTrack(track: { videoId: string; title: string; author?: string | null; thumbnail?: string }) {
+    this.stop()
+    this.ensureAudio()
+    this.unlock()
+    const runId = ++this.runId
+    const first: QueuedTrack = {
+      videoId: track.videoId,
+      title: cleanTitle(track.title) || track.title,
+      author: track.author ?? null,
+      thumbnail: track.thumbnail || ytImageProxy(`https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg`),
+    }
+    const station: DjStation = {
+      id: `track:${track.videoId}`, label: first.title, emoji: '🎵', color: '#6d28d9', colorDark: '#a78bfa',
+      seedType: 'song', seedValue: `${first.author ?? ''} ${first.title}`.trim(),
+      djMode: this.djOverride ?? 'full',
+    }
+    this.set({
+      active: true, station, phase: 'playing', loading: false, paused: false,
+      queue: [first], index: 0, currentTrack: first, nextTrack: null, djText: null, djSpeaking: false,
+    })
+    this.deck = 0
+    this.cueSrc(0, first.videoId)
+    await this.playDeck(0)
+    if (this.stale(runId)) return
+    this.ramp(this.deckKey(0), 1, 250)   // straight to full volume — instant, no DJ bed
+
+    // Background: build the continuation mix off this exact video (fast YT Music radio, no LLM).
+    let mix: QueuedTrack[] = []
+    try {
+      const res = await fetchStationQueue({ seedVideoId: first.videoId, count: 14 })
+      mix = res.tracks
+        .filter(t => t.videoId !== first.videoId)
+        .map(v => ({ videoId: v.videoId, title: cleanTitle(v.title) || v.title, author: v.author ?? null, thumbnail: ytImageProxy(`https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`) }))
+    } catch { /* play the single song; loop ends after it */ }
+    if (this.stale(runId)) return
+    const songs = [first, ...mix]
+    this.set({ queue: songs })
+    await this.playFrom(runId, station, songs)
+  }
+
   skip() { this.skipResolve?.() }
+
+  // Persisted, station-independent DJ preference. Once the user picks a mode it sticks across
+  // songs, station changes, and reloads — so "Silent" stays silent until they change it. The
+  // override (when set) wins over each station's own djMode.
+  private djOverride: 'full' | 'minimal' | 'silent' | null =
+    (typeof localStorage !== 'undefined'
+      ? (localStorage.getItem('music.djMode') as 'full' | 'minimal' | 'silent' | null)
+      : null)
+  private effectiveDjMode(): 'full' | 'minimal' | 'silent' {
+    return this.djOverride ?? this.state.station?.djMode ?? 'full'
+  }
+  setDjMode(mode: 'full' | 'minimal' | 'silent') {
+    this.djOverride = mode
+    try { localStorage.setItem('music.djMode', mode) } catch { /* quota */ }
+    if (this.state.station) this.set({ station: { ...this.state.station, djMode: mode } })
+  }
+
+  // Sleep timer: stop playback after N minutes (0/null cancels). sleepAtMs feeds a countdown.
+  private sleepTimeout: ReturnType<typeof setTimeout> | null = null
+  setSleep(minutes: number | null) {
+    if (this.sleepTimeout) { clearTimeout(this.sleepTimeout); this.sleepTimeout = null }
+    if (!minutes || minutes <= 0) { this.set({ sleepAtMs: null }); return }
+    const at = Date.now() + minutes * 60_000
+    this.sleepTimeout = setTimeout(() => { this.sleepTimeout = null; this.stop() }, minutes * 60_000)
+    this.set({ sleepAtMs: at })
+  }
 
   stop() {
     this.runId++
     this.skipResolve = null
+    if (this.sleepTimeout) { clearTimeout(this.sleepTimeout); this.sleepTimeout = null }
     if (this.built) {
       (Object.keys(this.ch) as ChKey[]).forEach(k => {
         const c = this.ch[k]
@@ -421,6 +543,7 @@ export class RadioEngine {
     this.set({
       active: false, station: null, phase: 'idle', queue: [], index: 0,
       currentTrack: null, nextTrack: null, djText: null, djSpeaking: false, paused: false, loading: false,
+      sleepAtMs: null,
     })
   }
 

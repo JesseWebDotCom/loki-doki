@@ -162,10 +162,12 @@ musicRadio.post('/dj-segment', async (c) => {
     newsHeadline?: string
     position?: 'intro' | 'transition' | 'outro'
     voice?: string
+    style?: 'full' | 'minimal'
   }
   const body: DjBody = await c.req.json<DjBody>().catch(() => ({} as DjBody))
 
   const genre = body.genre ?? 'music'
+  const style = body.style === 'minimal' ? 'minimal' : 'full'
   const stationName = body.stationName
   const sayStation = body.sayStation && !!stationName
   const trackName = body.trackName
@@ -184,8 +186,8 @@ musicRadio.post('/dj-segment', async (c) => {
   const ctx = contextParts.join(' ')
 
   // Grounded facts for a quick aside — only on transitions, where the lookup latency is
-  // hidden behind the currently-playing song. Intro/outro stay fast (no Wikipedia call).
-  const facts = position === 'transition' ? await lookupFacts(artistName, trackName) : ''
+  // hidden behind the currently-playing song, and never in minimal mode (which just IDs songs).
+  const facts = position === 'transition' && style !== 'minimal' ? await lookupFacts(artistName, trackName) : ''
   const aside = facts
     ? `Work in exactly ONE quick, TRUE aside about the artist or song, drawn only from these facts (do not invent): ${facts}`
     : ''
@@ -194,6 +196,18 @@ musicRadio.post('/dj-segment', async (c) => {
   const stationLine = sayStation ? `Start by saying the listener is tuned to "${stationName}". ` : ''
 
   let djPrompt: string
+  // Minimal DJ: no banter, no facts — just cleanly announce the song (and station only on intro).
+  if (style === 'minimal') {
+    const cur = trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that track'
+    const nxt = nextTrackName ? `"${nextTrackName}"${nextArtistName ? ` by ${nextArtistName}` : ''}` : ''
+    if (position === 'intro') {
+      djPrompt = `${stationLine}Announce only what's playing now: ${cur}. No banter, no extra words. Max 12 words.`
+    } else if (position === 'outro') {
+      djPrompt = `Announce only that that was ${cur}. No banter. Max 10 words.`
+    } else {
+      djPrompt = `Announce only that that was ${cur}${nxt ? `, and that ${nxt} is next` : ''}. No banter, no opinions. Max 16 words.`
+    }
+  } else
   switch (position) {
     case 'intro':
       // Talks OVER the first song, so keep it tight — one or two short sentences.

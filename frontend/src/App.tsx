@@ -29,7 +29,16 @@ import { HomePage } from '@/pages/HomePage'
 import { WeatherPage } from '@/pages/WeatherPage'
 import { MapsPage } from '@/pages/MapsPage'
 import { ImagingPage } from '@/pages/ImagingPage'
-import { MusicPage } from '@/pages/MusicPage'
+import { MusicLayout } from '@/components/music/MusicLayout'
+import { MusicHomePage } from '@/pages/music/MusicHomePage'
+import { MusicStationsPage } from '@/pages/music/MusicStationsPage'
+import { MusicStationPage } from '@/pages/music/MusicStationPage'
+import { MusicBrowsePage } from '@/pages/music/MusicBrowsePage'
+import { MusicArtistPage } from '@/pages/music/MusicArtistPage'
+import { MusicAlbumPage } from '@/pages/music/MusicAlbumPage'
+import { MusicLibraryPage } from '@/pages/music/MusicLibraryPage'
+import { NowPlayingPage } from '@/pages/music/NowPlayingPage'
+import { MusicGeneratePage, MusicRemixPage } from '@/pages/music/MusicCreatePages'
 import { TimePage } from '@/pages/TimePage'
 import { ChatLayout } from '@/components/chat/ChatLayout'
 import { ConversationView } from '@/components/chat/ConversationView'
@@ -265,7 +274,18 @@ export default function App() {
                 <Route path="/maps" element={<MapsPage />} />
                 <Route path="/weather" element={<WeatherPage />} />
                 <Route path="/imaging" element={<ImagingPage />} />
-                <Route path="/music" element={<MusicPage />} />
+                <Route path="/music" element={<MusicLayout />}>
+                  <Route index element={<MusicHomePage />} />
+                  <Route path="stations" element={<MusicStationsPage />} />
+                  <Route path="station/:id" element={<MusicStationPage />} />
+                  <Route path="browse" element={<MusicBrowsePage />} />
+                  <Route path="now-playing" element={<NowPlayingPage />} />
+                  <Route path="artist/:mbid" element={<MusicArtistPage />} />
+                  <Route path="album/:mbid" element={<MusicAlbumPage />} />
+                  <Route path="generate" element={<MusicGeneratePage />} />
+                  <Route path="remix" element={<MusicRemixPage />} />
+                  <Route path="library" element={<MusicLibraryPage />} />
+                </Route>
                 <Route path="/video" element={<VideoPage />} />
                 <Route path="/read/:sourceId" element={<ReaderPage />} />
                 <Route path="/apps" element={<AllAppsPage />} />

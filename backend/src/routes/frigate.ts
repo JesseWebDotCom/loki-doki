@@ -132,6 +132,14 @@ frigate.get('/v1/models', async (c) => {
 
 // ── Browser-facing: companion announcements + history ─────────────────────────
 
+// Cheap gate for the announce poller: "enabled" only when Frigate is actually set up
+// (toggle on AND a broker/base URL configured). Lets clients skip the 6s announce poll
+// entirely when Frigate is off or unconfigured.
+frigate.get('/status', requireAuth, async (c) => {
+  const cfg = await getFrigateConfig()
+  return c.json({ enabled: cfg.enabled && (!!cfg.mqttHost || !!cfg.baseUrl) })
+})
+
 frigate.get('/announcements/pending', requireAuth, async (c) => {
   return c.json({ items: await pendingAnnouncements() })
 })

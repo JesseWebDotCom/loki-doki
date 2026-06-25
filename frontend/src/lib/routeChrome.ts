@@ -29,6 +29,7 @@ export function classifyRoute(pathname: string): RouteChrome {
     pathname.startsWith("/imaging") ||
     pathname.startsWith("/video") ||
     pathname.startsWith("/youtube") ||
+    pathname.startsWith("/music") ||
     pathname.startsWith("/bookmarks");
   // The shell paints the backdrop for standard scroller apps only. Full-bleed,
   // chat and panel routes own their own backgrounds (PageShell self-tints them).

@@ -5,7 +5,7 @@
 // Saved items are promoted into bookmarks (a separate permanent store), so feed_items
 // can be pruned freely here — no "never delete saved" carve-out.
 
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '@/db'
 import { feeds, feedItems } from '@/db/schema'
 import { logger } from '@/lib/logger'
@@ -34,11 +34,22 @@ async function hostThrottle(url: string): Promise<void> {
 async function upsertEntries(feed: Feed, entries: ParsedEntry[]): Promise<number> {
   if (!entries.length) return 0
   const guids = entries.map((e) => e.guid)
-  const known = await db.select({ guid: feedItems.guid }).from(feedItems)
-    .where(and(eq(feedItems.feedId, feed.id), inArray(feedItems.guid, guids)))
-  const knownSet = new Set(known.map((r) => r.guid))
-  const fresh = entries.filter((e) => !knownSet.has(e.guid))
-  if (!fresh.length) return 0
+  const known = await db.select({ guid: feedItems.guid, id: feedItems.id, imageUrl: feedItems.imageUrl })
+    .from(feedItems).where(and(eq(feedItems.feedId, feed.id), inArray(feedItems.guid, guids)))
+  const knownMap = new Map(known.map((r) => [r.guid, r]))
+  const fresh = entries.filter((e) => !knownMap.has(e.guid))
+
+  // Back-fill imageUrl for existing items that were stored before the img-in-content fallback.
+  const toBackfill = entries.filter((e) => {
+    const row = knownMap.get(e.guid)
+    return row && !row.imageUrl && e.imageUrl
+  })
+  for (const e of toBackfill) {
+    const row = knownMap.get(e.guid)!
+    await db.update(feedItems).set({ imageUrl: e.imageUrl }).where(and(eq(feedItems.id, row.id), isNull(feedItems.imageUrl)))
+  }
+
+  if (!fresh.length) return toBackfill.length > 0 ? 0 : 0
 
   const now = new Date()
   await db.insert(feedItems).values(fresh.map((e) => ({

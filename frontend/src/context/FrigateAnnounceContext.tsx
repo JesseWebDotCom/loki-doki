@@ -5,10 +5,11 @@
 // double-speak. Purely a side-effect provider — it renders its children untouched.
 
 import { useEffect, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/context/AuthContext'
 import { speak } from '@/lib/voice/voicePlaybackStore'
 import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
-import { listPendingAnnouncements, claimAnnouncement } from '@/lib/frigate/api'
+import { listPendingAnnouncements, claimAnnouncement, getFrigateStatus } from '@/lib/frigate/api'
 
 const POLL_MS = 6000
 
@@ -17,8 +18,19 @@ export function FrigateAnnounceProvider({ children }: { children: React.ReactNod
   const userId = user?.id ?? null
   const attempting = useRef<Set<string>>(new Set())  // ids this client is mid-claim on
 
+  // Only poll for announcements when Frigate is actually set up. When it's off (or never
+  // configured) this is the single request the client makes — no 6s announce loop.
+  // Re-checked on window focus / every 5 min, so enabling Frigate starts polling without a reload.
+  const { data: status } = useQuery({
+    queryKey: ['frigate', 'status'],
+    queryFn: getFrigateStatus,
+    enabled: !!userId,
+    staleTime: 5 * 60_000,
+  })
+  const frigateOn = !!status?.enabled
+
   useEffect(() => {
-    if (!userId) return
+    if (!userId || !frigateOn) return
     let cancelled = false
 
     const tick = async () => {
@@ -46,7 +58,7 @@ export function FrigateAnnounceProvider({ children }: { children: React.ReactNod
 
     const poll = window.setInterval(() => { void tick() }, POLL_MS)
     return () => { cancelled = true; window.clearInterval(poll) }
-  }, [userId])
+  }, [userId, frigateOn])
 
   return <>{children}</>
 }

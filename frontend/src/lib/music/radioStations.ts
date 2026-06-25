@@ -8,12 +8,20 @@
 export interface DjStation {
   id: string
   label: string
-  genre: string
-  ytQueries: string[]
-  bedQuery: string
   emoji: string
   color: string
   colorDark: string
+  // Legacy preset stations drive the queue from these YouTube searches.
+  genre?: string
+  ytQueries?: string[]
+  bedQuery?: string
+  // AI stations (saved in music_stations) drive the queue from the station engine instead:
+  // either a saved station id, or an inline prompt / artist-song seed. djMode controls the DJ.
+  stationId?: string
+  aiPrompt?: string
+  seedType?: 'prompt' | 'genre' | 'artist' | 'song'
+  seedValue?: string
+  djMode?: 'full' | 'minimal' | 'silent'
 }
 
 export const DJ_STATIONS: DjStation[] = [

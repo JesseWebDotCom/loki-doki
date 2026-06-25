@@ -41,6 +41,15 @@ export interface FrigateTestResult {
 }
 
 // ── Announce polling (any authenticated client) ───────────────────────────────
+
+// Lightweight gate: is Frigate actually set up? Clients use this to avoid polling for
+// announcements every few seconds when Frigate is disabled or unconfigured.
+export async function getFrigateStatus(): Promise<{ enabled: boolean }> {
+  const r = await fetch('/api/frigate/status', opts)
+  if (!r.ok) return { enabled: false }
+  return r.json()
+}
+
 export async function listPendingAnnouncements(): Promise<FrigateAnnouncement[]> {
   const r = await fetch('/api/frigate/announcements/pending', opts)
   if (!r.ok) throw new Error('failed')

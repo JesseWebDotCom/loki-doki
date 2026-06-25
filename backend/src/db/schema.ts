@@ -414,6 +414,95 @@ export const musicTracks = sqliteTable('music_tracks', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// Resolver cache: maps a MusicBrainz recording (or a synthetic keyless query key) to the
+// YouTube videoId we play for it. Resolution is fuzzy and rate-limited, so we cache the
+// answer permanently and reuse it everywhere (stations, playlists, search, offline). A row
+// with a null videoId is a memoised miss ("we looked and found nothing playable").
+export const musicResolve = sqliteTable('music_resolve', {
+  key: text('key').primaryKey(),          // recording MBID, or `q:<sha>` for keyless lookups
+  videoId: text('video_id'),              // resolved YouTube id; null = known-unresolvable
+  title: text('title'),
+  artist: text('artist'),
+  durationSec: integer('duration_sec'),
+  score: real('score'),                   // resolver confidence (debug/tuning)
+  resolvedAt: integer('resolved_at', { mode: 'timestamp' }).notNull(),
+})
+
+// AI music stations. A station is a *rule* (an AI prompt or an artist/song seed) that the
+// station engine turns into a fresh YouTube-backed queue on each tune-in. userId null +
+// isBuiltin = a default station shipped on every install; visibility 'shared' = a user-made
+// station the whole family can see and play (owner-only edits). djMode controls the AI DJ:
+// full (talks between songs), minimal (just announces each song), or silent.
+export const musicStations = sqliteTable('music_stations', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }), // null = built-in
+  name: text('name').notNull(),
+  description: text('description'),
+  aiPrompt: text('ai_prompt').notNull().default(''),
+  seedType: text('seed_type', { enum: ['prompt', 'genre', 'artist', 'song'] }).notNull().default('prompt'),
+  seedValue: text('seed_value'),
+  iconPath: text('icon_path'),        // relative path to generated station icon (SVG)
+  bannerPath: text('banner_path'),    // relative path to generated station banner (SVG)
+  accent: text('accent'),             // color slug for tinting when art is absent
+  category: text('category'),         // browse grouping for built-ins (Genres, Moods, Movies…)
+  djMode: text('dj_mode', { enum: ['full', 'minimal', 'silent'] }).notNull().default('full'),
+  visibility: text('visibility', { enum: ['private', 'shared'] }).notNull().default('private'),
+  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
+  isAdult: integer('is_adult', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// User-curated playlists — an explicit, fixed track list (distinct from generative stations).
+export const musicPlaylists = sqliteTable('music_playlists', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description'),
+  coverPath: text('cover_path'),
+  visibility: text('visibility', { enum: ['private', 'shared'] }).notNull().default('private'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const musicPlaylistTracks = sqliteTable('music_playlist_tracks', {
+  id: text('id').primaryKey(),
+  playlistId: text('playlist_id').notNull().references(() => musicPlaylists.id, { onDelete: 'cascade' }),
+  mbid: text('mbid'),                 // MusicBrainz recording id when known
+  videoId: text('video_id').notNull(),
+  title: text('title').notNull(),
+  artist: text('artist'),
+  durationSec: integer('duration_sec'),
+  position: integer('position').notNull().default(0),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Favorites: songs, stations, or playlists a user has hearted. refId is a videoId (songs) or
+// the station/playlist id. Favoriting a shared station keeps it linked to the original.
+export const musicFavorites = sqliteTable('music_favorites', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['song', 'station', 'playlist'] }).notNull(),
+  refId: text('ref_id').notNull(),
+  title: text('title'),               // denormalized for song favorites (videoId has no row)
+  artist: text('artist'),
+  mbid: text('mbid'),
+  addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userKindRefUnique: unique().on(t.userId, t.kind, t.refId) }))
+
+// Listening history — powers "Continue listening" + recently played.
+export const musicHistory = sqliteTable('music_history', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),
+  mbid: text('mbid'),
+  title: text('title').notNull(),
+  artist: text('artist'),
+  stationId: text('station_id'),      // the station/playlist context, when played from one
+  positionSec: real('position_sec').notNull().default(0),
+  playedAt: integer('played_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ─── LoRA System ──────────────────────────────────────────────────────────────
 
 export const imageLoraCategories = sqliteTable('image_lora_categories', {
