@@ -68,7 +68,7 @@ export function useCompanionVoice(opts: {
 
   // Stop any in-flight TTS/audio when the component unmounts so the singleton
   // playback doesn't keep streaming and playing mid-utterance after teardown.
-  useEffect(() => () => { if (import.meta.env.DEV) console.log('[VOICE] stop: hook UNMOUNT'); stopSpeech() }, [])
+  useEffect(() => () => { stopSpeech() }, [])
 
   // A new generation started: cut any audio still playing from the previous reply.
   // (The cursor reset is driven by text identity below, NOT this edge — resetting

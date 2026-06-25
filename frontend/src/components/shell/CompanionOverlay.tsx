@@ -355,12 +355,6 @@ export function CompanionOverlay() {
   // Only the owning tab speaks; a non-owner stays silent even if it generated text.
   const voiceMode = (voiceOn || handsFreeOn) && !!voiceCharacter && isVoiceOwner
   useCompanionVoice({ text: replyText, streaming, characterId: voiceCharacter?.id, voiceOn: voiceMode })
-  // Layer-config diagnostic (plans/voice-rebuild.md): logs voice + wakeword/hands-free
-  // state so it's always clear which layer is active during testing.
-  useEffect(() => {
-    const wake = voiceCharacter?.wakeWordPhrase?.trim() || voiceCharacter?.wakeWordModelId || 'none'
-    console.log(`[VOICE-STATE] app=${pathname} voiceOn=${voiceOn} handsFree=${handsFreeOn} voiceMode=${voiceMode} owner=${isVoiceOwner} wakeword="${wake}" hfState=${handsFree.state}`)
-  }, [pathname, voiceOn, handsFreeOn, voiceMode, isVoiceOwner, voiceCharacter, handsFree.state])
   // Losing ownership mid-utterance (user switched to another tab) cuts the audio
   // here so the handoff is clean and the new owner is the only one talking.
   useEffect(() => { if (!isVoiceOwner) stopSpeech() }, [isVoiceOwner])
