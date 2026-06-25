@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Globe, FileText, Bookmark, Loader2, Trash2, Archive, ExternalLink, AlertTriangle, FolderOpen, Check, Pencil, BookOpen, Download, History, Upload, Plus } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { proxyImg } from '@/lib/img'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
@@ -19,7 +20,7 @@ import { listItems, deleteItem, updateItem, listCollections, type BookmarkItem, 
 
 function Favicon({ item }: { item: BookmarkItem }) {
   if (item.faviconUrl) {
-    return <img src={item.faviconUrl} alt="" className="size-4 shrink-0 rounded-sm object-contain"
+    return <img src={proxyImg(item.faviconUrl)} alt="" className="size-4 shrink-0 rounded-sm object-contain"
       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
   }
   return <Globe className="size-4 shrink-0 text-muted-foreground" />
@@ -172,7 +173,7 @@ export function BookmarksLibraryPage() {
                       className="size-full object-cover"
                       onError={(e) => { const el = e.currentTarget.parentElement; if (el) el.style.display = 'none' }} />
                     {item.faviconUrl && (
-                      <img src={item.faviconUrl} alt="" loading="lazy"
+                      <img src={proxyImg(item.faviconUrl)} alt="" loading="lazy"
                         className="absolute bottom-2 left-2 size-6 rounded-md border border-border/40 bg-background/90 p-0.5 shadow-sm"
                         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
                     )}

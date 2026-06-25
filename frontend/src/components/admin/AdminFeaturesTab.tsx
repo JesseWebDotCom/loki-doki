@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { formatFeatureBytes } from '@/lib/features'
 import { DownloadProgress } from '@/components/shared/DownloadProgress'
 import type { DownloadStatus } from '@/components/shared/DownloadProgress'
@@ -565,7 +566,7 @@ function ZimSection({ kiwixInstalled, query }: { kiwixInstalled: boolean; query:
                                   ? <CheckCircle2 className="size-2.5 text-emerald-400" />
                                   : <div className="size-1.5 rounded-full bg-muted-foreground/30" />}
                               </div>
-                              {entry.faviconUrl && <img src={entry.faviconUrl} className="size-4 shrink-0 rounded" alt="" />}
+                              {entry.faviconUrl && <img src={proxyImg(entry.faviconUrl)} className="size-4 shrink-0 rounded" alt="" />}
                               <div className="min-w-0 flex-1">
                                 <p className="text-xs font-semibold leading-tight">{entry.label}</p>
                                 <p className="text-[11px] text-muted-foreground leading-snug line-clamp-1">{entry.description}</p>
@@ -848,7 +849,7 @@ function LorasBrowseModal({ onClose, onImported }: { onClose: () => void; onImpo
                 <div key={hit.versionId} className="group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card hover:border-brand/40 transition-colors">
                   <div className="relative aspect-[3/4] bg-muted overflow-hidden">
                     {hit.thumbnailUrl ? (
-                      <img src={hit.thumbnailUrl} alt="" className={cn('absolute inset-0 size-full object-cover', hit.isNsfw && !showAdult && 'blur-xl')} />
+                      <img src={proxyImg(hit.thumbnailUrl)} alt="" className={cn('absolute inset-0 size-full object-cover', hit.isNsfw && !showAdult && 'blur-xl')} />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center">
                         <Sparkles className="size-8 text-muted-foreground/20" />
@@ -1052,7 +1053,7 @@ function LorasSection({ imageGenInstalled, query }: { imageGenInstalled: boolean
               <div className={cn('relative aspect-[3/4] overflow-hidden rounded-xl border',
                 lora.enabled ? 'border-border/60' : 'border-border/30 opacity-50')}>
                 {lora.thumbnailUrl ? (
-                  <img src={lora.thumbnailUrl} alt="" className="absolute inset-0 size-full object-cover" />
+                  <img src={proxyImg(lora.thumbnailUrl)} alt="" className="absolute inset-0 size-full object-cover" />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center bg-muted">
                     <Sparkles className="size-5 text-muted-foreground/20" />

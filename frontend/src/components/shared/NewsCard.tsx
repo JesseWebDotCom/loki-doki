@@ -6,6 +6,8 @@
 import { useState } from 'react'
 import { Clock, Newspaper } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
+import { FaviconImg } from '@/components/shared/FaviconImg'
 
 export interface NewsItem {
   title: string
@@ -28,11 +30,6 @@ export function hostFromUrl(url?: string): string | null {
 
 export function sourceLabel(item: NewsItem): string {
   return item.source || hostFromUrl(item.url) || 'News'
-}
-
-function faviconUrl(url?: string): string | null {
-  const host = hostFromUrl(url)
-  return host ? `https://www.google.com/s2/favicons?domain=${host}&sz=64` : null
 }
 
 export function relativeTime(ts?: number): string | null {
@@ -62,18 +59,12 @@ function tintFor(seed: string): string {
   return TINTS[h % TINTS.length]!
 }
 
-function Favicon({ item, className }: { item: NewsItem; className?: string }) {
-  const [failed, setFailed] = useState(false)
-  const fav = faviconUrl(item.url)
-  if (!fav || failed) return null
-  return <img src={fav} alt="" loading="lazy" onError={() => setFailed(true)} className={cn('rounded-[3px]', className)} />
-}
-
 /** Small source chip: favicon + uppercased source name. */
 export function SourceBadge({ item }: { item: NewsItem }) {
+  const host = hostFromUrl(item.url)
   return (
     <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-foreground/8 px-1.5 py-0.5">
-      <Favicon item={item} className="size-3 shrink-0" />
+      {host && <FaviconImg domain={host} className="size-3 shrink-0 rounded-[3px] object-contain" />}
       <span className="truncate text-[10px] font-bold uppercase tracking-wide text-foreground/55">{sourceLabel(item)}</span>
     </span>
   )
@@ -85,7 +76,7 @@ function NewsThumb({ item, className }: { item: NewsItem; className?: string }) 
   if (item.imageUrl && !failed) {
     return (
       <img
-        src={item.imageUrl}
+        src={proxyImg(item.imageUrl)}
         alt=""
         loading="lazy"
         onError={() => setFailed(true)}

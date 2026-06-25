@@ -10,6 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { PageShell } from '@/components/shared/PageShell'
 import { ChromeWash } from '@/components/shared/ChromeWash'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { useGenerationContext } from '@/context/GenerationContext'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { usePrivacy } from '@/context/PrivacyContext'
@@ -391,7 +392,7 @@ function LoraPicker({
                 )}
               >
                 {l.thumbnailUrl ? (
-                  <img src={l.thumbnailUrl} alt="" className="w-full aspect-square rounded-lg object-cover" />
+                  <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-square rounded-lg object-cover" />
                 ) : (
                   <div className="w-full aspect-square rounded-lg bg-muted flex items-center justify-center">
                     <Palette className="size-5 text-muted-foreground" />
@@ -405,7 +406,7 @@ function LoraPicker({
               {hoveredId === l.id && (
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded-xl bg-zinc-900 border border-white/10 shadow-2xl z-50 overflow-hidden pointer-events-none">
                   {l.thumbnailUrl && (
-                    <img src={l.thumbnailUrl} alt="" className="w-full aspect-[3/4] object-cover" />
+                    <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-[3/4] object-cover" />
                   )}
                   <div className="p-2.5 space-y-1">
                     <p className="text-[11px] font-semibold text-white leading-tight">{l.name}</p>
@@ -1377,7 +1378,7 @@ export function ImagingPage() {
                       const weight = sentLoraWeights[l.id] ?? l.defaultWeight
                       return (
                         <div key={l.id} className="flex items-start gap-2">
-                          {l.thumbnailUrl && <img src={l.thumbnailUrl} alt="" className="size-6 rounded object-cover shrink-0 mt-0.5" />}
+                          {l.thumbnailUrl && <img src={proxyImg(l.thumbnailUrl)} alt="" className="size-6 rounded object-cover shrink-0 mt-0.5" />}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-[11px] font-medium text-foreground leading-tight truncate">{l.styleLabel ?? l.name}</p>

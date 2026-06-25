@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, Loader2, CheckCheck, ThumbsUp, ThumbsDown, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { relativeTime } from '@/components/shared/NewsCard'
@@ -11,7 +12,7 @@ import { listItems, setItemState, markAllRead, sendFeedback, type FeedItem } fro
 export type FeedScope = 'all' | 'unread' | 'saved'
 
 function FeedThumb({ item }: { item: FeedItem }) {
-  if (item.imageUrl) return <img src={item.imageUrl} alt="" className="size-20 shrink-0 rounded-lg object-cover" loading="lazy" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+  if (item.imageUrl) return <img src={proxyImg(item.imageUrl)} alt="" className="size-20 shrink-0 rounded-lg object-cover" loading="lazy" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
   return null
 }
 

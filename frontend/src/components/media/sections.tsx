@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ExternalLink, Play, Star, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { mediaImg } from '@/lib/shows/api'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { Disc3 } from 'lucide-react'
@@ -176,7 +177,7 @@ export function SoundtrackAlbums({ albums }: { albums: SoundtrackAlbum[] }) {
           <div key={`${al.name}-${i}`} className="flex gap-3 rounded-lg border border-border/50 p-3">
             <div className="size-16 shrink-0 overflow-hidden rounded-md bg-muted">
               {al.artworkUrl ? (
-                <img src={al.artworkUrl} alt={al.name} loading="lazy" className="size-full object-cover" />
+                <img src={proxyImg(al.artworkUrl)} alt={al.name} loading="lazy" className="size-full object-cover" />
               ) : (
                 <div className="flex size-full items-center justify-center">
                   <Disc3 className="size-6 text-muted-foreground/40" />

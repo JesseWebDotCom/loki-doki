@@ -7,6 +7,7 @@ import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useGenerationContext } from '@/context/GenerationContext'
 import { usePrivacy } from '@/context/PrivacyContext'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 
 type Mode = 't2v' | 'i2v'
 
@@ -106,7 +107,7 @@ function LoraPicker({ loras, selected, onToggle, disabled }: {
                 )}
               >
                 {l.thumbnailUrl ? (
-                  <img src={l.thumbnailUrl} alt="" className="w-full aspect-square rounded-lg object-cover" />
+                  <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-square rounded-lg object-cover" />
                 ) : (
                   <div className="w-full aspect-square rounded-lg bg-muted flex items-center justify-center">
                     <Palette className="size-5 text-muted-foreground" />
@@ -118,7 +119,7 @@ function LoraPicker({ loras, selected, onToggle, disabled }: {
               </button>
               {hoveredId === l.id && (
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded-xl bg-zinc-900 border border-white/10 shadow-2xl z-50 overflow-hidden pointer-events-none">
-                  {l.thumbnailUrl && <img src={l.thumbnailUrl} alt="" className="w-full aspect-[3/4] object-cover" />}
+                  {l.thumbnailUrl && <img src={proxyImg(l.thumbnailUrl)} alt="" className="w-full aspect-[3/4] object-cover" />}
                   <div className="p-2.5 space-y-1">
                     <p className="text-[11px] font-semibold text-white leading-tight">{l.name}</p>
                     {l.description && <p className="text-[10px] text-white/50 leading-snug line-clamp-4">{l.description}</p>}

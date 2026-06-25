@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
@@ -50,7 +51,7 @@ function HeroCard({ meal, onShuffle, shuffling }: { meal: Meal; onShuffle: () =>
     <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
       {meal.image && (
         <img
-          src={meal.image}
+          src={proxyImg(meal.image)}
           alt={meal.name}
           className="w-full object-cover max-h-64"
         />
@@ -157,7 +158,7 @@ function SearchCard({ meal, onSelect }: { meal: Meal; onSelect: (meal: Meal) => 
     >
       {meal.image && (
         <img
-          src={meal.image}
+          src={proxyImg(meal.image)}
           alt={meal.name}
           className="w-full aspect-video object-cover"
         />

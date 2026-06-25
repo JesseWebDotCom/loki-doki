@@ -1,3 +1,5 @@
+import { proxyImg } from '@/lib/img'
+
 const PREFIX = 'favicon:v1:'
 const TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
@@ -69,7 +71,10 @@ export function getFavicon(domain: string): Promise<string> {
 
   const promise = (async (): Promise<string> => {
     try {
-      const res = await fetch(`https://icons.duckduckgo.com/ip3/${domain}.ico`, {
+      // Fetch through our same-origin image proxy: DuckDuckGo's icon endpoint sends no
+      // CORS header (a direct fetch throws), and proxying also keeps the browser from
+      // contacting DDG directly and disk-caches the icon server-side.
+      const res = await fetch(proxyImg(`https://icons.duckduckgo.com/ip3/${domain}.ico`), {
         signal: AbortSignal.timeout(4000),
       })
       if (!res.ok || res.headers.get('content-length') === '0') {

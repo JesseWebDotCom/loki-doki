@@ -1,4 +1,5 @@
 import { Play } from 'lucide-react'
+import { proxyImg } from '@/lib/img'
 import type { YouTubeBlockData } from './types'
 
 export function YouTubeEmbed({ data }: { data: YouTubeBlockData }) {
@@ -17,7 +18,7 @@ export function YouTubeEmbed({ data }: { data: YouTubeBlockData }) {
           {/* Thumbnail */}
           <div className="relative w-full aspect-video bg-muted overflow-hidden">
             <img
-              src={`https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`}
+              src={proxyImg(`https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`)}
               alt={video.title}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
               loading="lazy"

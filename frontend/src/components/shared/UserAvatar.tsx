@@ -7,6 +7,7 @@ import { faceForState } from '@/components/companion/faceForState'
 import { filterOptionsForStyle } from '@/components/companion/dicebearSchema'
 import { defaultEyeFor } from '@/components/companion/visemeMap'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import AngryFlames from '@/components/companion/AngryFlames'
 import SleepingZs from '@/components/companion/SleepingZs'
 import ThinkingDots from '@/components/companion/ThinkingDots'
@@ -107,7 +108,7 @@ export function UserAvatar({ user, size = 32, className }: UserAvatarProps) {
   if (user.avatarUrl) {
     return (
       <img
-        src={user.avatarUrl}
+        src={proxyImg(user.avatarUrl)}
         alt={initials}
         className={cn('rounded-full object-cover shrink-0', className)}
         style={!className?.includes('h-') ? { width: size, height: size } : undefined}

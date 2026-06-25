@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Clapperboard, ChevronDown, ChevronUp, ExternalLink, Loader2, PlayCircle, WifiOff } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
+import { proxyImg } from '@/lib/img'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 
@@ -38,7 +39,7 @@ function MovieCard({ movie }: { movie: ShowMovie }) {
     <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
       <div className="flex gap-3 p-3">
         {movie.poster_url ? (
-          <img src={movie.poster_url} alt={movie.title} className="h-32 w-22 shrink-0 rounded-lg object-cover" />
+          <img src={proxyImg(movie.poster_url)} alt={movie.title} className="h-32 w-22 shrink-0 rounded-lg object-cover" />
         ) : (
           <div className="flex h-32 w-22 shrink-0 items-center justify-center rounded-lg bg-muted">
             <Clapperboard className="size-6 text-muted-foreground/40" />

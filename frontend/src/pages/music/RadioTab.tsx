@@ -1,5 +1,6 @@
 import { Mic, Volume2, VolumeX, Loader2, Pause, Play, SkipForward } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { useRadio } from '@/context/RadioContext'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { DJ_STATIONS, type DjStation } from '@/lib/music/radioStations'
@@ -112,7 +113,7 @@ export function RadioTab() {
             {/* Current track */}
             {currentTrack && (phase === 'playing' || phase === 'transition') && (
               <div className="relative mx-4 mb-4 flex items-center gap-3 rounded-xl bg-black/20 p-3">
-                <img src={currentTrack.thumbnail} alt={currentTrack.title}
+                <img src={proxyImg(currentTrack.thumbnail)} alt={currentTrack.title}
                   className="h-14 w-[88px] shrink-0 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-0.5">Now Playing</p>
@@ -149,7 +150,7 @@ export function RadioTab() {
                 {upNext.map((t, i) => (
                   <div key={t.videoId} className="flex items-center gap-3 border-t border-border/40 px-4 py-2.5">
                     <span className="w-4 shrink-0 text-center text-xs text-muted-foreground/60">{i + 1}</span>
-                    <img src={t.thumbnail} alt="" className="h-9 w-[56px] shrink-0 rounded-lg object-cover" />
+                    <img src={proxyImg(t.thumbnail)} alt="" className="h-9 w-[56px] shrink-0 rounded-lg object-cover" />
                     <div className="min-w-0">
                       <p className="truncate text-xs font-medium">{t.title}</p>
                       {t.author && <p className="truncate text-[11px] text-muted-foreground">{t.author}</p>}

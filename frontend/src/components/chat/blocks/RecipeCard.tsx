@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronDown, ChevronUp, ExternalLink, Play } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import type { RecipeBlockData } from './types'
 
 export function RecipeCard({ data }: { data: RecipeBlockData }) {
@@ -18,7 +19,7 @@ export function RecipeCard({ data }: { data: RecipeBlockData }) {
         {data.thumbnail && (
           <div className="shrink-0 w-28 h-28 overflow-hidden">
             <img
-              src={data.thumbnail}
+              src={proxyImg(data.thumbnail)}
               alt={data.name}
               className="w-full h-full object-cover"
               loading="lazy"

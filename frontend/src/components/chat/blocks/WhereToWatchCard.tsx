@@ -1,6 +1,7 @@
 import { ExternalLink, TrendingUp, Sparkles, Ticket } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { FaviconImg } from '@/components/shared/FaviconImg'
+import { proxyImg } from '@/lib/img'
 import type { WhereToWatchBlockData, WhereToWatchItem, WhereToWatchProvider } from './types'
 
 const PROVIDER_DOMAINS: Record<string, string> = {
@@ -73,7 +74,7 @@ function BrowseRow({ item }: { item: WhereToWatchItem }) {
   const body = (
     <div className="flex items-center gap-3 px-3 py-2">
       {item.posterUrl
-        ? <img src={item.posterUrl} alt="" className="h-12 w-9 shrink-0 rounded object-cover" loading="lazy" />
+        ? <img src={proxyImg(item.posterUrl)} alt="" className="h-12 w-9 shrink-0 rounded object-cover" loading="lazy" />
         : <div className="h-12 w-9 shrink-0 rounded bg-muted" />}
       <div className="min-w-0 flex-1">
         <p className="truncate text-[12px] font-medium">{item.title}</p>
@@ -127,7 +128,7 @@ export function WhereToWatchCard({ data }: { data: WhereToWatchBlockData }) {
       <div className="flex gap-0">
         {data.posterUrl && (
           <div className="shrink-0 w-20 overflow-hidden">
-            <img src={data.posterUrl} alt={data.title} className="w-full h-full object-cover" loading="lazy" />
+            <img src={proxyImg(data.posterUrl)} alt={data.title} className="w-full h-full object-cover" loading="lazy" />
           </div>
         )}
         <div className="flex-1 min-w-0 px-4 py-3">

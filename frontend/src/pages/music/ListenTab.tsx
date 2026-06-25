@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Search, Radio, Loader2, ChevronLeft } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { searchStations, fetchGenres, type RadioStation, type RadioGenre } from '@/lib/music/radio'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 
@@ -36,7 +37,7 @@ function StationArt({ favicon, fallbackEmoji }: { favicon: string | null; fallba
     <div className="relative size-full flex items-center justify-center text-2xl">
       <span>{fallbackEmoji}</span>
       {favicon && !err && (
-        <img src={favicon} alt="" className="absolute inset-0 size-full object-cover rounded-xl"
+        <img src={proxyImg(favicon)} alt="" className="absolute inset-0 size-full object-cover rounded-xl"
           onError={() => setErr(true)} />
       )}
     </div>

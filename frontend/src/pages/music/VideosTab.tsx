@@ -4,6 +4,7 @@ import { EmptyAppState } from '@/components/shared/EmptyAppState'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import { toast } from '@/lib/toast'
 import { fetchArtistInfo, fetchTrackAppearances, type ArtistInfo, type SoundtrackAppearance } from '@/lib/music/musicInfo'
 import { search as ytSearch, ytImageProxy } from '@/lib/youtube/api'
@@ -30,7 +31,7 @@ function ArtistCard({ info }: { info: ArtistInfo }) {
     <div className="overflow-hidden rounded-2xl border border-border bg-card/60">
       {info.image && (
         <div className="relative aspect-video w-full overflow-hidden">
-          <img src={info.image} alt={info.title} className="size-full object-cover" />
+          <img src={proxyImg(info.image)} alt={info.title} className="size-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
           <p className="absolute bottom-0 left-0 right-0 p-4 text-xl font-bold text-white leading-tight">{info.title}</p>
         </div>
@@ -201,7 +202,7 @@ export function VideosTab() {
                     isActive ? 'border-orange-500/50 shadow-md shadow-orange-500/10' : 'border-border',
                   )}>
                   <div className="relative aspect-video overflow-hidden">
-                    <img src={v.thumbnail} alt={v.title}
+                    <img src={ytImageProxy(v.thumbnail)} alt={v.title}
                       className="size-full object-cover transition-transform duration-200 group-hover:scale-105" />
                     {isActive && (
                       <div className="absolute inset-0 flex items-center justify-center bg-orange-500/20">

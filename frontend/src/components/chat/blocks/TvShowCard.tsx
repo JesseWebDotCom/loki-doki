@@ -2,6 +2,7 @@ import { ExternalLink } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { FaviconImg } from '@/components/shared/FaviconImg'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 import type { TvShowBlockData } from './types'
 
 const STREAMING_DOMAINS: Record<string, string> = {
@@ -65,7 +66,7 @@ export function TvShowCard({ data }: { data: TvShowBlockData }) {
         {data.image && (
           <div className="shrink-0 w-24 overflow-hidden">
             <img
-              src={data.image}
+              src={proxyImg(data.image)}
               alt={data.name}
               className="w-full h-full object-cover"
               loading="lazy"

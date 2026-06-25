@@ -71,6 +71,7 @@ import { tvShowsRoute } from '@/routes/tvShows'
 import { showsRoute } from '@/routes/shows'
 import { moviesRoute } from '@/routes/movies'
 import { mediaRoute } from '@/routes/media'
+import { imgRoute } from '@/routes/img'
 import { libraryRoute } from '@/routes/library'
 import { plexRoute } from '@/routes/plex'
 import { adminHomeAssistant } from '@/routes/adminHomeAssistant'
@@ -90,6 +91,7 @@ import { startYoutubeReconcile } from '@/lib/youtube/reconcile'
 import { backfillYoutubeTitleEntities } from '@/lib/youtube/titleBackfill'
 import { startImageCacheMaintenance } from '@/lib/youtube/imageCache'
 import { mediaImageCacheSweep } from '@/lib/titles/imageProxy'
+import { imageCacheSweep } from '@/lib/imageProxy'
 import { startYtdlpAutoUpdate } from '@/lib/youtube/ytdlp'
 import { whereToWatchRoute } from '@/routes/whereToWatch'
 import { dictionaryRoute } from '@/routes/dictionary'
@@ -218,6 +220,9 @@ startImageCacheMaintenance()
 // Bound the Shows/Movies media-image disk cache: sweep oldest art when over the ceiling.
 setTimeout(() => void mediaImageCacheSweep(), 60_000)
 setInterval(() => void mediaImageCacheSweep(), 24 * 60 * 60 * 1000)
+// Bound the app-wide /api/img proxy cache (news/article/misc remote images).
+setTimeout(() => void imageCacheSweep(), 90_000)
+setInterval(() => void imageCacheSweep(), 24 * 60 * 60 * 1000)
 // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
 // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
 startYtdlpAutoUpdate()
@@ -360,6 +365,7 @@ app.route('/api/tv-shows', tvShowsRoute)
 app.route('/api/shows', showsRoute)
 app.route('/api/movies', moviesRoute)
 app.route('/api/media', mediaRoute)
+app.route('/api/img', imgRoute)
 app.route('/api/library', libraryRoute)
 app.route('/api/plex', plexRoute)
 app.route('/api/admin/home-assistant', adminHomeAssistant)

@@ -5,6 +5,7 @@ import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useChatContext } from '@/context/ChatContext'
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
 
 type ActivityCategory = 'article' | 'recipe' | 'joke' | 'idea' | 'create'
 
@@ -44,7 +45,7 @@ function CardInner({ a }: { a: Activity }) {
           {a.zimIconUrl && imgOk ? (
             <img src={a.zimIconUrl} alt="" className="size-6 object-contain" loading="lazy" onError={() => setImgOk(false)} />
           ) : a.image && imgOk ? (
-            <img src={a.image} alt="" className="size-6 object-contain" loading="lazy" onError={() => setImgOk(false)} />
+            <img src={proxyImg(a.image)} alt="" className="size-6 object-contain" loading="lazy" onError={() => setImgOk(false)} />
           ) : (
             <span>{a.icon}</span>
           )}

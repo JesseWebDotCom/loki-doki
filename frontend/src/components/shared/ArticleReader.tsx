@@ -1,4 +1,13 @@
 import { cn } from '@/lib/cn'
+import { proxyImg } from '@/lib/img'
+
+// Route every <img> in the extracted article body through the image proxy, and drop
+// `srcset` so the browser can't reach for an un-proxied responsive candidate instead.
+function proxyHtmlImages(html: string): string {
+  return html
+    .replace(/(<img\b[^>]*?\bsrc=)(["'])(.*?)\2/gi, (_m, pre, q, src) => `${pre}${q}${proxyImg(src)}${q}`)
+    .replace(/\ssrcset=(["'])[\s\S]*?\1/gi, '')
+}
 
 // Shared reading surface for extracted article content (Feeds + Reader).
 // Renders the server-sanitized `contentHtml` (allowlist-sanitized in
@@ -65,7 +74,7 @@ export function ArticleReader({
         {title && <h1 className="text-3xl font-bold leading-tight text-foreground">{title}</h1>}
         <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
           {faviconUrl && (
-            <img src={faviconUrl} alt="" className="size-4 rounded-sm object-contain"
+            <img src={proxyImg(faviconUrl)} alt="" className="size-4 rounded-sm object-contain"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
           )}
           {(siteName || host) && <span>{siteName || host}</span>}
@@ -87,12 +96,12 @@ export function ArticleReader({
       {leadImage && (
         <div className="max-w-[44rem] mx-auto mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={leadImage} alt="" className="w-full rounded-2xl" loading="lazy" />
+          <img src={proxyImg(leadImage)} alt="" className="w-full rounded-2xl" loading="lazy" />
         </div>
       )}
 
       {contentHtml ? (
-        <div className={PROSE} dangerouslySetInnerHTML={{ __html: contentHtml }} />
+        <div className={PROSE} dangerouslySetInnerHTML={{ __html: proxyHtmlImages(contentHtml) }} />
       ) : (
         <div className="max-w-[44rem] mx-auto text-muted-foreground">
           No readable content was extracted.{' '}
