@@ -168,9 +168,57 @@ When your kids talk to a cloud AI, those conversations are stored on corporate s
   <br/><br/>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="assets/icons/music.svg" width="48" /><br/>
+  <b>Music</b><br/>
+  A private YouTube for music: AI radio stations built from any prompt, a full catalog to browse, synced lyrics, and offline saves — plus offline track generation and MIDI remix.
+  <br/><br/>
+</td>
+<td width="50%" valign="top">
+  <img src="assets/icons/shows.svg" width="48" /><br/>
+  <b>Shows</b><br/>
+  Discover TV series — where to stream, trailers, reviews, and a personal watchlist, with a Plex badge for what's already on your server.
+  <br/><br/>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="assets/icons/movies.svg" width="48" /><br/>
+  <b>Movies</b><br/>
+  Discover films — where to stream, showtimes playing near you, trailers and reviews, with the same Plex integration as Shows.
+  <br/><br/>
+</td>
+<td width="50%" valign="top">
+  <img src="assets/icons/news.svg" width="48" /><br/>
+  <b>News</b><br/>
+  Your own RSS reader and news hub — global headlines, local stories, and your personal feeds, in categories you control. No algorithm.
+  <br/><br/>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="assets/icons/bookmarks.svg" width="48" /><br/>
+  <b>Bookmarks</b><br/>
+  Save links and articles, archive full pages for clean, distraction-free offline reading, and organize it all in a private library.
+  <br/><br/>
+</td>
+<td width="50%" valign="top">
+  <img src="assets/icons/time.svg" width="48" /><br/>
+  <b>Time</b><br/>
+  World clock, alarms, timers, and a stopwatch — your companion announces alarms and timers out loud when they go off.
+  <br/><br/>
+</td>
+</tr>
 </table>
 
-Plus a **Today dashboard** (news, sports, weather, on-this-day history, holidays, local events), an **App Store** where the admin installs or removes any app per household, a **customizable home** you arrange with drag-and-drop widgets, handy tools (dictionary, medical reference, recipes, where-to-watch, unit converter, a **Links** launcher for your home network), and full **multi-user** accounts where the admin controls every user's access.
+### 🏠 Home &amp; Cameras
+
+**Home Control** drives Home Assistant in natural language, **Home Inventory** tracks your devices and appliances with photos and manuals, and a **Frigate** integration lets your companion announce camera events — a person at the door, a car in the driveway — entirely on your own network.
+
+### 🧰 Everyday Tools
+
+A **Today dashboard** (news, sports, weather, on-this-day history, holidays, local events), **Voice Memos**, **Skills** for custom companion behaviors, **Recipes**, **Dictionary**, **Medical reference**, **Reverse Lookup** (property &amp; people by address, name or phone), and **unit** + **file converters** — plus a **Links** launcher for your home network. Everything installs per household from the **App Store**, sits on a **customizable drag-and-drop home**, and respects full **multi-user** accounts where the admin controls every user's access.
 
 ---
 

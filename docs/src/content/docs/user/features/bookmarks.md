@@ -1,20 +1,20 @@
 ---
-title: Reader
-description: Your personal reading library — save pages and articles, read them clean, and keep it all on your own server.
+title: Bookmarks
+description: Your personal reading library — save links and articles, archive full pages for offline reading, and keep it all on your own server.
 sidebar:
   order: 13
 ---
 
-Reader is your own private reading library. Save the pages you want to come back to, save articles for offline reading, organize everything into collections and tags, and read it all in a clean, distraction-free view. Nothing leaves your home server.
+Bookmarks is your own private reading library. Save the pages you want to come back to, archive articles for offline reading, organize everything into collections and tags, and read it all in a clean, distraction-free view. Nothing leaves your home server.
 
 ## Overview
 
-Reader keeps the things you want to read in one tidy place. Two kinds of things live here:
+Bookmarks keeps the things you want to read in one tidy place. Two kinds of things live here:
 
 - **Live links**: a saved bookmark to a page that opens the real site (in a new tab, or embedded inside Loki Doki).
 - **Offline articles**: a full copy of a page saved to your server so you can read it later, cleaned up and even with the internet down.
 
-Open Reader from the **Reader** app. The sidebar on the left is how you move around: **All**, quick filters for **Unread** and **Archived**, a **Type** section to see just **Live links** or **Offline articles**, your **Collections**, and your **Tags**.
+Open the **Bookmarks** app. The sidebar on the left is how you move around: **All**, quick filters for **Unread** and **Archived**, a **Type** section to see just **Live links** or **Offline articles**, your **Collections**, and your **Tags**.
 
 ## Saving a Page
 
@@ -27,7 +27,7 @@ When you type a URL, Loki Doki quietly checks that the site is reachable and gra
 
 ### Save from your browser
 
-In **Reader → Settings** there's a **Save to Loki** bookmarklet you can drag to your browser's bookmarks bar. On any page, click it to save that page to Reader without installing an extension. On a phone, install Loki Doki to your home screen and it shows up in the **Share** sheet, so you can share any page to Reader.
+In **Bookmarks → Settings** there's a **Save to Loki** bookmarklet you can drag to your browser's bookmarks bar. On any page, click it to save that page to Bookmarks without installing an extension. On a phone, install Loki Doki to your home screen and it shows up in the **Share** sheet, so you can share any page to Bookmarks.
 
 ## Reading
 
@@ -47,9 +47,9 @@ A search box at the top searches across your whole library — titles, summaries
 
 ## Importing and Exporting Bookmarks
 
-Reader speaks the standard browser bookmarks format:
+Bookmarks speaks the standard browser bookmarks format:
 
-- **Import bookmarks** (in the sidebar): pick the `bookmarks.html` file your browser exports and Reader brings them all in as live links. Bookmark folders become collections automatically.
+- **Import bookmarks** (in the sidebar): pick the `bookmarks.html` file your browser exports and Bookmarks brings them all in as live links. Bookmark folders become collections automatically.
 - **Export bookmarks**: download your saved links back out as a standard `bookmarks.html` file you can load into any browser.
 
 ## Shared Links

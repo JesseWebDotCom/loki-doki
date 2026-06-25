@@ -56,7 +56,9 @@ If either build fails, fix the errors before reporting the task complete.
 - Design tokens (OKLCH) - `--brand`/`--brand-foreground` are the accent token; use `bg-brand`, `text-brand`, `border-brand`, `ring-brand` utilities. Never hardcode `violet-500` or the `primary` token for accent UI. Dark mode: `--brand: oklch(0.72 0.22 290)`. Light mode: `--brand: oklch(0.44 0.22 290)`.
 - shadcn/ui - style: `new-york`, base color: `neutral`, CSS variables enabled
 - Radix UI (via `radix-ui` package - primitives shadcn is built on)
-- lucide-react (icon library - use these icons, do not add others)
+- lucide-react (icon library - use these icons, do not add others). Exception: the Music app's
+  station art (`components/music/StationArt.tsx`) uses **filled** `@tabler/icons-react` icons for
+  silhouette covers, because lucide has no filled variants. Use lucide everywhere else.
 - dnd-kit (`@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/modifiers`, `@dnd-kit/utilities`)
 - react-router-dom v6
 
