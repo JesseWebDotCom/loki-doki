@@ -266,11 +266,12 @@ companions_.post('/companion', requireAuth, async (c) => {
   if (directReply) {
     c.header('X-Accel-Buffering', 'no')
     return streamSSE(c, async (stream) => {
-      // Fire the playback directive first so the mini-player starts as the
-      // confirmation is spoken/shown.
-      if (directive) await stream.writeSSE({ event: 'directive', data: JSON.stringify(directive) })
+      // Emit the spoken ack FIRST so TTS has a head start before the video/audio
+      // launches. The directive fires immediately after — the tiny SSE round-trip
+      // gap (~frame) is enough for TTS to begin speaking before the player starts.
       const text = maskProfanityActive ? maskProfanity(directReply) : directReply
       await stream.writeSSE({ event: 'token', data: text })
+      if (directive) await stream.writeSSE({ event: 'directive', data: JSON.stringify(directive) })
       await stream.writeSSE({ event: 'done', data: '{}' })
     })
   }

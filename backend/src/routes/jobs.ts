@@ -6,6 +6,7 @@ import {
   retryJob,
   cancelJob,
   retryAllFailed,
+  dismissAllFailed,
   type EnqueueInput,
 } from '@/lib/downloadJobs'
 import type { AppEnv } from '@/types'
@@ -26,5 +27,6 @@ jobs.post('/enqueue', requireAdmin, async (c) => {
 jobs.post('/:id/retry', requireAdmin, async (c) => { await retryJob(c.req.param('id')); return c.json({ ok: true }) })
 jobs.post('/:id/cancel', requireAdmin, async (c) => { await cancelJob(c.req.param('id')); return c.json({ ok: true }) })
 jobs.post('/retry-all-failed', requireAdmin, async (c) => { await retryAllFailed(); return c.json({ ok: true }) })
+jobs.post('/dismiss-failed', requireAdmin, async (c) => { await dismissAllFailed(); return c.json({ ok: true }) })
 
 export { jobs }

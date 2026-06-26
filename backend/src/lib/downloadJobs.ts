@@ -41,6 +41,12 @@ const PROGRESS_WRITE_MS = 1_000
 // Local CPU work (map builds) is intentionally excluded — its build phases are legitimately silent.
 const STALL_TIMEOUT_MS = 6 * 60_000
 const STALL_WATCHED_TYPES = new Set<JobType>(['model', 'archive'])
+// Failed setup/library jobs (runtimes, models, ZIM archives, maps) revive themselves once they've
+// sat in 'failed' for this long, so a transient mirror/network outage heals without the user ever
+// clicking "Retry now" — the queue self-heals. User-content jobs (podcasts, YouTube media,
+// bookmarks) are excluded: a failed episode is a real failure, not a stuck install.
+const SELF_HEAL_TYPES: JobType[] = ['model', 'component', 'archive', 'map']
+const SELF_HEAL_COOLDOWN_MS = 5 * 60_000
 
 export interface JobSpec {
   type: JobType
@@ -193,8 +199,30 @@ function kickScheduler() { void tick() }
 export function startDownloadScheduler() {
   if (intervalStarted) return
   intervalStarted = true
-  setInterval(() => { checkStalledJobs(); void tick() }, 5_000)
+  let ticks = 0
+  setInterval(async () => {
+    checkStalledJobs()
+    if (ticks++ % 12 === 0) await selfHealFailed()  // ~once a minute
+    void tick()
+  }, 5_000)
   void tick()
+}
+
+/** Revive setup/library downloads that exhausted their retry burst, once they've sat in 'failed'
+ *  for SELF_HEAL_COOLDOWN_MS. This is what makes the queue self-healing: a Wikipedia/Stack Overflow
+ *  mirror that was briefly unreachable gets picked back up automatically — the user never has to
+ *  notice or click "Retry now". A genuinely dead source just keeps cycling quietly in the
+ *  background (and the user can Dismiss it). updatedAt gates the cooldown, so each
+ *  failed→pending→failed round waits another full cooldown rather than hammering the mirror. */
+async function selfHealFailed(): Promise<void> {
+  const cutoff = new Date(Date.now() - SELF_HEAL_COOLDOWN_MS)
+  const stuck = await db.select({ label: downloadJobs.label }).from(downloadJobs)
+    .where(and(eq(downloadJobs.status, 'failed'), inArray(downloadJobs.type, SELF_HEAL_TYPES), lte(downloadJobs.updatedAt, cutoff)))
+  if (!stuck.length) return
+  await db.update(downloadJobs)
+    .set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: new Date() })
+    .where(and(eq(downloadJobs.status, 'failed'), inArray(downloadJobs.type, SELF_HEAL_TYPES), lte(downloadJobs.updatedAt, cutoff)))
+  logger.info(`[jobs] ↻ self-heal revived ${stuck.length} stuck download(s): ${stuck.map((s) => s.label).join(', ')}`)
 }
 
 /** Abort running model/archive downloads that have gone silent past STALL_TIMEOUT_MS. The abort
@@ -696,4 +724,10 @@ export async function cancelJob(id: string): Promise<void> {
 export async function retryAllFailed(): Promise<void> {
   await db.update(downloadJobs).set({ status: 'pending', attempts: 0, nextEligibleAt: null, lastError: null, updatedAt: new Date() }).where(inArray(downloadJobs.status, ['failed', 'cancelled']))
   kickScheduler()
+}
+
+/** User explicitly gave up on the stuck downloads: mark every failed job cancelled so the widget
+ *  closes and self-heal won't revive them. (They can still be re-queued later from Admin.) */
+export async function dismissAllFailed(): Promise<void> {
+  await db.update(downloadJobs).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(downloadJobs.status, 'failed'))
 }

@@ -3,11 +3,12 @@ import type { ReactNode } from 'react'
 import { RadioEngine, initialRadioState, type RadioState } from '@/lib/music/radioEngine'
 import type { DjStation } from '@/lib/music/radioStations'
 import { recordHistory } from '@/lib/music/catalogApi'
+import { acquireAudio, registerMediaStop } from '@/lib/mediaCoordinator'
 
 /** Persistent AI Radio engine — lives above the router so a station keeps playing
  *  (and stays controllable from the mini-player) as you move around the app. */
 interface RadioCtx extends RadioState {
-  start: (s: DjStation) => void
+  start: (s: DjStation, opts?: { silentIntro?: boolean }) => void
   playTrack: (t: { videoId: string; title: string; author?: string | null; thumbnail?: string }, resumeSec?: number) => void
   stop: () => void
   skip: () => void
@@ -43,7 +44,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   if (!engineRef.current) engineRef.current = new RadioEngine(setState)
 
   useEffect(() => {
-    return () => { engineRef.current?.destroy() }
+    const unregister = registerMediaStop('radio', () => engineRef.current?.stop())
+    return () => { unregister(); engineRef.current?.destroy() }
   }, [])
 
   // Log each newly-playing song to history (powers Continue Listening + recently played).
@@ -59,8 +61,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   const e = engineRef.current
   const value = useMemo<RadioCtx>(() => ({
     ...state,
-    start: (s) => e.start(s),
-    playTrack: (t, resumeSec) => e.playTrack(t, resumeSec),
+    start: (s, opts) => { acquireAudio('radio'); e.start(s, opts) },
+    playTrack: (t, resumeSec) => { acquireAudio('radio'); e.playTrack(t, resumeSec) },
     stop: () => e.stop(),
     skip: () => e.skip(),
     seek: (sec) => e.seek(sec),

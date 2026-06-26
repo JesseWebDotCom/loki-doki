@@ -37,12 +37,12 @@ function jobTypeTag(j: Pick<JobInfo, 'type' | 'refId' | 'domain'>): string {
 }
 
 export function BackgroundSetupWidget() {
-  const { status, retryFailed, cancelJob } = useSetupProgress()
+  const { status, retryFailed, dismissFailed, cancelJob } = useSetupProgress()
   const { user, welcomeComplete } = useAuth()
   const { pathname } = useLocation()
   const { track } = useYoutubePlayback()
   const { active: radioActive } = useRadio()
-  const [minimized, setMinimized] = useState(false)
+  const [minimized, setMinimized] = useState(true)
   const [retrying, setRetrying] = useState(false)
   // Shift up when a footer player (YouTube dock or AI Radio mini-bar) is visible so we don't overlap it.
   const bottomClass = track || radioActive ? 'bottom-20' : 'bottom-4'
@@ -59,9 +59,10 @@ export function BackgroundSetupWidget() {
   if (!showSetup && !showLibrary) return null
 
   const onRetry = async () => { setRetrying(true); try { await retryFailed() } finally { setRetrying(false) } }
+  const onDismiss = async () => { await dismissFailed() }
 
   if (minimized) {
-    const allDone = status.active === 0
+    const allDone = status.active === 0 && status.counts.failed === 0
     return (
       <button
         type="button"
@@ -78,10 +79,10 @@ export function BackgroundSetupWidget() {
   return (
     <div className={cn('fixed right-4 z-[120] transition-[bottom] duration-200 w-80 space-y-2.5', bottomClass)}>
       {showSetup && (
-        <SetupCard group={setup} onMinimize={() => setMinimized(true)} retrying={retrying} onRetry={onRetry} />
+        <SetupCard group={setup} onMinimize={() => setMinimized(true)} retrying={retrying} onRetry={onRetry} onDismiss={onDismiss} />
       )}
       {showLibrary && (
-        <LibraryCard group={content} onCancel={cancelJob} retrying={retrying} onRetry={onRetry} showMinimize={!showSetup} onMinimize={() => setMinimized(true)} />
+        <LibraryCard group={content} onCancel={cancelJob} retrying={retrying} onRetry={onRetry} onDismiss={onDismiss} showMinimize={!showSetup} onMinimize={() => setMinimized(true)} />
       )}
     </div>
   )
@@ -95,7 +96,7 @@ function CardShell({ children }: { children: React.ReactNode }) {
   )
 }
 
-function FailureBlock({ jobs, retrying, onRetry }: { jobs: JobInfo[]; retrying: boolean; onRetry: () => void }) {
+function FailureBlock({ jobs, retrying, onRetry, onDismiss }: { jobs: JobInfo[]; retrying: boolean; onRetry: () => void; onDismiss: () => void }) {
   const names = jobs.map((j) => j.label)
   const shown = names.slice(0, 2).join(', ')
   const extra = names.length > 2 ? ` +${names.length - 2} more` : ''
@@ -103,24 +104,34 @@ function FailureBlock({ jobs, retrying, onRetry }: { jobs: JobInfo[]; retrying: 
     <div className="space-y-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5">
       <p className="flex items-start gap-1.5 text-xs text-amber-400">
         <AlertTriangle className="size-3.5 shrink-0 mt-px" />
-        <span>Couldn&apos;t download: <span className="font-medium">{shown}{extra}</span></span>
+        <span>Couldn&apos;t reach <span className="font-medium">{shown}{extra}</span> — retrying automatically.</span>
       </p>
-      <button
-        type="button"
-        disabled={retrying}
-        onClick={onRetry}
-        className="flex w-full items-center justify-center gap-1.5 rounded-md bg-amber-500/15 px-2 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 disabled:opacity-50 transition-colors"
-      >
-        <RefreshCw className={cn('size-3.5', retrying && 'animate-spin')} />
-        {retrying ? 'Retrying…' : 'Retry now'}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={retrying}
+          onClick={onRetry}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-amber-500/15 px-2 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={cn('size-3.5', retrying && 'animate-spin')} />
+          {retrying ? 'Retrying…' : 'Retry now'}
+        </button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title="Stop trying and hide this"
+        >
+          Dismiss
+        </button>
+      </div>
     </div>
   )
 }
 
-function SetupCard({ group, onMinimize, retrying, onRetry }: { group: JobGroup; onMinimize: () => void; retrying: boolean; onRetry: () => void }) {
-  const allDone = group.active === 0
+function SetupCard({ group, onMinimize, retrying, onRetry, onDismiss }: { group: JobGroup; onMinimize: () => void; retrying: boolean; onRetry: () => void; onDismiss: () => void }) {
   const failed = group.counts.failed
+  const allDone = group.active === 0 && failed === 0
   const running = group.jobs.filter((j) => j.status === 'running')
   const pending = group.counts.pending
 
@@ -148,7 +159,7 @@ function SetupCard({ group, onMinimize, retrying, onRetry }: { group: JobGroup; 
           <span className="font-semibold text-foreground">{group.pct}%</span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <div className={cn('h-full rounded-full transition-[width] duration-500', failed > 0 && allDone ? 'bg-amber-500' : 'bg-gradient-to-r from-violet-500 to-blue-400')} style={{ width: `${group.pct}%` }} />
+          <div className={cn('h-full rounded-full transition-[width] duration-500', failed > 0 ? 'bg-amber-500' : 'bg-gradient-to-r from-violet-500 to-blue-400')} style={{ width: `${group.pct}%` }} />
         </div>
 
         {running.length > 0 && (
@@ -167,8 +178,8 @@ function SetupCard({ group, onMinimize, retrying, onRetry }: { group: JobGroup; 
         )}
 
         {pending > 0 && !allDone && <p className="text-xs text-muted-foreground">{pending} more queued…</p>}
-        {failed > 0 && <FailureBlock jobs={group.jobs.filter((j) => j.status === 'failed')} retrying={retrying} onRetry={onRetry} />}
-        {allDone && failed === 0 && (
+        {failed > 0 && <FailureBlock jobs={group.jobs.filter((j) => j.status === 'failed')} retrying={retrying} onRetry={onRetry} onDismiss={onDismiss} />}
+        {allDone && (
           <p className="flex items-center gap-1.5 text-xs text-emerald-400">
             <CheckCircle2 className="size-3.5 shrink-0" /> Everything is ready.
           </p>
@@ -178,9 +189,9 @@ function SetupCard({ group, onMinimize, retrying, onRetry }: { group: JobGroup; 
   )
 }
 
-function LibraryCard({ group, onCancel, retrying, onRetry, showMinimize, onMinimize }: { group: JobGroup; onCancel: (id: string) => Promise<void>; retrying: boolean; onRetry: () => void; showMinimize: boolean; onMinimize: () => void }) {
-  const allDone = group.active === 0
+function LibraryCard({ group, onCancel, retrying, onRetry, onDismiss, showMinimize, onMinimize }: { group: JobGroup; onCancel: (id: string) => Promise<void>; retrying: boolean; onRetry: () => void; onDismiss: () => void; showMinimize: boolean; onMinimize: () => void }) {
   const failed = group.counts.failed
+  const allDone = group.active === 0 && failed === 0
   const running = group.jobs.filter((j) => j.status === 'running')
   const pending = group.counts.pending
 
@@ -221,7 +232,7 @@ function LibraryCard({ group, onCancel, retrying, onRetry, showMinimize, onMinim
           <span className="font-semibold text-foreground">{group.pct}%</span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <div className={cn('h-full rounded-full transition-[width] duration-500', failed > 0 && allDone ? 'bg-amber-500' : 'bg-gradient-to-r from-violet-500 to-blue-400')} style={{ width: `${group.pct}%` }} />
+          <div className={cn('h-full rounded-full transition-[width] duration-500', failed > 0 ? 'bg-amber-500' : 'bg-gradient-to-r from-violet-500 to-blue-400')} style={{ width: `${group.pct}%` }} />
         </div>
 
         {!allDone && (sizeLine || speedLine || etaLine) && (
@@ -256,8 +267,8 @@ function LibraryCard({ group, onCancel, retrying, onRetry, showMinimize, onMinim
         )}
 
         {pending > 0 && !allDone && <p className="text-xs text-muted-foreground">{pending} more queued…</p>}
-        {failed > 0 && <FailureBlock jobs={group.jobs.filter((j) => j.status === 'failed')} retrying={retrying} onRetry={onRetry} />}
-        {allDone && failed === 0 && (
+        {failed > 0 && <FailureBlock jobs={group.jobs.filter((j) => j.status === 'failed')} retrying={retrying} onRetry={onRetry} onDismiss={onDismiss} />}
+        {allDone && (
           <p className="flex items-center gap-1.5 text-xs text-emerald-400">
             <CheckCircle2 className="size-3.5 shrink-0" /> Library downloads finished.
           </p>

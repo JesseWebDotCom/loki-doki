@@ -57,7 +57,7 @@ export const mapsTool: Tool = {
     'find restaurants / coffee / a pharmacy near me',
     'nearest gas station, atm, or grocery store',
     'directions to an address or place',
-    'how do I get to a location, driving or walking',
+    'walking or driving directions to a location',
     'route from one place to another',
   ],
   toolDefinition: {

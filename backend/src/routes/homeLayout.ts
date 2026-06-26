@@ -21,10 +21,17 @@ export interface HomeRow {
   cols: HomeWidget[]
 }
 
+export type TickerSource = 'sports' | 'youtube' | 'news' | 'podcast'
+
+export interface TickerConfig {
+  enabled: boolean
+  sources: TickerSource[]
+}
+
 export interface HomeLayoutHeader {
   weather: boolean
   jokes: boolean
-  sports: boolean
+  ticker: TickerConfig
   locked: boolean
 }
 
@@ -36,8 +43,10 @@ export interface HomeLayout {
 // A fresh install should never land on a blank home. These widgets all return
 // content with zero configuration (world news + historical events), so a brand
 // new user sees a populated screen they can then customise or rearrange.
+const ALL_TICKER_SOURCES: TickerSource[] = ['sports', 'youtube', 'news']
+
 const DEFAULT_LAYOUT: HomeLayout = {
-  header: { weather: true, jokes: true, sports: true, locked: false },
+  header: { weather: true, jokes: true, ticker: { enabled: true, sources: ALL_TICKER_SOURCES }, locked: false },
   canvas: [
     { id: 'default-news', cols: [{ toolId: 'news', colSpan: 2 }] },
     { id: 'default-on-this-day', cols: [{ toolId: 'on-this-day', colSpan: 2 }] },
@@ -95,11 +104,15 @@ homeLayout.get('/', requireAuth, async (c) => {
     if (highlightsRow) {
       try {
         const h = JSON.parse(highlightsRow.value) as { sports?: boolean; jokes?: boolean }
+        const legacySports = (h as { sports?: boolean }).sports
         const migratedLayout: HomeLayout = {
           ...systemDefault,
           header: {
             ...systemDefault.header,
-            sports: h.sports ?? systemDefault.header.sports,
+            ticker: {
+              enabled: legacySports !== false,
+              sources: legacySports !== false ? ALL_TICKER_SOURCES : [],
+            },
             jokes: h.jokes ?? systemDefault.header.jokes,
             locked,
           },

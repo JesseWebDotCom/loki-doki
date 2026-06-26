@@ -41,11 +41,13 @@ interface SetupProgress {
   refresh: () => void
   /** Re-queue every failed/skipped download, then refresh. */
   retryFailed: () => Promise<void>
+  /** Give up on every failed download (mark cancelled so the widget closes), then refresh. */
+  dismissFailed: () => Promise<void>
   /** Cancel a single in-flight/queued download, then refresh. */
   cancelJob: (id: string) => Promise<void>
 }
 
-const Ctx = createContext<SetupProgress>({ status: null, refresh: () => {}, retryFailed: async () => {}, cancelJob: async () => {} })
+const Ctx = createContext<SetupProgress>({ status: null, refresh: () => {}, retryFailed: async () => {}, dismissFailed: async () => {}, cancelJob: async () => {} })
 export function useSetupProgress(): SetupProgress { return useContext(Ctx) }
 
 // Map an in-flight job to the app route(s) it's preparing, so the nav can badge them.
@@ -131,10 +133,15 @@ export function SetupProgressProvider({ children }: { children: React.ReactNode 
     refresh()
   }
 
+  const dismissFailed = async () => {
+    try { await fetch('/api/jobs/dismiss-failed', { method: 'POST', credentials: 'include' }) } catch { /* ignore */ }
+    refresh()
+  }
+
   const cancelJob = async (id: string) => {
     try { await fetch(`/api/jobs/${id}/cancel`, { method: 'POST', credentials: 'include' }) } catch { /* ignore */ }
     refresh()
   }
 
-  return <Ctx.Provider value={{ status, refresh, retryFailed, cancelJob }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ status, refresh, retryFailed, dismissFailed, cancelJob }}>{children}</Ctx.Provider>
 }

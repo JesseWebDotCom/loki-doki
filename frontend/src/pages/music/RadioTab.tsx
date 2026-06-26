@@ -2,7 +2,6 @@ import { Mic, Volume2, VolumeX, Loader2, Pause, Play, SkipForward } from 'lucide
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { useRadio } from '@/context/RadioContext'
-import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { DJ_STATIONS, type DjStation } from '@/lib/music/radioStations'
 
 function WaveBar({ active, color }: { active: boolean; color: string }) {
@@ -20,7 +19,6 @@ function WaveBar({ active, color }: { active: boolean; color: string }) {
 
 export function RadioTab() {
   const radio = useRadio()
-  const pb = useYoutubePlayback()
 
   const { station, queue, index, currentTrack, djText, djSpeaking, phase, paused, volume, muted } = radio
   const isActive = radio.active
@@ -30,7 +28,6 @@ export function RadioTab() {
   const upNext = phase === 'intro' ? queue.slice(0, 5) : queue.slice(index + 1, index + 6)
 
   function startStation(st: DjStation) {
-    pb.close()           // radio takes over audio — clear any docked YouTube player
     radio.start(st)
   }
 

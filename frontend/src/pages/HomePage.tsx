@@ -1,36 +1,53 @@
 import {
   Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
-  CalendarDays, Laugh, LayoutGrid,
-  Loader2, Maximize2, Minimize2, Newspaper, Pencil, Plus, Trophy, X,
+  Bookmark, CalendarDays, CirclePlay, Heart, Headphones, Laugh, LayoutGrid, ListVideo,
+  Loader2, Music, Newspaper, Pencil, Play, PlaySquare, Plus, Trophy, Tv, X,
   type LucideIcon,
 } from "lucide-react";
+import type { VideoItem } from "@/lib/youtube/types";
+import { useQuery } from "@tanstack/react-query";
 import {
   DndContext,
   DragOverlay,
+  MeasuringStrategy,
   pointerWithin,
+  closestCenter,
   PointerSensor,
   useSensor,
   useSensors,
   useDraggable,
   useDroppable,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import { NewsRow, type NewsItem } from "@/components/shared/NewsCard";
 import { usePublishUIContext } from "@/context/UIContextProvider";
 import { useAuth } from "@/context/AuthContext";
 import { useWeatherSnapshot } from "@/hooks/useWeatherSnapshot";
-import { useHomeLayout, type HomeRow, type HomeWidget } from "@/hooks/useHomeLayout";
+import { useHomeLayout, resolveTickerConfig, type HomeRow, type HomeWidget, type TickerConfig, type TickerSource } from "@/hooks/useHomeLayout";
 import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTextClass, SNOW_TEXT, type HeroGradient } from "@/lib/weather";
 import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
 import { categoryVisual, compareCategories } from "@/lib/archiveCategories";
 import { APP_GROUPS } from "@/lib/appCategories";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
 import { WidgetGalleryModal } from "@/components/home/WidgetGalleryModal";
+import { useYtFeed } from "@/lib/youtube/useData";
+import { watchHref } from "@/components/youtube/VideoCard";
+import { fmtAge } from "@/lib/youtube/format";
+import { ytImageProxy } from "@/lib/youtube/api";
+import { proxyImg } from "@/lib/img";
+import { getHistory, getFavorites, listStations, stationToDj, type Station } from "@/lib/music/catalogApi";
+import { useRadio } from "@/context/RadioContext";
+import { usePodcastFeed, continueListening, newEpisodes } from "@/lib/podcast/useFeed";
+import { coverUrl } from "@/lib/podcast/api";
+import { usePodcastPlayback } from "@/context/PodcastPlaybackContext";
+import { useYoutubePlayback } from "@/context/YoutubePlaybackContext";
+import type { BookmarkItem } from "@/lib/bookmarks/api";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
 import { cn } from "@/lib/cn";
 
@@ -116,7 +133,7 @@ function JokeText({ light }: { light?: boolean }) {
   );
 }
 
-// ── Sports ticker ─────────────────────────────────────────────────────────────
+// ── Home ticker (multi-source) ────────────────────────────────────────────────
 
 const SPORT_EMOJI: Record<string, string> = {
   'MLB':       '⚾',
@@ -152,184 +169,282 @@ const RESUME_DELAY_MS = 3000;
 const FRICTION = 0.92;
 const MIN_MOMENTUM = 0.008;
 
-function SportsTicker() {
-  const [games, setGames] = useState<GameItem[]>([]);
-  const [ready, setReady] = useState(false);
-  const innerRef  = useRef<HTMLDivElement>(null);
-  const halfRef   = useRef(0);
-  const posRef    = useRef(0);
-  const modeRef   = useRef<'auto' | 'paused' | 'drag' | 'coast'>('auto');
-  const baseSpeed = useRef(0);
-  const velRef    = useRef(0);
-  const velBuf    = useRef<{ t: number; rawPos: number }[]>([]);
-  const dragStartX   = useRef(0);
-  const dragStartPos = useRef(0);
-  const resumeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const rafRef       = useRef<number>(0);
-  const lastT        = useRef(0);
+type TickerItem =
+  | { type: 'sports'; title: string }
+  | { type: 'youtube'; videoId: string; title: string; channelThumb?: string | null; localKind?: 'audio' | 'video' }
+  | { type: 'news'; title: string; url?: string | null; imageUrl?: string | null; faviconHost?: string | null }
+  | { type: 'podcast'; episodeId: string; showId: string; showName: string; title: string; podCoverUrl: string; durationSec?: number | null; chapters?: { title: string; startSec: number }[] }
+
+type TickerSection = { source: TickerSource; items: TickerItem[] }
+
+const SECTION_STYLES: Record<TickerSource, { Icon: React.ElementType; accent: string; bg: string; label: string }> = {
+  sports:  { Icon: Trophy,      accent: 'text-emerald-400', bg: 'bg-emerald-500/[0.09]', label: 'Scores'   },
+  youtube: { Icon: PlaySquare,  accent: 'text-red-400',     bg: 'bg-red-500/[0.09]',     label: 'YouTube'  },
+  news:    { Icon: Newspaper,   accent: 'text-sky-400',     bg: 'bg-sky-500/[0.09]',     label: 'News'     },
+  podcast: { Icon: Headphones,  accent: 'text-violet-400',  bg: 'bg-violet-500/[0.09]',  label: 'Podcasts' },
+}
+
+function SectionBadge({ source }: { source: TickerSource }) {
+  const { Icon, accent, label } = SECTION_STYLES[source]
+  return (
+    <span className="inline-flex items-center gap-1.5 px-3 border-r border-border/20 self-stretch shrink-0">
+      <Icon className={cn('size-3 shrink-0', accent)} />
+      <span className={cn('text-[9px] font-black uppercase tracking-[0.14em] whitespace-nowrap', accent)}>{label}</span>
+    </span>
+  )
+}
+
+function TickerItemChip({ item, onPointerDown }: { item: TickerItem; onPointerDown: () => void }) {
+  if (item.type === 'sports') {
+    const { league, teams, status, isFinal, isLive } = parseGame(item.title)
+    return (
+      <span className="inline-flex items-center gap-2 px-4 whitespace-nowrap" onPointerDown={onPointerDown}>
+        {league && <span className="text-[13px] leading-none" title={league}>{SPORT_EMOJI[league] ?? '🏆'}</span>}
+        <span className="text-[11px] font-medium text-foreground/75">{teams}</span>
+        {status && (
+          <span className={cn("text-[10px]", isLive ? "font-semibold text-emerald-400" : isFinal ? "text-muted-foreground/45" : "text-muted-foreground/55")}>
+            {isFinal ? "Final" : status}
+          </span>
+        )}
+        <span className="text-border/40">·</span>
+      </span>
+    )
+  }
+  if (item.type === 'youtube') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 whitespace-nowrap cursor-pointer group" onPointerDown={onPointerDown}>
+        {/* video thumbnail */}
+        <div className="shrink-0 w-[44px] aspect-video overflow-hidden rounded bg-muted">
+          <img src={ytImageProxy(`https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`)} alt="" loading="lazy" className="size-full object-cover" />
+        </div>
+        {/* channel avatar */}
+        {item.channelThumb && (
+          <div className="shrink-0 size-[16px] overflow-hidden rounded-full bg-muted ring-1 ring-background">
+            <img src={ytImageProxy(item.channelThumb)} alt="" loading="lazy" className="size-full object-cover" />
+          </div>
+        )}
+        <span className="text-[11px] font-medium text-foreground/75 group-hover:text-foreground transition-colors max-w-[220px] truncate">{item.title}</span>
+        <span className="text-border/40 ml-1">·</span>
+      </span>
+    )
+  }
+  if (item.type === 'news') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 whitespace-nowrap cursor-pointer group" onPointerDown={onPointerDown}>
+        {/* article thumbnail */}
+        {item.imageUrl && (
+          <div className="shrink-0 w-[26px] h-[26px] overflow-hidden rounded bg-muted">
+            <img src={proxyImg(item.imageUrl)} alt="" loading="lazy" className="size-full object-cover" />
+          </div>
+        )}
+        {/* favicon */}
+        {item.faviconHost ? (
+          <div className={cn("shrink-0 overflow-hidden rounded-sm bg-muted", item.imageUrl ? "size-[13px]" : "size-[16px]")}>
+            <img src={proxyImg(`https://www.google.com/s2/favicons?domain=${item.faviconHost}&sz=32`)} alt="" loading="lazy" className="size-full object-cover" />
+          </div>
+        ) : !item.imageUrl && (
+          <Newspaper className="size-3 text-sky-400/60 shrink-0" />
+        )}
+        <span className="text-[11px] font-medium text-foreground/75 group-hover:text-foreground transition-colors max-w-[260px] truncate">{item.title}</span>
+        <span className="text-border/40 ml-1">·</span>
+      </span>
+    )
+  }
+  if (item.type === 'podcast') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 whitespace-nowrap cursor-pointer group" onPointerDown={onPointerDown}>
+        <div className="shrink-0 size-[26px] overflow-hidden rounded bg-muted">
+          <img src={item.podCoverUrl} alt="" loading="lazy" className="size-full object-cover" />
+        </div>
+        <span className="text-[11px] font-medium text-foreground/75 group-hover:text-foreground transition-colors max-w-[240px] truncate">{item.title}</span>
+        <span className="text-border/40 ml-1">·</span>
+      </span>
+    )
+  }
+  return null
+}
+
+function HomeTicker({ config }: { config: TickerConfig }) {
+  const ytPb = useYoutubePlayback()
+  const podcastPb = usePodcastPlayback()
+  const [items, setItems] = useState<TickerItem[]>([])
+  const [ready, setReady] = useState(false)
+
+  const innerRef     = useRef<HTMLDivElement>(null)
+  const halfRef      = useRef(0)
+  const posRef       = useRef(0)
+  const modeRef      = useRef<'auto' | 'paused' | 'drag' | 'coast'>('auto')
+  const baseSpeed    = useRef(0)
+  const velRef       = useRef(0)
+  const velBuf       = useRef<{ t: number; rawPos: number }[]>([])
+  const dragStartX   = useRef(0)
+  const dragStartPos = useRef(0)
+  const dragDistRef  = useRef(0)
+  const resumeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rafRef       = useRef<number>(0)
+  const lastT        = useRef(0)
+  const clickedItem  = useRef<TickerItem | null>(null)
+
+  const sourcesKey = config.sources.join(',')
 
   useEffect(() => {
-    fetch("/api/sports/today", { credentials: "include" })
-      .then(r => r.ok ? r.json() : null)
-      .then((d: { games?: GameItem[] } | null) => { setGames(d?.games ?? []); })
-      .catch(() => {})
-      .finally(() => setReady(true));
-  }, []);
+    if (!config.sources.length) { setReady(true); return }
+    const has = (s: TickerSource) => config.sources.includes(s)
+    Promise.all([
+      has('sports')  ? fetch('/api/sports/today',       { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+      has('youtube') ? fetch('/api/youtube/feed?limit=10', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+      has('news')    ? fetch('/api/news?limit=8',        { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+      has('podcast') ? fetch('/api/podcasts/feed',       { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+    ]).then(([sports, youtube, news, podcast]) => {
+      const sportItems: TickerItem[] = ((sports as { games?: GameItem[] } | null)?.games ?? []).map(g => ({ type: 'sports', title: g.title }))
+      const ytItems: TickerItem[] = ((youtube as { videos?: (VideoItem & { channelThumb?: string | null })[] } | null)?.videos ?? []).map(v => ({ type: 'youtube', videoId: v.videoId, title: v.title, channelThumb: v.channelThumb, localKind: v.localKind }))
+      const newsItems: TickerItem[] = ((news as { items?: NewsItem[] } | null)?.items ?? []).map(n => {
+        let faviconHost: string | null = null
+        try { if (n.url) faviconHost = new URL(n.url).hostname.replace(/^www\./, '') } catch { /* noop */ }
+        return { type: 'news', title: n.title, url: n.url, imageUrl: n.imageUrl, faviconHost }
+      })
+      type PodFeed = { shows?: Array<{ id: string; name: string }>; episodesByShow?: Record<string, Array<{ id: string; title: string; status: string; generatedAt?: number | string | null; durationSec?: number | null; chapters?: { title: string; startSec: number }[] }>> }
+      const podcastItems: TickerItem[] = []
+      const podFeed = podcast as PodFeed | null
+      if (podFeed?.shows && podFeed?.episodesByShow) {
+        podFeed.shows
+          .flatMap(show => (podFeed.episodesByShow![show.id] ?? []).filter(e => e.status === 'ready').map(e => ({ ep: e, show })))
+          .sort((a, b) => Number(b.ep.generatedAt ?? 0) - Number(a.ep.generatedAt ?? 0))
+          .slice(0, 6)
+          .forEach(({ ep, show }) => podcastItems.push({ type: 'podcast', episodeId: ep.id, showId: show.id, showName: show.name, title: ep.title, podCoverUrl: `/api/podcasts/shows/${show.id}/cover`, durationSec: ep.durationSec, chapters: ep.chapters ?? [] }))
+      }
+      // Keep items grouped by source so sections render as contiguous blocks
+      const ordered: TickerItem[] = []
+      for (const s of config.sources) {
+        if (s === 'sports')  ordered.push(...sportItems)
+        else if (s === 'youtube') ordered.push(...ytItems)
+        else if (s === 'news')    ordered.push(...newsItems)
+        else if (s === 'podcast') ordered.push(...podcastItems)
+      }
+      setItems(ordered)
+      setReady(true)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourcesKey])
 
   useLayoutEffect(() => {
-    if (games.length === 0) return;
-    const w = innerRef.current?.offsetWidth ?? 0;
-    halfRef.current = w / 2;
+    if (!items.length) return
+    const w = innerRef.current?.offsetWidth ?? 0
+    halfRef.current = w / 2
     if (halfRef.current > 0) {
-      const durationMs = Math.max(games.length * 5, 20) * 1000;
-      baseSpeed.current = halfRef.current / durationMs;
+      const ms = Math.max(items.length * 7, 30) * 1000
+      baseSpeed.current = halfRef.current / ms
     }
-  }, [games]);
+  }, [items])
 
   useEffect(() => {
-    if (games.length === 0) return;
-    lastT.current = 0;
-    modeRef.current = 'auto';
-    posRef.current = 0;
-
-    const wrap = (p: number) => {
-      const h = halfRef.current;
-      return h > 0 ? ((p % h) + h) % h : 0;
-    };
-
+    if (!items.length) return
+    lastT.current = 0; modeRef.current = 'auto'; posRef.current = 0
+    const wrap = (p: number) => { const h = halfRef.current; return h > 0 ? ((p % h) + h) % h : 0 }
     const tick = (t: number) => {
-      if (lastT.current === 0) lastT.current = t;
-      const dt = Math.min(t - lastT.current, 50);
-      lastT.current = t;
-
-      const inner = innerRef.current;
+      if (!lastT.current) lastT.current = t
+      const dt = Math.min(t - lastT.current, 50); lastT.current = t
+      const inner = innerRef.current
       if (inner && halfRef.current > 0) {
-        const mode = modeRef.current;
+        const mode = modeRef.current
         if (mode === 'auto') {
-          const breathe = 1 + 0.12 * Math.sin(t * 0.00035);
-          posRef.current = wrap(posRef.current + baseSpeed.current * breathe * dt);
+          posRef.current = wrap(posRef.current + baseSpeed.current * (1 + 0.12 * Math.sin(t * 0.00035)) * dt)
         } else if (mode === 'coast') {
-          posRef.current = wrap(posRef.current + velRef.current * dt);
-          velRef.current *= Math.pow(FRICTION, dt / 16);
-          if (Math.abs(velRef.current) < MIN_MOMENTUM) {
-            velRef.current = 0;
-            modeRef.current = 'paused';
-            scheduleResume();
-          }
+          posRef.current = wrap(posRef.current + velRef.current * dt)
+          velRef.current *= Math.pow(FRICTION, dt / 16)
+          if (Math.abs(velRef.current) < MIN_MOMENTUM) { velRef.current = 0; modeRef.current = 'paused'; scheduleResume() }
         }
-        inner.style.transform = `translateX(${-posRef.current}px)`;
+        inner.style.transform = `translateX(${-posRef.current}px)`
       }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [games]);
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [items])
 
-  useEffect(() => () => {
-    if (resumeTimer.current) clearTimeout(resumeTimer.current);
-  }, []);
+  useEffect(() => () => { if (resumeTimer.current) clearTimeout(resumeTimer.current) }, [])
 
   function scheduleResume() {
-    if (resumeTimer.current) clearTimeout(resumeTimer.current);
-    resumeTimer.current = setTimeout(() => {
-      if (modeRef.current !== 'drag') modeRef.current = 'auto';
-      resumeTimer.current = null;
-    }, RESUME_DELAY_MS);
+    if (resumeTimer.current) clearTimeout(resumeTimer.current)
+    resumeTimer.current = setTimeout(() => { if (modeRef.current !== 'drag') modeRef.current = 'auto'; resumeTimer.current = null }, RESUME_DELAY_MS)
   }
   function cancelResume() {
-    if (resumeTimer.current) { clearTimeout(resumeTimer.current); resumeTimer.current = null; }
+    if (resumeTimer.current) { clearTimeout(resumeTimer.current); resumeTimer.current = null }
   }
   function endDrag() {
-    if (modeRef.current !== 'drag') return;
-    const now = Date.now();
-    const recent = velBuf.current.filter(v => now - v.t <= 80);
-    velRef.current = 0;
+    if (modeRef.current !== 'drag') return
+    const now = Date.now()
+    const recent = velBuf.current.filter(v => now - v.t <= 80)
+    velRef.current = 0
     if (recent.length >= 2) {
-      const a = recent[0]!, b = recent[recent.length - 1]!;
-      const dt = b.t - a.t;
-      if (dt > 0) velRef.current = (b.rawPos - a.rawPos) / dt;
+      const a = recent[0]!, b = recent[recent.length - 1]!
+      const dt = b.t - a.t
+      if (dt > 0) velRef.current = (b.rawPos - a.rawPos) / dt
     }
-    velBuf.current = [];
-    if (Math.abs(velRef.current) > MIN_MOMENTUM) {
-      modeRef.current = 'coast';
-    } else {
-      modeRef.current = 'paused';
-      scheduleResume();
+    velBuf.current = []
+    const wasTap = dragDistRef.current < 5
+    if (wasTap && clickedItem.current) {
+      const item = clickedItem.current
+      if (item.type === 'youtube') {
+        ytPb.playExpanded({ videoId: item.videoId, title: item.title, author: null, channelThumb: item.channelThumb, localKind: item.localKind })
+      } else if (item.type === 'podcast') {
+        podcastPb.play({ episodeId: item.episodeId, showId: item.showId, showName: item.showName, title: item.title, coverUrl: item.podCoverUrl, durationSec: item.durationSec ?? undefined, chapters: item.chapters ?? [] })
+      } else if (item.type === 'news' && item.url) {
+        window.open(item.url, '_blank', 'noopener,noreferrer')
+      }
     }
+    clickedItem.current = null; dragDistRef.current = 0
+    if (Math.abs(velRef.current) > MIN_MOMENTUM) { modeRef.current = 'coast' } else { modeRef.current = 'paused'; scheduleResume() }
   }
 
-  if (!ready || games.length === 0) return null;
-  const doubled = [...games, ...games];
+  if (!ready || !items.length) return null
+
+  // Group consecutive items into sections for display
+  const sections: TickerSection[] = config.sources
+    .map(s => ({ source: s, items: items.filter(i => i.type === s) }))
+    .filter(s => s.items.length > 0)
+  const doubled = [...sections, ...sections]
 
   return (
-    <div className="flex items-center border-y border-border/25" style={{ background: "rgba(16,185,129,0.03)" }}>
-      <div className="shrink-0 flex items-center gap-1.5 px-4 border-r border-border/25 self-stretch py-2">
-        <Trophy className="size-3 text-emerald-400" />
-        <span className="text-[9px] font-black uppercase tracking-[0.16em] text-emerald-400 whitespace-nowrap">Scores</span>
-      </div>
-      <div
-        className="flex-1 py-2 select-none overflow-hidden cursor-grab active:cursor-grabbing"
-        onMouseEnter={() => {
-          cancelResume();
-          if (modeRef.current === 'auto') modeRef.current = 'paused';
-        }}
-        onMouseLeave={() => {
-          if (modeRef.current === 'paused') scheduleResume();
-        }}
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          cancelResume();
-          velRef.current = 0;
-          velBuf.current = [];
-          dragStartX.current   = e.clientX;
-          dragStartPos.current = posRef.current;
-          modeRef.current = 'drag';
-          e.preventDefault();
-        }}
-        onPointerMove={(e) => {
-          if (modeRef.current !== 'drag') return;
-          const rawPos = dragStartPos.current + (dragStartX.current - e.clientX);
-          const h = halfRef.current;
-          posRef.current = h > 0 ? ((rawPos % h) + h) % h : rawPos;
-          const now = Date.now();
-          velBuf.current.push({ t: now, rawPos });
-          const cutoff = now - 100;
-          velBuf.current = velBuf.current.filter(v => v.t >= cutoff);
-        }}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-      >
-        <div
-          ref={innerRef}
-          className="flex items-center will-change-transform"
-          style={{ width: 'max-content' }}
-        >
-          {doubled.map((g, i) => {
-            const { league, teams, status, isFinal, isLive } = parseGame(g.title);
-            return (
-              <span key={i} className="inline-flex items-center gap-2 px-5 whitespace-nowrap">
-                {league && (
-                  <span className="text-[13px] leading-none" title={league}>
-                    {SPORT_EMOJI[league] ?? '🏆'}
-                  </span>
-                )}
-                <span className="text-[11px] font-medium text-foreground/75">{teams}</span>
-                {status && (
-                  <span className={cn(
-                    "text-[10px]",
-                    isLive ? "font-semibold text-emerald-400" : isFinal ? "text-muted-foreground/45" : "text-muted-foreground/55",
-                  )}>
-                    {isFinal ? "Final" : status}
-                  </span>
-                )}
-                <span className="text-border/50 ml-1">·</span>
-              </span>
-            );
-          })}
-        </div>
+    <div
+      className="border-y border-border/25 select-none overflow-hidden cursor-grab active:cursor-grabbing"
+      onMouseEnter={() => { cancelResume(); if (modeRef.current === 'auto') modeRef.current = 'paused' }}
+      onMouseLeave={() => { if (modeRef.current === 'paused') scheduleResume() }}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId)
+        cancelResume(); velRef.current = 0; velBuf.current = []
+        dragStartX.current = e.clientX; dragStartPos.current = posRef.current
+        dragDistRef.current = 0; modeRef.current = 'drag'
+        e.preventDefault()
+      }}
+      onPointerMove={(e) => {
+        if (modeRef.current !== 'drag') return
+        const rawPos = dragStartPos.current + (dragStartX.current - e.clientX)
+        const h = halfRef.current
+        posRef.current = h > 0 ? ((rawPos % h) + h) % h : rawPos
+        dragDistRef.current = Math.abs(e.clientX - dragStartX.current)
+        const now = Date.now()
+        velBuf.current.push({ t: now, rawPos })
+        velBuf.current = velBuf.current.filter(v => now - v.t <= 100)
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
+      <div ref={innerRef} className="flex items-stretch will-change-transform" style={{ width: 'max-content' }}>
+        {doubled.map((section, si) => {
+          const { bg } = SECTION_STYLES[section.source]
+          return (
+            <div key={si} className={cn('inline-flex items-center py-1.5 border-r border-border/20', bg)}>
+              <SectionBadge source={section.source} />
+              {section.items.map((item, ii) => (
+                <TickerItemChip key={ii} item={item} onPointerDown={() => { clickedItem.current = item }} />
+              ))}
+            </div>
+          )
+        })}
       </div>
     </div>
-  );
+  )
 }
 
 // ── Today's Headlines ─────────────────────────────────────────────────────────
@@ -462,17 +577,18 @@ function WidgetWeather() {
   );
 }
 
-function WidgetNews() {
+function WidgetNews({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const limit = displayMode === 'row' ? 6 : 3;
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/news?limit=3", { credentials: "include" })
+    fetch(`/api/news?limit=${limit}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then((d: { items?: NewsItem[] } | null) => { setItems(d?.items ?? []); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [limit]);
 
   return (
     <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
@@ -487,11 +603,42 @@ function WidgetNews() {
       {!loading && items.length === 0 && (
         <p className="text-[12px] text-muted-foreground/60">No news available.</p>
       )}
-      <div className="space-y-0.5 flex-1">
-        {items.map((item, i) => (
-          <NewsRow key={i} item={item} />
-        ))}
-      </div>
+      {displayMode === 'row' ? (
+        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
+          {items.map((item, i) => (
+            <a
+              key={i}
+              href={item.url ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group shrink-0 w-[180px] flex flex-col gap-1.5"
+            >
+              {item.imageUrl ? (
+                <div className="w-full aspect-video overflow-hidden rounded-lg bg-muted">
+                  <img
+                    src={item.imageUrl} alt="" loading="lazy"
+                    className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                  />
+                </div>
+              ) : (
+                <div className="w-full aspect-video rounded-lg bg-muted/60 flex items-center justify-center">
+                  <Newspaper className="size-6 text-muted-foreground/20" />
+                </div>
+              )}
+              <p className="line-clamp-3 text-[11px] font-semibold leading-snug text-foreground/85">{item.title}</p>
+              {item.source && (
+                <p className="truncate text-[10px] text-muted-foreground/55">{item.source}</p>
+              )}
+            </a>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-0.5 flex-1">
+          {items.map((item, i) => (
+            <NewsRow key={i} item={item} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -613,6 +760,440 @@ function WidgetOnThisDay() {
   );
 }
 
+// Standard YouTube thumbnail for a video id, routed through the same-origin cache.
+const ytThumb = (videoId: string) => ytImageProxy(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`);
+
+function WidgetYoutubeSubs({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const feedLimit = displayMode === 'row' ? 10 : 6;
+  const showCount = displayMode === 'row' ? 8 : 4;
+  const { items, loading } = useYtFeed(feedLimit);
+  const vids = items.slice(0, showCount);
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-red-500">
+          <PlaySquare className="size-3" />
+          <span>Subscriptions</span>
+        </div>
+        <Link to="/youtube" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
+      </div>
+      {loading && vids.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {!loading && vids.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">No recent uploads. Subscribe to channels in YouTube.</p>
+      )}
+      {displayMode === 'row' ? (
+        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
+          {vids.map((v: VideoItem) => {
+            const age = v.ageLabel ?? fmtAge(v.publishedAt);
+            return (
+              <Link key={v.videoId} to={watchHref(v)} className="group shrink-0 w-[160px] flex flex-col gap-1.5">
+                <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted">
+                  <img
+                    src={ytThumb(v.videoId)} alt="" loading="lazy"
+                    className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                  />
+                </div>
+                <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{v.title}</p>
+                <p className="truncate text-[10px] text-muted-foreground/55">
+                  {v.author}{v.author && age ? " · " : ""}{age}
+                </p>
+              </Link>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="space-y-2 flex-1">
+          {vids.map((v: VideoItem) => {
+            const age = v.ageLabel ?? fmtAge(v.publishedAt);
+            return (
+              <Link key={v.videoId} to={watchHref(v)} className="group flex gap-2.5">
+                <div className="relative aspect-video w-[88px] shrink-0 overflow-hidden rounded-lg bg-muted">
+                  <img
+                    src={ytThumb(v.videoId)} alt="" loading="lazy"
+                    className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground/85">{v.title}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">
+                    {v.author}{v.author && age ? " · " : ""}{age}
+                  </p>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WidgetMusic() {
+  const radio = useRadio();
+  const { data: histData, isLoading: histLoading } = useQuery({ queryKey: ["music-history"], queryFn: () => getHistory(20) });
+  const { data: favData } = useQuery({ queryKey: ["music-favorites"], queryFn: () => getFavorites() });
+  const { data: stationBuckets } = useQuery({ queryKey: ["music-stations"], queryFn: listStations });
+
+  const recents = (histData?.history ?? []).slice(0, 4);
+
+  const stationById = useMemo(() => {
+    const m = new Map<string, Station>();
+    if (stationBuckets) {
+      for (const s of [...stationBuckets.builtin, ...stationBuckets.mine, ...stationBuckets.shared]) m.set(s.id, s);
+    }
+    return m;
+  }, [stationBuckets]);
+
+  const favStations = useMemo(() => {
+    const favs = (favData?.favorites ?? []).filter(f => f.kind === "station");
+    return favs.map(f => stationById.get(f.refId)).filter((s): s is Station => !!s).slice(0, 3);
+  }, [favData, stationById]);
+
+  const empty = recents.length === 0 && favStations.length === 0;
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-orange-400">
+          <Music className="size-3" />
+          <span>Music</span>
+        </div>
+        <Link to="/music" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Open →</Link>
+      </div>
+
+      {histLoading && empty && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {!histLoading && empty && (
+        <p className="text-[12px] text-muted-foreground/60">Start a station to see it here.</p>
+      )}
+
+      {favStations.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {favStations.map(s => (
+            <button
+              key={s.id}
+              onClick={() => radio.start(stationToDj(s))}
+              className="flex items-center gap-1 rounded-full border border-orange-400/25 bg-orange-400/10 px-2.5 py-1 text-[11px] font-semibold text-orange-300/90 transition-colors hover:bg-orange-400/20"
+            >
+              <Heart className="size-2.5 fill-current" />
+              <span className="max-w-[120px] truncate">{s.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {recents.length > 0 && (
+        <div className="flex-1 space-y-1.5">
+          {favStations.length > 0 && (
+            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40">Recently played</p>
+          )}
+          {recents.map(t => (
+            <button
+              key={t.id}
+              onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title, author: t.artist ?? undefined, thumbnail: ytThumb(t.videoId) })}
+              className="group flex w-full items-center gap-2.5 text-left"
+            >
+              <img src={ytThumb(t.videoId)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md object-cover" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12px] font-semibold leading-snug text-foreground/85">{t.title}</p>
+                {t.artist && <p className="truncate text-[10px] text-muted-foreground/60">{t.artist}</p>}
+              </div>
+              <Play className="size-3.5 shrink-0 text-orange-400 opacity-0 transition-opacity group-hover:opacity-100" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WidgetBookmarksRecent({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const limit = displayMode === 'row' ? 10 : 6;
+  const show  = displayMode === 'row' ? 8 : 4;
+  const [items, setItems] = useState<BookmarkItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/bookmarks?limit=${limit}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { items?: BookmarkItem[] } | null) => { setItems((d?.items ?? []).slice(0, show)); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [limit, show]);
+
+  const fmtDomain = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-400">
+          <Bookmark className="size-3" />
+          <span>Bookmarks</span>
+        </div>
+        <Link to="/bookmarks" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
+      </div>
+      {loading && items.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {!loading && items.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">No bookmarks yet. Save an article to see it here.</p>
+      )}
+      {displayMode === 'row' ? (
+        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
+          {items.map(b => (
+            <Link key={b.id} to={`/bookmarks/${b.id}`} className="group shrink-0 w-[160px] flex flex-col gap-1.5">
+              <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted flex items-center justify-center">
+                {b.ogImagePath
+                  ? <img src={`/api/bookmarks/${b.id}/archive/${b.ogImagePath}`} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                  : b.faviconUrl
+                    ? <img src={b.faviconUrl} alt="" loading="lazy" className="size-8 object-contain" />
+                    : <Bookmark className="size-6 text-muted-foreground/30" />
+                }
+              </div>
+              <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{b.title}</p>
+              <p className="truncate text-[10px] text-muted-foreground/55">{b.siteName ?? fmtDomain(b.url)}</p>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2 flex-1">
+          {items.map(b => (
+            <Link key={b.id} to={`/bookmarks/${b.id}`} className="group flex gap-2.5 items-start">
+              <div className="size-9 shrink-0 rounded-md bg-muted overflow-hidden flex items-center justify-center">
+                {b.faviconUrl
+                  ? <img src={b.faviconUrl} alt="" loading="lazy" className="size-5 object-contain" />
+                  : <Bookmark className="size-4 text-muted-foreground/30" />
+                }
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground/85">{b.title}</p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">{b.siteName ?? fmtDomain(b.url)}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WidgetPodcastsRecent({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const { data, isLoading } = usePodcastFeed();
+  const podcast = usePodcastPlayback();
+  const show   = displayMode === 'row' ? 8 : 4;
+  const items  = newEpisodes(data?.all ?? []).slice(0, show);
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-indigo-400">
+          <Headphones className="size-3" />
+          <span>New Episodes</span>
+        </div>
+        <Link to="/podcasts" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">See all →</Link>
+      </div>
+      {isLoading && items.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {!isLoading && items.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">No episodes yet. Generate one from a podcast show.</p>
+      )}
+      {displayMode === 'row' ? (
+        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
+          {items.map(({ episode, show: s }) => (
+            <button key={episode.id} onClick={() => podcast.play({ episodeId: episode.id, showId: s.id, showName: s.name, title: episode.title, durationSec: episode.durationSec ?? undefined, coverUrl: coverUrl(s.id) })} className="group shrink-0 w-[140px] flex flex-col gap-1.5 text-left">
+              <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted">
+                <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+              </div>
+              <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{episode.title}</p>
+              <p className="truncate text-[10px] text-muted-foreground/55">{s.name}</p>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2 flex-1">
+          {items.map(({ episode, show: s }) => (
+            <button key={episode.id} onClick={() => podcast.play({ episodeId: episode.id, showId: s.id, showName: s.name, title: episode.title, durationSec: episode.durationSec ?? undefined, coverUrl: coverUrl(s.id) })} className="group flex gap-2.5 items-center text-left w-full">
+              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md object-cover" />
+              <div className="min-w-0 flex-1">
+                <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-foreground/85">{episode.title}</p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">{s.name}</p>
+              </div>
+              <Play className="size-3.5 shrink-0 text-indigo-400 opacity-0 transition-opacity group-hover:opacity-100" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WidgetPodcastsContinue() {
+  const { data, isLoading } = usePodcastFeed();
+  const podcast = usePodcastPlayback();
+  const items = continueListening(data?.all ?? []).slice(0, 4);
+
+  const fmtProgress = (pos: number, dur: number | null | undefined) => {
+    if (!dur) return null;
+    return Math.round((pos / dur) * 100);
+  };
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-teal-400">
+          <CirclePlay className="size-3" />
+          <span>Continue Listening</span>
+        </div>
+        <Link to="/podcasts" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Library →</Link>
+      </div>
+      {isLoading && items.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {!isLoading && items.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">Start listening to an episode to resume it here.</p>
+      )}
+      <div className="space-y-2 flex-1">
+        {items.map(({ episode, show: s }) => {
+          const pct = fmtProgress(episode.watchState?.positionSec ?? 0, episode.durationSec);
+          return (
+            <button key={episode.id} onClick={() => podcast.play({ episodeId: episode.id, showId: s.id, showName: s.name, title: episode.title, durationSec: episode.durationSec ?? undefined, coverUrl: coverUrl(s.id) }, episode.watchState?.positionSec)} className="group flex gap-2.5 items-center text-left w-full">
+              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md object-cover" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="line-clamp-1 text-[12px] font-semibold leading-snug text-foreground/85">{episode.title}</p>
+                <p className="truncate text-[10px] text-muted-foreground/60">{s.name}</p>
+                {pct != null && (
+                  <div className="h-0.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-teal-400" style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+              </div>
+              <Play className="size-3.5 shrink-0 text-teal-400 opacity-0 transition-opacity group-hover:opacity-100" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+interface WatchlistItem {
+  id: string; mediaType: 'show' | 'movie'; refId: string;
+  title: string; posterUrl?: string | null; subtitle?: string | null;
+  status: 'want' | 'watching' | 'completed' | 'dropped';
+}
+
+function WidgetWatchlist({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const show  = displayMode === 'row' ? 8 : 4;
+  const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/library/watchlist', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { items?: WatchlistItem[] } | null) => {
+        setItems((d?.items ?? []).filter(i => i.status !== 'completed' && i.status !== 'dropped').slice(0, show));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [show]);
+
+  const itemHref = (item: WatchlistItem) =>
+    item.mediaType === 'show' ? `/shows/${item.refId}` : `/movies?title=${encodeURIComponent(item.title)}`;
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-rose-400">
+          <Tv className="size-3" />
+          <span>Watchlist</span>
+        </div>
+        <Link to="/shows" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Browse →</Link>
+      </div>
+      {loading && items.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {!loading && items.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">No watchlist yet. Add shows or movies to track them.</p>
+      )}
+      {displayMode === 'row' ? (
+        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
+          {items.map(item => (
+            <Link key={item.id} to={itemHref(item)} className="group shrink-0 w-[100px] flex flex-col gap-1.5">
+              <div className="relative w-full overflow-hidden rounded-lg bg-muted" style={{ aspectRatio: '2/3' }}>
+                {item.posterUrl
+                  ? <img src={item.posterUrl} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                  : <Tv className="absolute inset-0 m-auto size-6 text-muted-foreground/25" />
+                }
+                <span className="absolute top-1 right-1 rounded-sm bg-black/60 px-1 py-px text-[9px] font-bold uppercase text-white/80">
+                  {item.mediaType === 'show' ? 'TV' : 'Film'}
+                </span>
+              </div>
+              <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{item.title}</p>
+              {item.subtitle && <p className="truncate text-[10px] text-muted-foreground/55">{item.subtitle}</p>}
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2 flex-1">
+          {items.map(item => (
+            <Link key={item.id} to={itemHref(item)} className="group flex gap-2.5 items-center">
+              <div className="relative w-[36px] shrink-0 overflow-hidden rounded-md bg-muted flex items-center justify-center" style={{ aspectRatio: '2/3' }}>
+                {item.posterUrl
+                  ? <img src={item.posterUrl} alt="" loading="lazy" className="size-full object-cover" />
+                  : <Tv className="size-4 text-muted-foreground/30" />
+                }
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="line-clamp-1 text-[12px] font-semibold leading-snug text-foreground/85">{item.title}</p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">{item.subtitle ?? (item.mediaType === 'show' ? 'TV Show' : 'Movie')}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WidgetPodcastsShows({ displayMode = 'column' }: { displayMode?: 'row' | 'column' }) {
+  const { data, isLoading } = usePodcastFeed();
+  const shows = (data?.shows ?? []).slice(0, displayMode === 'row' ? 8 : 4);
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-300">
+          <ListVideo className="size-3" />
+          <span>My Shows</span>
+        </div>
+        <Link to="/podcasts/library" className="text-[10px] text-muted-foreground/45 hover:text-foreground/70 transition-colors">Library →</Link>
+      </div>
+      {isLoading && shows.length === 0 && <Loader2 className="size-4 animate-spin text-muted-foreground/30" />}
+      {!isLoading && shows.length === 0 && (
+        <p className="text-[12px] text-muted-foreground/60">No shows yet. Create one in the Podcasts app.</p>
+      )}
+      {displayMode === 'row' ? (
+        <div className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-1">
+          {shows.map(s => (
+            <Link key={s.id} to={`/podcasts/show/${s.id}`} className="group shrink-0 w-[120px] flex flex-col gap-1.5">
+              <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted">
+                <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+              </div>
+              <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-foreground/85">{s.name}</p>
+              <p className="truncate text-[10px] text-muted-foreground/55 capitalize">{s.style}</p>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2 flex-1">
+          {shows.map(s => (
+            <Link key={s.id} to={`/podcasts/show/${s.id}`} className="group flex gap-2.5 items-center">
+              <img src={coverUrl(s.id)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md object-cover" />
+              <div className="min-w-0 flex-1">
+                <p className="line-clamp-1 text-[12px] font-semibold leading-snug text-foreground/85">{s.name}</p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60 capitalize">{s.style}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WidgetUnavailable() {
   return (
     <div className="rounded-xl border border-dashed border-border/40 bg-card/40 p-4 h-full flex flex-col items-center justify-center gap-1.5 text-center">
@@ -626,202 +1207,240 @@ function WidgetUnavailable() {
 // Keyed by canonical widget id (see lib/homeWidgets). The catalog there is the
 // source of truth for which widgets exist; this map just wires ids to views.
 
-const WIDGET_RENDERERS: Record<string, () => React.ReactNode> = {
-  'weather':      () => <WidgetWeather />,
-  'news':         () => <WidgetNews />,
-  'jokes':        () => <WidgetJokes />,
-  'sports':       () => <WidgetSports />,
-  'on-this-day':  () => <WidgetOnThisDay />,
+const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.ReactNode> = {
+  'weather':            () => <WidgetWeather />,
+  'news':               (m) => <WidgetNews displayMode={m} />,
+  'jokes':              () => <WidgetJokes />,
+  'sports':             () => <WidgetSports />,
+  'on-this-day':        () => <WidgetOnThisDay />,
+  'yt-subs':            (m) => <WidgetYoutubeSubs displayMode={m} />,
+  'music':              () => <WidgetMusic />,
+  'bookmarks-recent':   (m) => <WidgetBookmarksRecent displayMode={m} />,
+  'podcasts-recent':    (m) => <WidgetPodcastsRecent displayMode={m} />,
+  'podcasts-continue':  () => <WidgetPodcastsContinue />,
+  'podcasts-shows':     (m) => <WidgetPodcastsShows displayMode={m} />,
+  'watchlist':          (m) => <WidgetWatchlist displayMode={m} />,
 };
 
-function renderWidget(toolId: string): React.ReactNode {
-  const factory = WIDGET_RENDERERS[canonicalWidgetId(toolId)];
-  return factory ? factory() : <WidgetUnavailable />;
+function renderWidget(widget: HomeWidget, mode: 'row' | 'column'): React.ReactNode {
+  const id = canonicalWidgetId(widget.toolId);
+  const factory = WIDGET_RENDERERS[id];
+  return factory ? factory(mode) : <WidgetUnavailable />;
 }
 
-// ── Canvas model helpers ──────────────────────────────────────────────────────
-// Stored & edited as rows of ≤2 widgets. Drop-target ids are namespaced:
-//   row:<rowId>   → drop into that row (pair up)
-//   gap:<rowId>   → insert a new row *before* that row
-//   gap:end       → insert a new row at the bottom
+// ── Canvas model ──────────────────────────────────────────────────────────────
+// A row holds 1–3 widgets. Display mode is derived purely from how many widgets
+// share the row: alone → "row" (full-width strip), 2–3 → "column" (compact list).
+// There is no stored display flag and no manual toggle — dragging a widget in or
+// out of a row is the only thing that flips it. Up to MAX_PER_ROW widgets per row.
+
+const MAX_PER_ROW = 3;
+
+/** Display mode for every widget in a row, from its occupancy. */
+function rowMode(row: HomeRow): 'row' | 'column' {
+  return row.cols.length <= 1 ? 'row' : 'column';
+}
 
 function genRowId(): string {
   return `row-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function findWidget(rows: HomeRow[], toolId: string): HomeWidget | undefined {
-  for (const r of rows) { const c = r.cols.find(c => c.toolId === toolId); if (c) return c; }
-  return undefined;
+/** Locate the (rowIndex, colIndex) of a widget by toolId, or null. */
+function locate(rows: HomeRow[], toolId: string): { r: number; c: number } | null {
+  for (let r = 0; r < rows.length; r++) {
+    const c = rows[r]!.cols.findIndex(col => col.toolId === toolId);
+    if (c !== -1) return { r, c };
+  }
+  return null;
 }
 
-function rowFull(row: HomeRow): boolean {
-  return row.cols.some(c => c.colSpan === 2) || row.cols.length >= 2;
-}
-
-/** Remove a widget from wherever it lives; drop now-empty rows. */
-function removeFromRows(rows: HomeRow[], toolId: string): HomeRow[] {
+/** Keep colSpan roughly in sync with occupancy (1 = full row, else half) and drop empty rows. */
+function normalizeRows(rows: HomeRow[]): HomeRow[] {
   return rows
-    .map(r => ({ ...r, cols: r.cols.filter(c => c.toolId !== toolId) }))
-    .filter(r => r.cols.length > 0);
+    .filter(r => r.cols.length > 0)
+    .map(r => ({
+      ...r,
+      cols: r.cols.map(c => ({ ...c, colSpan: (r.cols.length === 1 ? 2 : 1) as 1 | 2 })),
+    }));
 }
 
-/** Move a widget into an existing row (pairing). No-op if it can't fit. */
-function dropIntoRow(rows: HomeRow[], toolId: string, rowId: string): HomeRow[] {
-  const moving = findWidget(rows, toolId);
-  const target = rows.find(r => r.id === rowId);
-  if (!moving || !target) return rows;
-  if (target.cols.some(c => c.toolId === toolId)) return rows; // already here
-  if (moving.colSpan === 2 || rowFull(target)) return rows;
-  const narrow = { ...moving, colSpan: 1 as const };
-  return removeFromRows(rows, toolId).map(r =>
-    r.id === rowId ? { ...r, cols: [...r.cols, narrow] } : r,
-  );
+// Stable id for the new row spawned mid-drag, so repeated dragOver passes don't
+// remount it. Swapped for a real id on drop.
+const DRAG_ROW_ID = '__dragging-new-row__';
+
+function sameLayout(a: HomeRow[], b: HomeRow[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.id !== b[i]!.id) return false;
+    const ca = a[i]!.cols, cb = b[i]!.cols;
+    if (ca.length !== cb.length) return false;
+    for (let j = 0; j < ca.length; j++) if (ca[j]!.toolId !== cb[j]!.toolId) return false;
+  }
+  return true;
 }
 
-/** Move a widget into a new row inserted before `beforeRowId` (or at the end). */
-function dropIntoNewRow(rows: HomeRow[], toolId: string, beforeRowId: string | null): HomeRow[] {
-  const moving = findWidget(rows, toolId);
-  if (!moving) return rows;
-  const without = removeFromRows(rows, toolId);
-  const newRow: HomeRow = { id: genRowId(), cols: [moving] };
-  if (beforeRowId === null) return [...without, newRow];
-  const idx = without.findIndex(r => r.id === beforeRowId);
-  if (idx === -1) return [...without, newRow];
-  const next = [...without];
-  next.splice(idx, 0, newRow);
-  return next;
+/**
+ * Idempotent next-layout while `activeId` is dragged over `overId`. Operates on
+ * the live draft so droppable ids always match what's rendered. Returns the SAME
+ * `rows` reference when nothing should change (so the caller can skip setState).
+ *
+ *   over a sibling card       → reorder within the row
+ *   over a card in another row → move into that row at the card's slot (≤ MAX_PER_ROW)
+ *   over `before:<rowId>`      → active becomes its own new row above that row
+ *   over `end`                 → active becomes its own new row at the bottom
+ */
+function buildPreview(rows: HomeRow[], activeId: string, overId: string): HomeRow[] {
+  const from = locate(rows, activeId);
+  if (!from || overId === activeId) return rows;
+  const active = rows[from.r]!.cols[from.c]!;
+
+  // ── New-row targets (gaps) ──
+  if (overId === 'end' || overId.startsWith('before:')) {
+    // Already alone in the drag-row at the requested spot? No-op.
+    const dragRowIdx = rows.findIndex(r => r.id === DRAG_ROW_ID);
+    const without = normalizeRows(
+      rows.map(r => ({ ...r, cols: r.cols.filter(c => c.toolId !== activeId) })),
+    );
+    const newRow: HomeRow = { id: DRAG_ROW_ID, cols: [active] };
+    let next: HomeRow[];
+    if (overId === 'end') {
+      next = [...without, newRow];
+    } else {
+      const beforeId = overId.slice('before:'.length);
+      const idx = without.findIndex(r => r.id === beforeId);
+      next = idx === -1 ? [...without, newRow] : without.toSpliced(idx, 0, newRow);
+    }
+    // Stabilise: if the drag-row is already where we'd put it, keep current rows.
+    if (dragRowIdx !== -1 && sameLayout(rows, next)) return rows;
+    return next;
+  }
+
+  // ── Card targets ──
+  const over = locate(rows, overId);
+  if (!over) return rows;
+  const sameRow = over.r === from.r;
+
+  if (sameRow) {
+    // Reorder within the row.
+    if (over.c === from.c) return rows;
+    const cols = [...rows[from.r]!.cols];
+    cols.splice(from.c, 1);
+    cols.splice(over.c, 0, active);
+    const next = rows.map((r, i) => (i === from.r ? { ...r, cols } : r));
+    return sameLayout(rows, next) ? rows : next;
+  }
+
+  // Move into another row before the hovered card.
+  if (rows[over.r]!.cols.length >= MAX_PER_ROW) return rows;
+  const stripped = rows.map(r => ({ ...r, cols: r.cols.filter(c => c.toolId !== activeId) }));
+  const targetIdx = stripped.findIndex(r => r.id === rows[over.r]!.id);
+  const cols = [...stripped[targetIdx]!.cols];
+  cols.splice(over.c, 0, active);
+  stripped[targetIdx] = { ...stripped[targetIdx]!, cols };
+  const next = normalizeRows(stripped);
+  return sameLayout(rows, next) ? rows : next;
 }
 
-// ── Draggable widget ──────────────────────────────────────────────────────────
+// ── Draggable widget card ─────────────────────────────────────────────────────
 
-function DraggableWidget({
-  widget, editMode, canToggleWide, onRemove, onToggleWide,
+function WidgetCard({
+  widget, mode, editMode, isActive, onRemove,
 }: {
   widget: HomeWidget;
+  mode: 'row' | 'column';
   editMode: boolean;
-  canToggleWide: boolean;
+  isActive: boolean;
   onRemove: () => void;
-  onToggleWide: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({ id: widget.toolId, disabled: !editMode });
+  // Same id registered as both a drag source and a drop target. Kept enabled
+  // even while active — buildPreview/onDragOver no-op when hovering yourself.
+  const drag = useDraggable({ id: widget.toolId, disabled: !editMode });
+  const drop = useDroppable({ id: widget.toolId, disabled: !editMode });
+  const setRef = useCallback((el: HTMLElement | null) => {
+    drag.setNodeRef(el);
+    drop.setNodeRef(el);
+  }, [drag.setNodeRef, drop.setNodeRef]);
 
   const meta = getWidgetMeta(widget.toolId);
   const title = meta?.title ?? widget.toolId;
-  const isWide = widget.colSpan === 2;
-
-  const style = {
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.4 : 1,
-  };
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
+      ref={setRef}
       className={cn(
-        "relative",
-        isWide ? "col-span-2" : "col-span-1",
+        "relative min-w-0",
         editMode && "cursor-grab touch-none active:cursor-grabbing",
-        isDragging && "z-20",
+        isActive && "opacity-30",
       )}
-      {...(editMode ? attributes : {})}
-      {...(editMode ? listeners : {})}
+      {...(editMode ? drag.attributes : {})}
+      {...(editMode ? drag.listeners : {})}
     >
       <div className={cn(editMode && "pointer-events-none select-none")}>
-        {renderWidget(widget.toolId)}
+        {renderWidget(widget, mode)}
       </div>
-      {editMode && (
-        <>
-          {canToggleWide && (
-            <button
-              onPointerDown={e => e.stopPropagation()}
-              onClick={onToggleWide}
-              className="absolute -top-2 -left-2 z-10 flex size-5 items-center justify-center rounded-full bg-brand text-white shadow-md hover:brightness-110 transition-all"
-              aria-label={isWide ? `Make ${title} narrow` : `Make ${title} full width`}
-              title={isWide ? "Shrink to half width" : "Expand to full width"}
-            >
-              {isWide ? <Minimize2 className="size-3" /> : <Maximize2 className="size-3" />}
-            </button>
-          )}
-          <button
-            onPointerDown={e => e.stopPropagation()}
-            onClick={onRemove}
-            className="absolute -top-2 -right-2 z-10 flex size-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-md hover:brightness-110 transition-all"
-            aria-label={`Remove ${title} widget`}
-          >
-            <X className="size-3" />
-          </button>
-        </>
+      {editMode && !isActive && (
+        <button
+          onPointerDown={e => e.stopPropagation()}
+          onClick={onRemove}
+          className="absolute -top-2 -right-2 z-10 flex size-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-md hover:brightness-110 transition-all"
+          aria-label={`Remove ${title} widget`}
+        >
+          <X className="size-3" />
+        </button>
       )}
     </div>
   );
 }
 
-// ── Insert line between rows ──────────────────────────────────────────────────
-
-function InsertLine({ id, active }: { id: string; active: boolean }) {
-  const { setNodeRef, isOver } = useDroppable({ id });
-  // Resting: a small gap between rows. While dragging: a thin guide line.
-  // While hovered: opens into a full row-height "new row" space.
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn("flex items-center transition-all", isOver ? "h-[88px] py-1" : active ? "h-6" : "h-3")}
-    >
-      {isOver ? (
-        <div className="flex h-full w-full items-center justify-center rounded-xl border-2 border-dashed border-brand bg-brand/10 text-[11px] font-semibold text-brand">
-          New row
-        </div>
-      ) : (
-        <div className={cn("h-0.5 w-full rounded-full transition-all", active ? "bg-border/50" : "bg-transparent")} />
-      )}
-    </div>
-  );
-}
-
-// ── Droppable row ─────────────────────────────────────────────────────────────
-
-function DroppableRow({
-  row, editMode, canAccept, onRemoveWidget, onToggleWide,
+// One row of 1–3 widgets. The grid track count = occupancy, so a solo widget
+// fills the width (row mode) and pairs/triples split into columns (column mode).
+function WidgetRow({
+  row, editMode, activeId, onRemoveWidget,
 }: {
   row: HomeRow;
   editMode: boolean;
-  canAccept: boolean;
+  activeId: string | null;
   onRemoveWidget: (toolId: string) => void;
-  onToggleWide: (toolId: string) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `row:${row.id}`, disabled: !editMode });
-  const solo = row.cols.length === 1 && row.cols[0].colSpan !== 2;
-  const pairing = isOver && canAccept;
-
+  const mode = rowMode(row);
+  const n = row.cols.length;
   return (
-    <div ref={setNodeRef} className="grid grid-cols-2 gap-3 rounded-xl">
-      {row.cols.map(widget => {
-        const meta = getWidgetMeta(widget.toolId);
-        return (
-          <DraggableWidget
-            key={widget.toolId}
-            widget={widget}
-            editMode={editMode}
-            canToggleWide={!!meta?.allowWide}
-            onRemove={() => onRemoveWidget(widget.toolId)}
-            onToggleWide={() => onToggleWide(widget.toolId)}
-          />
-        );
-      })}
-      {editMode && solo && (
-        <div
-          className={cn(
-            "col-span-1 flex min-h-[80px] items-center justify-center rounded-xl border-2 border-dashed text-[11px] font-medium transition-all",
-            pairing
-              ? "border-brand bg-brand/10 text-brand"
-              : "border-border/30 text-muted-foreground/30",
-          )}
-        >
-          {pairing ? "Pair here" : "drop here to pair"}
-        </div>
+    <div className={cn(
+      "grid gap-3",
+      n >= 3 ? "grid-cols-3" : n === 2 ? "grid-cols-2" : "grid-cols-1",
+    )}>
+      {row.cols.map(widget => (
+        <WidgetCard
+          key={widget.toolId}
+          widget={widget}
+          mode={mode}
+          editMode={editMode}
+          isActive={widget.toolId === activeId}
+          onRemove={() => onRemoveWidget(widget.toolId)}
+        />
+      ))}
+    </div>
+  );
+}
+
+// Drop band between/around rows (including above the first row). Dropping here
+// gives the widget its own new full-width row. Idle it's just inter-row spacing;
+// while dragging it becomes a clearly visible, easy-to-hit target.
+function GapDrop({ id, dragging }: { id: string; dragging: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex items-center justify-center rounded-xl text-[11px] font-semibold transition-all",
+        !dragging
+          ? "h-3"
+          : isOver
+            ? "my-1.5 h-20 border-2 border-brand bg-brand/15 text-brand"
+            : "my-1.5 h-12 border-2 border-dashed border-brand/40 bg-brand/5 text-brand/55",
       )}
+    >
+      {dragging && (isOver ? "Drop for a new full-width row" : "New row")}
     </div>
   );
 }
@@ -834,37 +1453,75 @@ interface CanvasProps {
   onChange: (rows: HomeRow[]) => void;
   onRemoveWidget: (toolId: string) => void;
   onAddWidget: () => void;
-  onToggleWide: (toolId: string) => void;
 }
 
+// Pointer-first: target whatever the cursor is literally inside (a card or a
+// gap); only fall back to nearest-center when it's over empty space.
+const canvasCollision: CollisionDetection = (args) => {
+  const hits = pointerWithin(args);
+  return hits.length ? hits : closestCenter(args);
+};
+
 function Canvas({
-  rows, editMode,
-  onChange, onRemoveWidget, onAddWidget, onToggleWide,
+  rows, editMode, onChange, onRemoveWidget, onAddWidget,
 }: CanvasProps) {
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Live reflowed layout during a drag; committed on drop. Mirrored to a ref so
+  // dragEnd reads the latest even if it fires before React re-renders.
+  const [preview, setPreview] = useState<HomeRow[] | null>(null);
+  const previewRef = useRef<HomeRow[] | null>(null);
+  const setPreviewBoth = useCallback((next: HomeRow[] | null | ((p: HomeRow[] | null) => HomeRow[] | null)) => {
+    setPreview(prev => {
+      const value = typeof next === 'function' ? next(prev) : next;
+      previewRef.current = value;
+      return value;
+    });
+  }, []);
 
-  const activeWidget = activeId ? findWidget(rows, activeId) ?? null : null;
+  const view = preview ?? rows;
+  const activeLoc = activeId ? locate(view, activeId) : null;
+  const activeWidget = activeLoc ? view[activeLoc.r]!.cols[activeLoc.c]! : null;
+  const activeMode = activeLoc ? rowMode(view[activeLoc.r]!) : 'column';
+
+  // Keep the page from scrolling sideways mid-drag.
+  useEffect(() => {
+    if (!activeId) return;
+    const prev = document.documentElement.style.overflowX;
+    document.documentElement.style.overflowX = 'hidden';
+    return () => { document.documentElement.style.overflowX = prev; };
+  }, [activeId]);
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(String(event.active.id));
+    setPreviewBoth(rows);
   }
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    setActiveId(null);
-    if (!over) return;
-    const dragId = String(active.id);
-    const overId = String(over.id);
+  function handleDragOver(event: DragOverEvent) {
+    const activeKey = String(event.active.id);
+    const overId = event.over ? String(event.over.id) : null;
+    if (!overId || overId === activeKey) return;
+    setPreviewBoth(prev => buildPreview(prev ?? rows, activeKey, overId));
+  }
 
-    if (overId.startsWith("gap:")) {
-      const before = overId.slice(4);
-      onChange(dropIntoNewRow(rows, dragId, before === "end" ? null : before));
-    } else if (overId.startsWith("row:")) {
-      onChange(dropIntoRow(rows, dragId, overId.slice(4)));
+  function handleDragEnd() {
+    const final = previewRef.current;
+    if (final) {
+      // Swap the transient drag-row id for a permanent one, then persist.
+      const committed = normalizeRows(final).map(r =>
+        r.id === DRAG_ROW_ID ? { ...r, id: genRowId() } : r,
+      );
+      onChange(committed);
     }
+    setActiveId(null);
+    setPreviewBoth(null);
+  }
+
+  function handleDragCancel() {
+    setActiveId(null);
+    setPreviewBoth(null);
   }
 
   if (rows.length === 0 && !editMode) {
@@ -878,37 +1535,39 @@ function Canvas({
   }
 
   const dragging = activeId !== null;
-  // A row can accept the dragged widget if there's an open narrow slot.
-  const canAcceptInRow = (row: HomeRow) =>
-    !!activeWidget && activeWidget.colSpan !== 2 && !rowFull(row) &&
-    !row.cols.some(c => c.toolId === activeId);
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={pointerWithin}
+      collisionDetection={canvasCollision}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
-      {editMode && rows.length > 0 && (
+      {editMode && (rows.length > 0 || dragging) && (
         <p className="mb-2 text-[11px] text-muted-foreground/45">
-          Drag a widget onto another to pair them, or onto a blue line to drop it on its own row. Use ⤢ for full width.
+          Drag a widget onto another to pair them up (up to 3 across), or into a gap to give it its own full-width row.
         </p>
       )}
       <div className={cn(!editMode && "space-y-3")}>
-        {rows.map(row => (
+        {view.map(row => (
           <Fragment key={row.id}>
-            {editMode && <InsertLine id={`gap:${row.id}`} active={dragging} />}
-            <DroppableRow
+            {/* No gap directly above the in-flight placeholder row — otherwise the
+                pointer hovering it would eject the placeholder and flicker. */}
+            {editMode && row.id !== DRAG_ROW_ID && (
+              <GapDrop id={`before:${row.id}`} dragging={dragging} />
+            )}
+            <WidgetRow
               row={row}
               editMode={editMode}
-              canAccept={canAcceptInRow(row)}
+              activeId={activeId}
               onRemoveWidget={onRemoveWidget}
-              onToggleWide={onToggleWide}
             />
           </Fragment>
         ))}
-        {editMode && <InsertLine id="gap:end" active={dragging} />}
+        {editMode && <GapDrop id="end" dragging={dragging} />}
       </div>
       {editMode && (
         <button
@@ -921,8 +1580,8 @@ function Canvas({
       )}
       <DragOverlay dropAnimation={null}>
         {activeWidget ? (
-          <div className="rotate-1 opacity-95 shadow-2xl">
-            {renderWidget(activeWidget.toolId)}
+          <div className="rotate-1 opacity-95 shadow-2xl pointer-events-none">
+            {renderWidget(activeWidget, activeMode)}
           </div>
         ) : null}
       </DragOverlay>
@@ -1105,35 +1764,15 @@ export function HomePage() {
   }, [layout, draftRows, save]);
 
   const handleRemoveWidget = useCallback((toolId: string) => {
-    setDraftRows(prev => removeFromRows(prev, toolId));
+    setDraftRows(prev => normalizeRows(
+      prev.map(r => ({ ...r, cols: r.cols.filter(c => c.toolId !== toolId) })),
+    ));
   }, []);
 
-  // Toggling a widget to full width splits it onto its own row when it shares one.
-  const handleToggleWide = useCallback((toolId: string) => {
-    setDraftRows(prev => {
-      const row = prev.find(r => r.cols.some(c => c.toolId === toolId));
-      const col = row?.cols.find(c => c.toolId === toolId);
-      if (!row || !col) return prev;
-      const makingWide = col.colSpan !== 2;
-
-      if (makingWide && row.cols.length > 1) {
-        const remaining: HomeRow = { ...row, cols: row.cols.filter(c => c.toolId !== toolId) };
-        const wideRow: HomeRow = { id: genRowId(), cols: [{ ...col, colSpan: 2 }] };
-        return prev.flatMap(r => (r.id === row.id ? [remaining, wideRow] : [r]));
-      }
-      return prev.map(r =>
-        r.id !== row.id ? r : {
-          ...r,
-          cols: r.cols.map(c =>
-            c.toolId === toolId ? { ...c, colSpan: makingWide ? (2 as const) : (1 as const) } : c,
-          ),
-        },
-      );
-    });
-  }, []);
-
+  // New widgets land on their own full-width row (row mode); drag them into an
+  // existing row afterwards to pair them up.
   const handlePickWidget = useCallback((toolId: string) => {
-    setDraftRows(prev => [...prev, { id: genRowId(), cols: [{ toolId, colSpan: 1 as const }] }]);
+    setDraftRows(prev => [...prev, { id: genRowId(), cols: [{ toolId, colSpan: 2 as const }] }]);
   }, []);
 
   const openPicker = useCallback(() => {
@@ -1158,7 +1797,8 @@ export function HomePage() {
   const activeRows = editMode ? draftRows : layout.canvas;
 
   const showJokes   = layout.header.jokes;
-  const showSports  = layout.header.sports;
+  const tickerCfg   = resolveTickerConfig(layout.header);
+  const showTicker  = tickerCfg.enabled && tickerCfg.sources.length > 0;
 
   return (
     <div className="min-h-full bg-background">
@@ -1193,8 +1833,8 @@ export function HomePage() {
         </div>
       </div>
 
-      {/* ── Sports ticker ── */}
-      {showSports && <SportsTicker />}
+      {/* ── Ticker ── */}
+      {showTicker && <HomeTicker config={tickerCfg} />}
 
       {/* ── Canvas zone ── */}
       <div className={cn(
@@ -1241,7 +1881,6 @@ export function HomePage() {
           onChange={setDraftRows}
           onRemoveWidget={handleRemoveWidget}
           onAddWidget={openPicker}
-          onToggleWide={handleToggleWide}
         />
       </div>
 

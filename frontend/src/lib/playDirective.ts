@@ -12,6 +12,7 @@ export interface PlayMediaDirective {
   videoId?: string
   title?: string
   artist?: string | null
+  channelThumb?: string | null
   thumbnail?: string | null
   durationSec?: number | null
   // station
@@ -23,7 +24,7 @@ export interface PlayDirectiveDeps {
   /** YoutubePlaybackContext.playExpanded — docks + expands one clip. */
   playExpanded: (t: YtMiniTrack) => void
   /** RadioContext.start — begins an AI radio station. */
-  startStation: (s: DjStation) => void
+  startStation: (s: DjStation, opts?: { silentIntro?: boolean }) => void
 }
 
 /** Parse an unknown SSE payload into a PlayMediaDirective, or null if it isn't one. */
@@ -43,6 +44,7 @@ export function applyPlayDirective(directive: PlayMediaDirective, deps: PlayDire
       videoId: directive.videoId,
       title: directive.title ?? 'Now playing',
       author: directive.artist ?? null,
+      channelThumb: directive.channelThumb ?? null,
       thumbnail: directive.thumbnail ?? undefined,
       durationSec: directive.durationSec ?? null,
     })
@@ -50,6 +52,6 @@ export function applyPlayDirective(directive: PlayMediaDirective, deps: PlayDire
   }
   if (directive.media === 'station' && directive.seed) {
     const type = directive.seedType === 'artist' ? 'artist' : directive.seedType === 'song' ? 'song' : 'genre'
-    deps.startStation(instantStationDj({ type, value: directive.seed }))
+    deps.startStation(instantStationDj({ type, value: directive.seed }), { silentIntro: true })
   }
 }

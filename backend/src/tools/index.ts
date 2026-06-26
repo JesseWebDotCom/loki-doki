@@ -17,6 +17,7 @@ export interface PlayMediaDirective {
   videoId?: string
   title?: string
   artist?: string | null
+  channelThumb?: string | null
   thumbnail?: string | null
   durationSec?: number | null
   // ── station ──────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { acquireAudio, registerMediaStop } from '@/lib/mediaCoordinator'
 
 /** A video handed off to the docked mini-player when you navigate away mid-watch. */
 export interface YtMiniTrack {
@@ -56,21 +57,6 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
   const [positionSec, setPositionSec] = useState(0)
   const [expandRequest, setExpandRequest] = useState(0)
 
-  const dock = useCallback((q: YtMiniTrack[], i: number, start: number) => {
-    setQueue(q)
-    setIndex(Math.max(0, Math.min(i, q.length - 1)))
-    setStartSec(start)
-    setPositionSec(start)
-  }, [])
-
-  const playExpanded = useCallback((t: YtMiniTrack) => {
-    setQueue([t])
-    setIndex(0)
-    setStartSec(0)
-    setPositionSec(0)
-    setExpandRequest((n) => n + 1)
-  }, [])
-
   const next = useCallback(() => {
     setIndex(i => {
       if (i + 1 >= queue.length) return i
@@ -90,6 +76,25 @@ export function YoutubePlaybackProvider({ children }: { children: ReactNode }) {
   const reportPosition = useCallback((sec: number) => setPositionSec(sec), [])
   const close = useCallback(() => { setQueue([]); setIndex(0); setPositionSec(0) }, [])
   const clearDock = useCallback(() => { setQueue([]); setIndex(0) }, [])
+
+  useEffect(() => registerMediaStop('youtube', close), [close])
+
+  const dock = useCallback((q: YtMiniTrack[], i: number, start: number) => {
+    acquireAudio('youtube')
+    setQueue(q)
+    setIndex(Math.max(0, Math.min(i, q.length - 1)))
+    setStartSec(start)
+    setPositionSec(start)
+  }, [])
+
+  const playExpanded = useCallback((t: YtMiniTrack) => {
+    acquireAudio('youtube')
+    setQueue([t])
+    setIndex(0)
+    setStartSec(0)
+    setPositionSec(0)
+    setExpandRequest((n) => n + 1)
+  }, [])
 
   const track = queue[index] ?? null
   const value = useMemo<YoutubePlaybackCtx>(() => ({

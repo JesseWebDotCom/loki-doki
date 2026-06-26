@@ -1,5 +1,6 @@
 import {
-  CalendarDays, CloudSun, Laugh, Newspaper, Trophy, type LucideIcon,
+  Bookmark, CalendarDays, CirclePlay, CloudSun, Headphones, Laugh, ListVideo, Music,
+  Newspaper, PlaySquare, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
 /**
@@ -24,6 +25,11 @@ export interface WidgetMeta {
   toolId?: string;
   /** Teaser: shown dimmed + non-addable in the picker. */
   comingSoon?: boolean;
+  /**
+   * When true, expanding this widget to full-width (colSpan=2) switches it to
+   * a horizontal card-strip "row" layout instead of a vertical list.
+   */
+  supportsRowMode?: boolean;
 }
 
 export const HOME_WIDGETS: WidgetMeta[] = [
@@ -39,7 +45,7 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     description: "Latest local & global headlines",
     icon: Newspaper, color: "#14b8a6",
     gradient: "linear-gradient(135deg,#1e3a5f,#1a5c4a)",
-    allowWide: true, toolId: "news",
+    allowWide: true, toolId: "news", supportsRowMode: true,
   },
   {
     id: "sports", title: "Scores",
@@ -61,6 +67,55 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     icon: Laugh, color: "#d97706",
     gradient: "linear-gradient(135deg,#78350f,#d97706)",
     allowWide: false, toolId: "jokes",
+  },
+  {
+    id: "yt-subs", title: "Subscriptions",
+    description: "Latest from your YouTube subscriptions",
+    icon: PlaySquare, color: "#dc2626",
+    gradient: "linear-gradient(135deg,#7f1d1d,#dc2626)",
+    allowWide: true, toolId: "youtube", supportsRowMode: true,
+  },
+  {
+    id: "music", title: "Music",
+    description: "Recently played & favorite stations",
+    icon: Music, color: "#f97316",
+    gradient: "linear-gradient(135deg,#f97316,#fb923c)",
+    allowWide: true,
+  },
+  {
+    id: "bookmarks-recent", title: "Bookmarks",
+    description: "Recently saved articles & links",
+    icon: Bookmark, color: "#8b5cf6",
+    gradient: "linear-gradient(135deg,#3b0764,#7c3aed)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "podcasts-recent", title: "New Episodes",
+    description: "Latest episodes from your podcast shows",
+    icon: Headphones, color: "#6366f1",
+    gradient: "linear-gradient(135deg,#1e1b4b,#4338ca)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "podcasts-continue", title: "Continue Listening",
+    description: "Pick up where you left off",
+    icon: CirclePlay, color: "#14b8a6",
+    gradient: "linear-gradient(135deg,#042f2e,#0f766e)",
+    allowWide: true,
+  },
+  {
+    id: "watchlist", title: "Watchlist",
+    description: "Shows & movies you want to watch",
+    icon: Tv, color: "#f43f5e",
+    gradient: "linear-gradient(135deg,#4c0519,#be123c)",
+    allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "podcasts-shows", title: "My Shows",
+    description: "Your podcast library at a glance",
+    icon: ListVideo, color: "#a78bfa",
+    gradient: "linear-gradient(135deg,#2e1065,#6d28d9)",
+    allowWide: true, supportsRowMode: true,
   },
 ];
 

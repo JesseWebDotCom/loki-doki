@@ -18,7 +18,7 @@ import { CompanionComposer } from './CompanionComposer'
 import { useCompanionVoice } from '@/hooks/useCompanionVoice'
 import { useEmoteMood } from '@/hooks/useEmoteMood'
 import { useMood } from '@/lib/voice/moodStore'
-import { useHandsFree } from '@/hooks/useHandsFree'
+import { useHandsFree, isStopCommand } from '@/hooks/useHandsFree'
 import { useVoicePlaying, useCharacterCaption, useStreamingSentenceCaption, stopSpeech, getVoicePlayback } from '@/lib/voice/voicePlaybackStore'
 import { useVoiceOwner, setVoiceWants } from '@/lib/voice/voiceOwnership'
 import { toast } from '@/lib/toast'
@@ -332,6 +332,16 @@ export function CompanionOverlay() {
       if (reason === 'models-missing') toast.error('Wake word models not installed — enable in Admin → Voice')
       else toast.error('Microphone access denied — check browser permissions')
     },
+    onStopCommand: (wasTalking) => {
+      // Always abort in-flight generation so the LLM doesn't re-queue more TTS.
+      if (isOnChat) chat.stop()
+      else companion.cancel()
+      // Stop media only when the companion wasn't the one playing audio.
+      if (!wasTalking) {
+        if (radio.active) radio.stop()
+        if (youtube.track) youtube.close()
+      }
+    },
   })
 
   // Effective talk/think signals (chat records; companion stream is ephemeral).
@@ -569,6 +579,15 @@ export function CompanionOverlay() {
   }, [])
 
   const handleSend = useCallback(async (text: string, attachments?: File[]) => {
+    // Intercept stop commands when something is active — never let a bare "stop" reach the LLM.
+    if (isStopCommand(text) && (streaming || audioPlaying || radio.active || !!youtube.track)) {
+      if (isOnChat) chat.stop()
+      else companion.cancel()
+      stopSpeech()
+      if (radio.active) radio.stop()
+      if (youtube.track) youtube.close()
+      return
+    }
     // Fall back to the first available companion when none is explicitly selected,
     // matching BottomTabBar behaviour so the bar always responds off-chat.
     const charId = character?.id ?? companions[0]?.id
@@ -599,7 +618,7 @@ export function CompanionOverlay() {
         companion.submit(text, charId, getContextBlock())
       }
     }
-  }, [character, companions, chat, companion, isOnChat, getContextBlock, voiceMode, pathname, navigate])
+  }, [character, companions, chat, companion, isOnChat, getContextBlock, voiceMode, pathname, navigate, streaming, audioPlaying, radio, youtube])
   handleSendRef.current = handleSend
 
   // The composer shows Stop while EITHER generating text OR still speaking audio,

@@ -142,7 +142,7 @@ export const tvShowsTool: Tool = {
     'information about a specific television series by name',
     'how many seasons or episodes does a show have',
     'is a TV show still running or cancelled',
-    'recommend or find a TV series to watch',
+    'look up a TV show by name — cast, seasons, network, and status',
   ],
   toolDefinition: {
     type: 'function',

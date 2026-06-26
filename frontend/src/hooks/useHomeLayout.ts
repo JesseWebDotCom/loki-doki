@@ -10,10 +10,17 @@ export interface HomeRow {
   cols: HomeWidget[]
 }
 
+export type TickerSource = 'sports' | 'youtube' | 'news' | 'podcast'
+
+export interface TickerConfig {
+  enabled: boolean
+  sources: TickerSource[]
+}
+
 export interface HomeLayoutHeader {
   weather: boolean
   jokes: boolean
-  sports: boolean
+  ticker: TickerConfig
   locked: boolean
 }
 
@@ -22,11 +29,20 @@ export interface HomeLayout {
   canvas: HomeRow[]
 }
 
+const ALL_TICKER_SOURCES: TickerSource[] = ['sports', 'youtube', 'news']
+
+/** Handles old stored layouts that have `header.sports: boolean` instead of `header.ticker`. */
+export function resolveTickerConfig(header: HomeLayoutHeader): TickerConfig {
+  if (header.ticker) return header.ticker
+  const legacySports = (header as unknown as { sports?: boolean }).sports
+  return { enabled: legacySports !== false, sources: legacySports !== false ? ALL_TICKER_SOURCES : [] }
+}
+
 // Fallback shown only until /api/home-layout responds. Mirrors the backend's
 // default so a fresh user never flashes an empty home; the server's resolved
 // layout (system default or the user's own) replaces this on load.
 const DEFAULT_LAYOUT: HomeLayout = {
-  header: { weather: true, jokes: true, sports: true, locked: false },
+  header: { weather: true, jokes: true, ticker: { enabled: true, sources: ALL_TICKER_SOURCES }, locked: false },
   canvas: [
     { id: 'default-news', cols: [{ toolId: 'news', colSpan: 2 }] },
     { id: 'default-on-this-day', cols: [{ toolId: 'on-this-day', colSpan: 2 }] },

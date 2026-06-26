@@ -137,12 +137,6 @@ export function YoutubeMiniBar() {
   useEffect(() => { if (hidden) { setExpanded(false); setWin(null) } }, [hidden])
   useEffect(() => { setFavErr(false) }, [track?.videoId])
 
-  // Radio and YouTube are mutually exclusive audio — docking a video stops the station.
-  useEffect(() => { if (track && radio.active) radio.stop() }, [track?.videoId]) // eslint-disable-line react-hooks/exhaustive-deps
-  // ...and conversely, starting the radio closes any docked YouTube video, so the music doesn't
-  // play behind the YouTube mini-bar. Keyed on the radio becoming active / changing song.
-  useEffect(() => { if (radio.active && track) pb.close() }, [radio.active, radio.currentTrack?.videoId]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // Show the AI-Radio controller when a station is live, nothing's docked in the YT
   // player, and we're not already on the full radio tab.
   const onRadioTab = location.pathname === '/music' && new URLSearchParams(location.search).get('tab') === 'radio'

@@ -58,7 +58,7 @@ const MAX_CONTINUATIONS = 3
 // Stop commands end the turn immediately — kill TTS + exit to idle. Matched only
 // on short utterances so "stop by the store" isn't treated as a stop.
 const STOP_RE = /\b(stop|cancel|quiet|enough|nevermind|never mind|shut up|go away)\b/
-function isStopCommand(text: string): boolean {
+export function isStopCommand(text: string): boolean {
   const t = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
   return !!t && t.split(' ').length <= 4 && STOP_RE.test(t)
 }
@@ -70,6 +70,10 @@ export interface UseHandsFreeOptions {
   wakeWordPhrase?: string | null
   submit: (text: string) => void
   onEngageFailed?: (reason: 'mic-denied' | 'models-missing') => void
+  /** Called when a stop command is recognised. `wasTalking` is true if TTS was
+   *  actively playing at the moment "stop" was heard (so callers can distinguish
+   *  "stop the companion" from "stop the music/video"). */
+  onStopCommand?: (wasTalking: boolean) => void
 }
 
 export interface UseHandsFreeResult {
@@ -79,9 +83,11 @@ export interface UseHandsFreeResult {
 }
 
 export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
-  const { enabled, characterId, wakeWordModelId, wakeWordPhrase, submit, onEngageFailed } = opts
+  const { enabled, characterId, wakeWordModelId, wakeWordPhrase, submit, onEngageFailed, onStopCommand } = opts
   const onEngageFailedRef = useRef(onEngageFailed)
   onEngageFailedRef.current = onEngageFailed
+  const onStopCommandRef = useRef(onStopCommand)
+  onStopCommandRef.current = onStopCommand
   const [state, setStateRaw] = useState<HandsFreeState>('off')
   const [partial, setPartial] = useState('')
 
@@ -153,9 +159,11 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
           setPartial('')
           // Stop command — works in any active state: kill TTS + exit to idle.
           if (isStopCommand(text)) {
+            const wasTalking = getVoicePlayback().isPlaying
             stopSpeech()
             continuationCountRef.current = 0
             dispatch({ type: 'stop_command' })
+            onStopCommandRef.current?.(wasTalking)
             return
           }
           if (stateRef.current !== 'capturing') {
@@ -270,6 +278,14 @@ export function useHandsFree(opts: UseHandsFreeOptions): UseHandsFreeResult {
         if (captureTimeoutRef.current) { clearTimeout(captureTimeoutRef.current); captureTimeoutRef.current = null }
         closeStt()
         setPartial('')
+        if (isStopCommand(cmd)) {
+          const wasTalking = getVoicePlayback().isPlaying
+          stopSpeech()
+          continuationCountRef.current = 0
+          dispatch({ type: 'stop_command' })
+          onStopCommandRef.current?.(wasTalking)
+          return
+        }
         if (st === 'wake-detected') dispatch({ type: 'capture_open' })
         dispatch({ type: 'stt_final' })
         submitRef.current(cmd)

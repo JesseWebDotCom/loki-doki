@@ -255,6 +255,18 @@ export async function routePrompt(
     }
   }
 
+  // Fast path: natural-language directions requests ("how do I get to X", "navigate to Y").
+  // Must fire BEFORE SEARCH_INTENT_RE because "how do" in that regex would otherwise
+  // funnel directions queries to web search instead of the offline maps tool.
+  const MAPS_DIRECTIONS_RE = /\b(?:how (?:do i|can i) (?:get|go|drive|walk) (?:to|from)|get (?:me )?directions? to|navigate to)\b/i
+  if (MAPS_DIRECTIONS_RE.test(prompt)) {
+    const mapsTool = toolRegistry.find((t) => t.id === 'maps')
+    if (mapsTool && model) {
+      logger.info(`[ROUTER] path=maps-directions msg="${excerpt}"`)
+      return tier2Call(model, prompt, history, [mapsTool])
+    }
+  }
+
   // Fast path: regex beats embeddings for information-seeking patterns.
   // "what is X / who is X / tell me about X" are unambiguously search queries.
   // No score check needed — the regex itself is the gate. Skips the embed call too.

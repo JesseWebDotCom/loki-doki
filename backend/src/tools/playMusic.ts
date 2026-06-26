@@ -10,8 +10,11 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 // music video, trailer, or theme). The optional `type` (set by the Tier-2 LLM)
 // overrides the heuristic when present.
 
-// "play this one clip" markers — a request that names a concrete video.
-const VIDEO_MARKER_RE = /\b(trailer|teaser|music video|official video|lyric videos?|lyrics? video|theme song|theme (?:from|to|for|song)|opening|full episode|clip|scene|interview|highlights?|the video for|music video for)\b/i
+// "play this one clip" markers — a request that names a concrete video. A bare
+// "video"/"videos" counts too: "play a video on …" means resolve one clip, not
+// seed a station. Instructional phrasing ("how to", "tutorial", "documentary")
+// is likewise a one-clip request, not a music vibe.
+const VIDEO_MARKER_RE = /\b(videos?(?!\s+games?)|trailer|teaser|music video|official video|lyric videos?|lyrics? video|theme song|theme (?:from|to|for|song)|opening|full episode|clip|scene|interview|highlights?|the video for|music video for|how-?to|tutorials?|documentary|documentaries)\b/i
 // "keep it going" markers — the user wants a station/stream, not a single track.
 const STATION_MARKER_RE = /\b(station|radio|playlist|a mix|mix of|nonstop|non-?stop|channel|stream of)\b/i
 // "by <artist>" / quoted titles → a specific song the user wants to hear now.
@@ -115,8 +118,11 @@ function classify(query: string, type?: string): PlayKind {
   // not one clip → an artist radio station seeded by the name.
   if (SOME_MARKER_RE.test(raw)) return { media: 'station', seedType: 'artist', seed: subject || raw }
 
-  // Default: treat it as a specific song/title and play the top result.
-  return { media: 'video', searchQuery: videoQuery }
+  // Default: start a station seeded by the artist/song/vibe. "play X" without an
+  // explicit video/youtube/trailer keyword means the user wants music to keep
+  // playing, not a single video. Users who want a specific video say "the music
+  // video for X", "X trailer", "X by Y" (caught above), etc.
+  return { media: 'station', seedType: 'artist', seed: subject || raw }
 }
 
 // Scope a YouTube query so the right content surfaces. Requests that already name
@@ -235,11 +241,15 @@ export const playMusicTool: Tool = {
         videoId: top.videoId,
         title: top.title,
         artist: top.author ?? null,
+        channelThumb: top.channelThumb ?? null,
         thumbnail: `https://i.ytimg.com/vi/${top.videoId}/hqdefault.jpg`,
         durationSec: top.durationSec ?? null,
       }
 
-      const playing = `"${top.title}"${top.author ? ` by ${top.author}` : ''}`
+      // Use directReply (bypasses the LLM entirely) so the ack appears before the
+      // video audio kicks in — no 1-3s synthesis delay talking over the trailer.
+      const VIDEO_ACKS = ['On it.', 'Here you go.', 'Got it.', 'Coming right up.']
+      const directReply = VIDEO_ACKS[Math.floor(Math.random() * VIDEO_ACKS.length)]!
       return {
         success: true,
         data: {
@@ -252,10 +262,7 @@ export const playMusicTool: Tool = {
           videos: results,
         },
         directive,
-        synthesisHint:
-          `[Now playing]: You just put ${playing} on for them — it's already playing in the mini-player. ` +
-          `React the way a friend would when they queue up a track someone asked for: one short, warm, in-character line (a quick aside about the song or artist is great). ` +
-          `Do NOT ask which song they meant or offer alternatives — it's already playing.`,
+        directReply,
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'TimeoutError') {

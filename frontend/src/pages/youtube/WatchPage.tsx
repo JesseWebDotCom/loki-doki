@@ -26,6 +26,7 @@ import { parseVtt, type TranscriptLine } from '@/lib/youtube/transcript'
 import { toggleCollection, useCollection } from '@/lib/youtube/collections'
 import { useDeArrow } from '@/lib/youtube/dearrow'
 import { useYoutubePlayback, type YtMiniTrack } from '@/context/YoutubePlaybackContext'
+import { acquireAudio } from '@/lib/mediaCoordinator'
 
 /** A feed/related item → a mini-player queue entry. */
 const toMiniTrack = (v: VideoItem): YtMiniTrack => ({
@@ -104,8 +105,8 @@ export function WatchPage() {
   const channelThumb = meta?.channelThumb ?? feedItem?.channelThumb ?? navState.channelThumb ?? null
   const resumeSec = (adopt != null ? adopt : meta?.positionSec) ?? 0
 
-  // Landing on a watch page means a full player owns playback — stop any docked mini.
-  useEffect(() => { if (pb.track) pb.clearDock() }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Landing on a watch page means a full player owns playback — stop any other audio source.
+  useEffect(() => { acquireAudio('youtube'); if (pb.track) pb.clearDock() }, [videoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const upNext = useMemo(() => {

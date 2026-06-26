@@ -499,7 +499,7 @@ export class RadioEngine {
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
-  async start(station: DjStation) {
+  async start(station: DjStation, { silentIntro = false }: { silentIntro?: boolean } = {}) {
     this.stop()
     this.ensureAudio()
     this.unlock()   // synchronous — must happen inside the click gesture
@@ -519,24 +519,26 @@ export class RadioEngine {
     if (this.stale(runId)) return
     if (!songs.length) { this.stop(); return }
 
-    // The first song is its own bed: it plays on a deck at a low bed level the moment the station
-    // starts, the DJ talks over it, then it swells to full. One stream, the proven deck path.
     this.deck = 0
     this.set({ queue: songs, loading: false, phase: 'intro', index: 0, currentTrack: null, nextTrack: songs[0]! })
 
     this.cueSrc(0, songs[0]!.videoId)            // src + ramp to 0
     await this.playDeck(0)                        // start it (retries on transient errors)
     if (this.stale(runId)) return
-    // Silent stations open at full volume (no DJ to bed under); otherwise duck to a bed level.
-    this.ramp(this.deckKey(0), this.effectiveDjMode() === 'silent' ? 1 : INTRO_BED, 900)
 
-    // Generate the DJ intro while the song beds underneath, then talk over it and fade up.
-    const intro = await this.prepareDj({ station, track: songs[0]!, position: 'intro' })
-    if (this.stale(runId)) return
-    await this.introOverSong(runId, 0, intro)
-    if (this.stale(runId)) return
-    // Song now owns the mix → it's Now Playing.
-    this.set({ currentTrack: songs[0]!, djSpeaking: false, djText: null })
+    if (silentIntro || this.effectiveDjMode() === 'silent') {
+      // Skip DJ intro — song opens at full volume immediately.
+      this.ramp(this.deckKey(0), 1, 900)
+      this.set({ currentTrack: songs[0]!, djSpeaking: false, djText: null })
+    } else {
+      // The first song is its own bed: DJ talks over it, then it swells to full.
+      this.ramp(this.deckKey(0), INTRO_BED, 900)
+      const intro = await this.prepareDj({ station, track: songs[0]!, position: 'intro' })
+      if (this.stale(runId)) return
+      await this.introOverSong(runId, 0, intro)
+      if (this.stale(runId)) return
+      this.set({ currentTrack: songs[0]!, djSpeaking: false, djText: null })
+    }
 
     await this.playFrom(runId, station, songs)
   }
