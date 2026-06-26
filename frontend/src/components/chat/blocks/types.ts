@@ -124,6 +124,14 @@ export interface ImageGenBlockData {
   status: 'building' | 'ready' | 'failed' | 'cancelled'
 }
 
+export interface DocumentEditBlockData {
+  filename: string
+  editedFilename: string
+  instruction: string
+  text: string
+  downloadUrl: string
+}
+
 export interface WhereToWatchProvider {
   name: string
   offerType: string
@@ -223,3 +231,4 @@ export type Block =
   | { kind: 'where_to_watch'; data: WhereToWatchBlockData }
   | { kind: 'holidays'; data: HolidaysBlockData }
   | { kind: 'play_music'; data: PlayMusicBlockData }
+  | { kind: 'document_edit'; data: DocumentEditBlockData }

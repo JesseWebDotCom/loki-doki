@@ -27,6 +27,15 @@ const CONVERSATIONAL_THRESHOLD = 0.40
 // "how do I / how to" (routes to youtube/recipes) and "when is" (routes to datetime).
 const SEARCH_INTENT_RE = /\b(what is|what are|what was|what were|who is|who was|who are|who played|who starred|who directed|who wrote|who sang|who voiced|who invented|who created|who founded|who made|tell me about|tell me more about|explain to me|explain what|how does|how do|how did|how many|how much|how long|how far|how tall|how old|how big|when did|when was|when were|where is|where was|where are|where were|where did|have you heard of|do you know about|what happened to|what's up with|search for|look up|find out about|can you find out|can you look up|can you search)\b/i
 
+// Explicit playback commands → always route to play_music, which then decides
+// song vs. music video vs. radio station. Embeddings alone miss misspelled
+// artists ("play some zepplin") and let Tier-2 escalate to a conversational
+// reply, so the companion roleplays "which one?" instead of just playing it.
+// Anchored near the start so "I went out to play" etc. don't trip it.
+const PLAY_INTENT_RE = /^(?:(?:hey|ok|okay|yo)\b[\s,]+\w+[\s,!]+)?(?:can you|could you|would you|will you|please|i(?:'?d| would)?\s+(?:like|want|wanna)(?:\s+to)?|let'?s|go ahead and|now)?[\s,]*(?:play|put on|throw on|spin up|fire up|queue up|start playing|listen to)\b/i
+// …but not non-media uses of "play" (games, instruments, sports).
+const NOT_MEDIA_PLAY_RE = /\bplay(?:ing)?\s+(?:a\s+|some\s+)?(?:game|games|chess|checkers|cards|a\s+round|outside|sports?|football|basketball|tag|the\s+(?:guitar|piano|drums|violin|keyboard))\b/i
+
 // A message shaped like a question — leads with an interrogative or ends with "?".
 // Used so a LOW-confidence question still escalates to Tier 2 (which always includes
 // search) instead of dropping to the conversational "no tool → answer from memory"
@@ -90,7 +99,8 @@ Tool selection rules:
 - dictionary: what a word means, its definition, pronunciation, or etymology.
 - news: current events, headlines, or what is happening in the world right now.
 - recipes: cooking questions, recipe requests, or "what can I make with X?".
-- youtube: requests to find a video, watch something, or "show me how to X".
+- youtube: requests to FIND or SEARCH for a video, or "show me how to X" — browsing, not immediate playback. Do NOT use for "play X" (use play_music).
+- play_music: requests to PLAY or PUT ON something now — a specific song, music video, movie/show trailer, theme song, an artist, a genre/mood, or a radio station. "play X", "put on X", "start an X station", "play the X trailer", "play the X music video". Prefer this over youtube whenever the user says play/put on.
 - unit_conversion: converting between units of measurement.
 - jokes: requests for a joke, humor, or to cheer the user up.
 - datetime: read-only date/time questions: current date, time, day of week, days until/since an event, or timezone queries. NOT for creating alarms or timers (use alarms_timers).
@@ -162,6 +172,17 @@ export async function initRouter(): Promise<void> {
   logger.info(`[router] index built and cached (${toolRegistry.reduce((n, t) => n + t.examples.length, 0)} examples)`)
 }
 
+// Lazy self-heal: in dev, Bun's hot-reload re-evaluates this module and resets the
+// in-memory `routeIndex` to [], but initRouter() only runs once at boot — so every
+// route would silently fall through to "no tool" until a full restart. Repopulate
+// from the on-disk cache (or rebuild) on first use if the index is empty.
+let initPromise: Promise<void> | null = null
+async function ensureRouter(): Promise<void> {
+  if (routeIndex.length > 0) return
+  if (!initPromise) initPromise = initRouter().catch((e) => { initPromise = null; throw e })
+  await initPromise
+}
+
 // Routes a prompt through a two-tier cascade:
 //   Tier 1: confident match (≥ SIMILARITY_THRESHOLD) → direct tool + arg passthrough, no LLM
 //   Tier 2: everything else → LLM decides (top-N candidates + search always included)
@@ -173,7 +194,11 @@ export async function routePrompt(
   history: OllamaChatMessage[] = [],
   model?: string,
 ): Promise<{ tool: Tool | null; args: unknown }> {
-  if (routeIndex.length === 0) return { tool: null, args: {} }
+  // Repopulate the index if a hot-reload wiped it (no-op once warm).
+  if (routeIndex.length === 0) {
+    try { await ensureRouter() } catch { /* embed model not ready — degrade below */ }
+    if (routeIndex.length === 0) return { tool: null, args: {} }
+  }
 
   const excerpt = prompt.slice(0, 60).replace(/\n/g, ' ')
 
@@ -217,6 +242,16 @@ export async function routePrompt(
     if (searchTool) {
       logger.info(`[ROUTER] path=continuation→tier2 msg="${excerpt}"`)
       return tier2Call(model, prompt, history, [searchTool])
+    }
+  }
+
+  // Fast path: an explicit "play X" / "put on X" command always goes to play_music.
+  // The tool itself classifies song vs. video vs. station, so passthrough is enough.
+  if (PLAY_INTENT_RE.test(prompt) && !NOT_MEDIA_PLAY_RE.test(prompt)) {
+    const playTool = toolRegistry.find((t) => t.id === 'play_music')
+    if (playTool) {
+      logger.info(`[ROUTER] path=play-intent msg="${excerpt}"`)
+      return { tool: playTool, args: playTool.passMessage ? { [playTool.passMessage]: prompt } : {} }
     }
   }
 

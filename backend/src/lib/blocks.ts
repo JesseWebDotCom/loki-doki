@@ -122,6 +122,19 @@ export interface ImageGenBlockData {
   status: 'building' | 'ready' | 'failed' | 'cancelled'
 }
 
+export interface DocumentEditBlockData {
+  /** Original uploaded filename, e.g. "report.docx". */
+  filename: string
+  /** Suggested filename for the edited download, e.g. "report-edited.txt". */
+  editedFilename: string
+  /** The instruction the user asked for (verbatim message). */
+  instruction: string
+  /** The full edited document text. */
+  text: string
+  /** Durable server endpoint to download the edited file (survives reload). */
+  downloadUrl: string
+}
+
 export interface WhereToWatchProvider {
   name: string
   offerType: string
@@ -221,3 +234,4 @@ export type Block =
   | { kind: 'where_to_watch'; data: WhereToWatchBlockData }
   | { kind: 'holidays'; data: HolidaysBlockData }
   | { kind: 'play_music'; data: PlayMusicBlockData }
+  | { kind: 'document_edit'; data: DocumentEditBlockData }

@@ -1,4 +1,4 @@
-import { Pause, Play, SkipForward, X, Loader2, Mic, AudioLines } from 'lucide-react'
+import { Pause, Play, SkipForward, X, Loader2, Mic, AudioLines, MonitorPlay } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { proxyImg } from '@/lib/img'
@@ -103,6 +103,11 @@ export function RadioMiniBar() {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <button onClick={() => navigate(station?.stationId ? `/music/watch/${station.stationId}` : '/music/watch/current')}
+                className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"
+                aria-label="Watch video" title="Switch to video">
+                <MonitorPlay className="size-4" />
+              </button>
               <button onClick={radio.togglePause}
                 className="grid size-9 place-items-center rounded-full bg-foreground text-background hover:opacity-90"
                 aria-label={paused ? 'Resume' : 'Pause'}>

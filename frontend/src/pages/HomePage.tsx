@@ -25,7 +25,8 @@ import { usePublishUIContext } from "@/context/UIContextProvider";
 import { useAuth } from "@/context/AuthContext";
 import { useWeatherSnapshot } from "@/hooks/useWeatherSnapshot";
 import { useHomeLayout, type HomeRow, type HomeWidget } from "@/hooks/useHomeLayout";
-import { weatherIconSrc, currentMoonPhase, moonPhaseInfo } from "@/lib/weather";
+import { weatherIconSrc, currentMoonPhase, moonPhaseInfo, heroBackground, heroTextClass, SNOW_TEXT, type HeroGradient } from "@/lib/weather";
+import { WeatherHeroBg } from "@/components/weather/WeatherHeroBg";
 import { categoryVisual, compareCategories } from "@/lib/archiveCategories";
 import { APP_GROUPS } from "@/lib/appCategories";
 import { getWidgetMeta, canonicalWidgetId, type WidgetMeta } from "@/lib/homeWidgets";
@@ -52,20 +53,23 @@ interface ToolMeta {
 
 // ── Compact weather widget (header) ──────────────────────────────────────────
 
-function WeatherWidget() {
+function WeatherWidget({ light }: { light?: boolean }) {
   const { snapshot, status } = useWeatherSnapshot();
   const moon = moonPhaseInfo(currentMoonPhase());
   const isDay = snapshot?.isDay ?? true;
 
+  const textMuted = light ? "text-white/80" : "text-muted-foreground";
+  const textFaint = light ? "text-white/55" : "text-muted-foreground/50";
+
   if (status === "loading") {
-    return <Loader2 className="size-4 animate-spin text-muted-foreground/30" />;
+    return <Loader2 className={cn("size-4 animate-spin", light ? "text-white/40" : "text-muted-foreground/30")} />;
   }
 
   if (status !== "ready" || !snapshot) {
     return (
       <Link to="/weather" className="flex flex-col items-end">
         <span className="text-2xl leading-none">⛅</span>
-        <p className="text-[11px] text-muted-foreground mt-0.5">Weather</p>
+        <p className={cn("text-[11px] mt-0.5", textMuted)}>Weather</p>
       </Link>
     );
   }
@@ -82,10 +86,10 @@ function WeatherWidget() {
             </span>
           )}
         </div>
-        <span className="text-[2rem] font-black tabular-nums leading-none">{snapshot.temp}°</span>
+        <span className={cn("text-[2rem] font-black tabular-nums leading-none", light && "text-white drop-shadow")}>{snapshot.temp}°</span>
       </div>
-      <p className="text-xs font-medium text-muted-foreground">{snapshot.info.desc}</p>
-      <p className="text-[10px] text-muted-foreground/50 max-w-[130px] text-right leading-tight truncate">
+      <p className={cn("text-xs font-medium", textMuted)}>{snapshot.info.desc}</p>
+      <p className={cn("text-[10px] max-w-[130px] text-right leading-tight truncate", textFaint)}>
         {snapshot.location}
       </p>
     </Link>
@@ -94,7 +98,7 @@ function WeatherWidget() {
 
 // ── Joke text (inline below greeting) ────────────────────────────────────────
 
-function JokeText() {
+function JokeText({ light }: { light?: boolean }) {
   const [joke, setJoke] = useState<string | null>(null);
 
   useEffect(() => {
@@ -106,7 +110,7 @@ function JokeText() {
 
   if (!joke) return null;
   return (
-    <p className="mt-2.5 text-[13px] italic text-muted-foreground/55 leading-snug">
+    <p className={cn("mt-2.5 text-[13px] italic leading-snug", light ? "text-white/70" : "text-muted-foreground/55")}>
       {joke}
     </p>
   );
@@ -972,6 +976,15 @@ export function HomePage() {
   const { layout, locked, save } = useHomeLayout();
   const { enabledToolIds } = useInstalledTools();
 
+  // Weather background for the header
+  const { snapshot: wxSnap, status: wxStatus } = useWeatherSnapshot();
+  const wxLoaded = wxStatus === 'ready' && !!wxSnap;
+  const wxGradient: HeroGradient = wxSnap?.info.gradient ?? 'partly-cloudy';
+  const wxIsDay = wxSnap?.isDay ?? true;
+  const wxHeroBg = wxLoaded ? heroBackground(wxGradient, wxIsDay) : undefined;
+  const wxTextClass = wxLoaded ? heroTextClass(wxGradient, wxIsDay) : '';
+  const wxLight = wxLoaded && wxTextClass !== SNOW_TEXT;
+
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
   const [draftRows, setDraftRows] = useState<HomeRow[]>([]);
@@ -1151,24 +1164,32 @@ export function HomePage() {
     <div className="min-h-full bg-background">
 
       {/* ── Welcome + weather + joke ── */}
-      <div className="flex items-start justify-between gap-6 px-5 pt-8 pb-5">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/50">
+      <div
+        className="relative flex items-start justify-between gap-6 px-5 pt-8 pb-10 overflow-hidden"
+        style={wxHeroBg ? { background: wxHeroBg } : undefined}
+      >
+        {wxLoaded && <WeatherHeroBg gradient={wxGradient} isDay={wxIsDay} />}
+        {/* bottom fade back to page background */}
+        {wxLoaded && (
+          <div className="absolute inset-x-0 bottom-0 h-16 pointer-events-none z-[1] bg-gradient-to-b from-transparent to-background" />
+        )}
+        <div className={cn("relative z-10 min-w-0 flex-1", wxLoaded && wxTextClass)}>
+          <p className={cn("text-[11px] font-semibold uppercase tracking-[0.15em]", wxLight ? "text-white/60" : wxLoaded ? "text-slate-500" : "text-muted-foreground/50")}>
             {dateStr}
           </p>
-          <h1 className="mt-1.5 text-[2rem] font-black tracking-tight leading-[1.1]">
+          <h1 className={cn("mt-1.5 text-[2rem] font-black tracking-tight leading-[1.1]", wxLight && "text-white drop-shadow")}>
             {greeting}
             {displayName && (
               <>
                 ,{" "}
-                <span className="text-foreground/70">{displayName}</span>
+                <span className={wxLight ? "text-white/75" : wxLoaded ? "text-slate-600" : "text-foreground/70"}>{displayName}</span>
               </>
             )}
           </h1>
-          {showJokes && <JokeText />}
+          {showJokes && <JokeText light={wxLight} />}
         </div>
-        <div className="shrink-0 pt-0.5">
-          <WeatherWidget />
+        <div className="relative z-10 shrink-0 pt-0.5">
+          <WeatherWidget light={wxLight} />
         </div>
       </div>
 

@@ -14,6 +14,8 @@ export function buildBlock(toolId: string, data: unknown): Block | null {
       case 'tvshows':      return buildTvShowBlock(data)
       case 'jokes':        return buildJokeBlock(data)
       case 'image_gen':    return buildImageGenBlock(data)
+      case 'video_gen':    return buildImageGenBlock(data)
+      case 'document_edit': return buildDocumentEditBlock(data)
       case 'where-to-watch': return buildWhereToWatchBlock(data)
       case 'holidays':     return buildHolidaysBlock(data)
       case 'contentRating': return buildContentRatingBlock(data)
@@ -284,6 +286,22 @@ function buildImageGenBlock(data: unknown): Block | null {
       imageId: d.imageId,
       prompt: d.prompt ?? '',
       status: (d.status as 'building' | 'ready' | 'failed' | 'cancelled') ?? 'building',
+    },
+  }
+}
+
+function buildDocumentEditBlock(data: unknown): Block | null {
+  const d = data as { filename?: string; editedFilename?: string; instruction?: string; text?: string; downloadUrl?: string }
+  // Explain-mode results carry no text/filename — no artifact card to render.
+  if (!d.text || !d.filename || !d.downloadUrl) return null
+  return {
+    kind: 'document_edit',
+    data: {
+      filename: d.filename,
+      editedFilename: d.editedFilename ?? 'edited.txt',
+      instruction: d.instruction ?? '',
+      text: d.text,
+      downloadUrl: d.downloadUrl,
     },
   }
 }

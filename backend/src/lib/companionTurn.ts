@@ -37,7 +37,7 @@ import { logger } from '@/lib/logger'
 // Structured side-channel events (mirror the chat route's SSE taxonomy). Data is
 // pre-stringified so the chat route can forward it to the wire verbatim; the Pod
 // ignores these.
-export type CompanionTurnEvent = 'routing' | 'offline' | 'tool_data' | 'block' | 'sources' | 'tool_error'
+export type CompanionTurnEvent = 'routing' | 'offline' | 'tool_data' | 'block' | 'sources' | 'tool_error' | 'directive'
 
 export interface CompanionTurnParams {
   userId: string
@@ -99,6 +99,28 @@ export async function loadUserPrefs(userId: string): Promise<Record<string, unkn
   return out
 }
 
+// ── Document-attachment routing heuristics ────────────────────────────────────
+// Only consulted when a document is actually attached to the conversation (see the
+// override in runCompanionTurn), so these can be fairly liberal without hijacking
+// normal chat.
+const DOC_NOUN_RE = /\b(documents?|docs?|files?|pdfs?|attachments?|uploads?|markdown|spreadsheets?|slides?|presentations?|essays?|papers?|articles?|reports?|manuscripts?)\b/i
+// Verbs that strongly imply acting on a text artifact — safe to bind to the doc alone.
+const STRONG_DOC_VERB_RE = /\b(proofread|spell\s?-?check|spelling|grammar|rewrite|rephrase|reword|paraphrase|summari[sz]e|shorten|condense|polish)\b/i
+// Weaker cues (explain/analyze/read/etc.) only bind to the doc when paired with a
+// demonstrative, so "explain quantum physics" with a doc attached doesn't get hijacked.
+const WEAK_DOC_VERB_RE = /\b(explain|analy[sz]e|review|recap|describe|translate|edit|fix|read|go over|break\s?down|tl;?dr)\b/i
+const DEMONSTRATIVE_RE = /\b(this|that|it|these|those|above)\b/i
+const WHAT_IS_THIS_RE  = /\bwhat(?:'s| is| are| does| was| were)\b.*\b(this|that|it)\b/i
+
+/** Does this message look like it's about / acting on the conversation's attached document? */
+function refersToAttachedDocument(msg: string): boolean {
+  if (DOC_NOUN_RE.test(msg)) return true
+  if (STRONG_DOC_VERB_RE.test(msg)) return true
+  if (WHAT_IS_THIS_RE.test(msg)) return true
+  if (WEAK_DOC_VERB_RE.test(msg) && DEMONSTRATIVE_RE.test(msg)) return true
+  return false
+}
+
 /**
  * Run one companion turn. Streams tokens via `h.onToken`, surfaces structured
  * events via `h.onEvent`, and returns the final text + metadata for the caller
@@ -157,6 +179,24 @@ export async function runCompanionTurn(
     if (haTool) { tool = haTool; args = { text: p.message } }
   }
 
+  // Document-attached override: when this conversation has an uploaded document and
+  // the message clearly refers to it (or asks to edit/explain it), force the Document
+  // Assistant. Otherwise the router sends "what is this document" / "summarize this"
+  // to web search, and the companion ends up describing the search payload instead of
+  // ever reading the actual file. Gated on a document existing, so a doc-shaped phrase
+  // in a normal chat (no attachment) still routes normally.
+  if ((!tool || tool.id !== 'document_edit') && refersToAttachedDocument(p.message)) {
+    const hasDoc = await db
+      .select({ id: chatDocuments.id })
+      .from(chatDocuments)
+      .where(eq(chatDocuments.conversationId, p.convId))
+      .limit(1)
+    if (hasDoc.length > 0) {
+      const docTool = toolRegistry.find((t) => t.id === 'document_edit')
+      if (docTool) { tool = docTool; args = { instruction: p.message } }
+    }
+  }
+
   if (tool && !await isToolAllowed(tool.id, p.userId)) {
     tool = null
     args = {}
@@ -209,6 +249,10 @@ export async function runCompanionTurn(
       } else if (result.success) {
         emitEvent('tool_data', JSON.stringify({ tool: tool.id, data: result.data }))
 
+        // A client-side action (e.g. start mini-player playback). Emitted before
+        // the directReply/LLM path so the player starts as the reply lands.
+        if (result.directive) emitEvent('directive', JSON.stringify(result.directive))
+
         const block = buildBlock(tool.id, result.data)
         if (block) emitEvent('block', JSON.stringify(block))
 
@@ -232,9 +276,15 @@ export async function runCompanionTurn(
           ? `\n\nSources:\n${sources.map((s, i) => `[${i + 1}] ${s.title} — ${s.url}`).join('\n')}\n\nWhen referencing a specific source above, cite it inline as [1], [2], etc.`
           : ''
 
+        // A tool that already acted (e.g. started playback) supplies a tailored
+        // instruction instead of a data dump, so the LLM reacts in-character rather
+        // than narrating JSON.
+        const toolTurnContent = typeof result.synthesisHint === 'string' && result.synthesisHint.trim()
+          ? `${p.message}\n\n${result.synthesisHint.trim()}${sourceList}`
+          : `${p.message}\n\n[${tool.name} data]: ${JSON.stringify(result.data)}${sourceList}`
         ollamaMessages = [
           ...history,
-          { role: 'user', content: `${p.message}\n\n[${tool.name} data]: ${JSON.stringify(result.data)}${sourceList}` },
+          { role: 'user', content: toolTurnContent },
         ]
       } else {
         emitEvent('tool_error', JSON.stringify({ tool: tool.id, error: result.error }))

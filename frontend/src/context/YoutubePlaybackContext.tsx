@@ -15,6 +15,9 @@ export interface YtMiniTrack {
   /** Emoji / text icon shown as fallback art when thumbnail is absent or fails (e.g. genre emoji for radio). */
   icon?: string
   durationSec?: number | null
+  /** Route to expand back into (defaults to the YouTube watch page). Music video stations set this
+   *  to their in-music Watch page so the docked video re-opens there, not in the YouTube app. */
+  expandTo?: string
 }
 
 interface YoutubePlaybackCtx {

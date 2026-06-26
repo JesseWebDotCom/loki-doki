@@ -1,13 +1,16 @@
 import { Hono } from 'hono'
 import { eq, and } from 'drizzle-orm'
 import { join } from 'node:path'
-import { mkdir, unlink } from 'node:fs/promises'
+import { mkdir, unlink, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { db } from '@/db'
-import { users, profilePins, userPreferences, conversations } from '@/db/schema'
+import { users, profilePins, userPreferences, conversations, ytDownloads } from '@/db/schema'
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { hashPin } from '@/lib/pin'
 import { dataDir } from '@/lib/download'
+import { getDataRoot, userSlug } from '@/lib/storage/paths'
+import { releaseAssetsIfOrphaned } from '@/lib/youtube/assets'
+import { logger } from '@/lib/logger'
 import {
   getProtections, setProtections, getInteractionStyle, setInteractionStyle,
   revokeAdultLoraGrants,
@@ -130,7 +133,33 @@ usersRoute.delete('/:id', requireAdmin, async (c) => {
 
   if (currentUser.id === targetId) return c.json({ error: 'Cannot delete yourself' }, 400)
 
+  // Capture the identity (needed for the folder slug) + the media assets this user references,
+  // BEFORE the FK cascade wipes their rows.
+  const [target] = await db.select({ firstName: users.firstName }).from(users).where(eq(users.id, targetId)).limit(1)
+  if (!target) return c.json({ error: 'Not found' }, 404)
+  const refs = await db.select({ assetId: ytDownloads.assetId }).from(ytDownloads).where(eq(ytDownloads.userId, targetId))
+
   await db.delete(users).where(eq(users.id, targetId))
+
+  // Reclaim any shared media asset the deleted user was the LAST to reference (the cascade just
+  // dropped their refs). Shared assets others still reference are left untouched; GC reclaims the
+  // freed blob files. (gcSweep is also a backstop for this via derived orphan detection.)
+  await releaseAssetsIfOrphaned(refs.map(r => r.assetId)).catch(() => {})
+
+  // Remove the user's per-user content folder (images, podcasts, transcripts, converted files,
+  // etc.) and their avatar. Shared content-store blobs live under <root>/content, NOT the user's
+  // slug folder, so this never touches another user's media.
+  try {
+    const dir = join(await getDataRoot(), userSlug(targetId, target.firstName))
+    if (existsSync(dir)) await rm(dir, { recursive: true, force: true })
+  } catch (err) {
+    logger.warn(`[users] failed to remove data folder for deleted user ${targetId}: ${err}`)
+  }
+  try {
+    const avatar = join(dataDir, 'avatars', targetId)
+    if (existsSync(avatar)) await unlink(avatar)
+  } catch { /* avatar may not exist */ }
+
   return c.json({ success: true })
 })
 

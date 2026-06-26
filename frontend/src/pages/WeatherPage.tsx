@@ -10,6 +10,7 @@ import {
   type WeatherData,
   type WeatherAlert,
   wmoInfo,
+  resolveWmoInfo,
   weatherIconSrc,
   HERO_GRADIENT,
   SNOW_TEXT,
@@ -323,7 +324,7 @@ export function WeatherPage() {
   const cur = data?.weather.current
   const tz = data?.weather.timezone ?? location?.timezone ?? 'UTC'
   const isDay = cur ? !!cur.is_day : true
-  const info = cur ? wmoInfo(cur.weather_code, isDay) : null
+  const info = cur ? resolveWmoInfo(cur.weather_code, isDay, data?.observation) : null
   const gradient = info?.gradient ?? 'partly-cloudy'
   const moonPhase = currentMoonPhase()
   const moon = moonPhaseInfo(moonPhase)
@@ -353,7 +354,7 @@ export function WeatherPage() {
       const isNowSlot = slots.length === 0 && cur
       const code = isNowSlot ? cur.weather_code : hourlyData.weather_code[i]
       const dayFlag = isNowSlot ? !!cur.is_day : !!(hourlyData.is_day?.[i] ?? isDay)
-      const w = wmoInfo(code, dayFlag)
+      const w = isNowSlot ? (info ?? wmoInfo(code, dayFlag)) : wmoInfo(code, dayFlag)
       slots.push({
         label: slots.length === 0 ? 'Now' : hourLabel(hourlyData.time[i], tz),
         icon: w.icon,
@@ -449,7 +450,12 @@ export function WeatherPage() {
                   </p>
                 </div>
 
-                <p className={cn('text-xl font-light mt-1', isSnow ? 'text-slate-700' : 'text-white/90')}>{info.desc}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <p className={cn('text-xl font-light', isSnow ? 'text-slate-700' : 'text-white/90')}>{info.desc}</p>
+                  {info.live && (
+                    <span className="text-[10px] font-semibold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-white/20 text-white/90">Live</span>
+                  )}
+                </div>
                 <p className={cn('text-xs mt-1', isSnow ? 'text-slate-500' : 'text-white/60')}>
                   Feels like {round(cur.apparent_temperature)}{ul}
                   {' · '}H:{round(data!.weather.daily.temperature_2m_max[0])}{ul}

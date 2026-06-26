@@ -54,7 +54,7 @@ export function YoutubeMiniBar() {
     if (pb.expandRequest > 0 && online) setExpanded(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pb.expandRequest])
-  const hidden = !track || location.pathname.startsWith('/youtube/watch') || location.pathname.startsWith('/youtube/shorts')
+  const hidden = !track || location.pathname.startsWith('/youtube/watch') || location.pathname.startsWith('/youtube/shorts') || location.pathname.startsWith('/music/watch')
 
   // ── Online: drive the YouTube IFrame embed ───────────────────────────────────
   useEffect(() => {
@@ -168,6 +168,8 @@ export function YoutubeMiniBar() {
 
   const goWatch = () => {
     if (isStream) { navigate('/music'); return }
+    // Music video stations re-open in their own in-music Watch page (expandTo), not the YouTube app.
+    if (track!.expandTo) { navigate(track!.expandTo); return }
     navigate(
       `/youtube/watch/${track!.videoId}${track!.localKind ? `?k=${track!.localKind}` : ''}`,
       { state: { title: track!.title, author: track!.author, channelThumb: track!.channelThumb ?? null } },

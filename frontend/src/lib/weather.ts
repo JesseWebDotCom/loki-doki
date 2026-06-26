@@ -9,10 +9,18 @@ export type HeroGradient =
   | 'fog' | 'drizzle' | 'rain' | 'snow' | 'storm'
 
 export interface WmoInfo { icon: string; desc: string; gradient: HeroGradient }
+export interface WmoInfoResolved extends WmoInfo { live?: boolean }
+
+export interface NWSObservation {
+  textDescription: string
+  precipitation: number | null  // mm last hour
+  timestamp: string | null
+}
 
 export interface WeatherData {
   location: string
   temperature_unit: 'fahrenheit' | 'celsius'
+  observation?: NWSObservation
   weather: {
     current: {
       temperature_2m: number
@@ -102,6 +110,41 @@ export function wmoInfo(code: number, isDay = true): WmoInfo {
 
 export function weatherIconSrc(icon: string): string {
   return `/weather-icons/animated/${icon}.svg`
+}
+
+/**
+ * Resolves the effective WMO display info, overriding the Open-Meteo model
+ * with a live NWS observation when the model misses active precipitation.
+ */
+export function resolveWmoInfo(modelCode: number, isDay: boolean, obs?: NWSObservation): WmoInfoResolved {
+  const model = wmoInfo(modelCode, isDay)
+  if (!obs || modelCode >= 51) return model  // model already shows precip or no observation
+
+  const mm = obs.precipitation ?? 0
+  const d = obs.textDescription.toLowerCase()
+  const hasPrecip = mm > 0.2 || /rain|drizzle|shower|snow|sleet|hail|freezing|thunder/.test(d)
+  if (!hasPrecip) return model
+
+  // Map observed description → closest WMO entry
+  let entry: WmoInfo
+  if (/thunder/.test(d))                    entry = WMO_TABLE[95]
+  else if (/heavy (rain|shower)/.test(d))   entry = WMO_TABLE[65]
+  else if (/rain shower|shower/.test(d))    entry = WMO_TABLE[80]
+  else if (/freezing (rain|drizzle)/.test(d)) entry = WMO_TABLE[66]
+  else if (/drizzle/.test(d))               entry = WMO_TABLE[51]
+  else if (/rain/.test(d))                  entry = WMO_TABLE[61]
+  else if (/heavy snow/.test(d))            entry = WMO_TABLE[75]
+  else if (/snow shower/.test(d))           entry = WMO_TABLE[85]
+  else if (/snow/.test(d))                  entry = WMO_TABLE[71]
+  else if (/sleet/.test(d))                 entry = WMO_TABLE[66]
+  else                                       entry = WMO_TABLE[61]  // fallback: light rain
+
+  // Use observation's own text if it's more descriptive than the WMO default
+  const desc = obs.textDescription.length > 1
+    ? obs.textDescription.replace(/\b\w/g, c => c.toUpperCase())
+    : entry.desc
+
+  return { ...entry, desc, live: true }
 }
 
 // ─── Hero gradients ───────────────────────────────────────────────────────────

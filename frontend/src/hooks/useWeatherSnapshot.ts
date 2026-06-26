@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useUserLocation } from './useUserLocation'
-import { fetchWeatherData, fetchWeatherAlerts, wmoInfo, type WeatherData, type WmoInfo, type WeatherAlert } from '@/lib/weather'
+import { fetchWeatherData, fetchWeatherAlerts, resolveWmoInfo, type WeatherData, type WmoInfo, type WeatherAlert } from '@/lib/weather'
 
 export interface WeatherSnapshot {
   location: string
@@ -59,7 +59,7 @@ export function useWeatherSnapshot(): UseWeatherSnapshotResult {
           high: Math.round(daily.temperature_2m_max[0]),
           low: Math.round(daily.temperature_2m_min[0]),
           isDay: !!cur.is_day,
-          info: wmoInfo(cur.weather_code, !!cur.is_day),
+          info: resolveWmoInfo(cur.weather_code, !!cur.is_day, d.observation),
           unit: '°F',
           alerts,
         })

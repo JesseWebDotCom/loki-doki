@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
-import { getLyrics, getSongInfo, getArtistInfo, addFavorite, saveOffline, getStationTuning } from '@/lib/music/catalogApi'
+import { getLyrics, getSongInfo, getArtistInfo, addFavorite, saveOffline, getStationTuning, prefetchMedia } from '@/lib/music/catalogApi'
 
 function SectionLabel({ icon: Icon, color, children }: { icon: typeof Music2; color: string; children: React.ReactNode }) {
   return (
@@ -222,6 +222,13 @@ export function NowPlayingPage() {
   // loading messages stop the moment the DJ kicks in, rather than lingering over the intro.
   const cur = radio.currentTrack ?? radio.queue[radio.index] ?? null
 
+  // Prefetch the current song's VIDEO (480p) so switching to Watch is instant + same-spot. Only
+  // for real stations (where the Watch button is shown), not one-off/instant track sessions.
+  const watchableStation = radio.station?.stationId
+  useEffect(() => {
+    if (cur?.videoId && watchableStation) void prefetchMedia(cur.videoId, 'video', 480)
+  }, [cur?.videoId, watchableStation])
+
   // Nothing started yet — the only genuinely empty state.
   if (!radio.active) {
     return <div className="px-5 pt-6"><PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music" title="Now Playing" subtitle="Start a station to see lyrics, info, and what's up next." /></div>
@@ -281,8 +288,8 @@ export function NowPlayingPage() {
           <div className="flex shrink-0 items-center gap-1.5">
             <Button size="icon" variant="secondary" onClick={favorite} aria-label="Favorite"><Heart className="size-4" /></Button>
             <Button size="icon" variant="secondary" onClick={download} aria-label="Save offline"><Download className="size-4" /></Button>
-            <Button size="icon" variant="secondary" onClick={() => navigate(`/youtube/watch/${cur.videoId}`, { state: { title: cur.title } })}
-              aria-label="Watch the original video" title="Watch the original video on YouTube"><MonitorPlay className="size-4" /></Button>
+            <Button size="icon" variant="secondary" onClick={() => navigate(radio.station?.stationId ? `/music/watch/${radio.station.stationId}` : '/music/watch/current')}
+              aria-label="Watch video" title="Switch to video — same song, same spot"><MonitorPlay className="size-4" /></Button>
             <button onClick={() => radio.togglePause()} aria-label="Play/pause"
               className="flex size-12 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-105 active:scale-95"
               style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>

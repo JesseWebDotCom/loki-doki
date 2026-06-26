@@ -225,6 +225,11 @@ void backfillYoutubeTitleEntities().catch(() => {})
 // Disk cache for YouTube artwork: evict non-subscribed images 24h after fetch, and
 // conditionally re-validate subscribed channel art every 24h. Runs ~30s after boot too.
 startImageCacheMaintenance()
+// Content blob store: periodically reclaim unreferenced shared media blobs, and fold any
+// pre-dedup per-user offline library into the shared store (idempotent; ~off the hot path so
+// boot/serving isn't blocked on hashing a large library). Both best-effort.
+import('@/lib/content/store').then((m) => m.startContentGc()).catch(() => {})
+setTimeout(() => { void import('@/lib/youtube/migrateOffline').then((m) => m.migrateLegacyOfflineLibrary()) }, 15_000)
 // Bound the Shows/Movies media-image disk cache: sweep oldest art when over the ceiling.
 setTimeout(() => void mediaImageCacheSweep(), 60_000)
 setInterval(() => void mediaImageCacheSweep(), 24 * 60 * 60 * 1000)

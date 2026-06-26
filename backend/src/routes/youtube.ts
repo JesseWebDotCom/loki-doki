@@ -35,6 +35,8 @@ import {
   isAutomationPaused, setAutomationPaused, getAutoSaveKeepDefault, AUTO_KEEP_KEY,
 } from '@/lib/youtube/automation'
 import { resolveUserPath } from '@/lib/storage/paths'
+import { resolveRefBlob, releaseAssetsIfOrphaned } from '@/lib/youtube/assets'
+import { acquireRead, releaseRead } from '@/lib/content/store'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
 import type { AppEnv } from '@/types'
@@ -401,7 +403,8 @@ youtubeRoute.get('/downloads', async (c) => {
     .from(ytDownloads)
     .leftJoin(ytVideos, eq(ytVideos.videoId, ytDownloads.videoId))
     .leftJoin(ytSubscriptions, and(eq(ytSubscriptions.externalId, ytVideos.channelId), eq(ytSubscriptions.userId, user.id)))
-    .where(eq(ytDownloads.userId, user.id))
+    // Exclude transient music prefetch-cache refs — they're not part of the user's saved library.
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.prefetch, false)))
     .orderBy(desc(ytDownloads.createdAt))
 
   // Attach watch state via a separate query (same approach as /feed).
@@ -434,11 +437,16 @@ youtubeRoute.post('/downloads/delete', async (c) => {
   const rows = await db.select().from(ytDownloads)
     .where(and(eq(ytDownloads.userId, user.id), inArray(ytDownloads.id, ids)))
   for (const r of rows) {
-    if (r.relPath) { try { await unlink(await resolveUserPath(r.relPath)) } catch { /* already gone */ } }
+    // The media is a SHARED blob — never unlink it here (another user may reference the same
+    // asset). Only this user's per-user transcript file is safe to remove.
     if (r.transcriptRelPath) { try { await unlink(await resolveUserPath(r.transcriptRelPath)) } catch { /* already gone */ } }
+    // Legacy unmigrated rows still own a private per-user media file — clean that up directly.
+    if (!r.assetId && r.relPath) { try { await unlink(await resolveUserPath(r.relPath)) } catch { /* already gone */ } }
   }
   await db.delete(ytDownloads)
     .where(and(eq(ytDownloads.userId, user.id), inArray(ytDownloads.id, ids)))
+  // Drop any asset that now has zero references → its blob becomes unreferenced and GC reclaims it.
+  await releaseAssetsIfOrphaned(rows.map(r => r.assetId))
   return c.json({ ok: true, deleted: rows.length })
 })
 
@@ -641,22 +649,32 @@ youtubeRoute.get('/file/:videoId/:kind', async (c) => {
   const videoId = c.req.param('videoId')
   const kind = c.req.param('kind') as 'audio' | 'video'
 
-  const [dl] = await db.select().from(ytDownloads)
+  const [dl] = await db.select({ status: ytDownloads.status, relPath: ytDownloads.relPath, assetId: ytDownloads.assetId })
+    .from(ytDownloads)
     .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind)))
     .limit(1)
 
-  if (!dl || dl.status !== 'ready' || !dl.relPath) {
+  if (!dl || dl.status !== 'ready') return c.json({ error: 'Not found' }, 404)
+
+  // Prefer the shared content blob (the user holds a ready ref → owns access); fall back to a
+  // legacy per-user relPath for rows the background dedup migration hasn't linked yet.
+  const blob = await resolveRefBlob(dl)
+  let absPath: string
+  let contentType: string
+  let trackHash: string | null = null
+  if (blob) {
+    absPath = blob.absPath
+    contentType = blob.mime
+    trackHash = blob.hash
+  } else if (dl.relPath) {
+    absPath = await resolveUserPath(dl.relPath)
+    contentType = dl.relPath.endsWith('.mp3') ? 'audio/mpeg' : kind === 'audio' ? 'audio/mp4' : 'video/mp4'
+  } else {
     return c.json({ error: 'Not found' }, 404)
   }
-
-  const absPath = await resolveUserPath(dl.relPath)
   if (!existsSync(absPath)) return c.json({ error: 'File missing' }, 404)
 
   const fileStat = await stat(absPath)
-  // Derive the MIME from the actual file extension (audio can be m4a or mp3).
-  const contentType = dl.relPath.endsWith('.mp3') ? 'audio/mpeg'
-    : kind === 'audio' ? 'audio/mp4'
-    : 'video/mp4'
 
   // Range support for media players. Only honor a well-formed `bytes=start-end`; clamp to
   // the file size and reject impossible ranges (a malformed header otherwise yields NaN
@@ -674,8 +692,16 @@ youtubeRoute.get('/file/:videoId/:kind', async (c) => {
     }
     const chunkSize = end - start + 1
 
+    // Hold an in-flight read on this blob so GC can't unlink it mid-stream (a swap to a higher
+    // tier may make the old blob unreferenced while a player is still pulling range requests).
+    if (trackHash) acquireRead(trackHash)
     const { createReadStream } = await import('node:fs')
     const stream = createReadStream(absPath, { start, end })
+    if (trackHash) {
+      const release = () => releaseRead(trackHash!)
+      stream.once('close', release)
+      stream.once('error', release)
+    }
     return new Response(stream as any, {
       status: 206,
       headers: {

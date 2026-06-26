@@ -5,6 +5,9 @@ import { cn } from '@/lib/cn'
 import { useChatContext } from '@/context/ChatContext'
 import { useActiveCompanion } from '@/hooks/useActiveCompanion'
 import { useCompanionStream } from '@/hooks/useCompanionStream'
+import { useRadio } from '@/context/RadioContext'
+import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
+import { applyPlayDirective } from '@/lib/playDirective'
 import { useCompanionState, CAPTION_STYLES, type CaptionStyle, type CompanionSize } from '@/lib/companionState'
 import { useUIContext } from '@/context/UIContextProvider'
 import { CharacterAvatar } from '@/components/companion/CharacterAvatar'
@@ -285,7 +288,16 @@ export function CompanionOverlay() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const chat = useChatContext()
-  const companion = useCompanionStream()
+  const radio = useRadio()
+  const youtube = useYoutubePlayback()
+  // Off-chat companion turns can ask to start playback ("play heavy metal",
+  // "play the Thriller music video") — drive the global mini-player in place.
+  const onDirective = useCallback(
+    (directive: Parameters<typeof applyPlayDirective>[0]) =>
+      applyPlayDirective(directive, { playExpanded: youtube.playExpanded, startStation: radio.start }),
+    [youtube.playExpanded, radio.start],
+  )
+  const companion = useCompanionStream({ onDirective })
   const { companion: character, companions, isLoading } = useActiveCompanion()
   const { size, captions, captionStyle, voiceOn, handsFreeOn, position, setVoice, setHandsFree, setCaptions, setPosition } = useCompanionState()
 

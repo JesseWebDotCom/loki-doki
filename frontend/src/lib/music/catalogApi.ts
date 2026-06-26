@@ -174,15 +174,26 @@ export function saveOffline(t: { videoId: string; title: string }) {
 export function removeOffline(videoId: string) {
   return mfetch<{ ok: true }>(`/library/offline/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
 }
-export function snapshotStation(id: string, count?: number) {
-  return mfetch<{ offlineStationId: string; queued: number; total: number }>(`/stations/${id}/snapshot`, { method: 'POST', body: body({ count }) })
+export type OfflineMedia = 'audio' | 'video' | 'both'
+export function snapshotStation(id: string, opts?: number | { count?: number; media?: OfflineMedia; maxHeight?: number }) {
+  const payload = typeof opts === 'number' ? { count: opts } : (opts ?? {})
+  return mfetch<{ offlineStationId: string; queued: number; total: number }>(`/stations/${id}/snapshot`, { method: 'POST', body: body(payload) })
 }
 export const offlineAudioUrl = (videoId: string) => `/api/youtube/file/${videoId}/audio`
+
+/** Video-quality config (tiers/cap/pref) — shared with the YouTube app's save-quality governance. */
+export interface VideoSaveQuality { tiers: number[]; cap: number; pref: number | null; effective: number }
+export async function getVideoSaveQuality(): Promise<VideoSaveQuality> {
+  const res = await fetch('/api/youtube/save-quality', { credentials: 'include' })
+  if (!res.ok) throw new Error(`save-quality → ${res.status}`)
+  return res.json() as Promise<VideoSaveQuality>
+}
 
 // ── Offline stations (a whole station saved for full offline use) ────────────────────
 export interface OfflineStatus {
   status: 'pending' | 'partial' | 'ready' | 'failed'
   tracksReady: number; trackTotal: number; djReady: number; djTotal: number
+  media?: OfflineMedia; videoReady?: number
 }
 /** A saved-offline station: a normal Station card plus its live download/DJ readiness. */
 export interface OfflineStation extends Station { offline: OfflineStatus }
@@ -193,9 +204,14 @@ export function listOfflineStations() {
 export function getOfflineStatus(stationId: string) {
   return mfetch<{ saved: boolean } & Partial<OfflineStatus>>(`/stations/${stationId}/offline-status`)
 }
-export interface OfflineTrackRow { videoId: string; title: string; artist: string | null; position: number; status: 'pending' | 'downloading' | 'ready' | 'failed' }
+export type DlStatus = 'pending' | 'downloading' | 'ready' | 'failed'
+export interface OfflineTrackRow { videoId: string; title: string; artist: string | null; position: number; status: DlStatus; videoStatus?: DlStatus | null }
 export function getOfflineTracks(stationId: string) {
   return mfetch<{ tracks: OfflineTrackRow[] }>(`/stations/${stationId}/offline-tracks`)
+}
+export interface OfflineVideoQueue { tracks: { videoId: string; title: string; author: string }[] }
+export function getOfflineVideoQueue(stationId: string) {
+  return mfetch<OfflineVideoQueue>(`/stations/${stationId}/offline-video-queue`)
 }
 export interface OfflineDjSeg { text: string; audioUrl: string }
 export interface OfflineQueue {
@@ -207,6 +223,18 @@ export function getOfflineQueue(stationId: string) {
 }
 export function removeOfflineStation(stationId: string) {
   return mfetch<{ ok: true }>(`/stations/${stationId}/offline`, { method: 'DELETE' })
+}
+
+// ── Prefetch cache (transient download-ahead for gapless playback) ───────────────────
+/** Fire-and-forget: ask the server to download-ahead a track (next video, handoff other-media). */
+export function prefetchMedia(videoId: string, kind: 'audio' | 'video', maxHeight?: number) {
+  return mfetch<{ ok: true }>('/library/prefetch', { method: 'POST', body: body({ videoId, kind, maxHeight }) }).catch(() => {})
+}
+/** Which of these videoIds are locally ready for `kind` (prefetched OR saved) → can play offline. */
+export async function prefetchReady(videoIds: string[], kind: 'audio' | 'video'): Promise<string[]> {
+  if (!videoIds.length) return []
+  const r = await mfetch<{ ready: string[] }>(`/library/prefetch?kind=${kind}&ids=${encodeURIComponent(videoIds.join(','))}`).catch(() => ({ ready: [] }))
+  return r.ready
 }
 
 // ── Adapt a Station into the radio engine's DjStation shape ─────────────────────────

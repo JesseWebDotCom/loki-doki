@@ -13,6 +13,8 @@ export interface Message {
   createdAt?: Date
   blocks?: Block[]
   sources?: Source[]
+  /** Transient status shown while a tool runs before tokens arrive (e.g. "Reading your document…"). */
+  routingLabel?: string | null
 }
 
 interface ChatMessageProps {
@@ -59,13 +61,24 @@ export const ChatMessage = memo(function ChatMessage({ message, isLast, isGenera
         />
       )}
 
-      {/* Typing dots while waiting for first token or waiting for prose after blocks */}
+      {/* While a tool runs before any tokens: show its status label, else plain dots. */}
       {isActive && message.content.length === 0 && (
-        <TypingDots />
+        message.routingLabel
+          ? <RoutingStatus label={message.routingLabel} />
+          : <TypingDots />
       )}
     </div>
   )
 })
+
+function RoutingStatus({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 py-1 text-sm text-muted-foreground">
+      <span>{label}</span>
+      <TypingDots />
+    </span>
+  )
+}
 
 function TypingDots() {
   return (

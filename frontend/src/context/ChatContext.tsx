@@ -6,6 +6,9 @@ import type { Source } from '@/lib/transformCitations'
 import { useUIContext } from '@/context/UIContextProvider'
 import { getActiveCompanionId } from '@/hooks/useActiveCompanion'
 import { toast } from '@/lib/toast'
+import { useRadio } from '@/context/RadioContext'
+import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
+import { applyPlayDirective, parsePlayDirective, type PlayMediaDirective } from '@/lib/playDirective'
 
 // ── Projects ─────────────────────────────────────────────────────────────────
 
@@ -126,6 +129,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const tokenBufRef = useRef<{ text: string; msgId: string } | null>(null)
   const tokenRafRef = useRef<number | null>(null)
   const { getContextBlock } = useUIContext()
+  const radio = useRadio()
+  const youtube = useYoutubePlayback()
+  // Playback directives from a chat turn ("play heavy metal") drive the global
+  // mini-player in place — no navigation. Kept in a ref so `submit` stays stable.
+  const applyDirectiveRef = useRef<(d: PlayMediaDirective) => void>(() => {})
+  applyDirectiveRef.current = (d: PlayMediaDirective) =>
+    applyPlayDirective(d, { playExpanded: youtube.playExpanded, startStation: radio.start })
 
   useEffect(() => {
     refreshProjects()
@@ -498,6 +508,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             savePendingGen(pg.convId, { genId: pg.genId, assistantMessageId: pg.assistantMsgId, lastSeq: seq })
           }
         },
+        onRouting: (toolId) => {
+          const label = routingLabelFor(toolId)
+          if (!label) return
+          const msgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
+          setMessages((prev) =>
+            prev.map((m) => m.id === msgId ? { ...m, routingLabel: label } : m),
+          )
+        },
         onToken: (token) => {
           const msgId = pendingGenRef.current?.assistantMsgId ?? placeholderId
           if (tokenBufRef.current?.msgId === msgId) {
@@ -531,6 +549,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             prev.map((m) => m.id === msgId ? { ...m, sources } : m),
           )
         },
+        onDirective: (directive) => applyDirectiveRef.current(directive),
         onDone: ({ conversationId: newConvId, title }) => {
           // Flush any RAF-buffered tokens before clearing generating state so there's
           // no blank frame where isGenerating=false but content is still empty.
@@ -627,13 +646,28 @@ export function useChatContext() {
 
 // ── SSE stream helpers ────────────────────────────────────────────────────────
 
+// Transient "what the assistant is doing" labels, shown while a tool runs before any
+// tokens arrive. Tools not listed here just show the plain typing dots.
+const ROUTING_LABELS: Record<string, string> = {
+  document_edit: '📎 Reading your document',
+  search:        '🔎 Searching the web',
+  image_gen:     '🎨 Generating an image',
+  video_gen:     '🎬 Generating a video',
+}
+
+function routingLabelFor(toolId: string): string | null {
+  return ROUTING_LABELS[toolId] ?? null
+}
+
 interface StreamCallbacks {
   onGen: (meta: { genId: string; conversationId?: string; assistantMessageId: string }) => void
   onQueue: (position: number) => void
   onSeq: (seq: number) => void
+  onRouting: (toolId: string) => void
   onToken: (token: string) => void
   onBlock: (block: Block) => void
   onSources: (sources: Source[]) => void
+  onDirective: (directive: PlayMediaDirective) => void
   onDone: (meta: { conversationId?: string; title?: string }) => void
   onError: (err: string) => void
 }
@@ -703,7 +737,7 @@ async function consumeSSEStream(
 async function streamChat(
   body: { message: string; conversationId?: string; characterId?: string; uiContext: string | null; projectId?: string; attachments?: { filename: string; text: string }[] },
   signal: AbortSignal,
-  { onGen, onQueue, onSeq, onToken, onBlock, onSources, onDone, onError }: StreamCallbacks,
+  { onGen, onQueue, onSeq, onRouting, onToken, onBlock, onSources, onDirective, onDone, onError }: StreamCallbacks,
 ) {
   try {
     const res = await fetch('/api/chat/stream', {
@@ -726,12 +760,16 @@ async function streamChat(
         try { onGen(JSON.parse(data) as { genId: string; conversationId?: string; assistantMessageId: string }) } catch { /* malformed */ }
       } else if (eventName === 'queue') {
         try { const q = JSON.parse(data) as { position: number }; onQueue(q.position) } catch { /* malformed */ }
+      } else if (eventName === 'routing') {
+        try { const r = JSON.parse(data) as { tool: string }; if (r.tool) onRouting(r.tool) } catch { /* malformed */ }
       } else if (eventName === 'token') {
         onToken(data)
       } else if (eventName === 'block') {
         try { onBlock(JSON.parse(data) as Block) } catch { /* malformed */ }
       } else if (eventName === 'sources') {
         try { onSources(JSON.parse(data) as Source[]) } catch { /* malformed */ }
+      } else if (eventName === 'directive') {
+        try { const d = parsePlayDirective(JSON.parse(data)); if (d) onDirective(d) } catch { /* malformed */ }
       } else if (eventName === 'done') {
         try { onDone(JSON.parse(data) as { conversationId?: string; title?: string }) } catch { onDone({}) }
         return true

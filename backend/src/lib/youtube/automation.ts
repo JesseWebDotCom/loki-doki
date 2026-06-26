@@ -16,6 +16,8 @@ import { logger } from '@/lib/logger'
 import { getEffectiveCap } from '@/lib/youtube/quality'
 import { getAppSetting } from '@/lib/settings'
 import { resolveUserPath } from '@/lib/storage/paths'
+import { withLock } from '@/lib/content/store'
+import { assetFormat, assetLockKey, getOrCreateAsset, assetSatisfies, enqueueAssetJob, releaseAssetsIfOrphaned, type Kind, type AudioFormat } from '@/lib/youtube/assets'
 
 // ── Settings keys ──────────────────────────────────────────────────────────────
 
@@ -67,59 +69,97 @@ export interface EnqueueSaveOpts {
   auto?: boolean
 }
 
-/** Upsert the ytDownloads row and enqueue the durable yt-media job. Single source of
- *  truth for the job payload shape (the worker reads refId), shared by manual Save and
- *  subscription auto-save so the two never drift. */
+/** Upsert the per-user ytDownloads REFERENCE and ensure a shared media asset (+ its coalesced
+ *  download job) exists for the content. Shared by manual Save and subscription auto-save.
+ *
+ *  Dedup is the point: two users saving the same video share ONE asset → ONE blob. If a
+ *  household member already has the asset at sufficient quality, this returns instantly with
+ *  no download (the household's "store-the-max" copy serves everyone). The whole decision runs
+ *  under a per-asset lock so concurrent saves can't double-download or race the height math. */
 export async function enqueueVideoSave(opts: EnqueueSaveOpts): Promise<{ status: 'queued' | 'already-saved' | 'in-progress'; id: string }> {
-  const { userId, videoId, title, kind, maxHeight, firstName, audioFormat, auto = false } = opts
+  const { userId, videoId, title, kind, maxHeight, firstName: _firstName, audioFormat, auto = false } = opts
+  const format = assetFormat(kind, audioFormat)
 
-  const [existing] = await db.select({ id: ytDownloads.id, status: ytDownloads.status })
-    .from(ytDownloads)
-    .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind)))
-    .limit(1)
+  return withLock(assetLockKey(videoId, kind, format), async () => {
+    const now = new Date()
+    const asset = await getOrCreateAsset(videoId, kind, format)
 
-  if (existing?.status === 'ready') return { status: 'already-saved', id: existing.id }
-  if (existing?.status === 'downloading') return { status: 'in-progress', id: existing.id }
+    // Upsert the user's reference, pointing it at the shared asset.
+    const [existing] = await db.select({ id: ytDownloads.id }).from(ytDownloads)
+      .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind)))
+      .limit(1)
+    const refId = existing?.id ?? crypto.randomUUID()
+    if (!existing) {
+      await db.insert(ytDownloads).values({
+        id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, auto,
+        status: 'pending', createdAt: now, updatedAt: now,
+      })
+    } else {
+      // An explicit save promotes a transient prefetch ref into a permanent one (prefetch→false),
+      // so it survives the prefetch prune. Don't downgrade a manual save's `auto` flag.
+      await db.update(ytDownloads)
+        .set({ status: 'pending', error: null, maxHeight, assetId: asset.id, prefetch: false, ...(auto ? { auto: true } : {}), updatedAt: now })
+        .where(eq(ytDownloads.id, refId))
+    }
 
-  const downloadRowId = existing?.id ?? crypto.randomUUID()
-  const now = new Date()
+    // Dedup hit: the household already holds this at sufficient quality — satisfy instantly.
+    if (assetSatisfies(asset, kind, maxHeight)) {
+      await db.update(ytDownloads).set({ status: 'ready', sizeBytes: asset.sizeBytes, error: null, updatedAt: now })
+        .where(eq(ytDownloads.id, refId))
+      return { status: 'already-saved', id: refId }
+    }
 
-  if (!existing) {
-    await db.insert(ytDownloads).values({
-      id: downloadRowId, userId, videoId, title, kind, maxHeight, auto,
-      status: 'pending', createdAt: now, updatedAt: now,
-    })
-  } else {
-    // Don't downgrade a manual save's `auto` flag back on; only ever set it true.
-    await db.update(ytDownloads).set({ status: 'pending', error: null, maxHeight, ...(auto ? { auto: true } : {}), updatedAt: now })
-      .where(eq(ytDownloads.id, downloadRowId))
-  }
-
-  const payload = {
-    videoId, videoTitle: title, userId, userFirstName: firstName, kind, maxHeight,
-    audioFormat: kind === 'audio' ? (audioFormat === 'mp3' ? 'mp3' : 'm4a') : undefined,
-    downloadRowId,
-  }
-  await db.insert(downloadJobs).values({
-    id: crypto.randomUUID(),
-    type: 'yt-media',
-    refId: JSON.stringify(payload),
-    domain: 'youtube',
-    sizeClass: 'large',
-    label: `Save "${title || videoId}" (${kind})`,
-    status: 'pending',
-    priority: 50,
-    attempts: 0,
-    maxAttempts: 3,
-    variantKey: null,
-    lastError: null,
-    nextEligibleAt: null,
-    progress: null,
-    createdAt: now,
-    updatedAt: now,
+    // Otherwise ensure a (coalesced) download job exists for the asset. The worker recomputes
+    // the target height from all live refs, so adding this ref already widened the target.
+    const wasActive = asset.status === 'downloading'
+    await enqueueAssetJob(asset, `Save "${title || videoId}" (${kind})`)
+    return { status: wasActive ? 'in-progress' : 'queued', id: refId }
   })
+}
 
-  return { status: 'queued', id: downloadRowId }
+// ── Prefetch cache ──────────────────────────────────────────────────────────────
+// A transient, self-evicting download-ahead cache that powers gapless playback (next video,
+// audio↔video handoff). A prefetch ref reuses the whole save pipeline but is flagged ephemeral,
+// runs at lower priority than user saves, and is bounded by a rolling keep-N prune per user.
+const PREFETCH_PRIORITY = 80
+const PREFETCH_KEEP = 8
+
+/** Download-ahead a track to disk transiently. Never downgrades an existing real save into a
+ *  prefetch ref; never blocks a save (lower job priority). Bounds the cache afterwards. */
+export async function enqueuePrefetch(opts: { userId: string; videoId: string; title?: string; kind: Kind; maxHeight?: number | null; audioFormat?: AudioFormat }): Promise<void> {
+  const { userId, videoId, title = '', kind, maxHeight = null, audioFormat } = opts
+  const format = assetFormat(kind, audioFormat)
+  await withLock(assetLockKey(videoId, kind, format), async () => {
+    const now = new Date()
+    const asset = await getOrCreateAsset(videoId, kind, format)
+    const [existing] = await db.select({ id: ytDownloads.id }).from(ytDownloads)
+      .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, kind))).limit(1)
+    const refId = existing?.id ?? crypto.randomUUID()
+    if (!existing) {
+      await db.insert(ytDownloads).values({ id: refId, userId, videoId, title, kind, maxHeight, assetId: asset.id, prefetch: true, status: 'pending', createdAt: now, updatedAt: now })
+    } else {
+      // Touch updatedAt (LRU) but keep its existing prefetch flag — a real save is never demoted.
+      await db.update(ytDownloads).set({ assetId: asset.id, updatedAt: now }).where(eq(ytDownloads.id, refId))
+    }
+    if (assetSatisfies(asset, kind, maxHeight)) {
+      await db.update(ytDownloads).set({ status: 'ready', sizeBytes: asset.sizeBytes, error: null, updatedAt: now }).where(eq(ytDownloads.id, refId))
+    } else {
+      await enqueueAssetJob(asset, `Prefetch "${title || videoId}" (${kind})`, PREFETCH_PRIORITY)
+    }
+  })
+  await prunePrefetch(userId).catch(() => {})
+}
+
+/** Keep only the newest `keep` prefetch refs per user (by last touch); drop the rest + free blobs. */
+export async function prunePrefetch(userId: string, keep = PREFETCH_KEEP): Promise<void> {
+  const rows = await db.select({ id: ytDownloads.id, assetId: ytDownloads.assetId, updatedAt: ytDownloads.updatedAt })
+    .from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.prefetch, true)))
+  if (rows.length <= keep) return
+  rows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+  const stale = rows.slice(keep)
+  await db.delete(ytDownloads).where(inArray(ytDownloads.id, stale.map(r => r.id)))
+  await releaseAssetsIfOrphaned(stale.map(r => r.assetId))
 }
 
 // ── Shared YouTube → podcast episode creation (used by /podcast route + auto-podcast) ──
@@ -197,7 +237,7 @@ async function pruneAutoSaves(userId: string, subscriptionId: string, kind: 'aud
 
   const rows = await db.select({
     id: ytDownloads.id,
-    relPath: ytDownloads.relPath,
+    assetId: ytDownloads.assetId,
     transcriptRelPath: ytDownloads.transcriptRelPath,
     publishedAt: ytVideos.publishedAt,
     createdAt: ytDownloads.createdAt,
@@ -219,11 +259,14 @@ async function pruneAutoSaves(userId: string, subscriptionId: string, kind: 'aud
     (b.createdAt.getTime() - a.createdAt.getTime()))
   const stale = rows.slice(keep)
 
+  // Transcripts are still per-user files; the media itself is a SHARED blob — never unlink it
+  // here (another user may reference the same asset). Delete the refs, then GC reclaims any
+  // asset/blob that nobody references anymore.
   for (const r of stale) {
-    if (r.relPath) { try { await unlink(await resolveUserPath(r.relPath)) } catch { /* already gone */ } }
     if (r.transcriptRelPath) { try { await unlink(await resolveUserPath(r.transcriptRelPath)) } catch { /* already gone */ } }
   }
   await db.delete(ytDownloads).where(inArray(ytDownloads.id, stale.map(r => r.id)))
+  await releaseAssetsIfOrphaned(stale.map(r => r.assetId))
   logger.info(`[youtube] auto-save pruned ${stale.length} old video(s) for subscription ${subscriptionId} (keep ${keep})`)
 }
 

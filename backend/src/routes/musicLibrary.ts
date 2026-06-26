@@ -2,12 +2,13 @@
 // ("Continue listening" + recently played). All per-user.
 
 import { Hono } from 'hono'
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and, desc, inArray } from 'drizzle-orm'
 import { unlink } from 'node:fs/promises'
 import { db } from '@/db'
 import { musicFavorites, musicHistory, ytDownloads, musicOfflineStationTracks } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
-import { enqueueVideoSave } from '@/lib/youtube/automation'
+import { enqueueVideoSave, enqueuePrefetch } from '@/lib/youtube/automation'
+import { releaseAssetsIfOrphaned } from '@/lib/youtube/assets'
 import { resolveUserPath } from '@/lib/storage/paths'
 import type { AppEnv } from '@/types'
 
@@ -81,7 +82,7 @@ musicLibrary.get('/offline', async (c) => {
   const rows = await db.select({
     videoId: ytDownloads.videoId, title: ytDownloads.title, status: ytDownloads.status, sizeBytes: ytDownloads.sizeBytes,
   }).from(ytDownloads)
-    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'audio')))
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'audio'), eq(ytDownloads.prefetch, false)))
     .orderBy(desc(ytDownloads.createdAt))
   const stationTracks = await db.select({ videoId: musicOfflineStationTracks.videoId })
     .from(musicOfflineStationTracks).where(eq(musicOfflineStationTracks.userId, user.id))
@@ -95,9 +96,35 @@ musicLibrary.delete('/offline/:videoId', async (c) => {
   const videoId = c.req.param('videoId')
   const [row] = await db.select().from(ytDownloads)
     .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, 'audio')))
-  if (row?.relPath) { try { await unlink(await resolveUserPath(row.relPath)) } catch { /* already gone */ } }
+  // The audio is a SHARED blob — only unlink a legacy unmigrated per-user file. Otherwise drop
+  // the reference and let GC reclaim the blob once no one references its asset.
+  if (row && !row.assetId && row.relPath) { try { await unlink(await resolveUserPath(row.relPath)) } catch { /* already gone */ } }
   await db.delete(ytDownloads).where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.videoId, videoId), eq(ytDownloads.kind, 'audio')))
+  await releaseAssetsIfOrphaned([row?.assetId])
   return c.json({ ok: true })
+})
+
+// ── Prefetch cache (transient download-ahead for gapless playback) ───────────────────
+// POST /library/prefetch — download-ahead a track. Fire-and-forget; bounded + self-evicting.
+musicLibrary.post('/prefetch', async (c) => {
+  const user = c.get('user')
+  const b = await c.req.json<{ videoId?: string; title?: string; kind?: 'audio' | 'video'; maxHeight?: number }>().catch(() => ({} as { videoId?: string; title?: string; kind?: 'audio' | 'video'; maxHeight?: number }))
+  if (!b.videoId) return c.json({ error: 'videoId required' }, 400)
+  const kind = b.kind === 'video' ? 'video' : 'audio'
+  void enqueuePrefetch({ userId: user.id, videoId: b.videoId, title: b.title || '', kind, maxHeight: kind === 'video' ? (b.maxHeight ?? 480) : null }).catch(() => {})
+  return c.json({ ok: true })
+})
+
+// GET /library/prefetch?ids=a,b,c&kind=audio — which ids are locally ready (prefetch OR a real
+// save — either way the file is on disk), so the player can choose local bytes over streaming.
+musicLibrary.get('/prefetch', async (c) => {
+  const user = c.get('user')
+  const ids = (c.req.query('ids') ?? '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 50)
+  const kind = c.req.query('kind') === 'video' ? 'video' : 'audio'
+  if (!ids.length) return c.json({ ready: [] })
+  const rows = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, kind), eq(ytDownloads.status, 'ready'), inArray(ytDownloads.videoId, ids)))
+  return c.json({ ready: [...new Set(rows.map(r => r.videoId))] })
 })
 
 // Recent plays, deduped to the latest occurrence of each song.

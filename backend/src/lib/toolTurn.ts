@@ -9,6 +9,7 @@ import { userPreferences } from '@/db/schema'
 import { routePrompt } from '@/llm/router'
 import { isToolAllowed, resolveToolConfig } from '@/lib/toolConfig'
 import type { OllamaChatMessage } from '@/llm/ollama'
+import type { PlayMediaDirective } from '@/tools'
 
 export interface ToolTurn {
   /** The user message content, with any tool data appended for the LLM. */
@@ -17,6 +18,9 @@ export interface ToolTurn {
   /** A finished, speakable reply the caller should emit verbatim (skipping the
    *  LLM), e.g. an alarm confirmation. Mirrors the chat route's snappy path. */
   directReply?: string
+  /** A client-side action to perform (e.g. start mini-player playback). Emitted
+   *  to the frontend as a `directive` SSE event. */
+  directive?: PlayMediaDirective
 }
 
 // A tool ran successfully but returned no findings — e.g. web search with an empty
@@ -80,7 +84,13 @@ export async function runToolTurn(opts: {
     }
     if (result.success) {
       if (typeof result.directReply === 'string' && result.directReply.trim()) {
-        return { userContent: opts.message, toolId: tool.id, directReply: result.directReply.trim() }
+        return { userContent: opts.message, toolId: tool.id, directReply: result.directReply.trim(), directive: result.directive }
+      }
+      // The tool already acted (e.g. started playback) and wants a natural,
+      // in-character reply rather than a data summary — feed the LLM the tailored
+      // instruction, not the raw payload.
+      if (typeof result.synthesisHint === 'string' && result.synthesisHint.trim()) {
+        return { userContent: `${opts.message}\n\n${result.synthesisHint.trim()}`, toolId: tool.id, directive: result.directive }
       }
       // The tool ran fine but found nothing (e.g. a web search on a name that came
       // through garbled from speech — "Vinnie Jones" → "vunny jones"). Without an
@@ -93,7 +103,7 @@ export async function runToolTurn(opts: {
           toolId: tool.id,
         }
       }
-      return { userContent: `${opts.message}\n\n[${tool.name} data]: ${JSON.stringify(result.data)}\n\nUse this data to answer in your own voice, conversationally.`, toolId: tool.id }
+      return { userContent: `${opts.message}\n\n[${tool.name} data]: ${JSON.stringify(result.data)}\n\nUse this data to answer in your own voice, conversationally.`, toolId: tool.id, directive: result.directive }
     }
     return { userContent: `${opts.message}\n\n[${tool.name} error]: ${result.error ?? 'failed'}. Acknowledge briefly and suggest an alternative.`, toolId: tool.id }
   } catch {

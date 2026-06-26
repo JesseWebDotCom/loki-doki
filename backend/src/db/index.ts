@@ -823,6 +823,40 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_music_dj_cache_station ON music_dj_cache(user_id, station_id);
   `)
 
+  // Offline music: media type a station was downloaded as (audio | video | both).
+  addColumn('music_offline_stations', 'media', "TEXT NOT NULL DEFAULT 'audio'")
+
+  // Content-addressable blob store + media assets (app-wide dedup of offlined media).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS blobs (
+      hash TEXT NOT NULL PRIMARY KEY,
+      rel_path TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      mime TEXT,
+      status TEXT NOT NULL DEFAULT 'staging',
+      last_accessed_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS media_assets (
+      id TEXT NOT NULL PRIMARY KEY,
+      source_type TEXT NOT NULL DEFAULT 'youtube',
+      source_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      format TEXT NOT NULL,
+      height INTEGER,
+      blob_hash TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      size_bytes INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS media_assets_src_idx ON media_assets(source_type, source_id, kind, format);
+    CREATE INDEX IF NOT EXISTS media_assets_blob_idx ON media_assets(blob_hash);
+  `)
+  // yt_downloads becomes the per-user REFERENCE into media_assets (shared bytes).
+  addColumn('yt_downloads', 'asset_id', 'TEXT')
+
   // Home inventory subsystem v2 — extra columns + links table
   addColumn('home_devices', 'description', 'TEXT')
   addColumn('home_devices', 'owner', 'TEXT')
@@ -1065,6 +1099,8 @@ export function runMigrations() {
   addColumn('yt_subscriptions', 'last_reconciled_at', 'INTEGER')
   // Marks downloads written by auto-save (only these are eligible for keep-N pruning).
   addColumn('yt_downloads', 'auto', 'INTEGER NOT NULL DEFAULT 0')
+  // Marks transient music prefetch-cache refs (download-ahead for gapless play; rolling keep-N).
+  addColumn('yt_downloads', 'prefetch', 'INTEGER NOT NULL DEFAULT 0')
   // Channel avatar URL resolved + warmed at save time so Offline cards show real logos
   // (not just a letter) even for non-subscribed channels — existing DBs.
   addColumn('yt_videos', 'channel_thumb', 'TEXT')
@@ -1667,6 +1703,19 @@ export function runMigrations() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_chat_documents_conversation ON chat_documents(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS chat_document_edits (
+      id TEXT NOT NULL PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      original_filename TEXT NOT NULL,
+      edited_filename TEXT NOT NULL,
+      instruction TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_document_edits_conversation ON chat_document_edits(conversation_id);
 
     CREATE TABLE IF NOT EXISTS pronunciation_packs (
       id TEXT NOT NULL PRIMARY KEY,

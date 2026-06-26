@@ -10,6 +10,7 @@ import { musicStations, musicOfflineStations, musicOfflineStationTracks, musicDj
 import { requireAuth } from '@/middleware/auth'
 import { buildStationQueue, type StationSeed, type StationSeedType } from '@/lib/music/stationEngine'
 import { enqueueVideoSave } from '@/lib/youtube/automation'
+import { getEffectiveCap, getUserPreference } from '@/lib/youtube/quality'
 import { generateDjSegment, lookupFacts } from '@/routes/musicRadio'
 import { generateStationArt } from '@/lib/music/stationArt'
 import { generateTuningMessages, FALLBACK_TUNING_MESSAGES } from '@/lib/music/tuningMessages'
@@ -370,7 +371,7 @@ musicStations_route.get('/offline', async (c) => {
           iconUrl: off.iconPath ? `/api/music/stations/${off.stationId}/art/icon` : null,
           bannerUrl: off.bannerPath ? `/api/music/stations/${off.stationId}/art/banner` : null,
         }
-    const status = await offlineStatusFor(user.id, off.stationId, off.trackTotal, off.djMode as DjMode)
+    const status = await offlineStatusFor(user.id, off.stationId, off.trackTotal, off.djMode as DjMode, off.media as OfflineMedia)
     return { ...base, offline: status }
   }))
   return c.json({ stations })
@@ -581,6 +582,7 @@ musicStations_route.post('/queue', async (c) => {
 // whole station plays end to end with no internet. Each user gets their own copy.
 
 type DjMode = 'full' | 'minimal' | 'silent'
+type OfflineMedia = 'audio' | 'video' | 'both'
 
 /** Expected number of pre-rendered DJ segments for a frozen tracklist: intro + one transition
  *  per adjacent pair + outro. Zero when the DJ is silent or there are no tracks. */
@@ -589,28 +591,37 @@ function expectedDjCount(djMode: DjMode, trackTotal: number): number {
   return trackTotal + 1 // intro(1) + transitions(trackTotal-1) + outro(1)
 }
 
-/** Live readiness for an offline station: how many frozen tracks have downloaded audio and how
- *  many DJ segments are rendered, plus an effective coarse status. Source of truth for progress. */
-async function offlineStatusFor(userId: string, stationId: string, trackTotal: number, djMode: DjMode) {
+/** Count frozen tracks of `stationId` whose `kind` download is ready. */
+async function readyCount(userId: string, ids: string[], kind: 'audio' | 'video'): Promise<number> {
+  if (!ids.length) return 0
+  const ready = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.kind, kind), eq(ytDownloads.status, 'ready'), inArray(ytDownloads.videoId, ids)))
+  return new Set(ready.map(r => r.videoId)).size
+}
+
+/** Live readiness for an offline station: audio + video downloads ready and DJ context cached,
+ *  plus an effective coarse status that respects the chosen media. Source of truth for progress. */
+async function offlineStatusFor(userId: string, stationId: string, trackTotal: number, djMode: DjMode, media: OfflineMedia) {
   const frozen = await db.select({ videoId: musicOfflineStationTracks.videoId })
     .from(musicOfflineStationTracks)
     .where(and(eq(musicOfflineStationTracks.userId, userId), eq(musicOfflineStationTracks.stationId, stationId)))
   const ids = frozen.map(f => f.videoId)
-  let tracksReady = 0
-  if (ids.length) {
-    const ready = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
-      .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.kind, 'audio'), eq(ytDownloads.status, 'ready'), inArray(ytDownloads.videoId, ids)))
-    tracksReady = new Set(ready.map(r => r.videoId)).size
-  }
+  const wantAudio = media === 'audio' || media === 'both'
+  const wantVideo = media === 'video' || media === 'both'
+  const tracksReady = wantAudio ? await readyCount(userId, ids, 'audio') : 0
+  const videoReady = wantVideo ? await readyCount(userId, ids, 'video') : 0
+
   const djRows = await db.select({ id: musicDjCache.id }).from(musicDjCache)
     .where(and(eq(musicDjCache.userId, userId), eq(musicDjCache.stationId, stationId)))
   const djReady = djRows.length
-  const djTotal = expectedDjCount(djMode, trackTotal)
+  const djTotal = wantAudio ? expectedDjCount(djMode, trackTotal) : 0
+
+  const audioDone = !wantAudio || (tracksReady >= trackTotal && djReady >= djTotal)
+  const videoDone = !wantVideo || videoReady >= trackTotal
+  const anyReady = tracksReady > 0 || videoReady > 0
   const status: 'pending' | 'partial' | 'ready' | 'failed' =
-    tracksReady === 0 ? 'pending'
-      : (tracksReady < trackTotal || djReady < djTotal) ? 'partial'
-        : 'ready'
-  return { status, tracksReady, trackTotal, djReady, djTotal }
+    !anyReady ? 'pending' : (audioDone && videoDone) ? 'ready' : 'partial'
+  return { status, tracksReady, trackTotal, djReady, djTotal, videoReady, media }
 }
 
 /** Background pass: cache the Wikipedia facts for each DJ segment at snapshot time.
@@ -654,8 +665,18 @@ async function generateDjContext(user: { id: string }, station: StationRow, trac
 musicStations_route.post('/:id/snapshot', async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  const body = await c.req.json<{ count?: number }>().catch(() => ({} as { count?: number }))
+  const body = await c.req.json<{ count?: number; media?: OfflineMedia; maxHeight?: number }>().catch(() => ({} as { count?: number; media?: OfflineMedia; maxHeight?: number }))
   const count = Math.min(Math.max(body.count ?? 20, 1), 100)
+  const media: OfflineMedia = body.media === 'video' || body.media === 'both' ? body.media : 'audio'
+  const wantAudio = media === 'audio' || media === 'both'
+  const wantVideo = media === 'video' || media === 'both'
+  // Resolve the video resolution under the shared YouTube quality governance (admin cap wins).
+  let videoHeight: number | null = null
+  if (wantVideo) {
+    const cap = await getEffectiveCap(user.id)
+    const pref = await getUserPreference(user.id)
+    videoHeight = Math.min(body.maxHeight ?? pref ?? cap, cap)
+  }
 
   const [row] = await db.select().from(musicStations).where(eq(musicStations.id, id))
   if (!row) return c.json({ error: 'not found' }, 404)
@@ -673,7 +694,7 @@ musicStations_route.post('/:id/snapshot', async (c) => {
     .where(and(eq(musicOfflineStations.userId, user.id), eq(musicOfflineStations.stationId, id)))
   const offlineStationId = existing?.id ?? crypto.randomUUID()
   const fields = {
-    name: row.name, accent: row.accent, djMode: row.djMode, iconPath: row.iconPath, bannerPath: row.bannerPath,
+    name: row.name, accent: row.accent, djMode: row.djMode, media, iconPath: row.iconPath, bannerPath: row.bannerPath,
     status: 'pending' as const, trackTotal: tracks.length, updatedAt: now,
   }
   if (existing) {
@@ -689,21 +710,23 @@ musicStations_route.post('/:id/snapshot', async (c) => {
     id: crypto.randomUUID(), userId: user.id, stationId: id, videoId: t.videoId, title: t.title, artist: t.artist, position: i, createdAt: now,
   })))
 
-  // Enqueue audio downloads (reuses the durable YouTube save pipeline).
+  // Enqueue the chosen media downloads (reuses the durable YouTube save pipeline).
   let queued = 0
   for (const t of tracks) {
     try {
-      await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'audio', maxHeight: null, firstName: user.firstName, audioFormat: 'm4a' })
+      if (wantAudio) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'audio', maxHeight: null, firstName: user.firstName, audioFormat: 'm4a' })
+      if (wantVideo) await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'video', maxHeight: videoHeight, firstName: user.firstName })
       queued++
     } catch { /* skip individual failures */ }
   }
 
-  // Cache DJ context (Wikipedia facts) in the background. Audio is generated on demand at
-  // playback, so pronunciation rules and voice changes always apply without re-snapshotting.
-  void generateDjContext({ id: user.id }, row, tracks)
-    .then(() => offlineStatusFor(user.id, id, tracks.length, row.djMode as DjMode))
+  // Persist a coarse status after the (quick) DJ-context cache; live progress is recomputed by
+  // the status endpoint. DJ only applies when audio is included (DJ talks over the audio deck).
+  const finalize = () => offlineStatusFor(user.id, id, tracks.length, row.djMode as DjMode, media)
     .then(s => db.update(musicOfflineStations).set({ status: s.status, updatedAt: new Date() }).where(eq(musicOfflineStations.id, offlineStationId)))
     .catch(err => logger.warn({ err, stationId: id }, 'offline snapshot background pass failed'))
+  if (wantAudio) void generateDjContext({ id: user.id }, row, tracks).then(finalize).catch(() => void finalize())
+  else void finalize()
 
   return c.json({ offlineStationId, queued, total: tracks.length })
 })
@@ -715,12 +738,12 @@ musicStations_route.get('/:id/offline-status', async (c) => {
   const [off] = await db.select().from(musicOfflineStations)
     .where(and(eq(musicOfflineStations.userId, user.id), eq(musicOfflineStations.stationId, id)))
   if (!off) return c.json({ saved: false })
-  const s = await offlineStatusFor(user.id, id, off.trackTotal, off.djMode as DjMode)
+  const s = await offlineStatusFor(user.id, id, off.trackTotal, off.djMode as DjMode, off.media as OfflineMedia)
   return c.json({ saved: true, ...s })
 })
 
-// GET /:id/offline-tracks — the full frozen tracklist with each track's download status, so the
-// station page can show exactly what was saved (not a fresh sample).
+// GET /:id/offline-tracks — the full frozen tracklist with each track's audio + video download
+// status, so the station page can show exactly what was saved (not a fresh sample).
 musicStations_route.get('/:id/offline-tracks', async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
@@ -728,13 +751,30 @@ musicStations_route.get('/:id/offline-tracks', async (c) => {
     .where(and(eq(musicOfflineStationTracks.userId, user.id), eq(musicOfflineStationTracks.stationId, id)))
     .orderBy(musicOfflineStationTracks.position)
   if (!frozen.length) return c.json({ tracks: [] })
-  const dls = await db.select({ videoId: ytDownloads.videoId, status: ytDownloads.status }).from(ytDownloads)
-    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'audio'), inArray(ytDownloads.videoId, frozen.map(f => f.videoId))))
-  const statusMap = new Map(dls.map(d => [d.videoId, d.status]))
+  const dls = await db.select({ videoId: ytDownloads.videoId, kind: ytDownloads.kind, status: ytDownloads.status }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, user.id), inArray(ytDownloads.videoId, frozen.map(f => f.videoId))))
+  const audioStatus = new Map(dls.filter(d => d.kind === 'audio').map(d => [d.videoId, d.status]))
+  const videoStatus = new Map(dls.filter(d => d.kind === 'video').map(d => [d.videoId, d.status]))
   return c.json({ tracks: frozen.map(t => ({
     videoId: t.videoId, title: t.title, artist: t.artist, position: t.position,
-    status: statusMap.get(t.videoId) ?? 'pending',
+    status: audioStatus.get(t.videoId) ?? 'pending',
+    videoStatus: videoStatus.get(t.videoId) ?? null,
   })) })
+})
+
+// GET /:id/offline-video-queue — frozen tracklist filtered to tracks whose VIDEO is downloaded,
+// for the offline Watch player (it plays the local video files; no DJ in video mode).
+musicStations_route.get('/:id/offline-video-queue', async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const frozen = await db.select().from(musicOfflineStationTracks)
+    .where(and(eq(musicOfflineStationTracks.userId, user.id), eq(musicOfflineStationTracks.stationId, id)))
+    .orderBy(musicOfflineStationTracks.position)
+  if (!frozen.length) return c.json({ tracks: [] })
+  const ready = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'video'), eq(ytDownloads.status, 'ready'), inArray(ytDownloads.videoId, frozen.map(f => f.videoId))))
+  const readySet = new Set(ready.map(r => r.videoId))
+  return c.json({ tracks: frozen.filter(t => readySet.has(t.videoId)).map(t => ({ videoId: t.videoId, title: t.title, author: t.artist ?? '' })) })
 })
 
 // GET /:id/offline-queue — frozen tracklist filtered to downloaded tracks, plus DJ segment IDs.

@@ -20,7 +20,7 @@
 
 import { search as ytSearch, ytImageProxy, proxyStreamUrl, prewarmStream } from '@/lib/youtube/api'
 import { fetchDjSegment, fetchRadioQueue, fetchStationQueue, base64WavToBlob } from '@/lib/music/radio'
-import { getOfflineQueue, offlineAudioUrl, type OfflineQueue } from '@/lib/music/catalogApi'
+import { getOfflineQueue, offlineAudioUrl, prefetchReady, type OfflineQueue } from '@/lib/music/catalogApi'
 import type { DjStation } from '@/lib/music/radioStations'
 
 export interface QueuedTrack {
@@ -387,9 +387,9 @@ export class RadioEngine {
   }
 
   // ── Low-level deck control ───────────────────────────────────────────────────
-  private cueSrc(deck: number, videoId: string) {
+  private cueSrc(deck: number, videoId: string, forceLocal = false) {
     const el = this.deckEl(deck)
-    el.src = this.offline ? offlineAudioUrl(videoId) : proxyStreamUrl(videoId, 'audio')
+    el.src = (this.offline || forceLocal) ? offlineAudioUrl(videoId) : proxyStreamUrl(videoId, 'audio')
     el.load()
     this.ramp(this.deckKey(deck), 0, 0)
   }
@@ -581,7 +581,7 @@ export class RadioEngine {
   // Play a KNOWN song immediately (we already have the videoId) — cue + play right away, like
   // clicking a YouTube video, with no LLM/queue build. The continuation mix is fetched in the
   // background so the station keeps going after the first song.
-  async playTrack(track: { videoId: string; title: string; author?: string | null; thumbnail?: string }) {
+  async playTrack(track: { videoId: string; title: string; author?: string | null; thumbnail?: string }, resumeSec = 0) {
     this.stop()
     this.ensureAudio()
     this.unlock()
@@ -605,10 +605,26 @@ export class RadioEngine {
       queue: [first], index: 0, currentTrack: first, nextTrack: null, djText: null, djSpeaking: false,
     })
     this.deck = 0
-    this.cueSrc(0, first.videoId)
+    // Prefer a locally prefetched file (the video→audio handoff downloads the current song's audio
+    // ahead of time) so the cold start is gapless online; fall back to streaming.
+    let firstLocal = this.offline
+    if (!firstLocal) { try { firstLocal = (await prefetchReady([first.videoId], 'audio')).includes(first.videoId) } catch { firstLocal = false } }
+    if (this.stale(runId)) return
+    this.cueSrc(0, first.videoId, firstLocal)
     await this.playDeck(0)
     if (this.stale(runId)) return
     this.ramp(this.deckKey(0), 1, 250)   // straight to full volume — instant, no DJ bed
+
+    // Resume at a handoff position (e.g. switching from the video player to audio mid-song).
+    if (resumeSec > 0) {
+      const el = this.deckEl(0)
+      const apply = () => {
+        const d = el.duration
+        if (Number.isFinite(d) && d > 0) { try { el.currentTime = Math.min(resumeSec, d) } catch { /* not seekable yet */ } this.set({ positionSec: el.currentTime }) }
+      }
+      if (el.readyState >= 1) apply()
+      else el.addEventListener('loadedmetadata', apply, { once: true })
+    }
 
     // Background: build the continuation mix off this exact video (fast YT Music radio, no LLM).
     // Offline has no continuation (nothing more is downloaded) — just play the one song.

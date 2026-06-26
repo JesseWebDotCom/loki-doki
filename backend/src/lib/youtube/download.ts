@@ -6,9 +6,11 @@ import { mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { db } from '@/db'
-import { ytDownloads, ytVideos } from '@/db/schema'
+import { ytDownloads, ytVideos, mediaAssets, users } from '@/db/schema'
 import { eq, and, isNull, or } from 'drizzle-orm'
 import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
+import { withLock, putBlobFromFile, contentTmpDir } from '@/lib/content/store'
+import { desiredHeight, markAssetDownloading, completeAsset, assetLockKey } from '@/lib/youtube/assets'
 import { ensureSummary, ensureSavedVideoMeta } from '@/lib/youtube/summarize'
 import { ytDlpBin } from '@/lib/youtube/ytdlp'
 import { ensureFfmpeg, ffmpegLocation, ffprobeBin } from '@/lib/ffmpeg'
@@ -62,16 +64,8 @@ export async function backfillSavedChannelThumbs(userId: string): Promise<void> 
 }
 
 export interface YtMediaJobPayload {
-  videoId: string
-  videoTitle: string
-  userId: string
-  userFirstName: string
-  kind: 'audio' | 'video'
-  /** Ceiling on video height for Save (ignored for audio). Defaults to 1080 if absent. */
-  maxHeight?: number
-  /** Audio container for `kind: 'audio'` saves. Defaults to 'm4a'. */
-  audioFormat?: 'm4a' | 'mp3'
-  downloadRowId: string
+  /** The shared media asset this job downloads (one blob serves every user who referenced it). */
+  assetId: string
 }
 
 function parseProgress(line: string): Partial<DownloadProgress> | null {
@@ -89,102 +83,102 @@ function parseProgress(line: string): Partial<DownloadProgress> | null {
   }
 }
 
-/** Run a yt-dlp download job. Called from downloadJobs.ts runJob() dispatch. */
+/** Download one media asset into the shared content store and fan it out to every user who
+ *  referenced it. Called from downloadJobs.ts runJob() dispatch. The asset's target height is
+ *  recomputed from its live refs (store-the-max), and we loop a bounded number of times so a
+ *  ref that widened the request mid-download still gets the higher tier. */
 export async function runYtMediaJob(
   payload: YtMediaJobPayload,
   onProgress: (p: DownloadProgress & { note?: string }) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  const { videoId, videoTitle, userId, userFirstName, kind, downloadRowId } = payload
-  const maxHeight = payload.maxHeight ?? 1080
-  const audioFormat = payload.audioFormat === 'mp3' ? 'mp3' : 'm4a'
+  const { assetId } = payload
+  const [asset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, assetId)).limit(1)
+  if (!asset) return   // asset was deleted (all refs released) before the job ran
+  const { sourceId: videoId, kind } = asset
+  const audioFormat = asset.format === 'mp3' ? 'mp3' : 'm4a'
 
-  const category = kind === 'audio' ? 'youtube/audio' : 'youtube/video'
-  const outDir = await userPath(userId, userFirstName, category as any)
-  await mkdir(outDir, { recursive: true })
+  // No live refs left → nothing to download; let GC reclaim the orphan asset.
+  const [anyRef] = await db.select({ id: ytDownloads.id }).from(ytDownloads).where(eq(ytDownloads.assetId, assetId)).limit(1)
+  if (!anyRef) return
 
-  const url = `${YT_WATCH_BASE}${videoId}`
-  const outputTemplate = join(outDir, `${videoId}.%(ext)s`)
+  await withLock(assetLockKey(videoId, kind, asset.format), () => markAssetDownloading(assetId))
 
-  // Cap Save resolution at the user's effective height, maximizing resolution within
-  // the cap regardless of codec — do NOT hard-filter [ext=mp4] on the video stream, or
-  // a VP9/AV1-only 1080p tier gets skipped in favour of a lower mp4 tier (the classic
-  // "asked for 1080p, got 960p" downgrade). -S then prefers h264/mp4 for playback
-  // compatibility *when available at the chosen resolution*; --merge-output-format mp4
-  // remuxes the result into an .mp4 container either way.
-  const videoFormat =
-    `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`
-  const formatSort = `res,vcodec:h264,acodec:m4a`
-
-  const args: string[] = kind === 'audio'
-    ? ['-x', '--audio-format', audioFormat, '--audio-quality', '0',
-       '--socket-timeout', '30',
-       '--output', outputTemplate, '--no-playlist', url]
-    : ['-f', videoFormat, '-S', formatSort,
-       '--merge-output-format', 'mp4',
-       '--socket-timeout', '30',
-       '--output', outputTemplate, '--no-playlist', url]
-
-  // Both audio extraction (-x) and video merge need ffmpeg — resolve/auto-download it and
-  // point yt-dlp at our managed copy when it isn't already on PATH.
   await ensureFfmpeg()
   const ffLoc = ffmpegLocation()
-  if (ffLoc) args.push('--ffmpeg-location', ffLoc)
+  const url = `${YT_WATCH_BASE}${videoId}`
 
-  // Mark as downloading
-  await db.update(ytDownloads)
-    .set({ status: 'downloading', updatedAt: new Date() })
-    .where(eq(ytDownloads.id, downloadRowId))
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const target = (await desiredHeight(assetId, kind)) ?? 1080
 
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    // Stage into the content tmp dir (same filesystem as the blob store → cheap rename on put).
+    const tmpDir = await contentTmpDir()
+    const stem = `${assetId}.${attempt}`
+    const outputTemplate = join(tmpDir, `${stem}.%(ext)s`)
 
-    // Escalate to SIGKILL if yt-dlp ignores SIGTERM (e.g. wedged in a stuck socket
-    // read) so a cancel/shutdown can't leave the process hanging around.
-    let killTimer: ReturnType<typeof setTimeout> | null = null
-    signal.addEventListener('abort', () => {
-      proc.kill('SIGTERM')
-      killTimer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ } }, 5_000)
-      reject(new Error('Aborted'))
-    }, { once: true })
+    // Maximize resolution within the cap regardless of codec — do NOT hard-filter [ext=mp4]
+    // on the video stream, or a VP9/AV1-only tier gets skipped for a lower mp4 tier (the
+    // classic "asked for 1080p, got 960p" downgrade). -S then prefers h264/mp4 when available
+    // at the chosen resolution; --merge-output-format mp4 remuxes either way.
+    const videoFormat = `bestvideo[height<=${target}]+bestaudio/best[height<=${target}]/best`
+    const args: string[] = kind === 'audio'
+      ? ['-x', '--audio-format', audioFormat, '--audio-quality', '0', '--socket-timeout', '30',
+         '--output', outputTemplate, '--no-playlist', url]
+      : ['-f', videoFormat, '-S', 'res,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
+         '--socket-timeout', '30', '--output', outputTemplate, '--no-playlist', url]
+    if (ffLoc) args.push('--ffmpeg-location', ffLoc)
 
-    proc.stdout?.on('data', (chunk: Buffer) => {
-      const line = chunk.toString()
-      const progress = parseProgress(line)
-      if (progress) onProgress({ ...progress, note: `Downloading ${kind}…` } as any)
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(ytDlpBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      let killTimer: ReturnType<typeof setTimeout> | null = null
+      signal.addEventListener('abort', () => {
+        proc.kill('SIGTERM')
+        killTimer = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* gone */ } }, 5_000)
+        reject(new Error('Aborted'))
+      }, { once: true })
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        const progress = parseProgress(chunk.toString())
+        if (progress) onProgress({ ...progress, note: `Downloading ${kind}…` } as any)
+      })
+      proc.on('close', (code) => {
+        if (killTimer) clearTimeout(killTimer)
+        if (code === 0) resolve()
+        else reject(new Error(`yt-dlp exited with code ${code}`))
+      })
+      proc.on('error', reject)
     })
 
-    proc.on('close', (code) => {
-      if (killTimer) clearTimeout(killTimer)
-      if (code === 0) resolve()
-      else reject(new Error(`yt-dlp exited with code ${code}`))
-    })
-    proc.on('error', reject)
-  })
+    const ext = kind === 'audio' ? audioFormat : 'mp4'
+    const absPath = join(tmpDir, `${stem}.${ext}`)
+    const actualHeight = kind === 'video' ? (await probeHeight(absPath)) : null
+    const mime = kind === 'audio' ? (audioFormat === 'mp3' ? 'audio/mpeg' : 'audio/mp4') : 'video/mp4'
 
-  // Determine actual file path (yt-dlp may pick ext)
-  const ext = kind === 'audio' ? audioFormat : 'mp4'
-  const absPath = join(outDir, `${videoId}.${ext}`)
-  const relPath = await toRelativePath(absPath)
+    // Hash + move into the blob store OUTSIDE the lock (slow), then swap + fan out INSIDE it.
+    const { hash, sizeBytes } = await putBlobFromFile(absPath, { mime })
+    const { needsHigher } = await withLock(assetLockKey(videoId, kind, asset.format),
+      () => completeAsset(assetId, hash, actualHeight, sizeBytes))
 
-  const { statSync } = await import('node:fs')
-  let sizeBytes: number | null = null
-  try { sizeBytes = statSync(absPath).size } catch { /* file may have different ext */ }
+    if (!needsHigher) break
+    // A ref widened the request mid-download — loop to fetch the taller tier (bounded above).
+  }
 
-  // Record the actual saved resolution (probed) for the quality badge; fall back to the target.
-  const actualHeight = kind === 'video' ? (await probeHeight(absPath)) ?? maxHeight : null
+  // Enrich in the background (best-effort): captions for a representative user + a shared
+  // summary/description cached onto the yt_videos row. Transcripts stay per-user for v1.
+  void enrichSavedAsset(assetId, videoId).catch(() => { /* enrichment is best-effort */ })
+}
 
-  await db.update(ytDownloads)
-    .set({ status: 'ready', relPath, sizeBytes, maxHeight: actualHeight, updatedAt: new Date() })
-    .where(eq(ytDownloads.id, downloadRowId))
-
-  // Enrich in the background (non-blocking, best-effort): fetch captions, then cache the
-  // description + an AI summary onto the yt_videos row so the offline Description and
-  // Summary tabs are populated without the user ever clicking "Summarize".
-  void fetchTranscript(videoId, userId, userFirstName, downloadRowId)
-    .then(() => ensureSavedVideoMeta(videoId, videoTitle))
-    .then(() => ensureSummary(videoId, userId, userFirstName))
-    .catch(() => { /* enrichment is best-effort */ })
+/** Best-effort post-download enrichment: cache a transcript for one referencing user and the
+ *  shared description/summary onto the yt_videos row. */
+async function enrichSavedAsset(assetId: string, videoId: string): Promise<void> {
+  const [ref] = await db.select({ id: ytDownloads.id, userId: ytDownloads.userId, title: ytDownloads.title })
+    .from(ytDownloads).where(eq(ytDownloads.assetId, assetId)).limit(1)
+  if (!ref) return
+  const [u] = await db.select({ firstName: users.firstName }).from(users).where(eq(users.id, ref.userId)).limit(1)
+  const firstName = u?.firstName ?? 'user'
+  await fetchTranscript(videoId, ref.userId, firstName, ref.id)
+    .then(() => ensureSavedVideoMeta(videoId, ref.title))
+    .then(() => ensureSummary(videoId, ref.userId, firstName))
+    .catch(() => { /* best-effort */ })
 }
 
 // ── Export to device (any format → a file the browser downloads) ─────────────────

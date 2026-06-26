@@ -79,7 +79,7 @@ function faceIdAvailable(): boolean {
   )
 }
 
-function videoAvailable(): boolean {
+export function videoAvailable(): boolean {
   const m = CATALOG.find(m => m.id === 'animatediff-xl-v1')
   return !!(m?.hf?.dest && existsSync(join(dataDir, m.hf.dest)))
 }

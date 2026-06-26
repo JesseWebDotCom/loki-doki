@@ -1,16 +1,27 @@
 import { useCallback, useRef, useState } from 'react'
+import { parsePlayDirective, type PlayMediaDirective } from '@/lib/playDirective'
 
 interface Turn { role: 'user' | 'assistant'; content: string }
+
+interface CompanionStreamOptions {
+  /** Fired when the companion turn emits a playback directive (e.g. "play heavy
+   *  metal"). The caller drives the global mini-player. */
+  onDirective?: (directive: PlayMediaDirective) => void
+}
 
 // Ephemeral companion chat used OFF the chat app. Streams a reply in place and
 // keeps a short client-side history for context — but persists nothing and never
 // navigates. (When the chat app is open, the overlay uses the real chat flow,
 // which records conversations.)
-export function useCompanionStream() {
+export function useCompanionStream(options?: CompanionStreamOptions) {
   const [response, setResponse] = useState('')
   const [streaming, setStreaming] = useState(false)
   const historyRef = useRef<Turn[]>([])
   const abortRef = useRef<AbortController | null>(null)
+  // Keep the latest callback in a ref so `submit` stays stable (the hands-free
+  // loop calls it through a ref) without re-creating on every render.
+  const onDirectiveRef = useRef(options?.onDirective)
+  onDirectiveRef.current = options?.onDirective
 
   const cancel = useCallback(() => {
     abortRef.current?.abort()
@@ -53,6 +64,12 @@ export function useCompanionStream() {
           else if (line.startsWith('data:')) {
             const data = line.slice(line.charAt(5) === ' ' ? 6 : 5)
             if (event === 'token') { acc += data; setResponse(acc) }
+            else if (event === 'directive') {
+              try {
+                const directive = parsePlayDirective(JSON.parse(data))
+                if (directive) onDirectiveRef.current?.(directive)
+              } catch { /* malformed directive */ }
+            }
             else if (event === 'routing' && import.meta.env.DEV) console.log('[COMPANION] routing:', data)
           }
         }

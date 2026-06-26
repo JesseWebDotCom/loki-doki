@@ -327,6 +327,12 @@ async function startJob(job: typeof downloadJobs.$inferSelect): Promise<void> {
       } else {
         await db.update(downloadJobs).set({ status: 'failed', attempts, lastError: String(err), updatedAt: new Date() }).where(and(eq(downloadJobs.id, job.id), eq(downloadJobs.status, 'running')))
         logger.error(`[jobs] ✗ ${job.type}:${job.refId} — gave up after ${attempts} attempts: ${err}`)
+        // Propagate terminal failure to the shared media asset + every waiting ref, so a second
+        // user who attached to this job doesn't sit on 'pending' forever.
+        if (job.type === 'yt-media') {
+          const { failAssetByJobRefId } = await import('@/lib/youtube/assets')
+          await failAssetByJobRefId(job.refId, String(err)).catch(() => {})
+        }
       }
     }
   } finally {
@@ -677,8 +683,14 @@ export async function retryJob(id: string): Promise<void> {
 export async function cancelJob(id: string): Promise<void> {
   // Mark cancelled BEFORE aborting so the runner's abort handler (which requeues only
   // while status='running') can't race this write and resurrect the job to 'pending'.
+  const [job] = await db.select({ type: downloadJobs.type, refId: downloadJobs.refId }).from(downloadJobs).where(eq(downloadJobs.id, id)).limit(1)
   await db.update(downloadJobs).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(downloadJobs.id, id))
   running.get(id)?.ctrl.abort()
+  // A cancelled shared media job would otherwise leave its waiting refs stuck on 'pending'.
+  if (job?.type === 'yt-media') {
+    const { failAssetByJobRefId } = await import('@/lib/youtube/assets')
+    await failAssetByJobRefId(job.refId, 'cancelled').catch(() => {})
+  }
 }
 
 export async function retryAllFailed(): Promise<void> {

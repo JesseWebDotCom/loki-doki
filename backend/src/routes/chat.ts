@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { characters, userCharacters, conversations, messages, memories, chatDocuments } from '@/db/schema'
+import { characters, userCharacters, conversations, messages, memories, chatDocuments, chatDocumentEdits } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { extractText } from '@/lib/rag/ingest'
 import { ollamaChat } from '@/llm/ollama'
@@ -41,6 +41,34 @@ chat.post('/extract', requireAuth, async (c) => {
   } catch (e) {
     return c.json({ error: `Could not read that file: ${e}` }, 400)
   }
+})
+
+// Download an edited document produced by the Document Assistant tool. Persisted in
+// chat_document_edits, so it stays retrievable after the live result card is gone.
+// Ownership-scoped; Content-Disposition forces a download with the suggested filename.
+chat.get('/edited/:id/download', requireAuth, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+
+  const [row] = await db
+    .select({
+      userId: chatDocumentEdits.userId,
+      editedFilename: chatDocumentEdits.editedFilename,
+      text: chatDocumentEdits.text,
+    })
+    .from(chatDocumentEdits)
+    .where(eq(chatDocumentEdits.id, id))
+    .limit(1)
+
+  if (!row || row.userId !== user.id) return c.json({ error: 'Not found' }, 404)
+
+  // Sanitize the filename for the header — strip anything that could break the
+  // Content-Disposition parse or smuggle a path.
+  const safeName = (row.editedFilename || 'edited.txt').replace(/[^\w.\- ]+/g, '_').slice(0, 200)
+
+  c.header('Content-Type', 'text/plain; charset=utf-8')
+  c.header('Content-Disposition', `attachment; filename="${safeName}"`)
+  return c.body(row.text)
 })
 
 // The per-conversation memory block is computed once and reused for every
@@ -290,10 +318,6 @@ chat.post('/stream', requireAuth, async (c) => {
     dbMessages.shift()
   }
 
-  // Determine job type — vision if image attachment is included
-  const hasImageAttachment = false // TODO: detect from request body when vision is wired up
-  const genType = hasImageAttachment ? 'vision' : 'chat'
-
   // Generate server-side assistantMessageId so the frontend can correlate across reconnects
   const assistantMessageId = crypto.randomUUID()
 
@@ -328,7 +352,7 @@ chat.post('/stream', requireAuth, async (c) => {
 
   let job: genQueue.Job
   try {
-    job = genQueue.enqueue({ type: genType, userId: user.id, meta: { conversationId: finalConvId, assistantMessageId }, run })
+    job = genQueue.enqueue({ type: 'chat', userId: user.id, meta: { conversationId: finalConvId, assistantMessageId }, run })
   } catch (err) {
     if (err instanceof genQueue.QueueLimitError) {
       return c.json({ error: 'You have too many requests in progress. Please wait for them to finish.' }, 429)

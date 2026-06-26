@@ -1,7 +1,8 @@
 import { Music, Play, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { proxyImg } from '@/lib/img'
-import type { PlayMusicBlockData } from './types'
+import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
+import type { PlayMusicBlockData, PlayMusicVideo } from './types'
 
 function fmtDur(sec: number | null): string {
   if (!sec) return ''
@@ -12,14 +13,19 @@ function fmtDur(sec: number | null): string {
 
 export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
   const navigate = useNavigate()
+  const { playExpanded } = useYoutubePlayback()
   const top = data.videos[0]
 
-  // Start an instant station in the Music sub-app: a specific result seeds a song station;
-  // the generic "open" seeds from the original query.
-  function openMusicApp(seed?: { title: string; artist?: string | null }) {
-    const value = seed ? `${seed.artist ? seed.artist + ' ' : ''}${seed.title}` : data.query
-    const seedType = seed ? 'song' : 'genre'
-    navigate(`/music/stations?instant=${encodeURIComponent(value)}&seedType=${seedType}`)
+  // Click a result → play it in the global mini-player, in place (no navigation),
+  // matching how the companion starts playback.
+  function playVideo(v: PlayMusicVideo) {
+    playExpanded({
+      videoId: v.videoId,
+      title: v.title,
+      author: v.artist ?? null,
+      thumbnail: v.thumbnail,
+      durationSec: v.durationSec,
+    })
   }
 
   return (
@@ -36,7 +42,7 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
       {top && (
         <button
           type="button"
-          onClick={() => openMusicApp(top)}
+          onClick={() => playVideo(top)}
           className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/40"
         >
           <div className="relative shrink-0">
@@ -66,7 +72,7 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
             <button
               key={v.videoId}
               type="button"
-              onClick={() => openMusicApp(v)}
+              onClick={() => playVideo(v)}
               className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/30"
             >
               <img
@@ -89,7 +95,7 @@ export function MusicPlayBlock({ data }: { data: PlayMusicBlockData }) {
       <div className="border-t border-border/60 px-3 py-2">
         <button
           type="button"
-          onClick={() => openMusicApp()}
+          onClick={() => navigate(data.deeplink)}
           className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           <ExternalLink className="size-3" />

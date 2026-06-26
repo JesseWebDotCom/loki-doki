@@ -13,6 +13,73 @@ import type { AppEnv } from '@/types'
 
 const tools = new Hono<AppEnv>()
 
+// ── NWS live observation (US only) ───────────────────────────────────────────
+
+interface NWSObservation {
+  textDescription: string
+  precipitation: number | null  // mm in last hour
+  timestamp: string | null
+}
+
+// Station ID cache: rounded coords → { stationId, ts }
+const _stationCache = new Map<string, { stationId: string; ts: number }>()
+const STATION_TTL = 24 * 60 * 60 * 1000
+
+async function fetchNWSObservation(lat: number, lng: number): Promise<NWSObservation | null> {
+  // Rough bounding box for US territory (CONUS + AK + HI)
+  if (lat < 17 || lat > 72 || lng < -180 || lng > -64) return null
+
+  const cacheKey = `${lat.toFixed(2)},${lng.toFixed(2)}`
+  const nwsHeaders = { 'User-Agent': 'loki-doki-weather/1.0', Accept: 'application/geo+json' }
+
+  try {
+    let stationId = (_stationCache.get(cacheKey)?.ts ?? 0) > Date.now() - STATION_TTL
+      ? _stationCache.get(cacheKey)!.stationId
+      : null
+
+    if (!stationId) {
+      const ptsRes = await fetch(
+        `https://api.weather.gov/points/${lat.toFixed(4)},${lng.toFixed(4)}`,
+        { signal: AbortSignal.timeout(5000), headers: nwsHeaders },
+      )
+      if (!ptsRes.ok) return null
+      const pts = await ptsRes.json() as { properties?: { observationStations?: string } }
+      const stationsUrl = pts.properties?.observationStations
+      if (!stationsUrl) return null
+
+      const stRes = await fetch(`${stationsUrl}?limit=1`, { signal: AbortSignal.timeout(5000), headers: nwsHeaders })
+      if (!stRes.ok) return null
+      const stBody = await stRes.json() as { features?: Array<{ properties?: { stationIdentifier?: string } }> }
+      stationId = stBody.features?.[0]?.properties?.stationIdentifier ?? null
+      if (!stationId) return null
+
+      _stationCache.set(cacheKey, { stationId, ts: Date.now() })
+    }
+
+    const obsRes = await fetch(
+      `https://api.weather.gov/stations/${stationId}/observations/latest`,
+      { signal: AbortSignal.timeout(5000), headers: nwsHeaders },
+    )
+    if (!obsRes.ok) return null
+    const obs = await obsRes.json() as {
+      properties?: {
+        textDescription?: string
+        precipitationLastHour?: { value: number | null }
+        timestamp?: string
+      }
+    }
+    const p = obs.properties
+    const precipM = p?.precipitationLastHour?.value ?? null
+    return {
+      textDescription: p?.textDescription ?? '',
+      precipitation: precipM != null ? precipM * 1000 : null,
+      timestamp: p?.timestamp ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
 // ── Tool list ─────────────────────────────────────────────────────────────────
 
 // Returns all tools with their schemas and enabled state
@@ -263,14 +330,19 @@ tools.get('/weather/data', requireAuth, async (c) => {
 
   const toolConfig = await resolveToolConfig('weather', user.id)
 
-  const result = await weatherTool.execute(
-    { location, lat, lng, days, temperature_unit: unit, include_hourly: true },
-    toolConfig,
-  )
+  const resolvedLat = lat ?? (toolConfig?._lat as number | undefined)
+  const resolvedLng = lng ?? (toolConfig?._lng as number | undefined)
+
+  const [result, observation] = await Promise.all([
+    weatherTool.execute({ location, lat, lng, days, temperature_unit: unit, include_hourly: true }, toolConfig),
+    resolvedLat != null && resolvedLng != null
+      ? fetchNWSObservation(resolvedLat, resolvedLng).catch(() => null)
+      : Promise.resolve(null),
+  ])
 
   if (result.offline) return c.json({ offline: true }, 503)
   if (!result.success) return c.json({ error: result.error }, 400)
-  return c.json(result.data)
+  return c.json({ ...(result.data as object), observation: observation ?? undefined })
 })
 
 // ── Weather AI summary ─────────────────────────────────────────────────────────

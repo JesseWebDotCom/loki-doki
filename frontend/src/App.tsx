@@ -33,6 +33,7 @@ import { MusicLayout } from '@/components/music/MusicLayout'
 import { MusicHomePage } from '@/pages/music/MusicHomePage'
 import { MusicStationsPage } from '@/pages/music/MusicStationsPage'
 import { MusicStationPage } from '@/pages/music/MusicStationPage'
+import { MusicWatchStationPage } from '@/pages/music/MusicWatchStationPage'
 import { MusicBrowsePage } from '@/pages/music/MusicBrowsePage'
 import { MusicArtistPage } from '@/pages/music/MusicArtistPage'
 import { MusicAlbumPage } from '@/pages/music/MusicAlbumPage'
@@ -278,6 +279,7 @@ export default function App() {
                   <Route index element={<MusicHomePage />} />
                   <Route path="stations" element={<MusicStationsPage />} />
                   <Route path="station/:id" element={<MusicStationPage />} />
+                  <Route path="watch/:id" element={<MusicWatchStationPage />} />
                   <Route path="browse" element={<MusicBrowsePage />} />
                   <Route path="now-playing" element={<NowPlayingPage />} />
                   <Route path="artist/:mbid" element={<MusicArtistPage />} />

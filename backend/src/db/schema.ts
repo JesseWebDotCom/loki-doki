@@ -516,6 +516,7 @@ export const musicOfflineStations = sqliteTable('music_offline_stations', {
   name: text('name').notNull(),
   accent: text('accent'),
   djMode: text('dj_mode', { enum: ['full', 'minimal', 'silent'] }).notNull().default('full'),
+  media: text('media', { enum: ['audio', 'video', 'both'] }).notNull().default('audio'), // what was downloaded
   iconPath: text('icon_path'),
   bannerPath: text('banner_path'),
   status: text('status', { enum: ['pending', 'partial', 'ready', 'failed'] }).notNull().default('pending'),
@@ -893,14 +894,54 @@ export const ytDownloads = sqliteTable('yt_downloads', {
   transcriptRelPath: text('transcript_rel_path'),
   status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('pending'),
   sizeBytes: integer('size_bytes'),
-  maxHeight: integer('max_height'),   // resolution target this video was saved at (for the quality badge)
+  maxHeight: integer('max_height'),   // resolution THIS user requested (drives the asset's desiredHeight)
+  // Points at the shared media_assets rendition that holds the actual bytes. Null on legacy
+  // rows until the background dedup migration links them; serve falls back to relPath then.
+  assetId: text('asset_id'),
   // True when written by subscription auto-save (vs an explicit user Save). Only auto
   // rows are eligible for the rolling "keep latest N" prune — manual saves never expire.
   auto: integer('auto', { mode: 'boolean' }).notNull().default(false),
+  // True when written by the transient music PREFETCH cache (download-ahead for gapless play).
+  // Ephemeral: hidden from libraries and evicted by a rolling keep-N prune. Promoted to a real
+  // ref (prefetch=false) if the user later explicitly saves the same track.
+  prefetch: integer('prefetch', { mode: 'boolean' }).notNull().default(false),
   error: text('error'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userVidKindUnique: unique().on(t.userId, t.videoId, t.kind) }))
+
+// ── Content-addressable blob store (Layer 1) ────────────────────────────────────
+// One row per physical file on disk, keyed by sha256(bytes). Byte-identical content from
+// any app/user/source collapses to one blob. `status` gates GC: a freshly-written blob is
+// `staging` (invisible to GC) until a referrer flips it `live`. See lib/content/store.ts.
+export const blobs = sqliteTable('blobs', {
+  hash: text('hash').primaryKey(),                 // sha256 hex of the bytes
+  relPath: text('rel_path').notNull(),             // relative to the user data root
+  sizeBytes: integer('size_bytes').notNull(),
+  mime: text('mime'),
+  status: text('status', { enum: ['staging', 'live'] }).notNull().default('staging'),
+  lastAccessedAt: integer('last_accessed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ── Media assets (Layer 2: identity + store-the-max) ────────────────────────────
+// One logical rendition of a piece of media, keyed by (sourceType, sourceId, kind, format).
+// Holds the single best-quality blob anyone in the household requested (store-the-max for
+// video; audio is height-independent). yt_downloads rows are the per-user REFERENCES.
+export const mediaAssets = sqliteTable('media_assets', {
+  id: text('id').primaryKey(),
+  sourceType: text('source_type').notNull().default('youtube'),
+  sourceId: text('source_id').notNull(),           // e.g. the YouTube videoId
+  kind: text('kind', { enum: ['audio', 'video'] }).notNull(),
+  format: text('format').notNull(),                // container (m4a | mp3 | mp4) — part of identity
+  height: integer('height'),                       // actual stored pixel height (null for audio)
+  blobHash: text('blob_hash'),                     // → blobs.hash; null until first download lands
+  status: text('status', { enum: ['pending', 'downloading', 'ready', 'failed'] }).notNull().default('pending'),
+  sizeBytes: integer('size_bytes'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ srcUnique: unique().on(t.sourceType, t.sourceId, t.kind, t.format) }))
 
 export const ytWatchState = sqliteTable('yt_watch_state', {
   id: text('id').primaryKey(),
@@ -1362,6 +1403,21 @@ export const chatDocuments = sqliteTable('chat_documents', {
   conversationId: text('conversation_id').notNull(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   filename: text('filename').notNull(),
+  text: text('text').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ─── Edited documents ───────────────────────────────────────────────────────────
+// The result of the Document Assistant tool transforming an uploaded document
+// (fix spelling, rewrite, summarize, translate, …). Persisted so the edited file
+// stays downloadable later, after the live result card is gone.
+export const chatDocumentEdits = sqliteTable('chat_document_edits', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  originalFilename: text('original_filename').notNull(),
+  editedFilename: text('edited_filename').notNull(),
+  instruction: text('instruction').notNull(),
   text: text('text').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })

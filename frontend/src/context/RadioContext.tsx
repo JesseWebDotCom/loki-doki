@@ -8,7 +8,7 @@ import { recordHistory } from '@/lib/music/catalogApi'
  *  (and stays controllable from the mini-player) as you move around the app. */
 interface RadioCtx extends RadioState {
   start: (s: DjStation) => void
-  playTrack: (t: { videoId: string; title: string; author?: string | null; thumbnail?: string }) => void
+  playTrack: (t: { videoId: string; title: string; author?: string | null; thumbnail?: string }, resumeSec?: number) => void
   stop: () => void
   skip: () => void
   seek: (sec: number) => void
@@ -60,7 +60,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   const value = useMemo<RadioCtx>(() => ({
     ...state,
     start: (s) => e.start(s),
-    playTrack: (t) => e.playTrack(t),
+    playTrack: (t, resumeSec) => e.playTrack(t, resumeSec),
     stop: () => e.stop(),
     skip: () => e.skip(),
     seek: (sec) => e.seek(sec),

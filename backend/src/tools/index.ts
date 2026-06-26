@@ -1,5 +1,29 @@
 import type { OllamaTool } from '@/llm/ollama'
 
+/**
+ * A structured client-side action a tool wants the frontend to perform, surfaced
+ * over the chat/companion SSE stream as a `directive` event. Currently the only
+ * directive is `play_media`, which drives the global mini-player: a single video
+ * (YouTube mini-bar) or an AI radio station (RadioContext). Lets the companion
+ * actually START playback — "play the Thriller music video", "play heavy metal" —
+ * instead of just linking to the Music app.
+ */
+export interface PlayMediaDirective {
+  action: 'play_media'
+  /** 'video' → dock+expand one clip in the YouTube mini-player.
+   *  'station' → start an AI radio station seeded by `seedType`/`seed`. */
+  media: 'video' | 'station'
+  // ── video ────────────────────────────────────────────────────────────────
+  videoId?: string
+  title?: string
+  artist?: string | null
+  thumbnail?: string | null
+  durationSec?: number | null
+  // ── station ──────────────────────────────────────────────────────────────
+  seedType?: 'artist' | 'song' | 'genre'
+  seed?: string
+}
+
 export interface ToolResult {
   success: boolean
   data?: unknown
@@ -9,6 +33,15 @@ export interface ToolResult {
   // pass entirely — for tools whose result is already a finished, speakable reply
   // (e.g. Home Assistant's own action confirmation). Maximum-snappiness path.
   directReply?: string
+  // If set, emitted to the client as a `directive` event so the frontend performs
+  // an action (e.g. start playback in the mini-player). Independent of directReply.
+  directive?: PlayMediaDirective
+  // If set, replaces the generic "use this data" instruction given to the LLM with
+  // a tool-tailored one — and suppresses the raw data dump. Use when the tool has
+  // ALREADY acted (e.g. started playback) and just wants a natural, in-character
+  // acknowledgement rather than a data summary. Unlike directReply, the LLM still
+  // runs, so the reply is in the companion's voice.
+  synthesisHint?: string
 }
 
 export type ConfigFieldType = 'string' | 'number' | 'boolean' | 'secret'
@@ -68,6 +101,8 @@ import { tvShowsTool } from './tvshows'
 import { datetimeTool } from './datetime'
 import { moonphaseTool } from './moonphase'
 import { imageGenTool } from './imageGen'
+import { videoGenTool } from './videoGen'
+import { documentEditTool } from './documentEdit'
 import { medicalTool } from './medical'
 import { whereToWatchTool } from './whereToWatch'
 import { holidaysTool } from './holidays'
@@ -105,6 +140,8 @@ export const toolRegistry: Tool[] = [
   datetimeTool,
   moonphaseTool,
   imageGenTool,
+  videoGenTool,
+  documentEditTool,
   medicalTool,
   whereToWatchTool,
   holidaysTool,

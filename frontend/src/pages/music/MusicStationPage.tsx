@@ -2,21 +2,22 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Play, Download, Heart, Pencil, Share2, Copy, Trash2, Users, Mic, Loader2, Music2, CheckCircle2, ChevronDown } from 'lucide-react'
+import { Play, Download, Heart, Pencil, Share2, Copy, Trash2, Users, Mic, Loader2, Music2, CheckCircle2, Headphones, MonitorPlay } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { StationArt } from '@/components/music/StationArt'
 import { SongDownloadButton } from '@/components/music/SongDownloadButton'
 import { OpenInYoutubeButton } from '@/components/music/OpenInYoutubeButton'
+import { SaveOfflineDialog } from '@/components/music/SaveOfflineDialog'
 import { StationEditorDialog } from '@/components/music/StationEditorDialog'
 import { useRadio } from '@/context/RadioContext'
+import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import {
-  getStation, previewStationQueue, deleteStation, shareStation, cloneStation, snapshotStation,
-  getOfflineStatus, getOfflineTracks, removeOfflineStation, addFavorite, stationToDj,
+  getStation, previewStationQueue, deleteStation, shareStation, cloneStation,
+  getOfflineStatus, getOfflineTracks, addFavorite, stationToDj,
 } from '@/lib/music/catalogApi'
 
 const DJ_LABEL: Record<string, string> = { full: 'Full DJ', minimal: 'DJ minimal', silent: 'No DJ' }
@@ -26,10 +27,10 @@ export function MusicStationPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const radio = useRadio()
+  const mode = useMusicModeOptional()
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [removing, setRemoving] = useState(false)
+  const [saveOpen, setSaveOpen] = useState(false)
 
   const { data, isLoading } = useQuery({ queryKey: ['music-station', id], queryFn: () => getStation(id), enabled: !!id })
   const { data: preview, isLoading: previewLoading } = useQuery({
@@ -57,34 +58,28 @@ export function MusicStationPage() {
   const offBusy = offSaved && (offline?.status === 'pending' || offline?.status === 'partial')
   const tDone = offline?.tracksReady ?? 0, tTotal = offline?.trackTotal ?? 0
   const dDone = offline?.djReady ?? 0, dTotal = offline?.djTotal ?? 0
-  const offPct = (tTotal + dTotal) ? Math.round(((tDone + dDone) / (tTotal + dTotal)) * 100) : 0
+  const vDone = offline?.videoReady ?? 0
+  const offMedia = offline?.media
+  // Offline mode only exposes the modes whose media is downloaded.
+  const canListen = mode === 'online' || !offSaved || offMedia === 'audio' || offMedia === 'both'
+  const canWatch = mode === 'online' || (offSaved && (offMedia === 'video' || offMedia === 'both'))
+  // Progress reflects whatever media is being saved (audio tracks + DJ, and/or videos).
+  const wantA = offMedia === 'audio' || offMedia === 'both'
+  const wantV = offMedia === 'video' || offMedia === 'both'
+  const offDone = (wantA ? tDone + dDone : 0) + (wantV ? vDone : 0)
+  const offNeed = (wantA ? tTotal + dTotal : 0) + (wantV ? tTotal : 0)
+  const offPct = offNeed ? Math.round((offDone / offNeed) * 100) : 0
+  const invalidateOffline = () => {
+    qc.invalidateQueries({ queryKey: ['music-offline-status', id] })
+    qc.invalidateQueries({ queryKey: ['music-offline-tracks', id] })
+    qc.invalidateQueries({ queryKey: ['music-offline-stations'] })
+  }
 
   const refresh = () => { qc.invalidateQueries({ queryKey: ['music-stations'] }); qc.invalidateQueries({ queryKey: ['music-station', id] }) }
   const play = () => { radio.start(stationToDj(s)); navigate('/music/now-playing') }
   const favorite = async () => {
     try { await addFavorite({ kind: 'station', refId: s.id, title: s.name }); toast.success('Added to favorites') }
     catch { toast.error('Could not favorite') }
-  }
-  const snapshot = async (count: number) => {
-    if (saving) return
-    setSaving(true)
-    try {
-      const r = await snapshotStation(s.id, count)
-      toast.success(`Saving station offline — ${r.queued} songs queued`)
-      qc.invalidateQueries({ queryKey: ['music-offline-status', id] })
-      qc.invalidateQueries({ queryKey: ['music-offline-stations'] })
-    } catch { toast.error('Could not save offline') }
-    finally { setSaving(false) }
-  }
-  const removeOff = async () => {
-    setRemoving(true)
-    try {
-      await removeOfflineStation(s.id)
-      toast.success('Removed from offline')
-      qc.invalidateQueries({ queryKey: ['music-offline-status', id] })
-      qc.invalidateQueries({ queryKey: ['music-offline-stations'] })
-    } catch { toast.error('Could not remove') }
-    finally { setRemoving(false) }
   }
   const toggleShare = async () => {
     try { const { visibility } = await shareStation(s.id, s.visibility !== 'shared'); refresh(); toast.success(visibility === 'shared' ? 'Shared with the family' : 'Made private') }
@@ -119,35 +114,13 @@ export function MusicStationPage() {
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2 px-5 pt-4">
-        <Button onClick={play}><Play className="size-4 fill-current" /> Play station</Button>
+        {canListen && <Button onClick={play}><Headphones className="size-4" /> Listen</Button>}
+        {canWatch && <Button variant="secondary" onClick={() => navigate(`/music/watch/${s.id}`)}><MonitorPlay className="size-4" /> Watch</Button>}
         <Button variant="secondary" onClick={favorite}><Heart className="size-4" /> Favorite</Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="secondary" disabled={offBusy || saving || removing}>
-              {offBusy || saving || removing
-                ? <Loader2 className="size-4 animate-spin" />
-                : offReady ? <CheckCircle2 className="size-4 text-emerald-600" /> : <Download className="size-4" />}
-              {offBusy ? `Saving… ${tDone}/${tTotal}` : saving ? 'Saving…' : removing ? 'Removing…' : offReady ? 'Saved offline' : 'Save offline'}
-              <ChevronDown className="size-3.5 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
-            <DropdownMenuLabel>{offReady ? `Saved ${tTotal} song${tTotal === 1 ? '' : 's'} offline` : 'How many songs to save?'}</DropdownMenuLabel>
-            {[20, 50, 100].map(n => (
-              <DropdownMenuItem key={n} onClick={() => snapshot(n)}>
-                <Download className="size-4 opacity-70" /> {offReady ? `Re-download · ${n} songs` : `${n} songs`}
-              </DropdownMenuItem>
-            ))}
-            {offSaved && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={removeOff} className="text-destructive focus:text-destructive">
-                  <Trash2 className="size-4" /> Remove offline
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button variant="secondary" onClick={() => setSaveOpen(true)} disabled={offBusy}>
+          {offBusy ? <Loader2 className="size-4 animate-spin" /> : offReady ? <CheckCircle2 className="size-4 text-emerald-600" /> : <Download className="size-4" />}
+          {offBusy ? `Saving… ${offPct}%` : offReady ? 'Saved offline' : offSaved ? 'Manage offline' : 'Save offline'}
+        </Button>
         {s.owned ? (
           <>
             <Button variant="secondary" onClick={() => setEditing(true)}><Pencil className="size-4" /> Edit</Button>
@@ -163,7 +136,11 @@ export function MusicStationPage() {
       {offBusy && (
         <div className="px-5 pt-3">
           <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-            <span>Saving offline — {tDone}/{tTotal} songs{dTotal ? ` · DJ ${dDone}/${dTotal}` : ''}</span>
+            <span>
+              Saving offline
+              {wantA ? ` — ${tDone}/${tTotal} songs${dTotal ? ` · DJ ${dDone}/${dTotal}` : ''}` : ''}
+              {wantV ? `${wantA ? ' · ' : ' — '}${vDone}/${tTotal} videos` : ''}
+            </span>
             <span>{offPct}%</span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -188,20 +165,31 @@ export function MusicStationPage() {
           {offTracks?.tracks.length ? (
             <div className="divide-y divide-border/50 rounded-xl border border-border/60">
               {offTracks.tracks.map((t, i) => {
-                const ready = t.status === 'ready'
+                const aOk = !wantA || t.status === 'ready'
+                const vOk = !wantV || t.videoStatus === 'ready'
+                const ready = aOk && vOk
+                const failed = (wantA && t.status === 'failed') || (wantV && t.videoStatus === 'failed')
+                const audioReady = wantA && t.status === 'ready'
+                // Click plays the audio deck when audio is saved; for a video-only save it opens Watch.
+                const onPlay = () => audioReady ? radio.playTrack({ videoId: t.videoId, title: t.title, author: t.artist }) : navigate(`/music/watch/${s.id}`)
                 return (
                   <div key={t.videoId + i} className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
-                    <button onClick={() => ready && radio.playTrack({ videoId: t.videoId, title: t.title, author: t.artist })}
-                      disabled={!ready} className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-60">
+                    <button onClick={onPlay} disabled={!ready} className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-60">
                       <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-gradient-to-br from-brand/30 to-brand/10">
                         <Music2 className="absolute size-4 text-brand/60" />
                         <img src={proxyImg(`https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg`)} alt="" loading="lazy"
                           className="relative size-full object-cover" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
                         {ready && <span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover:opacity-100"><Play className="size-4 fill-white text-white" /></span>}
                       </div>
-                      <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{t.title}</p>{t.artist && <p className="truncate text-xs text-muted-foreground">{t.artist}</p>}</div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{t.title}</p>
+                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          {t.artist && <span className="truncate">{t.artist}</span>}
+                          {ready && wantV && <span className="rounded bg-foreground/10 px-1 font-medium">Video</span>}
+                        </div>
+                      </div>
                       {ready ? <CheckCircle2 className="size-4 shrink-0 text-emerald-500/90" />
-                        : t.status === 'failed' ? <span className="shrink-0 text-[11px] font-medium text-destructive">failed</span>
+                        : failed ? <span className="shrink-0 text-[11px] font-medium text-destructive">failed</span>
                           : <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />}
                     </button>
                     <OpenInYoutubeButton videoId={t.videoId} title={t.title} />
@@ -244,6 +232,7 @@ export function MusicStationPage() {
       )}
 
       <StationEditorDialog open={editing} onOpenChange={o => { setEditing(o); if (!o) refresh() }} station={s} />
+      <SaveOfflineDialog open={saveOpen} onOpenChange={setSaveOpen} stationId={s.id} saved={offSaved} onChanged={invalidateOffline} />
       <ConfirmDialog open={confirmDelete} onOpenChange={setConfirmDelete}
         title="Delete this station?" description="This permanently removes the station. This cannot be undone."
         confirmLabel="Delete" destructive onConfirm={doDelete} />

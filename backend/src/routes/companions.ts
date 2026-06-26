@@ -220,7 +220,7 @@ companions_.post('/companion', requireAuth, async (c) => {
   // memory adds no wall-clock beyond the tool routing that was already there.
   const history = (body.history ?? []).slice(-6).map((m) => ({ role: m.role, content: m.content }))
   const offlineMode = await isOffline(user.id)
-  const [{ userContent, directReply, toolId }, computedMemory, prefsRows, existingRelation, userCeiling] = await Promise.all([
+  const [{ userContent, directReply, toolId, directive }, computedMemory, prefsRows, existingRelation, userCeiling] = await Promise.all([
     runToolTurn({ message: body.message, history, userId: user.id, userRole: user.role, model, offline: offlineMode }),
     cachedMem
       ? Promise.resolve(null as string | null)
@@ -266,6 +266,9 @@ companions_.post('/companion', requireAuth, async (c) => {
   if (directReply) {
     c.header('X-Accel-Buffering', 'no')
     return streamSSE(c, async (stream) => {
+      // Fire the playback directive first so the mini-player starts as the
+      // confirmation is spoken/shown.
+      if (directive) await stream.writeSSE({ event: 'directive', data: JSON.stringify(directive) })
       const text = maskProfanityActive ? maskProfanity(directReply) : directReply
       await stream.writeSSE({ event: 'token', data: text })
       await stream.writeSSE({ event: 'done', data: '{}' })
@@ -332,6 +335,9 @@ companions_.post('/companion', requireAuth, async (c) => {
     // Tell the client which tool (if any) handled this turn, so "is it looking things
     // up or making them up?" is visible without digging in the backend log.
     await stream.writeSSE({ event: 'routing', data: JSON.stringify({ tool: toolId ?? null, offline: offlineMode }) })
+    // A tool that wants the client to act (e.g. start playback) without a verbatim
+    // reply — emit its directive before the LLM reply streams.
+    if (directive) await stream.writeSSE({ event: 'directive', data: JSON.stringify(directive) })
     let reply = ''
     let firstToken = true
     // Mask profanity in the emitted stream when the active profanity dial is off.
