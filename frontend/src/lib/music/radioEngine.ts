@@ -20,6 +20,7 @@
 
 import { search as ytSearch, ytImageProxy, proxyStreamUrl, prewarmStream } from '@/lib/youtube/api'
 import { fetchDjSegment, fetchRadioQueue, fetchStationQueue, base64WavToBlob } from '@/lib/music/radio'
+import { getOfflineQueue, offlineAudioUrl, type OfflineQueue } from '@/lib/music/catalogApi'
 import type { DjStation } from '@/lib/music/radioStations'
 
 export interface QueuedTrack {
@@ -131,6 +132,12 @@ export class RadioEngine {
 
   private deck = 0          // index (0/1) of the deck holding the "current" song
   private runId = 0         // bumped on stop/skip-of-session to invalidate stale async loops
+
+  // Offline mode (read from localStorage 'music.mode' at start/playTrack time, like djMode). When
+  // on, decks play downloaded files and the DJ comes from the pre-rendered cache — zero network.
+  private offline = false
+  private offlineDj: OfflineQueue['dj'] | null = null
+  private isOfflineMode() { return typeof localStorage !== 'undefined' && localStorage.getItem('music.mode') === 'offline' }
   private skipResolve: (() => void) | null = null
   private resumeEls: HTMLMediaElement[] = []
 
@@ -264,6 +271,20 @@ export class RadioEngine {
     let raw: Array<{ videoId: string; title: string; author: string | null }> = []
     let shuffle = false
 
+    // Offline: serve the frozen, pre-downloaded tracklist + pre-rendered DJ from local storage —
+    // no network. Only saved stations (with a stationId) can play offline.
+    if (this.offline && st.stationId) {
+      this.offlineDj = null
+      try {
+        const res = await getOfflineQueue(st.stationId)
+        this.offlineDj = res.dj
+        return res.tracks.map(t => ({
+          videoId: t.videoId, title: t.title, author: t.author || null,
+          thumbnail: ytImageProxy(`https://i.ytimg.com/vi/${t.videoId}/mqdefault.jpg`),
+        }))
+      } catch { return [] }
+    }
+
     // AI station → station engine (saved id, prompt, or artist/song seed). The engine already
     // orders the queue, so we don't shuffle its result.
     const isAi = !!(st.stationId || st.aiPrompt || st.seedValue)
@@ -333,6 +354,20 @@ export class RadioEngine {
     if (djMode === 'silent') return { text: null, blobUrl: null }
     const minimal = djMode === 'minimal'
 
+    // Offline: pull the matching pre-rendered segment instead of generating one live.
+    if (this.offline) {
+      if (!this.offlineDj) return { text: null, blobUrl: null }
+      const pre = args.position === 'intro' ? this.offlineDj.intro
+        : args.position === 'outro' ? this.offlineDj.outro
+          : (args.track ? this.offlineDj.transitions[args.track.videoId] ?? null : null)
+      if (!pre) return { text: null, blobUrl: null }
+      try {
+        const resp = await fetch(pre.audioUrl, { credentials: 'include' })
+        if (!resp.ok) return { text: pre.text, blobUrl: null }
+        return { text: pre.text, blobUrl: URL.createObjectURL(await resp.blob()) }
+      } catch { return { text: pre.text, blobUrl: null } }
+    }
+
     const seg = await fetchDjSegment({
       genre: args.station.genre,
       stationName: args.station.label,
@@ -354,7 +389,7 @@ export class RadioEngine {
   // ── Low-level deck control ───────────────────────────────────────────────────
   private cueSrc(deck: number, videoId: string) {
     const el = this.deckEl(deck)
-    el.src = proxyStreamUrl(videoId, 'audio')
+    el.src = this.offline ? offlineAudioUrl(videoId) : proxyStreamUrl(videoId, 'audio')
     el.load()
     this.ramp(this.deckKey(deck), 0, 0)
   }
@@ -470,6 +505,8 @@ export class RadioEngine {
     this.unlock()   // synchronous — must happen inside the click gesture
     this.ensureAnalyser()   // build/resume the AudioContext while we still have the gesture
     const runId = ++this.runId
+    this.offline = this.isOfflineMode()
+    this.offlineDj = null
     // A saved global DJ preference overrides the station's own mode (and shows in the UI).
     if (this.djOverride) station = { ...station, djMode: this.djOverride }
 
@@ -516,7 +553,7 @@ export class RadioEngine {
       const otherDeck = this.deck === 0 ? 1 : 0
       let preparedNext: Promise<PreparedDj> | null = null
       if (next) {
-        prewarmStream(next.videoId, 'audio')
+        if (!this.offline) prewarmStream(next.videoId, 'audio')   // prewarm is a network call
         this.cueSrc(otherDeck, next.videoId)   // pre-buffer so the hand-off is instant
         preparedNext = this.prepareDj({ station, track: cur, next, position: 'transition', sayStation: Math.random() < 0.34 })
       }
@@ -550,6 +587,8 @@ export class RadioEngine {
     this.unlock()
     this.ensureAnalyser()   // build/resume the AudioContext while we still have the gesture
     const runId = ++this.runId
+    this.offline = this.isOfflineMode()
+    this.offlineDj = null
     const first: QueuedTrack = {
       videoId: track.videoId,
       title: cleanTitle(track.title) || track.title,
@@ -572,7 +611,9 @@ export class RadioEngine {
     this.ramp(this.deckKey(0), 1, 250)   // straight to full volume — instant, no DJ bed
 
     // Background: build the continuation mix off this exact video (fast YT Music radio, no LLM).
+    // Offline has no continuation (nothing more is downloaded) — just play the one song.
     let mix: QueuedTrack[] = []
+    if (this.offline) { this.set({ queue: [first] }); await this.playFrom(runId, station, [first]); return }
     try {
       const res = await fetchStationQueue({ seedVideoId: first.videoId, count: 14 })
       mix = res.tracks

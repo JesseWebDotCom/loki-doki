@@ -3,11 +3,14 @@
 // background so Description + Summary are available offline without a manual click).
 
 import { spawn } from 'node:child_process'
-import { eq } from 'drizzle-orm'
+import { eq, and, isNull, isNotNull } from 'drizzle-orm'
 import { db } from '@/db'
-import { ytVideos } from '@/db/schema'
+import { ytVideos, ytCollections, ytWatchState } from '@/db/schema'
 import { getTranscriptText } from '@/lib/youtube/transcript'
 import { ytDlpBin } from '@/lib/youtube/ytdlp'
+import { innertubeChannelAvatar } from '@/lib/youtube/innertube'
+import { getOrFetchImage } from '@/lib/youtube/imageCache'
+import { cachedLookup } from '@/lib/lookupCache'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
 import { logger } from '@/lib/logger'
@@ -79,33 +82,92 @@ interface YtDlpMeta { title?: string; channel?: string; uploader?: string; chann
  */
 export async function ensureSavedVideoMeta(videoId: string, fallbackTitle = ''): Promise<void> {
   const [v] = await db.select().from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
-  if (v?.description) return   // already have what the offline tab needs
 
-  const json = await new Promise<string>((resolve, reject) => {
-    const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', `https://www.youtube.com/watch?v=${videoId}`], { stdio: ['ignore', 'pipe', 'ignore'] })
-    let out = ''
-    proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
-    proc.on('close', code => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
-    proc.on('error', reject)
-  }).catch(() => null)
-  if (!json) return
+  // Fetch yt-dlp metadata only when the description (what the offline tabs need) is missing.
+  let channelId = v?.channelId ?? null
+  if (!v?.description) {
+    const json = await new Promise<string>((resolve, reject) => {
+      const proc = spawn(ytDlpBin(), ['-J', '--no-playlist', `https://www.youtube.com/watch?v=${videoId}`], { stdio: ['ignore', 'pipe', 'ignore'] })
+      let out = ''
+      proc.stdout?.on('data', (d: Buffer) => { out += d.toString() })
+      proc.on('close', code => code === 0 ? resolve(out) : reject(new Error(`yt-dlp exited ${code}`)))
+      proc.on('error', reject)
+    }).catch(() => null)
 
-  let m: YtDlpMeta
-  try { m = JSON.parse(json) as YtDlpMeta } catch { return }
+    if (json) {
+      let m: YtDlpMeta | null = null
+      try { m = JSON.parse(json) as YtDlpMeta } catch { /* malformed — keep what we have */ }
+      if (m) {
+        channelId = m.channel_id ?? channelId
+        await db.insert(ytVideos)
+          .values({
+            id: crypto.randomUUID(),
+            videoId,
+            title: m.title ?? v?.title ?? fallbackTitle,
+            author: m.channel ?? m.uploader ?? '',
+            channelId: m.channel_id ?? null,
+            description: m.description ?? null,
+            durationSec: m.duration ?? null,
+            createdAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: ytVideos.videoId,
+            set: { description: m.description ?? null, channelId: m.channel_id ?? null, durationSec: m.duration ?? null },
+          })
+      }
+    }
+  }
 
+  await ensureChannelThumb(videoId, channelId)
+}
+
+/**
+ * Resolve + persist + warm a video's channel avatar so library cards (Saved offline, Watch
+ * Later, Liked, History) show the real logo — online AND offline — even for non-subscribed
+ * channels. Cheap: uses the known channelId (no yt-dlp subprocess), caches the resolved URL
+ * for 7 days, and warms the image bytes into the disk cache. reconcileSubscribed (imageCache.ts)
+ * then pins any yt_videos.channel_thumb against the 24h eviction so it survives offline.
+ */
+export async function ensureChannelThumb(videoId: string, channelId: string | null | undefined): Promise<void> {
+  if (!channelId) return
+  const [v] = await db.select({ channelThumb: ytVideos.channelThumb }).from(ytVideos).where(eq(ytVideos.videoId, videoId)).limit(1)
+  if (v?.channelThumb) return
+  const avatar = await cachedLookup('yt-channel-avatar', channelId, 7 * 24 * 60 * 60 * 1000, () => innertubeChannelAvatar(channelId)).catch(() => null)
+  if (!avatar) return
   await db.insert(ytVideos)
-    .values({
-      id: crypto.randomUUID(),
-      videoId,
-      title: m.title ?? v?.title ?? fallbackTitle,
-      author: m.channel ?? m.uploader ?? '',
-      channelId: m.channel_id ?? null,
-      description: m.description ?? null,
-      durationSec: m.duration ?? null,
-      createdAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: ytVideos.videoId,
-      set: { description: m.description ?? null, channelId: m.channel_id ?? null, durationSec: m.duration ?? null },
-    })
+    .values({ id: crypto.randomUUID(), videoId, channelId, channelThumb: avatar, createdAt: new Date() })
+    .onConflictDoUpdate({ target: ytVideos.videoId, set: { channelThumb: avatar, channelId } })
+    .catch(() => {})
+  await getOrFetchImage(avatar).catch(() => null)   // warm disk cache for offline
+}
+
+// One-shot, per-video guarded backfills that fill missing channel avatars for the library
+// tabs. Each runs in the background off a list-endpoint poll; once a video's channel_thumb is
+// set it's skipped, so steady-state cost is zero.
+const _thumbJobs = new Set<string>()
+async function runThumbBackfill(rows: { videoId: string; channelId: string | null }[]): Promise<void> {
+  for (const r of rows) {
+    if (_thumbJobs.has(r.videoId)) continue
+    _thumbJobs.add(r.videoId)
+    try { await ensureChannelThumb(r.videoId, r.channelId) }
+    catch { /* best-effort */ } finally { _thumbJobs.delete(r.videoId) }
+  }
+}
+
+/** Watch Later / Liked: resolve avatars using the channelId stored on the collection row. */
+export async function backfillCollectionChannelThumbs(userId: string): Promise<void> {
+  const rows = await db.select({ videoId: ytCollections.videoId, channelId: ytCollections.channelId })
+    .from(ytCollections)
+    .leftJoin(ytVideos, eq(ytVideos.videoId, ytCollections.videoId))
+    .where(and(eq(ytCollections.userId, userId), isNotNull(ytCollections.channelId), isNull(ytVideos.channelThumb)))
+  await runThumbBackfill(rows)
+}
+
+/** History: resolve avatars using the channelId already on the watched video's yt_videos row. */
+export async function backfillHistoryChannelThumbs(userId: string): Promise<void> {
+  const rows = await db.select({ videoId: ytWatchState.videoId, channelId: ytVideos.channelId })
+    .from(ytWatchState)
+    .innerJoin(ytVideos, eq(ytVideos.videoId, ytWatchState.videoId))
+    .where(and(eq(ytWatchState.userId, userId), isNotNull(ytVideos.channelId), isNull(ytVideos.channelThumb)))
+  await runThumbBackfill(rows)
 }

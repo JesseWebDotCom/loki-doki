@@ -119,6 +119,7 @@ import { maybeSpawnComfyUI, stopComfyUI } from '@/lib/comfyui'
 import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxng'
 import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
+import { reconcileBuiltinPronunciationPacks } from '@/lib/voice/pronunciation'
 import { startPodGateway } from '@/lib/pod/gateway'
 import { startPodScheduler } from '@/lib/pod/scheduler'
 import { pod } from '@/routes/pod'
@@ -151,6 +152,9 @@ void (async () => { if ((await getAppSetting('first_run_complete')) === true) wa
 void startHomeAssistantSync()
 // Seed built-in content profiles + backfill user assignments (idempotent).
 void seedContentProfiles().catch((e) => logger.warn(`[content] profile seed failed: ${e}`))
+// Seed built-in pronunciation packs so TTS rules apply from first boot, not only
+// after an admin visits the packs tab.
+void reconcileBuiltinPronunciationPacks().catch((e) => logger.warn(`[voice] pronunciation pack seed failed: ${e}`))
 // Seed the app default voice once so the admin UI shows a real voice instead of
 // "Not set". The resolver already falls back to kokoro:af_heart at runtime, but
 // persisting it makes the default explicit and editable. Idempotent.

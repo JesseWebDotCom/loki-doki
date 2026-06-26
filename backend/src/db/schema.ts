@@ -445,6 +445,7 @@ export const musicStations = sqliteTable('music_stations', {
   bannerPath: text('banner_path'),    // relative path to generated station banner (SVG)
   accent: text('accent'),             // color slug for tinting when art is absent
   category: text('category'),         // browse grouping for built-ins (Genres, Moods, Movies…)
+  loadingMessages: text('loading_messages'), // JSON string[] of playful "tuning in" lines (LLM-written, per station)
   djMode: text('dj_mode', { enum: ['full', 'minimal', 'silent'] }).notNull().default('full'),
   visibility: text('visibility', { enum: ['private', 'shared'] }).notNull().default('private'),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
@@ -501,6 +502,59 @@ export const musicHistory = sqliteTable('music_history', {
   stationId: text('station_id'),      // the station/playlist context, when played from one
   positionSec: real('position_sec').notNull().default(0),
   playedAt: integer('played_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ─── Offline music ──────────────────────────────────────────────────────────────
+// Saving a station "offline" freezes its generative queue into a fixed tracklist, downloads
+// each track's audio (via ytDownloads), and pre-renders the AI DJ — so the station plays end
+// to end with no internet. One musicOfflineStations row per (user, station); display fields are
+// cached so offline cards render with zero live calls. status: pending→partial→ready/failed.
+export const musicOfflineStations = sqliteTable('music_offline_stations', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stationId: text('station_id').notNull(),
+  name: text('name').notNull(),
+  accent: text('accent'),
+  djMode: text('dj_mode', { enum: ['full', 'minimal', 'silent'] }).notNull().default('full'),
+  iconPath: text('icon_path'),
+  bannerPath: text('banner_path'),
+  status: text('status', { enum: ['pending', 'partial', 'ready', 'failed'] }).notNull().default('pending'),
+  trackTotal: integer('track_total').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, t => ({ userStationUnique: unique().on(t.userId, t.stationId) }))
+
+// The frozen tracklist captured at save time — decouples offline playback from live re-resolution.
+export const musicOfflineStationTracks = sqliteTable('music_offline_station_tracks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stationId: text('station_id').notNull(),
+  videoId: text('video_id').notNull(),
+  title: text('title').notNull(),
+  artist: text('artist'),
+  position: integer('position').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Pre-rendered AI DJ segments for an offline station. position 'transition' carries fromVideoId
+// (the song that just finished) and toVideoId (what's next); 'intro'/'outro' use fromVideoId only.
+export const musicDjCache = sqliteTable('music_dj_cache', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  stationId: text('station_id').notNull(),
+  position: text('position', { enum: ['intro', 'transition', 'outro'] }).notNull(),
+  fromVideoId: text('from_video_id'),
+  toVideoId: text('to_video_id'),
+  // Context stored at snapshot time so the LLM can generate fresh audio on demand.
+  genre: text('genre'),
+  stationName: text('station_name'),
+  trackName: text('track_name'),
+  artistName: text('artist_name'),
+  nextTrackName: text('next_track_name'),
+  nextArtistName: text('next_artist_name'),
+  style: text('style'),
+  facts: text('facts'),  // cached Wikipedia lookup; null = no trivia available offline
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
 // ─── LoRA System ──────────────────────────────────────────────────────────────
@@ -792,6 +846,7 @@ export const ytVideos = sqliteTable('yt_videos', {
   author: text('author').notNull().default(''),
   channelId: text('channel_id'),
   thumbnailUrl: text('thumbnail_url'),
+  channelThumb: text('channel_thumb'),         // channel avatar URL (resolved at save time so Offline cards show real logos)
   publishedAt: integer('published_at'),        // Unix ms
   durationSec: integer('duration_sec'),
   description: text('description'),
@@ -1311,11 +1366,30 @@ export const chatDocuments = sqliteTable('chat_documents', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ─── TTS pronunciation packs ───────────────────────────────────────────────────
+// Named, toggleable sets of respelling rules shipped with each app. Built-ins
+// (chat/maps/music) are seeded at boot and are global (admin-toggled). Custom
+// rules in the pronunciations table with packId=null always apply regardless.
+export const pronunciationPacks = sqliteTable('pronunciation_packs', {
+  id: text('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  appKey: text('app_key'),           // 'chat' | 'maps' | 'music' | null for global
+  description: text('description'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  builtIn: integer('built_in', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // ─── TTS pronunciation lexicon ──────────────────────────────────────────────────
 // Global admin-managed respellings applied to text before synthesis (audio only —
 // on-screen captions keep the original spelling). Ported from v1 /audio/pronunciation.
+// packId null = custom rule (always applied); non-null = belongs to a pack (applied
+// only when that pack is enabled).
 export const pronunciations = sqliteTable('pronunciations', {
   id: text('id').primaryKey(),
+  packId: text('pack_id').references(() => pronunciationPacks.id, { onDelete: 'cascade' }),
   term: text('term').notNull(),            // word/phrase to match (case-insensitive, whole-word)
   replacement: text('replacement').notNull(), // phonetic respelling fed to the TTS engine
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),

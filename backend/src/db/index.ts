@@ -530,6 +530,7 @@ export function runMigrations() {
 
   // LoRA routing columns (from migration 0005 — belt-and-suspenders for DBs created via inline SQL)
   addColumn('music_stations', 'category', 'TEXT')
+  addColumn('music_stations', 'loading_messages', 'TEXT')
   addColumn('image_loras', 'civitai_id', 'TEXT')
   addColumn('image_loras', 'when_to_use', 'TEXT')
   addColumn('image_loras', 'example_requests', `TEXT NOT NULL DEFAULT '[]'`)
@@ -776,6 +777,50 @@ export function runMigrations() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_music_history_user ON music_history(user_id, played_at);
+
+    CREATE TABLE IF NOT EXISTS music_offline_stations (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      station_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      accent TEXT,
+      dj_mode TEXT NOT NULL DEFAULT 'full',
+      icon_path TEXT,
+      banner_path TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      track_total INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_music_offline_stations_user_station ON music_offline_stations(user_id, station_id);
+
+    CREATE TABLE IF NOT EXISTS music_offline_station_tracks (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      station_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      artist TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_music_offline_tracks_station ON music_offline_station_tracks(user_id, station_id, position);
+
+    CREATE TABLE IF NOT EXISTS music_dj_cache (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      station_id TEXT NOT NULL,
+      position TEXT NOT NULL,
+      from_video_id TEXT,
+      to_video_id TEXT,
+      text TEXT NOT NULL,
+      rel_path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_music_dj_cache_station ON music_dj_cache(user_id, station_id);
   `)
 
   // Home inventory subsystem v2 — extra columns + links table
@@ -1020,6 +1065,9 @@ export function runMigrations() {
   addColumn('yt_subscriptions', 'last_reconciled_at', 'INTEGER')
   // Marks downloads written by auto-save (only these are eligible for keep-N pruning).
   addColumn('yt_downloads', 'auto', 'INTEGER NOT NULL DEFAULT 0')
+  // Channel avatar URL resolved + warmed at save time so Offline cards show real logos
+  // (not just a letter) even for non-subscribed channels — existing DBs.
+  addColumn('yt_videos', 'channel_thumb', 'TEXT')
 
   // Podcast shows, episodes, suggestions, playback state (migration 0019)
   sqlite.exec(`
@@ -1382,6 +1430,19 @@ export function runMigrations() {
   // for existing DBs, and relax user_id to nullable (shared/built-in categories have userId=null).
   addColumn('feed_folders', 'slug', 'TEXT')
   addColumn('feed_folders', 'locked', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn('pronunciations', 'pack_id', 'TEXT')
+  // Offline DJ: switch from pre-rendered WAV to on-demand generation. Clear stale audio rows
+  // (the old text/rel_path columns remain in the DB but are no longer written). New rows store
+  // context only; audio is synthesised fresh at playback so pronunciation/voice changes apply.
+  try { sqlite.exec(`DELETE FROM music_dj_cache`) } catch {}
+  addColumn('music_dj_cache', 'genre', 'TEXT')
+  addColumn('music_dj_cache', 'station_name', 'TEXT')
+  addColumn('music_dj_cache', 'track_name', 'TEXT')
+  addColumn('music_dj_cache', 'artist_name', 'TEXT')
+  addColumn('music_dj_cache', 'next_track_name', 'TEXT')
+  addColumn('music_dj_cache', 'next_artist_name', 'TEXT')
+  addColumn('music_dj_cache', 'style', 'TEXT')
+  addColumn('music_dj_cache', 'facts', 'TEXT')
   try {
     sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS feed_folders_slug_unique ON feed_folders(slug);`)
   } catch (err) {
@@ -1607,8 +1668,20 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS idx_chat_documents_conversation ON chat_documents(conversation_id);
 
+    CREATE TABLE IF NOT EXISTS pronunciation_packs (
+      id TEXT NOT NULL PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      app_key TEXT,
+      description TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      built_in INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS pronunciations (
       id TEXT NOT NULL PRIMARY KEY,
+      pack_id TEXT REFERENCES pronunciation_packs(id) ON DELETE CASCADE,
       term TEXT NOT NULL,
       replacement TEXT NOT NULL,
       created_at INTEGER NOT NULL,

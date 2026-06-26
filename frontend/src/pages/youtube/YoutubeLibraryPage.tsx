@@ -7,7 +7,7 @@ import { toast } from '@/lib/toast'
 import { useYtDownloads } from '@/lib/youtube/useData'
 import { getHistory } from '@/lib/youtube/api'
 import { savedToItem, historyToItem, type VideoItem } from '@/lib/youtube/types'
-import { qualityBadge } from '@/lib/youtube/format'
+import { qualityBadge, fmtBytes } from '@/lib/youtube/format'
 import { useCollection, removeFromCollection, type SavedVideoMeta } from '@/lib/youtube/collections'
 import { VideoCard } from '@/components/youtube/VideoCard'
 
@@ -20,7 +20,7 @@ const TABS: { key: Tab; label: string; icon: typeof Clock }[] = [
 ]
 
 const GRID = 'grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4'
-const metaToItem = (m: SavedVideoMeta): VideoItem => ({ videoId: m.videoId, title: m.title, author: m.author, channelId: m.channelId, durationSec: m.durationSec })
+const metaToItem = (m: SavedVideoMeta): VideoItem => ({ videoId: m.videoId, title: m.title, author: m.author, channelId: m.channelId, channelThumb: m.channelThumb, durationSec: m.durationSec })
 
 export function YoutubeLibraryPage() {
   const [params, setParams] = useSearchParams()
@@ -56,13 +56,19 @@ function HistoryTab() {
 // Everything saved for offline — findable regardless of the app's Online/Offline mode.
 function SavedTab() {
   const { data: downloads = [], isPending } = useYtDownloads()
-  const items = useMemo(
-    () => downloads.filter(r => r.status === 'ready').map(r => savedToItem(r, qualityBadge(r.kind, r.maxHeight))),
-    [downloads],
-  )
+  const ready = useMemo(() => downloads.filter(r => r.status === 'ready'), [downloads])
+  const items = useMemo(() => ready.map(r => savedToItem(r, qualityBadge(r.kind, r.maxHeight))), [ready])
+  const totalBytes = useMemo(() => ready.reduce((n, r) => n + (r.sizeBytes ?? 0), 0), [ready])
   if (isPending) return <div className="flex justify-center py-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   if (!items.length) return <Empty label="Nothing saved offline yet. Use “Save for offline” on any video." />
-  return <div className={GRID}>{items.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
+  return (
+    <>
+      <p className="mb-4 text-xs text-muted-foreground">
+        {items.length} video{items.length === 1 ? '' : 's'}{totalBytes ? ` · ${fmtBytes(totalBytes)}` : ''} saved offline
+      </p>
+      <div className={GRID}>{items.map(i => <VideoCard key={i.videoId + (i.localKind ?? '')} item={i} />)}</div>
+    </>
+  )
 }
 
 function CollectionTab({ kind, empty }: { kind: 'watch-later' | 'liked'; empty: string }) {

@@ -61,8 +61,14 @@ export function StationArt({ station, className }: {
   const Icon = glyphFor(station.name, station.category)
   return (
     <div className={cn('relative size-full overflow-hidden', className)} style={{ background: stationGradient(station.accent) }}>
-      <Icon className="absolute -bottom-[14%] -right-[8%] h-[135%] w-auto text-white/[0.16]" />
+      {/* Drifting ambient glow — slow, subtle life behind the silhouette. */}
+      <div className="station-art-glow pointer-events-none absolute -inset-[25%] rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.28),transparent_62%)] blur-2xl" />
+      <Icon className="station-art-float absolute -bottom-[14%] -right-[8%] h-[135%] w-auto text-white/[0.16]" />
       <Icon className="absolute left-3 top-3 size-5 text-white/80" />
+      {/* Light sweep on hover (only animates inside a `group`, e.g. StationCard). */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+        <div className="absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_1.8s_ease-in-out_infinite]" />
+      </div>
     </div>
   )
 }

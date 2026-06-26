@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { eq, and, desc } from 'drizzle-orm'
 import { unlink } from 'node:fs/promises'
 import { db } from '@/db'
-import { musicFavorites, musicHistory, ytDownloads } from '@/db/schema'
+import { musicFavorites, musicHistory, ytDownloads, musicOfflineStationTracks } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { enqueueVideoSave } from '@/lib/youtube/automation'
 import { resolveUserPath } from '@/lib/storage/paths'
@@ -74,7 +74,8 @@ musicLibrary.post('/offline', async (c) => {
   return c.json(r)
 })
 
-// List the user's offline audio (newest first).
+// List the user's offline audio (newest first). `stationVideoIds` are the videoIds that belong to
+// a saved offline station, so the UI can separate à-la-carte song downloads from station songs.
 musicLibrary.get('/offline', async (c) => {
   const user = c.get('user')
   const rows = await db.select({
@@ -82,7 +83,10 @@ musicLibrary.get('/offline', async (c) => {
   }).from(ytDownloads)
     .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'audio')))
     .orderBy(desc(ytDownloads.createdAt))
-  return c.json({ offline: rows, fileBase: '/api/youtube/file' })
+  const stationTracks = await db.select({ videoId: musicOfflineStationTracks.videoId })
+    .from(musicOfflineStationTracks).where(eq(musicOfflineStationTracks.userId, user.id))
+  const stationVideoIds = [...new Set(stationTracks.map(t => t.videoId))]
+  return c.json({ offline: rows, fileBase: '/api/youtube/file', stationVideoIds })
 })
 
 // Remove an offline audio save (row + file).

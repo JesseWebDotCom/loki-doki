@@ -88,7 +88,7 @@ export function YoutubeShortsPage() {
     }
   }, [go])
 
-  const snapshot = { videoId, title, author, channelId, durationSec: meta?.durationSec ?? feedItem?.durationSec ?? null }
+  const snapshot = { videoId, title, author, channelId, channelThumb, durationSec: meta?.durationSec ?? feedItem?.durationSec ?? null }
   const liked = useCollection('liked').some(v => v.videoId === videoId)
   const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
 

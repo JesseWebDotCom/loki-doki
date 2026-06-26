@@ -1,9 +1,10 @@
-import { Play, Users } from 'lucide-react'
+import { Play, Users, ArrowDownToLine, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { cn } from '@/lib/cn'
 import { Card } from '@/components/ui/card'
 import { StationArt } from '@/components/music/StationArt'
+import { useOfflineStationMap } from '@/lib/music/useOffline'
 import { stationToDj, type Station } from '@/lib/music/catalogApi'
 
 // Re-exported for back-compat with callers that imported it from here.
@@ -12,6 +13,7 @@ export { stationGradient } from '@/lib/music/stationColors'
 export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s: Station) => void }) {
   const radio = useRadio()
   const navigate = useNavigate()
+  const offStatus = useOfflineStationMap().get(station.id)
   const playing = radio.active && radio.station?.id === station.id
   const play = (e: React.MouseEvent) => { e.stopPropagation(); radio.start(stationToDj(station)); navigate('/music/now-playing') }
   const open = () => (onOpen ? onOpen(station) : navigate(`/music/station/${station.id}`))
@@ -20,6 +22,17 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
     <Card variant="interactive" className="group relative overflow-hidden" onClick={open}>
       <div className="relative aspect-[16/9] w-full overflow-hidden">
         <StationArt station={station} />
+        {/* Offline indicator: a subtle check once downloaded, a spinner while it's still saving.
+            Top-right so it never collides with the station glyph at top-left. */}
+        {offStatus && (
+          <span
+            title={offStatus === 'ready' ? 'Downloaded' : 'Saving offline…'}
+            className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-black/35 backdrop-blur-sm">
+            {offStatus === 'ready'
+              ? <ArrowDownToLine className="size-3.5 text-emerald-300/90" />
+              : <Loader2 className="size-3.5 animate-spin text-amber-300/90" />}
+          </span>
+        )}
         <button onClick={play} aria-label={`Play ${station.name}`}
           className={cn(
             'absolute bottom-2 right-2 flex size-11 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur transition',

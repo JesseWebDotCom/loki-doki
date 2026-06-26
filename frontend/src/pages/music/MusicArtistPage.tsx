@@ -25,7 +25,7 @@ export function MusicArtistPage() {
     <div>
       <div className="relative overflow-hidden bg-gradient-to-br from-brand/30 via-brand/10 to-transparent px-5 pt-10 pb-6">
         <div className="flex items-end gap-4">
-          <ArtistAvatar name={artist.name} className="size-24 shrink-0 rounded-full ring-1 ring-border/40" />
+          <ArtistAvatar name={artist.name} mbid={artist.mbid} className="size-24 shrink-0 rounded-full ring-1 ring-border/40" />
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Artist</p>
             <h1 className="truncate text-3xl font-black tracking-tight sm:text-4xl">{artist.name}</h1>

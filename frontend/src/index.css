@@ -22,6 +22,21 @@
 }
 .behavior-startled { animation: startle-shake 0.8s cubic-bezier(0.36, 0.07, 0.19, 0.97) both !important; }
 
+/* ── Station art ambient motion ───────────────────────────────────────────── */
+@keyframes station-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50%      { transform: translate3d(-2.5%, -3%, 0) rotate(-2.5deg); }
+}
+@keyframes station-glow {
+  0%, 100% { transform: translate(-8%, -6%) scale(1);    opacity: .5; }
+  50%      { transform: translate(10%, 6%)  scale(1.25); opacity: .85; }
+}
+.station-art-float { animation: station-float 16s ease-in-out infinite; will-change: transform; }
+.station-art-glow  { animation: station-glow 13s ease-in-out infinite; will-change: transform, opacity; }
+@media (prefers-reduced-motion: reduce) {
+  .station-art-float, .station-art-glow { animation: none; }
+}
+
 /* Shared input style for the character studio editor. */
 @layer components {
   .ld-input {

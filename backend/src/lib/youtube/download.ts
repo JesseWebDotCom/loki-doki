@@ -6,8 +6,8 @@ import { mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { db } from '@/db'
-import { ytDownloads } from '@/db/schema'
-import { eq, and, isNull } from 'drizzle-orm'
+import { ytDownloads, ytVideos } from '@/db/schema'
+import { eq, and, isNull, or } from 'drizzle-orm'
 import { userPath, toRelativePath, resolveUserPath } from '@/lib/storage/paths'
 import { ensureSummary, ensureSavedVideoMeta } from '@/lib/youtube/summarize'
 import { ytDlpBin } from '@/lib/youtube/ytdlp'
@@ -41,6 +41,23 @@ export async function backfillSavedHeights(userId: string): Promise<void> {
       const h = await probeHeight(await resolveUserPath(r.relPath))
       if (h) await db.update(ytDownloads).set({ maxHeight: h }).where(eq(ytDownloads.id, r.id))
     } catch { /* best-effort */ } finally { _backfilling.delete(r.id) }
+  }
+}
+
+/** One-time backfill: resolve + warm the channel avatar for ready saves that predate the
+ *  channel_thumb column (so their Offline cards show real logos instead of a letter). */
+const _thumbBackfilling = new Set<string>()
+export async function backfillSavedChannelThumbs(userId: string): Promise<void> {
+  const rows = await db.select({ videoId: ytDownloads.videoId, title: ytDownloads.title })
+    .from(ytDownloads)
+    .leftJoin(ytVideos, eq(ytVideos.videoId, ytDownloads.videoId))
+    .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.status, 'ready'),
+      or(isNull(ytVideos.videoId), isNull(ytVideos.channelThumb))))
+  for (const r of rows) {
+    if (_thumbBackfilling.has(r.videoId)) continue
+    _thumbBackfilling.add(r.videoId)
+    try { await ensureSavedVideoMeta(r.videoId, r.title) }
+    catch { /* best-effort */ } finally { _thumbBackfilling.delete(r.videoId) }
   }
 }
 

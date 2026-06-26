@@ -10,6 +10,7 @@ export interface SavedVideoMeta {
   title: string
   author?: string | null
   channelId?: string | null
+  channelThumb?: string | null
   durationSec?: number | null
   addedAt: number
 }
@@ -70,6 +71,7 @@ export async function hydrateCollections(): Promise<void> {
       const rows = server[k] ?? []
       write(k, rows.map(r => ({
         videoId: r.videoId, title: r.title, author: r.author, channelId: r.channelId,
+        channelThumb: r.channelThumb ?? null,
         durationSec: r.durationSec, addedAt: r.addedAt || Date.now(),
       })))
     }

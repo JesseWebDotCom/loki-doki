@@ -4,20 +4,39 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Heart, ListMusic, History, Download, Plus, Play, Pause, Trash2, Loader2, Sparkles, Pencil, Check, X } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { listTracks, renameTrack, deleteTrack, trackAudioUrl, type MusicTrack } from '@/lib/music/api'
+import { fmtBytes } from '@/lib/youtube/format'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { SectionHeader } from '@/components/shared/SectionHeader'
 import { AppTabBar, type AppTab } from '@/components/shared/AppTabBar'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useRadio } from '@/context/RadioContext'
+import { useMusicModeOptional } from '@/components/music/MusicLayout'
+import { StationCard } from '@/components/music/StationCard'
+import { SongDownloadButton } from '@/components/music/SongDownloadButton'
+import { OpenInYoutubeButton } from '@/components/music/OpenInYoutubeButton'
+import { useOfflineStations, useOfflineSongs } from '@/lib/music/useOffline'
 import {
   getFavorites, getHistory, listPlaylists, createPlaylist,
-  listOffline, removeOffline, offlineAudioUrl,
+  listOffline, listOfflineStations, removeOffline,
 } from '@/lib/music/catalogApi'
+
+/** In offline mode, the set of song videoIds + station ids that are actually downloaded — used to
+ *  hide library rows that couldn't play without internet. Returns null (no filtering) when online. */
+function useOfflineAvailable() {
+  const offline = useMusicModeOptional() === 'offline'
+  const { data: off } = useQuery({ queryKey: ['music-offline'], queryFn: listOffline, enabled: offline, refetchInterval: offline ? 5000 : false })
+  const { data: offSt } = useQuery({ queryKey: ['music-offline-stations'], queryFn: listOfflineStations, enabled: offline })
+  if (!offline) return null
+  return {
+    songs: new Set((off?.offline ?? []).filter(t => t.status === 'ready').map(t => t.videoId)),
+    stations: new Set((offSt?.stations ?? []).map(s => s.id)),
+  }
+}
 
 type Tab = 'favorites' | 'playlists' | 'history' | 'offline' | 'created'
 const TABS: AppTab<Tab>[] = [
@@ -101,18 +120,22 @@ function SongThumb({ videoId }: { videoId: string }) {
 
 function FavoritesTab() {
   const radio = useRadio()
+  const avail = useOfflineAvailable()
   const { data } = useQuery({ queryKey: ['music-favorites'], queryFn: () => getFavorites() })
-  const favs = data?.favorites ?? []
-  if (!favs.length) return <Empty icon={Heart} text="Songs and stations you heart will show up here." />
+  let favs = data?.favorites ?? []
+  if (avail) favs = favs.filter(f => f.kind === 'song' ? avail.songs.has(f.refId) : f.kind === 'station' ? avail.stations.has(f.refId) : false)
+  if (!favs.length) return <Empty icon={Heart} text={avail ? 'None of your favorites are saved offline yet.' : 'Songs and stations you heart will show up here.'} />
   return (
     <div className="divide-y divide-border/50 rounded-xl border border-border/60">
       {favs.map(f => (
-        <button key={f.id} onClick={() => f.kind === 'song' && radio.playTrack({ videoId: f.refId, title: f.title ?? '', author: f.artist })}
-          className="group flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-accent/40">
-          {f.kind === 'song' ? <SongThumb videoId={f.refId} /> : <Heart className="size-4 shrink-0 fill-current text-brand" />}
-          <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{f.title ?? f.refId}</p>{f.artist && <p className="truncate text-xs text-muted-foreground">{f.artist}</p>}</div>
-          <Play className="size-4 shrink-0 opacity-0 group-hover:opacity-100" />
-        </button>
+        <div key={f.id} className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
+          <button onClick={() => f.kind === 'song' && radio.playTrack({ videoId: f.refId, title: f.title ?? '', author: f.artist })}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left">
+            {f.kind === 'song' ? <SongThumb videoId={f.refId} /> : <Heart className="size-4 shrink-0 fill-current text-brand" />}
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{f.title ?? f.refId}</p>{f.artist && <p className="truncate text-xs text-muted-foreground">{f.artist}</p>}</div>
+          </button>
+          {f.kind === 'song' && <><OpenInYoutubeButton videoId={f.refId} title={f.title ?? ''} /><SongDownloadButton videoId={f.refId} title={f.title ?? ''} /></>}
+        </div>
       ))}
     </div>
   )
@@ -161,60 +184,114 @@ function PlaylistsTab() {
 
 function HistoryTab() {
   const radio = useRadio()
+  const avail = useOfflineAvailable()
   const { data } = useQuery({ queryKey: ['music-history-full'], queryFn: () => getHistory(60) })
-  const hist = data?.history ?? []
-  if (!hist.length) return <Empty icon={History} text="Your recently played songs will show up here." />
+  let hist = data?.history ?? []
+  if (avail) hist = hist.filter(h => avail.songs.has(h.videoId))
+  if (!hist.length) return <Empty icon={History} text={avail ? 'None of your recently played songs are saved offline.' : 'Your recently played songs will show up here.'} />
   return (
     <div className="divide-y divide-border/50 rounded-xl border border-border/60">
       {hist.map(h => (
-        <button key={h.id} onClick={() => radio.playTrack({ videoId: h.videoId, title: h.title, author: h.artist })}
-          className="group flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-accent/40">
-          <SongThumb videoId={h.videoId} />
-          <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{h.title}</p>{h.artist && <p className="truncate text-xs text-muted-foreground">{h.artist}</p>}</div>
-          <Play className="size-4 shrink-0 opacity-0 group-hover:opacity-100" />
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function OfflineTab() {
-  const qc = useQueryClient()
-  const { data } = useQuery({ queryKey: ['music-offline'], queryFn: listOffline, refetchInterval: 5000 })
-  const [playing, setPlaying] = useState<string | null>(null)
-  const tracks = data?.offline ?? []
-  const del = async (videoId: string) => {
-    try { await removeOffline(videoId); await qc.invalidateQueries({ queryKey: ['music-offline'] }); toast.success('Removed') }
-    catch { toast.error('Could not remove') }
-  }
-  if (!tracks.length) return <Empty icon={Download} text="Save songs or a whole station for offline play. They'll appear here." />
-  return (
-    <div className="divide-y divide-border/50 rounded-xl border border-border/60">
-      {tracks.map(t => (
-        <div key={t.videoId} className="flex items-center gap-3 px-3 py-2.5">
-          {t.status === 'ready' ? (
-            <button onClick={() => setPlaying(playing === t.videoId ? null : t.videoId)} className="shrink-0 text-brand"><Play className="size-4 fill-current" /></button>
-          ) : t.status === 'failed' ? (
-            <Badge variant="destructive" className="shrink-0">failed</Badge>
-          ) : (
-            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{t.title}</p>
-            {playing === t.videoId && t.status === 'ready' && (
-              <audio src={offlineAudioUrl(t.videoId)} controls autoPlay className="mt-1.5 h-8 w-full" />
-            )}
-          </div>
-          <button onClick={() => del(t.videoId)} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Remove"><Trash2 className="size-4" /></button>
+        <div key={h.id} className="group flex w-full items-center gap-2 px-3 py-2 transition hover:bg-accent/40">
+          <button onClick={() => radio.playTrack({ videoId: h.videoId, title: h.title, author: h.artist })}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left">
+            <SongThumb videoId={h.videoId} />
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{h.title}</p>{h.artist && <p className="truncate text-xs text-muted-foreground">{h.artist}</p>}</div>
+          </button>
+          <OpenInYoutubeButton videoId={h.videoId} title={h.title} />
+          <SongDownloadButton videoId={h.videoId} title={h.title} />
         </div>
       ))}
     </div>
   )
 }
 
+// Station-first offline view: your downloaded stations as cards (open into the full station page),
+// then à-la-carte song downloads (songs not part of any saved station).
+function OfflineTab() {
+  const radio = useRadio()
+  const qc = useQueryClient()
+  const { data: stationData } = useOfflineStations()
+  const { data } = useOfflineSongs()
+  const stations = stationData?.stations ?? []
+  const stationSongIds = new Set(data?.stationVideoIds ?? [])
+  const songs = (data?.offline ?? []).filter(t => !stationSongIds.has(t.videoId))
+  const del = async (videoId: string) => {
+    try { await removeOffline(videoId); await qc.invalidateQueries({ queryKey: ['music-offline'] }); toast.success('Removed') }
+    catch { toast.error('Could not remove') }
+  }
+
+  if (!stations.length && !songs.length) {
+    return <Empty icon={Download} text="Save a station or a song for offline play. They'll show up here, ready without internet." />
+  }
+  // Total storage used by offline audio (every downloaded track, station or à-la-carte).
+  const readyAll = (data?.offline ?? []).filter(t => t.status === 'ready')
+  const totalBytes = readyAll.reduce((n, t) => n + (t.sizeBytes ?? 0), 0)
+  const summary = [
+    stations.length ? `${stations.length} station${stations.length === 1 ? '' : 's'}` : '',
+    readyAll.length ? `${readyAll.length} song${readyAll.length === 1 ? '' : 's'}` : '',
+    totalBytes ? fmtBytes(totalBytes) : '',
+  ].filter(Boolean).join(' · ')
+
+  return (
+    <div className="space-y-8">
+      {summary && <p className="-mt-1 text-xs text-muted-foreground">{summary} downloaded</p>}
+      {stations.length > 0 && (
+        <section>
+          <SectionHeader title="Stations" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {stations.map(s => <StationCard key={s.id} station={s} />)}
+          </div>
+        </section>
+      )}
+
+      {songs.length > 0 && (
+        <section>
+          <SectionHeader title="Songs" />
+          <div className="max-w-3xl divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60 bg-card/30">
+            {songs.map(t => (
+              <div key={t.videoId} className="group flex items-center gap-3 px-2.5 py-2 transition hover:bg-accent/40">
+                {t.status === 'ready' ? (
+                  <button onClick={() => radio.playTrack({ videoId: t.videoId, title: t.title })} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                    <div className="relative shrink-0">
+                      <SongThumb videoId={t.videoId} />
+                      <span className="absolute inset-0 grid place-items-center rounded-md bg-black/45 opacity-0 transition group-hover:opacity-100">
+                        <Play className="size-4 fill-white text-white" />
+                      </span>
+                    </div>
+                    <p className="truncate text-sm font-medium">{t.title}</p>
+                  </button>
+                ) : (
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="grid size-10 shrink-0 place-items-center rounded-md bg-muted">
+                      {t.status === 'failed'
+                        ? <Trash2 className="size-4 text-destructive" />
+                        : <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-muted-foreground">{t.title}</p>
+                      <p className="text-[11px] text-muted-foreground/70">{t.status === 'failed' ? 'Download failed' : 'Downloading…'}</p>
+                    </div>
+                  </div>
+                )}
+                <OpenInYoutubeButton videoId={t.videoId} title={t.title} />
+                <button onClick={() => del(t.videoId)} aria-label="Remove download"
+                  className="shrink-0 rounded-full p-2 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100">
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
+
 export function MusicLibraryPage() {
   const [params, setParams] = useSearchParams()
-  const tab = (params.get('tab') as Tab) ?? 'favorites'
+  const offline = useMusicModeOptional() === 'offline'
+  const tab = (params.get('tab') as Tab) ?? (offline ? 'offline' : 'favorites')
   const setTab = (t: Tab) => setParams(p => { p.set('tab', t); return p }, { replace: true })
 
   return (

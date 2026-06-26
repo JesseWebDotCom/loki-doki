@@ -5,7 +5,7 @@ import {
   BookmarkPlus, Download, Heart, Clock, Loader2, Search, Smartphone, Mic, Check,
   ThumbsUp, ThumbsDown, Pin, PictureInPicture2,
 } from 'lucide-react'
-import { ShieldCheck, Headphones } from 'lucide-react'
+import { ShieldCheck, Headphones, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 import { useYoutubeUI } from '@/components/youtube/YoutubeLayout'
@@ -247,7 +247,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
     if (meta?.subscribed !== undefined) { setSubbed(meta.subscribed); setSubId(meta.subscriptionId ?? null) }
   }, [meta?.subscribed, meta?.subscriptionId])
 
-  const snapshot = { videoId, title, author, channelId, durationSec: meta?.durationSec ?? null }
+  const snapshot = { videoId, title, author, channelId, channelThumb, durationSec: meta?.durationSec ?? null }
   const liked = useCollection('liked').some(v => v.videoId === videoId)
   const watchLater = useCollection('watch-later').some(v => v.videoId === videoId)
 
@@ -338,6 +338,7 @@ function InfoPanel({ videoId, title, author, channelThumb, meta, votes, localKin
           <Pill icon={Clock} label="Watch Later" active={watchLater} onClick={() => toggleCollection('watch-later', snapshot)} />
           {!localKind && <Pill icon={BookmarkPlus} label="Save" onClick={() => ui.openSave(videoId, title)} />}
           <Pill icon={Download} label="Download" onClick={() => ui.openDownload(videoId, title, localKind)} />
+          <Pill icon={ExternalLink} label="YouTube" onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')} />
         </div>
       </div>
 

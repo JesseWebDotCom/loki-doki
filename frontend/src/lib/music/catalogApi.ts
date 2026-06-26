@@ -63,8 +63,8 @@ async function mfetch<T>(path: string, init?: RequestInit): Promise<T> {
 const body = (v: unknown) => JSON.stringify(v)
 
 // ── Catalog ─────────────────────────────────────────────────────────────────────
-export function catalogSearch(q: string, type: 'all' | 'artists' | 'albums' | 'songs' = 'all') {
-  return mfetch<{ artists: CatalogArtist[]; albums: CatalogAlbum[]; songs: CatalogSong[] }>(
+export function catalogSearch(q: string, type: 'all' | 'artists' | 'albums' | 'songs' | 'stations' = 'all') {
+  return mfetch<{ artists: CatalogArtist[]; albums: CatalogAlbum[]; songs: CatalogSong[]; stations: Station[] }>(
     `/catalog/search?q=${encodeURIComponent(q)}&type=${type}`)
 }
 export function getArtist(mbid: string) {
@@ -84,6 +84,7 @@ export async function resolveSong(s: { mbid?: string | null; title: string; arti
 // ── Stations ────────────────────────────────────────────────────────────────────
 export function listStations() { return mfetch<StationBuckets>('/stations') }
 export function getStation(id: string) { return mfetch<{ station: Station }>(`/stations/${id}`) }
+export function getStationTuning(id: string) { return mfetch<{ messages: string[] }>(`/stations/${id}/tuning`) }
 export function previewStationQueue(stationId: string, count = 12) {
   return mfetch<{ tracks: ResolvedTrack[]; source: string }>('/stations/queue', { method: 'POST', body: body({ stationId, count }) })
 }
@@ -158,13 +159,15 @@ export interface WikiInfo { found: boolean; title?: string; extract?: string; im
 export function getSongInfo(artist: string, title: string) {
   return mfetch<WikiInfo>(`/info/song?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`)
 }
-export function getArtistInfo(name: string) {
-  return mfetch<WikiInfo>(`/info/artist?q=${encodeURIComponent(name)}`)
+export function getArtistInfo(name: string, mbid?: string) {
+  const p = new URLSearchParams({ q: name })
+  if (mbid) p.set('mbid', mbid)
+  return mfetch<WikiInfo>(`/info/artist?${p}`)
 }
 
 // ── Offline (audio saved for offline play) ──────────────────────────────────────────
 export interface OfflineTrack { videoId: string; title: string; status: 'pending' | 'downloading' | 'ready' | 'failed'; sizeBytes: number | null }
-export function listOffline() { return mfetch<{ offline: OfflineTrack[]; fileBase: string }>('/library/offline') }
+export function listOffline() { return mfetch<{ offline: OfflineTrack[]; fileBase: string; stationVideoIds: string[] }>('/library/offline') }
 export function saveOffline(t: { videoId: string; title: string }) {
   return mfetch<{ status: string; id: string }>('/library/offline', { method: 'POST', body: body(t) })
 }
@@ -172,9 +175,39 @@ export function removeOffline(videoId: string) {
   return mfetch<{ ok: true }>(`/library/offline/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
 }
 export function snapshotStation(id: string, count?: number) {
-  return mfetch<{ queued: number; total: number }>(`/stations/${id}/snapshot`, { method: 'POST', body: body({ count }) })
+  return mfetch<{ offlineStationId: string; queued: number; total: number }>(`/stations/${id}/snapshot`, { method: 'POST', body: body({ count }) })
 }
 export const offlineAudioUrl = (videoId: string) => `/api/youtube/file/${videoId}/audio`
+
+// ── Offline stations (a whole station saved for full offline use) ────────────────────
+export interface OfflineStatus {
+  status: 'pending' | 'partial' | 'ready' | 'failed'
+  tracksReady: number; trackTotal: number; djReady: number; djTotal: number
+}
+/** A saved-offline station: a normal Station card plus its live download/DJ readiness. */
+export interface OfflineStation extends Station { offline: OfflineStatus }
+
+export function listOfflineStations() {
+  return mfetch<{ stations: OfflineStation[] }>('/stations/offline')
+}
+export function getOfflineStatus(stationId: string) {
+  return mfetch<{ saved: boolean } & Partial<OfflineStatus>>(`/stations/${stationId}/offline-status`)
+}
+export interface OfflineTrackRow { videoId: string; title: string; artist: string | null; position: number; status: 'pending' | 'downloading' | 'ready' | 'failed' }
+export function getOfflineTracks(stationId: string) {
+  return mfetch<{ tracks: OfflineTrackRow[] }>(`/stations/${stationId}/offline-tracks`)
+}
+export interface OfflineDjSeg { text: string; audioUrl: string }
+export interface OfflineQueue {
+  tracks: { videoId: string; title: string; author: string; audioUrl: string }[]
+  dj: { intro: OfflineDjSeg | null; outro: OfflineDjSeg | null; transitions: Record<string, OfflineDjSeg> }
+}
+export function getOfflineQueue(stationId: string) {
+  return mfetch<OfflineQueue>(`/stations/${stationId}/offline-queue`)
+}
+export function removeOfflineStation(stationId: string) {
+  return mfetch<{ ok: true }>(`/stations/${stationId}/offline`, { method: 'DELETE' })
+}
 
 // ── Adapt a Station into the radio engine's DjStation shape ─────────────────────────
 import type { DjStation } from '@/lib/music/radioStations'

@@ -3,15 +3,19 @@
 // built-in default roster reconciled on every install.
 
 import { Hono } from 'hono'
-import { eq, or, isNull, desc } from 'drizzle-orm'
-import { readFile } from 'node:fs/promises'
+import { eq, or, and, isNull, like, desc, inArray } from 'drizzle-orm'
+
 import { db } from '@/db'
-import { musicStations, users } from '@/db/schema'
+import { musicStations, musicOfflineStations, musicOfflineStationTracks, musicDjCache, ytDownloads, users } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { buildStationQueue, type StationSeed, type StationSeedType } from '@/lib/music/stationEngine'
 import { enqueueVideoSave } from '@/lib/youtube/automation'
+import { generateDjSegment, lookupFacts } from '@/routes/musicRadio'
 import { generateStationArt } from '@/lib/music/stationArt'
+import { generateTuningMessages, FALLBACK_TUNING_MESSAGES } from '@/lib/music/tuningMessages'
+import { BUILTIN_TUNING_MESSAGES } from '@/lib/music/builtinTuning'
 import { accentForSeed } from '@/lib/music/accents'
+import { readFile } from 'node:fs/promises'
 import { resolveUserPath } from '@/lib/storage/paths'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
@@ -40,6 +44,69 @@ function serialize(row: StationRow, currentUserId: string, ownerName?: string | 
     ownerName: row.userId === currentUserId ? null : (ownerName ?? null),
     iconUrl: row.iconPath ? `/api/music/stations/${row.id}/art/icon` : null,
     bannerUrl: row.bannerPath ? `/api/music/stations/${row.id}/art/banner` : null,
+  }
+}
+
+// Name/description/category/seed search over the stations a user can see (built-ins +
+// own + shared). Used by the music catalog search so stations surface alongside
+// artists/albums/songs. Built-ins are reconciled first so a fresh install still matches.
+export async function searchStations(query: string, userId: string, limit = 8) {
+  const q = query.trim()
+  if (!q) return []
+  await reconcileBuiltins()
+  const pattern = `%${q.replace(/[\\%_]/g, '')}%`
+  const rows = await db
+    .select({ s: musicStations, ownerName: users.firstName })
+    .from(musicStations)
+    .leftJoin(users, eq(musicStations.userId, users.id))
+    .where(and(
+      or(
+        isNull(musicStations.userId),            // built-ins
+        eq(musicStations.userId, userId),         // own
+        eq(musicStations.visibility, 'shared'),   // shared by others
+      ),
+      or(
+        like(musicStations.name, pattern),
+        like(musicStations.description, pattern),
+        like(musicStations.category, pattern),
+        like(musicStations.seedValue, pattern),
+      ),
+    ))
+    .limit(limit * 4)
+
+  const ql = q.toLowerCase()
+  return rows
+    .map(r => serialize(r.s, userId, r.ownerName))
+    // Name matches lead, then built-ins, so the most on-target stations come first.
+    .sort((a, b) =>
+      (a.name.toLowerCase().includes(ql) ? 0 : 1) - (b.name.toLowerCase().includes(ql) ? 0 : 1) ||
+      Number(b.isBuiltin) - Number(a.isBuiltin))
+    .slice(0, limit)
+}
+
+// ── Per-station "tuning in" loading lines ──────────────────────────────────────────
+function parseMessages(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((m): m is string => typeof m === 'string') : []
+  } catch { return [] }
+}
+
+// Lazily generate + persist a custom loading-message set for a station the first time it's
+// needed. Guarded so concurrent tune-ins don't fire duplicate LLM calls. Fire-and-forget:
+// callers serve the fallback pool immediately and pick up the custom set on the next play.
+const tuningInFlight = new Set<string>()
+async function ensureTuningMessages(row: StationRow): Promise<void> {
+  if (parseMessages(row.loadingMessages).length || tuningInFlight.has(row.id)) return
+  tuningInFlight.add(row.id)
+  try {
+    const msgs = await generateTuningMessages(row)
+    if (msgs.length >= 3) {
+      await db.update(musicStations).set({ loadingMessages: JSON.stringify(msgs) }).where(eq(musicStations.id, row.id))
+    }
+  } finally {
+    tuningInFlight.delete(row.id)
   }
 }
 
@@ -226,9 +293,11 @@ async function reconcileBuiltins(): Promise<void> {
   const now = new Date()
   try {
     for (const s of DEFAULT_MUSIC_STATIONS) {
+      const tuning = BUILTIN_TUNING_MESSAGES[s.id]
       await db.insert(musicStations).values({
         id: s.id, userId: null, name: s.name, description: s.description, aiPrompt: s.aiPrompt,
         seedType: 'prompt', seedValue: null, accent: s.accent, category: categoryFor(s.id), djMode: s.djMode,
+        loadingMessages: tuning?.length ? JSON.stringify(tuning) : null,
         visibility: 'shared', isBuiltin: true, isAdult: false, createdAt: now, updatedAt: now,
       }).onConflictDoNothing()
     }
@@ -236,12 +305,18 @@ async function reconcileBuiltins(): Promise<void> {
     reconciled = false
     logger.debug(`[stations] reconcile failed: ${String(err)}`)
   }
-  // Keep built-in categories in sync. Cover art is rendered on the client now (see StationArt),
-  // so we don't generate cover files for built-ins.
+  // Keep built-in categories and shipped tuning lines in sync. Cover art is rendered on the
+  // client now (see StationArt), so we don't generate cover files for built-ins. Re-applying the
+  // static tuning lines here is what makes them survive an uninstall: they always come back from
+  // BUILTIN_TUNING_MESSAGES on the next boot/reinstall.
   try {
-    await Promise.all(DEFAULT_MUSIC_STATIONS.map(s =>
-      db.update(musicStations).set({ category: categoryFor(s.id) }).where(eq(musicStations.id, s.id)),
-    ))
+    await Promise.all(DEFAULT_MUSIC_STATIONS.map(s => {
+      const tuning = BUILTIN_TUNING_MESSAGES[s.id]
+      return db.update(musicStations).set({
+        category: categoryFor(s.id),
+        ...(tuning?.length ? { loadingMessages: JSON.stringify(tuning) } : {}),
+      }).where(eq(musicStations.id, s.id))
+    }))
   } catch (err) { logger.debug(`[stations] category sync failed: ${String(err)}`) }
 }
 
@@ -268,6 +343,52 @@ musicStations_route.get('/', async (c) => {
     shared: all.filter(s => !s.isBuiltin && !s.owned),
     categories: STATION_CATEGORY_ORDER,
   })
+})
+
+// ── List saved-offline stations ─────────────────────────────────────────────────
+// Drives the offline Stations page + offline-mode filtering. Returns the saved stations as
+// station-shaped cards (live data when the source row still exists, else cached fields) plus
+// each one's live download/DJ readiness. Registered before `/:id` so "offline" isn't a station id.
+musicStations_route.get('/offline', async (c) => {
+  const user = c.get('user')
+  const rows = await db
+    .select({ off: musicOfflineStations, s: musicStations, ownerName: users.firstName })
+    .from(musicOfflineStations)
+    .leftJoin(musicStations, eq(musicOfflineStations.stationId, musicStations.id))
+    .leftJoin(users, eq(musicStations.userId, users.id))
+    .where(eq(musicOfflineStations.userId, user.id))
+    .orderBy(desc(musicOfflineStations.updatedAt))
+
+  const stations = await Promise.all(rows.map(async (r) => {
+    const off = r.off
+    const base = r.s
+      ? serialize(r.s, user.id, r.ownerName)
+      : { // source station gone — render from the cached snapshot fields
+          id: off.stationId, name: off.name, description: null, aiPrompt: '', seedType: 'prompt',
+          seedValue: null, djMode: off.djMode, visibility: 'private', accent: off.accent, category: null,
+          isBuiltin: false, owned: true, ownerName: null,
+          iconUrl: off.iconPath ? `/api/music/stations/${off.stationId}/art/icon` : null,
+          bannerUrl: off.bannerPath ? `/api/music/stations/${off.stationId}/art/banner` : null,
+        }
+    const status = await offlineStatusFor(user.id, off.stationId, off.trackTotal, off.djMode as DjMode)
+    return { ...base, offline: status }
+  }))
+  return c.json({ stations })
+})
+
+// ── Playful "tuning in" loading lines for the Now Playing spin-up screen ────────────
+// Serves the station's stored set, or a generic fallback while a custom set is generated
+// + persisted in the background (so the next tune-in shows the station's own lines).
+musicStations_route.get('/:id/tuning', async (c) => {
+  const id = c.req.param('id')
+  const [row] = await db.select().from(musicStations).where(eq(musicStations.id, id))
+  if (!row) return c.json({ messages: FALLBACK_TUNING_MESSAGES })
+
+  const stored = parseMessages(row.loadingMessages)
+  if (stored.length) return c.json({ messages: stored })
+
+  void ensureTuningMessages(row).catch(() => {})
+  return c.json({ messages: FALLBACK_TUNING_MESSAGES })
 })
 
 // ── Get one station (built-in, own, or shared) ────────────────────────────────────
@@ -322,6 +443,8 @@ musicStations_route.post('/', async (c) => {
   }).catch(() => {})
 
   const [row] = await db.select().from(musicStations).where(eq(musicStations.id, id))
+  // Pre-generate this station's playful loading lines in the background, like the art.
+  void ensureTuningMessages(row!).catch(() => {})
   return c.json({ station: serialize(row!, user.id) })
 })
 
@@ -452,28 +575,228 @@ musicStations_route.post('/queue', async (c) => {
   return c.json(result)
 })
 
-// ── Snapshot: materialize a station's current queue as offline audio ───────────────
-// "Make this station available offline" — builds the queue and enqueues an audio save for the
-// first N tracks (reusing the YouTube offline-save pipeline). Each user gets their own copy.
+// ── Offline stations ───────────────────────────────────────────────────────────────
+// Saving a station offline freezes its generative queue into a fixed tracklist, downloads each
+// track's audio (reusing the YouTube offline-save pipeline), and pre-renders the AI DJ — so the
+// whole station plays end to end with no internet. Each user gets their own copy.
+
+type DjMode = 'full' | 'minimal' | 'silent'
+
+/** Expected number of pre-rendered DJ segments for a frozen tracklist: intro + one transition
+ *  per adjacent pair + outro. Zero when the DJ is silent or there are no tracks. */
+function expectedDjCount(djMode: DjMode, trackTotal: number): number {
+  if (djMode === 'silent' || trackTotal < 1) return 0
+  return trackTotal + 1 // intro(1) + transitions(trackTotal-1) + outro(1)
+}
+
+/** Live readiness for an offline station: how many frozen tracks have downloaded audio and how
+ *  many DJ segments are rendered, plus an effective coarse status. Source of truth for progress. */
+async function offlineStatusFor(userId: string, stationId: string, trackTotal: number, djMode: DjMode) {
+  const frozen = await db.select({ videoId: musicOfflineStationTracks.videoId })
+    .from(musicOfflineStationTracks)
+    .where(and(eq(musicOfflineStationTracks.userId, userId), eq(musicOfflineStationTracks.stationId, stationId)))
+  const ids = frozen.map(f => f.videoId)
+  let tracksReady = 0
+  if (ids.length) {
+    const ready = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
+      .where(and(eq(ytDownloads.userId, userId), eq(ytDownloads.kind, 'audio'), eq(ytDownloads.status, 'ready'), inArray(ytDownloads.videoId, ids)))
+    tracksReady = new Set(ready.map(r => r.videoId)).size
+  }
+  const djRows = await db.select({ id: musicDjCache.id }).from(musicDjCache)
+    .where(and(eq(musicDjCache.userId, userId), eq(musicDjCache.stationId, stationId)))
+  const djReady = djRows.length
+  const djTotal = expectedDjCount(djMode, trackTotal)
+  const status: 'pending' | 'partial' | 'ready' | 'failed' =
+    tracksReady === 0 ? 'pending'
+      : (tracksReady < trackTotal || djReady < djTotal) ? 'partial'
+        : 'ready'
+  return { status, tracksReady, trackTotal, djReady, djTotal }
+}
+
+/** Background pass: cache the Wikipedia facts for each DJ segment at snapshot time.
+ *  At playback the LLM + TTS run on demand, so pronunciation rules and voice changes
+ *  always apply. Best-effort — a failed segment just means no trivia for that transition. */
+async function generateDjContext(user: { id: string }, station: StationRow, tracks: { videoId: string; title: string; artist: string }[]) {
+  const djMode = station.djMode as DjMode
+  if (djMode === 'silent' || !tracks.length) return
+  const style = djMode === 'minimal' ? 'minimal' : 'full'
+  const genre = station.seedValue || station.name
+
+  type Seg = { position: 'intro' | 'transition' | 'outro'; from: string; to: string | null; trackName: string; artistName: string; nextTrackName?: string; nextArtistName?: string }
+  const segs: Seg[] = []
+  const first = tracks[0]!
+  segs.push({ position: 'intro', from: first.videoId, to: null, trackName: first.title, artistName: first.artist })
+  for (let i = 0; i < tracks.length - 1; i++) {
+    const cur = tracks[i]!, next = tracks[i + 1]!
+    segs.push({ position: 'transition', from: cur.videoId, to: next.videoId, trackName: cur.title, artistName: cur.artist, nextTrackName: next.title, nextArtistName: next.artist })
+  }
+  const last = tracks[tracks.length - 1]!
+  segs.push({ position: 'outro', from: last.videoId, to: null, trackName: last.title, artistName: last.artist })
+
+  for (const seg of segs) {
+    try {
+      // Only transitions in full mode benefit from Wikipedia facts; others get empty string.
+      const facts = seg.position === 'transition' && style !== 'minimal'
+        ? await lookupFacts(seg.artistName, seg.trackName).catch(() => '')
+        : ''
+      await db.insert(musicDjCache).values({
+        id: crypto.randomUUID(), userId: user.id, stationId: station.id,
+        position: seg.position, fromVideoId: seg.from, toVideoId: seg.to,
+        genre, stationName: station.name, trackName: seg.trackName, artistName: seg.artistName,
+        nextTrackName: seg.nextTrackName ?? null, nextArtistName: seg.nextArtistName ?? null,
+        style, facts: facts || null, createdAt: new Date(),
+      })
+    } catch (err) { logger.warn({ err, stationId: station.id, position: seg.position }, 'offline DJ context cache failed') }
+  }
+}
+
+// POST /:id/snapshot — "Make this station available offline".
 musicStations_route.post('/:id/snapshot', async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
   const body = await c.req.json<{ count?: number }>().catch(() => ({} as { count?: number }))
-  const count = Math.min(Math.max(body.count ?? 15, 1), 40)
+  const count = Math.min(Math.max(body.count ?? 20, 1), 100)
 
   const [row] = await db.select().from(musicStations).where(eq(musicStations.id, id))
   if (!row) return c.json({ error: 'not found' }, 404)
   if (row.userId && row.userId !== user.id && row.visibility !== 'shared') return c.json({ error: 'not available' }, 403)
 
-  const { tracks } = await buildStationQueue({
+  const { tracks: built } = await buildStationQueue({
     name: row.name, aiPrompt: row.aiPrompt, seedType: row.seedType, seedValue: row.seedValue ?? undefined, count,
   })
+  const tracks = built.slice(0, count).map(t => ({ videoId: t.videoId, title: t.title, artist: t.artist ?? '' }))
+  if (!tracks.length) return c.json({ error: 'no tracks to save' }, 422)
+
+  const now = new Date()
+  // Upsert the offline-station record (caches display fields for offline rendering).
+  const [existing] = await db.select({ id: musicOfflineStations.id }).from(musicOfflineStations)
+    .where(and(eq(musicOfflineStations.userId, user.id), eq(musicOfflineStations.stationId, id)))
+  const offlineStationId = existing?.id ?? crypto.randomUUID()
+  const fields = {
+    name: row.name, accent: row.accent, djMode: row.djMode, iconPath: row.iconPath, bannerPath: row.bannerPath,
+    status: 'pending' as const, trackTotal: tracks.length, updatedAt: now,
+  }
+  if (existing) {
+    await db.update(musicOfflineStations).set(fields).where(eq(musicOfflineStations.id, offlineStationId))
+  } else {
+    await db.insert(musicOfflineStations).values({ id: offlineStationId, userId: user.id, stationId: id, createdAt: now, ...fields })
+  }
+
+  // Replace the frozen tracklist, and clear any stale DJ cache rows for a fresh render.
+  await db.delete(musicOfflineStationTracks).where(and(eq(musicOfflineStationTracks.userId, user.id), eq(musicOfflineStationTracks.stationId, id)))
+  await db.delete(musicDjCache).where(and(eq(musicDjCache.userId, user.id), eq(musicDjCache.stationId, id)))
+  await db.insert(musicOfflineStationTracks).values(tracks.map((t, i) => ({
+    id: crypto.randomUUID(), userId: user.id, stationId: id, videoId: t.videoId, title: t.title, artist: t.artist, position: i, createdAt: now,
+  })))
+
+  // Enqueue audio downloads (reuses the durable YouTube save pipeline).
   let queued = 0
-  for (const t of tracks.slice(0, count)) {
+  for (const t of tracks) {
     try {
       await enqueueVideoSave({ userId: user.id, videoId: t.videoId, title: t.title, kind: 'audio', maxHeight: null, firstName: user.firstName, audioFormat: 'm4a' })
       queued++
     } catch { /* skip individual failures */ }
   }
-  return c.json({ queued, total: tracks.length })
+
+  // Cache DJ context (Wikipedia facts) in the background. Audio is generated on demand at
+  // playback, so pronunciation rules and voice changes always apply without re-snapshotting.
+  void generateDjContext({ id: user.id }, row, tracks)
+    .then(() => offlineStatusFor(user.id, id, tracks.length, row.djMode as DjMode))
+    .then(s => db.update(musicOfflineStations).set({ status: s.status, updatedAt: new Date() }).where(eq(musicOfflineStations.id, offlineStationId)))
+    .catch(err => logger.warn({ err, stationId: id }, 'offline snapshot background pass failed'))
+
+  return c.json({ offlineStationId, queued, total: tracks.length })
+})
+
+// GET /:id/offline-status — live download + DJ-render progress (polled by the station page).
+musicStations_route.get('/:id/offline-status', async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const [off] = await db.select().from(musicOfflineStations)
+    .where(and(eq(musicOfflineStations.userId, user.id), eq(musicOfflineStations.stationId, id)))
+  if (!off) return c.json({ saved: false })
+  const s = await offlineStatusFor(user.id, id, off.trackTotal, off.djMode as DjMode)
+  return c.json({ saved: true, ...s })
+})
+
+// GET /:id/offline-tracks — the full frozen tracklist with each track's download status, so the
+// station page can show exactly what was saved (not a fresh sample).
+musicStations_route.get('/:id/offline-tracks', async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const frozen = await db.select().from(musicOfflineStationTracks)
+    .where(and(eq(musicOfflineStationTracks.userId, user.id), eq(musicOfflineStationTracks.stationId, id)))
+    .orderBy(musicOfflineStationTracks.position)
+  if (!frozen.length) return c.json({ tracks: [] })
+  const dls = await db.select({ videoId: ytDownloads.videoId, status: ytDownloads.status }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'audio'), inArray(ytDownloads.videoId, frozen.map(f => f.videoId))))
+  const statusMap = new Map(dls.map(d => [d.videoId, d.status]))
+  return c.json({ tracks: frozen.map(t => ({
+    videoId: t.videoId, title: t.title, artist: t.artist, position: t.position,
+    status: statusMap.get(t.videoId) ?? 'pending',
+  })) })
+})
+
+// GET /:id/offline-queue — frozen tracklist filtered to downloaded tracks, plus DJ segment IDs.
+// The RadioEngine calls /:id/dj/:cacheId/audio on demand for each segment.
+musicStations_route.get('/:id/offline-queue', async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const frozen = await db.select().from(musicOfflineStationTracks)
+    .where(and(eq(musicOfflineStationTracks.userId, user.id), eq(musicOfflineStationTracks.stationId, id)))
+    .orderBy(musicOfflineStationTracks.position)
+  if (!frozen.length) return c.json({ tracks: [], dj: { intro: null, outro: null, transitions: {} } })
+
+  const ids = frozen.map(f => f.videoId)
+  const ready = await db.select({ videoId: ytDownloads.videoId }).from(ytDownloads)
+    .where(and(eq(ytDownloads.userId, user.id), eq(ytDownloads.kind, 'audio'), eq(ytDownloads.status, 'ready'), inArray(ytDownloads.videoId, ids)))
+  const readySet = new Set(ready.map(r => r.videoId))
+  const tracks = frozen.filter(t => readySet.has(t.videoId)).map(t => ({
+    videoId: t.videoId, title: t.title, author: t.artist ?? '', audioUrl: `/api/youtube/file/${t.videoId}/audio`,
+  }))
+
+  const djRows = await db.select().from(musicDjCache)
+    .where(and(eq(musicDjCache.userId, user.id), eq(musicDjCache.stationId, id)))
+  const seg = (r: typeof djRows[number]) => ({ audioUrl: `/api/music/stations/${id}/dj/${r.id}/audio` })
+  const intro = djRows.find(r => r.position === 'intro')
+  const outro = djRows.find(r => r.position === 'outro')
+  const transitions: Record<string, { audioUrl: string }> = {}
+  for (const r of djRows) if (r.position === 'transition' && r.fromVideoId) transitions[r.fromVideoId] = seg(r)
+
+  return c.json({ tracks, dj: { intro: intro ? seg(intro) : null, outro: outro ? seg(outro) : null, transitions } })
+})
+
+// GET /:id/dj/:cacheId/audio — synthesize DJ speech on demand from cached context.
+// Running LLM + TTS at playback ensures current pronunciation rules and voice always apply.
+musicStations_route.get('/:id/dj/:cacheId/audio', async (c) => {
+  const user = c.get('user')
+  const cacheId = c.req.param('cacheId')
+  const [row] = await db.select().from(musicDjCache)
+    .where(and(eq(musicDjCache.id, cacheId), eq(musicDjCache.userId, user.id)))
+  if (!row) return c.json({ error: 'not found' }, 404)
+  const { wav } = await generateDjSegment({
+    genre: row.genre ?? undefined,
+    stationName: row.stationName ?? undefined,
+    sayStation: row.position === 'intro',
+    trackName: row.trackName ?? undefined,
+    artistName: row.artistName ?? undefined,
+    nextTrackName: row.nextTrackName ?? undefined,
+    nextArtistName: row.nextArtistName ?? undefined,
+    position: row.position,
+    style: (row.style as 'full' | 'minimal') ?? 'full',
+    facts: row.facts ?? '',
+  })
+  if (!wav) return c.json({ error: 'synthesis unavailable' }, 503)
+  return new Response(wav.buffer as ArrayBuffer, { status: 200, headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store' } })
+})
+
+// DELETE /:id/offline — forget an offline station (its frozen tracks + DJ context). Leaves the
+// shared ytDownloads audio in place, so the Offline *songs* library is unaffected.
+musicStations_route.delete('/:id/offline', async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+  await db.delete(musicDjCache).where(and(eq(musicDjCache.userId, user.id), eq(musicDjCache.stationId, id)))
+  await db.delete(musicOfflineStationTracks).where(and(eq(musicOfflineStationTracks.userId, user.id), eq(musicOfflineStationTracks.stationId, id)))
+  await db.delete(musicOfflineStations).where(and(eq(musicOfflineStations.userId, user.id), eq(musicOfflineStations.stationId, id)))
+  return c.json({ ok: true })
 })

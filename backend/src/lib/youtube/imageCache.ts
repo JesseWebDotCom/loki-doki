@@ -17,9 +17,9 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile, unlink, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { eq, and, lt, inArray } from 'drizzle-orm'
+import { eq, and, lt, inArray, isNotNull } from 'drizzle-orm'
 import { db } from '@/db'
-import { ytImageCache, ytSubscriptions, ytChannelCache } from '@/db/schema'
+import { ytImageCache, ytSubscriptions, ytChannelCache, ytVideos } from '@/db/schema'
 import { dataDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
 
@@ -118,6 +118,13 @@ async function reconcileSubscribed(): Promise<void> {
         if (m.bannerUrl) protectedUrls.add(m.bannerUrl)
       } catch { /* malformed cache meta — skip */ }
     }
+  }
+
+  // Channel avatars resolved for any library video (yt_videos.channel_thumb is only ever
+  // written for saved/Watch-Later/Liked/watched videos — see summarize.ts:ensureChannelThumb).
+  // Keep these so the library tabs still show real logos beyond the 24h non-subscribed window.
+  for (const v of await db.select({ thumb: ytVideos.channelThumb }).from(ytVideos).where(isNotNull(ytVideos.channelThumb))) {
+    if (v.thumb) protectedUrls.add(v.thumb)
   }
 
   const protectedHashes = [...protectedUrls].map(hashUrl)

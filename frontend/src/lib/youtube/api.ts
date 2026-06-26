@@ -305,6 +305,7 @@ export interface CollectionRow {
   title: string
   author: string | null
   channelId: string | null
+  channelThumb?: string | null
   durationSec: number | null
   addedAt: number
 }

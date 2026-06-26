@@ -18,11 +18,12 @@ export function AlbumCover({ coverUrl, className }: { coverUrl: string | null; c
   )
 }
 
-/** Artist avatar: lazily fetches the artist's Wikipedia thumbnail (cached) and shows it, with a
- *  person-icon fallback while loading or when no image exists. */
-export function ArtistAvatar({ name, className }: { name: string; className?: string }) {
+/** Artist avatar: lazily fetches the artist's photo (cached) and shows it, with a person-icon
+ *  fallback while loading or when no image exists. Passing the MusicBrainz mbid lets the backend
+ *  resolve images via Wikidata → Wikimedia Commons that a bare-name Wikipedia lookup would miss. */
+export function ArtistAvatar({ name, mbid, className }: { name: string; mbid?: string; className?: string }) {
   const { data } = useQuery({
-    queryKey: ['music-artist-img', name], queryFn: () => getArtistInfo(name),
+    queryKey: ['music-artist-img', mbid ?? name], queryFn: () => getArtistInfo(name, mbid),
     enabled: !!name, staleTime: Infinity,
   })
   const img = data?.found ? data.image : null

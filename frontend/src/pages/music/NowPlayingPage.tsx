@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ExternalLink, Music2, SkipForward, Pause, Play, Download, Moon, Mic, Disc3, Info, ListMusic } from 'lucide-react'
+import { Heart, ExternalLink, Music2, SkipForward, Pause, Play, Download, Moon, Mic, Disc3, Info, ListMusic, AudioLines, MonitorPlay } from 'lucide-react'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { proxyImg } from '@/lib/img'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
-import { getLyrics, getSongInfo, getArtistInfo, addFavorite, saveOffline } from '@/lib/music/catalogApi'
+import { getLyrics, getSongInfo, getArtistInfo, addFavorite, saveOffline, getStationTuning } from '@/lib/music/catalogApi'
 
 function SectionLabel({ icon: Icon, color, children }: { icon: typeof Music2; color: string; children: React.ReactNode }) {
   return (
@@ -71,6 +73,7 @@ function LyricsPanel({ artist, title }: { artist: string; title: string }) {
   if (data?.plain) {
     return <div className="h-full overflow-y-auto whitespace-pre-wrap px-5 py-4 text-sm leading-relaxed text-foreground/90">{data.plain}</div>
   }
+  if (data?.source === 'instrumental') return empty('Instrumental — no lyrics.')
   return empty('No lyrics found for this track.')
 }
 
@@ -102,18 +105,141 @@ function AboutStrip({ artist, title, color }: { artist: string; title: string; c
   )
 }
 
+// Generic fallback shown for the blink before the station's own lines load (or for legacy
+// preset stations with no saved id). The per-station LLM-written set replaces these.
+const FALLBACK_TUNING = [
+  'Warming up the speakers…',
+  'Lining up the perfect first track…',
+  'Cueing something good…',
+  'Finding the groove…',
+]
+
+// Fills the lyrics panel while a station spins up with a pulsing equalizer + rotating
+// playful "tuning in" lines pulled from the station's stored, LLM-written set.
+function TuningLyrics({ stationId, color }: { stationId?: string; color: string }) {
+  const { data } = useQuery({
+    queryKey: ['station-tuning', stationId], queryFn: () => getStationTuning(stationId!),
+    enabled: !!stationId, staleTime: Infinity,
+  })
+  const messages = data?.messages?.length ? data.messages : FALLBACK_TUNING
+  const [i, setI] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setI(n => n + 1), 2800)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">
+      <div className="flex items-end gap-1.5" aria-hidden>
+        {[14, 22, 11, 18, 13].map((h, n) => (
+          <span key={n} className="w-1.5 rounded-full animate-pulse"
+            style={{ background: color, height: h, animationDelay: `${n * 130}ms`, animationDuration: '1100ms' }} />
+        ))}
+      </div>
+      <p key={i} className="max-w-xs text-lg font-semibold text-foreground/90 animate-in fade-in duration-700">
+        {messages[i % messages.length]}
+      </p>
+    </div>
+  )
+}
+
+// Shown while a station is spinning up — queue is still building and the DJ intro is
+// playing, so there's no track on deck yet. Mirrors the loaded layout with the real
+// station identity (colour, emoji, label) so the wait reads as "tuning in", not "broken".
+function NowPlayingSkeleton({ c1, c2, emoji, label, paused, getAnalyser, stationId, showViz }: {
+  c1: string; c2: string; emoji: string; label: string; paused: boolean; getAnalyser: () => AnalyserNode | null; stationId?: string; showViz: boolean
+}) {
+  return (
+    <div className="px-5 pt-6 pb-8">
+      {/* Hero — same shell as when playing, with the station's accent and a live disc. */}
+      <div className="relative overflow-hidden rounded-2xl border border-border/50 p-5 shadow-lg"
+        style={{ background: `linear-gradient(135deg, ${c1}24, ${c2}0a 65%)` }}>
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full opacity-25 blur-3xl" style={{ background: c1 }} />
+        {showViz && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2">
+            <EqVisualizer active={!paused} getAnalyser={getAnalyser} color={c1} colorDark={c2} opacity={0.28} fade />
+          </div>
+        )}
+        <div className="relative flex items-center gap-5">
+          <div className="relative size-24 shrink-0 overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/15"
+            style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
+            <Disc3 className="absolute left-1/2 top-1/2 size-10 -translate-x-1/2 -translate-y-1/2 text-white/40 motion-safe:animate-[spin_6s_linear_infinite]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
+              <span>{emoji}</span> {label}
+            </span>
+            <Skeleton className="mt-3 h-8 w-2/3 max-w-sm" />
+            <Skeleton className="mt-2 h-4 w-32" />
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Skeleton className="size-9 rounded-md" />
+            <Skeleton className="size-9 rounded-md" />
+            <Skeleton className="size-12 rounded-full" />
+            <Skeleton className="size-9 rounded-md" />
+            <Skeleton className="size-9 rounded-md" />
+            <Skeleton className="size-9 rounded-md" />
+          </div>
+        </div>
+        <p className="relative mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="inline-flex size-2 animate-pulse rounded-full" style={{ background: c1 }} /> Tuning in…
+        </p>
+      </div>
+
+      {/* Lyrics + Up Next — same 60/40 grid, skeleton content. */}
+      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[3fr_2fr]">
+        <section className="flex min-h-0 flex-col">
+          <SectionLabel icon={Music2} color={c1}>Lyrics</SectionLabel>
+          <Card className="relative h-[58vh] overflow-hidden">
+            <TuningLyrics stationId={stationId} color={c1} />
+          </Card>
+        </section>
+        <section className="flex min-h-0 flex-col">
+          <SectionLabel icon={ListMusic} color={c1}>Up Next</SectionLabel>
+          <Card className="h-[58vh] overflow-y-auto p-1.5">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 rounded-xl px-2.5 py-2">
+                <span className="w-4 shrink-0 text-center text-xs font-medium tabular-nums text-muted-foreground/40">{i + 1}</span>
+                <Skeleton className="size-10 shrink-0 rounded-lg" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-3/4" />
+                  <Skeleton className="h-3 w-2/5" />
+                </div>
+              </div>
+            ))}
+          </Card>
+        </section>
+      </div>
+    </div>
+  )
+}
+
 export function NowPlayingPage() {
   const radio = useRadio()
-  const cur = radio.currentTrack
+  const navigate = useNavigate()
+  // Once the queue is built, the first song is already cued and playing under the DJ intro
+  // (currentTrack only gets set after the intro finishes). Fall back to that cued track so the
+  // loading messages stop the moment the DJ kicks in, rather than lingering over the intro.
+  const cur = radio.currentTrack ?? radio.queue[radio.index] ?? null
 
-  if (!radio.active || !cur) {
+  // Nothing started yet — the only genuinely empty state.
+  if (!radio.active) {
     return <div className="px-5 pt-6"><PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow="Music" title="Now Playing" subtitle="Start a station to see lyrics, info, and what's up next." /></div>
   }
-  const artist = cur.author ?? ''
-  const upNext = radio.queue.slice(radio.index + 1, radio.index + 25)
+
   const c1 = radio.station?.color ?? '#7c3aed'
   const c2 = radio.station?.colorDark ?? '#4c1d95'
   const emoji = radio.station?.emoji ?? '📻'
+  const label = radio.station?.label ?? 'Radio'
+
+  // Station is starting (queue building + DJ intro) but no track is on deck yet —
+  // show the loading skeleton instead of the "nothing's playing" copy.
+  if (!cur) {
+    return <NowPlayingSkeleton c1={c1} c2={c2} emoji={emoji} label={label} paused={radio.paused} getAnalyser={radio.getAnalyser} stationId={radio.station?.stationId} showViz={radio.visualizerEnabled} />
+  }
+
+  const artist = cur.author ?? ''
+  const upNext = radio.queue.slice(radio.index + 1, radio.index + 25)
 
   const favorite = async () => {
     try { await addFavorite({ kind: 'song', refId: cur.videoId, title: cur.title, artist }); toast.success('Added to favorites') }
@@ -131,9 +257,11 @@ export function NowPlayingPage() {
         style={{ background: `linear-gradient(135deg, ${c1}24, ${c2}0a 65%)` }}>
         <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full opacity-25 blur-3xl" style={{ background: c1 }} />
         {/* Live faux-EQ band across the bottom of the hero — same engine as the mini-player. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2">
-          <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={c1} colorDark={c2} opacity={0.28} fade />
-        </div>
+        {radio.visualizerEnabled && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2">
+            <EqVisualizer active={!radio.paused} getAnalyser={radio.getAnalyser} color={c1} colorDark={c2} opacity={0.28} fade />
+          </div>
+        )}
         <div className="relative flex items-center gap-5">
           <div className="relative size-24 shrink-0 overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/15"
             style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
@@ -153,12 +281,19 @@ export function NowPlayingPage() {
           <div className="flex shrink-0 items-center gap-1.5">
             <Button size="icon" variant="secondary" onClick={favorite} aria-label="Favorite"><Heart className="size-4" /></Button>
             <Button size="icon" variant="secondary" onClick={download} aria-label="Save offline"><Download className="size-4" /></Button>
+            <Button size="icon" variant="secondary" onClick={() => navigate(`/youtube/watch/${cur.videoId}`, { state: { title: cur.title } })}
+              aria-label="Watch the original video" title="Watch the original video on YouTube"><MonitorPlay className="size-4" /></Button>
             <button onClick={() => radio.togglePause()} aria-label="Play/pause"
               className="flex size-12 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-105 active:scale-95"
               style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
               {radio.paused ? <Play className="size-5 translate-x-px fill-current" /> : <Pause className="size-5 fill-current" />}
             </button>
             <Button size="icon" variant="secondary" onClick={() => radio.skip()} aria-label="Skip"><SkipForward className="size-4" /></Button>
+            <Button size="icon" variant="secondary" onClick={radio.toggleVisualizer}
+              aria-label={radio.visualizerEnabled ? 'Hide visualizer' : 'Show visualizer'}
+              title={radio.visualizerEnabled ? 'Visualizer on' : 'Visualizer off'}>
+              <AudioLines className={cn('size-4', !radio.visualizerEnabled && 'text-muted-foreground/40')} />
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="icon" variant="secondary" aria-label="DJ mode" title={`DJ: ${radio.station?.djMode ?? 'full'}`}>

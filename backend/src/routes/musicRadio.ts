@@ -17,7 +17,7 @@ musicRadio.use('*', requireAuth)
 // Pull a clean encyclopedic snippet about the artist (and song, when distinctive)
 // so the DJ can drop a real, grounded aside instead of inventing one. Best-effort:
 // returns '' on any miss so the segment still generates without facts.
-async function lookupFacts(artist?: string, track?: string): Promise<string> {
+export async function lookupFacts(artist?: string, track?: string): Promise<string> {
   if (!artist) return ''
   try {
     const q = track ? `${artist} ${track}` : artist
@@ -145,39 +145,35 @@ musicRadio.get('/genres', async (c) => {
   return c.json({ genres })
 })
 
-// POST /api/music/radio/dj-segment
-// Generates a short AI DJ script and synthesizes it to WAV via Kokoro.
-// Body: { genre, trackName?, artistName?, nextTrackName?, nextArtistName?,
-//         weather?, newsHeadline?, position: 'intro'|'transition'|'outro', voice? }
-musicRadio.post('/dj-segment', async (c) => {
-  type DjBody = {
-    genre?: string
-    stationName?: string
-    sayStation?: boolean
-    trackName?: string
-    artistName?: string
-    nextTrackName?: string
-    nextArtistName?: string
-    weather?: string
-    newsHeadline?: string
-    position?: 'intro' | 'transition' | 'outro'
-    voice?: string
-    style?: 'full' | 'minimal'
-  }
-  const body: DjBody = await c.req.json<DjBody>().catch(() => ({} as DjBody))
+export interface DjSegmentOpts {
+  genre?: string
+  stationName?: string
+  sayStation?: boolean
+  trackName?: string
+  artistName?: string
+  nextTrackName?: string
+  nextArtistName?: string
+  weather?: string
+  newsHeadline?: string
+  position?: 'intro' | 'transition' | 'outro'
+  voice?: string
+  style?: 'full' | 'minimal'
+  /** Pre-fetched Wikipedia facts — skips the network lookup when provided. */
+  facts?: string
+}
 
-  const genre = body.genre ?? 'music'
-  const style = body.style === 'minimal' ? 'minimal' : 'full'
-  const stationName = body.stationName
-  const sayStation = body.sayStation && !!stationName
-  const trackName = body.trackName
-  const artistName = body.artistName
-  const nextTrackName = body.nextTrackName
-  const nextArtistName = body.nextArtistName
-  const weather = body.weather
-  const newsHeadline = body.newsHeadline
-  const position = body.position ?? 'transition'
-  const voice = body.voice ?? await appDefaultVoice()
+/** Write the DJ script (LLM) and synthesize it to a WAV buffer (Kokoro). Shared by the live
+ *  `/dj-segment` route and the offline station pre-render so both behave identically. `wav` is
+ *  null when the chosen voice isn't Kokoro or synthesis fails (caller falls back to text only).
+ *  Throws when the LLM produces no usable text. */
+export async function generateDjSegment(opts: DjSegmentOpts): Promise<{ text: string; wav: Buffer | null }> {
+  const genre = opts.genre ?? 'music'
+  const style = opts.style === 'minimal' ? 'minimal' : 'full'
+  const stationName = opts.stationName
+  const sayStation = opts.sayStation && !!stationName
+  const { trackName, artistName, nextTrackName, nextArtistName, weather, newsHeadline } = opts
+  const position = opts.position ?? 'transition'
+  const voice = opts.voice ?? await appDefaultVoice()
 
   // Build a context-rich DJ prompt.
   const contextParts: string[] = []
@@ -187,7 +183,10 @@ musicRadio.post('/dj-segment', async (c) => {
 
   // Grounded facts for a quick aside — only on transitions, where the lookup latency is
   // hidden behind the currently-playing song, and never in minimal mode (which just IDs songs).
-  const facts = position === 'transition' && style !== 'minimal' ? await lookupFacts(artistName, trackName) : ''
+  // Accept pre-fetched facts (offline snapshot path) to avoid a network call at playback.
+  const facts = opts.facts !== undefined
+    ? opts.facts
+    : (position === 'transition' && style !== 'minimal' ? await lookupFacts(artistName, trackName) : '')
   const aside = facts
     ? `Work in exactly ONE quick, TRUE aside about the artist or song, drawn only from these facts (do not invent): ${facts}`
     : ''
@@ -220,47 +219,48 @@ musicRadio.post('/dj-segment', async (c) => {
       djPrompt = `Between songs on a ${genre} station. ${stationLine}In one tight line, name that ${trackName ? `was "${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'track'}${nextTrackName ? ` and tease what's up next: "${nextTrackName}"${nextArtistName ? ` by ${nextArtistName}` : ''}` : ''}. ${aside} Max 24 words.`
   }
 
+  const model = await getModel()
+  const chat = await ollamaChat(model, [
+    { role: 'system', content: 'You are a fast-talking, charismatic radio DJ. Output ONLY the words you speak aloud — no stage directions, asterisks, or labels. Be brief: one or two short sentences, never more. Tight, energetic, conversational.' },
+    { role: 'user', content: djPrompt },
+  ], [], { temperature: 0.9, num_predict: 70 })
+
+  // Clean up: strip stray markdown asterisks and any quotes the model wrapped the whole
+  // line in, so the caption and the TTS read naturally.
+  const text = chat.message?.content
+    ?.replace(/\*/g, '')
+    .trim()
+    .replace(/^["'“”]+|["'“”]+$/g, '')
+    .trim()
+  if (!text) throw new Error('LLM produced no content')
+
+  // Synthesize via Kokoro voice server.
+  const [engine, voiceId] = voice.includes(':') ? voice.split(':', 2) as [string, string] : ['kokoro', voice]
+  if (engine !== 'kokoro') return { text, wav: null } // non-Kokoro: caller uses Web Speech API
+
+  // Synthesize chunk-by-chunk with silence spliced between sentences and dashes, so the DJ
+  // phrases the line instead of rattling it off in one breath.
+  const wav = await synthesizeWithPauses(text, {
+    voice: voiceId,
+    speed: 1.3,
+    signal: AbortSignal.timeout(30_000),
+  })
+  return { text, wav: wav ?? null }
+}
+
+// POST /api/music/radio/dj-segment
+// Generates a short AI DJ script and synthesizes it to WAV via Kokoro.
+// Body: { genre, trackName?, artistName?, nextTrackName?, nextArtistName?,
+//         weather?, newsHeadline?, position: 'intro'|'transition'|'outro', voice? }
+musicRadio.post('/dj-segment', async (c) => {
+  const body = await c.req.json<DjSegmentOpts>().catch(() => ({} as DjSegmentOpts))
   try {
-    const model = await getModel()
-    const chat = await ollamaChat(model, [
-      { role: 'system', content: 'You are a fast-talking, charismatic radio DJ. Output ONLY the words you speak aloud — no stage directions, asterisks, or labels. Be brief: one or two short sentences, never more. Tight, energetic, conversational.' },
-      { role: 'user', content: djPrompt },
-    ], [], { temperature: 0.9, num_predict: 70 })
-
-    // Clean up: strip stray markdown asterisks and any quotes the model wrapped the whole
-    // line in, so the caption and the TTS read naturally.
-    const text = chat.message?.content
-      ?.replace(/\*/g, '')
-      .trim()
-      .replace(/^["'“”]+|["'“”]+$/g, '')
-      .trim()
-    if (!text) return c.json({ error: 'LLM produced no content' }, 503)
-
-    // Synthesize via Kokoro voice server.
-    const [engine, voiceId] = voice.includes(':') ? voice.split(':', 2) as [string, string] : ['kokoro', voice]
-    if (engine !== 'kokoro') {
-      // Return text-only if non-Kokoro voice — frontend can use Web Speech API.
-      return c.json({ text, audio: null })
-    }
-
-    // Synthesize chunk-by-chunk with silence spliced between sentences and dashes, so the DJ
-    // phrases the line instead of rattling it off in one breath.
-    const wavBuf = await synthesizeWithPauses(text, {
-      voice: voiceId,
-      speed: 1.3,
-      signal: AbortSignal.timeout(30_000),
-    })
-    if (!wavBuf) {
-      return c.json({ text, audio: null })
-    }
-
-    // Return multipart: JSON header + WAV audio encoded as base64 for simplicity.
-    return c.json({
-      text,
-      audio: wavBuf.toString('base64'),
-      audioMime: 'audio/wav',
-    })
+    const { text, wav } = await generateDjSegment(body)
+    return c.json(wav
+      ? { text, audio: wav.toString('base64'), audioMime: 'audio/wav' }
+      : { text, audio: null })
   } catch (err) {
-    return c.json({ error: String(err) }, 500)
+    const msg = String(err)
+    return c.json({ error: msg }, msg.includes('no content') ? 503 : 500)
   }
 })

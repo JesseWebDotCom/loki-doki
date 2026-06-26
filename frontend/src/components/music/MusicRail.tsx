@@ -1,6 +1,7 @@
 import { NavLink, Link, useSearchParams, useLocation } from 'react-router-dom'
 import { Home, Radio, Search, Disc3, Sparkles, Shuffle, Heart, ListMusic, History, Download, type LucideIcon } from 'lucide-react'
 import { useRadio } from '@/context/RadioContext'
+import { useMusicModeOptional } from '@/components/music/MusicLayout'
 import { cn } from '@/lib/cn'
 import { AppRailHeader } from '@/components/shared/AppRailHeader'
 
@@ -36,6 +37,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function MusicRail() {
   const radio = useRadio()
+  const offline = useMusicModeOptional() === 'offline'
   return (
     <nav className="hidden h-full min-h-0 w-60 shrink-0 flex-col overflow-y-auto overscroll-none border-r border-border/40 px-3 py-5 lg:flex">
       <AppRailHeader title="Music" className="mb-4" />
@@ -44,9 +46,12 @@ export function MusicRail() {
       <RailLink to="/music/browse" icon={Search} label="Browse" />
       {radio.active && <RailLink to="/music/now-playing" icon={Disc3} label="Now Playing" />}
 
-      <SectionLabel>Create</SectionLabel>
-      <RailLink to="/music/generate" icon={Sparkles} label="Generate" />
-      <RailLink to="/music/remix" icon={Shuffle} label="Remix" />
+      {/* Create needs the internet (LLM + generators) — hide it offline. */}
+      {!offline && <>
+        <SectionLabel>Create</SectionLabel>
+        <RailLink to="/music/generate" icon={Sparkles} label="Generate" />
+        <RailLink to="/music/remix" icon={Shuffle} label="Remix" />
+      </>}
 
       <SectionLabel>Your Library</SectionLabel>
       <LibTab tab="favorites" icon={Heart} label="Favorites" />

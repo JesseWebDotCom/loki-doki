@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Music2, Play, Search } from 'lucide-react'
+import { Music2, Play, Search, ArrowDownToLine, Loader2 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { AlbumCover, ArtistAvatar } from '@/components/music/MediaArt'
+import { StationCard } from '@/components/music/StationCard'
 import { useRadio } from '@/context/RadioContext'
+import { useMusicMode } from '@/components/music/MusicLayout'
 import { toast } from 'sonner'
-import { catalogSearch, resolveSong, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
+import { catalogSearch, resolveSong, saveOffline, listOfflineStations, listOffline, type CatalogArtist, type CatalogAlbum, type CatalogSong } from '@/lib/music/catalogApi'
 
 function ArtistChip({ a, onClick }: { a: CatalogArtist; onClick: () => void }) {
   return (
     <button onClick={onClick} className="flex w-32 shrink-0 flex-col items-center gap-2 rounded-xl p-2 text-center transition hover:bg-accent/50">
-      <ArtistAvatar name={a.name} className="size-24 rounded-full" />
+      <ArtistAvatar name={a.name} mbid={a.mbid} className="size-24 rounded-full" />
       <div><p className="truncate text-sm font-medium">{a.name}</p>{a.disambiguation && <p className="truncate text-[11px] text-muted-foreground">{a.disambiguation}</p>}</div>
     </button>
   )
@@ -29,17 +31,104 @@ function AlbumCard({ al, onClick }: { al: CatalogAlbum; onClick: () => void }) {
   )
 }
 
+/** Download control for a catalog (search) song: resolve it to a YouTube id on click, then save
+ *  offline. Catalog rows have no videoId up front, so this can't show a persistent "downloaded"
+ *  state the way SongDownloadButton does — it just kicks off the save. */
+function SongDownloadSearchButton({ song }: { song: CatalogSong }) {
+  const [busy, setBusy] = useState(false)
+  const onClick = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (busy) return
+    setBusy(true)
+    try {
+      const r = await resolveSong({ mbid: song.mbid, title: song.title, artist: song.artistName, durationSec: song.durationSec })
+      if (!r) { toast.error('Could not find that song'); return }
+      await saveOffline({ videoId: r.videoId, title: r.title })
+      toast.success('Downloading…')
+    } catch { toast.error('Could not download') }
+    finally { setBusy(false) }
+  }
+  return (
+    <button type="button" onClick={onClick} aria-label="Download for offline" title="Download for offline"
+      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition hover:bg-accent/60 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100">
+      {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDownToLine className="size-4" />}
+    </button>
+  )
+}
+
 const GENRES = ['Pop', 'Rock', 'Hip-Hop', 'Jazz', 'Electronic', 'Country', 'R&B', 'Metal', 'Classical', 'Indie', 'Reggae', 'Soul']
+
+/** Offline browse: no catalog (that's a network call) — just substring-filter the stations and
+ *  songs you've downloaded. Mirrors the YouTube offline-search pattern (SearchResults.tsx). */
+function OfflineBrowse({ q }: { q: string }) {
+  const navigate = useNavigate()
+  const radio = useRadio()
+  const [term, setTerm] = useState(q)
+  useEffect(() => { setTerm(q) }, [q])
+  const { data: stationData } = useQuery({ queryKey: ['music-offline-stations'], queryFn: listOfflineStations, refetchInterval: 5000 })
+  const { data: offlineData } = useQuery({ queryKey: ['music-offline'], queryFn: listOffline, refetchInterval: 5000 })
+
+  const needle = q.toLowerCase()
+  const stations = (stationData?.stations ?? []).filter(s => s.name.toLowerCase().includes(needle))
+  const songs = (offlineData?.offline ?? []).filter(t => t.status === 'ready' && t.title.toLowerCase().includes(needle))
+
+  const search = (value: string) => { const t = value.trim(); navigate(t ? `/music/browse?q=${encodeURIComponent(t)}` : '/music/browse') }
+  const SearchBar = (
+    <form onSubmit={e => { e.preventDefault(); search(term) }} className="mb-5 flex gap-2">
+      <div className="relative flex-1">
+        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input value={term} onChange={e => setTerm(e.target.value)} autoFocus placeholder="Search your offline stations…" className="pl-9" />
+      </div>
+      <Button type="submit">Search</Button>
+    </form>
+  )
+
+  return (
+    <div className="px-5 pt-6">
+      <PageHeader variant="plain" className="!px-0 !pt-0 !pb-5" eyebrow={q ? 'Offline · Search' : 'Music · Offline'}
+        title={q ? `“${q}”` : 'Browse offline'} subtitle={q ? undefined : 'Everything you’ve saved for offline play.'} />
+      {SearchBar}
+
+      {stations.length > 0 && (
+        <section className="mt-2"><SectionHeader title="Stations" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {stations.map(st => <StationCard key={st.id} station={st} />)}
+          </div>
+        </section>
+      )}
+
+      {songs.length > 0 && (
+        <section className="mt-6 mb-4"><SectionHeader title="Songs" />
+          <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+            {songs.map(s => (
+              <button key={s.videoId} onClick={() => radio.playTrack({ videoId: s.videoId, title: s.title })}
+                className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-accent/40">
+                <Music2 className="size-4 shrink-0 text-muted-foreground group-hover:hidden" />
+                <Play className="hidden size-4 shrink-0 fill-current text-brand group-hover:block" />
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{s.title}</p></div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!stations.length && !songs.length && (
+        <p className="mt-4 text-sm text-muted-foreground">{q ? `Nothing offline matches “${q}”.` : 'No offline content yet. Save a station to play it without internet.'}</p>
+      )}
+    </div>
+  )
+}
 
 export function MusicBrowsePage() {
   const navigate = useNavigate()
   const radio = useRadio()
+  const { mode } = useMusicMode()
   const [params] = useSearchParams()
   const q = params.get('q')?.trim() ?? ''
   const [term, setTerm] = useState(q)
   useEffect(() => { setTerm(q) }, [q])
   const { data, isLoading } = useQuery({
-    queryKey: ['music-search', q], queryFn: () => catalogSearch(q), enabled: q.length > 0,
+    queryKey: ['music-search', q], queryFn: () => catalogSearch(q), enabled: mode === 'online' && q.length > 0,
   })
 
   const search = (value: string) => { const t = value.trim(); if (t) navigate(`/music/browse?q=${encodeURIComponent(t)}`) }
@@ -55,11 +144,13 @@ export function MusicBrowsePage() {
     <form onSubmit={e => { e.preventDefault(); search(term) }} className="mb-5 flex gap-2">
       <div className="relative flex-1">
         <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={term} onChange={e => setTerm(e.target.value)} autoFocus placeholder="Search artists, albums, songs…" className="pl-9" />
+        <Input value={term} onChange={e => setTerm(e.target.value)} autoFocus placeholder="Search artists, albums, songs, stations…" className="pl-9" />
       </div>
       <Button type="submit">Search</Button>
     </form>
   )
+
+  if (mode === 'offline') return <OfflineBrowse q={q} />
 
   if (!q) return (
     <div className="px-5 pt-6">
@@ -96,22 +187,36 @@ export function MusicBrowsePage() {
         </section>
       )}
 
-      {(data?.songs.length ?? 0) > 0 && (
-        <section className="mt-6 mb-4"><SectionHeader title="Songs" />
-          <div className="divide-y divide-border/50 rounded-xl border border-border/60">
-            {data!.songs.map(s => (
-              <button key={s.mbid} onClick={() => playSong(s)}
-                className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-accent/40">
-                <Music2 className="size-4 shrink-0 text-muted-foreground group-hover:hidden" />
-                <Play className="hidden size-4 shrink-0 fill-current text-brand group-hover:block" />
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{s.title}</p><p className="truncate text-xs text-muted-foreground">{s.artistName}{s.albumTitle ? ` · ${s.albumTitle}` : ''}</p></div>
-              </button>
+      {(data?.stations.length ?? 0) > 0 && (
+        <section className="mt-6"><SectionHeader title="Stations" />
+          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+            {data!.stations.map(st => (
+              <div key={st.id} className="w-56 shrink-0">
+                <StationCard station={st} />
+              </div>
             ))}
           </div>
         </section>
       )}
 
-      {data && !data.artists.length && !data.albums.length && !data.songs.length && !isLoading && (
+      {(data?.songs.length ?? 0) > 0 && (
+        <section className="mt-6 mb-4"><SectionHeader title="Songs" />
+          <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+            {data!.songs.map(s => (
+              <div key={s.mbid} className="group flex w-full items-center gap-2 px-3 py-2.5 transition hover:bg-accent/40">
+                <button onClick={() => playSong(s)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                  <Music2 className="size-4 shrink-0 text-muted-foreground group-hover:hidden" />
+                  <Play className="hidden size-4 shrink-0 fill-current text-brand group-hover:block" />
+                  <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{s.title}</p><p className="truncate text-xs text-muted-foreground">{s.artistName}{s.albumTitle ? ` · ${s.albumTitle}` : ''}</p></div>
+                </button>
+                <SongDownloadSearchButton song={s} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data && !data.artists.length && !data.albums.length && !data.songs.length && !data.stations.length && !isLoading && (
         <p className="mt-4 text-sm text-muted-foreground">No results for “{q}”.</p>
       )}
     </div>

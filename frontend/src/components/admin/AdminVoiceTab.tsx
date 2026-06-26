@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Play, Star, AudioLines, SpellCheck, Plus, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Play, Star, AudioLines, SpellCheck, Plus, Trash2, ChevronDown, ChevronRight, Pencil, Check, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/cn'
 import { speak } from '@/lib/voice/voicePlaybackStore'
@@ -291,100 +291,293 @@ export function VoiceDefaults() {
   )
 }
 
-// ── Pronunciation lexicon ─────────────────────────────────────────────────────
-// Global respellings applied to TTS audio (captions keep original spelling).
+// ── Unified pronunciation editor ──────────────────────────────────────────────
+// Shows all packs (collapsible, with toggle + editable items) then custom rules.
 
-interface Pronunciation { id: string; term: string; replacement: string }
+interface PronunciationItem { id: string; term: string; replacement: string }
+interface PronunciationPack {
+  id: string; slug: string; name: string; appKey: string | null
+  description: string | null; enabled: boolean; builtIn: boolean; itemCount: number
+}
 
-export function PronunciationLexicon() {
-  const [rows, setRows] = useState<Pronunciation[]>([])
+const APP_KEY_LABELS: Record<string, string> = { chat: 'Chat', maps: 'Maps', music: 'Music' }
+
+function AddRuleRow({ onAdd }: { onAdd: (term: string, replacement: string) => Promise<void> }) {
   const [term, setTerm] = useState('')
   const [replacement, setReplacement] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const load = useCallback(async () => {
-    try {
-      const r = await fetch('/api/admin/voice/pronunciations', { credentials: 'include' })
-      if (r.ok) setRows((await r.json() as { pronunciations: Pronunciation[] }).pronunciations ?? [])
-    } catch { /* offline */ }
-  }, [])
-
-  useEffect(() => { void load() }, [load])
-
-  const add = async () => {
+  const submit = async () => {
     if (!term.trim() || !replacement.trim()) return
     setSaving(true)
-    try {
-      const r = await fetch('/api/admin/voice/pronunciations', {
-        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ term: term.trim(), replacement: replacement.trim() }),
-      })
-      if (!r.ok) throw new Error()
-      setRows((await r.json() as { pronunciations: Pronunciation[] }).pronunciations ?? [])
-      setTerm(''); setReplacement('')
-    } catch { toast.error('Could not save') }
+    try { await onAdd(term.trim(), replacement.trim()); setTerm(''); setReplacement('') }
+    catch { toast.error('Could not save') }
     finally { setSaving(false) }
   }
 
-  const remove = async (id: string) => {
-    setRows((cur) => cur.filter((r) => r.id !== id))
-    await fetch(`/api/admin/voice/pronunciations/${id}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
+  return (
+    <div className="flex flex-wrap items-end gap-2 border-t border-border/60 pt-3">
+      <div className="min-w-[7rem] flex-1">
+        <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Word / phrase"
+          onKeyDown={(e) => { if (e.key === 'Enter') void submit() }}
+          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm" />
+      </div>
+      <div className="min-w-[7rem] flex-1">
+        <input value={replacement} onChange={(e) => setReplacement(e.target.value)} placeholder="Say it like…"
+          onKeyDown={(e) => { if (e.key === 'Enter') void submit() }}
+          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm" />
+      </div>
+      {replacement.trim() && (
+        <button type="button" title="Preview" onClick={() => void speak({ text: `This says ${replacement.trim()}.` })}
+          className="flex size-9 items-center justify-center rounded-lg bg-foreground/5 text-muted-foreground hover:text-foreground">
+          <Play className="size-3.5 fill-current" />
+        </button>
+      )}
+      <button type="button" onClick={() => void submit()} disabled={saving || !term.trim() || !replacement.trim()}
+        className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+        <Plus className="size-3.5" /> Add
+      </button>
+    </div>
+  )
+}
+
+function ItemRow({
+  item, onSave, onDelete,
+}: {
+  item: PronunciationItem
+  onSave: (id: string, term: string, replacement: string) => Promise<void>
+  onDelete: (id: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [term, setTerm] = useState(item.term)
+  const [replacement, setReplacement] = useState(item.replacement)
+  const termRef = useRef<HTMLInputElement>(null)
+
+  const startEdit = () => { setTerm(item.term); setReplacement(item.replacement); setEditing(true) }
+  const cancel = () => setEditing(false)
+  const save = async () => {
+    if (!term.trim() || !replacement.trim()) return
+    await onSave(item.id, term.trim(), replacement.trim())
+    setEditing(false)
   }
 
-  const previewText = useMemo(() => (term.trim() ? `This says ${term.trim()}.` : ''), [term])
+  useEffect(() => { if (editing) termRef.current?.focus() }, [editing])
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2 py-1.5">
+        <input ref={termRef} value={term} onChange={(e) => setTerm(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') cancel() }}
+          className="w-28 rounded border border-border bg-background px-2 py-1 text-xs font-medium" />
+        <span className="text-muted-foreground">→</span>
+        <input value={replacement} onChange={(e) => setReplacement(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') cancel() }}
+          className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground" />
+        <button onClick={() => void save()} className="text-emerald-500 hover:text-emerald-400"><Check className="size-3.5" /></button>
+        <button onClick={cancel} className="text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="group flex items-center gap-2 py-1.5 text-sm">
+      <span className="w-28 truncate font-medium">{item.term}</span>
+      <span className="text-muted-foreground">→</span>
+      <span className="flex-1 truncate text-muted-foreground">{item.replacement}</span>
+      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <button onClick={() => void speak({ text: item.replacement })} title="Preview"
+          className="text-muted-foreground hover:text-foreground"><Play className="size-3 fill-current" /></button>
+        <button onClick={startEdit} title="Edit"
+          className="text-muted-foreground hover:text-foreground"><Pencil className="size-3" /></button>
+        <button onClick={() => onDelete(item.id)} title="Delete"
+          className="text-muted-foreground hover:text-destructive"><Trash2 className="size-3" /></button>
+      </div>
+    </div>
+  )
+}
+
+function PackSection({ pack, onToggle }: { pack: PronunciationPack; onToggle: (id: string, enabled: boolean) => void }) {
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<PronunciationItem[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [toggling, setToggling] = useState(false)
+
+  const loadItems = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/admin/voice/pronunciation-packs/${pack.id}/items`, { credentials: 'include' })
+      if (r.ok) setItems((await r.json() as { items: PronunciationItem[] }).items ?? [])
+      setLoaded(true)
+    } catch { /* offline */ }
+  }, [pack.id])
+
+  const toggle = open
+  useEffect(() => { if (toggle && !loaded) void loadItems() }, [toggle, loaded, loadItems])
+
+  const handleToggle = async () => {
+    setToggling(true)
+    try {
+      const r = await fetch(`/api/admin/voice/pronunciation-packs/${pack.id}`, {
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !pack.enabled }),
+      })
+      if (r.ok) onToggle(pack.id, !pack.enabled)
+    } catch { /* offline */ }
+    finally { setToggling(false) }
+  }
+
+  const addItem = async (term: string, replacement: string) => {
+    const r = await fetch(`/api/admin/voice/pronunciation-packs/${pack.id}/items`, {
+      method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ term, replacement }),
+    })
+    if (!r.ok) throw new Error()
+    setItems((await r.json() as { items: PronunciationItem[] }).items ?? [])
+  }
+
+  const saveItem = async (id: string, term: string, replacement: string) => {
+    const r = await fetch(`/api/admin/voice/pronunciation-packs/${pack.id}/items`, {
+      method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, term, replacement }),
+    })
+    if (!r.ok) throw new Error()
+    setItems((await r.json() as { items: PronunciationItem[] }).items ?? [])
+  }
+
+  const deleteItem = (id: string) => {
+    setItems((cur) => cur.filter((i) => i.id !== id))
+    void fetch(`/api/admin/voice/pronunciation-packs/${pack.id}/items/${id}`, { method: 'DELETE', credentials: 'include' })
+  }
+
+  const itemCount = loaded ? items.length : pack.itemCount
+
+  return (
+    <div className="border-b border-border/60 last:border-0">
+      {/* Header row */}
+      <div className="flex items-center gap-2 px-4 py-3">
+        <button type="button" onClick={() => setOpen((v) => !v)}
+          className="flex flex-1 items-center gap-2 text-left">
+          {open ? <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />}
+          <span className="text-sm font-medium">{pack.name}</span>
+          {pack.appKey && (
+            <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {APP_KEY_LABELS[pack.appKey] ?? pack.appKey}
+            </span>
+          )}
+          <span className="text-[11px] text-muted-foreground">{itemCount} rules</span>
+        </button>
+        <button
+          type="button" disabled={toggling} onClick={() => void handleToggle()}
+          className={cn(
+            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors disabled:opacity-50',
+            pack.enabled ? 'bg-violet-600' : 'bg-foreground/20',
+          )}
+        >
+          <span className={cn('pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg transition-transform', pack.enabled ? 'translate-x-4' : 'translate-x-0')} />
+        </button>
+      </div>
+
+      {/* Expanded items */}
+      {open && (
+        <div className="px-4 pb-4">
+          {pack.description && <p className="mb-3 text-xs text-muted-foreground">{pack.description}</p>}
+          {!loaded ? (
+            <p className="py-2 text-xs text-muted-foreground">Loading…</p>
+          ) : items.length === 0 ? (
+            <p className="py-2 text-xs text-muted-foreground">No rules yet.</p>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {items.map((item) => (
+                <ItemRow key={item.id} item={item} onSave={saveItem} onDelete={deleteItem} />
+              ))}
+            </div>
+          )}
+          <AddRuleRow onAdd={addItem} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function PronunciationEditor() {
+  const [packs, setPacks] = useState<PronunciationPack[]>([])
+  const [custom, setCustom] = useState<PronunciationItem[]>([])
+
+  const loadPacks = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/voice/pronunciation-packs', { credentials: 'include' })
+      if (r.ok) setPacks((await r.json() as { packs: PronunciationPack[] }).packs ?? [])
+    } catch { /* offline */ }
+  }, [])
+
+  const loadCustom = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/voice/pronunciations', { credentials: 'include' })
+      if (r.ok) setCustom((await r.json() as { pronunciations: PronunciationItem[] }).pronunciations ?? [])
+    } catch { /* offline */ }
+  }, [])
+
+  useEffect(() => { void loadPacks(); void loadCustom() }, [loadPacks, loadCustom])
+
+  const handlePackToggle = (id: string, enabled: boolean) =>
+    setPacks((cur) => cur.map((p) => p.id === id ? { ...p, enabled } : p))
+
+  const addCustom = async (term: string, replacement: string) => {
+    const r = await fetch('/api/admin/voice/pronunciations', {
+      method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ term, replacement }),
+    })
+    if (!r.ok) throw new Error()
+    setCustom((await r.json() as { pronunciations: PronunciationItem[] }).pronunciations ?? [])
+  }
+
+  const saveCustom = async (id: string, term: string, replacement: string) => {
+    const r = await fetch('/api/admin/voice/pronunciations', {
+      method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, term, replacement }),
+    })
+    if (!r.ok) throw new Error()
+    setCustom((await r.json() as { pronunciations: PronunciationItem[] }).pronunciations ?? [])
+  }
+
+  const deleteCustom = (id: string) => {
+    setCustom((cur) => cur.filter((r) => r.id !== id))
+    void fetch(`/api/admin/voice/pronunciations/${id}`, { method: 'DELETE', credentials: 'include' })
+  }
 
   return (
     <section className="rounded-2xl border border-border bg-card">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <SpellCheck className="size-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">Pronunciation</h3>
-        <span className="text-xs text-muted-foreground">Respell names/words so the voice says them right</span>
+        <h3 className="text-sm font-semibold">Pronunciation rules</h3>
+        <span className="text-xs text-muted-foreground">Respellings applied to TTS audio everywhere</span>
       </div>
 
-      <div className="space-y-3 p-4">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-[8rem] flex-1">
-            <label className="text-[11px] font-medium text-muted-foreground">Word / phrase</label>
-            <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Loki"
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm" />
-          </div>
-          <div className="min-w-[8rem] flex-1">
-            <label className="text-[11px] font-medium text-muted-foreground">Say it like</label>
-            <input value={replacement} onChange={(e) => setReplacement(e.target.value)} placeholder="Loh-kee"
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm" />
-          </div>
-          {previewText && replacement.trim() && (
-            <button type="button" title="Preview" onClick={() => void speak({ text: `This says ${replacement.trim()}.` })}
-              className="flex size-9 items-center justify-center rounded-lg bg-foreground/5 text-muted-foreground hover:text-foreground">
-              <Play className="size-3.5 fill-current" />
-            </button>
-          )}
-          <button type="button" onClick={() => void add()} disabled={saving || !term.trim() || !replacement.trim()}
-            className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-            <Plus className="size-4" /> Add
-          </button>
-        </div>
+      {/* Built-in packs */}
+      {packs.map((pack) => (
+        <PackSection key={pack.id} pack={pack} onToggle={handlePackToggle} />
+      ))}
 
-        {rows.length === 0 ? (
-          <p className="py-2 text-xs text-muted-foreground">No custom pronunciations yet.</p>
+      {/* Custom rules (always on) */}
+      <div className="px-4 pb-4 pt-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Custom rules</p>
+        {custom.length === 0 ? (
+          <p className="py-1 text-xs text-muted-foreground">No custom rules yet.</p>
         ) : (
-          <div className="divide-y divide-border/60">
-            {rows.map((r) => (
-              <div key={r.id} className="flex items-center gap-2 py-2 text-sm">
-                <span className="font-medium">{r.term}</span>
-                <span className="text-muted-foreground">→</span>
-                <span className="flex-1 text-muted-foreground">{r.replacement}</span>
-                <button onClick={() => void remove(r.id)} className="text-muted-foreground hover:text-destructive">
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
+          <div className="mb-1 divide-y divide-border/40">
+            {custom.map((item) => (
+              <ItemRow key={item.id} item={item} onSave={saveCustom} onDelete={deleteCustom} />
             ))}
           </div>
         )}
+        <AddRuleRow onAdd={addCustom} />
       </div>
     </section>
   )
 }
+
+// Keep legacy exports so any other import sites don't break.
+export function PronunciationPacks() { return null }
+export function PronunciationLexicon() { return null }
 
 function DefaultRow({
   icon, label, value, onChange,

@@ -1,4 +1,4 @@
-import { Pause, Play, SkipForward, X, Loader2, Mic } from 'lucide-react'
+import { Pause, Play, SkipForward, X, Loader2, Mic, AudioLines } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useRadio } from '@/context/RadioContext'
 import { proxyImg } from '@/lib/img'
@@ -29,16 +29,18 @@ export function RadioMiniBar() {
     <div className="relative z-40 shrink-0">
       <div className="relative overflow-hidden border-t border-border/60 bg-background/95 backdrop-blur-md shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
         {/* Live faux-EQ — sits subtly behind the controls, tinted to the station accent. */}
-        <div className="absolute inset-0 z-0">
-          <EqVisualizer
-            active={!paused && (phase === 'playing' || djSpeaking)}
-            getAnalyser={radio.getAnalyser}
-            color={station?.color ?? '#a855f7'}
-            colorDark={station?.colorDark ?? '#6d28d9'}
-            opacity={0.2}
-            fade
-          />
-        </div>
+        {radio.visualizerEnabled && (
+          <div className="absolute inset-0 z-0">
+            <EqVisualizer
+              active={!paused && (phase === 'playing' || djSpeaking)}
+              getAnalyser={radio.getAnalyser}
+              color={station?.color ?? '#a855f7'}
+              colorDark={station?.colorDark ?? '#6d28d9'}
+              opacity={0.2}
+              fade
+            />
+          </div>
+        )}
         <div className="relative z-10 flex items-center gap-3 px-4 py-2">
           {/* Now-playing art — current track thumbnail, station emoji as fallback */}
           <button onClick={() => navigate('/music/now-playing')}
@@ -78,6 +80,13 @@ export function RadioMiniBar() {
           {/* Controls + seek */}
           <div className="flex flex-col items-stretch gap-1.5">
             <div className="flex items-center justify-end gap-1">
+              <button onClick={radio.toggleVisualizer}
+                className={cn('grid size-8 place-items-center rounded-full hover:text-foreground',
+                  radio.visualizerEnabled ? 'text-muted-foreground' : 'text-muted-foreground/40')}
+                aria-label={radio.visualizerEnabled ? 'Hide visualizer' : 'Show visualizer'}
+                title={radio.visualizerEnabled ? 'Visualizer on' : 'Visualizer off'}>
+                <AudioLines className="size-4" />
+              </button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className={cn('grid size-8 place-items-center rounded-full hover:text-foreground',

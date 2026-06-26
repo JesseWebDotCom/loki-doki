@@ -9,23 +9,26 @@ import {
   getArtist, getArtistAlbums, getAlbum,
 } from '@/lib/music/catalog'
 import { resolveTrack } from '@/lib/music/resolve'
+import { searchStations } from '@/routes/musicStations'
 import type { AppEnv } from '@/types'
 
 export const musicCatalog = new Hono<AppEnv>()
 musicCatalog.use('*', requireAuth)
 
-// GET /api/music/catalog/search?q=…&type=all|artists|albums|songs
+// GET /api/music/catalog/search?q=…&type=all|artists|albums|songs|stations
 musicCatalog.get('/search', async (c) => {
   const q = c.req.query('q')?.trim()
   const type = c.req.query('type') ?? 'all'
-  if (!q) return c.json({ artists: [], albums: [], songs: [] })
+  const user = c.get('user')
+  if (!q) return c.json({ artists: [], albums: [], songs: [], stations: [] })
 
-  const [artists, albums, songs] = await Promise.all([
+  const [artists, albums, songs, stations] = await Promise.all([
     type === 'all' || type === 'artists' ? searchArtists(q, type === 'artists' ? 24 : 6) : Promise.resolve([]),
     type === 'all' || type === 'albums' ? searchAlbums(q, type === 'albums' ? 24 : 8) : Promise.resolve([]),
     type === 'all' || type === 'songs' ? searchSongs(q, type === 'songs' ? 30 : 10) : Promise.resolve([]),
+    type === 'all' || type === 'stations' ? searchStations(q, user.id, type === 'stations' ? 24 : 8) : Promise.resolve([]),
   ])
-  return c.json({ artists, albums, songs })
+  return c.json({ artists, albums, songs, stations })
 })
 
 // GET /api/music/catalog/artist/:mbid — bio/links + discography

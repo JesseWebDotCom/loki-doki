@@ -13,8 +13,8 @@ import { resolveToolConfig } from '@/lib/toolConfig'
 import { resolveYouTubeInput, parseTakeoutCsv } from '@/lib/youtube/resolve'
 import { refreshUserFeeds, refreshSubscriptionFeed, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
-import { ensureSummary } from '@/lib/youtube/summarize'
-import { exportsDir, backfillSavedHeights, ensureTranscript } from '@/lib/youtube/download'
+import { ensureSummary, backfillCollectionChannelThumbs, backfillHistoryChannelThumbs } from '@/lib/youtube/summarize'
+import { exportsDir, backfillSavedHeights, backfillSavedChannelThumbs, ensureTranscript } from '@/lib/youtube/download'
 import { backfillDurations } from '@/lib/youtube/durations'
 import { innertubeChannel, innertubeChannelPlaylists, innertubeChannelAbout, innertubeChannelAvatar, innertubeRelated, innertubePlayerMeta, innertubeComments, innertubeChapters, innertubeSearchMore, innertubePlaylist, innertubeSearch, SEARCH_FILTERS, tryInnertube, tryInnertubeRetry, type ItVideo, type ItChannel, type ItPlaylist, type ItChannelPage } from '@/lib/youtube/innertube'
 import { cachedLookup } from '@/lib/lookupCache'
@@ -392,9 +392,11 @@ youtubeRoute.get('/downloads', async (c) => {
     channelId: ytVideos.channelId,
     publishedAt: ytVideos.publishedAt,
     durationSec: ytVideos.durationSec,
-    // Channel avatar (when the video's channel is one of the user's subscriptions),
-    // so Offline cards/rails show real logos exactly like the Online feed.
-    channelThumb: ytSubscriptions.thumbnailUrl,
+    // Channel avatar so Offline cards/rails show real logos exactly like the Online feed.
+    // Prefer the subscription's stored thumbnail; fall back to the avatar resolved + warmed
+    // at save time (yt_videos.channel_thumb), which covers non-subscribed channels too.
+    channelThumbSub: ytSubscriptions.thumbnailUrl,
+    channelThumbVid: ytVideos.channelThumb,
   })
     .from(ytDownloads)
     .leftJoin(ytVideos, eq(ytVideos.videoId, ytDownloads.videoId))
@@ -408,8 +410,9 @@ youtubeRoute.get('/downloads', async (c) => {
     ? await db.select().from(ytWatchState).where(and(eq(ytWatchState.userId, user.id), inArray(ytWatchState.videoId, videoIds)))
     : []
   const watchMap = new Map(watchRows.map(w => [w.videoId, w]))
-  const downloads = rows.map(r => ({
+  const downloads = rows.map(({ channelThumbSub, channelThumbVid, ...r }) => ({
     ...r,
+    channelThumb: channelThumbSub ?? channelThumbVid ?? null,
     positionSec: watchMap.get(r.videoId)?.positionSec ?? null,
     completed: watchMap.get(r.videoId)?.completed ?? null,
   }))
@@ -417,6 +420,8 @@ youtubeRoute.get('/downloads', async (c) => {
   // Backfill missing resolutions in the background so badges fill in on the next poll —
   // but only when something actually lacks one, since the client polls this every 5s.
   if (rows.some(r => r.maxHeight == null)) void backfillSavedHeights(user.id).catch(() => {})
+  // Resolve missing channel avatars in the background so logos fill in on the next poll.
+  if (downloads.some(r => !r.channelThumb)) void backfillSavedChannelThumbs(user.id).catch(() => {})
   return c.json({ downloads })
 })
 
@@ -1335,7 +1340,23 @@ const isCollectionKey = (k: string): k is CollectionKey => k === 'watch-later' |
 
 youtubeRoute.get('/collections', async (c) => {
   const user = c.get('user')
-  const rows = await db.select().from(ytCollections)
+  // Join for the channel avatar exactly like /downloads: prefer the subscription's stored
+  // thumbnail, else the avatar resolved + warmed for the video (yt_videos.channel_thumb), so
+  // Watch Later / Liked cards show real logos instead of letter placeholders.
+  const rows = await db.select({
+    collection: ytCollections.collection,
+    videoId: ytCollections.videoId,
+    title: ytCollections.title,
+    author: ytCollections.author,
+    channelId: ytCollections.channelId,
+    durationSec: ytCollections.durationSec,
+    addedAt: ytCollections.addedAt,
+    channelThumbSub: ytSubscriptions.thumbnailUrl,
+    channelThumbVid: ytVideos.channelThumb,
+  })
+    .from(ytCollections)
+    .leftJoin(ytVideos, eq(ytVideos.videoId, ytCollections.videoId))
+    .leftJoin(ytSubscriptions, and(eq(ytSubscriptions.externalId, ytCollections.channelId), eq(ytSubscriptions.userId, user.id)))
     .where(eq(ytCollections.userId, user.id))
     .orderBy(desc(ytCollections.addedAt))
   const out: Record<CollectionKey, unknown[]> = { 'watch-later': [], liked: [] }
@@ -1343,8 +1364,13 @@ youtubeRoute.get('/collections', async (c) => {
     if (!isCollectionKey(r.collection)) continue
     out[r.collection].push({
       videoId: r.videoId, title: r.title, author: r.author, channelId: r.channelId,
+      channelThumb: r.channelThumbSub ?? r.channelThumbVid ?? null,
       durationSec: r.durationSec, addedAt: r.addedAt ? r.addedAt.getTime() : 0,
     })
+  }
+  // Resolve missing avatars in the background so logos fill in on the next poll.
+  if (rows.some(r => !r.channelThumbSub && !r.channelThumbVid && r.channelId)) {
+    void backfillCollectionChannelThumbs(user.id).catch(() => {})
   }
   return c.json(out)
 })
@@ -1398,7 +1424,8 @@ youtubeRoute.get('/history', async (c) => {
     author: ytVideos.author,
     channelId: ytVideos.channelId,
     durationSec: ytVideos.durationSec,
-    channelThumb: ytSubscriptions.thumbnailUrl,
+    channelThumbSub: ytSubscriptions.thumbnailUrl,
+    channelThumbVid: ytVideos.channelThumb,
   })
     .from(ytWatchState)
     .leftJoin(ytVideos, eq(ytVideos.videoId, ytWatchState.videoId))
@@ -1412,15 +1439,17 @@ youtubeRoute.get('/history', async (c) => {
     title: r.title ?? r.videoId,
     author: r.author ?? null,
     channelId: r.channelId ?? null,
-    channelThumb: r.channelThumb ?? null,
+    // Prefer the subscription thumb, then the avatar persisted + warmed for offline.
+    channelThumb: r.channelThumbSub ?? r.channelThumbVid ?? null,
     durationSec: r.durationSec ?? null,
     positionSec: r.positionSec,
     completed: r.completed,
     updatedAt: r.updatedAt ? r.updatedAt.getTime() : 0,
   }))
-  // Backfill avatars for non-subscribed channels (the subscription join only covers
-  // subs) so History/Continue-watching match the channel + discovery pages.
+  // Fill any still-missing avatars live (online) so History matches the channel/discovery
+  // pages immediately, then persist + warm + pin them in the background for offline use.
   await enrichChannelThumbs(history)
+  if (history.some(h => !h.channelThumb && h.channelId)) void backfillHistoryChannelThumbs(user.id).catch(() => {})
   return c.json({ history })
 })
 

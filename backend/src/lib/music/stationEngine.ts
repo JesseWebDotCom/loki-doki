@@ -222,7 +222,7 @@ function fromYtmusic(tracks: Array<{ videoId: string; title: string; author: str
  * YouTube, and backfills from YouTube Music radio when the LLM path comes up short.
  */
 export async function buildStationQueue(seed: StationSeed): Promise<StationQueueResult> {
-  const want = Math.min(Math.max(seed.count ?? 24, 6), 50)
+  const want = Math.min(Math.max(seed.count ?? 24, 6), 100)
   const exclude = new Set(seed.excludeVideoIds ?? [])
 
   // Known videoId → ride YouTube Music's radio mix off it directly (no resolve, no LLM). This is

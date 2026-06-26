@@ -635,27 +635,26 @@ export function LeftSidebar() {
                 )}
               </div>
 
-              {/* Recent — always visible at bottom (capped at 3 items) */}
-              {recentEntries.length > 0 && (
-                <div className="shrink-0">
-                  <SectionHeading label="Recent" />
-                  {recentEntries.map((e) =>
-                    e.kind === "app" ? (
-                      <NavItemWithPin
-                        key={e.app.id}
-                        app={e.app}
-                        pinned={false}
-                        onPin={pin}
-                        onUnpin={unpin}
-                        badge={getAppBadge(e.app.href)}
-                        onIntent={() => prefetch(e.app.href)}
-                      />
-                    ) : (
-                      <ArchiveRecentRow key={`read:${e.archive.sourceId}`} archive={e.archive} onPin={pin} />
-                    ),
-                  )}
-                </div>
-              )}
+              {/* Recent — always visible at bottom (header + count always shown):
+                  last 3 opened, excluding anything already pinned */}
+              <div className="shrink-0">
+                <SectionHeading label="Recent" count={recentEntries.length} />
+                {recentEntries.map((e) =>
+                  e.kind === "app" ? (
+                    <NavItemWithPin
+                      key={e.app.id}
+                      app={e.app}
+                      pinned={false}
+                      onPin={pin}
+                      onUnpin={unpin}
+                      badge={getAppBadge(e.app.href)}
+                      onIntent={() => prefetch(e.app.href)}
+                    />
+                  ) : (
+                    <ArchiveRecentRow key={`read:${e.archive.sourceId}`} archive={e.archive} onPin={pin} />
+                  ),
+                )}
+              </div>
             </>
           ) : (
             // Narrow mode: Home + App Store fixed, pinned scrollable, recent fixed
