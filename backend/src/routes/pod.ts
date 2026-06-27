@@ -13,6 +13,7 @@ import {
   createDevice, listDevices, deleteDevice, updateDevice, refreshPairingCode, redeemPairingCode, claimDevice,
 } from '@/lib/pod/devices'
 import { connectedDeviceIds, connectedActivity, speakToDevice } from '@/lib/pod/registry'
+import { ensureCompanionWakeword } from '@/lib/pod/companionWake'
 import { listPending, getPending, removePending } from '@/lib/pod/pending'
 import {
   getFirmwareStatus, detectSerialPorts, getPodWifi, setPodWifi, setServerHost,
@@ -120,6 +121,9 @@ pod.patch('/devices/:id', requireAdmin, async (c) => {
     wakeWord: body.wakeWord === undefined ? undefined : (body.wakeWord || null),
   })
   if (!updated) return c.json({ error: 'device not found' }, 404)
+  // Assigning a companion? Kick off auto-training its wake word in the background so
+  // the device answers to e.g. "Hey Loki" instead of the default — ready by next connect.
+  if (updated.characterId && !updated.wakeWord) void ensureCompanionWakeword(updated.characterId)
   const { tokenHash: _t, ...safe } = updated
   return c.json({ device: { ...safe, paired: _t != null } })
 })

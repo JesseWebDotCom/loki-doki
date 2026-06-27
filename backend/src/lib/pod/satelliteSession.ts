@@ -27,6 +27,7 @@ import { WakeDetector, wakeAvailable } from '@/lib/pod/wake'
 import { authenticateDeviceToken } from '@/lib/pod/devices'
 import { addPending, removePending } from '@/lib/pod/pending'
 import { evictForDevice } from '@/lib/pod/registry'
+import { ensureCompanionWakeword } from '@/lib/pod/companionWake'
 import type { PodFireEvent, PodFireTarget } from '@/lib/pod/registry'
 
 // Per-device cooldown for the spoken "Connected and ready" greeting. A device
@@ -59,6 +60,7 @@ export class SatelliteSession implements PodFireTarget {
   private userId: string | null = null
   private characterId: string | null = null
   private wakeWord: string | null = null
+  private resolvedWakeId: string | null = null // device override → companion model → app default
   private _deviceId: string | null = null
   private hwid: string | null = null
   // Wake mode: ON by default (the Pod streams continuously; the Host runs
@@ -276,9 +278,9 @@ export class SatelliteSession implements PodFireTarget {
       return
     }
     this.wakeLoading = true
-    // Use the device's bound wake word (e.g. a custom-trained "hey_loki") if set;
+    // Prefer the resolved wake word (device override → companion's trained model);
     // otherwise the detector falls back to the app default.
-    const w = new WakeDetector({ modelId: this.wakeWord ?? undefined })
+    const w = new WakeDetector({ modelId: this.resolvedWakeId ?? this.wakeWord ?? undefined })
     w.onDetect = () => this.onWakeDetect()
     w.load()
       .then((ok) => {
@@ -427,6 +429,17 @@ export class SatelliteSession implements PodFireTarget {
     if (this.hwid) removePending(this.hwid) // claimed/known now — drop from the discoverable list
     evictForDevice(device.id, this) // drop any stale prior session for this device
     logger.info(`[pod] authenticated device "${device.name}" (${device.kind}) → user ${device.userId}`)
+
+    // Resolve which wake word this device answers to: an explicit per-device override,
+    // else its companion's trained model (auto-trained from the companion's phrase on
+    // first use), else the app default. The device's auth + audio-start race, so if the
+    // detector already loaded with the wrong model, swap it for the resolved one.
+    this.resolvedWakeId = this.wakeWord ?? (this.characterId ? await ensureCompanionWakeword(this.characterId) : null)
+    if (this.wakeEnabled && this.resolvedWakeId && this.wake && this.wake.modelId !== this.resolvedWakeId) {
+      this.wake.onDetect = null
+      this.wake = null
+      this.ensureWake()
+    }
     // Audibly confirm the device reached the server — a screenless satellite has no
     // other way to show it's online and working. Fire-and-forget so auth never blocks.
     void this.announceConnected()
