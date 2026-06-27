@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DeviceArt } from '@/components/admin/DeviceArt'
 import { resolveDeviceModel, deviceModelName } from '@/lib/deviceCatalog'
-import { Volume2, Wifi, RefreshCw, Trash2, ChevronRight, Loader2, HelpCircle } from 'lucide-react'
+import { Volume2, Wifi, RefreshCw, Trash2, ChevronRight, Loader2, HelpCircle, Sparkles } from 'lucide-react'
+import { WakeTrainingProgress } from '@/components/shared/WakeTrainingProgress'
 import { toast } from '@/lib/toast'
 
 // Apple-style slide-over for managing one device: a big Test button up top, grouped
@@ -56,6 +57,7 @@ export function DeviceManageSheet({
   const [wakeWord, setWakeWord] = useState('')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [retraining, setRetraining] = useState(false)
   const [wifiSsid, setWifiSsid] = useState<string | null>(null)
 
   // Re-seed the form whenever a different device opens.
@@ -65,6 +67,7 @@ export function DeviceManageSheet({
     setUserId(device.userId)
     setCharacterId(device.characterId ?? '')
     setWakeWord(device.wakeWord ?? '')
+    setRetraining(false)
     fetch('/api/pod/firmware/wifi', opts)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setWifiSsid(d?.ssid ?? null))
@@ -175,7 +178,29 @@ export function DeviceManageSheet({
                   .map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
               </Picker>
             </FieldRow>
+            {/* Retrain the companion's wake-word model on demand. Existing models are
+                never auto-retrained, so this is how you refresh one (e.g. after a
+                trainer improvement, or if it false-fires). */}
+            {companionPhrase && selectedCompanion && (
+              <button
+                onClick={() => setRetraining(true)}
+                disabled={retraining}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-brand transition-colors hover:bg-muted/40 disabled:opacity-50"
+              >
+                <Sparkles className="size-4" /> {retraining ? 'Retraining…' : `Retrain “${companionPhrase}” wake word`}
+              </button>
+            )}
           </Group>
+
+          {/* Live training progress (self-contained — opens the train SSE on mount). */}
+          {retraining && companionPhrase && selectedCompanion && (
+            <WakeTrainingProgress
+              phrase={companionPhrase}
+              characterId={selectedCompanion.id}
+              onComplete={() => { toast.success(`“${companionPhrase}” retrained — pick it as the wake word to use it`); onChanged() }}
+              onDismiss={() => setRetraining(false)}
+            />
+          )}
 
           {/* Network & software */}
           <Group title="Network & software">
