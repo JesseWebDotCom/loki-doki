@@ -61,6 +61,7 @@ export class SatelliteSession implements PodFireTarget {
   private characterId: string | null = null
   private wakeWord: string | null = null
   private resolvedWakeId: string | null = null // device override → companion model → app default
+  private wakeResolved = false // don't load a detector until we know which model (post-auth)
   private _deviceId: string | null = null
   private hwid: string | null = null
   // Wake mode: ON by default (the Pod streams continuously; the Host runs
@@ -271,6 +272,10 @@ export class SatelliteSession implements PodFireTarget {
 
   /** Lazily load the server-side wake detector for this connection. */
   private ensureWake(): void {
+    // Hold off until authenticate() has resolved which model to load — otherwise the
+    // device's audio-start (which races auth) would load the default first and we'd be
+    // stuck on it (the async load can't be cleanly swapped mid-flight).
+    if (!this.wakeResolved) return
     if (this.wake || this.wakeLoading) return
     if (!wakeAvailable()) {
       logger.warn('[pod] POD_WAKE_ENABLED but wake models are missing — disabling server wake')
@@ -435,11 +440,9 @@ export class SatelliteSession implements PodFireTarget {
     // first use), else the app default. The device's auth + audio-start race, so if the
     // detector already loaded with the wrong model, swap it for the resolved one.
     this.resolvedWakeId = this.wakeWord ?? (this.characterId ? await ensureCompanionWakeword(this.characterId) : null)
-    if (this.wakeEnabled && this.resolvedWakeId && this.wake && this.wake.modelId !== this.resolvedWakeId) {
-      this.wake.onDetect = null
-      this.wake = null
-      this.ensureWake()
-    }
+    // Now that the model is known, release the detector load (held back above).
+    this.wakeResolved = true
+    if (this.wakeEnabled && !this.closed) this.ensureWake()
     // Audibly confirm the device reached the server — a screenless satellite has no
     // other way to show it's online and working. Fire-and-forget so auth never blocks.
     void this.announceConnected()
