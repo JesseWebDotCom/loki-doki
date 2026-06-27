@@ -19,6 +19,10 @@ export interface PodFireTarget {
   /** Current conversation state for the admin live badge (idle|listening|thinking|talking). */
   readonly activity: string
   fire(event: PodFireEvent): void
+  /** Speak a phrase on the device on demand (admin "Test" button). */
+  testSpeak(text: string): Promise<void>
+  /** Tear down this session (used to evict a stale duplicate when the device reconnects). */
+  close(): void
 }
 
 const live = new Set<PodFireTarget>()
@@ -57,4 +61,25 @@ export function connectedActivity(): Map<string, string> {
   const out = new Map<string, string>()
   for (const t of live) if (t.deviceId) out.set(t.deviceId, t.activity)
   return out
+}
+
+/** Make a connected device speak a phrase now (admin "Test" button). Returns false
+ *  if the device isn't currently connected. Targets the MOST RECENT session. */
+export function speakToDevice(deviceId: string, text: string): boolean {
+  let target: PodFireTarget | null = null
+  for (const t of live) if (t.deviceId === deviceId) target = t  // last wins (newest)
+  if (!target) return false
+  void target.testSpeak(text)
+  return true
+}
+
+/** A device only has one real connection — when it (re)authenticates, drop any
+ *  earlier live sessions for the same device so pushes/TTS never hit a dead socket. */
+export function evictForDevice(deviceId: string, keep: PodFireTarget): void {
+  for (const t of [...live]) {
+    if (t !== keep && t.deviceId === deviceId) {
+      live.delete(t)
+      try { t.close() } catch { /* already gone */ }
+    }
+  }
 }

@@ -44,7 +44,8 @@ class LokiDokiSatellite : public Component {
   bool connect_();
   void disconnect_(const char *why);
   void pump_rx_();          // drain the socket → rx_ buffer → whole events
-  void pump_tx_audio_();    // flush buffered mic PCM up as audio-chunk(s)
+  void pump_tx_audio_();    // queue buffered mic PCM up as audio-chunk(s)
+  void flush_tx_();         // drain tx_buf_ to the socket (non-blocking)
 
   // ── Wyoming framing ──
   // Header line {"type","data_length","payload_length"}\n + JSON data + payload.
@@ -77,7 +78,23 @@ class LokiDokiSatellite : public Component {
   bool audio_started_{false};        // sent the single audio-start yet?
   uint32_t last_connect_attempt_{0};
 
-  std::vector<uint8_t> rx_;          // partial inbound frame bytes
+  // Half-duplex playback: while a reply plays we own the I2S bus with the speaker
+  // and pause the mic; once the audio drains we hand the bus back to the mic.
+  bool playing_{false};
+  uint32_t last_play_ms_{0};
+
+  std::vector<uint8_t> rx_;          // inbound frame bytes
+  size_t rx_off_{0};                 // bytes already consumed from the front of rx_
+  // Reply (TTS) playback buffer — a FIXED, pre-allocated 16 KB block driven EXACTLY
+  // like Home Assistant's voice_assistant speaker path: memcpy chunks in, then
+  // speaker_->play() + memmove out. A fixed buffer (never a growing std::vector) is
+  // what keeps the heap stable on the classic ESP32 — the old growing buffer is what
+  // fragmented the heap and threw std::bad_alloc mid-reply.
+  uint8_t *speaker_buffer_{nullptr};
+  size_t speaker_buffer_index_{0};   // write head (bytes currently buffered)
+  size_t speaker_buffer_size_{0};    // bytes waiting to be played
+  std::vector<uint8_t> tx_buf_;      // outbound queued frame bytes (drained non-blocking)
+  size_t tx_off_{0};                 // bytes already sent from the front of tx_buf_
   std::vector<uint8_t> mic_buf_;     // outbound mic PCM, filled by the mic task
   std::mutex mic_mtx_;               // guards mic_buf_ (mic runs on its own task)
 

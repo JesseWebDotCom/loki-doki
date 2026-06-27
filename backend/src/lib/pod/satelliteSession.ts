@@ -26,6 +26,7 @@ import { runPodBrain } from '@/lib/pod/brain'
 import { WakeDetector, wakeAvailable } from '@/lib/pod/wake'
 import { authenticateDeviceToken } from '@/lib/pod/devices'
 import { addPending, removePending } from '@/lib/pod/pending'
+import { evictForDevice } from '@/lib/pod/registry'
 import type { PodFireEvent, PodFireTarget } from '@/lib/pod/registry'
 import {
   audioChunk,
@@ -165,6 +166,17 @@ export class SatelliteSession implements PodFireTarget {
     return this.state
   }
 
+  /** Speak a phrase on the device on demand (the admin "Test" button) — bypasses
+   *  wake/STT/LLM so we can verify the speaker/playback path directly. */
+  async testSpeak(text: string): Promise<void> {
+    if (this.closed) return
+    this.turnAbort?.abort()
+    const ac = new AbortController()
+    this.turnAbort = ac
+    await this.speak(text, ac.signal)
+    if (!ac.signal.aborted) this.setState('idle')
+  }
+
   /** Push an unprompted alarm/timer event. The Pod shows its ring screen + tone. */
   fire(event: PodFireEvent): void {
     if (this.closed) return
@@ -209,8 +221,15 @@ export class SatelliteSession implements PodFireTarget {
     for (let i = 0; i < pcm.length; i++) sum += pcm[i]! * pcm[i]!
     this.diagRms += Math.sqrt(sum / Math.max(1, pcm.length))
     if (this.diagN >= 50) {
-      logger.info(`[pod-diag] audio RMS ${(this.diagRms / this.diagN).toFixed(4)} state=${this.state} capturing=${this.capturing} wakeReady=${!!this.wake}`)
+      logger.info(`[pod-diag] audio RMS ${(this.diagRms / this.diagN).toFixed(4)} (x${POD_MIC_GAIN}=${(this.diagRms / this.diagN * POD_MIC_GAIN).toFixed(3)}) state=${this.state} capturing=${this.capturing} wakeReady=${!!this.wake}`)
       this.diagN = 0; this.diagRms = 0
+    }
+    // Boost the quiet device mic before wake/STT (soft-clipped to avoid overflow).
+    if (POD_MIC_GAIN !== 1) {
+      for (let i = 0; i < pcm.length; i++) {
+        const v = pcm[i]! * POD_MIC_GAIN
+        pcm[i] = v > 1 ? 1 : v < -1 ? -1 : v
+      }
     }
     if (this.capturing) {
       this.stt?.pushPcm(pcm)
@@ -362,7 +381,15 @@ export class SatelliteSession implements PodFireTarget {
         this.send(audioStart(POD_TTS_RATE))
         started = true
       }
-      this.send(audioChunk(pcm, POD_TTS_RATE))
+      // Stream the sentence as SMALL audio packets, exactly like Home Assistant's
+      // voice_assistant — never one giant frame. A tiny satellite (classic ESP32)
+      // can only hold a couple of KB of inbound audio at once; a whole-sentence
+      // frame would force it to buffer tens of KB and OOM-crash. 2 KB ≈ 64 ms @ 16 kHz.
+      const POD_AUDIO_CHUNK = 2048
+      for (let off = 0; off < pcm.length; off += POD_AUDIO_CHUNK) {
+        if (signal.aborted) break
+        this.send(audioChunk(pcm.subarray(off, Math.min(off + POD_AUDIO_CHUNK, pcm.length)).slice(), POD_TTS_RATE))
+      }
     }
     if (started) this.send(audioStop())
   }
@@ -382,6 +409,7 @@ export class SatelliteSession implements PodFireTarget {
     this.wakeWord = device.wakeWord ?? null
     if (device.hwid) this.hwid = device.hwid
     if (this.hwid) removePending(this.hwid) // claimed/known now — drop from the discoverable list
+    evictForDevice(device.id, this) // drop any stale prior session for this device
     logger.info(`[pod] authenticated device "${device.name}" (${device.kind}) → user ${device.userId}`)
   }
 
@@ -424,6 +452,13 @@ interface SttMsg {
 
 // Fixed playback rate pushed to Pods (one I2S rate for mic + speaker).
 const POD_TTS_RATE = 16000
+
+// The ESP32 PDM mic is quiet; boost incoming audio before wake/STT. Tunable via
+// env so it can be dialed in without re-flashing the device.
+const POD_MIC_GAIN = (() => {
+  const g = Number(process.env.POD_MIC_GAIN)
+  return Number.isFinite(g) && g > 0 ? g : 12
+})()
 
 /** Linear-interpolate mono int16 LE PCM from one sample rate to another (speech-grade). */
 function resamplePcm16(bytes: Uint8Array, fromRate: number, toRate: number): Uint8Array {

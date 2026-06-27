@@ -55,24 +55,29 @@ ota:
 wifi:
   ssid: "${wifi_ssid}"
   password: "${wifi_password}"
+  # Keep the radio fully awake (no modem sleep) and skip re-scanning — both are
+  # standard fixes for steady real-time audio streaming + reconnects on ESP32.
+  power_save_mode: none
+  fast_connect: true
   ap:
     ssid: "${friendly_name} Setup"
 
 captive_portal:
 
-# Improv-over-BLE — the no-typing Wi-Fi onboarding. A browser (the Loki Doki
-# "Add device" page, or web.esphome.io) connects over Bluetooth and hands the
-# device Wi-Fi credentials. improv_serial covers the same flow over USB.
-esp32_improv:
-  authorizer: none
+# Wi-Fi provisioning over USB serial (no BLE radio). We deliberately DON'T enable
+# esp32_improv (BLE) here: on the classic ESP32 the shared radio makes BLE + Wi-Fi
+# contend, which caused repeated Wi-Fi "Authentication Failed" drops. Wi-Fi is
+# baked in at flash time anyway, so BLE onboarding isn't needed for this device.
 improv_serial:
 
-# ── Audio: ONE 16 kHz I2S bus shared by the PDM mic and the NS4168 speaker amp.
-# 16 kHz both directions matches the server (it resamples TTS to 16 kHz for Pods)
-# and is ESPHome's proven Atom Echo configuration.
+# ── Audio: mirrors the official ESPHome m5stack-atom-echo config (the one Home
+# Assistant ships). One shared I2S bus; the mic uses the PDM default channel
+# (forcing a channel captures silence) with DC-offset correction; the speaker is
+# stereo with a small buffer. Do not "tune" these — they're the known-good values.
 i2s_audio:
-  i2s_lrclk_pin: GPIO33
-  i2s_bclk_pin: GPIO19
+  - id: i2s_audio_bus
+    i2s_lrclk_pin: GPIO33
+    i2s_bclk_pin: GPIO19
 
 microphone:
   - platform: i2s_audio
@@ -81,17 +86,19 @@ microphone:
     adc_type: external
     pdm: true
     sample_rate: 16000
-    bits_per_sample: 16bit
-    channel: left
+    correct_dc_offset: true
 
 speaker:
   - platform: i2s_audio
     id: echo_speaker
-    dac_type: external
     i2s_dout_pin: GPIO22
+    dac_type: external
     sample_rate: 16000
     bits_per_sample: 16bit
-    channel: mono
+    channel: stereo
+    # Let ESPHome's managed speaker buffer absorb the reply (like HA's media_player
+    # buffer_size) instead of a big custom buffer in our own RAM.
+    buffer_duration: 500ms
 
 # ── Status LED: the single SK6812 on GPIO27 (the Echo's light ring) ──────────
 light:

@@ -12,7 +12,7 @@ import type { AppEnv } from '@/types'
 import {
   createDevice, listDevices, deleteDevice, refreshPairingCode, redeemPairingCode, claimDevice,
 } from '@/lib/pod/devices'
-import { connectedDeviceIds, connectedActivity } from '@/lib/pod/registry'
+import { connectedDeviceIds, connectedActivity, speakToDevice } from '@/lib/pod/registry'
 import { listPending, getPending, removePending } from '@/lib/pod/pending'
 import {
   getFirmwareStatus, detectSerialPorts, getPodWifi, setPodWifi, setServerHost,
@@ -112,6 +112,15 @@ pod.post('/devices/:id/pair-code', requireAdmin, async (c) => {
 pod.delete('/devices/:id', requireAdmin, async (c) => {
   await deleteDevice(c.req.param('id'))
   return c.json({ ok: true })
+})
+
+// Make a connected device speak a test phrase now (no wake word / LLM) — verifies
+// the speaker/playback path and gives the admin a "Test" button per card.
+pod.post('/devices/:id/test', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { text?: string }
+  const text = body.text?.trim() || 'Hi! This is a test from your Loki Doki device. I am connected and working.'
+  const ok = speakToDevice(c.req.param('id'), text)
+  return ok ? c.json({ ok: true }) : c.json({ error: 'device is not connected' }, 409)
 })
 
 // ── Firmware: build + flash a device plugged into the server's USB ───────────
