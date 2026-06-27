@@ -24,7 +24,7 @@ export interface ManagedDevice {
   activity: string
 }
 interface UserRow { id: string; firstName: string; lastName: string; nickname: string }
-interface Companion { id: string; name: string }
+interface Companion { id: string; name: string; wakeWordPhrase?: string | null; wakeWordModelId?: string | null }
 interface Detector { id: string; label: string }
 
 const opts: RequestInit = { credentials: 'include' }
@@ -74,6 +74,10 @@ export function DeviceManageSheet({
   if (!device) return null
   const art = resolveDeviceModel(device.model, device.kind)
   const companionName = companions.find((c) => c.id === device.characterId)?.name
+  // The companion currently chosen in the form (not the saved one) drives the wake-word
+  // options, so picking a companion immediately offers its wake word (e.g. "Hey Loki").
+  const selectedCompanion = companions.find((c) => c.id === characterId)
+  const companionPhrase = selectedCompanion?.wakeWordPhrase?.trim()
   const status = !device.paired
     ? { label: 'Needs setup', cls: 'text-amber-600 dark:text-amber-400', dot: 'bg-amber-500' }
     : !device.online
@@ -157,8 +161,18 @@ export function DeviceManageSheet({
             </FieldRow>
             <FieldRow label="Wake word">
               <Picker value={wakeWord} onChange={setWakeWord}>
-                <option value="">App default (Hey Jarvis)</option>
-                {wakewords.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                {/* The selected companion's own wake word (trains its model on first use).
+                    Empty value = "use the companion's wake word", which the server resolves
+                    to the companion model (or the app default until it's trained). */}
+                {companionPhrase
+                  ? <option value="">{companionPhrase} — {selectedCompanion?.name}’s wake word</option>
+                  : <option value="">App default (Hey Jarvis)</option>}
+                {/* Always-reliable built-in */}
+                <option value="hey_jarvis">Hey Jarvis — always reliable</option>
+                {/* Any other trained detectors (skip the reliable + this companion's own). */}
+                {wakewords
+                  .filter((d) => d.id !== 'hey_jarvis' && d.id !== selectedCompanion?.wakeWordModelId)
+                  .map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
               </Picker>
             </FieldRow>
           </Group>

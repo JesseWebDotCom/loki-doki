@@ -33,7 +33,7 @@ interface DeviceRow {
   activity: string  // live conversation state: idle | listening | thinking | talking
 }
 interface UserRow { id: string; firstName: string; lastName: string; nickname: string }
-interface Companion { id: string; name: string }
+interface Companion { id: string; name: string; wakeWordPhrase?: string | null; wakeWordModelId?: string | null }
 interface Detector { id: string; label: string }
 interface DiscoveredDevice { hwid: string; model: string | null; firstSeen: number }
 
