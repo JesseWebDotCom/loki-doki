@@ -145,19 +145,44 @@ function pcmToWav(samples: Float32Array, sampleRate = 16_000): Buffer {
 async function writeNoiseNegatives(negDir: string): Promise<number> {
   const SR = 16_000
   const DUR = 3 // seconds → enough audio for several detector windows
-  const levels = [0, 0.0, 0.01, 0.03, 0.06, 0.1, 0.15, 0.2] // 0 = silence
+  const N = SR * DUR
   let count = 0
-  for (let k = 0; k < levels.length; k++) {
-    const amp = levels[k]!
-    const samples = new Float32Array(SR * DUR)
-    // White noise with a slow amplitude drift so it isn't perfectly stationary.
-    for (let i = 0; i < samples.length; i++) {
-      const drift = 0.6 + 0.4 * Math.sin((i / samples.length) * Math.PI)
-      samples[i] = (Math.random() * 2 - 1) * amp * drift
-    }
-    await writeFile(join(negDir, `noise_${String(k).padStart(2, '0')}.wav`), pcmToWav(samples, SR))
-    count++
+  const write = async (s: Float32Array, tag: string) => {
+    await writeFile(join(negDir, `noise_${tag}.wav`), pcmToWav(s, SR)); count++
   }
+
+  // Real room/mic non-speech is LOW-FREQUENCY weighted (mains hum, fan, mic self-noise)
+  // and frequently VERY quiet — quite unlike flat white noise + pure digital silence,
+  // which is all the old set had. A detector trained only on speech + white noise sees
+  // a quiet real room as out-of-distribution and fires on it (the "1.0 on silence" bug).
+  // Cover many noise COLOURS across the quiet levels a device mic actually produces.
+  const levels = [0.001, 0.002, 0.003, 0.005, 0.008, 0.013, 0.02, 0.04, 0.07, 0.12, 0.2]
+  const colours = ['white', 'pink', 'brown', 'hum'] as const
+  for (const amp of levels) {
+    for (const colour of colours) {
+      const s = new Float32Array(N)
+      let p0 = 0, p1 = 0, p2 = 0, brown = 0
+      const hum = 45 + Math.random() * 90 // 45–135 Hz mains-ish fundamental
+      for (let i = 0; i < N; i++) {
+        const w = Math.random() * 2 - 1
+        let v: number
+        if (colour === 'white') v = w
+        else if (colour === 'pink') { // Paul Kellet pink-noise approximation
+          p0 = 0.99765 * p0 + w * 0.0990460
+          p1 = 0.96300 * p1 + w * 0.2965164
+          p2 = 0.57000 * p2 + w * 1.0526913
+          v = (p0 + p1 + p2 + w * 0.1848) / 3.5
+        } else if (colour === 'brown') { brown = (brown + 0.02 * w) / 1.02; v = brown * 3.5 }
+        else v = 0.6 * Math.sin((2 * Math.PI * hum * i) / SR) // mains hum + 2nd harmonic + hiss
+               + 0.25 * Math.sin((2 * Math.PI * hum * 2 * i) / SR) + 0.15 * w
+        const drift = 0.7 + 0.3 * Math.sin((i / N) * Math.PI) // slow non-stationarity
+        s[i] = Math.max(-1, Math.min(1, v * amp * drift))
+      }
+      await write(s, `${colour}_${Math.round(amp * 1000)}`)
+    }
+  }
+  // Pure digital silence — the single most common real input when the room is quiet.
+  for (let k = 0; k < 6; k++) await write(new Float32Array(N), `silence_${k}`)
   return count
 }
 

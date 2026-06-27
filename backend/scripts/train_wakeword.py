@@ -274,14 +274,24 @@ def make_rir(sr: int, rng) -> np.ndarray:
     return rir
 
 
-def gen_noise_pool(sr: int, rng, k: int = 6):
-    """A few ~2s noise beds (white + low-passed) to mix in as background."""
+def gen_noise_pool(sr: int, rng, k: int = 8):
+    """A few ~2s noise beds to mix into positives as realistic background. Includes
+    white, low-passed room-tone, brownish (low-freq heavy) and mains-hum beds so the
+    detector is robust to the colored, low-frequency noise a real room/mic produces —
+    not just flat white noise."""
     pool = []
     for j in range(k):
         n = rng.standard_normal(sr * 2).astype(np.float32)
-        if j % 2 == 0:  # crude low-pass for a duller, room-tone feel
-            n = np.convolve(n, np.ones(8, dtype=np.float32) / 8.0)[: len(n)]
-        pool.append(n / (np.max(np.abs(n)) + 1e-6))
+        kind = j % 4
+        if kind == 1:    # crude low-pass → duller room tone
+            n = np.convolve(n, np.ones(8, dtype=np.float32) / 8.0)[: len(n)].astype(np.float32)
+        elif kind == 2:  # brownish: cumulative sum is low-frequency heavy
+            n = np.cumsum(n).astype(np.float32)
+        elif kind == 3:  # mains hum + hiss
+            t = np.arange(sr * 2, dtype=np.float32) / sr
+            f = 45.0 + rng.random() * 90.0
+            n = (0.7 * np.sin(2 * np.pi * f * t) + 0.3 * n).astype(np.float32)
+        pool.append((n / (np.max(np.abs(n)) + 1e-6)).astype(np.float32))
     return pool
 
 
