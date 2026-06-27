@@ -584,24 +584,30 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                         once on first use and never auto-refreshed, so this retrains it on
                         demand — it belongs to the companion, so it applies to every device
                         using it. */}
-                    {draft.id && (draft.wakeWordPhrase ?? '').trim() && (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => { if (draft.id) setTrainReq({ phrase: (draft.wakeWordPhrase ?? '').trim(), characterId: draft.id, nonce: Date.now() }) }}
-                          disabled={!trainInstalled || (!!trainReq && trainReq.characterId === draft.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-foreground/5 disabled:opacity-50"
-                          title={trainInstalled ? 'Retrain the detector model used by physical voice devices' : 'Install “Wake Word Training” in Admin → Features first'}
-                        >
-                          <Sparkles className="size-3.5" /> Retrain device model
-                        </button>
-                        <span className="text-[11px] text-muted-foreground">
-                          {trainInstalled
-                            ? 'For physical voice devices — applies to every device using this companion.'
-                            : 'Needs “Wake Word Training” (Admin → Features).'}
-                        </span>
-                      </div>
-                    )}
+                    {draft.id && (() => {
+                      const phrase = (draft.wakeWordPhrase ?? '').trim()
+                      const busy = !!trainReq && trainReq.characterId === draft.id
+                      return (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { if (draft.id && phrase) setTrainReq({ phrase, characterId: draft.id, nonce: Date.now() }) }}
+                            disabled={!trainInstalled || !phrase || busy}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-foreground/5 disabled:opacity-50"
+                            title={!trainInstalled ? 'Install “Wake Word Training” in Admin → Features first'
+                              : !phrase ? 'Enter a wake phrase above first'
+                              : 'Retrain the detector model used by physical voice devices'}
+                          >
+                            <Sparkles className="size-3.5" /> {busy ? 'Retraining…' : 'Retrain device model'}
+                          </button>
+                          <span className="text-[11px] text-muted-foreground">
+                            {!trainInstalled ? 'Needs “Wake Word Training” (Admin → Features).'
+                              : !phrase ? 'Enter a wake phrase above first.'
+                              : 'For physical voice devices — applies to every device using this companion.'}
+                          </span>
+                        </div>
+                      )
+                    })()}
                   </Field>
                   <Field label="Speech rate">
                     <input type="number" step="0.05" min="0.8" max="1.3" value={draft.speechRate ?? ''} onChange={(e) => set('speechRate', e.target.value === '' ? null : Number(e.target.value))} className="ld-input" placeholder="1.0" />
