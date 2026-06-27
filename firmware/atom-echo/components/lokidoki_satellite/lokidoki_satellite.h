@@ -81,6 +81,7 @@ class LokiDokiSatellite : public Component {
   // Half-duplex playback: while a reply plays we own the I2S bus with the speaker
   // and pause the mic; once the audio drains we hand the bus back to the mic.
   bool playing_{false};
+  bool got_stop_{false};             // received audio-stop for the in-flight reply
   uint32_t last_play_ms_{0};
 
   std::vector<uint8_t> rx_;          // inbound frame bytes

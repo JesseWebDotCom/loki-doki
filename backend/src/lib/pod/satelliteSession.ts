@@ -62,6 +62,7 @@ export class SatelliteSession implements PodFireTarget {
   private wakeWord: string | null = null
   private resolvedWakeId: string | null = null // device override → companion model → app default
   private wakeResolved = false // don't load a detector until we know which model (post-auth)
+  private wakeSuppressedUntil = 0 // ignore wake until this time (post-TTS self-barge guard)
   private _deviceId: string | null = null
   private hwid: string | null = null
   // Wake mode: ON by default (the Pod streams continuously; the Host runs
@@ -73,6 +74,7 @@ export class SatelliteSession implements PodFireTarget {
   private wake: WakeDetector | null = null
   private wakeLoading = false
   private capturing = false
+  private captureTimer: ReturnType<typeof setTimeout> | null = null
   // Temporary diagnostics: track incoming audio level so we can tell a silent mic
   // (RMS ≈ 0) from a working mic where the wake word just isn't matching.
   private diagN = 0
@@ -238,33 +240,42 @@ export class SatelliteSession implements PodFireTarget {
       this.diagN = 0; this.diagRms = 0
     }
     // Boost the quiet device mic before wake/STT (soft-clipped to avoid overflow).
-    if (POD_MIC_GAIN !== 1) {
-      for (let i = 0; i < pcm.length; i++) {
-        const v = pcm[i]! * POD_MIC_GAIN
-        pcm[i] = v > 1 ? 1 : v < -1 ? -1 : v
-      }
-    }
     if (this.capturing) {
-      this.stt?.pushPcm(pcm)
+      // STT needs the full boost to transcribe the quiet ESP mic.
+      this.stt?.pushPcm(gained(pcm, POD_MIC_GAIN))
     } else if (this.wakeEnabled && this.wake && this.state !== 'thinking' && this.state !== 'talking') {
-      // Only listen for the wake word while idle — never feed our own TTS back in.
-      this.wake.push(pcm)
+      // Only listen for the wake word while idle, and not during the post-TTS guard
+      // window — never feed our own reply (same TTS voice as the wake model) back in.
+      if (Date.now() < this.wakeSuppressedUntil) return
+      // Feed the wake detector a GENTLER gain than STT. The model was trained on
+      // normal-amplitude audio; the full 12× boost pushes the quiet-room noise floor
+      // into its fire zone and causes false triggers. A lighter gain keeps real speech
+      // audible without amplifying silence into a wake.
+      this.wake.push(gained(pcm, POD_WAKE_GAIN))
     }
   }
 
   /** Open an STT capture window (after a wake detection, or in push-to-talk mode). */
   private startCapture(): void {
     this.stt?.close()
+    if (this.captureTimer) clearTimeout(this.captureTimer)
     this.stt = new SttSession(
       { sampleRate: this.inRate, silenceTimeoutS: 0.7, partialIntervalS: 0.4, hotwords: '' },
       (msg) => this.onSttEvent(msg as SttMsg),
     )
     this.capturing = true
+    // Backstop: if nothing ends the capture (e.g. a false wake with no speech after it,
+    // where the silence timer only arms once speech starts), force it closed so the
+    // device can never get stuck in "listening" and unresponsive.
+    this.captureTimer = setTimeout(() => {
+      if (this.capturing) { logger.info('[pod] capture timed out (no speech) — back to idle'); this.endCapture() }
+    }, MAX_CAPTURE_MS)
   }
 
   /** Close the capture window and return to wake-listening / idle. */
   private endCapture(): void {
     this.capturing = false
+    if (this.captureTimer) { clearTimeout(this.captureTimer); this.captureTimer = null }
     this.stt?.close()
     this.stt = null
     if (this.state !== 'thinking' && this.state !== 'talking') this.setState('idle')
@@ -285,7 +296,7 @@ export class SatelliteSession implements PodFireTarget {
     this.wakeLoading = true
     // Prefer the resolved wake word (device override → companion's trained model);
     // otherwise the detector falls back to the app default.
-    const w = new WakeDetector({ modelId: this.resolvedWakeId ?? this.wakeWord ?? undefined })
+    const w = new WakeDetector({ modelId: this.resolvedWakeId ?? this.wakeWord ?? undefined, hysteresis: POD_WAKE_HYSTERESIS })
     w.onDetect = () => this.onWakeDetect()
     w.load()
       .then((ok) => {
@@ -345,29 +356,63 @@ export class SatelliteSession implements PodFireTarget {
     const ac = new AbortController()
     this.turnAbort = ac
 
-    // SCAFFOLD: collect the full reply, then synthesize sentence-by-sentence.
-    // TODO(phase-1+): synthesize each sentence as the LLM emits it (mirror the
-    // chat→tts streaming in routes/chat.ts) to cut time-to-first-word.
-    let reply = ''
+    // Speak each sentence as soon as the LLM finishes it — so the first words play
+    // while the model is still generating the rest. Cuts time-to-first-word from
+    // "wait for the whole reply" down to "wait for the first sentence".
     try {
-      for await (const tok of runPodBrain(text, {
-        userId,
-        characterId: this.characterId,
-        convId: `pod:${userId}`,
-        signal: ac.signal,
-      })) {
-        if (ac.signal.aborted) return
-        reply += tok
-      }
+      await this.speakStreaming(
+        runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, signal: ac.signal }),
+        ac.signal,
+      )
     } catch (e) {
-      logger.warn(`[pod] brain error: ${(e as Error).message}`)
-      this.setState('idle')
-      return
+      logger.warn(`[pod] brain/tts error: ${(e as Error).message}`)
+    }
+    if (!ac.signal.aborted) this.setState('idle')
+  }
+
+  /** Consume the LLM token stream and speak it sentence-by-sentence as it arrives:
+   *  buffer tokens, flush each complete sentence to TTS immediately, then the tail.
+   *  One audio-start before the first sentence, one audio-stop after the last. */
+  private async speakStreaming(tokens: AsyncIterable<string>, signal: AbortSignal): Promise<void> {
+    const { voiceId } = parseVoiceId(await voiceConfig.appDefaultVoice())
+    let buf = ''
+    let started = false
+
+    const flush = async (sentence: string): Promise<void> => {
+      const clean = stripForSpeech(sentence)
+      if (!clean.trim() || signal.aborted) return
+      let payload
+      try {
+        payload = await kokoroEngine.synthesize(clean, { voice: voiceId, speechRate: 1.0, signal })
+      } catch (e) {
+        logger.warn(`[pod] tts error: ${(e as Error).message}`)
+        return
+      }
+      let pcm = base64ToBytes(payload.pcm_b64)
+      if (payload.sample_rate !== POD_TTS_RATE) pcm = resamplePcm16(pcm, payload.sample_rate, POD_TTS_RATE)
+      if (!started) { this.setState('talking'); this.send(audioStart(POD_TTS_RATE)); started = true }
+      const CHUNK = 2048
+      for (let off = 0; off < pcm.length; off += CHUNK) {
+        if (signal.aborted) return
+        this.send(audioChunk(pcm.subarray(off, Math.min(off + CHUNK, pcm.length)).slice(), POD_TTS_RATE))
+      }
     }
 
-    if (ac.signal.aborted) return
-    await this.speak(reply, ac.signal)
-    if (!ac.signal.aborted) this.setState('idle')
+    try {
+      for await (const tok of tokens) {
+        if (signal.aborted) return
+        buf += tok
+        // Emit complete sentences; keep the trailing (possibly partial) one buffered.
+        const segs = segmentSentences(buf)
+        if (segs.length > 1) {
+          buf = segs[segs.length - 1] ?? ''
+          for (const s of segs.slice(0, -1)) { if (signal.aborted) return; await flush(s) }
+        }
+      }
+      if (!signal.aborted && buf.trim()) await flush(buf)
+    } finally {
+      if (started && !signal.aborted) this.send(audioStop())
+    }
   }
 
   private async speak(text: string, signal: AbortSignal): Promise<void> {
@@ -482,8 +527,17 @@ export class SatelliteSession implements PodFireTarget {
 
   private setState(state: FaceState): void {
     if (state === this.state) return
+    const wasSpeaking = this.state === 'talking'
     this.state = state
     this.send(faceState(state))
+    // Self-barge-in guard: the device's reply is the same TTS voice the wake model was
+    // trained on, so the tail of its own speech (heard the instant the mic re-enables)
+    // can score ~1.0 and self-trigger. When we stop speaking, clear the detector and
+    // suppress wake briefly so it can't hear itself.
+    if (wasSpeaking && state === 'idle') {
+      this.wake?.reset()
+      this.wakeSuppressedUntil = Date.now() + WAKE_SUPPRESS_AFTER_TTS_MS
+    }
   }
 
   private sendInfo(): void {
@@ -514,6 +568,46 @@ const POD_TTS_RATE = 16000
 const POD_MIC_GAIN = (() => {
   const g = Number(process.env.POD_MIC_GAIN)
   return Number.isFinite(g) && g > 0 ? g : 12
+})()
+
+// Gentler gain for the wake detector than for STT (see onAudioChunk): the full STT
+// boost amplifies the quiet-room noise floor into false wake fires.
+const POD_WAKE_GAIN = (() => {
+  const g = Number(process.env.POD_WAKE_GAIN)
+  return Number.isFinite(g) && g > 0 ? g : 4
+})()
+
+// Consecutive frames above threshold required to fire the wake on a device. Higher
+// than the browser default to reject the isolated noise spikes the quiet ESP mic
+// produces, while a real wake word (which scores high for several frames) still fires.
+const POD_WAKE_HYSTERESIS = (() => {
+  const v = Number(process.env.POD_WAKE_HYSTERESIS)
+  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : 4
+})()
+
+/** Multiply mono Float32 PCM by a gain, in place, soft-clipped to [-1, 1]. */
+function gained(pcm: Float32Array, gain: number): Float32Array {
+  if (gain === 1) return pcm
+  for (let i = 0; i < pcm.length; i++) {
+    const v = pcm[i]! * gain
+    pcm[i] = v > 1 ? 1 : v < -1 ? -1 : v
+  }
+  return pcm
+}
+
+// How long to ignore the wake word AFTER the device finishes speaking, so it can't
+// self-trigger on the tail of its own TTS reply. Tunable via env (set very high to
+// effectively disable wake-after-speech while testing).
+const WAKE_SUPPRESS_AFTER_TTS_MS = (() => {
+  const v = Number(process.env.POD_WAKE_TTS_SUPPRESS_MS)
+  return Number.isFinite(v) && v >= 0 ? v : 2000
+})()
+
+// Hard cap on a single STT capture window, so a wake with no speech after it can't
+// leave the device stuck in "listening" forever.
+const MAX_CAPTURE_MS = (() => {
+  const v = Number(process.env.POD_MAX_CAPTURE_MS)
+  return Number.isFinite(v) && v > 0 ? v : 9000
 })()
 
 /** Linear-interpolate mono int16 LE PCM from one sample rate to another (speech-grade). */

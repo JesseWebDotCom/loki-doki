@@ -99,7 +99,12 @@ void LokiDokiSatellite::loop() {
   if (this->playing_) {
     const bool buf_empty = this->speaker_buffer_size_ == 0;
     const bool spk_empty = (this->speaker_ == nullptr) || !this->speaker_->has_buffered_data();
-    const bool done = buf_empty && spk_empty && (millis() - this->last_play_ms_) > 700;
+    const bool drained = buf_empty && spk_empty;
+    // End playback only after the server signalled end-of-reply (audio-stop) AND the
+    // buffer drained — with a short grace so the last chunk fully plays. A long safety
+    // timeout still recovers the mic if the stream dies without an audio-stop.
+    const bool done = (this->got_stop_ && drained && (millis() - this->last_play_ms_) > 250)
+                   || (drained && (millis() - this->last_play_ms_) > 12000);
 
     if (!done) {
       // Start the speaker only once the mic has fully released the bus.
@@ -360,11 +365,15 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
     // started in loop() only AFTER the mic has fully stopped (avoids the bus race).
     if (this->mic_ != nullptr) this->mic_->stop();
     this->playing_ = true;
+    this->got_stop_ = false;  // new reply — wait for its audio-stop, not just a gap
     this->last_play_ms_ = millis();
     return;
   }
   if (type == "audio-stop") {
-    // Mark end-of-reply; loop() releases the bus back to the mic once it drains.
+    // The server has sent the WHOLE reply. Only now may loop() end playback (once the
+    // buffer drains). Before this, gaps between sentences (the server synthesizing the
+    // next one) must NOT end playback, or long replies get cut off.
+    this->got_stop_ = true;
     this->last_play_ms_ = millis();
     return;
   }

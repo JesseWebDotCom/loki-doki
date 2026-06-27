@@ -91,6 +91,9 @@ function resolveDetectorPath(id: string): string | null {
 export interface WakeDetectorOptions {
   modelId?: string
   threshold?: number
+  /** Consecutive frames above threshold required to fire. Higher = more robust to
+   *  isolated noise spikes (the device's quiet mic produces occasional ones). */
+  hysteresis?: number
 }
 
 export class WakeDetector {
@@ -111,7 +114,12 @@ export class WakeDetector {
   private accumulator = new Float32Array(FRAME)
   private accOffset = 0
   private detectorFrameIndex = 0
+  // Frames to force-score 0 after a reset() while the raw/embedding buffers refill with
+  // real audio (~2.2 s of raw history = ~28 frames). Without this, the half-filled
+  // buffers right after a reset produce a spurious high score → a false fire.
+  private postResetSuppress = 0
   private consecutive = 0
+  private hysteresisFrames = HYSTERESIS_FRAMES
   private lastFireAt: number | null = null
   private inferring: Promise<void> | null = null
 
@@ -124,6 +132,7 @@ export class WakeDetector {
     this.thresholdOverride = typeof opts.threshold === 'number' && Number.isFinite(opts.threshold)
       ? opts.threshold
       : Number.isFinite(envT) && envT > 0 ? envT : null
+    if (typeof opts.hysteresis === 'number' && opts.hysteresis >= 1) this.hysteresisFrames = Math.floor(opts.hysteresis)
   }
 
   /** Load the mel/embedding/detector sessions. Returns false if models missing. */
@@ -161,6 +170,22 @@ export class WakeDetector {
     return true
   }
 
+  /** Clear all rolling state so stale or self-generated audio (e.g. the device's own
+   *  TTS reply, which is the same voice the detector was trained on) can't linger in
+   *  the buffers and trigger a false fire. Resetting the frame index also re-arms the
+   *  warm-up window (the next few frames score 0). */
+  reset(): void {
+    this.rawBuffer.fill(0)
+    this.rawFilled = 0
+    this.embeddingBuffer = seedEmbeddingBuffer(0xa17c0001)
+    this.accumulator.fill(0)
+    this.accOffset = 0
+    this.detectorFrameIndex = 0
+    this.postResetSuppress = 30 // ~2.4 s: don't fire until the buffers refill with real audio
+    this.consecutive = 0
+    this.lastFireAt = null
+  }
+
   /** Feed 16 kHz mono Float32 PCM. Accumulates into 80 ms frames, runs serially. */
   push(pcm: Float32Array): void {
     if (!this.det) return
@@ -189,7 +214,8 @@ export class WakeDetector {
   private async runOneFrame(frame: Float32Array): Promise<void> {
     const score = await this.inferOnce(frame)
     const idx = this.detectorFrameIndex++
-    const shaped = idx < WARMUP_ZERO_FRAMES ? 0 : score
+    let shaped = idx < WARMUP_ZERO_FRAMES ? 0 : score
+    if (this.postResetSuppress > 0) { this.postResetSuppress--; shaped = 0 } // refilling after reset
     this.handleScore(shaped)
   }
 
@@ -235,7 +261,7 @@ export class WakeDetector {
       return
     }
     this.consecutive += 1
-    if (this.consecutive < HYSTERESIS_FRAMES) return
+    if (this.consecutive < this.hysteresisFrames) return
     const now = Date.now()
     if (this.lastFireAt !== null && now - this.lastFireAt < POST_WAKE_SUPPRESS_MS) return
     this.lastFireAt = now
