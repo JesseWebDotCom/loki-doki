@@ -29,6 +29,7 @@ interface DeviceRow {
   createdAt: string
   paired: boolean
   online: boolean
+  activity: string  // live conversation state: idle | listening | thinking | talking
 }
 interface UserRow { id: string; firstName: string; lastName: string; nickname: string }
 interface Companion { id: string; name: string }
@@ -46,7 +47,9 @@ async function getJSON<T>(url: string): Promise<T> {
 
 export function AdminDevicesTab() {
   const qc = useQueryClient()
-  const { data: devices = [], isLoading } = useQuery({ queryKey: ['pod-devices'], queryFn: () => getJSON<DeviceRow[]>('/api/pod/devices'), refetchInterval: 5000 })
+  // Poll briskly so the live activity badge (listening/thinking/speaking) tracks a
+  // conversation in near-real-time — those states only last a couple of seconds each.
+  const { data: devices = [], isLoading } = useQuery({ queryKey: ['pod-devices'], queryFn: () => getJSON<DeviceRow[]>('/api/pod/devices'), refetchInterval: 2000 })
   const { data: users = [] } = useQuery({ queryKey: ['admin-users'], queryFn: () => getJSON<UserRow[]>('/api/users') })
   const { data: companions = [] } = useQuery({ queryKey: ['companions-list'], queryFn: () => getJSON<Companion[]>('/api/companions') })
   const { data: wakewords } = useQuery({ queryKey: ['wakewords-list'], queryFn: () => getJSON<{ detectors: Detector[] }>('/api/voice/wakewords') })
@@ -323,16 +326,26 @@ function DeviceTile({ gradient, className, children }: { gradient: string; class
   )
 }
 
+// Live conversation states (when a device is online). Colours mirror the device's
+// own status LED legend: green listening · blue thinking · cyan speaking.
+const ACTIVITY: Record<string, { label: string; dot: string; cls: string; pulse?: boolean }> = {
+  idle: { label: 'Ready', dot: 'bg-emerald-500', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+  listening: { label: 'Listening', dot: 'bg-green-500', cls: 'bg-green-500/15 text-green-600 dark:text-green-400', pulse: true },
+  thinking: { label: 'Thinking', dot: 'bg-blue-500', cls: 'bg-blue-500/15 text-blue-600 dark:text-blue-400', pulse: true },
+  talking: { label: 'Speaking', dot: 'bg-cyan-500', cls: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400', pulse: true },
+}
+
 function StatusBadge({ d }: { d: DeviceRow }) {
-  // Needs setup (not paired) → amber · Ready (paired + connected) → green · Offline → grey
+  // Needs setup (not paired) → amber · Offline → grey · Online → live conversation
+  // state (Ready when idle, else Listening/Thinking/Speaking with a pulsing dot).
   const s = !d.paired
-    ? { label: 'Needs setup', dot: 'bg-amber-500', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' }
-    : d.online
-      ? { label: 'Ready', dot: 'bg-emerald-500', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' }
-      : { label: 'Offline', dot: 'bg-muted-foreground/50', cls: 'bg-muted text-muted-foreground' }
+    ? { label: 'Needs setup', dot: 'bg-amber-500', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', pulse: false }
+    : !d.online
+      ? { label: 'Offline', dot: 'bg-muted-foreground/50', cls: 'bg-muted text-muted-foreground', pulse: false }
+      : ACTIVITY[d.activity] ?? ACTIVITY.idle
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${s.cls}`}>
-      <span className={`size-1.5 rounded-full ${s.dot}`} />
+      <span className={`size-1.5 rounded-full ${s.dot} ${'pulse' in s && s.pulse ? 'animate-pulse' : ''}`} />
       {s.label}
     </span>
   )

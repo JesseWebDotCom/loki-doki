@@ -411,6 +411,25 @@ export class SatelliteSession implements PodFireTarget {
     if (this.hwid) removePending(this.hwid) // claimed/known now — drop from the discoverable list
     evictForDevice(device.id, this) // drop any stale prior session for this device
     logger.info(`[pod] authenticated device "${device.name}" (${device.kind}) → user ${device.userId}`)
+    // Audibly confirm the device reached the server — a screenless satellite has no
+    // other way to show it's online and working. Fire-and-forget so auth never blocks.
+    void this.announceConnected()
+  }
+
+  /** Speak a short confirmation on (re)connect. Reuses the verified speak() path
+   *  (same as the admin Test button); guarded so it never blocks or throws into auth. */
+  private async announceConnected(): Promise<void> {
+    try {
+      if (this.closed) return
+      this.turnAbort?.abort()
+      const ac = new AbortController()
+      this.turnAbort = ac
+      logger.info('[pod] announcing "Connected and ready" on the device')
+      await this.speak('Connected and ready.', ac.signal)
+      if (!ac.signal.aborted) this.setState('idle')
+    } catch (e) {
+      logger.warn(`[pod] connected-announce failed: ${(e as Error).message}`)
+    }
   }
 
   private async ensureUser(): Promise<string | null> {
