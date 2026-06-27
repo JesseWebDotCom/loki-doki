@@ -11,7 +11,7 @@
 // the browse/identity layer; the queue builder optimizes for fast, reliable resolution.
 
 import { ollamaChat } from '@/llm/ollama'
-import { getModel } from '@/lib/models'
+import { getModel, getFastModel } from '@/lib/models'
 import { ytmusicRadio, ytmusicSearch } from '@/lib/youtube/ytmusic'
 import { resolveTrack, resolveTracks, cleanTrackTitle, type ResolvedTrack } from '@/lib/music/resolve'
 import { deezerPlaylistTracks, deezerChartTracks } from '@/lib/music/deezer'
@@ -62,7 +62,9 @@ const QUERIES_SCHEMA = {
 // "70s funk soul soundtrack" etc. surface the right songs.
 async function llmSearchQueries(seed: StationSeed): Promise<string[]> {
   try {
-    const model = await getModel()
+    // Concept → search terms is a small, mechanical task — use the fast (router) model so this
+    // doesn't sit on the tune-in critical path behind a big-model generation.
+    const model = await getFastModel()
     const sys = 'You convert a radio-station description into concise YouTube Music search queries that ' +
       'surface the RIGHT SONGS. Return 3-5 short queries (2-5 words each) that a music fan would type. ' +
       'Use genre, era, mood, soundtrack, and artist terms; avoid brand names and full sentences. ' +
@@ -108,10 +110,16 @@ async function ytmusicMix(seed: StationSeed, want: number, exclude: Set<string>,
 }
 
 /** Concise music-search queries for a seed: LLM-derived when possible, else the raw name/prompt. */
+// The station's own words as plain search queries — no LLM. Used as the fallback when query
+// generation yields nothing, and as the FAST path so the first track never waits on an LLM call.
+function rawQueriesFor(seed: StationSeed): string[] {
+  return [seed.name, seed.aiPrompt].filter((q): q is string => !!q && q.trim().length > 1).map(q => q.slice(0, 90).trim())
+}
+
 async function searchQueriesFor(seed: StationSeed): Promise<string[]> {
   const queries = await llmSearchQueries(seed)
   if (queries.length) return queries
-  return [seed.name, seed.aiPrompt].filter((q): q is string => !!q && q.trim().length > 1).map(q => q.slice(0, 90).trim())
+  return rawQueriesFor(seed)
 }
 
 // "What's hot right now" stations should be seeded from a LIVE chart, since the LLM (and even a
@@ -221,8 +229,13 @@ function fromYtmusic(tracks: Array<{ videoId: string; title: string; author: str
  * Build a playable queue for a station. Picks the strategy from the seed type, resolves to
  * YouTube, and backfills from YouTube Music radio when the LLM path comes up short.
  */
-export async function buildStationQueue(seed: StationSeed): Promise<StationQueueResult> {
-  const want = Math.min(Math.max(seed.count ?? 24, 6), 100)
+export async function buildStationQueue(seed: StationSeed, opts?: { fast?: boolean }): Promise<StationQueueResult> {
+  // Fast mode builds just enough to START PLAYING (the caller fills the rest in the background),
+  // so a tune-in resolves the first track in ~one round-trip instead of building a full queue.
+  const fast = opts?.fast ?? false
+  const want = fast
+    ? Math.min(Math.max(seed.count ?? 3, 1), 4)
+    : Math.min(Math.max(seed.count ?? 24, 6), 100)
   const exclude = new Set(seed.excludeVideoIds ?? [])
 
   // Known videoId → ride YouTube Music's radio mix off it directly (no resolve, no LLM). This is
@@ -254,9 +267,21 @@ export async function buildStationQueue(seed: StationSeed): Promise<StationQueue
   //   3. LLM tracklist          — last resort when the catalog sources come up thin.
   // Testing showed no single source wins across all station types, but this order gives near-zero
   // junk with full coverage. (harness: Deezer 0% junk / YT-only 6.3% junk / LLM-only 60% coverage.)
+  // Always use refined search queries (now on the warm fast model, ~1s) — even in fast mode — so
+  // the first tracks actually FIT the station. Raw natural-language queries (the station name /
+  // description) make YouTube Music return off-target songs, which is why "Up Next" looked wrong.
   const queries = await searchQueriesFor(seed)
   let source: StationQueueResult['source'] = 'empty'
   let resolved: ResolvedTrack[] = []
+
+  // FAST first-track path: a single YouTube Music search returns playable videoIds DIRECTLY — no
+  // Deezer round-trip and no per-track resolve (each of which is a separate network hop). This is
+  // the same "one search, then play" that makes a normal YouTube video start instantly; the
+  // background full build handles curation/quality for the rest of the queue.
+  if (fast) {
+    const yt = dropJunk(await ytmusicMix(seed, want, exclude, queries))
+    return { tracks: dedupe(yt).slice(0, want), source: yt.length ? 'ytmusic' : 'empty' }
+  }
 
   // Tier 0: live chart for "what's hot now" stations (today's hits, viral, trending, this-year…).
   // Seed roughly half the queue from the chart so it stays current, then let the curated tier add
@@ -281,8 +306,9 @@ export async function buildStationQueue(seed: StationSeed): Promise<StationQueue
     if (yt.length) { resolved = dedupe([...resolved, ...yt]); source = source === 'empty' ? 'ytmusic' : 'mixed' }
   }
 
-  // Tier 3: LLM-proposed tracklist as a last resort if both catalog sources were thin.
-  if (resolved.length < Math.min(want, 8)) {
+  // Tier 3: LLM-proposed tracklist as a last resort if both catalog sources were thin. Skipped in
+  // fast mode — a slow LLM round-trip defeats the point of getting the first track playing quickly.
+  if (!fast && resolved.length < Math.min(want, 8)) {
     const proposed = await llmTracklist(seed, want)
     if (proposed.length) {
       const already = new Set([...exclude, ...resolved.map(t => t.videoId)])
@@ -292,7 +318,8 @@ export async function buildStationQueue(seed: StationSeed): Promise<StationQueue
   }
 
   // Length backfill: if still short, extend with a YouTube Music radio mix off the first hit.
-  if (resolved.length && resolved.length < Math.min(want, 10)) {
+  // Skipped in fast mode (length doesn't matter for the first track; the background build fills it).
+  if (!fast && resolved.length && resolved.length < Math.min(want, 10)) {
     try {
       const mix = await ytmusicRadio(resolved[0]!.videoId)
       const already = new Set([...exclude, ...resolved.map(t => t.videoId)])

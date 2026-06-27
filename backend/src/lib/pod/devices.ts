@@ -35,6 +35,7 @@ export interface CreateDeviceInput {
   kind?: string
   characterId?: string | null
   wakeWord?: string | null
+  model?: string | null
 }
 
 /** Create a device and return it plus a fresh pairing code (not yet paired). */
@@ -49,6 +50,7 @@ export async function createDevice(input: CreateDeviceInput): Promise<{ device: 
     name: input.name,
     kind: input.kind ?? 'pod',
     wakeWord: input.wakeWord ?? null,
+    model: input.model ?? null,
     tokenHash: null,
     pairingCode,
     pairingExpiresAt: new Date(now.getTime() + PAIRING_TTL_MS),
@@ -103,6 +105,64 @@ export async function redeemPairingCode(code: string, capabilities?: unknown): P
     .where(eq(devices.id, device.id))
 
   return { deviceId: device.id, token, userId: device.userId, name: device.name }
+}
+
+export interface ClaimDeviceInput {
+  hwid: string
+  userId: string
+  name: string
+  kind?: string
+  characterId?: string | null
+  wakeWord?: string | null
+  model?: string | null
+}
+
+/**
+ * One-tap claim for a screenless device that announced its hardware id: bind it to
+ * a user and mint a token directly (no pairing code round-trip). Reuses the row for
+ * a known hwid (re-claim after factory reset) so we don't accumulate duplicates.
+ * The token is returned once; only its hash is stored.
+ */
+export async function claimDevice(input: ClaimDeviceInput): Promise<{ device: DeviceRow; token: string }> {
+  const token = randomBytes(32).toString('hex')
+  const tokenHash = hashToken(token)
+  const [existing] = await db.select().from(devices).where(eq(devices.hwid, input.hwid)).limit(1)
+
+  let id: string
+  if (existing) {
+    id = existing.id
+    await db.update(devices).set({
+      userId: input.userId,
+      name: input.name,
+      kind: input.kind ?? existing.kind,
+      characterId: input.characterId ?? null,
+      wakeWord: input.wakeWord ?? null,
+      model: input.model ?? existing.model,
+      tokenHash,
+      pairingCode: null,
+      pairingExpiresAt: null,
+    }).where(eq(devices.id, id))
+  } else {
+    id = crypto.randomUUID()
+    await db.insert(devices).values({
+      id,
+      userId: input.userId,
+      characterId: input.characterId ?? null,
+      name: input.name,
+      kind: input.kind ?? 'dot',
+      wakeWord: input.wakeWord ?? null,
+      model: input.model ?? null,
+      hwid: input.hwid,
+      tokenHash,
+      pairingCode: null,
+      pairingExpiresAt: null,
+      capabilities: null,
+      lastSeenAt: null,
+      createdAt: new Date(),
+    })
+  }
+  const [device] = await db.select().from(devices).where(eq(devices.id, id)).limit(1)
+  return { device: device!, token }
 }
 
 /** Resolve a device by its token (gateway auth). Touches last_seen. Null if invalid. */

@@ -39,6 +39,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { cn } from "@/lib/cn";
+import { ScrollFade } from "@/components/shared/ScrollFade";
 import { categoryVisual } from "@/lib/archiveCategories";
 import { APP_GROUPS, getAppByPath } from "@/lib/appCategories";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
@@ -598,8 +599,9 @@ export function LeftSidebar() {
                 </div>
               )}
 
-              {/* Pinned items — scrollable, takes remaining space */}
-              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+              {/* Pinned items — scrollable, takes remaining space.
+                  ScrollFade adds top/bottom fade hints when the list overflows. */}
+              <ScrollFade>
                 {pinnedEntries.length > 0 && (
                   <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                     <SortableContext
@@ -633,7 +635,7 @@ export function LeftSidebar() {
                     </SortableContext>
                   </DndContext>
                 )}
-              </div>
+              </ScrollFade>
 
               {/* Recent — always visible at bottom (header + count always shown):
                   last 3 opened, excluding anything already pinned */}
@@ -665,7 +667,7 @@ export function LeftSidebar() {
               <div className="shrink-0 flex justify-center py-0.5">
                 <NavIconLink href="/app-store" icon={ShoppingBag} label="App Store" />
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+              <ScrollFade>
                 {pinnedEntries.map((e) => (
                   <div key={e.id} className="flex justify-center py-0.5">
                     {e.kind === "app" ? (
@@ -675,7 +677,7 @@ export function LeftSidebar() {
                     )}
                   </div>
                 ))}
-              </div>
+              </ScrollFade>
               <div className="shrink-0">
                 {recentEntries.map((e) => (
                   <div key={e.kind === "app" ? e.app.id : `read:${e.archive.sourceId}`} className="flex justify-center py-0.5">

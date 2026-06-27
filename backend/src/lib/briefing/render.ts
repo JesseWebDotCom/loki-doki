@@ -45,6 +45,7 @@ function buildLines(p: BriefingPayload, limits: RenderLimits): string[] {
   if (p.worldNews.length) lines.push(`World: ${joinItems(p.worldNews, limits.worldNews)}`)
   if (p.notableDeaths.length) lines.push(`Notable: ${joinItems(p.notableDeaths, 1)}`)
   if (p.onThisDay.length) lines.push(`On this day: ${joinItems(p.onThisDay, 2)}`)
+  if (p.plex.length) lines.push(`New on Plex: ${joinItems(p.plex, 3)}`)
   return lines
 }
 
@@ -60,6 +61,7 @@ export function renderBriefingBlock(p: BriefingPayload, limits: RenderLimits): s
 
   const trimSteps: Array<() => void> = [
     () => { work.notableDeaths = [] },
+    () => { work.plex = [] },
     () => { work.onThisDay = [] },
     () => { lim.sports = Math.min(lim.sports, 2) },
     () => { lim.worldNews = Math.min(lim.worldNews, 1) },

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Play, Download, Heart, Pencil, Share2, Copy, Trash2, Users, Mic, Loader2, Music2, CheckCircle2, Headphones, MonitorPlay } from 'lucide-react'
+import { Play, Download, Heart, Pencil, Share2, Copy, Trash2, Users, Mic, Loader2, Music2, CheckCircle2, Headphones, MonitorPlay, ArrowLeft } from 'lucide-react'
 import { proxyImg } from '@/lib/img'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -52,6 +52,16 @@ export function MusicStationPage() {
   if (!data?.station) return <div className="px-5 pt-10 text-sm text-muted-foreground">Station not found.</div>
   const s = data.station
 
+  // Parse "source:movie:Title" | "source:show:{id}:Title" from the origin tag.
+  const sourceBackLink = (() => {
+    const ref = s.sourceRef ?? ''
+    const movieM = ref.match(/^source:movie:(.+)$/)
+    if (movieM) return { url: `/movies/${movieM[1]}`, label: decodeURIComponent(movieM[1]) }
+    const showM = ref.match(/^source:show:(\d+):(.+)$/)
+    if (showM) return { url: `/shows/${showM[1]}`, label: decodeURIComponent(showM[2]) }
+    return null
+  })()
+
   // Offline-save state for this station (saved? still downloading? fully ready?).
   const offSaved = offline?.saved ?? false
   const offReady = offSaved && offline?.status === 'ready'
@@ -98,11 +108,19 @@ export function MusicStationPage() {
     <div>
       {/* Hero */}
       <div className="relative overflow-hidden">
-        <StationArt station={s} className="absolute inset-0" />
+        <StationArt station={s} className="absolute inset-0" showName={false} />
         <div className="relative bg-gradient-to-t from-background via-background/60 to-transparent px-5 pb-5 pt-24">
           <p className="text-xs font-semibold uppercase tracking-widest text-white/70">Station</p>
           <h1 className="mt-1 text-3xl font-black tracking-tight text-white drop-shadow sm:text-4xl">{s.name}</h1>
-          {s.description && <p className="mt-1 max-w-2xl text-sm text-white/80">{s.description}</p>}
+          {s.description && !s.description.startsWith('source:') && (
+            <p className="mt-1 max-w-2xl text-sm text-white/80">{s.description}</p>
+          )}
+          {sourceBackLink && (
+            <button onClick={() => navigate(sourceBackLink.url)}
+              className="mt-1.5 inline-flex items-center gap-1.5 text-sm font-medium text-white/70 transition hover:text-white">
+              <ArrowLeft className="size-3.5" /> {sourceBackLink.label}
+            </button>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge variant="secondary"><Mic className="mr-1 size-3" /> {DJ_LABEL[s.djMode] ?? 'Full DJ'}</Badge>
             {s.isBuiltin && <Badge variant="secondary">Featured</Badge>}

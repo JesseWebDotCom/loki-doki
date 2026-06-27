@@ -6,6 +6,8 @@ export interface AppHeaderConfig {
   setQuery: (q: string) => void
   /** Omit for live filtering (no submit button rendered). */
   onSubmit?: () => void
+  /** Set false to hide the search input entirely (for header rows that only use slots). */
+  searchable?: boolean
   placeholder?: string
   loading?: boolean
   /** Opens in a new tab — shown as an external link icon. */
@@ -59,7 +61,7 @@ export function useAppHeader(config: AppHeaderConfig) {
   const setQuery = useCallback((q: string) => configRef.current.setQuery(q), [])
   const onSubmit = useCallback(() => configRef.current.onSubmit?.(), [])
 
-  const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot } = config
+  const { query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable } = config
   const hasSubmit = !!config.onSubmit
 
   useLayoutEffect(() => {
@@ -71,11 +73,12 @@ export function useAppHeader(config: AppHeaderConfig) {
       settingsHref,
       leftSlot,
       rightSlot,
+      searchable,
       setQuery,
       onSubmit: hasSubmit ? onSubmit : undefined,
     })
     return () => _set(null)
-  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, hasSubmit, setQuery, onSubmit, _set])
+  }, [query, loading, placeholder, externalHref, settingsHref, leftSlot, rightSlot, searchable, hasSubmit, setQuery, onSubmit, _set])
 }
 
 // ── Back-compat aliases ────────────────────────────────────────────────────────

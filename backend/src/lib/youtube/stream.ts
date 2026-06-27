@@ -130,7 +130,13 @@ async function doResolveStreamUrl(videoId: string, kind: StreamKind, quality: St
   if (!forceYtDlp) {
     try {
       const streams = await innertubePlayerStreams(videoId)
-      const url = streams ? (kind === 'audio' ? pickAudio(streams) : pickProgressive(streams, quality)) : null
+      let url = streams ? (kind === 'audio' ? pickAudio(streams) : pickProgressive(streams, quality)) : null
+      // Audio fast-path fallback: if no adaptive audio URL came back (ANDROID_VR often only offers
+      // ciphered audio formats, which we skip), use the pre-signed PROGRESSIVE (muxed) stream — an
+      // <audio> element plays its audio track fine. This resolves instantly here instead of spawning
+      // a cold yt-dlp (~10s), which is exactly the first-song / skip stall. Bandwidth cost (it
+      // carries video too) only applies when audio-only wasn't available.
+      if (!url && kind === 'audio' && streams) url = pickProgressive(streams, '360')   // smallest muxed = lightest audio
       if (url && isAllowedUpstream(url)) {
         if (cache.size > 500) sweepExpired()
         cache.set(key, { url, expires: now + TTL_MS })

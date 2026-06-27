@@ -13,6 +13,7 @@ import { ActionBar, ActionButton, ActionIcon } from '@/components/media/ActionBa
 import { SectionHeading } from '@/components/media/TitleCard'
 import {
   CastRow,
+  MediaStationButton,
   ParentsGuideSection,
   ReviewsSection,
   SoundtrackAlbums,
@@ -35,6 +36,7 @@ import {
   getShowBackdrop,
   getShowReviews,
   getShowTrivia,
+  getShowPodcast,
   mediaImg,
   type ShowCore,
 } from '@/lib/shows/api'
@@ -208,6 +210,12 @@ function DetailBody({ id }: { id: string }) {
 
   const numericId = Number(id)
   const qc = useQueryClient()
+  const { data: podcastData } = useQuery({
+    queryKey: ['show-podcast', numericId],
+    queryFn: () => getShowPodcast(numericId),
+    enabled: !!bundle,
+    staleTime: 5 * 60 * 1000,
+  })
   const { data: watchedIds } = useQuery({
     queryKey: ['show-watched', id],
     queryFn: () => getShowWatched(numericId),
@@ -328,7 +336,8 @@ function DetailBody({ id }: { id: string }) {
           }
         />
       )}
-      <ActionButton icon={Mic} label="Podcast" onClick={() => setTab('podcast')} />
+      <ActionButton icon={Mic} label="Podcast" variant={podcastData ? 'primary' : 'secondary'} onClick={() => setTab('podcast')} />
+      <MediaStationButton title={d.name} posterUrl={d.poster} kind="show" showId={numericId} />
       <PlexBadge
         type="show"
         title={d.name}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet'
@@ -1111,9 +1112,86 @@ function AskAITab({ device }: { device: HomeDevice }) {
   )
 }
 
+// ── Insights Tab ──────────────────────────────────────────────────────────────
+
+interface DeviceDigest {
+  summary: string
+  commonIssues: string[]
+  recalls: string[]
+  careTips: string[]
+  hasRecall: boolean
+}
+
+function InsightsTab({ device }: { device: HomeDevice }) {
+  const { data, isLoading } = useQuery<{ digest: DeviceDigest | null }>({
+    queryKey: ['device-digest', device.id],
+    queryFn: () => fetch(`/api/home/devices/${device.id}/digest`, { credentials: 'include' }).then(r => r.json()),
+    staleTime: 30 * 60 * 1000,
+    enabled: !!(device.brand || device.model),
+  })
+
+  if (!device.brand && !device.model) {
+    return <p className="text-sm text-muted-foreground">Add a brand and model to get AI insights.</p>
+  }
+  if (isLoading) {
+    return <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Looking up device info…</div>
+  }
+  const digest = data?.digest
+  if (!digest) {
+    return <p className="text-sm text-muted-foreground">No information found for this device.</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {digest.hasRecall && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <span className="mt-0.5 shrink-0">⚠️</span>
+          <span>A recall or safety notice may affect this product. Review the Recalls section below.</span>
+        </div>
+      )}
+      {digest.summary && (
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">About</p>
+          <p className="text-sm leading-relaxed">{digest.summary}</p>
+        </div>
+      )}
+      {digest.commonIssues.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Common Issues</p>
+          <ul className="space-y-1.5">
+            {digest.commonIssues.map((issue, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 shrink-0 text-amber-500">•</span>{issue}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {digest.recalls.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-destructive">Recalls / Safety Notices</p>
+          <ul className="space-y-1.5">
+            {digest.recalls.map((r, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 shrink-0 text-destructive">⚠</span>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {digest.careTips.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Care Tips</p>
+          <ul className="space-y-1.5">
+            {digest.careTips.map((tip, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 shrink-0 text-emerald-500">✓</span>{tip}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Sheet ────────────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'links' | 'photos' | 'specs' | 'service' | 'files' | 'ask'
+type TabId = 'overview' | 'links' | 'photos' | 'specs' | 'service' | 'files' | 'ask' | 'insights'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'links', label: 'Links' },
@@ -1121,6 +1199,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'specs', label: 'Specs' },
   { id: 'service', label: 'Service' },
   { id: 'files', label: 'Files' },
+  { id: 'insights', label: 'Insights' },
   { id: 'ask', label: 'Ask AI' },
 ]
 
@@ -1178,6 +1257,7 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdated, onDeleted }
             {activeTab === 'specs'    && <SpecsTab device={device} onUpdated={onUpdated} />}
             {activeTab === 'service'  && <ServiceTab deviceId={device.id} />}
             {activeTab === 'files'    && <FilesTab deviceId={device.id} />}
+            {activeTab === 'insights' && <InsightsTab device={device} />}
             {activeTab === 'ask'      && <AskAITab device={device} />}
           </div>
         </SheetContent>

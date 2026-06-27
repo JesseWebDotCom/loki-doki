@@ -204,6 +204,16 @@ export async function searchShows(query: string, limit = 12): Promise<ShowSummar
   })
 }
 
+/** Resolve a TVMaze show id from an external id (IMDb tt… or TheTVDB numeric). */
+export async function lookupShowId(opts: { imdb?: string | null; thetvdb?: number | null }): Promise<number | null> {
+  const param = opts.imdb ? `imdb=${encodeURIComponent(opts.imdb)}` : opts.thetvdb ? `thetvdb=${opts.thetvdb}` : null
+  if (!param) return null
+  return cachedLookup('tvmaze-lookup', param, ONE_DAY_MS, async () => {
+    const show = await tvmazeGet<RawShow>(`/lookup/shows?${param}`)
+    return show?.id ? Number(show.id) : null
+  })
+}
+
 /** Resolve a free-text title (e.g. from a JustWatch trending row) to a TVMaze show. */
 export async function resolveShow(title: string, year?: number | null): Promise<ShowSummary | null> {
   const q = title.trim()

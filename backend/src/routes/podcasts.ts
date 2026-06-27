@@ -9,6 +9,7 @@ import { resolveUserPath, userPath, toRelativePath } from '@/lib/storage/paths'
 import { ensureStingerSoundfont } from '@/lib/download'
 import { ollamaChat } from '@/llm/ollama'
 import { getFastModel } from '@/lib/models'
+import { cleanAutoTitle, cleanAutoText } from '@/lib/cleanTitle'
 import { createReadStream, statSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import type { ScriptTurn } from '@/lib/podcast/types'
@@ -170,18 +171,23 @@ podcastsRoute.post('/shows', async (c) => {
 
   if (!body.name?.trim()) return c.json({ error: 'name required' }, 400)
 
+  const sourceRef = body.sourceRef?.trim() || null
+  // Shows built from a YouTube source (sourceRef set) take their title from the channel/
+  // playlist name — scrub em dashes & emoji. User-authored show titles are left as typed.
+  const name = sourceRef ? cleanAutoTitle(body.name) || body.name.trim() : body.name.trim()
+
   const id = crypto.randomUUID()
   await db.insert(podcastShows).values({
     id,
     ownerUserId: user.id,
-    name: body.name.trim(),
+    name,
     description: body.description ?? null,
     style: (body.style ?? 'recap') as any,
     hostsJson: JSON.stringify(body.hosts ?? []),
     segmentsJson: JSON.stringify(body.segments ?? []),
     visibility: body.visibility ?? 'personal',
     source: 'user',
-    sourceRef: body.sourceRef?.trim() || null,
+    sourceRef,
     createdAt: new Date(),
   })
 
@@ -279,7 +285,8 @@ podcastsRoute.post('/describe', async (c) => {
     'use them only to gauge the general subject matter and vibe — never quote them, never name one, and never ' +
     'imply the show is called after one or recap one as if it happened in a single episode. ' +
     'Sound natural, warm, and inviting, like a real show blurb. Vary your phrasing. NEVER use the words ' +
-    '"this episode", "in this episode", "today", or "this week". No quotes, hashtags, emojis, markdown, or URLs. ' +
+    '"this episode", "in this episode", "today", or "this week". No quotes, hashtags, emojis, em dashes (—), ' +
+    'markdown, or URLs. ' +
     'Do not begin with "Welcome to" or "This podcast". Output only the description.'
 
   try {
@@ -288,7 +295,8 @@ podcastsRoute.post('/describe', async (c) => {
       { role: 'system', content: SYSTEM },
       { role: 'user', content: ctx.join('\n') },
     ], undefined, { temperature: 0.85, num_predict: 240 })
-    const description = result.message.content.trim().replace(/^["']+|["']+$/g, '').trim()
+    // Belt-and-suspenders: scrub any em dashes / emoji the model slipped in anyway.
+    const description = cleanAutoText(result.message.content.replace(/^["']+|["']+$/g, ''))
     if (description) return c.json({ description })
   } catch (err) {
     console.warn('[podcasts/describe] generation failed:', err)
@@ -772,7 +780,8 @@ podcastsRoute.post('/suggestions/:id/accept', async (c) => {
   await db.insert(podcastShows).values({
     id: showId,
     ownerUserId: user.id,
-    name: sugg.title,
+    // LLM-suggested title — scrub em dashes & emoji like the other auto-built shows.
+    name: cleanAutoTitle(sugg.title) || sugg.title,
     description: sugg.description ?? null,
     style: sugg.style as any,
     hostsJson: '[]',

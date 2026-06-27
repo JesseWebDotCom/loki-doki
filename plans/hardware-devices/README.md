@@ -1,6 +1,11 @@
 # Loki Doki — Physical Device Hardware Proposals
 
-Status: **proposal / not yet built** · Last updated: 2026-06-22
+Status: **hardware selected; backend built + verified; Atom Echo + Tab5 ordered** · Last updated: 2026-06-26
+
+> **Build status:** the Pod *software* (gateway, wake, brain, pairing, admin) is
+> built and verified — see [`pod-wyoming-architecture.md`](./pod-wyoming-architecture.md).
+> First physical units in hand: **Atom Echo** (Dot) and **Tab5** (Show 5). Echo
+> firmware is scaffolded at `firmware/atom-echo/`; Tab5 firmware is the next round.
 
 ## Goal
 

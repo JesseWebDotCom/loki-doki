@@ -8,7 +8,7 @@ import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
 import { Backdrop } from '@/components/media/Backdrop'
 import { SectionHeading } from '@/components/media/TitleCard'
-import { ParentsGuideSection, ReviewsSection, SoundtrackAlbums, StreamingChips, TriviaSection, VideoRow } from '@/components/media/sections'
+import { MediaStationButton, ParentsGuideSection, ReviewsSection, SoundtrackAlbums, StreamingChips, TriviaSection, VideoRow } from '@/components/media/sections'
 import { ShowtimesPanel } from '@/components/media/Showtimes'
 import { WatchlistButton } from '@/components/media/WatchlistButton'
 import { PlexBadge } from '@/components/media/PlexBadge'
@@ -23,6 +23,7 @@ import {
   getMovieBackdrop,
   getMovieReviews,
   getMovieTrivia,
+  getMoviePodcastApi,
   type MovieCore,
 } from '@/lib/movies/api'
 import { mediaImg } from '@/lib/shows/api'
@@ -149,6 +150,12 @@ function DetailBody({ title, year }: { title: string; year: number | null }) {
     enabled: !!bundle,
     staleTime: 60 * 60 * 1000,
   })
+  const { data: podcastData } = useQuery({
+    queryKey: ['movie-podcast', title],
+    queryFn: () => getMoviePodcastApi(title),
+    enabled: !!bundle,
+    staleTime: 5 * 60 * 1000,
+  })
 
   usePublishUIContext({
     label: 'Movies',
@@ -205,7 +212,7 @@ function DetailBody({ title, year }: { title: string; year: number | null }) {
       ) : (
         <p className="text-sm text-muted-foreground">No videos found.</p>
       )}
-      {media && media.music.length > 0 && <VideoRow title="Soundtrack" videos={media.music} />}
+      {media && media.music.length > 0 && <VideoRow title="Theme & soundtrack" videos={media.music} />}
       {media && media.soundtrackAlbums.length > 0 && <SoundtrackAlbums albums={media.soundtrackAlbums} />}
       <SoundtrackSection movieTitle={d.title} />
     </div>
@@ -262,7 +269,8 @@ function DetailBody({ title, year }: { title: string; year: number | null }) {
           }
         />
       )}
-      <ActionButton icon={Mic} label="Podcast" onClick={() => setTab('podcast')} />
+      <ActionButton icon={Mic} label="Podcast" variant={podcastData ? 'primary' : 'secondary'} onClick={() => setTab('podcast')} />
+      <MediaStationButton title={d.title} posterUrl={d.poster} kind="movie" />
       <PlexBadge type="movie" title={d.title} year={d.year} />
       {d.justwatchUrl && <ActionIcon icon={ExternalLink} href={d.justwatchUrl} title="JustWatch" />}
     </ActionBar>

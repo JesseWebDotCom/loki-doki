@@ -1,14 +1,19 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, Trash2, Cpu, Copy, RefreshCw, Check } from 'lucide-react'
+import { Loader2, Plus, Trash2, Cpu, Copy, RefreshCw, Check, Radio, Usb, HelpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { FlashDeviceWizard } from '@/components/admin/FlashDeviceWizard'
+import { DeviceHelpDialog } from '@/components/admin/DeviceHelpDialog'
+import { DeviceArt } from '@/components/admin/DeviceArt'
+import { DEVICE_MODELS, resolveDeviceModel, deviceModelName } from '@/lib/deviceCatalog'
 import { toast } from '@/lib/toast'
 
-// Admin → Devices: create & manage physical Pods (ESP32 voice satellites). Creating
-// a device mints a one-time PAIRING CODE the installer types into the Pod during
-// BLE setup; the Pod redeems it (POST /api/pod/pair) for a long-lived token.
+// Admin → Devices: physical ESP32 voice satellites. Flash new hardware over USB
+// (FlashDeviceWizard), claim devices that announce themselves, and manage the fleet
+// as App-Store-style cards. The legacy "create with pairing code" path lives under
+// an Advanced section for screened devices (e.g. Tab5) that can type a code.
 
 interface DeviceRow {
   id: string
@@ -16,20 +21,22 @@ interface DeviceRow {
   characterId: string | null
   name: string
   kind: string
+  model: string | null
   wakeWord: string | null
   pairingCode: string | null
   pairingExpiresAt: string | null
   lastSeenAt: string | null
   createdAt: string
   paired: boolean
+  online: boolean
 }
 interface UserRow { id: string; firstName: string; lastName: string; nickname: string }
 interface Companion { id: string; name: string }
 interface Detector { id: string; label: string }
+interface DiscoveredDevice { hwid: string; model: string | null; firstSeen: number }
 
 const opts: RequestInit = { credentials: 'include' }
 const J = { 'Content-Type': 'application/json' }
-const KINDS = ['dot', 'show', 'watch', 'tablet', 'pod'] as const
 
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url, opts)
@@ -39,20 +46,28 @@ async function getJSON<T>(url: string): Promise<T> {
 
 export function AdminDevicesTab() {
   const qc = useQueryClient()
-  const { data: devices = [], isLoading } = useQuery({ queryKey: ['pod-devices'], queryFn: () => getJSON<DeviceRow[]>('/api/pod/devices') })
+  const { data: devices = [], isLoading } = useQuery({ queryKey: ['pod-devices'], queryFn: () => getJSON<DeviceRow[]>('/api/pod/devices'), refetchInterval: 5000 })
   const { data: users = [] } = useQuery({ queryKey: ['admin-users'], queryFn: () => getJSON<UserRow[]>('/api/users') })
   const { data: companions = [] } = useQuery({ queryKey: ['companions-list'], queryFn: () => getJSON<Companion[]>('/api/companions') })
   const { data: wakewords } = useQuery({ queryKey: ['wakewords-list'], queryFn: () => getJSON<{ detectors: Detector[] }>('/api/voice/wakewords') })
+  const { data: discovered = [] } = useQuery({ queryKey: ['pod-discovered'], queryFn: () => getJSON<DiscoveredDevice[]>('/api/pod/discovered'), refetchInterval: 4000 })
 
+  const [flashOpen, setFlashOpen] = useState(false)
+  const [del, setDel] = useState<DeviceRow | null>(null)
+  const [help, setHelp] = useState<DeviceRow | null>(null)
+
+  // Manual "create with pairing code" form (Advanced).
   const [name, setName] = useState('')
-  const [kind, setKind] = useState<string>('dot')
+  const [deviceType, setDeviceType] = useState<string>('atom-echo')
   const [userId, setUserId] = useState('')
   const [characterId, setCharacterId] = useState('')
   const [wakeWord, setWakeWord] = useState('')
   const [busy, setBusy] = useState(false)
-  const [del, setDel] = useState<DeviceRow | null>(null)
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['pod-devices'] })
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['pod-devices'] })
+    qc.invalidateQueries({ queryKey: ['pod-discovered'] })
+  }
   const userName = (id: string) => {
     const u = users.find((x) => x.id === id)
     return u ? (u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()) : id
@@ -62,9 +77,10 @@ export function AdminDevicesTab() {
     if (!name.trim() || !userId) { toast.error('Name and user are required'); return }
     setBusy(true)
     try {
+      const kind = DEVICE_MODELS.find((m) => m.id === deviceType)?.kind ?? 'pod'
       const r = await fetch('/api/pod/devices', {
         ...opts, method: 'POST', headers: J,
-        body: JSON.stringify({ name: name.trim(), kind, userId, characterId: characterId || null, wakeWord: wakeWord || null }),
+        body: JSON.stringify({ name: name.trim(), kind, model: deviceType, userId, characterId: characterId || null, wakeWord: wakeWord || null }),
       })
       if (!r.ok) throw new Error('Failed')
       toast.success('Device created — share its pairing code')
@@ -78,55 +94,101 @@ export function AdminDevicesTab() {
   }
 
   return (
-    <div className="space-y-5 p-5">
+    <div className="space-y-6 p-5">
+      {/* Header */}
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-muted p-2"><Cpu className="size-5 text-muted-foreground" /></div>
+        <DeviceTile gradient="linear-gradient(135deg,#a78bfa,#7c3aed)" className="size-10 rounded-xl">
+          <Cpu className="size-5 text-white" />
+        </DeviceTile>
         <div className="flex-1">
           <h2 className="text-base font-semibold">Devices</h2>
           <p className="text-sm text-muted-foreground">
-            Physical Pods (ESP32 voice satellites). Create a device to get a one-time pairing
-            code — enter it on the Pod during setup to bind it to a user and companion.
+            Your voice devices around the home. Add a new one and it’ll show up here, ready in a couple of minutes.
           </p>
         </div>
+        <Button onClick={() => setFlashOpen(true)}><Plus className="size-4" /> Add a device</Button>
       </div>
 
-      {/* Create form */}
-      <div className="grid max-w-3xl gap-2 rounded-lg border bg-card p-4 sm:grid-cols-2">
-        <Input placeholder="Device name (e.g. Kitchen Dot)" value={name} onChange={(e) => setName(e.target.value)} />
-        <Select value={kind} onChange={setKind}>
-          {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-        </Select>
-        <Select value={userId} onChange={setUserId}>
-          <option value="">Bind to user…</option>
-          {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
-        </Select>
-        <Select value={characterId} onChange={setCharacterId}>
-          <option value="">Companion (optional)</option>
-          {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </Select>
-        <Select value={wakeWord} onChange={setWakeWord}>
-          <option value="">Wake word (app default)</option>
-          {(wakewords?.detectors ?? []).map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-        </Select>
-        <Button onClick={createDevice} disabled={busy || !name.trim() || !userId}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <><Plus className="size-4" /> Create</>}
-        </Button>
-      </div>
+      <FlashDeviceWizard open={flashOpen} onOpenChange={setFlashOpen} />
 
-      {isLoading && <div className="py-10 text-center"><Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" /></div>}
-      {!isLoading && devices.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No devices yet.</p>}
+      {/* Unclaimed devices — powered-on satellites not bound to anyone yet */}
+      {discovered.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Radio className="size-4 text-amber-500" />
+            <h3 className="text-sm font-semibold">Ready to set up</h3>
+            <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">{discovered.length}</span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {discovered.map((d) => (
+              <UnclaimedCard key={d.hwid} d={d} users={users} companions={companions} onClaimed={invalidate} />
+            ))}
+          </div>
+        </section>
+      )}
 
-      <div className="space-y-3">
-        {devices.map((d) => (
-          <DeviceCard key={d.id} d={d} userName={userName(d.userId)} onReissue={() => reissue(d)} onDelete={() => setDel(d)} />
-        ))}
-      </div>
+      {/* Your devices */}
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold">Your devices</h3>
+        {isLoading ? (
+          <div className="py-10 text-center"><Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" /></div>
+        ) : devices.length === 0 ? (
+          <button
+            onClick={() => setFlashOpen(true)}
+            className="flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/60 bg-card/40 p-10 text-center text-muted-foreground transition-colors hover:border-brand/40 hover:text-foreground"
+          >
+            <Usb className="size-6" />
+            <span className="text-sm font-medium">No devices yet — add your first one</span>
+          </button>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {devices.map((d) => (
+              <DeviceCard key={d.id} d={d} userName={userName(d.userId)} onHelp={() => setHelp(d)} onReissue={() => reissue(d)} onDelete={() => setDel(d)} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Advanced: manual create with a pairing code (for screened devices like the Tab5) */}
+      <details className="max-w-2xl rounded-2xl border border-border/40 bg-card/40">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground">
+          Add manually with a pairing code
+        </summary>
+        <div className="space-y-2 border-t border-border/40 p-4">
+          <p className="text-xs text-muted-foreground">
+            For a device with a screen that can show/enter a code (e.g. Tab5). Most devices should use “Add a device” above instead.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input placeholder="Device name (e.g. Living Room Tab)" value={name} onChange={(e) => setName(e.target.value)} />
+            <Select value={deviceType} onChange={setDeviceType}>
+              {DEVICE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.make} {m.model}</option>)}
+            </Select>
+            <Select value={userId} onChange={setUserId}>
+              <option value="">Bind to user…</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
+            </Select>
+            <Select value={characterId} onChange={setCharacterId}>
+              <option value="">Companion (optional)</option>
+              {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+            <Select value={wakeWord} onChange={setWakeWord}>
+              <option value="">Wake word (app default)</option>
+              {(wakewords?.detectors ?? []).map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+            </Select>
+            <Button onClick={createDevice} disabled={busy || !name.trim() || !userId}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <><Plus className="size-4" /> Create</>}
+            </Button>
+          </div>
+        </div>
+      </details>
+
+      <DeviceHelpDialog device={help} onOpenChange={(o) => { if (!o) setHelp(null) }} />
 
       <ConfirmDialog
         open={!!del}
         onOpenChange={(o) => { if (!o) setDel(null) }}
         title="Remove this device?"
-        description={del ? `"${del.name}" will be unpaired and its token revoked. The Pod will need to be paired again.` : undefined}
+        description={del ? `"${del.name}" will be unpaired and its token revoked. The device will need to be added again.` : undefined}
         confirmLabel="Remove"
         destructive
         onConfirm={async () => {
@@ -141,27 +203,43 @@ export function AdminDevicesTab() {
   )
 }
 
-function DeviceCard({ d, userName, onReissue, onDelete }: { d: DeviceRow; userName: string; onReissue: () => void; onDelete: () => void }) {
+// ── Device card (App-Store style) ──────────────────────────────────────────────
+
+function DeviceCard({ d, userName, onHelp, onReissue, onDelete }: { d: DeviceRow; userName: string; onHelp: () => void; onReissue: () => void; onDelete: () => void }) {
+  const art = resolveDeviceModel(d.model, d.kind)
   const expired = !!d.pairingExpiresAt && new Date(d.pairingExpiresAt).getTime() < Date.now()
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-medium">{d.name}</h3>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-xs uppercase text-muted-foreground">{d.kind}</span>
-            {d.paired
-              ? <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">paired</span>
-              : <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-600 dark:text-amber-400">awaiting pairing</span>}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            User: {userName}
-            {d.wakeWord ? ` · Wake: ${d.wakeWord}` : ''}
-            {d.lastSeenAt ? ` · Last seen ${new Date(d.lastSeenAt).toLocaleString()}` : ''}
-          </p>
+    <div className="group flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
+      <div className="flex items-start justify-between">
+        <DeviceArt resolved={art} className="size-14" />
+        <StatusBadge d={d} />
+      </div>
+
+      <div className="flex-1">
+        <p className="text-sm font-bold leading-snug">{d.name}</p>
+        <p className="text-[11px] font-medium text-muted-foreground/70">{deviceModelName(d.model, d.kind)}</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {userName}
+          {d.wakeWord ? ` · ${d.wakeWord}` : ''}
+          {!d.online && d.lastSeenAt ? ` · seen ${new Date(d.lastSeenAt).toLocaleDateString()}` : ''}
+        </p>
+      </div>
+
+      {/* Pairing code (only for manually-created devices that show/enter a code) */}
+      {!d.paired && d.pairingCode && (
+        <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5">
+          <code className="font-mono text-base font-semibold tracking-widest">{d.pairingCode}</code>
+          <CopyButton value={d.pairingCode} />
+          <span className="ml-auto text-[10px] text-muted-foreground">{expired ? 'expired' : 'enter on device'}</span>
         </div>
-        <div className="flex shrink-0 gap-1">
-          <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" onClick={onReissue} aria-label="Issue new pairing code" title="New pairing code">
+      )}
+
+      <div className="mt-auto flex items-center pt-0.5">
+        <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={onHelp}>
+          <HelpCircle className="size-3.5" /> How to use
+        </Button>
+        <div className="ml-auto flex gap-1">
+          <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" onClick={onReissue} aria-label="New pairing code" title="New pairing code">
             <RefreshCw className="size-4" />
           </Button>
           <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-destructive" onClick={onDelete} aria-label="Remove device">
@@ -169,18 +247,94 @@ function DeviceCard({ d, userName, onReissue, onDelete }: { d: DeviceRow; userNa
           </Button>
         </div>
       </div>
+    </div>
+  )
+}
 
-      {!d.paired && d.pairingCode && (
-        <div className="mt-3 flex items-center gap-3 rounded-md bg-muted/60 px-3 py-2">
-          <span className="text-xs text-muted-foreground">Pairing code</span>
-          <code className="font-mono text-lg font-semibold tracking-widest">{d.pairingCode}</code>
-          <CopyButton value={d.pairingCode} />
-          <span className="ml-auto text-xs text-muted-foreground">
-            {expired ? 'expired — issue a new one' : 'enter this on the Pod'}
-          </span>
+// ── Unclaimed device card (self-contained claim) ───────────────────────────────
+
+function UnclaimedCard({ d, users, companions, onClaimed }: { d: DiscoveredDevice; users: UserRow[]; companions: Companion[]; onClaimed: () => void }) {
+  const art = resolveDeviceModel(d.model, null)
+  const [expanded, setExpanded] = useState(false)
+  const [name, setName] = useState(deviceModelName(d.model, null))
+  const [userId, setUserId] = useState(users[0]?.id ?? '')
+  const [characterId, setCharacterId] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function claim() {
+    if (!name.trim() || !userId) { toast.error('Name and user are required'); return }
+    setBusy(true)
+    try {
+      const r = await fetch('/api/pod/devices/claim', {
+        ...opts, method: 'POST', headers: J,
+        body: JSON.stringify({ hwid: d.hwid, model: d.model, name: name.trim(), userId, characterId: characterId || null }),
+      })
+      if (!r.ok) throw new Error('Failed')
+      toast.success('Device claimed — it’s online now')
+      onClaimed()
+    } catch { toast.error('Failed to claim device') } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+      <div className="flex items-start justify-between">
+        <DeviceArt resolved={art} className="size-14" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+          <span className="size-1.5 animate-pulse rounded-full bg-amber-500" /> New
+        </span>
+      </div>
+      <div className="flex-1">
+        <p className="text-sm font-bold leading-snug">{deviceModelName(d.model, null)}</p>
+        <p className="text-[11px] text-muted-foreground/70">Ready to set up</p>
+      </div>
+
+      {!expanded ? (
+        <Button className="mt-auto w-full" onClick={() => setExpanded(true)}>Claim</Button>
+      ) : (
+        <div className="space-y-2">
+          <Input placeholder="Device name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Select value={userId} onChange={setUserId}>
+            <option value="">Assign to user…</option>
+            {users.map((u) => <option key={u.id} value={u.id}>{u.nickname?.trim() || `${u.firstName} ${u.lastName}`.trim()}</option>)}
+          </Select>
+          <Select value={characterId} onChange={setCharacterId}>
+            <option value="">Companion (optional)</option>
+            {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+          <div className="flex gap-2">
+            <Button className="flex-1" onClick={claim} disabled={busy || !name.trim() || !userId}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <><Check className="size-4" /> Claim</>}
+            </Button>
+            <Button variant="ghost" onClick={() => setExpanded(false)} disabled={busy}>Cancel</Button>
+          </div>
         </div>
       )}
     </div>
+  )
+}
+
+// ── shared bits ────────────────────────────────────────────────────────────────
+
+function DeviceTile({ gradient, className, children }: { gradient: string; className?: string; children: React.ReactNode }) {
+  return (
+    <div className={`flex shrink-0 items-center justify-center shadow-md ${className ?? 'size-14 rounded-2xl'}`} style={{ backgroundImage: gradient }}>
+      {children}
+    </div>
+  )
+}
+
+function StatusBadge({ d }: { d: DeviceRow }) {
+  // Needs setup (not paired) → amber · Ready (paired + connected) → green · Offline → grey
+  const s = !d.paired
+    ? { label: 'Needs setup', dot: 'bg-amber-500', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' }
+    : d.online
+      ? { label: 'Ready', dot: 'bg-emerald-500', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' }
+      : { label: 'Offline', dot: 'bg-muted-foreground/50', cls: 'bg-muted text-muted-foreground' }
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${s.cls}`}>
+      <span className={`size-1.5 rounded-full ${s.dot}`} />
+      {s.label}
+    </span>
   )
 }
 

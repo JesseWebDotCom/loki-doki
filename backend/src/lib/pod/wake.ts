@@ -221,7 +221,15 @@ export class WakeDetector {
     return clampScore(data[data.length - 1] ?? 0)
   }
 
+  private diagPeak = 0
+  private diagN = 0
   private handleScore(score: number): void {
+    // diag: report the peak wake score periodically so we can see how close it gets.
+    this.diagPeak = Math.max(this.diagPeak, score)
+    if (++this.diagN >= 25) {
+      logger.info(`[pod-wake-diag] peak score ${this.diagPeak.toFixed(3)} (fires at ${this.threshold.toFixed(2)})`)
+      this.diagPeak = 0; this.diagN = 0
+    }
     if (score < this.threshold) {
       this.consecutive = 0
       return

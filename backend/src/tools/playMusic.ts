@@ -1,5 +1,6 @@
 import type { Tool, ToolResult, PlayMediaDirective } from './index'
 import { innertubeSearch } from '@/lib/youtube/innertube'
+import { getTitleMedia } from '@/lib/titles/media'
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -77,6 +78,35 @@ function cleanSeed(subject: string): string {
 function matchesVibe(subject: string): boolean {
   const s = ` ${subject.toLowerCase()} `
   return STATION_VIBE.some((v) => s.includes(` ${v} `) || subject.toLowerCase() === v)
+}
+
+// Detect requests that are specifically for a trailer or teaser (not a music video/clip).
+const TRAILER_KIND_RE = /\b(trailer|teaser)\b/i
+
+// Extract the movie/show title from a trailer request, e.g.:
+//   "the Dune trailer" → "Dune"
+//   "trailer for Spider-Man" → "Spider-Man"
+//   "official trailer for The Dark Knight" → "The Dark Knight"
+// Returns null when no specific title is identifiable.
+function extractTrailerTitle(searchQuery: string): string | null {
+  const q = searchQuery.trim()
+
+  // "trailer for X" / "teaser for X" / "official trailer for X"
+  const forMatch = q.match(/\b(?:official\s+)?(?:trailer|teaser)\s+for\s+(.+)/i)
+  if (forMatch?.[1]) {
+    const t = forMatch[1].trim().replace(/\?$/, '').replace(/\s+(?:official\s+)?(?:trailer|teaser).*$/i, '').trim()
+    if (t.length > 1) return t
+  }
+
+  // "X official trailer" / "X trailer" / "X teaser" (title comes first)
+  const titleFirst = q.match(/^(.+?)\s+(?:official\s+)?(?:trailer|teaser)(?:\s+\d+)?(?:\s+\d{4})?$/i)
+  if (titleFirst?.[1]) {
+    const t = titleFirst[1].trim()
+    // Filter out non-specific phrases
+    if (t.length > 1 && !/^(the|a|an|latest|new|upcoming|first|second|next|official|movie|film|show|series|hd|4k)$/i.test(t)) return t
+  }
+
+  return null
 }
 
 /** Decide how to honor a "play …" request, honoring an explicit LLM-provided type. */
@@ -207,7 +237,37 @@ export const playMusicTool: Tool = {
 
     // ── Video: resolve the top YouTube result and hand it to the mini-player. ──
     const scoped = scopeVideoQuery(plan.searchQuery)
+    const VIDEO_ACKS = ['On it.', 'Here you go.', 'Got it.', 'Coming right up.']
     try {
+      // For trailer/teaser requests, try the precise official-trailer finder first so the
+      // companion plays the real trailer (same source as the Movie/Show detail pages) rather
+      // than a top-result guess from a generic search.
+      if (TRAILER_KIND_RE.test(plan.searchQuery)) {
+        const titleGuess = extractTrailerTitle(plan.searchQuery)
+        if (titleGuess) {
+          try {
+            const media = await getTitleMedia(titleGuess, null, 'movie')
+            if (media.trailer) {
+              const t = media.trailer
+              const trailerDirective: PlayMediaDirective = {
+                action: 'play_media', media: 'video',
+                videoId: t.videoId, title: t.title,
+                artist: t.author, channelThumb: t.channelThumb,
+                thumbnail: `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg`,
+                durationSec: t.durationSec,
+              }
+              const directReply = VIDEO_ACKS[Math.floor(Math.random() * VIDEO_ACKS.length)]!
+              return {
+                success: true,
+                data: { query, type: 'video', action: 'play_video', topVideoId: t.videoId, topTitle: t.title, topArtist: t.author ?? null, videos: [] },
+                directive: trailerDirective,
+                directReply,
+              }
+            }
+          } catch { /* fall through to generic search */ }
+        }
+      }
+
       let videos: Array<{ videoId: string; title: string; author?: string | null; durationSec?: number | null }> = []
       try {
         const { videos: itVideos } = await innertubeSearch(scoped, 5, 0, 8000, 0)
@@ -241,14 +301,13 @@ export const playMusicTool: Tool = {
         videoId: top.videoId,
         title: top.title,
         artist: top.author ?? null,
-        channelThumb: top.channelThumb ?? null,
+        channelThumb: null,
         thumbnail: `https://i.ytimg.com/vi/${top.videoId}/hqdefault.jpg`,
         durationSec: top.durationSec ?? null,
       }
 
       // Use directReply (bypasses the LLM entirely) so the ack appears before the
       // video audio kicks in — no 1-3s synthesis delay talking over the trailer.
-      const VIDEO_ACKS = ['On it.', 'Here you go.', 'Got it.', 'Coming right up.']
       const directReply = VIDEO_ACKS[Math.floor(Math.random() * VIDEO_ACKS.length)]!
       return {
         success: true,

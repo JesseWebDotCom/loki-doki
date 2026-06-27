@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Loader2, Sparkles, Lock, Package, Download, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Settings2,
   Bot, Eye, Database, Wand2, Mic, Server, Route, ScanFace, Film, Eraser, Library,
-  Map as MapIcon, Ear, MessageSquare, Image as ImageIcon, Users, Home, Lightbulb,
+  Map as MapIcon, Ear, MessageSquare, Image as ImageIcon, Users, Home, Lightbulb, Cpu,
   MapPin, Navigation, ShieldCheck, WifiOff, Lock as LockIcon, AlertTriangle, Globe,
   ShieldQuestion,
 } from 'lucide-react'
@@ -148,6 +148,7 @@ const CAPABILITIES: Capability[] = [
   { id: 'searxng',       label: 'Web Search',          description: 'High-quality web search via a local SearXNG metasearch engine — aggregates Google, Brave & Startpage so search works where direct scraping is blocked', bytes: 300_000_000, defaultOn: true,  requires: [],             icon: Globe },
   { id: 'voice-core',   label: 'Voice',               description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                        bytes: 320_000_000, defaultOn: false, requires: [],             icon: Mic },
   { id: 'wakeword-core', label: 'Wake Word',          description: 'Hands-free “Hey Jarvis” activation',                                                bytes: 6_000_000,   defaultOn: false, requires: ['voice-core'], icon: Ear },
+  { id: 'esphome',       label: 'Devices',             description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.). Adds the ESP32 toolchain (~1 GB) — install later if you have devices.', bytes: 1_000_000_000, defaultOn: false, requires: [],             icon: Cpu },
 ]
 
 // ── Feature showcase (welcome step + left panel) ────────────────────────────────

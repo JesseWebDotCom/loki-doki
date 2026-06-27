@@ -285,6 +285,7 @@ export const BOOT_STEP_FEATURE_NAME: Record<string, string> = {
   maps:             'Maps',
   'home-inventory': 'Home Inventory',
   'weather-icons':  'Weather',
+  devices:          'Devices',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -1,12 +1,14 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Clapperboard, Loader2, Search, Bookmark, Headphones, Monitor } from 'lucide-react'
+import { Clapperboard, Loader2, Search, Bookmark, Headphones, Monitor, Settings } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { usePublishUIContext } from '@/context/UIContextProvider'
 import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
 import { getMoviesHome, searchMovies, movieTo, type MovieSummary } from '@/lib/movies/api'
 import { getWatchlist } from '@/lib/library/api'
+import { PlexShelves } from '@/pages/shows/ShowsHomePage'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 
 const MOVIES_GRADIENT = 'linear-gradient(135deg,#1e1b4b,#6d28d9)'
@@ -94,6 +96,7 @@ function HomeShelves() {
   return (
     <div className="space-y-8">
       {watchlistPosters.length > 0 && <MediaShelfRow title="Your Watchlist" items={watchlistPosters} />}
+      <PlexShelves type="movie" />
       {shelves?.map((shelf) => (
         <MediaShelfRow key={shelf.key} title={shelf.title} items={shelf.items.map(toPoster)} />
       ))}
@@ -104,19 +107,33 @@ function HomeShelves() {
 export function MoviesHomePage() {
   const [query, setQuery] = useState('')
   const [submitted, setSubmitted] = useState('')
+  const navigate = useNavigate()
   usePublishUIContext({
     label: 'Movies',
     description: submitted ? `User is searching movies for "${submitted}".` : 'User is browsing the Movies home page.',
   })
 
   const onSubmit = useCallback(() => setSubmitted(query.trim()), [query])
+  // A user-facing settings gear (everyone, not just admins) → Movies settings (Plex, etc.).
+  const rightSlot = useMemo(
+    () => (
+      <button
+        onClick={() => navigate('/movies/settings')}
+        title="Movies settings"
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <Settings className="size-4" />
+      </button>
+    ),
+    [navigate],
+  )
   useAppHeader({
     query,
     setQuery,
     onSubmit,
     placeholder: 'Search movies…',
     externalHref: 'https://www.justwatch.com',
-    settingsHref: '/admin/features?tool=showtimes',
+    rightSlot,
   })
 
   return (

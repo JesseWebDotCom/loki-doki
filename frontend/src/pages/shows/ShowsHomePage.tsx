@@ -7,6 +7,8 @@ import { useAppHeader } from '@/context/BreadcrumbSearchContext'
 import { MediaShelfRow, TitleCard, type PosterItem } from '@/components/media/TitleCard'
 import { showsHomeQueryOptions, searchShowsApi, type ShowSummary } from '@/lib/shows/api'
 import { getContinueWatching, getWatchlist } from '@/lib/library/api'
+import { usePlexConfigured, plexRailQueryOptions } from '@/lib/plex/hooks'
+import { PlexNowPlaying } from '@/components/media/PlexNowPlaying'
 import { EmptyAppState } from '@/components/shared/EmptyAppState'
 
 const SHOWS_GRADIENT = 'linear-gradient(135deg,#0c4a6e,#0284c7)'
@@ -78,6 +80,27 @@ function PersonalShelves() {
   )
 }
 
+// Rails surfaced straight from the user's Plex server. The connect prompt lives in the sticky
+// PlexConnectBanner at the top of the page, not here.
+function PlexShelves({ type }: { type: 'show' | 'movie' }) {
+  const configured = usePlexConfigured()
+  const { data: ondeck } = useQuery(plexRailQueryOptions('ondeck', type, configured))
+  const { data: recent } = useQuery(plexRailQueryOptions('recent', type, configured))
+  const { data: hubs } = useQuery(plexRailQueryOptions('hubs', type, configured))
+
+  if (!configured) return null
+  return (
+    <>
+      <PlexNowPlaying />
+      {!!ondeck?.length && <MediaShelfRow title="Continue on Plex" items={ondeck} />}
+      {!!recent?.length && <MediaShelfRow title="Recently Added to Plex" items={recent} />}
+      {!!hubs?.length && <MediaShelfRow title="Recommended on Plex" items={hubs} />}
+    </>
+  )
+}
+
+export { PlexShelves }
+
 function HomeShelves() {
   const { data: shelves, isLoading } = useQuery(showsHomeQueryOptions())
 
@@ -107,6 +130,7 @@ function HomeShelves() {
   return (
     <div className="space-y-8">
       <PersonalShelves />
+      <PlexShelves type="show" />
       {shelves.map((shelf) => (
         <MediaShelfRow key={shelf.key} title={shelf.title} items={shelf.items.map(toPoster)} />
       ))}

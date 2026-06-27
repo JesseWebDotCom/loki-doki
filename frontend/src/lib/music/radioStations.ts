@@ -22,6 +22,11 @@ export interface DjStation {
   seedType?: 'prompt' | 'genre' | 'artist' | 'song'
   seedValue?: string
   djMode?: 'full' | 'minimal' | 'silent'
+  // "source:movie:Title" | "source:show:{id}:Title" — written at creation time so Now Playing
+  // can show a back-link without an extra network round-trip.
+  sourceRef?: string
+  // Cover image URL (movie/show poster) for display in the album-art slot during tuning.
+  iconUrl?: string
 }
 
 export const DJ_STATIONS: DjStation[] = [

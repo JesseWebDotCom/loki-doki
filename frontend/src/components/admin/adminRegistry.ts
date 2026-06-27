@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Camera, Cpu } from 'lucide-react'
+import { Users, Settings2, LayoutGrid, ChevronRight, Sparkles, ShieldCheck, Store, LayoutDashboard, Newspaper, Camera, Cpu, MonitorPlay } from 'lucide-react'
 
 // Single source of truth for the admin panel: drives the sidebar tree, the search
 // filter, and the Cmd+K palette. Each section maps to a tab component; subsections are
@@ -107,13 +107,19 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   {
     id: 'devices', label: 'Devices', icon: Cpu,
     keywords: ['devices', 'pod', 'pods', 'esp32', 'satellite', 'hardware', 'pairing', 'pair', 'wake word', 'echo', 'dot', 'show', 'watch', 'wyoming'],
-    description: 'Physical Pods (ESP32 voice satellites) — create devices and pair them',
+    description: 'Set up and manage your voice devices around the home',
     subsections: [],
   },
   {
     id: 'frigate', label: 'Frigate', icon: Camera,
     keywords: ['frigate', 'nvr', 'camera', 'cameras', 'cctv', 'security', 'genai', 'license plate', 'lpr', 'delivery', 'mqtt'],
     description: 'Frigate NVR integration — VLM GenAI provider, camera event notifications and announcements',
+    subsections: [],
+  },
+  {
+    id: 'plex', label: 'Plex', icon: MonitorPlay,
+    keywords: ['plex', 'media', 'server', 'watchlist', 'library', 'movies', 'shows', 'streaming', 'token', 'pin'],
+    description: 'Link your Plex Media Server — library rails, two-way Watchlist sync, and in-app playback',
     subsections: [],
   },
   {

@@ -863,13 +863,42 @@ export async function innertubePlayerMeta(videoId: string, timeout = 8000): Prom
 // Not every video cooperates — some have no progressive format, some come back non-OK —
 // so callers fall back to yt-dlp when this returns null.
 
-const VR_CLIENT = { clientName: 'ANDROID_VR', clientVersion: '1.60.19', deviceModel: 'Quest 3', androidSdkVersion: 32, hl: 'en', gl: 'US' }
-const VR_UA = 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; GB) gzip'
+// Client version + device fields must match a current real ANDROID_VR build (kept in step with
+// yt-dlp's config) or YouTube replies LOGIN_REQUIRED. CRITICALLY, the request must also carry a
+// `visitorData` token — without it, music/"topic" tracks come back LOGIN_REQUIRED and we'd fall to
+// a slow cold yt-dlp spawn for every song. With it, they return status OK + an unciphered
+// progressive (itag 18) URL the proxy can serve directly (~150ms vs ~10–30s).
+const VR_CLIENT = { clientName: 'ANDROID_VR', clientVersion: '1.71.26', deviceMake: 'Oculus', deviceModel: 'Quest 3', androidSdkVersion: 32, osName: 'Android', osVersion: '12L', hl: 'en', gl: 'US' }
+const VR_UA = 'com.google.android.apps.youtube.vr.oculus/1.71.26 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip'
+
+// visitorData is stable for a long time; fetch once and reuse. Coalesce concurrent fetches.
+let _visitorData: string | null = null
+let _visitorPending: Promise<string | null> | null = null
+async function getVisitorData(): Promise<string | null> {
+  if (_visitorData) return _visitorData
+  if (_visitorPending) return _visitorPending
+  _visitorPending = (async () => {
+    try {
+      const res = await fetch(`${BASE}/visitor_id?key=${WEB_KEY}&prettyPrint=false`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': VR_UA, 'X-Youtube-Client-Name': '28', 'X-Youtube-Client-Version': VR_CLIENT.clientVersion },
+        body: JSON.stringify({ context: { client: VR_CLIENT } }),
+        signal: AbortSignal.timeout(5000),
+      })
+      const data: any = await res.json()
+      _visitorData = data?.responseContext?.visitorData ?? null
+    } catch { _visitorData = null }
+    finally { _visitorPending = null }
+    return _visitorData
+  })()
+  return _visitorPending
+}
 
 export interface ItStreamFormat { itag: number; url: string; height: number | null; bitrate: number | null; mime: string }
 export interface ItStreams { progressive: ItStreamFormat[]; audio: ItStreamFormat[] }
 
 export async function innertubePlayerStreams(videoId: string, timeout = 6000): Promise<ItStreams | null> {
+  const visitorData = await getVisitorData()
   const res = await fetch(`${BASE}/player?key=${WEB_KEY}&prettyPrint=false`, {
     method: 'POST',
     headers: {
@@ -879,12 +908,15 @@ export async function innertubePlayerStreams(videoId: string, timeout = 6000): P
       'X-Youtube-Client-Version': VR_CLIENT.clientVersion,
       Origin: 'https://www.youtube.com',
     },
-    body: JSON.stringify({ context: { client: VR_CLIENT }, videoId, contentCheckOk: true, racyCheckOk: true }),
+    body: JSON.stringify({ context: { client: { ...VR_CLIENT, ...(visitorData ? { visitorData } : {}) } }, videoId, contentCheckOk: true, racyCheckOk: true }),
     signal: AbortSignal.timeout(timeout),
   })
   if (!res.ok) throw new Error(`innertube player(vr) → ${res.status}`)
   const data: any = await res.json()
   const status = data?.playabilityStatus?.status
+  // LOGIN_REQUIRED almost always means our visitorData went stale — drop it so the next call
+  // refetches a fresh token and recovers the fast path instead of permanently falling to yt-dlp.
+  if (status === 'LOGIN_REQUIRED') { _visitorData = null }
   if (status && status !== 'OK') return null   // login/age/region gated → let yt-dlp try
   const sd = data?.streamingData
   if (!sd) return null

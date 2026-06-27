@@ -1,0 +1,128 @@
+# Loki Doki — M5Stack Atom Echo voice satellite (ESPHome)
+#
+# A screenless ESP32-PICO puck that streams 16 kHz mic audio to the Loki Doki
+# Wyoming gateway and plays the companion's spoken reply back. Wake word runs
+# SERVER-SIDE (the PICO streams continuously); the RGB LED follows the
+# conversation state the server pushes.
+#
+# Onboarding is no-typing:
+#   1. Flash once over USB (see README).
+#   2. Provision Wi-Fi over Bluetooth (Improv) from the Loki Doki "Add device"
+#      page or https://web.esphome.io.
+#   3. The Pod announces itself; Claim it in Admin → Devices. Done.
+#
+# Edit `lokidoki_host` to your server's LAN IP before flashing (or set it later
+# over the ESPHome dashboard).
+
+substitutions:
+  name: lokidoki-echo
+  friendly_name: LokiDoki Echo
+  lokidoki_host: "192.168.1.50"   # ← your Loki Doki server's LAN IP (injected at build)
+  lokidoki_port: "10700"          # POD_GATEWAY_PORT (default 10700)
+  # Home Wi-Fi is injected at build time by the app (Admin → Devices → Add a device),
+  # so a flashed device auto-joins on power-up — no per-device Wi-Fi step. Left blank
+  # here, the device falls back to Improv (Bluetooth) provisioning.
+  wifi_ssid: ""
+  wifi_password: ""
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: true
+  min_version: "2024.7.0"
+
+external_components:
+  # The custom Wyoming/Loki-Doki satellite component lives alongside this file.
+  - source:
+      type: local
+      path: components
+
+esp32:
+  board: m5stack-atom
+  framework:
+    type: esp-idf
+
+logger:
+  # Audio is high-rate; keep the log level modest so it doesn't starve the loop.
+  level: INFO
+
+# Over-the-air updates after the first USB flash.
+ota:
+  - platform: esphome
+
+# ── Wi-Fi: home network baked in at build time (auto-joins anywhere); the AP +
+# Improv below are the fallback when no credentials were injected (wifi_ssid="").
+wifi:
+  ssid: "${wifi_ssid}"
+  password: "${wifi_password}"
+  ap:
+    ssid: "${friendly_name} Setup"
+
+captive_portal:
+
+# Improv-over-BLE — the no-typing Wi-Fi onboarding. A browser (the Loki Doki
+# "Add device" page, or web.esphome.io) connects over Bluetooth and hands the
+# device Wi-Fi credentials. improv_serial covers the same flow over USB.
+esp32_improv:
+  authorizer: none
+improv_serial:
+
+# ── Audio: ONE 16 kHz I2S bus shared by the PDM mic and the NS4168 speaker amp.
+# 16 kHz both directions matches the server (it resamples TTS to 16 kHz for Pods)
+# and is ESPHome's proven Atom Echo configuration.
+i2s_audio:
+  i2s_lrclk_pin: GPIO33
+  i2s_bclk_pin: GPIO19
+
+microphone:
+  - platform: i2s_audio
+    id: echo_mic
+    i2s_din_pin: GPIO23
+    adc_type: external
+    pdm: true
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: left
+
+speaker:
+  - platform: i2s_audio
+    id: echo_speaker
+    dac_type: external
+    i2s_dout_pin: GPIO22
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: mono
+
+# ── Status LED: the single SK6812 on GPIO27 (the Echo's light ring) ──────────
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_led
+    name: "Status"
+    pin: GPIO27
+    num_leds: 1
+    rgb_order: GRB
+    chipset: SK6812
+
+# ── Button (GPIO39): hold-to-talk. Press starts a capture, release ends it —
+# a reliable manual override that works alongside server-side wake. ──────────
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO39
+      inverted: true
+    id: echo_button
+    name: "Button"
+    on_press:
+      - lambda: 'id(satellite)->button_down();'
+    on_release:
+      - lambda: 'id(satellite)->button_up();'
+
+# ── The Loki Doki satellite link ─────────────────────────────────────────────
+lokidoki_satellite:
+  id: satellite
+  host: ${lokidoki_host}
+  port: ${lokidoki_port}
+  model: atom-echo
+  microphone: echo_mic
+  speaker: echo_speaker
+  status_light: status_led

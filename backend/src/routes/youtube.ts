@@ -10,6 +10,7 @@ import { ytSubscriptions, ytVideos, ytDownloads, ytWatchState, ytCollections, yt
 import { requireAuth, requireAdmin } from '@/middleware/auth'
 import { youtubeTool } from '@/tools/youtube'
 import { resolveToolConfig } from '@/lib/toolConfig'
+import { cleanAutoTitle } from '@/lib/cleanTitle'
 import { resolveYouTubeInput, parseTakeoutCsv } from '@/lib/youtube/resolve'
 import { refreshUserFeeds, refreshSubscriptionFeed, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { getTranscriptText, formatTranscript } from '@/lib/youtube/transcript'
@@ -941,11 +942,19 @@ youtubeRoute.post('/podcast', async (c) => {
       showId = owned.id
     } else if (body.newShowName?.trim()) {
       showId = crypto.randomUUID()
+      // Channel/playlist names routinely carry emoji and em dashes — scrub them from the title.
+      const showName = cleanAutoTitle(body.newShowName).slice(0, 80) || 'My Podcast'
+      // A real description grounded in the actual source, instead of a generic stock line.
+      const srcName = cleanAutoTitle(videos[0]?.author || showName.replace(/\s+podcast$/i, ''))
+      const isPlaylist = body.sourceRef?.trim().startsWith('playlist:')
+      const description = srcName
+        ? `AI-hosted episodes diving into ${srcName}'s ${isPlaylist ? 'playlist' : 'videos'}, with a fresh take on every new upload.`
+        : 'AI-hosted episodes generated from your YouTube content.'
       await db.insert(podcastShows).values({
         id: showId,
         ownerUserId: user.id,
-        name: body.newShowName.trim().slice(0, 80),
-        description: 'AI-hosted episodes generated from your YouTube content.',
+        name: showName,
+        description,
         style: 'recap',
         segmentsJson: '[]',
         hostsJson: '[]',

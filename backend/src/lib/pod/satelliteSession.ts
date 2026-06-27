@@ -25,6 +25,7 @@ import { stripForSpeech } from '@/lib/voice/speechText'
 import { runPodBrain } from '@/lib/pod/brain'
 import { WakeDetector, wakeAvailable } from '@/lib/pod/wake'
 import { authenticateDeviceToken } from '@/lib/pod/devices'
+import { addPending, removePending } from '@/lib/pod/pending'
 import type { PodFireEvent, PodFireTarget } from '@/lib/pod/registry'
 import {
   audioChunk,
@@ -51,15 +52,21 @@ export class SatelliteSession implements PodFireTarget {
   private userId: string | null = null
   private characterId: string | null = null
   private wakeWord: string | null = null
-  private deviceId: string | null = null
-  // Wake mode: when on, the Pod streams continuously; the Host runs openWakeWord
-  // and only opens an STT capture window after a detection. When off (default —
-  // and what the test harness uses), incoming audio IS the utterance (the Pod did
-  // its own wake / push-to-talk).
-  private wakeEnabled = process.env.POD_WAKE_ENABLED === '1'
+  private _deviceId: string | null = null
+  private hwid: string | null = null
+  // Wake mode: ON by default (the Pod streams continuously; the Host runs
+  // openWakeWord and opens an STT capture window after each detection — this is
+  // what enables repeated, hands-free "Hey Jarvis …" turns). Opt out with
+  // POD_WAKE_ENABLED=0, in which case the incoming stream IS a single utterance
+  // (push-to-talk / on-device wake / the test harness).
+  private wakeEnabled = process.env.POD_WAKE_ENABLED !== '0'
   private wake: WakeDetector | null = null
   private wakeLoading = false
   private capturing = false
+  // Temporary diagnostics: track incoming audio level so we can tell a silent mic
+  // (RMS ≈ 0) from a working mic where the wake word just isn't matching.
+  private diagN = 0
+  private diagRms = 0
 
   constructor(send: Send) {
     this.send = send
@@ -68,6 +75,7 @@ export class SatelliteSession implements PodFireTarget {
 
   handle(ev: WyomingEvent): void {
     if (this.closed) return
+    if (ev.type !== 'audio-chunk') logger.info(`[pod-diag] ← ${ev.type} ${ev.data ? JSON.stringify(ev.data).slice(0, 70) : ''}`)
     switch (ev.type) {
       case 'describe':
         this.sendInfo()
@@ -86,10 +94,14 @@ export class SatelliteSession implements PodFireTarget {
         if (!this.capturing) this.startCapture()
         break
       case 'user-event': {
-        // Loki Doki extension: device auth handshake { name:'auth', token }.
+        // Loki Doki extensions:
+        //   { name:'auth', token }            — a paired device binds its session
+        //   { name:'hello', hwid, model, caps } — an unclaimed device announces itself
         const d = ev.data
         if (d && d.name === 'auth' && typeof d.token === 'string') {
           void this.authenticate(d.token)
+        } else if (d && d.name === 'hello' && typeof d.hwid === 'string') {
+          this.onHello(d.hwid, typeof d.model === 'string' ? d.model : null, d.caps ?? null)
         }
         break
       }
@@ -106,10 +118,34 @@ export class SatelliteSession implements PodFireTarget {
 
   close(): void {
     this.closed = true
+    if (this.hwid) removePending(this.hwid)
     this.turnAbort?.abort()
     this.stt?.close()
     this.stt = null
     if (this.wake) { this.wake.onDetect = null; this.wake = null }
+  }
+
+  /**
+   * First-boot announce from an unclaimed (screenless) device. Make it claimable in
+   * the admin panel; on Claim, the server mints a token and calls back to deliver it
+   * down this still-open socket — no code to type or read off the device.
+   */
+  private onHello(hwid: string, model: string | null, caps: unknown): void {
+    this.hwid = hwid
+    if (this._deviceId) return // already bound — nothing to claim
+    addPending({
+      hwid,
+      model,
+      caps,
+      firstSeen: Date.now(),
+      claim: async (_deviceId, token) => {
+        // Hand the device its token (persisted to flash for next boot)…
+        this.send({ type: 'user-event', data: { name: 'auth', token } })
+        // …and bind this live session now so it works without reconnecting.
+        await this.authenticate(token)
+      },
+    })
+    logger.info(`[pod] unclaimed device announced (hwid ${hwid}${model ? `, ${model}` : ''})`)
   }
 
   // ── PodFireTarget: server-pushed events (scheduler / notifications) ──────────
@@ -117,6 +153,16 @@ export class SatelliteSession implements PodFireTarget {
   /** The user this connection is bound to — used by the scheduler to target Pods. */
   get boundUserId(): string | null {
     return this.userId
+  }
+
+  /** The paired device id — used by the admin panel to show live online status. */
+  get deviceId(): string | null {
+    return this._deviceId
+  }
+
+  /** Current conversation state — used by the admin panel's live-activity badge. */
+  get activity(): FaceState {
+    return this.state
   }
 
   /** Push an unprompted alarm/timer event. The Pod shows its ring screen + tone. */
@@ -135,6 +181,7 @@ export class SatelliteSession implements PodFireTarget {
 
   private onAudioStart(ev: WyomingEvent): void {
     this.inRate = (ev.data?.rate as number) ?? 16000
+    logger.info(`[pod-diag] audio-start rate=${this.inRate} wakeEnabled=${this.wakeEnabled}`)
     // Barge-in: a new audio stream cancels any in-flight reply.
     this.turnAbort?.abort()
     this.stt?.close()
@@ -156,6 +203,15 @@ export class SatelliteSession implements PodFireTarget {
   private onAudioChunk(ev: WyomingEvent): void {
     if (!ev.payload) return
     const pcm = int16ToFloat32(ev.payload)
+    // diag: average incoming level every ~50 chunks
+    this.diagN++
+    let sum = 0
+    for (let i = 0; i < pcm.length; i++) sum += pcm[i]! * pcm[i]!
+    this.diagRms += Math.sqrt(sum / Math.max(1, pcm.length))
+    if (this.diagN >= 50) {
+      logger.info(`[pod-diag] audio RMS ${(this.diagRms / this.diagN).toFixed(4)} state=${this.state} capturing=${this.capturing} wakeReady=${!!this.wake}`)
+      this.diagN = 0; this.diagRms = 0
+    }
     if (this.capturing) {
       this.stt?.pushPcm(pcm)
     } else if (this.wakeEnabled && this.wake && this.state !== 'thinking' && this.state !== 'talking') {
@@ -287,7 +343,6 @@ export class SatelliteSession implements PodFireTarget {
     this.setState('talking')
 
     let started = false
-    let rate = 0
     for (const sentence of sentences) {
       if (signal.aborted) break
       let payload
@@ -297,16 +352,17 @@ export class SatelliteSession implements PodFireTarget {
         logger.warn(`[pod] tts error: ${(e as Error).message}`)
         break
       }
-      const pcm = base64ToBytes(payload.pcm_b64)
+      // Resample Kokoro's native rate (≈24 kHz) down to POD_TTS_RATE so a Pod can
+      // run ONE fixed I2S rate for both mic and speaker (the Atom Echo shares the
+      // I2S peripheral; 16 kHz both ways is ESPHome's proven config). Resolves the
+      // architecture doc's open-decision #1 in favour of fixed-rate playback.
+      let pcm = base64ToBytes(payload.pcm_b64)
+      if (payload.sample_rate !== POD_TTS_RATE) pcm = resamplePcm16(pcm, payload.sample_rate, POD_TTS_RATE)
       if (!started) {
-        rate = payload.sample_rate
-        this.send(audioStart(rate))
+        this.send(audioStart(POD_TTS_RATE))
         started = true
       }
-      // TODO(open decision #1): optionally resample rate→16000 here for a single
-      // fixed Pod playback rate. For now we forward Kokoro's native rate and let
-      // the Pod handle it (Wyoming audio-chunk carries the rate).
-      this.send(audioChunk(pcm, payload.sample_rate))
+      this.send(audioChunk(pcm, POD_TTS_RATE))
     }
     if (started) this.send(audioStop())
   }
@@ -320,10 +376,12 @@ export class SatelliteSession implements PodFireTarget {
       if (!device) logger.warn('[pod] device auth failed (invalid token)')
       return
     }
-    this.deviceId = device.id
+    this._deviceId = device.id
     this.userId = device.userId
     this.characterId = device.characterId ?? null
     this.wakeWord = device.wakeWord ?? null
+    if (device.hwid) this.hwid = device.hwid
+    if (this.hwid) removePending(this.hwid) // claimed/known now — drop from the discoverable list
     logger.info(`[pod] authenticated device "${device.name}" (${device.kind}) → user ${device.userId}`)
   }
 
@@ -362,6 +420,31 @@ interface SttMsg {
   t: 'ready' | 'vad' | 'partial' | 'final' | 'no_speech' | 'error'
   v?: string
   speaking?: boolean
+}
+
+// Fixed playback rate pushed to Pods (one I2S rate for mic + speaker).
+const POD_TTS_RATE = 16000
+
+/** Linear-interpolate mono int16 LE PCM from one sample rate to another (speech-grade). */
+function resamplePcm16(bytes: Uint8Array, fromRate: number, toRate: number): Uint8Array {
+  if (fromRate === toRate) return bytes
+  const inView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const inLen = Math.floor(bytes.byteLength / 2)
+  if (inLen === 0) return bytes
+  const outLen = Math.max(1, Math.floor((inLen * toRate) / fromRate))
+  const out = new Uint8Array(outLen * 2)
+  const outView = new DataView(out.buffer)
+  const ratio = fromRate / toRate
+  for (let i = 0; i < outLen; i++) {
+    const srcPos = i * ratio
+    const i0 = Math.floor(srcPos)
+    const i1 = Math.min(i0 + 1, inLen - 1)
+    const frac = srcPos - i0
+    const s0 = inView.getInt16(i0 * 2, true)
+    const s1 = inView.getInt16(i1 * 2, true)
+    outView.setInt16(i * 2, Math.round(s0 + (s1 - s0) * frac), true)
+  }
+  return out
 }
 
 /** Wyoming PCM is signed 16-bit LE; SttSession wants normalized Float32. */

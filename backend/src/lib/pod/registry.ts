@@ -14,6 +14,10 @@ export interface PodFireEvent {
 export interface PodFireTarget {
   /** The user this connection is bound to (null until authenticated/resolved). */
   readonly boundUserId: string | null
+  /** The paired device id this connection authenticated as (null until auth). */
+  readonly deviceId: string | null
+  /** Current conversation state for the admin live badge (idle|listening|thinking|talking). */
+  readonly activity: string
   fire(event: PodFireEvent): void
 }
 
@@ -37,4 +41,20 @@ export function podsForUser(userId: string): PodFireTarget[] {
 /** Are any Pods connected at all? Lets producers skip work when nothing's listening. */
 export function anyPodsConnected(): boolean {
   return live.size > 0
+}
+
+/** Device ids with a live gateway socket right now — the source of truth for the
+ *  admin panel's online/offline dot (a paired device is "online" only while its
+ *  Wyoming socket is open, distinct from the `lastSeenAt` timestamp). */
+export function connectedDeviceIds(): Set<string> {
+  const out = new Set<string>()
+  for (const t of live) if (t.deviceId) out.add(t.deviceId)
+  return out
+}
+
+/** deviceId → current conversation state, for the admin live-activity badge. */
+export function connectedActivity(): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const t of live) if (t.deviceId) out.set(t.deviceId, t.activity)
+  return out
 }

@@ -1,6 +1,32 @@
 # Loki Doki Pods — Software Architecture (Wyoming-compatible)
 
-Status: **proposal / not yet built** · Last updated: 2026-06-23
+Status: **backend built + verified; Atom Echo firmware scaffolded** · Last updated: 2026-06-26
+
+## Implementation status (2026-06-26)
+
+The server-side "brain" described below is **built, committed, and verified
+end-to-end** with the `scripts/pod-test-satellite.ts` harness (STT → LLM → TTS →
+spoken reply):
+
+- **Gateway + codec + session FSM** — `backend/src/lib/pod/{gateway,wyoming,satelliteSession}.ts`
+  (Wyoming TCP on :10700, `idle→listening→thinking→talking`).
+- **Server-side openWakeWord** — `backend/src/lib/pod/wake.ts` (ort-web under Bun;
+  `hey_jarvis` detector loads; models present).
+- **Brain** — `backend/src/lib/pod/brain.ts` reuses `runCompanionTurn`.
+- **Device identity + pairing** — `backend/src/lib/pod/devices.ts`, `routes/pod.ts`.
+- **Scheduler / registry / push channel** — `scheduler.ts`, `registry.ts`.
+- **Admin** — `frontend/src/components/admin/AdminDevicesTab.tsx`: live online/offline
+  dot + **one-tap Claim** for screenless devices (a device announces `hello{hwid}`,
+  the admin Claims it, the server pushes its `auth` token down the open socket — no
+  pairing code to read off the Echo).
+- **Atom Echo firmware** — scaffolded under `firmware/atom-echo/` (ESPHome external
+  component speaking this exact Wyoming framing + Improv Wi-Fi onboarding); needs an
+  on-hardware `esphome compile`.
+
+Fixed along the way: the raw-TCP **Ollama stream parser framed HTTP chunks on a
+decoded string instead of bytes**, corrupting any non-ASCII reply (e.g. `°` in a
+weather answer) with "Bad chunked encoding" — now byte-correct
+(`backend/src/llm/ollama.ts`). This was an app-wide streaming bug, not pod-only.
 
 Companion to [`README.md`](./README.md) (hardware selection) and
 `docs/src/content/docs/dev/hardware.md`. That doc picks the *devices*; this doc
@@ -282,8 +308,11 @@ continuous streaming.
 
 ## Open decisions
 
-1. **TTS sample rate** — resample Kokoro 22050→16000 server-side for one Pod rate,
-   or advertise capability and let the Pod handle 22050?
+1. ~~**TTS sample rate** — resample Kokoro→16000 server-side for one Pod rate, or let
+   the Pod handle it?~~ **Resolved: resample to 16 kHz server-side** (`satelliteSession.ts`
+   `resamplePcm16` → `POD_TTS_RATE`), so a Pod runs ONE 16 kHz I2S rate for both mic
+   and speaker (the Atom Echo shares the I2S peripheral). Verified: harness reply is
+   now 16 kHz.
 2. ~~**Face on screen** — push state vs. rasterized frames.~~ **Resolved:
    state-based, render-local** (Lottie + audio-RMS mouth) — see "Companion face
    on the Tab5." Remaining sub-question: produce a bespoke `lvgl` art set vs.

@@ -41,12 +41,15 @@ import {
 } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR, restartComfyUI } from '@/lib/comfyui'
 import { isSearXNGInstalled, installSearXNG, maybeSpawnSearXNG } from '@/lib/searxng'
+import { isESPHomeInstalled, installESPHome } from '@/lib/esphome'
+import { warmUpToolchain } from '@/lib/pod/firmware'
 import { isKiwixInstalled, installKiwixTools } from '@/lib/kiwix'
 import { isVoiceServerInstalled, installVoiceModels, maybeSpawnVoiceServer } from '@/lib/voiceServer'
 import { isMapsToolchainInstalled, installMapsToolchain } from '@/lib/maps/toolchain'
 import { detectHardware, resolveComfyUILaunchConfig } from '@/lib/hwfit'
 import { CATALOG, type CatalogModel, type ModelRole } from '@/lib/catalog'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
+import { logger } from '@/lib/logger'
 
 const execAsync = promisify(exec)
 
@@ -131,6 +134,17 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     repair: async (onP, sig) => {
       await installSearXNG((msg) => statusAdapter(onP)(msg), sig)
       maybeSpawnSearXNG()
+    },
+  },
+  {
+    id: 'esphome', group: 'devices', label: 'Device Firmware Builder (ESPHome)',
+    isInstalled: isESPHomeInstalled,
+    repair: async (onP, sig) => {
+      await installESPHome((msg) => statusAdapter(onP)(msg), sig)
+      // Best-effort: pre-download the ESP32 toolchain so the first flash is fast.
+      // Non-fatal — if it's interrupted, the toolchain downloads on first flash.
+      try { await warmUpToolchain((msg) => statusAdapter(onP)(msg), sig) }
+      catch (e) { logger.warn(`[esphome] toolchain warm-up skipped: ${e instanceof Error ? e.message : String(e)}`) }
     },
   },
   {

@@ -52,7 +52,7 @@ const STYLE_VERB: Record<PodcastStyle, string> = {
 // An engaging closing line per format (used for source-based shows).
 const STYLE_CLOSER: Record<PodcastStyle, string> = {
   recap: 'Each episode recaps a new video with sharp takes and real conversation.',
-  'in-depth': 'Each episode unpacks a video in depth — the context, the nuance, the bigger picture.',
+  'in-depth': 'Each episode unpacks a video in depth: the context, the nuance, the bigger picture.',
   roundtable: 'Every episode is a lively roundtable on a fresh upload.',
   interview: 'Each episode digs into a video, interview-style.',
   briefing: 'Each episode is a tight, no-fluff briefing on the latest drop.',
@@ -187,7 +187,7 @@ export function ShowEditorDialog({ open, onClose, initial, youtube, presetName }
     }
 
     const topics = joinNames([...new Set(segments.map(s => SEGMENT_TOPIC[s.type] ?? s.type))])
-    return `${who} ${verb} ${topics || 'a mix of topics'} — with fresh takes and real conversation in every episode.`
+    return `${who} ${verb} ${topics || 'a mix of topics'}, with fresh takes and real conversation in every episode.`
   }
 
   // LLM-written description (varied + rich, fed the real source/about/topics). Falls

@@ -531,6 +531,21 @@ export function runMigrations() {
   // LoRA routing columns (from migration 0005 — belt-and-suspenders for DBs created via inline SQL)
   addColumn('music_stations', 'category', 'TEXT')
   addColumn('music_stations', 'loading_messages', 'TEXT')
+  addColumn('music_stations', 'source_ref', 'TEXT')
+  // Legacy movie/show stations stashed their origin tag in `description` (hidden from the
+  // UI). Move it to the dedicated column so `description` is free for real text.
+  try {
+    sqlite.exec(`UPDATE music_stations SET source_ref = description, description = NULL WHERE source_ref IS NULL AND description LIKE 'source:%'`)
+    // Retire em/en dashes from existing auto-built station titles (e.g. "Title — Original Score")
+    // and descriptions ("… Tenet — its themes …" → comma).
+    sqlite.exec(`UPDATE music_stations SET name = REPLACE(REPLACE(REPLACE(name, ' — ', ' - '), ' – ', ' - '), ' ― ', ' - ') WHERE source_ref IS NOT NULL AND (name LIKE '% — %' OR name LIKE '% – %' OR name LIKE '% ― %')`)
+    sqlite.exec(`UPDATE music_stations SET description = REPLACE(REPLACE(REPLACE(description, ' — ', ', '), ' – ', ', '), ' ― ', ', ') WHERE source_ref IS NOT NULL AND description IS NOT NULL AND (description LIKE '% — %' OR description LIKE '% – %' OR description LIKE '% ― %')`)
+  } catch { /* table may not exist yet on a brand-new DB */ }
+  // Same dash cleanup for auto-built podcast shows ("Title — Deep Dive", "… — Episode by Episode").
+  try {
+    sqlite.exec(`UPDATE podcast_shows SET name = REPLACE(REPLACE(REPLACE(name, ' — ', ' - '), ' – ', ' - '), ' ― ', ' - ') WHERE (source IN ('app', 'suggested') OR source_ref IS NOT NULL) AND (name LIKE '% — %' OR name LIKE '% – %' OR name LIKE '% ― %')`)
+    sqlite.exec(`UPDATE podcast_shows SET description = REPLACE(REPLACE(REPLACE(description, ' — ', ', '), ' – ', ', '), ' ― ', ', ') WHERE (source IN ('app', 'suggested') OR source_ref IS NOT NULL) AND description IS NOT NULL AND (description LIKE '% — %' OR description LIKE '% – %' OR description LIKE '% ― %')`)
+  } catch { /* table may not exist yet on a brand-new DB */ }
   addColumn('image_loras', 'civitai_id', 'TEXT')
   addColumn('image_loras', 'when_to_use', 'TEXT')
   addColumn('image_loras', 'example_requests', `TEXT NOT NULL DEFAULT '[]'`)
@@ -1589,6 +1604,8 @@ export function runMigrations() {
       name TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'pod',
       wake_word TEXT,
+      hwid TEXT,
+      model TEXT,
       token_hash TEXT,
       pairing_code TEXT,
       pairing_expires_at INTEGER,
@@ -1601,6 +1618,12 @@ export function runMigrations() {
     CREATE UNIQUE INDEX IF NOT EXISTS devices_token_hash_unique ON devices(token_hash);
     CREATE INDEX IF NOT EXISTS devices_user_id ON devices(user_id);
   `)
+  // hwid: a device's stable hardware id (MAC), used by the one-tap "Claim" flow so a
+  // re-claimed (factory-reset) screenless Pod rebinds its existing row instead of
+  // creating a duplicate. Added for existing DBs.
+  addColumn('devices', 'hwid', 'TEXT')
+  // model: the device-catalog id (e.g. 'atom-echo') used to show make/model + art.
+  addColumn('devices', 'model', 'TEXT')
 
   // Generic read-through lookup cache (property/people scrapers and future tools).
   // data holds the JSON result ("null" = cached negative); expires_at is epoch ms.
@@ -1745,6 +1768,9 @@ export function runMigrations() {
       poster_url TEXT,
       subtitle TEXT,
       status TEXT NOT NULL DEFAULT 'want',
+      plex_rating_key TEXT,
+      plex_synced_at INTEGER,
+      deleted_at INTEGER,
       added_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -1760,4 +1786,9 @@ export function runMigrations() {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS show_watched_episodes_unique ON show_watched_episodes(user_id, episode_id);
   `)
+
+  // Plex account-Watchlist mirror columns — added after the table exists (existing DBs).
+  addColumn('media_watchlist', 'plex_rating_key', 'TEXT')
+  addColumn('media_watchlist', 'plex_synced_at', 'INTEGER')
+  addColumn('media_watchlist', 'deleted_at', 'INTEGER')
 }

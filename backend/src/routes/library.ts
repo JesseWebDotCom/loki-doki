@@ -3,11 +3,13 @@
 // checkmarks. All rows are scoped to the authenticated user.
 
 import { Hono } from 'hono'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '@/db'
 import { mediaWatchlist, showWatchedEpisodes } from '@/db/schema'
 import { requireAuth } from '@/middleware/auth'
 import { getShowEpisodes, type ShowEpisode } from '@/lib/shows/tvmaze'
+import { mirrorWatchlistAdd, mirrorWatchlistRemove } from '@/lib/plex/sync'
+import { mirrorEpisodeWatched } from '@/lib/plex/watched'
 import type { AppEnv } from '@/types'
 
 const libraryRoute = new Hono<AppEnv>()
@@ -31,8 +33,8 @@ libraryRoute.get('/watchlist', async (c) => {
     .from(mediaWatchlist)
     .where(
       isMediaType(mediaType)
-        ? and(eq(mediaWatchlist.userId, user.id), eq(mediaWatchlist.mediaType, mediaType))
-        : eq(mediaWatchlist.userId, user.id),
+        ? and(eq(mediaWatchlist.userId, user.id), eq(mediaWatchlist.mediaType, mediaType), isNull(mediaWatchlist.deletedAt))
+        : and(eq(mediaWatchlist.userId, user.id), isNull(mediaWatchlist.deletedAt)),
     )
     .orderBy(desc(mediaWatchlist.updatedAt))
   return c.json({ items: rows })
@@ -46,7 +48,7 @@ libraryRoute.get('/watchlist/check', async (c) => {
   const [row] = await db
     .select()
     .from(mediaWatchlist)
-    .where(and(eq(mediaWatchlist.userId, user.id), eq(mediaWatchlist.mediaType, mediaType), eq(mediaWatchlist.refId, refId)))
+    .where(and(eq(mediaWatchlist.userId, user.id), eq(mediaWatchlist.mediaType, mediaType), eq(mediaWatchlist.refId, refId), isNull(mediaWatchlist.deletedAt)))
     .limit(1)
   return c.json({ inList: !!row, status: row?.status ?? null })
 })
@@ -74,10 +76,12 @@ libraryRoute.post('/watchlist', async (c) => {
     .limit(1)
 
   if (existing) {
+    // Revive a tombstoned row in place (the unique index forbids a second row for the title).
     await db
       .update(mediaWatchlist)
-      .set({ status, title: body.title, posterUrl: body.posterUrl ?? existing.posterUrl, subtitle: body.subtitle ?? existing.subtitle, updatedAt: now })
+      .set({ status, title: body.title, posterUrl: body.posterUrl ?? existing.posterUrl, subtitle: body.subtitle ?? existing.subtitle, deletedAt: null, updatedAt: now })
       .where(eq(mediaWatchlist.id, existing.id))
+    void mirrorWatchlistAdd(existing.id)
     return c.json({ id: existing.id, status })
   }
 
@@ -94,6 +98,7 @@ libraryRoute.post('/watchlist', async (c) => {
     addedAt: now,
     updatedAt: now,
   })
+  void mirrorWatchlistAdd(id)
   return c.json({ id, status })
 })
 
@@ -112,7 +117,15 @@ libraryRoute.patch('/watchlist/:id', async (c) => {
 libraryRoute.delete('/watchlist/:id', async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
-  await db.delete(mediaWatchlist).where(and(eq(mediaWatchlist.id, id), eq(mediaWatchlist.userId, user.id)))
+  const [row] = await db
+    .select()
+    .from(mediaWatchlist)
+    .where(and(eq(mediaWatchlist.id, id), eq(mediaWatchlist.userId, user.id)))
+    .limit(1)
+  if (!row) return c.json({ ok: true })
+  // Tombstone, don't hard-delete: the reconcile loop reads deletedAt to avoid re-importing.
+  await db.update(mediaWatchlist).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(mediaWatchlist.id, row.id))
+  void mirrorWatchlistRemove(row)
   return c.json({ ok: true })
 })
 
@@ -122,9 +135,14 @@ libraryRoute.delete('/watchlist', async (c) => {
   const mediaType = c.req.query('mediaType')
   const refId = c.req.query('refId')
   if (!isMediaType(mediaType) || !refId) return c.json({ error: 'mediaType and refId are required' }, 400)
-  await db
-    .delete(mediaWatchlist)
+  const [row] = await db
+    .select()
+    .from(mediaWatchlist)
     .where(and(eq(mediaWatchlist.userId, user.id), eq(mediaWatchlist.mediaType, mediaType), eq(mediaWatchlist.refId, refId)))
+    .limit(1)
+  if (!row) return c.json({ ok: true })
+  await db.update(mediaWatchlist).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(mediaWatchlist.id, row.id))
+  void mirrorWatchlistRemove(row)
   return c.json({ ok: true })
 })
 
@@ -154,8 +172,11 @@ libraryRoute.post('/shows/:tvmazeId/episodes/:episodeId/watched', async (c) => {
     .where(and(eq(showWatchedEpisodes.userId, user.id), eq(showWatchedEpisodes.episodeId, episodeId)))
     .limit(1)
 
+  const season = Number(body.season ?? existing?.season ?? 0)
+  const number = body.number ?? existing?.number ?? null
   if (existing) {
     await db.delete(showWatchedEpisodes).where(eq(showWatchedEpisodes.id, existing.id))
+    void mirrorEpisodeWatched(user.id, tvmazeId, season, number, false)
     return c.json({ watched: false })
   }
   await db.insert(showWatchedEpisodes).values({
@@ -163,10 +184,11 @@ libraryRoute.post('/shows/:tvmazeId/episodes/:episodeId/watched', async (c) => {
     userId: user.id,
     tvmazeId,
     episodeId,
-    season: Number(body.season ?? 0),
-    number: body.number ?? null,
+    season,
+    number,
     watchedAt: new Date(),
   })
+  void mirrorEpisodeWatched(user.id, tvmazeId, season, number, true)
   return c.json({ watched: true })
 })
 
@@ -193,7 +215,7 @@ libraryRoute.get('/continue', async (c) => {
   const watchlistShows = await db
     .select()
     .from(mediaWatchlist)
-    .where(and(eq(mediaWatchlist.userId, user.id), eq(mediaWatchlist.mediaType, 'show')))
+    .where(and(eq(mediaWatchlist.userId, user.id), eq(mediaWatchlist.mediaType, 'show'), isNull(mediaWatchlist.deletedAt)))
 
   const watchedRows = await db
     .select()

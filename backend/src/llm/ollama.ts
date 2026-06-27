@@ -167,15 +167,18 @@ export function ollamaChatStream(
     `\r\n` +
     payload
 
-  const decoder = new TextDecoder()
-  let headerBuf = ''    // accumulates bytes until \r\n\r\n
+  // Streaming UTF-8 decoder for NDJSON payload bytes. Decoding here (not at the
+  // framing layer) lets a multi-byte char that straddles a TCP segment or chunk
+  // boundary be reassembled across calls.
+  const payloadDecoder = new TextDecoder()
+  let headerBuf: Buffer = Buffer.alloc(0)    // raw bytes until \r\n\r\n
   let headersDone = false
   let isChunked = false
-  let chunkedBuf = ''   // unparsed bytes after headers (chunked frame parser state)
-  let ndjsonBuf = ''    // partial NDJSON line
+  let chunkedBuf: Buffer = Buffer.alloc(0)   // unparsed body bytes (chunked frame parser state)
+  let ndjsonBuf = ''    // partial NDJSON line (decoded text)
 
-  function emitLines(text: string) {
-    ndjsonBuf += text
+  function emitLines(bytes: Uint8Array) {
+    ndjsonBuf += payloadDecoder.decode(bytes, { stream: true })
     const lines = ndjsonBuf.split('\n')
     ndjsonBuf = lines.pop() ?? ''
     for (const line of lines) {
@@ -185,14 +188,17 @@ export function ollamaChatStream(
     }
   }
 
-  // Parses HTTP/1.1 chunked transfer encoding.
+  // Parses HTTP/1.1 chunked transfer encoding on raw BYTES.
   // Each chunk: <hex-size>\r\n<data>\r\n  — terminal chunk is 0\r\n\r\n
-  function parseChunked(raw: string) {
-    chunkedBuf += raw
+  // The hex size is a BYTE count, so framing must never run on a decoded string:
+  // a multi-byte UTF-8 char (e.g. "°", an emoji, a smart quote) would desync the
+  // byte size from the JS string length and corrupt the next size header.
+  function parseChunked(raw: Uint8Array) {
+    chunkedBuf = chunkedBuf.length ? Buffer.concat([chunkedBuf, raw]) : Buffer.from(raw)
     while (chunkedBuf.length > 0) {
       const crlfIdx = chunkedBuf.indexOf('\r\n')
       if (crlfIdx === -1) break
-      const chunkSize = parseInt(chunkedBuf.slice(0, crlfIdx), 16)
+      const chunkSize = parseInt(chunkedBuf.toString('ascii', 0, crlfIdx), 16)
       if (isNaN(chunkSize)) { push(new Error('Bad chunked encoding')); return }
       if (chunkSize === 0) {
         // Flush any partial NDJSON line that arrived without a trailing \n
@@ -207,9 +213,9 @@ export function ollamaChatStream(
       }
       const dataStart = crlfIdx + 2
       const dataEnd   = dataStart + chunkSize
-      if (chunkedBuf.length < dataEnd + 2) break               // wait for more data
-      emitLines(chunkedBuf.slice(dataStart, dataEnd))
-      chunkedBuf = chunkedBuf.slice(dataEnd + 2)               // skip trailing \r\n
+      if (chunkedBuf.length < dataEnd + 2) break               // wait for more bytes
+      emitLines(chunkedBuf.subarray(dataStart, dataEnd))
+      chunkedBuf = chunkedBuf.subarray(dataEnd + 2)            // skip trailing \r\n
     }
   }
 
@@ -240,16 +246,17 @@ export function ollamaChatStream(
       sock.setTimeout(OLLAMA_STREAM_IDLE_MS) // fires the 'timeout' handler above
     }
     tcpSegs++
-    const text = decoder.decode(raw, { stream: true })
 
     if (!headersDone) {
-      headerBuf += text
+      headerBuf = headerBuf.length ? Buffer.concat([headerBuf, raw]) : Buffer.from(raw)
       const sep = headerBuf.indexOf('\r\n\r\n')
       if (sep === -1) return
 
-      const headers = headerBuf.slice(0, sep)
-      const body    = headerBuf.slice(sep + 4)
-      headerBuf = ''
+      // Headers are ASCII; latin1 is a lossless byte→string mapping that never
+      // throws on a partial multi-byte body byte that snuck into headerBuf.
+      const headers = headerBuf.toString('latin1', 0, sep)
+      const body    = headerBuf.subarray(sep + 4)
+      headerBuf = Buffer.alloc(0)
 
       const statusCode = parseInt((headers.split('\r\n')[0] ?? '').split(' ')[1] ?? '0')
       if (statusCode >= 400) { push(new Error(`Chat stream failed: ${statusCode}`)); return }
@@ -264,8 +271,8 @@ export function ollamaChatStream(
       return
     }
 
-    if (isChunked) parseChunked(text)
-    else emitLines(text)
+    if (isChunked) parseChunked(raw)
+    else emitLines(raw)
   })
 
   sock.on('error', (err: Error) => { clearTimeout(firstByteTimer); push(err) })

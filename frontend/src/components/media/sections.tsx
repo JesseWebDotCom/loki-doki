@@ -1,11 +1,20 @@
 import { useState } from 'react'
-import { ExternalLink, Play, Star, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Disc3, ExternalLink, Loader2, Play, Plus, Radio, Star, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/cn'
 import { proxyImg } from '@/lib/img'
 import { mediaImg } from '@/lib/shows/api'
 import { useYoutubePlayback } from '@/context/YoutubePlaybackContext'
-import { Disc3 } from 'lucide-react'
+import { useRadio } from '@/context/RadioContext'
+import { instantStationDj, listStations, createStation, updateStation, stationToDj, type Station } from '@/lib/music/catalogApi'
 import type {
   ParentsGuide,
   ReviewDigest,
@@ -168,7 +177,18 @@ const PLATFORM_STYLE: Record<string, string> = {
 }
 
 export function SoundtrackAlbums({ albums }: { albums: SoundtrackAlbum[] }) {
+  const radio = useRadio()
+  const navigate = useNavigate()
   if (!albums.length) return null
+
+  function playAlbum(al: SoundtrackAlbum) {
+    const prompt = al.artist
+      ? `"${al.name}" by ${al.artist} film score soundtrack`
+      : `"${al.name}" film score soundtrack music`
+    radio.start(instantStationDj({ type: 'prompt', value: prompt, label: al.name }))
+    navigate('/music/now-playing')
+  }
+
   return (
     <div className="space-y-2.5">
       <h3 className="text-sm font-semibold text-muted-foreground">Soundtrack albums</h3>
@@ -188,6 +208,12 @@ export function SoundtrackAlbums({ albums }: { albums: SoundtrackAlbum[] }) {
               <p className="line-clamp-1 text-sm font-medium">{al.name}</p>
               {al.artist && <p className="line-clamp-1 text-xs text-muted-foreground">{al.artist}</p>}
               <div className="mt-2 flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => playAlbum(al)}
+                  className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2.5 py-1 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/25"
+                >
+                  <Radio className="size-3" /> Play in Music
+                </button>
                 {al.links.map((l) => (
                   <a
                     key={l.platform}
@@ -208,6 +234,181 @@ export function SoundtrackAlbums({ albums }: { albums: SoundtrackAlbum[] }) {
         ))}
       </div>
     </div>
+  )
+}
+
+// ── Create Radio Station button ───────────────────────────────────────────────
+
+const STATION_OPTIONS = [
+  {
+    id: 'score',
+    label: 'Original Score',
+    desc: 'Orchestral & instrumental film music',
+    emoji: '🎼',
+    // Saved as the station's description so it reads like the rest of the catalog.
+    description: (title: string, kind: 'movie' | 'show') =>
+      `The original orchestral score from the ${kind === 'show' ? 'show' : 'film'} ${title}, with its themes, cues, and instrumental music.`,
+    prompt: (title: string, kind: 'movie' | 'show') =>
+      `Original instrumental score composed for the ${kind === 'show' ? 'TV show' : 'film'} "${title}". ` +
+      `Only include music written specifically for "${title}" — themes, cues, and leitmotifs from its score. ` +
+      `Do NOT include music from any other film, show, or artist. Every track must be from "${title}"'s score.`,
+  },
+  {
+    id: 'soundtrack',
+    label: 'Soundtrack',
+    desc: 'Songs featured in the film or show',
+    emoji: '🎵',
+    description: (title: string, kind: 'movie' | 'show') =>
+      `Songs featured in and on the official soundtrack of the ${kind === 'show' ? 'show' : 'film'} ${title}.`,
+    prompt: (title: string, kind: 'movie' | 'show') =>
+      `Songs featured in or from the official soundtrack of the ${kind === 'show' ? 'TV show' : 'film'} "${title}". ` +
+      `Only include songs that actually appear in "${title}" or on its official soundtrack album. ` +
+      `Do NOT include music from other films, shows, or unrelated artists. Every track must be from "${title}".`,
+  },
+  {
+    id: 'both',
+    label: 'Score & Soundtrack',
+    desc: 'The full musical world of this title',
+    emoji: '🎭',
+    description: (title: string, kind: 'movie' | 'show') =>
+      `The complete musical world of the ${kind === 'show' ? 'show' : 'film'} ${title}, blending its orchestral score with the songs from its soundtrack.`,
+    prompt: (title: string, kind: 'movie' | 'show') =>
+      `Complete music from the ${kind === 'show' ? 'TV show' : 'film'} "${title}" — both the original instrumental score AND songs from the soundtrack. ` +
+      `Every track must be music that appears in or was created for "${title}". ` +
+      `Do NOT include any music from other films, shows, or unrelated artists.`,
+  },
+] as const
+
+export function MediaStationButton({ title, posterUrl, kind, showId }: {
+  title: string; posterUrl?: string | null; kind: 'movie' | 'show'; showId?: number
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const radio = useRadio()
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+
+  const { data: buckets } = useQuery({ queryKey: ['stations'], queryFn: listStations, staleTime: 60_000 })
+  const tlow = title.toLowerCase()
+  const related = (buckets?.mine ?? []).filter(s => s.name.toLowerCase().startsWith(tlow + ' - '))
+
+  async function launch(opt: typeof STATION_OPTIONS[number]) {
+    setDialogOpen(false)
+    setCreating(true)
+    try {
+      const sourceRef = kind === 'show' && showId != null
+        ? `source:show:${showId}:${encodeURIComponent(title)}`
+        : `source:movie:${encodeURIComponent(title)}`
+      const { station } = await createStation({
+        // Plain hyphen, not an em dash — the backend also scrubs auto titles as a safety net.
+        name: `${title} - ${opt.label}`,
+        aiPrompt: opt.prompt(title, kind),
+        seedType: 'prompt',
+        djMode: 'full',
+        visibility: 'private',
+        description: opt.description(title, kind),
+        sourceRef,
+        coverImageUrl: posterUrl ?? undefined,
+      })
+      // Refresh both the dropdown's own list (['stations']) and every stations surface
+      // (home / Stations page / detail) which key off ['music-stations'].
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['stations'] }),
+        qc.invalidateQueries({ queryKey: ['music-stations'] }),
+      ])
+      radio.start(stationToDj(station))
+      navigate('/music/now-playing')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  function playStation(s: Station) {
+    // Back-fill the origin tag on stations created before sourceRef was a column.
+    if (!s.sourceRef) {
+      const sourceRef = kind === 'show' && showId != null
+        ? `source:show:${showId}:${encodeURIComponent(title)}`
+        : `source:movie:${encodeURIComponent(title)}`
+      s = { ...s, sourceRef }
+      updateStation(s.id, { sourceRef }).catch(() => {})
+    }
+    if (radio.station?.stationId !== s.id) radio.start(stationToDj(s))
+    navigate('/music/now-playing')
+  }
+
+  const active = related.length > 0
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={creating}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50',
+              active ? 'bg-brand text-brand-foreground hover:opacity-90' : 'bg-foreground/10 hover:bg-foreground/15',
+            )}
+          >
+            {creating ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
+            Radio Station
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuItem onSelect={() => setDialogOpen(true)}>
+            <Plus className="size-4" /> Create station
+          </DropdownMenuItem>
+          {related.length > 0 && <DropdownMenuSeparator />}
+          {related.length > 0 && (
+            <DropdownMenuLabel className="truncate">
+              From {title.length <= 24 ? title : title.slice(0, 22) + '…'}
+            </DropdownMenuLabel>
+          )}
+          {related.map(s => (
+            <DropdownMenuItem key={s.id} onSelect={() => playStation(s)}>
+              {s.iconUrl ? (
+                <img src={s.iconUrl} alt="" className="size-5 shrink-0 rounded object-cover" />
+              ) : (
+                <Radio className="size-4 shrink-0 text-violet-400" />
+              )}
+              <span className="truncate">{s.name.slice(title.length + 3)}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <div className="mb-3 flex items-center gap-3">
+              {posterUrl && (
+                <img src={mediaImg(posterUrl)} alt={title}
+                  className="size-14 shrink-0 rounded-lg object-cover shadow ring-1 ring-border/40" />
+              )}
+              <div className="min-w-0">
+                <DialogTitle className="line-clamp-2 text-base leading-snug">{title}</DialogTitle>
+                <p className="mt-0.5 text-xs text-muted-foreground">What kind of station?</p>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="space-y-2">
+            {STATION_OPTIONS.map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => launch(opt)}
+                className="flex w-full items-center gap-3 rounded-xl border border-border/50 p-3 text-left transition-colors hover:border-violet-500/40 hover:bg-violet-500/8"
+              >
+                <span className="text-2xl">{opt.emoji}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

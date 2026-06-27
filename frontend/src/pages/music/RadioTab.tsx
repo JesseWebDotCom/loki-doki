@@ -20,7 +20,7 @@ function WaveBar({ active, color }: { active: boolean; color: string }) {
 export function RadioTab() {
   const radio = useRadio()
 
-  const { station, queue, index, currentTrack, djText, djSpeaking, phase, paused, volume, muted } = radio
+  const { station, queue, index, currentTrack, djText, djSpeaking, phase, paused, volume, muted, queueLoading } = radio
   const isActive = radio.active
   const loadingTracks = phase === 'loading'
   // During the DJ intro nothing is "Now Playing" yet — the first song sits at the top of
@@ -154,6 +154,12 @@ export function RadioTab() {
                     </div>
                   </div>
                 ))}
+                {queueLoading && (
+                  <p className="flex items-center gap-2 border-t border-border/40 px-4 py-2.5 text-[11px] text-muted-foreground">
+                    <span className="inline-flex size-1.5 animate-pulse rounded-full" style={{ background: station?.color ?? '#a855f7' }} />
+                    Building the rest of the station…
+                  </p>
+                )}
               </div>
             </div>
           )}

@@ -42,18 +42,19 @@ export function StationCard({ station, onOpen }: { station: Station; onOpen?: (s
           <Play className="size-5 translate-x-px fill-current" />
         </button>
       </div>
-      <div className="p-3">
-        <div className="flex items-center gap-1.5">
-          <p className="truncate text-sm font-semibold">{station.name}</p>
-          {playing && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-red-500" />}
+      {(station.description || station.ownerName || playing) && (
+        <div className="px-3 py-2">
+          {playing && <span className="mb-1 inline-block size-1.5 animate-pulse rounded-full bg-red-500" />}
+          {station.description && !station.description.startsWith('source:') && (
+            <p className="line-clamp-2 text-xs text-muted-foreground">{station.description}</p>
+          )}
+          {station.ownerName && (
+            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
+              <Users className="size-3" /> by {station.ownerName}
+            </p>
+          )}
         </div>
-        {station.description && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{station.description}</p>}
-        {station.ownerName && (
-          <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/70">
-            <Users className="size-3" /> by {station.ownerName}
-          </p>
-        )}
-      </div>
+      )}
     </Card>
   )
 }

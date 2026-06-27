@@ -39,10 +39,12 @@ export async function synthesizeWithPauses(
   if (!chunks.length) return null
 
   const base = voiceServerLocalUrl()
-  const segments: Int16Array[] = []
   let sampleRate = 24000
 
-  for (const chunk of chunks) {
+  // Synthesize every chunk concurrently — each is an independent Kokoro call — so a multi-sentence
+  // DJ line costs one round-trip instead of N sequential ones. Results are assembled in order
+  // afterwards, with the inter-chunk silences preserved.
+  const rendered = await Promise.all(chunks.map(async (chunk) => {
     const res = await fetch(`${base}/synthesize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -51,9 +53,15 @@ export async function synthesizeWithPauses(
     })
     if (!res.ok) return null
     const { samples, sampleRate: sr } = wavToInt16(await res.arrayBuffer())
-    sampleRate = sr
-    segments.push(samples)
-    if (chunk.gapSec > 0) segments.push(new Int16Array(Math.floor(sampleRate * chunk.gapSec)))
+    return { samples, sampleRate: sr, gapSec: chunk.gapSec }
+  }))
+  if (rendered.some(r => r === null)) return null
+
+  const segments: Int16Array[] = []
+  for (const r of rendered) {
+    sampleRate = r!.sampleRate
+    segments.push(r!.samples)
+    if (r!.gapSec > 0) segments.push(new Int16Array(Math.floor(sampleRate * r!.gapSec)))
   }
 
   const total = segments.reduce((n, s) => n + s.length, 0)

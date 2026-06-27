@@ -125,6 +125,8 @@ export const devices = sqliteTable('devices', {
   name: text('name').notNull(),
   kind: text('kind').notNull().default('pod'),   // dot | show | watch | tablet | pod
   wakeWord: text('wake_word'),                    // optional per-device detector id
+  hwid: text('hwid'),                             // stable hardware id (MAC) for one-tap claim/rebind
+  model: text('model'),                           // device catalog id (e.g. 'atom-echo') → make/model + art
   tokenHash: text('token_hash'),                  // SHA-256 of the device token; null until paired
   pairingCode: text('pairing_code'),              // short-lived code; null once redeemed
   pairingExpiresAt: integer('pairing_expires_at', { mode: 'timestamp' }),
@@ -438,6 +440,7 @@ export const musicStations = sqliteTable('music_stations', {
   userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }), // null = built-in
   name: text('name').notNull(),
   description: text('description'),
+  sourceRef: text('source_ref'),      // origin tag for auto-built stations, e.g. "source:movie:Title" — kept out of the human-facing description
   aiPrompt: text('ai_prompt').notNull().default(''),
   seedType: text('seed_type', { enum: ['prompt', 'genre', 'artist', 'song'] }).notNull().default('prompt'),
   seedValue: text('seed_value'),
@@ -1463,6 +1466,12 @@ export const mediaWatchlist = sqliteTable('media_watchlist', {
   posterUrl: text('poster_url'),
   subtitle: text('subtitle'),  // network/year — shown on watchlist cards
   status: text('status', { enum: ['want', 'watching', 'completed', 'dropped'] }).notNull().default('want'),
+  // Plex account-Watchlist mirror: the global Discover ratingKey we pushed this title under,
+  // when it was last synced, and a soft-delete tombstone so a removal isn't re-imported on the
+  // next reconcile (the classic two-way-sync bug). Rows with deletedAt set are hidden from the UI.
+  plexRatingKey: text('plex_rating_key'),
+  plexSyncedAt: integer('plex_synced_at', { mode: 'timestamp' }),
+  deletedAt: integer('deleted_at', { mode: 'timestamp' }),
   addedAt: integer('added_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, t => ({ userItemUnique: unique().on(t.userId, t.mediaType, t.refId) }))

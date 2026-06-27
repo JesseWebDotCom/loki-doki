@@ -7,6 +7,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AppBreadcrumb, type BreadcrumbCrumb } from "@/components/shared/AppBreadcrumb";
+import { PlexConnectBanner } from "@/components/media/PlexConnectBanner";
 import { AppBackdrop } from "@/components/shared/AppBackdrop";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -228,28 +229,32 @@ export function AppShell() {
             {breadcrumbSearch && (
               <>
                 {breadcrumbSearch.leftSlot}
-                <form
-                  onSubmit={(e) => { e.preventDefault(); breadcrumbSearch.onSubmit?.() }}
-                  className="flex flex-1 gap-1"
-                >
-                  <div className="relative flex-1">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={breadcrumbSearch.query}
-                      onChange={(e) => breadcrumbSearch.setQuery(e.target.value)}
-                      placeholder={breadcrumbSearch.placeholder ?? 'Search...'}
-                      className="h-8 pl-8 text-sm"
-                    />
-                  </div>
-                  {breadcrumbSearch.onSubmit && (
-                    <Button type="submit" size="sm" variant="secondary" className="h-8 px-3">
-                      {breadcrumbSearch.loading
-                        ? <Loader2 className="size-3.5 animate-spin" />
-                        : 'Search'
-                      }
-                    </Button>
-                  )}
-                </form>
+                {breadcrumbSearch.searchable !== false ? (
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); breadcrumbSearch.onSubmit?.() }}
+                    className="flex flex-1 gap-1"
+                  >
+                    <div className="relative flex-1">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={breadcrumbSearch.query}
+                        onChange={(e) => breadcrumbSearch.setQuery(e.target.value)}
+                        placeholder={breadcrumbSearch.placeholder ?? 'Search...'}
+                        className="h-8 pl-8 text-sm"
+                      />
+                    </div>
+                    {breadcrumbSearch.onSubmit && (
+                      <Button type="submit" size="sm" variant="secondary" className="h-8 px-3">
+                        {breadcrumbSearch.loading
+                          ? <Loader2 className="size-3.5 animate-spin" />
+                          : 'Search'
+                        }
+                      </Button>
+                    )}
+                  </form>
+                ) : (
+                  <div className="flex-1" />
+                )}
                 {breadcrumbSearch.rightSlot}
                 {breadcrumbSearch.settingsHref && user?.role === 'admin' && (
                   <Button
@@ -272,6 +277,10 @@ export function AppShell() {
             )}
           </AppBreadcrumb>
         )}
+
+        {/* Plex connect prompt — only in the Plex-relevant apps (Movies/Shows and their subpages),
+            fixed under the breadcrumb until the user links. Not shown in unrelated apps. */}
+        {(pathname.startsWith("/movies") || pathname.startsWith("/shows")) && <PlexConnectBanner />}
 
         {/* Content. Full-bleed apps (chat, panels, maps) fill the whole height
             and let the floating companion overlay them. Other scrollers get

@@ -21,6 +21,7 @@ import { AdminFrigateTab } from '@/components/admin/AdminFrigateTab'
 import { AdminDevicesTab } from '@/components/admin/AdminDevicesTab'
 import { AdminLocaleTab } from '@/components/admin/AdminLocaleTab'
 import { AdminRemoteEngineTab } from '@/components/admin/AdminRemoteEngineTab'
+import { AdminPlexTab } from '@/components/admin/AdminPlexTab'
 import { UninstallPanel } from '@/components/admin/UninstallPanel'
 
 const DOWNLOAD_SECTIONS = new Set(['features', 'companions', 'advanced'])
@@ -194,6 +195,7 @@ export function AdminPage() {
         {section === 'news'       && <AdminNewsTab />}
         {section === 'devices'    && <AdminDevicesTab />}
         {section === 'frigate'    && <AdminFrigateTab />}
+        {section === 'plex'       && <AdminPlexTab />}
         {section === 'security'   && <AdminSecurityTab view={sub} />}
         {section === 'users'      && <AdminUsersTab openSignal={openSignal} />}
         {section === 'advanced'   && <AdminAdvancedTab view={(sub as AdvancedView) ?? 'diagnostics'} />}

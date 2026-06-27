@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Heart, ExternalLink, Music2, SkipForward, Pause, Play, Download, Moon, Mic, Disc3, Info, ListMusic, AudioLines, MonitorPlay } from 'lucide-react'
+import { Heart, ExternalLink, Music2, SkipForward, Pause, Play, Download, Moon, Mic, Disc3, Info, ListMusic, AudioLines, MonitorPlay, Loader2 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { proxyImg } from '@/lib/img'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { useRadio } from '@/context/RadioContext'
 import { EqVisualizer } from '@/components/shared/EqVisualizer'
-import { getLyrics, getSongInfo, getArtistInfo, addFavorite, saveOffline, getStationTuning, prefetchMedia } from '@/lib/music/catalogApi'
+import { getLyrics, getSongInfo, getArtistInfo, getSongSmartLinks, addFavorite, saveOffline, getStationTuning, getStation, prefetchMedia } from '@/lib/music/catalogApi'
 
 function SectionLabel({ icon: Icon, color, children }: { icon: typeof Music2; color: string; children: React.ReactNode }) {
   return (
@@ -105,6 +105,29 @@ function AboutStrip({ artist, title, color }: { artist: string; title: string; c
   )
 }
 
+function SmartLinksRow({ artist, title, color }: { artist: string; title: string; color: string }) {
+  const { data } = useQuery({
+    queryKey: ['music-smart-links', artist, title],
+    queryFn: () => getSongSmartLinks(artist, title),
+    enabled: !!artist && !!title,
+    staleTime: Infinity,
+  })
+  const links = data?.links ?? []
+  if (!links.length) return null
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {links.map(l => (
+        <a key={l.platform} href={l.url} target="_blank" rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 text-xs font-medium transition hover:bg-accent"
+          style={{ color }}>
+          <ExternalLink className="size-3 shrink-0" />
+          {l.platform}
+        </a>
+      ))}
+    </div>
+  )
+}
+
 // Generic fallback shown for the blink before the station's own lines load (or for legacy
 // preset stations with no saved id). The per-station LLM-written set replaces these.
 const FALLBACK_TUNING = [
@@ -124,7 +147,7 @@ function TuningLyrics({ stationId, color }: { stationId?: string; color: string 
   const messages = data?.messages?.length ? data.messages : FALLBACK_TUNING
   const [i, setI] = useState(0)
   useEffect(() => {
-    const t = setInterval(() => setI(n => n + 1), 2800)
+    const t = setInterval(() => setI(n => n + 1), 5500)
     return () => clearInterval(t)
   }, [])
 
@@ -146,9 +169,10 @@ function TuningLyrics({ stationId, color }: { stationId?: string; color: string 
 // Shown while a station is spinning up — queue is still building and the DJ intro is
 // playing, so there's no track on deck yet. Mirrors the loaded layout with the real
 // station identity (colour, emoji, label) so the wait reads as "tuning in", not "broken".
-function NowPlayingSkeleton({ c1, c2, emoji, label, paused, getAnalyser, stationId, showViz }: {
-  c1: string; c2: string; emoji: string; label: string; paused: boolean; getAnalyser: () => AnalyserNode | null; stationId?: string; showViz: boolean
+function NowPlayingSkeleton({ c1, c2, emoji, label, paused, getAnalyser, stationId, showViz, iconUrl, sourceBackLink }: {
+  c1: string; c2: string; emoji: string; label: string; paused: boolean; getAnalyser: () => AnalyserNode | null; stationId?: string; showViz: boolean; iconUrl?: string; sourceBackLink?: { url: string; label: string } | null
 }) {
+  const navigate = useNavigate()
   return (
     <div className="px-5 pt-6 pb-8">
       {/* Hero — same shell as when playing, with the station's accent and a live disc. */}
@@ -164,11 +188,20 @@ function NowPlayingSkeleton({ c1, c2, emoji, label, paused, getAnalyser, station
           <div className="relative size-24 shrink-0 overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/15"
             style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
             <Disc3 className="absolute left-1/2 top-1/2 size-10 -translate-x-1/2 -translate-y-1/2 text-white/40 motion-safe:animate-[spin_6s_linear_infinite]" />
+            {iconUrl && <img src={iconUrl} alt="" className="absolute inset-0 size-full object-cover" onError={e => { e.currentTarget.style.display = 'none' }} />}
           </div>
           <div className="min-w-0 flex-1">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
-              <span>{emoji}</span> {label}
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
+                <span>{emoji}</span> {label}
+              </span>
+              {sourceBackLink && (
+                <button onClick={() => navigate(sourceBackLink.url)}
+                  className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 backdrop-blur transition hover:bg-white/20 hover:text-white">
+                  ← {sourceBackLink.label}
+                </button>
+              )}
+            </div>
             <Skeleton className="mt-3 h-8 w-2/3 max-w-sm" />
             <Skeleton className="mt-2 h-4 w-32" />
           </div>
@@ -217,6 +250,26 @@ function NowPlayingSkeleton({ c1, c2, emoji, label, paused, getAnalyser, station
 export function NowPlayingPage() {
   const radio = useRadio()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
+  // Warm the NEXT track's page content (image, lyrics, Wikipedia, smart links) into the
+  // react-query cache *while the current song is still playing* — these all use staleTime:Infinity,
+  // so when currentTrack flips after the DJ transition they render instantly instead of starting
+  // their fetches only then (which read as the page "waiting" behind the DJ). The fetches all run
+  // in parallel; if one is still in flight at transition time it just resolves — never serial to the DJ.
+  const next = radio.nextTrack
+  useEffect(() => {
+    if (!next?.title) return
+    const artist = next.author ?? ''
+    const title = next.title
+    const warm = (key: unknown[], fn: () => Promise<unknown>) =>
+      void queryClient.prefetchQuery({ queryKey: key, queryFn: fn, staleTime: Infinity })
+    warm(['music-lyrics', artist, title], () => getLyrics(artist, title))
+    if (title) warm(['music-song-info', artist, title], () => getSongInfo(artist, title))
+    if (artist) warm(['music-artist-info', artist], () => getArtistInfo(artist))
+    if (artist && title) warm(['music-smart-links', artist, title], () => getSongSmartLinks(artist, title))
+    if (next.thumbnail) { const img = new Image(); img.src = proxyImg(next.thumbnail) }   // warm the hero artwork
+  }, [next?.videoId, next?.title, next?.author, next?.thumbnail, queryClient])
   // Once the queue is built, the first song is already cued and playing under the DJ intro
   // (currentTrack only gets set after the intro finishes). Fall back to that cued track so the
   // loading messages stop the moment the DJ kicks in, rather than lingering over the intro.
@@ -228,6 +281,23 @@ export function NowPlayingPage() {
   useEffect(() => {
     if (cur?.videoId && watchableStation) void prefetchMedia(cur.videoId, 'video', 480)
   }, [cur?.videoId, watchableStation])
+
+  // Fast path: sourceRef is carried in the DjStation shape so it's available immediately.
+  // Fallback: fetch from DB for stations started before sourceRef was added to DjStation.
+  const { data: stationDetail } = useQuery({
+    queryKey: ['station', watchableStation],
+    queryFn: () => getStation(watchableStation!),
+    enabled: !!watchableStation && !radio.station?.sourceRef,
+    staleTime: Infinity,
+  })
+  const sourceRef = radio.station?.sourceRef ?? stationDetail?.station.sourceRef ?? ''
+  const sourceBackLink = (() => {
+    const movieM = sourceRef.match(/^source:movie:(.+)$/)
+    if (movieM) return { url: `/movies/${movieM[1]}`, label: decodeURIComponent(movieM[1]) }
+    const showM = sourceRef.match(/^source:show:(\d+):(.+)$/)
+    if (showM) return { url: `/shows/${showM[1]}`, label: decodeURIComponent(showM[2]) }
+    return null
+  })()
 
   // Nothing started yet — the only genuinely empty state.
   if (!radio.active) {
@@ -242,11 +312,15 @@ export function NowPlayingPage() {
   // Station is starting (queue building + DJ intro) but no track is on deck yet —
   // show the loading skeleton instead of the "nothing's playing" copy.
   if (!cur) {
-    return <NowPlayingSkeleton c1={c1} c2={c2} emoji={emoji} label={label} paused={radio.paused} getAnalyser={radio.getAnalyser} stationId={radio.station?.stationId} showViz={radio.visualizerEnabled} />
+    return <NowPlayingSkeleton c1={c1} c2={c2} emoji={emoji} label={label} paused={radio.paused} getAnalyser={radio.getAnalyser} stationId={radio.station?.stationId} showViz={radio.visualizerEnabled} iconUrl={radio.station?.iconUrl} sourceBackLink={sourceBackLink} />
   }
 
   const artist = cur.author ?? ''
   const upNext = radio.queue.slice(radio.index + 1, radio.index + 25)
+  // While the station spins up, the DJ intro is still being written/synthesized. Keep the "tuning
+  // in" messages over the lyrics (which load behind) until the DJ is about to speak, rather than
+  // flashing empty/half-loaded lyrics first.
+  const djPending = radio.phase === 'intro' && !radio.djSpeaking
 
   const favorite = async () => {
     try { await addFavorite({ kind: 'song', refId: cur.videoId, title: cur.title, artist }); toast.success('Added to favorites') }
@@ -277,10 +351,16 @@ export function NowPlayingPage() {
               onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-white/90 backdrop-blur">
                 <span>{emoji}</span> {radio.station?.label ?? 'Radio'}
               </span>
+              {sourceBackLink && (
+                <button onClick={() => navigate(sourceBackLink.url)}
+                  className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 backdrop-blur transition hover:bg-white/20 hover:text-white">
+                  ← {sourceBackLink.label}
+                </button>
+              )}
             </div>
             <h1 className="mt-2 truncate text-3xl font-black tracking-tight">{cur.title}</h1>
             {artist && <p className="mt-0.5 truncate text-sm text-muted-foreground">{artist}</p>}
@@ -295,7 +375,7 @@ export function NowPlayingPage() {
               style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}>
               {radio.paused ? <Play className="size-5 translate-x-px fill-current" /> : <Pause className="size-5 fill-current" />}
             </button>
-            <Button size="icon" variant="secondary" onClick={() => radio.skip()} aria-label="Skip"><SkipForward className="size-4" /></Button>
+            <Button size="icon" variant="secondary" onClick={() => radio.skip()} disabled={radio.skipping} aria-label="Skip">{radio.skipping ? <Loader2 className="size-4 animate-spin" /> : <SkipForward className="size-4" />}</Button>
             <Button size="icon" variant="secondary" onClick={radio.toggleVisualizer}
               aria-label={radio.visualizerEnabled ? 'Hide visualizer' : 'Show visualizer'}
               title={radio.visualizerEnabled ? 'Visualizer on' : 'Visualizer off'}>
@@ -334,6 +414,7 @@ export function NowPlayingPage() {
       </div>
 
       <AboutStrip artist={artist} title={cur.title} color={c1} />
+      <SmartLinksRow artist={artist} title={cur.title} color={c1} />
 
       {/* No tabs — lyrics and what's up next are both always visible (60 / 40). */}
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[3fr_2fr]">
@@ -343,12 +424,17 @@ export function NowPlayingPage() {
             <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 rounded-t-2xl bg-gradient-to-b from-card to-transparent" />
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 rounded-b-2xl bg-gradient-to-t from-card to-transparent" />
             <LyricsPanel artist={artist} title={cur.title} />
+            {djPending && (
+              <div className="absolute inset-0 z-20 rounded-2xl bg-card animate-in fade-in">
+                <TuningLyrics stationId={radio.station?.stationId} color={c1} />
+              </div>
+            )}
           </Card>
         </section>
         <section className="flex min-h-0 flex-col">
           <SectionLabel icon={ListMusic} color={c1}>Up Next</SectionLabel>
           <Card className="h-[58vh] overflow-y-auto p-1.5">
-            {upNext.length === 0 && (
+            {upNext.length === 0 && !radio.queueLoading && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
                 <ListMusic className="size-7 opacity-30" />
                 <p className="text-sm">Nothing queued.</p>
@@ -365,6 +451,26 @@ export function NowPlayingPage() {
                 </div>
               </div>
             ))}
+            {/* The station starts on its first track while the rest of the queue builds in the
+                background — show skeleton rows so the short list doesn't read as "that's all". */}
+            {radio.queueLoading && (
+              <>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={`ph-${i}`} className="flex items-center gap-3 rounded-xl px-2.5 py-2">
+                    <span className="w-4 shrink-0 text-center text-xs font-medium tabular-nums text-muted-foreground/30">{upNext.length + i + 1}</span>
+                    <Skeleton className="size-10 shrink-0 rounded-lg" />
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <Skeleton className="h-3.5 w-3/4" />
+                      <Skeleton className="h-3 w-2/5" />
+                    </div>
+                  </div>
+                ))}
+                <p className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+                  <span className="inline-flex size-1.5 animate-pulse rounded-full" style={{ background: c1 }} />
+                  Building the rest of the station…
+                </p>
+              </>
+            )}
           </Card>
         </section>
       </div>

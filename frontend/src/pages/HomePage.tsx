@@ -3,9 +3,9 @@ import {
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Bookmark, CalendarDays, CirclePlay, Heart, Headphones, Laugh, LayoutGrid, ListVideo,
-  Loader2, Music, Newspaper, Pencil, Play, PlaySquare, Plus, Trophy, Tv, X,
-  type LucideIcon,
+  Activity, Bookmark, CalendarDays, CirclePlay, Gauge, Heart, Headphones, Laugh, LayoutGrid,
+  ListVideo, Loader2, Music, Newspaper, Pencil, Play, PlaySquare, Plus, RotateCw, Trophy, Tv,
+  Upload, X, type LucideIcon,
 } from "lucide-react";
 import type { VideoItem } from "@/lib/youtube/types";
 import { useQuery } from "@tanstack/react-query";
@@ -49,6 +49,11 @@ import { usePodcastPlayback } from "@/context/PodcastPlaybackContext";
 import { useYoutubePlayback } from "@/context/YoutubePlaybackContext";
 import type { BookmarkItem } from "@/lib/bookmarks/api";
 import { useInstalledTools, isAppVisible } from "@/hooks/useInstalledTools";
+import {
+  DEFAULT_THRESHOLDS, RATING_META, fmtMbps, fmtMs, loadLastResult, loadMode, loadThresholds,
+  rateSpeed, runSpeedTest, saveLastResult, type SpeedMode, type SpeedPhase, type SpeedResult,
+  type SpeedThresholds,
+} from "@/lib/speedtest";
 import { cn } from "@/lib/cn";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1203,6 +1208,94 @@ function WidgetUnavailable() {
   );
 }
 
+function WidgetSpeedTest() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [thresholds, setThresholds] = useState<SpeedThresholds>(DEFAULT_THRESHOLDS);
+  const [mode, setMode] = useState<SpeedMode>('internet');
+  const [result, setResult] = useState<SpeedResult | null>(null);
+  const [phase, setPhase] = useState<SpeedPhase>('idle');
+  const [live, setLive] = useState(0);
+  const running = phase !== 'idle' && phase !== 'done';
+  const runningRef = useRef(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    void loadThresholds(user.id).then(setThresholds);
+    void loadMode(user.id).then(setMode);
+    void loadLastResult(user.id).then(r => { if (r) setResult(r); });
+  }, [user?.id]);
+
+  const run = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    if (runningRef.current) return;
+    runningRef.current = true;
+    setResult(null); setLive(0);
+    try {
+      const res = await runSpeedTest(mode, (p) => {
+        setPhase(p.phase);
+        if (p.phase === 'download' || p.phase === 'upload' || p.phase === 'done') setLive(p.mbps);
+      });
+      setResult(res); setPhase('done');
+      if (user?.id) void saveLastResult(user.id, res);
+    } catch {
+      setPhase('idle');
+    } finally {
+      runningRef.current = false;
+    }
+  }, [mode, user?.id]);
+
+  const rating = result ? rateSpeed(result.downloadMbps, thresholds) : null;
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card p-4 h-full flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-400">
+          <Gauge className="size-3" />
+          <span>Speed Test</span>
+        </div>
+        <button
+          onClick={run}
+          disabled={running}
+          className="text-cyan-400/70 hover:text-cyan-400 transition-colors disabled:opacity-50"
+          title="Run speed test"
+        >
+          {running
+            ? <Loader2 className="size-3.5 animate-spin" />
+            : <RotateCw className="size-3.5" />}
+        </button>
+      </div>
+
+      {running ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-1">
+          <span className="text-3xl font-black tabular-nums text-cyan-400">{fmtMbps(live)}</span>
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground/55">
+            {phase === 'upload' ? 'Upload Mbps' : phase === 'ping' ? 'Pinging…' : 'Download Mbps'}
+          </span>
+        </div>
+      ) : result ? (
+        <button onClick={() => navigate('/speed-test')} className="flex-1 flex flex-col justify-center gap-2 text-left">
+          <div className="flex items-baseline gap-1.5">
+            <span className={cn('text-3xl font-black tabular-nums', rating && RATING_META[rating].text)}>
+              {fmtMbps(result.downloadMbps)}
+            </span>
+            <span className="text-[11px] font-semibold text-muted-foreground/55">Mbps down</span>
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
+            <span className="flex items-center gap-1"><Upload className="size-3" />{fmtMbps(result.uploadMbps)}</span>
+            <span className="flex items-center gap-1"><Activity className="size-3" />{fmtMs(result.pingMs)} ms</span>
+          </div>
+        </button>
+      ) : (
+        <button onClick={run} className="flex-1 flex flex-col items-center justify-center gap-1.5 text-muted-foreground/60 hover:text-foreground/80 transition-colors">
+          <Gauge className="size-7" />
+          <span className="text-[12px] font-medium">Run a speed test</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Widget renderers ──────────────────────────────────────────────────────────
 // Keyed by canonical widget id (see lib/homeWidgets). The catalog there is the
 // source of truth for which widgets exist; this map just wires ids to views.
@@ -1220,6 +1313,7 @@ const WIDGET_RENDERERS: Record<string, (displayMode: 'row' | 'column') => React.
   'podcasts-continue':  () => <WidgetPodcastsContinue />,
   'podcasts-shows':     (m) => <WidgetPodcastsShows displayMode={m} />,
   'watchlist':          (m) => <WidgetWatchlist displayMode={m} />,
+  'speed-test':         () => <WidgetSpeedTest />,
 };
 
 function renderWidget(widget: HomeWidget, mode: 'row' | 'column'): React.ReactNode {

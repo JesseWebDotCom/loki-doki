@@ -38,7 +38,7 @@ function norm(s: string): string {
 
 // Ask Odesli for every platform the album is on, given its Apple Music URL. Keyless,
 // best-effort (rate-limited → returns [] on failure, which just yields fewer links).
-async function odesliLinks(appleUrl: string): Promise<PlatformLink[]> {
+export async function odesliLinks(appleUrl: string): Promise<PlatformLink[]> {
   try {
     const res = await fetch(
       `https://api.song.link/v1-alpha.1/links?url=${encodeURIComponent(appleUrl)}&userCountry=US`,

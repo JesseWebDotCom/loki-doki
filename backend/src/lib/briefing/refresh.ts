@@ -21,6 +21,7 @@ import { todaysHolidays } from './sources/holidays'
 import { patchLocal } from './sources/patch'
 import { googleNewsSearch } from './sources/rss'
 import { sportsToday } from './sources/sports'
+import { plexRecentlyAdded } from './sources/plex'
 
 export const DEFAULT_BRIEFING_KEY = '__default__'
 
@@ -57,6 +58,7 @@ export async function refreshBriefing(
     sports: [],
     notableDeaths: [],
     onThisDay: [],
+    plex: [],
     degraded,
   }
 
@@ -100,6 +102,9 @@ export async function refreshBriefing(
   }
   if (s.sources.holidays) {
     tasks.push(todaysHolidays('US').then((x) => { payload.holidays = x }).catch(() => { degraded.push('holidays') }))
+  }
+  if (s.sources.plex) {
+    tasks.push(plexRecentlyAdded(4).then((x) => { payload.plex = x }).catch(() => { degraded.push('plex') }))
   }
   if (s.sources.localNews || s.sources.localEvents) {
     const limit = Math.max(s.maxItems.localNews, s.maxItems.localEvents)

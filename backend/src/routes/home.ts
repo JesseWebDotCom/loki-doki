@@ -9,6 +9,7 @@ import { homeDevices, homeServiceLog, homeDeviceFiles, homeDeviceLinks } from '@
 import { requireAuth } from '@/middleware/auth'
 import { dataDir } from '@/lib/download'
 import { lookupDevice } from '@/lib/home/lookup'
+import { getDeviceDigest } from '@/lib/home/digest'
 import { getVisionModel, getModel } from '@/lib/models'
 import { screenImage, logCsamBlock } from '@/lib/safety/csamGuard'
 import { ollamaChat, ollamaChatStream } from '@/llm/ollama'
@@ -522,6 +523,23 @@ Return null for fields not found. Return null for labelSpecs if no additional sp
     console.error('[identify] unexpected error:', err)
     return c.json({ error: 'Identification failed' }, 500)
   }
+})
+
+// ── AI digest (common issues, recalls, care tips) ────────────────────────────
+
+home.get('/devices/:id/digest', requireAuth, async (c) => {
+  const id = c.req.param('id')
+  const device = await db.select().from(homeDevices).where(eq(homeDevices.id, id)).then(r => r[0])
+  if (!device) return c.json({ error: 'Not found' }, 404)
+
+  const digest = await getDeviceDigest({
+    name: device.name,
+    brand: device.brand,
+    model: device.model,
+    category: device.category,
+    manualText: device.manualText,
+  })
+  return c.json({ digest })
 })
 
 // ── Trigger web lookup ────────────────────────────────────────────────────────

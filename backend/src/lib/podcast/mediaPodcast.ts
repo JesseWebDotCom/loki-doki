@@ -12,6 +12,7 @@ import { db } from '@/db'
 import { podcastShows, podcastEpisodes, podcastEpisodeSources, downloadJobs, users } from '@/db/schema'
 import { getVisibleCompanions } from '@/routes/companions'
 import { getShowDetails, getShowEpisodes } from '@/lib/shows/tvmaze'
+import { cleanAutoTitle } from '@/lib/cleanTitle'
 import type { ShowHost, ShowSegment } from './types'
 
 export const BATCH_SIZE = 5
@@ -85,7 +86,7 @@ export async function ensureTvShowPodcast(tvmazeId: number, userId: string, isAd
   await db.insert(podcastShows).values({
     id,
     ownerUserId: userId,
-    name: `${details.name} — Episode by Episode`,
+    name: cleanAutoTitle(`${details.name} - Episode by Episode`),
     description: `An episode-by-episode companion podcast for ${details.name}.`,
     style: 'recap',
     segmentsJson: '[]',
@@ -236,7 +237,7 @@ export async function ensureAndQueueMoviePodcast(
     await db.insert(podcastShows).values({
       id: showId,
       ownerUserId: userId,
-      name: `${title} — Deep Dive`,
+      name: cleanAutoTitle(`${title} - Deep Dive`),
       description: `A discussion & review podcast about the film ${title}.`,
       style: 'in-depth',
       segmentsJson: '[]',

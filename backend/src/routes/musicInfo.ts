@@ -6,6 +6,7 @@ import { Hono } from 'hono'
 import { requireAuth } from '@/middleware/auth'
 import { cachedLookup, THIRTY_DAYS_MS } from '@/lib/lookupCache'
 import { getArtist } from '@/lib/music/catalog'
+import { getSongSmartLinks, getAlbumSmartLinks } from '@/lib/music/smartLinks'
 import type { AppEnv } from '@/types'
 
 export const musicInfo = new Hono<AppEnv>()
@@ -397,5 +398,25 @@ musicInfo.get('/soundtrack', async (c) => {
     return c.json({ songs, sourceTitle: data.releases?.[0]?.title ?? title })
   } catch {
     return c.json({ songs: [] })
+  }
+})
+
+// GET /api/music/info/smart-links?artist=&track= OR ?artist=&album=
+// Returns cross-platform "Listen on …" links via iTunes + Odesli (keyless).
+musicInfo.get('/smart-links', async (c) => {
+  const artist = c.req.query('artist')?.trim() ?? ''
+  const track  = c.req.query('track')?.trim()  ?? ''
+  const album  = c.req.query('album')?.trim()  ?? ''
+  if (!artist) return c.json({ links: [] })
+
+  try {
+    const links = track
+      ? await getSongSmartLinks(artist, track)
+      : album
+        ? await getAlbumSmartLinks(artist, album)
+        : []
+    return c.json({ links })
+  } catch {
+    return c.json({ links: [] })
   }
 })

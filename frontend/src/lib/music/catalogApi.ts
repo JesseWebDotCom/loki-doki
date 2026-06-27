@@ -26,7 +26,7 @@ export type SeedType = 'prompt' | 'genre' | 'artist' | 'song'
 export type Visibility = 'private' | 'shared'
 
 export interface Station {
-  id: string; name: string; description: string | null; aiPrompt: string
+  id: string; name: string; description: string | null; sourceRef: string | null; aiPrompt: string
   seedType: SeedType; seedValue: string | null; djMode: DjMode; visibility: Visibility
   accent: string | null; category: string | null; isBuiltin: boolean; owned: boolean; ownerName: string | null
   iconUrl: string | null; bannerUrl: string | null
@@ -88,7 +88,7 @@ export function getStationTuning(id: string) { return mfetch<{ messages: string[
 export function previewStationQueue(stationId: string, count = 12) {
   return mfetch<{ tracks: ResolvedTrack[]; source: string }>('/stations/queue', { method: 'POST', body: body({ stationId, count }) })
 }
-export function createStation(b: Partial<Station>) {
+export function createStation(b: Partial<Station> & { coverImageUrl?: string }) {
   return mfetch<{ station: Station }>('/stations', { method: 'POST', body: body(b) })
 }
 export function updateStation(id: string, b: Partial<Station>) {
@@ -163,6 +163,14 @@ export function getArtistInfo(name: string, mbid?: string) {
   const p = new URLSearchParams({ q: name })
   if (mbid) p.set('mbid', mbid)
   return mfetch<WikiInfo>(`/info/artist?${p}`)
+}
+
+export interface PlatformLink { platform: string; url: string }
+export function getSongSmartLinks(artist: string, track: string) {
+  return mfetch<{ links: PlatformLink[] }>(`/info/smart-links?artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}`)
+}
+export function getAlbumSmartLinks(artist: string, album: string) {
+  return mfetch<{ links: PlatformLink[] }>(`/info/smart-links?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`)
 }
 
 // ── Offline (audio saved for offline play) ──────────────────────────────────────────
@@ -254,6 +262,8 @@ export function stationToDj(s: Station): DjStation {
     id: s.id, label: s.name, emoji: EMOJI[accent] ?? '🎧', color, colorDark,
     stationId: s.id, aiPrompt: s.aiPrompt, seedType: s.seedType, seedValue: s.seedValue ?? undefined,
     djMode: s.djMode,
+    sourceRef: s.sourceRef ?? undefined,
+    iconUrl: s.iconUrl ?? undefined,
   }
 }
 

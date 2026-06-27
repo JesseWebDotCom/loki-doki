@@ -14,15 +14,51 @@ export interface PlexMatch {
 }
 
 export interface PlexStatus {
-  configured: boolean
+  configured: boolean // this user has a working connection (own token, or shared fallback)
   ok: boolean
   serverName: string | null
+  linked?: boolean // whether THIS user linked their own Plex account (vs. the shared fallback)
+  serverConfigured?: boolean // whether an admin set up the shared server at all
+}
+
+export interface PlexPoster {
+  to: string
+  title: string
+  subtitle: string | null
+  poster: string | null
+  mediaType: 'movie' | 'show'
+}
+
+export interface PlexSession {
+  title: string
+  showTitle: string | null
+  type: 'movie' | 'episode' | 'other'
+  user: string | null
+  player: string | null
+  thumb: string | null
+  state: string | null
+  progress: number | null
 }
 
 export async function getPlexStatus(): Promise<PlexStatus> {
   const res = await fetch('/api/plex/status', opts)
   if (!res.ok) return { configured: false, ok: false, serverName: null }
   return (await res.json()) as PlexStatus
+}
+
+// One of the resolved library rails: recently added, on-deck, or Plex's own recommendations.
+export async function getPlexRail(kind: 'recent' | 'ondeck' | 'hubs', type: 'movie' | 'show'): Promise<PlexPoster[]> {
+  const res = await fetch(`/api/plex/${kind}?type=${type}`, opts)
+  if (!res.ok) return []
+  const data = (await res.json()) as { items: PlexPoster[] }
+  return data.items ?? []
+}
+
+export async function getPlexSessions(): Promise<PlexSession[]> {
+  const res = await fetch('/api/plex/sessions', opts)
+  if (!res.ok) return []
+  const data = (await res.json()) as { sessions: PlexSession[] }
+  return data.sessions ?? []
 }
 
 export async function findInPlex(params: {
@@ -41,6 +77,114 @@ export async function findInPlex(params: {
     return { present: false, ratingKey: null, title: null, year: null, type: null, deepLink: null, guids: [] }
   }
   return (await res.json()) as PlexMatch
+}
+
+export interface PlexPlaybackMeta {
+  ratingKey: string
+  title: string
+  container: string | null
+  videoCodec: string | null
+  audioCodec: string | null
+  durationMs: number | null
+  directPlay: boolean
+}
+
+export async function getPlexMeta(ratingKey: string): Promise<PlexPlaybackMeta | null> {
+  const res = await fetch(`/api/plex/meta/${encodeURIComponent(ratingKey)}`, opts)
+  if (!res.ok) return null
+  return (await res.json()) as PlexPlaybackMeta
+}
+
+export function plexStreamUrl(ratingKey: string): string {
+  return `/api/plex/stream/${encodeURIComponent(ratingKey)}`
+}
+
+// ── admin: PIN auth + server discovery + config ──────────────────────────────────
+
+export interface PlexPin {
+  id: number
+  code: string
+  clientId: string
+  linkUrl: string
+}
+export interface PlexServer {
+  name: string
+  uri: string
+  local: boolean
+}
+export interface PlexConfigSummary {
+  baseUrl: string
+  hasToken: boolean
+  users: Array<{ id: string; name: string; linked: boolean }>
+}
+
+// Current-user linking (per-user account). Reuses the PIN flow above.
+export interface MyPlexStatus {
+  linked: boolean
+  ok: boolean
+  serverName: string | null
+}
+
+export async function getMyPlex(): Promise<MyPlexStatus> {
+  const res = await fetch('/api/plex/me', opts)
+  if (!res.ok) return { linked: false, ok: false, serverName: null }
+  return (await res.json()) as MyPlexStatus
+}
+
+export async function linkMyPlex(token: string): Promise<MyPlexStatus> {
+  const res = await fetch('/api/plex/me/link', {
+    ...opts,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  if (!res.ok) return { linked: false, ok: false, serverName: null }
+  return (await res.json()) as MyPlexStatus
+}
+
+export async function unlinkMyPlex(): Promise<void> {
+  await fetch('/api/plex/me', { ...opts, method: 'DELETE' })
+}
+
+export async function startPlexPin(): Promise<PlexPin | null> {
+  const res = await fetch('/api/plex/auth/pin', { ...opts, method: 'POST' })
+  if (!res.ok) return null
+  return (await res.json()) as PlexPin
+}
+
+export async function pollPlexPin(id: number, clientId: string): Promise<string | null> {
+  const res = await fetch(`/api/plex/auth/pin/${id}?clientId=${encodeURIComponent(clientId)}`, opts)
+  if (!res.ok) return null
+  return ((await res.json()) as { authToken: string | null }).authToken
+}
+
+export async function discoverPlexServers(token: string, clientId: string): Promise<PlexServer[]> {
+  const res = await fetch('/api/plex/auth/discover', {
+    ...opts,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, clientId }),
+  })
+  if (!res.ok) return []
+  return ((await res.json()) as { servers: PlexServer[] }).servers ?? []
+}
+
+export async function getPlexConfig(): Promise<PlexConfigSummary | null> {
+  const res = await fetch('/api/plex/config', opts)
+  if (!res.ok) return null
+  return (await res.json()) as PlexConfigSummary
+}
+
+export async function savePlexConfig(patch: { baseUrl?: string; token?: string }): Promise<{ ok: boolean; serverName: string | null }> {
+  const res = await fetch('/api/plex/config', {
+    ...opts,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) return { ok: false, serverName: null }
+  const data = (await res.json()) as { ok: boolean; serverName: string | null }
+  return { ok: data.ok, serverName: data.serverName }
 }
 
 export async function addToPlexWatchlist(plexGuid: string): Promise<boolean> {

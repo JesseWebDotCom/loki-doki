@@ -9,6 +9,7 @@ import { invalidateRouterModelCache } from '@/lib/models'
 import { pullOllama, dataDir, isWeatherIconsInstalled } from '@/lib/download'
 import { isComfyUIInstalled, COMFYUI_DIR } from '@/lib/comfyui'
 import { isSearXNGInstalled } from '@/lib/searxng'
+import { isESPHomeInstalled } from '@/lib/esphome'
 import { isKiwixInstalled } from '@/lib/kiwix'
 import { isWakewordCoreInstalled, isWakewordTrainInstalled } from '@/lib/download'
 import { isVoiceServerInstalled } from '@/lib/voiceServer'
@@ -87,6 +88,13 @@ adminInstall.get('/', requireAdmin, (c) => {
       description: 'Tesseract 5 OCR engine — used by Home Inventory to accurately read text from device label photos without AI hallucination',
       installed: isTesseractInstalled(),
       approxBytes: 30_000_000,
+    },
+    {
+      id: 'esphome',
+      label: 'Device Firmware Builder (ESPHome)',
+      description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.) from Admin → Devices. Includes the ESP32 toolchain (~1 GB on first build).',
+      installed: isESPHomeInstalled(),
+      approxBytes: 1_000_000_000,
     },
     {
       id: 'comfyui-base',

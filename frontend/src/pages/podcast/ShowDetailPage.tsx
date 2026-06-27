@@ -138,6 +138,17 @@ export function ShowDetailPage() {
     .map(h => characters.find(c => c.id === h.characterId)?.name)
     .filter(Boolean) as string[]
 
+  const sourceBackLink = (() => {
+    const ref = show.sourceRef ?? ''
+    const tvM = ref.match(/^tvshow:(\d+)$/)
+    if (tvM) return { url: `/shows/${tvM[1]}`, label: 'TV Show' }
+    const movM = ref.match(/^movie:(.+)$/)
+    if (movM) return { url: `/movies/${encodeURIComponent(movM[1])}`, label: movM[1].replace(/\b\w/g, c => c.toUpperCase()) }
+    const chM = ref.match(/^channel:(.+)$/)
+    if (chM) return { url: `/youtube/channel/${chM[1]}`, label: 'YouTube Channel' }
+    return null
+  })()
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-7 pb-24">
       {/* Breadcrumb */}
@@ -145,6 +156,14 @@ export function ShowDetailPage() {
         <Link to="/podcasts/library" className="text-muted-foreground hover:text-foreground">Library</Link>
         <ChevronRight className="size-3.5 text-muted-foreground/50" />
         <span className="font-medium">{show.name}</span>
+        {sourceBackLink && (
+          <>
+            <span className="text-muted-foreground/40">·</span>
+            <Link to={sourceBackLink.url} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+              ← {sourceBackLink.label}
+            </Link>
+          </>
+        )}
       </nav>
 
       {/* Header */}

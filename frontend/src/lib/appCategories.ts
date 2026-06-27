@@ -1,6 +1,6 @@
 import {
   ArrowLeftRight, BookOpen, Brain, CalendarDays, Clapperboard, Clock, CloudSun, Compass,
-  Code2, FileType, Gamepad2, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
+  Code2, FileType, Gamepad2, Gauge, Gift, HeartPulse, Home, Image as ImageIcon, Library, Lightbulb,
   Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Music, Newspaper, Package, Play,
   Search, Settings2, Smile, Sparkles, Trophy, Tv, UtensilsCrossed, Users, type LucideIcon,
 } from "lucide-react";
@@ -175,6 +175,7 @@ export const APP_GROUPS: AppGroup[] = [
       { id: "converter",      to: "/converter",      label: "File Converter", description: "Convert images, audio & video", gradient: "linear-gradient(135deg,#166534,#2563eb)", color: "#2563eb", icon: FileType },
       { id: "time",           to: "/time",           label: "Time",           description: "World clock, alarms & timers", gradient: "linear-gradient(135deg,#0f172a,#4338ca)", color: "#6366f1", icon: Clock, toolId: "time" },
       { id: "reverse-lookup", to: "/reverse-lookup", label: "Reverse Lookup", description: "Property & people by address, name, or phone", gradient: "linear-gradient(135deg,#1e3a5f,#2563eb)", color: "#3b82f6", icon: Search },
+      { id: "speed-test",     to: "/speed-test",     label: "Speed Test",     description: "Measure your connection speed to the server", gradient: "linear-gradient(135deg,#0c2a52,#0891b2)", color: "#0891b2", icon: Gauge },
     ],
   },
 ];

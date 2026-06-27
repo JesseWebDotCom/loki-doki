@@ -209,8 +209,8 @@ export async function generateDjSegment(opts: DjSegmentOpts): Promise<{ text: st
   } else
   switch (position) {
     case 'intro':
-      // Talks OVER the first song, so keep it tight — one or two short sentences.
-      djPrompt = `Open a ${genre} set. ${stationLine}Then name what's up now: "${trackName}"${artistName ? ` by ${artistName}` : ''}. ${ctx} Max 22 words. Example shape: "You're listening to ${stationName ?? 'the station'} — up now, ${trackName ?? 'a track'}${artistName ? ` by ${artistName}` : ''}."`
+      // Talks OVER the first song, so keep it tight — one short line.
+      djPrompt = `Open a ${genre} set in ONE short line. ${stationLine}Then name what's up now: "${trackName}"${artistName ? ` by ${artistName}` : ''}. ${ctx} Max 14 words. Example shape: "You're on ${stationName ?? 'the station'} — up now, ${trackName ?? 'a track'}${artistName ? ` by ${artistName}` : ''}."`
       break
     case 'outro':
       djPrompt = `Sign off the ${genre} set in one short line. ${stationLine}Mention that was ${trackName ? `"${trackName}"${artistName ? ` by ${artistName}` : ''}` : 'that last track'}. Max 18 words.`

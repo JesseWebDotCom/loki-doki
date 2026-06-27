@@ -1,11 +1,11 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Play, Radio } from 'lucide-react'
+import { ExternalLink, Play, Radio } from 'lucide-react'
 import { AlbumCover } from '@/components/music/MediaArt'
 import { Button } from '@/components/ui/button'
 import { useRadio } from '@/context/RadioContext'
 import { toast } from 'sonner'
-import { getAlbum, instantStationDj, resolveSong, type CatalogSong } from '@/lib/music/catalogApi'
+import { getAlbum, getAlbumSmartLinks, instantStationDj, resolveSong, type CatalogSong } from '@/lib/music/catalogApi'
 
 const fmt = (sec: number | null) => sec == null ? '' : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 
@@ -14,6 +14,14 @@ export function MusicAlbumPage() {
   const navigate = useNavigate()
   const radio = useRadio()
   const { data, isLoading } = useQuery({ queryKey: ['music-album', mbid], queryFn: () => getAlbum(mbid), enabled: !!mbid })
+  const albumTitle = data?.album?.title ?? ''
+  const albumArtist = data?.album?.artistName ?? ''
+  const { data: linksData } = useQuery({
+    queryKey: ['album-smart-links', albumArtist, albumTitle],
+    queryFn: () => getAlbumSmartLinks(albumArtist, albumTitle),
+    enabled: !!albumArtist && !!albumTitle,
+    staleTime: Infinity,
+  })
 
   if (isLoading) return <div className="px-5 pt-6 text-sm text-muted-foreground">Loading…</div>
   if (!data?.album) return <div className="px-5 pt-6 text-sm text-muted-foreground">Album not found.</div>
@@ -38,6 +46,17 @@ export function MusicAlbumPage() {
             <Button onClick={playAlbum} disabled={!songs.length}><Play className="size-4 fill-current" /> Play</Button>
             <Button variant="secondary" onClick={() => { radio.start(instantStationDj({ type: 'artist', value: album.artistName })); navigate('/music/now-playing') }}><Radio className="size-4" /> Artist station</Button>
           </div>
+          {linksData?.links && linksData.links.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {linksData.links.map(l => (
+                <a key={l.platform} href={l.url} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground">
+                  <ExternalLink className="size-3 shrink-0" />
+                  {l.platform}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

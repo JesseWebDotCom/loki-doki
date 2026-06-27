@@ -86,6 +86,7 @@ import { musicStations } from '@/routes/musicStations'
 import { musicPlaylists } from '@/routes/musicPlaylists'
 import { musicLibrary } from '@/routes/musicLibrary'
 import { logoRoute } from '@/routes/logo'
+import { speedtest } from '@/routes/speedtest'
 import adminStorage from '@/routes/adminStorage'
 import { startYoutubeFeedPoller, backfillAllThumbnails } from '@/lib/youtube/feed'
 import { feeds as feedsRoute } from '@/routes/feeds'
@@ -239,6 +240,10 @@ setInterval(() => void imageCacheSweep(), 24 * 60 * 60 * 1000)
 // Keep yt-dlp fresh (it breaks against YouTube changes when stale): resolve/provision
 // the binary now, update it if due, then refresh weekly. Best-effort, non-blocking.
 startYtdlpAutoUpdate()
+
+// Plex: mirror the linked user's media watchlist with their Plex account Watchlist every
+// 15 min (two-way, tombstone-aware). No-op until a Plex server+token is configured.
+import('@/lib/plex/sync').then((m) => m.startPlexWatchlistSync()).catch(() => {})
 
 // Bookmarks capture engine: resolve (and if needed download) a headless Chromium ahead of the
 // first archive so the initial save isn't stalled by a ~150MB install. Best-effort.
@@ -395,6 +400,7 @@ app.route('/api/music/stations', musicStations)
 app.route('/api/music/playlists', musicPlaylists)
 app.route('/api/music/library', musicLibrary)
 app.route('/api/logo', logoRoute)
+app.route('/api/speedtest', speedtest)
 app.route('/api/where-to-watch', whereToWatchRoute)
 app.route('/api/dictionary', dictionaryRoute)
 app.route('/api/recipes', recipesRoute)

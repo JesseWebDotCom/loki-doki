@@ -5,7 +5,7 @@ sidebar:
   order: 9
 ---
 
-Status: **proposal / not yet built**
+Status: **Pod backend built + verified; Atom Echo + Tab5 in hand, Echo firmware scaffolded**
 
 ## Goal
 

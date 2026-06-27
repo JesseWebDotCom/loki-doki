@@ -28,6 +28,7 @@ export interface BriefingPayload {
   sports: BriefingItem[]
   notableDeaths: BriefingItem[]
   onThisDay: BriefingItem[]
+  plex: BriefingItem[] // recently added to the user's Plex library
   degraded: string[] // source ids that failed/were disabled this cycle
 }
 
@@ -43,6 +44,7 @@ export type BriefingSourceId =
   | 'onThisDay'
   | 'notableDeaths'
   | 'holidays'
+  | 'plex'
 
 export const BRIEFING_SOURCE_IDS: BriefingSourceId[] = [
   'weather',
@@ -53,6 +55,7 @@ export const BRIEFING_SOURCE_IDS: BriefingSourceId[] = [
   'onThisDay',
   'notableDeaths',
   'holidays',
+  'plex',
 ]
 
 /** Display names for each briefing source, shown in the setup wizard and privacy audit. */
@@ -65,6 +68,7 @@ export const BRIEFING_SOURCE_LABELS: Record<BriefingSourceId, string> = {
   onThisDay:    'On This Day',
   notableDeaths:'Notable Deaths',
   holidays:     'Holidays',
+  plex:         'New on Plex',
 }
 
 /** External data sources contacted by each briefing source. */
@@ -96,5 +100,8 @@ export const BRIEFING_SOURCE_MANIFEST: Record<BriefingSourceId, DataSource[]> = 
   ],
   holidays: [
     { name: 'Nager.Date', domain: 'date.nager.at', purpose: "Today's public holidays", type: 'api' },
+  ],
+  plex: [
+    { name: 'Plex', domain: 'plex.tv', purpose: 'Recently added to your media server', type: 'api' },
   ],
 }

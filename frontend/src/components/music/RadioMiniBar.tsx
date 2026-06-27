@@ -16,13 +16,15 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 export function RadioMiniBar() {
   const radio = useRadio()
   const navigate = useNavigate()
-  const { station, currentTrack, djSpeaking, phase, paused, positionSec, durationSec } = radio
+  const { station, currentTrack, djSpeaking, phase, paused, positionSec, durationSec, skipping } = radio
   const accent = station?.color ?? '#a855f7'
   // Songs are finite + seekable; only while a track is actually playing (not during DJ talk).
   const canSeek = phase === 'playing' && !djSpeaking && durationSec > 0
 
-  const title = djSpeaking ? 'On the mic…' : (currentTrack?.title ?? station?.label ?? 'AI Radio')
-  const subtitle = djSpeaking ? `${station?.label ?? 'Radio'} DJ` : (currentTrack?.author ?? station?.genre ?? 'Live')
+  // Show the (current) song even while the DJ talks — the art/title update in sync with the DJ's
+  // voice; the mic state is conveyed by the subtitle + a small badge on the art, not by masking it.
+  const title = currentTrack?.title ?? station?.label ?? 'AI Radio'
+  const subtitle = djSpeaking ? 'On the mic…' : (currentTrack?.author ?? station?.genre ?? 'Live')
   const busy = phase === 'loading'
 
   return (
@@ -50,10 +52,13 @@ export function RadioMiniBar() {
             {currentTrack?.thumbnail && (
               <img src={proxyImg(currentTrack.thumbnail)} alt="" className="absolute inset-0 size-full object-cover" />
             )}
-            {djSpeaking && currentTrack?.thumbnail && <div className="absolute inset-0 bg-black/45" />}
-            {djSpeaking
-              ? <Mic className="relative size-4 text-white drop-shadow" />
-              : !currentTrack?.thumbnail && <span className="relative">{station?.emoji ?? '📻'}</span>}
+            {!currentTrack?.thumbnail && <span className="relative">{station?.emoji ?? '📻'}</span>}
+            {/* DJ talking — small corner badge so the song art stays visible underneath. */}
+            {djSpeaking && (
+              <span className="absolute bottom-0 right-0 grid size-4 place-items-center rounded-tl-md bg-black/70">
+                <Mic className="size-2.5 text-white" />
+              </span>
+            )}
             {busy && (
               <div className="absolute inset-0 grid place-items-center bg-black/40">
                 <Loader2 className="size-4 animate-spin text-white" />
@@ -113,10 +118,10 @@ export function RadioMiniBar() {
                 aria-label={paused ? 'Resume' : 'Pause'}>
                 {paused ? <Play className="ml-0.5 size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
               </button>
-              <button onClick={radio.skip} disabled={phase !== 'playing'}
+              <button onClick={radio.skip} disabled={phase !== 'playing' || skipping}
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-30"
                 aria-label="Skip">
-                <SkipForward className="size-4" />
+                {skipping ? <Loader2 className="size-4 animate-spin" /> : <SkipForward className="size-4" />}
               </button>
               <button onClick={radio.stop}
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"

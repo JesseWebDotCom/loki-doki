@@ -16,8 +16,11 @@ import { generateStationArt } from '@/lib/music/stationArt'
 import { generateTuningMessages, FALLBACK_TUNING_MESSAGES } from '@/lib/music/tuningMessages'
 import { BUILTIN_TUNING_MESSAGES } from '@/lib/music/builtinTuning'
 import { accentForSeed } from '@/lib/music/accents'
-import { readFile } from 'node:fs/promises'
-import { resolveUserPath } from '@/lib/storage/paths'
+import { cleanAutoTitle } from '@/lib/cleanTitle'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { resolveUserPath, getDataRoot } from '@/lib/storage/paths'
+import { getOrFetchMediaImage } from '@/lib/titles/imageProxy'
 import { logger } from '@/lib/logger'
 import type { AppEnv } from '@/types'
 
@@ -29,10 +32,14 @@ export { musicStations_route as musicStations }
 type StationRow = typeof musicStations.$inferSelect
 
 function serialize(row: StationRow, currentUserId: string, ownerName?: string | null) {
+  // Back-compat: very old rows stored their "source:movie:…" origin tag in `description`.
+  // Surface it as `sourceRef` and keep it out of the human-facing description.
+  const legacySource = row.description?.startsWith('source:') ? row.description : null
   return {
     id: row.id,
     name: row.name,
-    description: row.description,
+    description: legacySource ? null : row.description,
+    sourceRef: row.sourceRef ?? legacySource,
     aiPrompt: row.aiPrompt,
     seedType: row.seedType,
     seedValue: row.seedValue,
@@ -43,8 +50,10 @@ function serialize(row: StationRow, currentUserId: string, ownerName?: string | 
     isBuiltin: row.isBuiltin,
     owned: row.userId === currentUserId,
     ownerName: row.userId === currentUserId ? null : (ownerName ?? null),
-    iconUrl: row.iconPath ? `/api/music/stations/${row.id}/art/icon` : null,
-    bannerUrl: row.bannerPath ? `/api/music/stations/${row.id}/art/banner` : null,
+    // Only expose real photo art (movie/show poster, album cover, etc.) — not the SVG placeholders
+    // that the component now renders natively. SVG paths end in '.svg'.
+    iconUrl: (row.iconPath && !row.iconPath.endsWith('.svg')) ? `/api/music/stations/${row.id}/art/icon` : null,
+    bannerUrl: (row.bannerPath && !row.bannerPath.endsWith('.svg')) ? `/api/music/stations/${row.id}/art/banner` : null,
   }
 }
 
@@ -368,8 +377,8 @@ musicStations_route.get('/offline', async (c) => {
           id: off.stationId, name: off.name, description: null, aiPrompt: '', seedType: 'prompt',
           seedValue: null, djMode: off.djMode, visibility: 'private', accent: off.accent, category: null,
           isBuiltin: false, owned: true, ownerName: null,
-          iconUrl: off.iconPath ? `/api/music/stations/${off.stationId}/art/icon` : null,
-          bannerUrl: off.bannerPath ? `/api/music/stations/${off.stationId}/art/banner` : null,
+          iconUrl: (off.iconPath && !off.iconPath.endsWith('.svg')) ? `/api/music/stations/${off.stationId}/art/icon` : null,
+          bannerUrl: (off.bannerPath && !off.bannerPath.endsWith('.svg')) ? `/api/music/stations/${off.stationId}/art/banner` : null,
         }
     const status = await offlineStatusFor(user.id, off.stationId, off.trackTotal, off.djMode as DjMode, off.media as OfflineMedia)
     return { ...base, offline: status }
@@ -407,46 +416,118 @@ musicStations_route.get('/:id', async (c) => {
 })
 
 // ── Create ──────────────────────────────────────────────────────────────────────
-musicStations_route.post('/', async (c) => {
-  const user = c.get('user')
-  type CreateBody = {
-    name?: string; description?: string; aiPrompt?: string
-    seedType?: StationSeedType; seedValue?: string; djMode?: StationRow['djMode']
-    accent?: string; visibility?: StationRow['visibility']
-  }
-  const body = await c.req.json<CreateBody>().catch(() => ({} as CreateBody))
 
-  const name = body.name?.trim()
-  if (!name) return c.json({ error: 'name required' }, 400)
+/** Everything needed to add a station, from any caller. */
+export interface NewStationInput {
+  userId: string | null
+  name?: string | null
+  description?: string | null
+  /** Origin tag for auto-built stations ("source:movie:Title"). Its presence also marks the
+   *  title as machine-generated, so it gets em-dash/emoji scrubbed. */
+  sourceRef?: string | null
+  aiPrompt?: string | null
+  seedType?: StationSeedType
+  seedValue?: string | null
+  djMode?: StationRow['djMode']
+  accent?: string | null
+  visibility?: StationRow['visibility']
+  isAdult?: boolean
+  /** Photo to use as cover art (movie/show poster, channel avatar…). Ignored if iconPath given. */
+  coverImageUrl?: string | null
+  /** Pre-existing art to reuse instead of generating (e.g. when cloning). */
+  iconPath?: string | null
+  bannerPath?: string | null
+}
+
+/**
+ * The one and only path for adding a user station. Every caller (the create route, clone,
+ * future server-side builders) funnels through here so titles, descriptions, art, and the
+ * "tuning in" lines are all produced the same way. Throws `Error('name required')` on a
+ * blank name. Returns the inserted row.
+ */
+export async function createStationRecord(input: NewStationInput): Promise<StationRow> {
+  const sourceRef = input.sourceRef?.trim() || null
+  // Auto-built stations (those with a sourceRef) get em dashes & emoji scrubbed from their
+  // title; user-typed names are left exactly as entered.
+  const name = (sourceRef ? cleanAutoTitle(input.name) : input.name?.trim()) || ''
+  if (!name) throw new Error('name required')
+
   const id = crypto.randomUUID()
-  const accent = body.accent ?? accentForSeed(name)
+  const accent = input.accent ?? accentForSeed(name)
+  const description = input.description?.trim() || null
   const now = new Date()
 
   await db.insert(musicStations).values({
-    id, userId: user.id, name,
-    description: body.description?.trim() || null,
-    aiPrompt: body.aiPrompt?.trim() || '',
-    seedType: body.seedType ?? 'prompt',
-    seedValue: body.seedValue?.trim() || null,
-    djMode: body.djMode ?? 'full',
+    id, userId: input.userId, name, description, sourceRef,
+    aiPrompt: input.aiPrompt?.trim() || '',
+    seedType: input.seedType ?? 'prompt',
+    seedValue: input.seedValue?.trim() || null,
+    djMode: input.djMode ?? 'full',
     accent,
-    visibility: body.visibility === 'shared' ? 'shared' : 'private',
-    isBuiltin: false, isAdult: false, createdAt: now, updatedAt: now,
+    iconPath: input.iconPath ?? null,
+    bannerPath: input.bannerPath ?? null,
+    visibility: input.visibility === 'shared' ? 'shared' : 'private',
+    isBuiltin: false, isAdult: input.isAdult ?? false, createdAt: now, updatedAt: now,
   })
 
-  // Generate art in the background so create returns instantly; patch the row when ready.
-  void generateStationArt(id, name, body.description?.trim() || null, accent).then(async (art) => {
-    if (art.iconPath || art.bannerPath) {
-      await db.update(musicStations)
-        .set({ iconPath: art.iconPath, bannerPath: art.bannerPath, updatedAt: new Date() })
-        .where(eq(musicStations.id, id))
-    }
-  }).catch(() => {})
+  // Art in the background — unless the caller supplied art to reuse (clone). Prefer the
+  // provided cover image (movie/show poster), fall back to a generated SVG.
+  if (!input.iconPath) {
+    const coverImageUrl = input.coverImageUrl?.trim() || null
+    void (async () => {
+      let iconPath: string | null = null
+      let bannerPath: string | null = null
+      if (coverImageUrl) {
+        try {
+          const img = await getOrFetchMediaImage(coverImageUrl)
+          if (img) {
+            const ext = img.contentType.includes('png') ? 'png' : img.contentType.includes('webp') ? 'webp' : 'jpg'
+            const root = await getDataRoot()
+            const dir = join(root, '_shared/music-stations', id)
+            await mkdir(dir, { recursive: true })
+            await writeFile(join(dir, `icon.${ext}`), img.data)
+            await writeFile(join(dir, `banner.${ext}`), img.data)
+            iconPath = `_shared/music-stations/${id}/icon.${ext}`
+            bannerPath = `_shared/music-stations/${id}/banner.${ext}`
+          }
+        } catch (err) {
+          logger.debug(`[stationCreate] cover image download failed: ${String(err)}`)
+        }
+      }
+      if (!iconPath) {
+        const art = await generateStationArt(id, name, description, accent)
+        iconPath = art.iconPath; bannerPath = art.bannerPath
+      }
+      if (iconPath) {
+        await db.update(musicStations)
+          .set({ iconPath, bannerPath, updatedAt: new Date() })
+          .where(eq(musicStations.id, id))
+      }
+    })().catch(() => {})
+  }
 
   const [row] = await db.select().from(musicStations).where(eq(musicStations.id, id))
   // Pre-generate this station's playful loading lines in the background, like the art.
   void ensureTuningMessages(row!).catch(() => {})
-  return c.json({ station: serialize(row!, user.id) })
+  return row!
+}
+
+musicStations_route.post('/', async (c) => {
+  const user = c.get('user')
+  type CreateBody = {
+    name?: string; description?: string; sourceRef?: string; aiPrompt?: string
+    seedType?: StationSeedType; seedValue?: string; djMode?: StationRow['djMode']
+    accent?: string; visibility?: StationRow['visibility']
+    coverImageUrl?: string
+  }
+  const body = await c.req.json<CreateBody>().catch(() => ({} as CreateBody))
+  try {
+    const row = await createStationRecord({ ...body, userId: user.id })
+    return c.json({ station: serialize(row, user.id) })
+  } catch (err) {
+    if (err instanceof Error && err.message === 'name required') return c.json({ error: 'name required' }, 400)
+    throw err
+  }
 })
 
 // ── Update (owner only) ────────────────────────────────────────────────────────
@@ -457,11 +538,12 @@ musicStations_route.patch('/:id', async (c) => {
   if (!row) return c.json({ error: 'not found' }, 404)
   if (row.userId !== user.id) return c.json({ error: 'not your station' }, 403)
 
-  type StationPatch = Partial<Pick<StationRow, 'name' | 'description' | 'aiPrompt' | 'seedType' | 'seedValue' | 'djMode' | 'accent' | 'visibility'>>
+  type StationPatch = Partial<Pick<StationRow, 'name' | 'description' | 'sourceRef' | 'aiPrompt' | 'seedType' | 'seedValue' | 'djMode' | 'accent' | 'visibility'>>
   const body = await c.req.json<StationPatch>().catch(() => ({} as StationPatch))
   await db.update(musicStations).set({
     name: body.name?.trim() || row.name,
     description: body.description !== undefined ? (body.description?.trim() || null) : row.description,
+    sourceRef: body.sourceRef !== undefined ? (body.sourceRef?.trim() || null) : row.sourceRef,
     aiPrompt: body.aiPrompt !== undefined ? (body.aiPrompt?.trim() || '') : row.aiPrompt,
     seedType: body.seedType ?? row.seedType,
     seedValue: body.seedValue !== undefined ? (body.seedValue?.trim() || null) : row.seedValue,
@@ -507,17 +589,22 @@ musicStations_route.post('/:id/clone', async (c) => {
   // Must be visible to this user (built-in, own, or shared).
   if (row.userId && row.userId !== user.id && row.visibility !== 'shared') return c.json({ error: 'not available' }, 403)
 
-  const newId = crypto.randomUUID()
-  const now = new Date()
-  const name = `${row.name} (copy)`
-  await db.insert(musicStations).values({
-    id: newId, userId: user.id, name, description: row.description, aiPrompt: row.aiPrompt,
-    seedType: row.seedType, seedValue: row.seedValue, djMode: row.djMode, accent: row.accent,
-    iconPath: row.iconPath, bannerPath: row.bannerPath,
-    visibility: 'private', isBuiltin: false, isAdult: row.isAdult, createdAt: now, updatedAt: now,
+  const created = await createStationRecord({
+    userId: user.id,
+    name: `${row.name} (copy)`,
+    description: row.description,
+    sourceRef: row.sourceRef,
+    aiPrompt: row.aiPrompt,
+    seedType: row.seedType,
+    seedValue: row.seedValue,
+    djMode: row.djMode,
+    accent: row.accent,
+    isAdult: row.isAdult,
+    // Reuse the source station's art rather than regenerating it.
+    iconPath: row.iconPath,
+    bannerPath: row.bannerPath,
   })
-  const [created] = await db.select().from(musicStations).where(eq(musicStations.id, newId))
-  return c.json({ station: serialize(created!, user.id) })
+  return c.json({ station: serialize(created, user.id) })
 })
 
 // ── Regenerate art (owner only) ──────────────────────────────────────────────────
@@ -541,8 +628,13 @@ musicStations_route.get('/:id/art/:which', async (c) => {
   if (!rel) return c.json({ error: 'no art' }, 404)
   try {
     const abs = await resolveUserPath(rel)
-    const svg = await readFile(abs, 'utf8')
-    return c.body(svg, 200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' })
+    const ext = rel.split('.').pop()?.toLowerCase() ?? 'svg'
+    const contentType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'jpg' ? 'image/jpeg' : 'image/svg+xml'
+    const data = await readFile(abs)
+    const headers = { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=86400' }
+    if (contentType === 'image/svg+xml') return c.body(data.toString('utf8'), 200, headers)
+    // Return binary image as an ArrayBuffer so Hono/Bun serialises it correctly.
+    return new Response(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), { status: 200, headers })
   } catch {
     return c.json({ error: 'no art' }, 404)
   }
@@ -550,7 +642,7 @@ musicStations_route.get('/:id/art/:which', async (c) => {
 
 // ── Build a queue from a seed (no persistence required) ──────────────────────────
 musicStations_route.post('/queue', async (c) => {
-  type QueueBody = Partial<StationSeed> & { stationId?: string }
+  type QueueBody = Partial<StationSeed> & { stationId?: string; fast?: boolean }
   const body = await c.req.json<QueueBody>().catch(() => ({} as QueueBody))
 
   // If a saved station id is given, build from its stored config.
@@ -572,7 +664,7 @@ musicStations_route.post('/queue', async (c) => {
     }
   }
 
-  const result = await buildStationQueue(seed)
+  const result = await buildStationQueue(seed, { fast: body.fast === true })
   return c.json(result)
 })
 

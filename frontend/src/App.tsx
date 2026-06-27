@@ -78,6 +78,7 @@ import { SkillsPage } from '@/pages/SkillsPage'
 import { VoiceMemosPage } from '@/pages/VoiceMemosPage'
 import { JokePage } from '@/pages/JokePage'
 import { UnitConverterPage } from '@/pages/UnitConverterPage'
+import { SpeedTestPage } from '@/pages/SpeedTestPage'
 import { ReverseLookupPage } from '@/pages/ReverseLookupPage'
 import { ConverterPage } from '@/pages/ConverterPage'
 import { YoutubeLayout } from '@/components/youtube/YoutubeLayout'
@@ -100,6 +101,7 @@ import { ShowsHomePage } from '@/pages/shows/ShowsHomePage'
 import { ShowDetailPage as ShowsDetailPage } from '@/pages/shows/ShowDetailPage'
 import { MoviesHomePage } from '@/pages/movies/MoviesHomePage'
 import { MovieDetailPage } from '@/pages/movies/MovieDetailPage'
+import { MoviesSettingsPage } from '@/pages/movies/MoviesSettingsPage'
 import { WhereToWatchPage } from '@/pages/WhereToWatchPage'
 import { MedicalPage } from '@/pages/MedicalPage'
 import { SportsPage } from '@/pages/SportsPage'
@@ -345,6 +347,7 @@ export default function App() {
                 <Route path="/voice-memos" element={<VoiceMemosPage />} />
                 <Route path="/jokes" element={<JokePage />} />
                 <Route path="/unit-converter" element={<UnitConverterPage />} />
+                <Route path="/speed-test" element={<SpeedTestPage />} />
                 <Route path="/reverse-lookup" element={<ReverseLookupPage />} />
                 <Route path="/converter" element={<ConverterPage />} />
                 <Route path="/time" element={<TimePage />} />
@@ -354,6 +357,7 @@ export default function App() {
                 {/* Renamed from "TV Shows" — keep old links working. */}
                 <Route path="/tv-shows" element={<Navigate to="/shows" replace />} />
                 <Route path="/movies" element={<MoviesHomePage />} />
+                <Route path="/movies/settings" element={<MoviesSettingsPage />} />
                 <Route path="/movies/:ref" element={<MovieDetailPage />} />
                 <Route path="/where-to-watch" element={<WhereToWatchPage />} />
                 <Route path="/medical" element={<MedicalPage />} />

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 import { useAuth } from '@/context/AuthContext'
 import {
   ArrowLeftRight, ArrowRight, BookOpen, Bot, Calculator, CalendarClock, ChefHat, CheckCircle2,
-  ChevronDown, Clock, Cloud, Database, Download, Ear, Eraser, Eye, EyeOff, Film, Globe,
+  ChevronDown, Clock, Cloud, Cpu, Database, Download, Ear, Eraser, Eye, EyeOff, Film, Globe,
   Home, Laugh, Lightbulb, Loader2, Map as MapIcon, MapPin, MessageSquare, Mic, Moon, Newspaper, Package,
   PartyPopper, Play, RefreshCw, Route, ScanFace, Search, Server, Settings2, ShieldCheck, Sparkles,
   Stethoscope, Trash2, Trophy, Tv, Wand2, Wifi, Wrench, X, Image as ImageIcon,
@@ -162,6 +162,7 @@ const ADMIN_CAPS: AdminCapDef[] = [
   { id: 'searxng',       label: 'Web Search',      description: 'Local SearXNG metasearch — aggregates Google/Brave/Startpage so web search works where direct scraping is blocked. Auto-updates weekly. Source: github.com/searxng/searxng (AGPL-3.0)', bytes: 300_000_000, requires: [],            icon: Globe },
   { id: 'voice-core',   label: 'Voice',           description: 'Read replies aloud and speak to your AI (Kokoro + Whisper)',                       bytes: 320_000_000, requires: [],                       icon: Mic  },
   { id: 'wakeword-core', label: 'Wake Word',       description: 'Hands-free "Hey Jarvis" activation',                                               bytes: 6_000_000,  requires: ['voice-core'],            icon: Ear  },
+  { id: 'esphome',       label: 'Devices',         description: 'Build & flash firmware for ESP32 voice satellites (Atom Echo, etc.) from Admin → Devices. Includes the ESP32 toolchain (~1 GB).', bytes: 1_000_000_000, requires: [],                     icon: Cpu  },
 ]
 
 const LLM_ROLES_SET = new Set<ModelRole>(['llm', 'uncensored_llm'])

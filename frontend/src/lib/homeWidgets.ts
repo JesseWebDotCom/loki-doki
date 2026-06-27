@@ -1,5 +1,5 @@
 import {
-  Bookmark, CalendarDays, CirclePlay, CloudSun, Headphones, Laugh, ListVideo, Music,
+  Bookmark, CalendarDays, CirclePlay, CloudSun, Gauge, Headphones, Laugh, ListVideo, Music,
   Newspaper, PlaySquare, Trophy, Tv, type LucideIcon,
 } from "lucide-react";
 
@@ -116,6 +116,13 @@ export const HOME_WIDGETS: WidgetMeta[] = [
     icon: ListVideo, color: "#a78bfa",
     gradient: "linear-gradient(135deg,#2e1065,#6d28d9)",
     allowWide: true, supportsRowMode: true,
+  },
+  {
+    id: "speed-test", title: "Speed Test",
+    description: "Latest connection speed to your server",
+    icon: Gauge, color: "#06b6d4",
+    gradient: "linear-gradient(135deg,#0c2a52,#0891b2)",
+    allowWide: false,
   },
 ];
 

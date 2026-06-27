@@ -1,0 +1,33 @@
+<svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="M5Stack Atom Echo">
+  <defs>
+    <linearGradient id="ae-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b414f"/>
+      <stop offset="1" stop-color="#1f232c"/>
+    </linearGradient>
+    <radialGradient id="ae-led" cx="0.42" cy="0.4" r="0.65">
+      <stop offset="0" stop-color="#fff7ed"/>
+      <stop offset="0.45" stop-color="#fb923c"/>
+      <stop offset="1" stop-color="#ea580c"/>
+    </radialGradient>
+    <radialGradient id="ae-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fb923c" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#fb923c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- soft drop shadow -->
+  <ellipse cx="48" cy="84" rx="26" ry="5" fill="#000" opacity="0.18"/>
+  <!-- body -->
+  <rect x="22" y="18" width="52" height="56" rx="14" fill="url(#ae-body)" stroke="#0e1015" stroke-width="2"/>
+  <!-- top sheen -->
+  <rect x="26" y="22" width="44" height="22" rx="11" fill="#ffffff" opacity="0.06"/>
+  <!-- speaker grille rings -->
+  <circle cx="48" cy="47" r="20" fill="none" stroke="#000" stroke-opacity="0.25" stroke-width="1"/>
+  <circle cx="48" cy="47" r="15" fill="none" stroke="#000" stroke-opacity="0.22" stroke-width="1"/>
+  <!-- LED glow -->
+  <circle cx="48" cy="47" r="18" fill="url(#ae-glow)"/>
+  <!-- center RGB LED button -->
+  <circle cx="48" cy="47" r="10.5" fill="url(#ae-led)" stroke="#000" stroke-opacity="0.25" stroke-width="1"/>
+  <circle cx="44.5" cy="43.5" r="3" fill="#fff" opacity="0.6"/>
+  <!-- USB-C hint on the bottom edge -->
+  <rect x="42" y="71" width="12" height="3" rx="1.5" fill="#0e1015"/>
+</svg>

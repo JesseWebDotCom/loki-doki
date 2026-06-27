@@ -29,6 +29,7 @@ const DEFAULTS: BriefingSettings = {
     onThisDay: true,
     notableDeaths: true,
     holidays: true,
+    plex: false, // opt-in: only meaningful when a Plex server is configured
   },
   cadenceMinutes: 150, // 2.5h
   patchSlug: null,

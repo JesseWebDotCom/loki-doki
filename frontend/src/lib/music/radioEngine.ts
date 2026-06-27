@@ -65,6 +65,8 @@ export interface RadioState {
   volume: number
   muted: boolean
   loading: boolean
+  queueLoading: boolean  // the rest of the queue is still building in the background (Up Next is partial)
+  skipping: boolean     // a manual skip was requested and the next song hasn't taken over yet
   positionSec: number   // playback position of the current song (drives synced lyrics)
   durationSec: number   // current song length, when known
   sleepAtMs: number | null  // epoch ms at which the sleep timer stops playback (null = off)
@@ -74,7 +76,7 @@ export const initialRadioState: RadioState = {
   active: false, station: null, queue: [], index: 0,
   currentTrack: null, nextTrack: null, djText: null, djSpeaking: false,
   phase: 'idle', paused: false, volume: 1, muted: false, loading: false,
-  positionSec: 0, durationSec: 0, sleepAtMs: null,
+  queueLoading: false, skipping: false, positionSec: 0, durationSec: 0, sleepAtMs: null,
 }
 
 interface PreparedDj { text: string | null; blobUrl: string | null }
@@ -267,7 +269,11 @@ export class RadioEngine {
   }
 
   // ── Fetch helpers ────────────────────────────────────────────────────────────
-  private async loadQueue(st: DjStation): Promise<QueuedTrack[]> {
+  // opts.fast → resolve just enough to START PLAYING (the first track); opts.exclude drops ids
+  // already playing so the background "rest of the queue" build doesn't repeat them.
+  private async loadQueue(st: DjStation, opts?: { fast?: boolean; exclude?: string[] }): Promise<QueuedTrack[]> {
+    const fast = opts?.fast ?? false
+    const excludeIds = new Set(opts?.exclude ?? [])
     let raw: Array<{ videoId: string; title: string; author: string | null }> = []
     let shuffle = false
 
@@ -292,7 +298,8 @@ export class RadioEngine {
       try {
         const res = await fetchStationQueue({
           stationId: st.stationId, aiPrompt: st.aiPrompt, seedType: st.seedType,
-          seedValue: st.seedValue, name: st.label, count: 12,
+          seedValue: st.seedValue, name: st.label, count: fast ? 3 : 12,
+          fast, excludeVideoIds: opts?.exclude,
         })
         raw = res.tracks
         shuffle = false
@@ -322,7 +329,7 @@ export class RadioEngine {
     const normKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
     const tracks: QueuedTrack[] = []
     for (const v of raw) {
-      if (!v.videoId || seen.has(v.videoId)) continue
+      if (!v.videoId || seen.has(v.videoId) || excludeIds.has(v.videoId)) continue
       if (isJunkTrack(v.title, v.author ?? null)) continue
       const title = cleanTitle(v.title) || v.title
       const t = normKey(title)
@@ -341,7 +348,7 @@ export class RadioEngine {
         ;[tracks[i], tracks[j]] = [tracks[j]!, tracks[i]!]
       }
     }
-    return tracks.slice(0, 30)
+    return tracks.slice(0, fast ? 3 : 30)
   }
 
   private async prepareDj(args: {
@@ -427,16 +434,7 @@ export class RadioEngine {
     URL.revokeObjectURL(dj.blobUrl)
   }
 
-  // Intro: the first song is ALREADY playing on `deck` at INTRO_BED level (its own bed). The DJ
-  // talks over it, then the song fades up to full and owns the mix.
-  private async introOverSong(runId: number, deck: number, dj: PreparedDj) {
-    this.set({ djText: dj.text, djSpeaking: true })
-    await this.speak(dj)                          // DJ talks over the bedding song
-    if (this.stale(runId)) return
-    this.ramp(this.deckKey(deck), 1, FADE)        // fade the song up to full
-  }
-
-  // Talk OVER the currently-playing song (used for the outro): duck the song to bed level, speak,
+  // Talk OVER the currently-playing song (used for the intro + outro): duck the song to bed level, speak,
   // then bring it back to full. No deck switch.
   private async talkOver(runId: number, deck: number, dj: PreparedDj) {
     this.set({ djText: dj.text, djSpeaking: true })
@@ -478,8 +476,23 @@ export class RadioEngine {
   // Transition: same shape as the intro. The INCOMING song comes in at bed level as the backing
   // track, the outgoing one fades out, the DJ talks over the bed, then the incoming song swells to
   // full. Guarantees there's always music under the DJ between songs.
-  private async transition(runId: number, fromDeck: number, toDeck: number, dj: PreparedDj) {
-    this.set({ djText: dj.text, djSpeaking: true })
+  private async transition(runId: number, fromDeck: number, toDeck: number, dj: PreparedDj, display: Partial<RadioState>, quick = false) {
+    this.set({ djText: dj.text })
+
+    // QUICK path (manual skip): no DJ, no bed — a fast crossfade straight to the next song at full
+    // volume, so a skip feels immediate.
+    if (quick) {
+      await this.playDeck(toDeck)
+      if (this.stale(runId)) return
+      this.deck = toDeck
+      const el = this.deckEl(toDeck)
+      this.lastPosSec = Math.floor(el.currentTime)
+      this.ramp(this.deckKey(toDeck), 1, 450)
+      this.ramp(this.deckKey(fromDeck), 0, 450)
+      setTimeout(() => { if (!this.stale(runId)) { try { this.deckEl(fromDeck).pause() } catch { /* noop */ } } }, 500)
+      this.set({ ...display, positionSec: el.currentTime, durationSec: Number.isFinite(el.duration) ? el.duration : 0, djSpeaking: false, skipping: false })
+      return
+    }
 
     // Bring the incoming song in at bed level; fade the outgoing one out under it.
     await this.playDeck(toDeck)
@@ -491,6 +504,15 @@ export class RadioEngine {
     // Let the outgoing song fade out and the bed settle for a beat before the DJ comes in.
     await new Promise(r => setTimeout(r, 1300))
     if (this.stale(runId)) return
+
+    // DJ is about to speak: flip EVERYTHING to the incoming song at this exact moment — active deck
+    // (so positionSec/synced-lyrics track it), the displayed track, and djSpeaking. The page
+    // hero/lyrics/info and the mini-player all change in sync with the DJ's voice — not early (when
+    // the bed started) and not late (after the DJ finishes).
+    this.deck = toDeck
+    const el = this.deckEl(toDeck)
+    this.lastPosSec = Math.floor(el.currentTime)
+    this.set({ ...display, positionSec: el.currentTime, durationSec: Number.isFinite(el.duration) ? el.duration : 0, djSpeaking: true, skipping: false })
 
     // DJ talks over the bedding song, then it fades up to full.
     await this.speak(dj)
@@ -513,32 +535,56 @@ export class RadioEngine {
     this.set({
       active: true, station, phase: 'loading', loading: true, paused: false,
       queue: [], index: 0, currentTrack: null, nextTrack: null, djText: null, djSpeaking: false,
+      queueLoading: false,
     })
 
-    const songs = await this.loadQueue(station)
+    // Resolve just the FIRST track (fast) so playback starts almost immediately; the rest of the
+    // queue is built in the background while this song plays. Offline (frozen local list) and
+    // legacy preset stations (already return a full list) load everything at once.
+    const isAi = !!(station.stationId || station.aiPrompt || station.seedValue)
+    const useFast = !this.offline && isAi
+    const head = await this.loadQueue(station, useFast ? { fast: true } : undefined)
     if (this.stale(runId)) return
-    if (!songs.length) { this.stop(); return }
+    if (!head.length) { this.stop(); return }
 
     this.deck = 0
-    this.set({ queue: songs, loading: false, phase: 'intro', index: 0, currentTrack: null, nextTrack: songs[0]! })
+    this.set({ queue: head, loading: false, queueLoading: useFast, phase: 'intro', index: 0, currentTrack: head[0]!, nextTrack: head[1] ?? null })
 
-    this.cueSrc(0, songs[0]!.videoId)            // src + ramp to 0
+    this.cueSrc(0, head[0]!.videoId)             // src + ramp to 0
     await this.playDeck(0)                        // start it (retries on transient errors)
     if (this.stale(runId)) return
 
-    if (silentIntro || this.effectiveDjMode() === 'silent') {
-      // Skip DJ intro — song opens at full volume immediately.
-      this.ramp(this.deckKey(0), 1, 900)
-      this.set({ currentTrack: songs[0]!, djSpeaking: false, djText: null })
-    } else {
-      // The first song is its own bed: DJ talks over it, then it swells to full.
+    this.set({ currentTrack: head[0]!, djText: null, djSpeaking: false })
+
+    // Build the rest of the queue concurrently with the DJ intro, off the critical path.
+    const restPromise: Promise<QueuedTrack[]> = useFast
+      ? this.loadQueue(station, { exclude: head.map(t => t.videoId) }).catch(() => [])
+      : Promise.resolve([])
+
+    if (!silentIntro && this.effectiveDjMode() !== 'silent') {
+      // Classic radio intro: the song comes in at bed level as its own backing track, the DJ talks
+      // over it, then it swells to full — same shape as the between-song transitions. (Fast now that
+      // stream resolve is ~0.2s, so the bed stretch is just the brief DJ-gen, not a long quiet wait.)
       this.ramp(this.deckKey(0), INTRO_BED, 900)
-      const intro = await this.prepareDj({ station, track: songs[0]!, position: 'intro' })
+      const intro = await this.prepareDj({ station, track: head[0]!, position: 'intro' })
       if (this.stale(runId)) return
-      await this.introOverSong(runId, 0, intro)
+      this.set({ djText: intro.text, djSpeaking: true })
+      await this.speak(intro)                       // DJ talks over the bed
       if (this.stale(runId)) return
-      this.set({ currentTrack: songs[0]!, djSpeaking: false, djText: null })
+      this.ramp(this.deckKey(0), 1, FADE)           // swell the song up to full
+      this.set({ djSpeaking: false, djText: null })
+    } else {
+      this.ramp(this.deckKey(0), 1, 900)            // no DJ → straight to full
     }
+    // The intro is over (or skipped) — mark 'playing' now (even though the rest of the queue is
+    // still building) so the "tuning in" overlay doesn't flash back during the rest-await.
+    this.set({ phase: 'playing' })
+
+    const rest = await restPromise
+    if (this.stale(runId)) return
+    const headIds = new Set(head.map(t => t.videoId))
+    const songs = [...head, ...rest.filter(t => !headIds.has(t.videoId))]
+    this.set({ queue: songs, nextTrack: songs[1] ?? null, queueLoading: false })
 
     await this.playFrom(runId, station, songs)
   }
@@ -550,7 +596,7 @@ export class RadioEngine {
       if (this.stale(runId)) return
       const cur = songs[i]!
       const next = songs[i + 1] ?? null
-      this.set({ index: i, currentTrack: cur, nextTrack: next, phase: 'playing' })
+      this.set({ index: i, currentTrack: cur, nextTrack: next, phase: 'playing', skipping: false })
 
       const otherDeck = this.deck === 0 ? 1 : 0
       let preparedNext: Promise<PreparedDj> | null = null
@@ -560,15 +606,21 @@ export class RadioEngine {
         preparedNext = this.prepareDj({ station, track: cur, next, position: 'transition', sayStation: Math.random() < 0.34 })
       }
 
-      await this.waitTail(runId, this.deck)
+      const reason = await this.waitTail(runId, this.deck)
       if (this.stale(runId)) return
 
       if (next) {
         this.set({ phase: 'transition' })
-        const dj = await (preparedNext ?? Promise.resolve({ text: null, blobUrl: null }))
+        // Manual skip → fast crossfade, no DJ (the listener wants the next song NOW). Drop the
+        // prepared DJ segment (and free its audio) instead of waiting on / playing it.
+        const quick = reason === 'skip'
+        if (quick) { void preparedNext?.then(d => { if (d.blobUrl) URL.revokeObjectURL(d.blobUrl) }) }
+        const dj = quick ? { text: null, blobUrl: null } : await (preparedNext ?? Promise.resolve({ text: null, blobUrl: null }))
         if (this.stale(runId)) return
-        await this.transition(runId, this.deck, otherDeck, dj)
-        this.deck = otherDeck
+        // The display flip (currentTrack/index/nextTrack) happens INSIDE transition() the moment
+        // the incoming song starts under the DJ — so the page's hero/lyrics/info update as the DJ
+        // introduces it, not after the DJ finishes. transition() also swaps this.deck.
+        await this.transition(runId, this.deck, otherDeck, dj, { index: i + 1, currentTrack: next, nextTrack: songs[i + 2] ?? null }, quick)
         this.set({ djSpeaking: false, djText: null })
       } else {
         this.set({ phase: 'outro' })
@@ -605,6 +657,7 @@ export class RadioEngine {
     this.set({
       active: true, station, phase: 'playing', loading: false, paused: false,
       queue: [first], index: 0, currentTrack: first, nextTrack: null, djText: null, djSpeaking: false,
+      queueLoading: !this.offline,   // continuation mix builds in the background (online only)
     })
     this.deck = 0
     // Prefer a locally prefetched file (the video→audio handoff downloads the current song's audio
@@ -631,7 +684,7 @@ export class RadioEngine {
     // Background: build the continuation mix off this exact video (fast YT Music radio, no LLM).
     // Offline has no continuation (nothing more is downloaded) — just play the one song.
     let mix: QueuedTrack[] = []
-    if (this.offline) { this.set({ queue: [first] }); await this.playFrom(runId, station, [first]); return }
+    if (this.offline) { this.set({ queue: [first], queueLoading: false }); await this.playFrom(runId, station, [first]); return }
     try {
       const res = await fetchStationQueue({ seedVideoId: first.videoId, count: 14 })
       mix = res.tracks
@@ -640,11 +693,16 @@ export class RadioEngine {
     } catch { /* play the single song; loop ends after it */ }
     if (this.stale(runId)) return
     const songs = [first, ...mix]
-    this.set({ queue: songs })
+    this.set({ queue: songs, queueLoading: false })
     await this.playFrom(runId, station, songs)
   }
 
-  skip() { this.skipResolve?.() }
+  skip() {
+    // Immediate UI feedback so the listener knows the click registered (the actual hand-off takes a
+    // beat to cue + crossfade). Cleared when the next song takes over.
+    if (this.state.phase === 'playing' && this.skipResolve) this.set({ skipping: true })
+    this.skipResolve?.()
+  }
 
   // Persisted, station-independent DJ preference. Once the user picks a mode it sticks across
   // songs, station changes, and reloads — so "Silent" stays silent until they change it. The
@@ -686,7 +744,7 @@ export class RadioEngine {
     }
     this.set({
       active: false, station: null, phase: 'idle', queue: [], index: 0,
-      currentTrack: null, nextTrack: null, djText: null, djSpeaking: false, paused: false, loading: false,
+      currentTrack: null, nextTrack: null, djText: null, djSpeaking: false, paused: false, loading: false, queueLoading: false, skipping: false,
       sleepAtMs: null,
     })
   }

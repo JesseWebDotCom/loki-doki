@@ -65,6 +65,8 @@ export async function fetchStationQueue(body: {
   name?: string
   count?: number
   excludeVideoIds?: string[]
+  /** Fast first-track build: resolve just enough to start playing (caller fills the rest). */
+  fast?: boolean
 }): Promise<{ tracks: RadioQueueTrack[]; source: string }> {
   try {
     const res = await fetch('/api/music/stations/queue', {
