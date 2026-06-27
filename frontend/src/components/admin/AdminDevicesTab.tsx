@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, Trash2, Cpu, Copy, RefreshCw, Check, Radio, Usb, HelpCircle } from 'lucide-react'
+import { Loader2, Plus, Cpu, Copy, Check, Radio, Usb, Volume2, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { FlashDeviceWizard } from '@/components/admin/FlashDeviceWizard'
 import { DeviceHelpDialog } from '@/components/admin/DeviceHelpDialog'
+import { DeviceManageSheet } from '@/components/admin/DeviceManageSheet'
 import { DeviceArt } from '@/components/admin/DeviceArt'
 import { DEVICE_MODELS, resolveDeviceModel, deviceModelName } from '@/lib/deviceCatalog'
 import { toast } from '@/lib/toast'
@@ -58,6 +59,9 @@ export function AdminDevicesTab() {
   const [flashOpen, setFlashOpen] = useState(false)
   const [del, setDel] = useState<DeviceRow | null>(null)
   const [help, setHelp] = useState<DeviceRow | null>(null)
+  const [manage, setManage] = useState<DeviceRow | null>(null)
+  // Keep the open manage sheet in sync with fresh poll data (live status/activity).
+  const managed = manage ? devices.find((x) => x.id === manage.id) ?? manage : null
 
   // Manual "create with pairing code" form (Advanced).
   const [name, setName] = useState('')
@@ -91,9 +95,12 @@ export function AdminDevicesTab() {
     } catch { toast.error('Failed to create device') } finally { setBusy(false) }
   }
 
-  async function reissue(d: DeviceRow) {
-    const r = await fetch(`/api/pod/devices/${d.id}/pair-code`, { ...opts, method: 'POST', headers: J })
-    if (r.ok) { toast.success('New pairing code issued'); invalidate() } else toast.error('Failed to issue code')
+  async function testDevice(d: DeviceRow) {
+    if (!d.online) { toast.error('Power on the device to test it'); return }
+    const r = await fetch(`/api/pod/devices/${d.id}/test`, { ...opts, method: 'POST', headers: J, body: '{}' })
+    if (r.ok) toast.success('Playing a test sound…')
+    else if (r.status === 409) toast.error('Device isn’t connected right now')
+    else toast.error('Couldn’t reach the device')
   }
 
   return (
@@ -146,7 +153,7 @@ export function AdminDevicesTab() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {devices.map((d) => (
-              <DeviceCard key={d.id} d={d} userName={userName(d.userId)} onHelp={() => setHelp(d)} onReissue={() => reissue(d)} onDelete={() => setDel(d)} />
+              <DeviceCard key={d.id} d={d} userName={userName(d.userId)} onManage={() => setManage(d)} onTest={() => testDevice(d)} />
             ))}
           </div>
         )}
@@ -185,6 +192,18 @@ export function AdminDevicesTab() {
         </div>
       </details>
 
+      <DeviceManageSheet
+        device={managed}
+        users={users}
+        companions={companions}
+        wakewords={wakewords?.detectors ?? []}
+        onOpenChange={(o) => { if (!o) setManage(null) }}
+        onChanged={invalidate}
+        onReflash={() => { setManage(null); setFlashOpen(true) }}
+        onHelp={() => { if (managed) setHelp(managed) }}
+        onDelete={() => { if (managed) setDel(managed); setManage(null) }}
+      />
+
       <DeviceHelpDialog device={help} onOpenChange={(o) => { if (!o) setHelp(null) }} />
 
       <ConfirmDialog
@@ -208,13 +227,22 @@ export function AdminDevicesTab() {
 
 // ── Device card (App-Store style) ──────────────────────────────────────────────
 
-function DeviceCard({ d, userName, onHelp, onReissue, onDelete }: { d: DeviceRow; userName: string; onHelp: () => void; onReissue: () => void; onDelete: () => void }) {
+function DeviceCard({ d, userName, onManage, onTest }: { d: DeviceRow; userName: string; onManage: () => void; onTest: () => void }) {
   const art = resolveDeviceModel(d.model, d.kind)
   const expired = !!d.pairingExpiresAt && new Date(d.pairingExpiresAt).getTime() < Date.now()
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn() }
   return (
-    <div className="group flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4">
+    <div
+      onClick={onManage}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter') onManage() }}
+      className="group flex cursor-pointer flex-col gap-3 rounded-2xl border border-border/50 bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <div className="flex items-start justify-between">
-        <DeviceArt resolved={art} className="size-14" />
+        <div className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-b from-muted/60 to-muted/20 ring-1 ring-border/40">
+          <DeviceArt resolved={art} className="size-11" />
+        </div>
         <StatusBadge d={d} />
       </div>
 
@@ -223,32 +251,26 @@ function DeviceCard({ d, userName, onHelp, onReissue, onDelete }: { d: DeviceRow
         <p className="text-[11px] font-medium text-muted-foreground/70">{deviceModelName(d.model, d.kind)}</p>
         <p className="mt-1 text-xs text-muted-foreground">
           {userName}
-          {d.wakeWord ? ` · ${d.wakeWord}` : ''}
           {!d.online && d.lastSeenAt ? ` · seen ${new Date(d.lastSeenAt).toLocaleDateString()}` : ''}
         </p>
       </div>
 
       {/* Pairing code (only for manually-created devices that show/enter a code) */}
       {!d.paired && d.pairingCode && (
-        <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5">
+        <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5" onClick={(e) => e.stopPropagation()}>
           <code className="font-mono text-base font-semibold tracking-widest">{d.pairingCode}</code>
           <CopyButton value={d.pairingCode} />
           <span className="ml-auto text-[10px] text-muted-foreground">{expired ? 'expired' : 'enter on device'}</span>
         </div>
       )}
 
-      <div className="mt-auto flex items-center pt-0.5">
-        <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={onHelp}>
-          <HelpCircle className="size-3.5" /> How to use
+      <div className="mt-auto flex items-center gap-2 pt-0.5">
+        <Button size="sm" variant="secondary" className="h-8 flex-1 gap-1.5 text-xs" onClick={stop(onTest)} disabled={!d.online}>
+          <Volume2 className="size-3.5" /> Test
         </Button>
-        <div className="ml-auto flex gap-1">
-          <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" onClick={onReissue} aria-label="New pairing code" title="New pairing code">
-            <RefreshCw className="size-4" />
-          </Button>
-          <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-destructive" onClick={onDelete} aria-label="Remove device">
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
+        <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground" onClick={stop(onManage)}>
+          <Settings2 className="size-3.5" /> Manage
+        </Button>
       </div>
     </div>
   )

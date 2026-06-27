@@ -181,3 +181,26 @@ export async function listDevices(): Promise<DeviceRow[]> {
 export async function deleteDevice(id: string): Promise<void> {
   await db.delete(devices).where(eq(devices.id, id))
 }
+
+export interface UpdateDeviceInput {
+  name?: string
+  userId?: string
+  characterId?: string | null
+  wakeWord?: string | null
+}
+
+/** Edit a device's settings (name, owner, companion, wake word). Only provided
+ *  fields are changed. Returns the updated row, or null if the id is unknown. */
+export async function updateDevice(id: string, input: UpdateDeviceInput): Promise<DeviceRow | null> {
+  const patch: Partial<typeof devices.$inferInsert> = {}
+  if (input.name !== undefined) patch.name = input.name
+  if (input.userId !== undefined) patch.userId = input.userId
+  if (input.characterId !== undefined) patch.characterId = input.characterId
+  if (input.wakeWord !== undefined) patch.wakeWord = input.wakeWord
+  if (Object.keys(patch).length === 0) {
+    const [row] = await db.select().from(devices).where(eq(devices.id, id)).limit(1)
+    return row ?? null
+  }
+  const [row] = await db.update(devices).set(patch).where(eq(devices.id, id)).returning()
+  return row ?? null
+}

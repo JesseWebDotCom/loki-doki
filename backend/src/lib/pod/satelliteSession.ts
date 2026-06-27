@@ -194,20 +194,24 @@ export class SatelliteSession implements PodFireTarget {
   private onAudioStart(ev: WyomingEvent): void {
     this.inRate = (ev.data?.rate as number) ?? 16000
     logger.info(`[pod-diag] audio-start rate=${this.inRate} wakeEnabled=${this.wakeEnabled}`)
-    // Barge-in: a new audio stream cancels any in-flight reply.
-    this.turnAbort?.abort()
     this.stt?.close()
     this.stt = null
     this.capturing = false
 
     if (this.wakeEnabled) {
+      // In server-wake mode the mic stream is CONTINUOUS — audio-start fires once at
+      // connect, it is NOT a barge-in. So don't cancel an in-flight reply (that was
+      // killing the "Connected and ready" announce) and don't clobber the talking
+      // state. Real barge-in is handled by a wake hit during playback.
       if (this.inRate !== 16000) {
         logger.warn(`[pod] wake needs 16 kHz audio; got ${this.inRate}Hz — detection may not fire`)
       }
       this.ensureWake()
-      this.setState('idle')
+      if (this.state !== 'talking') this.setState('idle')
     } else {
-      // No server wake — the incoming stream is the utterance.
+      // No server wake — each incoming stream is the utterance, so cancel any prior
+      // reply and capture this one.
+      this.turnAbort?.abort()
       this.startCapture()
     }
   }
@@ -362,6 +366,7 @@ export class SatelliteSession implements PodFireTarget {
     this.setState('talking')
 
     let started = false
+    try {
     for (const sentence of sentences) {
       if (signal.aborted) break
       let payload
@@ -392,6 +397,11 @@ export class SatelliteSession implements PodFireTarget {
       }
     }
     if (started) this.send(audioStop())
+    } finally {
+      // Always release the "talking" state when playback ends — whether it finished
+      // or was aborted. Otherwise the live activity badge stays stuck on "Speaking".
+      if (this.state === 'talking') this.setState('idle')
+    }
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────

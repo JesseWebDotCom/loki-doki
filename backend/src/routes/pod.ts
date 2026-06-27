@@ -10,7 +10,7 @@ import { streamSSE } from 'hono/streaming'
 import { requireAdmin } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 import {
-  createDevice, listDevices, deleteDevice, refreshPairingCode, redeemPairingCode, claimDevice,
+  createDevice, listDevices, deleteDevice, updateDevice, refreshPairingCode, redeemPairingCode, claimDevice,
 } from '@/lib/pod/devices'
 import { connectedDeviceIds, connectedActivity, speakToDevice } from '@/lib/pod/registry'
 import { listPending, getPending, removePending } from '@/lib/pod/pending'
@@ -107,6 +107,21 @@ pod.post('/devices/:id/pair-code', requireAdmin, async (c) => {
   const code = await refreshPairingCode(c.req.param('id'))
   if (!code) return c.json({ error: 'device not found' }, 404)
   return c.json({ pairingCode: code })
+})
+
+pod.patch('/devices/:id', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    name?: string; userId?: string; characterId?: string | null; wakeWord?: string | null
+  }
+  const updated = await updateDevice(c.req.param('id'), {
+    name: body.name?.trim() || undefined,
+    userId: body.userId || undefined,
+    characterId: body.characterId === undefined ? undefined : (body.characterId || null),
+    wakeWord: body.wakeWord === undefined ? undefined : (body.wakeWord || null),
+  })
+  if (!updated) return c.json({ error: 'device not found' }, 404)
+  const { tokenHash: _t, ...safe } = updated
+  return c.json({ device: { ...safe, paired: _t != null } })
 })
 
 pod.delete('/devices/:id', requireAdmin, async (c) => {
