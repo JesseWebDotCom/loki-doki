@@ -265,13 +265,63 @@ def windows_from_embeddings(embeddings: np.ndarray, rms: np.ndarray, positive: b
 # ---------------------------------------------------------------------------
 
 def make_rir(sr: int, rng) -> np.ndarray:
-    """Procedural room impulse response: direct spike + exponentially-decaying tail."""
+    """Procedural room impulse response: direct spike + exponentially-decaying tail.
+    Used only when the real MIT impulse-response pack isn't installed."""
     decay = rng.uniform(0.08, 0.35)
     n = max(8, int(sr * rng.uniform(0.10, 0.30)))
     t = np.arange(n) / sr
     rir = (rng.standard_normal(n) * np.exp(-t / decay)).astype(np.float32)
     rir[0] += 1.0  # direct path dominates
     return rir
+
+
+def load_rir_pool(rir_dir, sr: int, limit: int = 120):
+    """Load up to `limit` REAL room impulse responses (MIT survey, 16 kHz) as
+    normalized mono float32. Convolving positives with real room acoustics matches
+    a reverberant mic far better than the procedural RIR — the approach openWakeWord
+    and microWakeWord both take. Returns [] if the pack isn't installed, so the
+    caller transparently falls back to make_rir()."""
+    from pathlib import Path as _P
+    pool = []
+    files = sorted(_P(rir_dir).glob("*.wav")) if rir_dir else []
+    for f in files[:limit]:
+        try:
+            rir = load_audio(str(f))  # → mono float32 @ SAMPLE_RATE
+            peak = float(np.max(np.abs(rir))) + 1e-9
+            if rir.size >= 8:
+                pool.append((rir / peak).astype(np.float32))
+        except Exception:
+            continue
+    return pool
+
+
+def pitch_shift(x: np.ndarray, semitones: float) -> np.ndarray:
+    """Length-preserving pitch shift via overlap-add time-scaling + resample.
+    Shifts vocal pitch/formants without changing duration, so each clip's clean
+    speech→silence boundary (used for completion-aligned labeling) is preserved.
+    Mild OLA artifacts are acceptable — they add useful augmentation variety.
+    Returns x unchanged if it's too short to frame."""
+    from scipy.signal import resample
+    rate = 2.0 ** (semitones / 12.0)
+    n = len(x)
+    win = 1024
+    hop_a = win // 4
+    hop_s = max(1, int(round(hop_a * rate)))
+    if n < win + hop_a or rate == 1.0:
+        return x.astype(np.float32)
+    window = np.hanning(win).astype(np.float32)
+    n_frames = 1 + (n - win) // hop_a
+    out_len = win + hop_s * (n_frames - 1)
+    out = np.zeros(out_len, dtype=np.float32)
+    norm = np.zeros(out_len, dtype=np.float32)
+    for i in range(n_frames):
+        a = i * hop_a
+        s = i * hop_s
+        out[s:s + win] += x[a:a + win] * window
+        norm[s:s + win] += window
+    out = out / np.maximum(norm, 1e-6)
+    # Resample the time-scaled signal back to the original length → net pitch shift.
+    return resample(out, n).astype(np.float32)
 
 
 def gen_noise_pool(sr: int, rng, k: int = 8):
@@ -295,10 +345,18 @@ def gen_noise_pool(sr: int, rng, k: int = 8):
     return pool
 
 
-def augment(audio: np.ndarray, sr: int, rng, noise_pool) -> np.ndarray:
+def augment(audio: np.ndarray, sr: int, rng, noise_pool, rir_pool=None) -> np.ndarray:
     out = audio.astype(np.float32).copy()
-    if rng.random() < 0.6:  # reverb
-        out = np.convolve(out, make_rir(sr, rng))[: len(audio)].astype(np.float32)
+    if rng.random() < 0.3:  # pitch/formant jitter (±3 semitones, length-preserving)
+        try:
+            out = pitch_shift(out, float(rng.uniform(-3.0, 3.0)))
+            if out.shape[0] != audio.shape[0]:  # paranoia: keep frame→label alignment
+                out = np.resize(out, audio.shape[0]).astype(np.float32)
+        except Exception:
+            out = audio.astype(np.float32).copy()
+    if rng.random() < 0.6:  # reverb — prefer a REAL room impulse, else procedural
+        rir = rir_pool[int(rng.integers(len(rir_pool)))] if rir_pool else make_rir(sr, rng)
+        out = np.convolve(out, rir)[: len(audio)].astype(np.float32)
     if noise_pool and rng.random() < 0.7:  # additive noise at random SNR (5–20 dB)
         noise = noise_pool[int(rng.integers(len(noise_pool)))]
         if len(noise) < len(out):
@@ -374,6 +432,8 @@ def main() -> None:
     ap.add_argument("--embed-script", default=None, help="path to wake_embed_ortweb.mjs")
     ap.add_argument("--keep-native-bank", action="store_true",
                     help="(experimental) keep the native neg-feature bank even in ortweb mode")
+    ap.add_argument("--rir-dir", default=None,
+                    help="directory of real room-impulse-response WAVs (MIT pack); procedural reverb if absent")
     args = ap.parse_args()
 
     global _EMBEDDER
@@ -419,6 +479,9 @@ def main() -> None:
     # clips becomes a large, realistic training set without extra synthesis.
     aug_rng = np.random.default_rng(1234)
     noise_pool = gen_noise_pool(SAMPLE_RATE, aug_rng)
+    rir_pool = load_rir_pool(args.rir_dir, SAMPLE_RATE)
+    progress(f"Reverb augmentation: {len(rir_pool)} real room impulses"
+             if rir_pool else "Reverb augmentation: procedural (real RIR pack not installed)")
     AUG_POS, AUG_NEG = 12, 6
 
     lead_pad = np.zeros(int(0.6 * SAMPLE_RATE), dtype=np.float32)   # 0.6 s lead-in
@@ -441,7 +504,7 @@ def main() -> None:
                 # completion detection. Augmentation preserves length, so the clean
                 # frame→window alignment is valid for every variant.
                 _, clean_rms = extract_embeddings(base, mel_sess, emb_sess, mel_input_name, emb_input_name, mel_frames_per_chunk)
-                variants = [base] + [augment(base, SAMPLE_RATE, aug_rng, noise_pool) for _ in range(n_aug)]
+                variants = [base] + [augment(base, SAMPLE_RATE, aug_rng, noise_pool, rir_pool) for _ in range(n_aug)]
                 for v in variants:
                     embs, rms = extract_embeddings(v, mel_sess, emb_sess, mel_input_name, emb_input_name, mel_frames_per_chunk)
                     wx, wy = windows_from_embeddings(embs, clean_rms if label == 1 else rms, positive=(label == 1))
@@ -492,12 +555,14 @@ def main() -> None:
         except Exception as e:
             progress(f"Feature bank skipped ({e})")
 
-    # Cap negatives to a modest multiple of positives. Completion-aligned
-    # positives are few; left uncapped, ~50k negatives force balance() to
-    # duplicate each positive ~100×, which drowns the phrase signal and the
-    # detector either fires on nothing or collapses. A ~6:1 ratio keeps a strong
-    # negative set while letting the positives actually shape the boundary.
-    NEG_PER_POS = 12
+    # Cap negatives to a multiple of positives. Negative VOLUME is the single
+    # biggest lever for a low false-accept rate (openWakeWord trains on ~30k h of
+    # negatives; microWakeWord weights the negative class 20×), so we keep this
+    # ratio high. The floor on the other side: left fully uncapped, balance() would
+    # duplicate each completion-aligned positive so many times the phrase signal
+    # drowns and the detector collapses. 25:1 keeps a strong, boundary-tightening
+    # negative set while the oversampled positives still shape the decision surface.
+    NEG_PER_POS = 25
     rng_cap = np.random.default_rng(11)
     pos_i = np.where(y == 1)[0]; neg_i = np.where(y == 0)[0]
     if len(pos_i) and len(neg_i) > NEG_PER_POS * len(pos_i):
@@ -540,7 +605,12 @@ def main() -> None:
                              max_iter=400, random_state=42, early_stopping=False)
 
     # Calibrate the fire threshold on a held-out split (fit on balanced train).
+    # openWakeWord/microWakeWord both tune to a target FALSE-ACCEPTS-PER-HOUR, not
+    # raw accuracy, so we do the same here against the held-out negative windows.
     threshold = 0.5
+    TARGET_FAPH  = 1.0   # aim for ≤1 false accept per hour of ambient audio
+    RECALL_FLOOR = 0.6   # …but never so strict the phrase stops firing
+    val_acc = None       # held-out validation accuracy (quality metric, persisted)
     try:
         from sklearn.model_selection import train_test_split
         Xtr, Xva, ytr, yva = train_test_split(X_scaled, y, test_size=0.25, random_state=42, stratify=y)
@@ -552,9 +622,29 @@ def main() -> None:
         if len(pos) and len(neg):
             neg_hi = float(np.percentile(neg, 95))   # nearly all negatives below this
             pos_lo = float(np.percentile(pos, 10))   # most positives above this
-            thr = max(neg_hi + 0.10, (neg_hi + pos_lo) / 2)
-            threshold = round(min(0.85, max(0.3, thr)), 2)
-        progress(f"Validation accuracy: {val_acc:.1%}; calibrated threshold {threshold:.2f}")
+            thr = max(neg_hi + 0.10, (neg_hi + pos_lo) / 2)  # separation baseline
+
+            # FA/hr calibration. The held-out negative windows are a proxy ambient
+            # stream: each window is one 80 ms detector hop, so 12.5 windows ≈ 1 s.
+            # Pick the LOWEST threshold whose negative-crossing rate meets TARGET_FAPH
+            # (maximizes recall), then back off if it would drop recall below the
+            # floor. Conservative: the runtime's 4-frame smoothing + 2-frame
+            # hysteresis suppress isolated crossings, so real FA/hr ≤ the figure here.
+            hours = len(neg) / 12.5 / 3600.0
+            def faph(t: float) -> float:
+                return float(np.sum(neg >= t)) / hours if hours > 0 else 0.0
+            sorted_desc = np.sort(neg)[::-1]
+            allowed = int(np.floor(TARGET_FAPH * hours))
+            thr_fa = thr if allowed >= len(sorted_desc) else max(thr, float(sorted_desc[allowed]) + 1e-4)
+            if float(np.mean(pos >= thr_fa)) < RECALL_FLOOR:
+                thr_fa = thr  # keep recall: accept a higher FA/hr than the target
+            threshold = round(min(0.85, max(0.3, thr_fa)), 2)
+            measured = faph(threshold)
+            recall   = float(np.mean(pos >= threshold))
+            progress(f"Validation accuracy: {val_acc:.1%}; threshold {threshold:.2f} "
+                     f"(~{measured:.2f} false-accepts/hr over {hours * 60:.0f} min held-out negatives, recall {recall:.0%})")
+        else:
+            progress(f"Validation accuracy: {val_acc:.1%}; calibrated threshold {threshold:.2f}")
     except Exception as e:
         progress(f"Threshold calibration skipped ({e}); using {threshold:.2f}")
 
@@ -579,7 +669,7 @@ def main() -> None:
     export_mlp_onnx(W0_fused, b0_fused, W1, b1, args.output)
     if _EMBEDDER is not None:
         _EMBEDDER.close()
-    progress("Done.", done=True, threshold=threshold)
+    progress("Done.", done=True, threshold=threshold, accuracy=val_acc)
 
 
 if __name__ == "__main__":

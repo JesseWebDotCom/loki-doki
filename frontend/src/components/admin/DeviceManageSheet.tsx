@@ -19,6 +19,7 @@ export interface ManagedDevice {
   kind: string
   model: string | null
   wakeWord: string | null
+  groupId: string | null
   paired: boolean
   online: boolean
   activity: string
@@ -57,6 +58,8 @@ export function DeviceManageSheet({
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [wifiSsid, setWifiSsid] = useState<string | null>(null)
+  const [groups, setGroups] = useState<{ id: string; name: string; isDefault: boolean }[]>([])
+  const [groupId, setGroupId] = useState('default')
 
   // Re-seed the form whenever a different device opens.
   useEffect(() => {
@@ -65,11 +68,32 @@ export function DeviceManageSheet({
     setUserId(device.userId)
     setCharacterId(device.characterId ?? '')
     setWakeWord(device.wakeWord ?? '')
+    setGroupId(device.groupId ?? 'default')
     fetch('/api/pod/firmware/wifi', opts)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setWifiSsid(d?.ssid ?? null))
       .catch(() => setWifiSsid(null))
+    fetch('/api/pod/groups', opts)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((g) => setGroups(Array.isArray(g) ? g : []))
+      .catch(() => setGroups([]))
   }, [device?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Group assignment deploys immediately (it changes the device's effective settings).
+  async function assignGroup(next: string) {
+    setGroupId(next)
+    try {
+      const r = await fetch(`/api/pod/devices/${device!.id}/group`, {
+        ...opts, method: 'PUT', headers: J,
+        body: JSON.stringify({ groupId: next === 'default' ? null : next }),
+      })
+      if (!r.ok) throw new Error()
+      toast.success(device!.online
+        ? 'Group updated — settings sent to the device'
+        : 'Group updated — will apply when the device is online')
+      onChanged()
+    } catch { toast.error('Couldn’t change group') }
+  }
 
   if (!device) return null
   const art = resolveDeviceModel(device.model, device.kind)
@@ -157,6 +181,12 @@ export function DeviceManageSheet({
               <Picker value={characterId} onChange={setCharacterId}>
                 <option value="">None</option>
                 {companions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Picker>
+            </FieldRow>
+            <FieldRow label="Settings group">
+              <Picker value={groupId} onChange={assignGroup}>
+                {groups.length === 0 && <option value="default">Default</option>}
+                {groups.map((g) => <option key={g.id} value={g.isDefault ? 'default' : g.id}>{g.name}</option>)}
               </Picker>
             </FieldRow>
             <FieldRow label="Wake word">

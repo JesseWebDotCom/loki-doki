@@ -32,6 +32,8 @@ export interface PodBrainOptions {
   history?: OllamaChatMessage[]
   /** Stable per-device conversation id for the memory cache / tool context. */
   convId: string
+  /** Device-group reply-length override ('inherit' or unset → use the character's). */
+  replyStyleOverride?: string | null
   signal: { readonly aborted: boolean }
 }
 
@@ -113,8 +115,13 @@ async function buildTurnParams(
   }
   if (prefs['seed']) options['seed'] = prefs['seed']
 
+  // A device-group setting (e.g. "brief") overrides the character's own reply style;
+  // 'inherit' / unset leaves the character's choice alone.
+  const replyStyle = opts.replyStyleOverride && opts.replyStyleOverride !== 'inherit'
+    ? opts.replyStyleOverride
+    : charRow?.replyStyle
   const characterSystemPrompt = charRow
-    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle: charRow.replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig })
+    ? buildCompanionPrompt({ personalityPrompt: charRow.personalityPrompt, replyStyle, style: charRow.style, avatarConfig: charRow.avatarConfig })
     : null
 
   return {

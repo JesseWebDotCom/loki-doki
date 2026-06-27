@@ -13,6 +13,7 @@ import { refreshCompanions } from '@/hooks/useActiveCompanion'
 import { COMPANION_CATEGORIES } from '@/lib/companions/companionCategories'
 import { VoicePicker, WakePhraseField } from '@/components/admin/voiceControls'
 import { WakeTrainingProgress } from '@/components/shared/WakeTrainingProgress'
+import { toast } from '@/lib/toast'
 import { AdminBriefingTab } from '@/components/admin/AdminBriefingTab'
 import { VoiceDefaults, PronunciationEditor } from '@/components/admin/AdminVoiceTab'
 import { ContentDialGroup, MIN_DIALS } from '@/components/shared/contentDials'
@@ -322,17 +323,23 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
   // Foreground wake-word training, kicked off on Save when the phrase changes.
   const [trainReq, setTrainReq] = useState<{ phrase: string; characterId: string; nonce: number } | null>(null)
   const [trainInstalled, setTrainInstalled] = useState(false)
+  const [trainedModels, setTrainedModels] = useState<{ id: string; accuracy: number | null; threshold: number | null; trainedAt: string | null }[]>([])
+  const [retrainingAll, setRetrainingAll] = useState(false)
   // The wake phrase as last loaded/saved — lets Save detect a real change so we
   // only retrain (and only discard the existing model) when the phrase actually
   // changed, not on every unrelated edit.
   const baselineWakeRef = useRef('')
 
-  useEffect(() => {
+  const loadCatalog = useCallback(() => {
     fetch('/api/admin/wakewords/catalog', { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : { trainInstalled: false }))
-      .then((d: { trainInstalled?: boolean }) => setTrainInstalled(d.trainInstalled ?? false))
+      .then((r) => (r.ok ? r.json() : { trainInstalled: false, trained: [] }))
+      .then((d: { trainInstalled?: boolean; trained?: typeof trainedModels }) => {
+        setTrainInstalled(d.trainInstalled ?? false)
+        setTrainedModels(d.trained ?? [])
+      })
       .catch(() => {})
   }, [])
+  useEffect(() => { loadCatalog() }, [loadCatalog])
 
   const loadList = useCallback(async () => {
     try {
@@ -353,6 +360,22 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
     setDraft({ ...BLANK, seed: randomSeed(), avatarConfig: {} })
     baselineWakeRef.current = ''
     setTab('identity')
+  }
+
+  // Force-retrain every companion's wake-word model (e.g. to apply a trainer
+  // improvement). Runs in the background server-side; each model's date/quality
+  // updates as it finishes.
+  async function retrainAll() {
+    if (!trainInstalled) { toast.error('Install “Wake Word Training” (Admin → Features) first'); return }
+    setRetrainingAll(true)
+    try {
+      const r = await fetch('/api/admin/wakewords/retrain-all', { method: 'POST', credentials: 'include' })
+      if (!r.ok) throw new Error()
+      const { total } = await r.json() as { total: number }
+      toast.success(total > 0
+        ? `Retraining ${total} wake word${total === 1 ? '' : 's'} in the background — quality updates as each finishes.`
+        : 'No companions have a wake phrase to retrain.')
+    } catch { toast.error('Couldn’t start retraining') } finally { setRetrainingAll(false) }
   }
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => d ? { ...d, [key]: value } : d)
@@ -450,9 +473,19 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
               <h2 className="text-lg font-semibold">Companions</h2>
               <p className="text-sm text-muted-foreground">Create and manage the companions available across the app.</p>
             </div>
-            <button onClick={newDraft} className="flex items-center gap-2 rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background hover:opacity-90">
-              <Plus className="size-4" /> New companion
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={retrainAll}
+                disabled={retrainingAll || !trainInstalled}
+                title={trainInstalled ? 'Retrain every companion’s wake-word model (applies trainer improvements to all)' : 'Install “Wake Word Training” in Admin → Features first'}
+                className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-foreground/5 disabled:opacity-50"
+              >
+                <Sparkles className="size-4" /> {retrainingAll ? 'Starting…' : 'Retrain all'}
+              </button>
+              <button onClick={newDraft} className="flex items-center gap-2 rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background hover:opacity-90">
+                <Plus className="size-4" /> New companion
+              </button>
+            </div>
           </div>
 
           {list.length === 0 ? (
@@ -587,24 +620,37 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                     {draft.id && (() => {
                       const phrase = (draft.wakeWordPhrase ?? '').trim()
                       const busy = !!trainReq && trainReq.characterId === draft.id
+                      const model = trainedModels.find((m) => m.id === draft.wakeWordModelId)
                       return (
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => { if (draft.id && phrase) setTrainReq({ phrase, characterId: draft.id, nonce: Date.now() }) }}
-                            disabled={!trainInstalled || !phrase || busy}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-foreground/5 disabled:opacity-50"
-                            title={!trainInstalled ? 'Install “Wake Word Training” in Admin → Features first'
-                              : !phrase ? 'Enter a wake phrase above first'
-                              : 'Retrain the detector model used by physical voice devices'}
-                          >
-                            <Sparkles className="size-3.5" /> {busy ? 'Retraining…' : 'Retrain device model'}
-                          </button>
-                          <span className="text-[11px] text-muted-foreground">
-                            {!trainInstalled ? 'Needs “Wake Word Training” (Admin → Features).'
-                              : !phrase ? 'Enter a wake phrase above first.'
-                              : 'For physical voice devices — applies to every device using this companion.'}
-                          </span>
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => { if (draft.id && phrase) setTrainReq({ phrase, characterId: draft.id, nonce: Date.now() }) }}
+                              disabled={!trainInstalled || !phrase || busy}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-foreground/5 disabled:opacity-50"
+                              title={!trainInstalled ? 'Install “Wake Word Training” in Admin → Features first'
+                                : !phrase ? 'Enter a wake phrase above first'
+                                : 'Retrain the detector model used by physical voice devices'}
+                            >
+                              <Sparkles className="size-3.5" /> {busy ? 'Retraining…' : 'Retrain device model'}
+                            </button>
+                            <span className="text-[11px] text-muted-foreground">
+                              {!trainInstalled ? 'Needs “Wake Word Training” (Admin → Features).'
+                                : !phrase ? 'Enter a wake phrase above first.'
+                                : 'For physical voice devices — applies to every device using this companion.'}
+                            </span>
+                          </div>
+                          {/* When the current model was trained + its quality, so you can judge it at a glance. */}
+                          {draft.wakeWordModelId && model && (
+                            <p className="text-[11px] text-muted-foreground/90">
+                              Trained {model.trainedAt ? new Date(model.trainedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'unknown'}
+                              {typeof model.accuracy === 'number'
+                                ? <> · <span className={model.accuracy >= 0.9 ? 'text-emerald-500' : model.accuracy >= 0.75 ? 'text-amber-500' : 'text-rose-500'}>{Math.round(model.accuracy * 100)}% accuracy</span></>
+                                : ' · quality not measured (retrain to capture it)'}
+                              {typeof model.threshold === 'number' ? ` · fires at ${model.threshold.toFixed(2)}` : ''}
+                            </p>
+                          )}
                         </div>
                       )
                     })()}
@@ -686,7 +732,7 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                   key={trainReq.nonce}
                   phrase={trainReq.phrase}
                   characterId={trainReq.characterId}
-                  onComplete={(modelId) => { set('wakeWordModelId', modelId); void loadList(); refreshCompanions() }}
+                  onComplete={(modelId) => { set('wakeWordModelId', modelId); void loadList(); refreshCompanions(); loadCatalog() }}
                   onDismiss={() => setTrainReq(null)}
                 />
               )}

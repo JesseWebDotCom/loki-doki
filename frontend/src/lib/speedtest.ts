@@ -2,13 +2,14 @@
 // multiple concurrent streams, a grace/warmup period to let the TCP window
 // ramp before measuring, HTTP ping/jitter, and a x1.06 overhead compensation.
 //
-// Two providers:
-//   internet — true ISP speed against Cloudflare's edge (speed.cloudflare.com)
-//   server   — private throughput to your own LokiDoki server (works on LAN)
+// Three modes:
+//   internet         — true ISP speed against Cloudflare's edge (client-driven)
+//   server           — private throughput to your own LokiDoki server (client-driven)
+//   server-internet  — server's own internet speed against Cloudflare (server-driven SSE)
 
 // ── Modes & providers ───────────────────────────────────────────────────────
 
-export type SpeedMode = 'internet' | 'server'
+export type SpeedMode = 'internet' | 'server' | 'server-internet'
 
 interface Provider {
   downloadUrl: string
@@ -23,7 +24,7 @@ interface Provider {
 
 const MB = 1024 * 1024
 
-const PROVIDERS: Record<SpeedMode, Provider> = {
+const PROVIDERS: Record<'internet' | 'server', Provider> = {
   internet: {
     downloadUrl: 'https://speed.cloudflare.com/__down',
     uploadUrl: 'https://speed.cloudflare.com/__up',
@@ -47,8 +48,9 @@ const PROVIDERS: Record<SpeedMode, Provider> = {
 }
 
 export const MODE_META: Record<SpeedMode, { label: string; tagline: string }> = {
-  internet: { label: 'Internet', tagline: 'Real ISP speed via Cloudflare edge' },
-  server:   { label: 'Server',   tagline: 'Private throughput to your server' },
+  internet:        { label: 'Internet',        tagline: 'Real ISP speed via Cloudflare edge' },
+  server:          { label: 'Server',           tagline: 'Private throughput to your server' },
+  'server-internet': { label: 'Server Internet', tagline: "Server's internet speed via Cloudflare edge" },
 }
 
 // Tuning (milliseconds / counts).
@@ -71,7 +73,6 @@ export interface SpeedThresholds {
 
 export const DEFAULT_THRESHOLDS: SpeedThresholds = { goodMbps: 50, okMbps: 10 }
 
-export const THRESHOLDS_PREF_KEY = 'speedtest.thresholds'
 export const LAST_RESULT_PREF_KEY = 'speedtest.last'
 export const MODE_PREF_KEY = 'speedtest.mode'
 
@@ -95,6 +96,27 @@ export function normalizeThresholds(raw: unknown): SpeedThresholds {
   const good = Number.isFinite(r.goodMbps) ? Math.max(0, Number(r.goodMbps)) : DEFAULT_THRESHOLDS.goodMbps
   const ok = Number.isFinite(r.okMbps) ? Math.max(0, Number(r.okMbps)) : DEFAULT_THRESHOLDS.okMbps
   return { goodMbps: Math.max(good, ok), okMbps: Math.min(good, ok) }
+}
+
+// ── Thresholds — admin-controlled, readable by all ─────────────────────────
+
+export async function loadThresholds(): Promise<SpeedThresholds> {
+  try {
+    const r = await fetch('/api/admin/speedtest', { credentials: 'include' })
+    if (!r.ok) return { ...DEFAULT_THRESHOLDS }
+    return normalizeThresholds(await r.json())
+  } catch {
+    return { ...DEFAULT_THRESHOLDS }
+  }
+}
+
+export async function saveThresholds(thresholds: SpeedThresholds): Promise<unknown> {
+  return fetch('/api/admin/speedtest', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thresholds),
+  }).catch(() => undefined)
 }
 
 // ── Result shape & persistence ──────────────────────────────────────────────
@@ -126,31 +148,27 @@ function savePref(userId: string, key: string, value: unknown): Promise<unknown>
   }).catch(() => undefined)
 }
 
-export async function loadThresholds(userId: string): Promise<SpeedThresholds> {
-  return normalizeThresholds((await loadPrefs(userId))?.[THRESHOLDS_PREF_KEY])
-}
-
-export function saveThresholds(userId: string, thresholds: SpeedThresholds): Promise<unknown> {
-  return savePref(userId, THRESHOLDS_PREF_KEY, thresholds)
-}
-
 export async function loadMode(userId: string): Promise<SpeedMode> {
   const m = (await loadPrefs(userId))?.[MODE_PREF_KEY]
-  return m === 'server' ? 'server' : 'internet'
+  if (m === 'server' || m === 'server-internet') return m
+  return 'internet'
 }
 
 export function saveMode(userId: string, mode: SpeedMode): Promise<unknown> {
   return savePref(userId, MODE_PREF_KEY, mode)
 }
 
-export type ResultsByMode = { internet: SpeedResult | null; server: SpeedResult | null }
+export type ResultsByMode = { internet: SpeedResult | null; server: SpeedResult | null; 'server-internet': SpeedResult | null }
 
 function parseResult(raw: unknown): SpeedResult | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Partial<SpeedResult>
   if (!Number.isFinite(r.downloadMbps)) return null
+  let mode: SpeedMode = 'internet'
+  if (r.mode === 'server') mode = 'server'
+  else if (r.mode === 'server-internet') mode = 'server-internet'
   return {
-    mode: r.mode === 'server' ? 'server' : 'internet',
+    mode,
     downloadMbps: Number(r.downloadMbps),
     uploadMbps: Number(r.uploadMbps ?? 0),
     pingMs: Number(r.pingMs ?? 0),
@@ -159,15 +177,16 @@ function parseResult(raw: unknown): SpeedResult | null {
   }
 }
 
-/** Read both modes' last results. Back-compat: an old single-result blob is slotted by its mode. */
+/** Read all modes' last results. */
 export async function loadLastResults(userId: string): Promise<ResultsByMode> {
   const raw = (await loadPrefs(userId))?.[LAST_RESULT_PREF_KEY]
-  const out: ResultsByMode = { internet: null, server: null }
+  const out: ResultsByMode = { internet: null, server: null, 'server-internet': null }
   if (!raw || typeof raw !== 'object') return out
   const obj = raw as Record<string, unknown>
-  if ('internet' in obj || 'server' in obj) {
+  if ('internet' in obj || 'server' in obj || 'server-internet' in obj) {
     out.internet = parseResult(obj.internet)
     out.server = parseResult(obj.server)
+    out['server-internet'] = parseResult(obj['server-internet'])
   } else {
     const single = parseResult(raw)
     if (single) out[single.mode] = single
@@ -177,9 +196,10 @@ export async function loadLastResults(userId: string): Promise<ResultsByMode> {
 
 /** Newest result across modes (used by the home widget). */
 export async function loadLastResult(userId: string): Promise<SpeedResult | null> {
-  const { internet, server } = await loadLastResults(userId)
-  if (internet && server) return internet.at >= server.at ? internet : server
-  return internet ?? server
+  const { internet, server, 'server-internet': si } = await loadLastResults(userId)
+  const all = [internet, server, si].filter(Boolean) as SpeedResult[]
+  if (!all.length) return null
+  return all.reduce((a, b) => a.at >= b.at ? a : b)
 }
 
 export function saveLastResults(userId: string, results: ResultsByMode): Promise<unknown> {
@@ -334,6 +354,59 @@ function measureUpload(p: Provider, onProgress: (mbps: number, frac: number) => 
   })
 }
 
+// ── Server-internet mode (SSE from the backend) ─────────────────────────────
+
+async function runServerInternetTest(onProgress: (p: SpeedProgress) => void): Promise<SpeedResult> {
+  const response = await fetch('/api/speedtest/server-internet/stream', { credentials: 'include' })
+  if (!response.body) throw new Error('No response body')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let eventName = ''
+  let eventData = ''
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+
+    let nlIdx
+    while ((nlIdx = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nlIdx).trimEnd()
+      buf = buf.slice(nlIdx + 1)
+
+      if (line === '') {
+        if (eventData) {
+          try {
+            const p = JSON.parse(eventData) as SpeedProgress
+            onProgress(p)
+            if (eventName === 'done') {
+              void reader.cancel()
+              return {
+                mode: 'server-internet',
+                downloadMbps: p.downloadMbps,
+                uploadMbps: 0,
+                pingMs: p.pingMs,
+                jitterMs: p.jitterMs,
+                at: Date.now(),
+              }
+            }
+          } catch { /* */ }
+        }
+        eventName = ''
+        eventData = ''
+      } else if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        eventData = line.slice(5).trim()
+      }
+    }
+  }
+
+  throw new Error('Server internet test ended without a result')
+}
+
 // ── Orchestration ───────────────────────────────────────────────────────────
 
 export type SpeedPhase = 'idle' | 'ping' | 'download' | 'upload' | 'done'
@@ -351,6 +424,11 @@ export interface SpeedProgress {
 }
 
 export async function runSpeedTest(mode: SpeedMode, onProgress: (p: SpeedProgress) => void): Promise<SpeedResult> {
+  if (mode === 'server-internet') {
+    onProgress({ phase: 'ping', mbps: 0, frac: 0, pingMs: 0, jitterMs: 0, downloadMbps: 0, uploadMbps: 0 })
+    return runServerInternetTest(onProgress)
+  }
+
   const p = PROVIDERS[mode]
   const acc = { pingMs: 0, jitterMs: 0, downloadMbps: 0, uploadMbps: 0 }
   const emit = (phase: SpeedPhase, mbps: number, frac: number) =>

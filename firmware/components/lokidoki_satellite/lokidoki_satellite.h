@@ -5,6 +5,7 @@
 #include "esphome/components/microphone/microphone.h"
 #include "esphome/components/speaker/speaker.h"
 #include "esphome/components/light/light_state.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 
 #include <cstdint>
 #include <mutex>
@@ -27,6 +28,13 @@ class LokiDokiSatellite : public Component {
   void set_microphone(microphone::Microphone *mic) { this->mic_ = mic; }
   void set_speaker(speaker::Speaker *spk) { this->speaker_ = spk; }
   void set_status_light(light::LightState *light) { this->light_ = light; }
+  // Optional: publishes the conversation state ("idle"/"listening"/"thinking"/
+  // "talking") so a screen device (Tab5) can react in LVGL. Screenless pods leave
+  // this unset and just use the status LED.
+  void set_face_sensor(text_sensor::TextSensor *s) { this->face_sensor_ = s; }
+  // Optional: screen backlight to dim on idle (driven by pushed config). Screenless
+  // pods leave this unset.
+  void set_backlight(light::LightState *bl) { this->backlight_ = bl; }
 
   void setup() override;
   void loop() override;
@@ -63,6 +71,8 @@ class LokiDokiSatellite : public Component {
   // ── feedback (LED reflects connection + conversation state) ──
   void update_led_();   // recompute the LED target from connection + face state
   void tick_led_();     // animate pulsing states (connecting / thinking)
+  void tick_dim_();     // idle screen dimming (backlight pods only)
+  void apply_backlight_(float brightness);
   // ESPHome's microphone delivers raw little-endian PCM BYTES (not int16 samples).
   void on_mic_data_(const std::vector<uint8_t> &data);
 
@@ -72,6 +82,16 @@ class LokiDokiSatellite : public Component {
   microphone::Microphone *mic_{nullptr};
   speaker::Speaker *speaker_{nullptr};
   light::LightState *light_{nullptr};
+  text_sensor::TextSensor *face_sensor_{nullptr};
+  std::string published_face_;  // last value pushed to face_sensor_ (de-dupe)
+
+  // Idle screen dimming (configured live via the server's `config` event).
+  light::LightState *backlight_{nullptr};
+  bool dim_enabled_{false};
+  uint8_t dim_percent_{30};
+  uint32_t dim_after_ms_{60000};
+  uint32_t last_active_ms_{0};
+  bool dimmed_{false};
 
   int fd_{-1};                       // TCP socket (lwip)
   bool connected_{false};

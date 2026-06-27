@@ -221,6 +221,21 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     ],
   },
   {
+    id: 'devices',
+    name: 'Devices',
+    description: 'Physical voice devices around the home',
+    base: {
+      id: 'pod-devices',
+      name: 'Voice Devices',
+      description: 'Flash and run ESP32 voice satellites (M5Stack Atom Echo, Tab5) from the app — wake word, speaker, and screen, set up over USB in Admin → Devices.',
+      diskBytes: 1_500_000_000,  // ESPHome venv + ESP32/ESP32-P4 PlatformIO toolchain
+      ramBytes:  0,
+      requires: [],
+      installs: [{ id: 'esphome', type: 'component' }],
+      advanced: 'ESPHome (managed Python venv) + ESP32 / ESP32-P4 PlatformIO toolchain',
+    },
+  },
+  {
     id: 'library',
     name: 'Offline Library',
     description: 'Browse Wikipedia and more without internet',

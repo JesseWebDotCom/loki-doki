@@ -1220,8 +1220,8 @@ function WidgetSpeedTest() {
   const runningRef = useRef(false);
 
   useEffect(() => {
+    void loadThresholds().then(setThresholds);
     if (!user?.id) return;
-    void loadThresholds(user.id).then(setThresholds);
     void loadMode(user.id).then(setMode);
     void loadLastResult(user.id).then(r => { if (r) setResult(r); });
   }, [user?.id]);

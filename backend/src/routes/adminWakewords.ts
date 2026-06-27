@@ -10,6 +10,7 @@ import { requireAdmin } from '@/middleware/auth'
 import { wakewordDir, downloadWakewordModel, downloadWakewordCore, isWakewordCoreInstalled, isWakewordTrainInstalled } from '@/lib/download'
 import { isGloballyOffline, isDownloadBlocked } from '@/lib/connectivity'
 import { trainWakeword } from '@/lib/voice/wakewordTrainer'
+import { retrainAllCompanions } from '@/lib/pod/companionWake'
 import { ollamaUrl } from '@/llm/ollama'
 import { getModel } from '@/lib/models'
 import type { AppEnv } from '@/types'
@@ -49,6 +50,10 @@ adminWakewords.get('/catalog', requireAdmin, async (c) => {
       id: r.id,
       label: r.label,
       installed: r.assetPath ? existsSync(join(wakewordDir(), r.assetPath)) : false,
+      characterId: r.characterId,
+      threshold: r.defaultThreshold,
+      accuracy: r.accuracy,                 // 0–1 held-out validation accuracy (null for older models)
+      trainedAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
     })),
   })
 })
@@ -166,7 +171,7 @@ adminWakewords.post('/train', requireAdmin, async (c) => {
 
     try {
       await emit('start', { status: 'generating', phrase })
-      const { threshold } = await trainWakeword(
+      const { threshold, accuracy } = await trainWakeword(
         phrase.trim(),
         id,
         (p) => {
@@ -192,6 +197,7 @@ adminWakewords.post('/train', requireAdmin, async (c) => {
           // Use the calibrated threshold from training; tunable later in the
           // tester. The old hardcoded 0.5 was the main cause of false fires.
           defaultThreshold: threshold ?? 0.6,
+          accuracy:         accuracy ?? null,
           characterId:      characterId ?? null,
           enabled:          true,
           createdAt:        now,
@@ -199,16 +205,17 @@ adminWakewords.post('/train', requireAdmin, async (c) => {
         })
         .onConflictDoUpdate({
           target: wakeWordCatalog.id,
-          set:    { label: displayLabel, assetPath: file, updatedAt: now },
+          set:    { label: displayLabel, assetPath: file, accuracy: accuracy ?? null, defaultThreshold: threshold ?? 0.6, updatedAt: now },
         })
 
-      // Attach the model to the character directly so it takes effect without a
-      // separate form Save. A trained model is inert until a character points at
-      // it; otherwise the companion silently falls back to hey_jarvis. Clear any
-      // phrase to keep the single-wakeword-source invariant.
+      // Attach the model to the character so it takes effect without a separate form
+      // Save. A trained model is inert until a character points at it; otherwise the
+      // companion silently falls back to hey_jarvis. KEEP the phrase — the in-app
+      // companion Whisper-matches it, and clearing it blanked the editor field and
+      // disabled the on-demand "Retrain" button (model precedence is resolved server-side).
       if (characterId) {
         await db.update(characters)
-          .set({ wakeWordModelId: id, wakeWordPhrase: null, updatedAt: now })
+          .set({ wakeWordModelId: id, updatedAt: now })
           .where(eq(characters.id, characterId))
       }
 
@@ -222,6 +229,14 @@ adminWakewords.post('/train', requireAdmin, async (c) => {
       await emit('error', { status: 'error', error: String(err) })
     }
   })
+})
+
+// Force-retrain every companion's wake word (e.g. to apply a trainer improvement).
+// Runs sequentially in the background; each model's date/accuracy updates as it
+// finishes. Returns how many were queued.
+adminWakewords.post('/retrain-all', requireAdmin, async (c) => {
+  const { total } = await retrainAllCompanions()
+  return c.json({ ok: true, total })
 })
 
 // Persist a detector's sensitivity. The live hands-free loop reads this

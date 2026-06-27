@@ -9,18 +9,124 @@
 // the device auto-joins Wi-Fi and announces itself for the one-tap Claim flow
 // (lib/pod/pending.ts) — no per-device Wi-Fi step.
 
-import { join, resolve } from 'node:path'
+import { join, resolve, dirname } from 'node:path'
 import { existsSync, readdirSync, mkdirSync, cpSync } from 'node:fs'
 import { networkInterfaces } from 'node:os'
-import { dataDir } from '@/lib/download'
+import { dataDir, downloadDirectUrl } from '@/lib/download'
 import { logger } from '@/lib/logger'
 import { getAppSetting, setAppSetting } from '@/lib/settings'
-import { runEsphome, isESPHomeInstalled } from '@/lib/esphome'
+import { runEsphome, isESPHomeInstalled, run, esphomeVenvBin } from '@/lib/esphome'
 
-const TEMPLATE_DIR = resolve(import.meta.dir, '../../../../firmware/atom-echo')
 const BUILD_ROOT = join(dataDir, 'esphome')
-const BUILD_DIR = join(BUILD_ROOT, 'atom-echo')
-const CONFIG_NAME = 'atom-echo.yaml'
+
+// Firmware templates are NOT shipped with the app. They're fetched on demand from
+// the project repo (mirroring how models/toolchains are downloaded) into BUILD_ROOT
+// and compiled there, so a distributed build contains no device firmware. In a dev
+// checkout the firmware/ tree is present, so we prefer it (local edits take effect
+// without a GitHub round-trip); otherwise each file is downloaded.
+const FIRMWARE_REF = process.env.LOKIDOKI_FIRMWARE_REF ?? 'main'
+const FIRMWARE_RAW_BASE = `https://raw.githubusercontent.com/JesseWebDotCom/loki-doki/${FIRMWARE_REF}/firmware`
+const LOCAL_FIRMWARE_DIR = resolve(import.meta.dir, '../../../../firmware')
+
+// The shared Wyoming/Loki-Doki satellite runtime (referenced by every device YAML
+// as `../components`). Listed explicitly because we fetch the tree file-by-file.
+const SHARED_COMPONENT_FILES = [
+  'components/lokidoki_satellite/__init__.py',
+  'components/lokidoki_satellite/lokidoki_satellite.cpp',
+  'components/lokidoki_satellite/lokidoki_satellite.h',
+]
+
+// Per-device firmware. `id` matches the device.model in the frontend catalog
+// (lib/deviceCatalog.ts) and what a flashed device announces; `chip` is the family
+// esptool reports, used to auto-select the right firmware from the plugged-in board.
+interface FirmwareModel {
+  /** Device YAML path relative to firmware/ (e.g. 'tab5/tab5.yaml'). */
+  configRel: string
+  /** ESP chip family esptool reports (e.g. 'ESP32', 'ESP32-P4'). */
+  chip: string
+}
+
+const FIRMWARE_MODELS: Record<string, FirmwareModel> = {
+  'atom-echo': { configRel: 'atom-echo/atom-echo.yaml', chip: 'ESP32' },
+  tab5: { configRel: 'tab5/tab5.yaml', chip: 'ESP32-P4' },
+}
+
+const DEFAULT_MODEL = 'atom-echo'
+
+/** Resolve a model id, falling back to the default. */
+function resolveFirmwareModel(model?: string | null): { id: string } & FirmwareModel {
+  const id = model && FIRMWARE_MODELS[model] ? model : DEFAULT_MODEL
+  return { id, ...FIRMWARE_MODELS[id]! }
+}
+
+/** The build dir + config filename a model compiles in (mirrors the repo layout
+ *  under BUILD_ROOT, so a YAML's `../components` resolves to BUILD_ROOT/components). */
+function buildPaths(fw: FirmwareModel): { buildDir: string; configName: string } {
+  return { buildDir: join(BUILD_ROOT, dirname(fw.configRel)), configName: fw.configRel.split('/').pop()! }
+}
+
+/** Bring a single firmware file into BUILD_ROOT — copied from the local checkout in
+ *  dev, otherwise downloaded from the repo. */
+async function fetchFirmwareFile(rel: string, onLine: (l: string) => void, signal?: AbortSignal): Promise<void> {
+  const dest = join(BUILD_ROOT, rel)
+  const localSrc = join(LOCAL_FIRMWARE_DIR, rel)
+  if (existsSync(localSrc)) {
+    mkdirSync(dirname(dest), { recursive: true })
+    cpSync(localSrc, dest)
+    return
+  }
+  onLine(`Fetching firmware: ${rel}…`)
+  // downloadDirectUrl writes relative to dataDir; BUILD_ROOT is dataDir/esphome.
+  await downloadDirectUrl(`${FIRMWARE_RAW_BASE}/${rel}`, join('esphome', rel), () => {}, signal)
+  if (!existsSync(dest)) throw new Error(`could not obtain firmware file: ${rel}`)
+}
+
+/** Ensure a model's YAML + the shared component are present under BUILD_ROOT. */
+async function ensureFirmwareFiles(fw: FirmwareModel, onLine: (l: string) => void, signal?: AbortSignal): Promise<void> {
+  for (const rel of [fw.configRel, ...SHARED_COMPONENT_FILES]) {
+    await fetchFirmwareFile(rel, onLine, signal)
+  }
+}
+
+// ── auto-detect the plugged-in device ──────────────────────────────────────────
+
+export interface DetectedDevice {
+  port: string
+  /** Chip family esptool reported, or 'unknown'. */
+  chip: string
+  /** Catalog model id matching the chip, or null if we can't map it. */
+  model: string | null
+}
+
+/** Parse the chip family from esptool output (the "Detecting chip type" line gives
+ *  the family; "Chip is …" is more specific but we key off the family). */
+function parseChipFamily(out: string): string | null {
+  const m = out.match(/Detecting chip type[.\s]*?(ESP32[\w-]*)/i)
+  if (m) return m[1]!.toUpperCase()
+  const c = out.match(/Chip is\s+(ESP32-?P4|ESP32-?S3|ESP32-?C\d|ESP32)/i)
+  return c ? c[1]!.toUpperCase().replace(/^ESP32(?=[SPC]\d?)/, 'ESP32-') : null
+}
+
+/**
+ * Identify the device on a USB port by reading its ESP chip family with esptool
+ * (bundled in the ESPHome venv), then map that to a catalog model so the wizard can
+ * pick the right firmware automatically. Returns null if no single port is present.
+ */
+export async function detectDevice(port?: string): Promise<DetectedDevice | null> {
+  const ports = detectSerialPorts()
+  const p = port ?? (ports.length === 1 ? ports[0] : undefined)
+  if (!p) return null
+  let out = ''
+  try {
+    await run(esphomeVenvBin('python'), ['-m', 'esptool', '--port', p, '--connect-attempts', '2', 'chip-id'],
+      { onLine: (l) => { out += l + '\n' }, timeoutMs: 30_000 })
+  } catch { /* esptool may exit non-zero, but the chip line still prints during connect */ }
+  const chip = parseChipFamily(out)
+  const model = chip
+    ? (Object.entries(FIRMWARE_MODELS).find(([, m]) => m.chip.toUpperCase() === chip)?.[0] ?? null)
+    : null
+  return { port: p, chip: chip ?? 'unknown', model }
+}
 
 const WIFI_SSID_KEY = 'pod.wifi_ssid'
 const WIFI_PASS_KEY = 'pod.wifi_password'
@@ -94,20 +200,6 @@ export function isFlashBusy(): boolean {
   return flash.state === 'staging' || flash.state === 'compiling' || flash.state === 'flashing'
 }
 
-// ── staging ────────────────────────────────────────────────────────────────────
-
-/** Copy the read-only template into a writable build dir (ESPHome writes .esphome/ there). */
-function stageTemplate(): void {
-  if (!existsSync(TEMPLATE_DIR)) throw new Error(`firmware template missing at ${TEMPLATE_DIR}`)
-  mkdirSync(BUILD_ROOT, { recursive: true })
-  // Refresh the config + component each build so template edits always take effect;
-  // leave any existing .esphome/ build cache in place for fast rebuilds.
-  cpSync(TEMPLATE_DIR, BUILD_DIR, {
-    recursive: true,
-    filter: (src) => !src.includes(`${BUILD_DIR}/.esphome`),
-  })
-}
-
 function subsArgs(opts: { ssid: string; password: string; host: string; name?: string }): string[] {
   const args = [
     '-s', 'wifi_ssid', opts.ssid,
@@ -132,11 +224,15 @@ function subsArgs(opts: { ssid: string; password: string; host: string; name?: s
  */
 export async function warmUpToolchain(onLine: (l: string) => void = () => {}, signal?: AbortSignal): Promise<void> {
   if (!isESPHomeInstalled()) throw new Error('ESPHome is not installed')
-  stageTemplate()
+  // Warm the default (ESP32-classic) toolchain. Other chip families (e.g. the Tab5's
+  // ESP32-P4) pull their toolchain on that device's first flash.
+  const fw = resolveFirmwareModel(DEFAULT_MODEL)
+  await ensureFirmwareFiles(fw, onLine, signal)
+  const { buildDir, configName } = buildPaths(fw)
   onLine('Downloading the ESP32 build toolchain (first time only, ~1 GB)…')
   await runEsphome(
-    [...subsArgs({ ssid: 'warmup', password: 'warmup123', host: '127.0.0.1' }), 'compile', CONFIG_NAME],
-    { cwd: BUILD_DIR, onLine, signal, timeoutMs: 30 * 60_000 },
+    [...subsArgs({ ssid: 'warmup', password: 'warmup123', host: '127.0.0.1' }), 'compile', configName],
+    { cwd: buildDir, onLine, signal, timeoutMs: 30 * 60_000 },
   )
   onLine('Toolchain ready.')
 }
@@ -148,6 +244,8 @@ export interface FlashOptions {
   port?: string
   /** Optional device name (becomes the ESPHome node name / mDNS host). */
   name?: string
+  /** Device model to flash (catalog id, e.g. 'atom-echo' | 'tab5'). Defaults to the Echo. */
+  model?: string
   onLine?: (line: string) => void
   signal?: AbortSignal
 }
@@ -161,6 +259,8 @@ export async function buildAndFlash(opts: FlashOptions): Promise<void> {
   const onLine = (l: string) => { try { opts.onLine?.(l) } catch { /* ignore sink errors */ } }
   if (isFlashBusy()) throw new Error('a flash is already in progress')
   if (!isESPHomeInstalled()) throw new Error('ESPHome is not installed — install it first')
+
+  const fw = resolveFirmwareModel(opts.model)
 
   const { ssid, password } = await getPodWifi()
   if (!ssid) throw new Error('home Wi-Fi is not configured')
@@ -180,19 +280,21 @@ export async function buildAndFlash(opts: FlashOptions): Promise<void> {
   flash.state = 'staging'
   flash.error = ''
   try {
-    stageTemplate()
+    // Fetch this device's firmware (local checkout in dev, else downloaded).
+    await ensureFirmwareFiles(fw, onLine, opts.signal)
+    const { buildDir, configName } = buildPaths(fw)
 
     flash.state = 'compiling'
-    onLine(`Building firmware (server ${host}:${GATEWAY_PORT}, Wi-Fi "${ssid}")…`)
+    onLine(`Building ${fw.id} firmware (server ${host}:${GATEWAY_PORT}, Wi-Fi "${ssid}")…`)
     // `run --device <port>` compiles then uploads over serial; --no-logs so the CLI
     // exits after flashing instead of tailing the device forever.
     await runEsphome(
       [
         ...subsArgs({ ssid, password, host, name: opts.name }),
-        'run', CONFIG_NAME, '--device', port!, '--no-logs',
+        'run', configName, '--device', port!, '--no-logs',
       ],
       {
-        cwd: BUILD_DIR,
+        cwd: buildDir,
         signal: opts.signal,
         timeoutMs: 30 * 60_000,
         onLine: (line) => {

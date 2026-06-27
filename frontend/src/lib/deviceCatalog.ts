@@ -78,7 +78,8 @@ export const DEVICE_MODELS: DeviceModel[] = [
     gradient: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
     image: '/devices/tab5.svg',
     capabilities: ['Touchscreen', 'Camera', 'Mic', 'Speaker'],
-    status: 'coming-soon',
+    status: 'supported',
+    firmware: 'tab5',
     usage: {
       headline: 'Tap the screen or say “Hey Jarvis”.',
       steps: [

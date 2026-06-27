@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { requireAuth } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 
@@ -75,6 +76,131 @@ speedtest.post('/upload', requireAuth, async (c) => {
   }
   c.header('Cache-Control', NO_STORE)
   return c.json({ received })
+})
+
+// ── Server → Internet speed test (SSE stream) ───────────────────────────────
+//
+// Runs a download-only speed test FROM the server TO Cloudflare's edge, using
+// the same LibreSpeed methodology (grace period + multi-stream measure) as the
+// client-side tests. Upload is omitted — server egress to Cloudflare is not a
+// meaningful metric for the home-server use case.
+
+const SI_PING_COUNT = 9
+const SI_DL_STREAMS = 6
+const SI_DL_BYTES = 25 * 1024 * 1024
+const SI_GRACE_DL = 1200
+const SI_MEASURE_DL = 6000
+const SI_OVERHEAD = 1.06
+const SI_TICK_MS = 120
+
+speedtest.get('/server-internet/stream', requireAuth, async (c) => {
+  return streamSSE(c, async (stream) => {
+    // ── Ping ─────────────────────────────────────────────────────────────────
+    const samples: number[] = []
+    for (let i = 0; i < SI_PING_COUNT; i++) {
+      const rnd = Math.random().toString(36).slice(2)
+      const start = performance.now()
+      try {
+        const res = await fetch(`https://speed.cloudflare.com/__down?bytes=0&r=${rnd}`, {
+          signal: AbortSignal.timeout(5000),
+        })
+        await res.arrayBuffer()
+      } catch { continue }
+      const rtt = performance.now() - start
+      if (i > 0) samples.push(rtt)
+      await stream.writeSSE({
+        event: 'progress',
+        data: JSON.stringify({
+          phase: 'ping', mbps: 0, frac: (i + 1) / SI_PING_COUNT,
+          pingMs: samples.length ? Math.min(...samples) : 0,
+          jitterMs: 0, downloadMbps: 0, uploadMbps: 0,
+        }),
+      })
+    }
+
+    const pingMs = samples.length ? Math.min(...samples) : 0
+    let jitter = 0
+    for (let i = 1; i < samples.length; i++) jitter += Math.abs(samples[i]! - samples[i - 1]!)
+    const jitterMs = samples.length > 1 ? jitter / (samples.length - 1) : 0
+
+    // ── Download (parallel streams) ───────────────────────────────────────────
+    const controller = new AbortController()
+    let total = 0
+    let streamsDone = false
+
+    const doStream = async () => {
+      while (!streamsDone) {
+        try {
+          const rnd = Math.random().toString(36).slice(2)
+          const res = await fetch(
+            `https://speed.cloudflare.com/__down?bytes=${SI_DL_BYTES}&r=${rnd}`,
+            { signal: controller.signal },
+          )
+          if (!res.body) {
+            const buf = await res.arrayBuffer()
+            total += buf.byteLength
+            continue
+          }
+          const reader = res.body.getReader()
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            if (value) total += value.byteLength
+          }
+        } catch {
+          if (streamsDone) return
+        }
+      }
+    }
+
+    const dlPromises = Array.from({ length: SI_DL_STREAMS }, () => doStream())
+
+    const startWall = performance.now()
+    let graceOver = false
+    let measureStart = 0
+    let base = 0
+    let downloadMbps = 0
+
+    for (;;) {
+      await new Promise<void>((r) => setTimeout(r, SI_TICK_MS))
+      const now = performance.now()
+      if (!graceOver) {
+        if (now - startWall >= SI_GRACE_DL) { graceOver = true; measureStart = now; base = total }
+        await stream.writeSSE({
+          event: 'progress',
+          data: JSON.stringify({
+            phase: 'download', mbps: 0,
+            frac: (now - startWall) / (SI_GRACE_DL + SI_MEASURE_DL),
+            pingMs, jitterMs, downloadMbps: 0, uploadMbps: 0,
+          }),
+        })
+      } else {
+        const secs = (now - measureStart) / 1000
+        downloadMbps = secs > 0 ? ((total - base) * 8 / secs / 1e6) * SI_OVERHEAD : 0
+        await stream.writeSSE({
+          event: 'progress',
+          data: JSON.stringify({
+            phase: 'download', mbps: downloadMbps,
+            frac: Math.min((now - startWall) / (SI_GRACE_DL + SI_MEASURE_DL), 1),
+            pingMs, jitterMs, downloadMbps, uploadMbps: 0,
+          }),
+        })
+        if (now - measureStart >= SI_MEASURE_DL) break
+      }
+    }
+
+    streamsDone = true
+    controller.abort()
+    await Promise.allSettled(dlPromises)
+
+    await stream.writeSSE({
+      event: 'done',
+      data: JSON.stringify({
+        phase: 'done', mbps: downloadMbps, frac: 1,
+        pingMs, jitterMs, downloadMbps, uploadMbps: 0,
+      }),
+    })
+  })
 })
 
 export { speedtest }

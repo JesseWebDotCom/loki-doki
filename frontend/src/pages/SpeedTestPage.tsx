@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, Download, Gauge, Globe, Loader2, Server, Settings2, Upload, Waves, Zap,
+  Activity, Download, Gauge, Globe, Loader2, Network, Server, Upload, Waves, Zap,
 } from 'lucide-react'
 import { PageShell } from '@/components/shared/PageShell'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -11,17 +11,16 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/cn'
 import {
   DEFAULT_THRESHOLDS, MODE_META, RATING_META, fmtMbps, fmtMs, loadLastResults, loadThresholds,
-  normalizeThresholds, rateSpeed, runSpeedTest, saveLastResults, saveThresholds,
+  rateSpeed, runSpeedTest, saveLastResults,
   type ResultsByMode, type SpeedMode, type SpeedPhase, type SpeedResult, type SpeedThresholds,
 } from '@/lib/speedtest'
 
 const GRADIENT = 'linear-gradient(135deg,#0c2a52,#0891b2)'
 const UPLOAD_COLOR = '#22d3ee'
 const NEUTRAL = '#64748b'
-const MODES: SpeedMode[] = ['internet', 'server']
-const MODE_ICON: Record<SpeedMode, typeof Globe> = { internet: Globe, server: Server }
+const MODES: SpeedMode[] = ['internet', 'server', 'server-internet']
+const MODE_ICON: Record<SpeedMode, typeof Globe> = { internet: Globe, server: Server, 'server-internet': Network }
 
-type Tab = 'test' | 'settings'
 const NOOP = () => {}
 
 const PHASE_LABEL: Record<SpeedPhase, string> = {
@@ -30,31 +29,13 @@ const PHASE_LABEL: Record<SpeedPhase, string> = {
 
 export function SpeedTestPage() {
   const { user } = useAuth()
-  const [tab, setTab] = useState<Tab>('test')
 
   usePublishUIContext({
     label: 'Speed Test',
     description: 'User is on the Speed Test page, measuring connection speed.',
   })
 
-  // Settings lives in the breadcrumb action row (upper right), not a tab bar.
-  const headerActions = useMemo(() => (
-    <button
-      onClick={() => setTab((t) => (t === 'settings' ? 'test' : 'settings'))}
-      title="Speed test settings"
-      className={cn(
-        'flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition-colors',
-        tab === 'settings'
-          ? 'bg-brand/15 text-brand'
-          : 'text-muted-foreground hover:bg-foreground/8 hover:text-foreground',
-      )}
-    >
-      <Settings2 className="size-4" />
-      Settings
-    </button>
-  ), [tab])
-
-  useAppHeader({ query: '', setQuery: NOOP, searchable: false, rightSlot: headerActions })
+  useAppHeader({ query: '', setQuery: NOOP, searchable: false })
 
   return (
     <PageShell gradient={GRADIENT} GhostIcon={Gauge}>
@@ -67,9 +48,7 @@ export function SpeedTestPage() {
       />
 
       <div className="px-5 pb-24 pt-2">
-        {tab === 'test'
-          ? <TestPanel userId={user?.id} />
-          : <SettingsPanel userId={user?.id} />}
+        <TestPanel userId={user?.id} />
       </div>
     </PageShell>
   )
@@ -84,16 +63,16 @@ function niceScale(v: number): number {
 }
 
 function newest(results: ResultsByMode): SpeedResult | null {
-  const { internet, server } = results
-  if (internet && server) return internet.at >= server.at ? internet : server
-  return internet ?? server
+  const all = [results.internet, results.server, results['server-internet']].filter(Boolean) as SpeedResult[]
+  if (!all.length) return null
+  return all.reduce((a, b) => a.at >= b.at ? a : b)
 }
 
 // ── Test panel ────────────────────────────────────────────────────────────────
 
 function TestPanel({ userId }: { userId?: string }) {
   const [thresholds, setThresholds] = useState<SpeedThresholds>(DEFAULT_THRESHOLDS)
-  const [results, setResults] = useState<ResultsByMode>({ internet: null, server: null })
+  const [results, setResults] = useState<ResultsByMode>({ internet: null, server: null, 'server-internet': null })
   const [activeMode, setActiveMode] = useState<SpeedMode | null>(null)
   const [phase, setPhase] = useState<SpeedPhase>('idle')
   const [live, setLive] = useState({ mbps: 0, frac: 0 })
@@ -103,8 +82,8 @@ function TestPanel({ userId }: { userId?: string }) {
   useEffect(() => { resultsRef.current = results }, [results])
 
   useEffect(() => {
+    void loadThresholds().then(setThresholds)
     if (!userId) return
-    void loadThresholds(userId).then(setThresholds)
     void loadLastResults(userId).then(setResults)
   }, [userId])
 
@@ -125,6 +104,8 @@ function TestPanel({ userId }: { userId?: string }) {
         if (res.downloadMbps <= 0 && res.uploadMbps <= 0) {
           toast.error(m === 'internet'
             ? 'Could not reach the Cloudflare speed test. Check your internet connection.'
+            : m === 'server-internet'
+            ? 'Server internet test failed. Check the server\'s internet connection.'
             : 'Server test failed. Make sure the backend is running.')
         }
       }
@@ -144,12 +125,14 @@ function TestPanel({ userId }: { userId?: string }) {
   const rating = !isUpload && headline > 0 ? rateSpeed(headline, thresholds) : null
   const accent = isUpload ? UPLOAD_COLOR : rating ? RATING_META[rating].color : NEUTRAL
   const scaleMax = niceScale(Math.max(
-    headline, results.internet?.downloadMbps ?? 0, results.server?.downloadMbps ?? 0,
-    results.internet?.uploadMbps ?? 0, results.server?.uploadMbps ?? 0, thresholds.goodMbps * 1.3, 25,
+    headline,
+    results.internet?.downloadMbps ?? 0, results.server?.downloadMbps ?? 0, results['server-internet']?.downloadMbps ?? 0,
+    results.internet?.uploadMbps ?? 0, results.server?.uploadMbps ?? 0,
+    thresholds.goodMbps * 1.3, 25,
   ))
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[330px_1fr] lg:items-center">
+    <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[330px_1fr] lg:items-start">
       {/* Left: gauge + controls */}
       <div className="flex flex-col items-center gap-6">
         <SpeedGauge
@@ -157,7 +140,7 @@ function TestPanel({ userId }: { userId?: string }) {
           caption={activeMode ? `Testing ${MODE_META[activeMode].label}` : newestResult ? null : 'Ready to test'}
         />
 
-        {running ? <PhaseStepper phase={phase} /> : <div className="h-7" />}
+        {running ? <PhaseStepper phase={phase} mode={activeMode} /> : <div className="h-7" />}
 
         <button
           onClick={() => run(MODES)}
@@ -171,11 +154,11 @@ function TestPanel({ userId }: { userId?: string }) {
         >
           {running
             ? <><Loader2 className="size-4 animate-spin" /> Testing {activeMode ? MODE_META[activeMode].label : ''}… {PHASE_LABEL[phase]}</>
-            : <><Zap className="size-4 fill-current" /> {newestResult ? 'Test again' : 'Run both tests'}</>}
+            : <><Zap className="size-4 fill-current" /> {newestResult ? 'Test all again' : 'Run all tests'}</>}
         </button>
       </div>
 
-      {/* Right: Internet + Server cards (kept up here, clear of the companion) */}
+      {/* Right: mode cards */}
       <div className="flex w-full flex-col gap-4">
         {MODES.map((m) => (
           <ModeCard
@@ -191,9 +174,10 @@ function TestPanel({ userId }: { userId?: string }) {
           />
         ))}
         <p className="text-[11px] leading-relaxed text-muted-foreground/55">
-          <span className="font-semibold text-foreground/70">Internet</span> measures real ISP speed against
-          Cloudflare’s edge. <span className="font-semibold text-foreground/70">Server</span> measures private
-          throughput to your LokiDoki server. Both use multiple parallel streams. Set thresholds in Settings.
+          <span className="font-semibold text-foreground/70">Internet</span> measures your real ISP speed against
+          Cloudflare's edge. <span className="font-semibold text-foreground/70">Server</span> measures private throughput
+          from your device to the server. <span className="font-semibold text-foreground/70">Server Internet</span> measures
+          the server's own internet connection speed. Speed thresholds are set in Admin → System.
         </p>
       </div>
     </div>
@@ -211,6 +195,8 @@ function ModeCard({ mode, result, thresholds, active, phase, live, disabled, onR
   const rating = result ? rateSpeed(result.downloadMbps, thresholds) : null
   const dlLive = active && phase === 'download'
   const ulLive = active && phase === 'upload'
+  // server-internet has no upload phase
+  const hasUpload = mode !== 'server-internet'
 
   return (
     <div className={cn(
@@ -243,13 +229,15 @@ function ModeCard({ mode, result, thresholds, active, phase, live, disabled, onR
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className={cn('grid gap-2', hasUpload ? 'grid-cols-2' : 'grid-cols-3')}>
         <StatTile icon={Download} label="Download" unit="Mbps" kind="mbps"
           accent={rating ? RATING_META[rating].color : '#38bdf8'}
           ratingClass={result ? RATING_META[rateSpeed(result.downloadMbps, thresholds)].text : undefined}
           live={dlLive} value={dlLive ? live.mbps : result?.downloadMbps ?? null} />
-        <StatTile icon={Upload} label="Upload" unit="Mbps" kind="mbps" accent={UPLOAD_COLOR}
-          live={ulLive} value={ulLive ? live.mbps : result?.uploadMbps ?? null} />
+        {hasUpload && (
+          <StatTile icon={Upload} label="Upload" unit="Mbps" kind="mbps" accent={UPLOAD_COLOR}
+            live={ulLive} value={ulLive ? live.mbps : result?.uploadMbps ?? null} />
+        )}
         <StatTile icon={Activity} label="Ping" unit="ms" kind="ms" accent="#a78bfa"
           value={result?.pingMs ?? null} />
         <StatTile icon={Waves} label="Jitter" unit="ms" kind="ms" accent="#818cf8"
@@ -371,18 +359,21 @@ function SpeedGauge({ mbps, scaleMax, color, phase, isUpload, caption }: {
 
 // ── Phase stepper ─────────────────────────────────────────────────────────────
 
-const STEPS: { phase: SpeedPhase; label: string; icon: typeof Activity }[] = [
+const ALL_STEPS: { phase: SpeedPhase; label: string; icon: typeof Activity }[] = [
   { phase: 'ping', label: 'Ping', icon: Activity },
   { phase: 'download', label: 'Download', icon: Download },
   { phase: 'upload', label: 'Upload', icon: Upload },
 ]
 const ORDER: SpeedPhase[] = ['idle', 'ping', 'download', 'upload', 'done']
 
-function PhaseStepper({ phase }: { phase: SpeedPhase }) {
+function PhaseStepper({ phase, mode }: { phase: SpeedPhase; mode: SpeedMode | null }) {
+  const steps = mode === 'server-internet'
+    ? ALL_STEPS.filter((s) => s.phase !== 'upload')
+    : ALL_STEPS
   const cur = ORDER.indexOf(phase)
   return (
     <div className="flex items-center gap-2">
-      {STEPS.map((s, i) => {
+      {steps.map((s, i) => {
         const idx = ORDER.indexOf(s.phase)
         const state = phase === 'done' || cur > idx ? 'done' : cur === idx ? 'active' : 'pending'
         return (
@@ -396,7 +387,7 @@ function PhaseStepper({ phase }: { phase: SpeedPhase }) {
               {state === 'active' ? <Loader2 className="size-3 animate-spin" /> : <s.icon className="size-3" />}
               {s.label}
             </div>
-            {i < STEPS.length - 1 && <div className={cn('h-px w-4', cur > idx ? 'bg-emerald-500/40' : 'bg-border')} />}
+            {i < steps.length - 1 && <div className={cn('h-px w-4', cur > idx ? 'bg-emerald-500/40' : 'bg-border')} />}
           </div>
         )
       })}
@@ -448,105 +439,6 @@ function StatTile({ icon: Icon, label, value, unit, kind, accent, live, ratingCl
         </span>
         <span className="text-[10px] font-semibold text-muted-foreground/55">{unit}</span>
       </div>
-    </div>
-  )
-}
-
-// ── Settings panel (thresholds) ───────────────────────────────────────────────
-
-function SettingsPanel({ userId }: { userId?: string }) {
-  const [thresholds, setThresholds] = useState<SpeedThresholds>(DEFAULT_THRESHOLDS)
-  const [goodStr, setGoodStr] = useState(String(DEFAULT_THRESHOLDS.goodMbps))
-  const [okStr, setOkStr] = useState(String(DEFAULT_THRESHOLDS.okMbps))
-  const [saving, setSaving] = useState(false)
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (!userId) return
-    void loadThresholds(userId).then((t) => {
-      setThresholds(t)
-      setGoodStr(String(t.goodMbps))
-      setOkStr(String(t.okMbps))
-    })
-  }, [userId])
-
-  const commit = useCallback((nextGood: string, nextOk: string) => {
-    if (!userId) return
-    const t = normalizeThresholds({ goodMbps: parseFloat(nextGood), okMbps: parseFloat(nextOk) })
-    setThresholds(t)
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    setSaving(true)
-    saveTimer.current = setTimeout(() => {
-      void saveThresholds(userId, t).then(() => { setSaving(false); toast.success('Speed thresholds saved') })
-    }, 600)
-  }, [userId])
-
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
-
-  const bands = useMemo(() => ([
-    { rating: 'good' as const, range: `${fmtMbps(thresholds.goodMbps)} Mbps and up` },
-    { rating: 'ok' as const,   range: `${fmtMbps(thresholds.okMbps)} – ${fmtMbps(thresholds.goodMbps)} Mbps` },
-    { rating: 'bad' as const,  range: `Below ${fmtMbps(thresholds.okMbps)} Mbps` },
-  ]), [thresholds])
-
-  return (
-    <div className="mx-auto max-w-md space-y-6">
-      <div>
-        <div className="mb-1 flex items-center justify-between">
-          <p className="text-sm font-semibold">Speed thresholds</p>
-          {saving && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
-        </div>
-        <p className="mb-4 text-xs text-muted-foreground">
-          Set the download speeds that count as good, OK, and slow. Results and the home widget are
-          color-coded against these.
-        </p>
-
-        <div className="space-y-3">
-          <ThresholdInput color={RATING_META.good.color} label="Good (green)" help="At or above this is rated good."
-            value={goodStr} onChange={(v) => { setGoodStr(v); commit(v, okStr) }} />
-          <ThresholdInput color={RATING_META.ok.color} label="OK (yellow)" help="At or above this (but below good) is rated OK. Below is slow."
-            value={okStr} onChange={(v) => { setOkStr(v); commit(goodStr, v) }} />
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-border/60 bg-card p-4">
-        <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/55">Rating bands</p>
-        <div className="space-y-2">
-          {bands.map((b) => (
-            <div key={b.rating} className="flex items-center gap-3">
-              <span className="size-3 rounded-full" style={{ background: RATING_META[b.rating].color }} />
-              <span className={cn('w-14 text-xs font-bold', RATING_META[b.rating].text)}>{RATING_META[b.rating].label}</span>
-              <span className="text-xs text-muted-foreground">{b.range}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ThresholdInput({ color, label, help, value, onChange }: {
-  color: string; label: string; help: string; value: string; onChange: (v: string) => void
-}) {
-  return (
-    <div className="rounded-2xl border border-border/60 bg-card p-4">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="size-3 rounded-full" style={{ background: color }} />
-        <span className="text-sm font-semibold">{label}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="number" inputMode="decimal" min={0} step={1}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className={cn(
-            'w-28 rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-base font-semibold tabular-nums',
-            'transition-colors focus:border-brand/60 focus:outline-none focus:ring-2 focus:ring-brand/50',
-          )}
-        />
-        <span className="text-sm font-semibold text-muted-foreground">Mbps</span>
-      </div>
-      <p className="mt-2 text-[11px] text-muted-foreground/60">{help}</p>
     </div>
   )
 }

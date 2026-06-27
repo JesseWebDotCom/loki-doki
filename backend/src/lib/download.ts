@@ -784,6 +784,54 @@ export async function downloadNegFeatures(
   await downloadUrl(NEG_FEATURES_URL, NEG_FEATURES_REL, onProgress, signal)
 }
 
+// ── Wakeword real room-impulse-response pack ──────────────────────────────────
+// The MIT Environmental Impulse Response survey (resampled to 16 kHz by
+// davidscripka, the openWakeWord author; permissively shared for this exact use).
+// ~270 real recorded room impulses, ~5 MB total. Convolving synthetic TTS
+// positives with REAL room acoustics generalizes far better to a real reverberant
+// mic than the procedural exponential-decay RIR the trainer falls back to — this
+// is what openWakeWord and microWakeWord both do. Bundled with the Wake Word
+// Training install (see installWakewordTrainDeps) so nothing is fetched at train
+// time; if absent, train_wakeword.py silently uses procedural reverb instead.
+const RIR_TREE_API = 'https://huggingface.co/api/datasets/davidscripka/MIT_environmental_impulse_responses/tree/main/16khz'
+const RIR_RESOLVE_BASE = 'https://huggingface.co/datasets/davidscripka/MIT_environmental_impulse_responses/resolve/main'
+export const WAKEWORD_RIR_DIR_REL = `${WAKEWORD_DIR_REL}/rir`
+
+export function wakewordRirDir(): string {
+  return join(dataDir, WAKEWORD_RIR_DIR_REL)
+}
+
+export function isWakewordRirInstalled(): boolean {
+  // "Installed" once a marker is present — we drop a sentinel after a full fetch so
+  // a partial run (some WAVs, interrupted) re-downloads on the next repair.
+  return existsSync(join(wakewordRirDir(), '.complete'))
+}
+
+export async function downloadWakewordRirPack(
+  onProgress: (p: DownloadProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (isWakewordRirInstalled()) return
+  onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Listing room impulse responses…' })
+  const res = await fetch(RIR_TREE_API, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000) })
+  if (!res.ok) throw new Error(`RIR listing failed (${res.status})`)
+  const tree = (await res.json()) as { type: string; path: string }[]
+  const wavs = tree.filter((t) => t.type === 'file' && t.path.endsWith('.wav'))
+  if (wavs.length === 0) throw new Error('RIR listing returned no .wav files')
+  for (let i = 0; i < wavs.length; i++) {
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
+    const { path } = wavs[i]!
+    const name = basename(path)
+    await downloadUrl(
+      `${RIR_RESOLVE_BASE}/${path}`,
+      `${WAKEWORD_RIR_DIR_REL}/${name}`,
+      (p) => onProgress({ ...p, status: `Room impulse responses ${i + 1}/${wavs.length}…` }),
+      signal,
+    )
+  }
+  await writeFile(join(wakewordRirDir(), '.complete'), String(wavs.length))
+}
+
 // ── Wakeword training venv ────────────────────────────────────────────────────
 // Lightweight Python venv used only by train_wakeword.py.
 // Kept separate from the ComfyUI venv to avoid dependency conflicts.
@@ -832,6 +880,21 @@ export async function installWakewordTrainDeps(
 
   onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: 'Installing Python packages (onnxruntime, scikit-learn, onnx, scipy)…' })
   await runCmd(pip, ['install', '--quiet', 'onnxruntime', 'numpy', 'scikit-learn', 'onnx', 'scipy'], dataDir, onProgress, signal)
+
+  // Bundle the real room-impulse-response pack with the training feature so the
+  // trainer never reaches out to the network itself. Best-effort: a failure here
+  // (offline, HF down) must not block training — train_wakeword.py falls back to
+  // procedural reverb when the pack is absent.
+  try {
+    await downloadWakewordRirPack(onProgress, signal)
+    // Record it so boot reconcile protects/heals it on future boots (dynamic import
+    // avoids a static cycle — installRegistry imports this module).
+    try { const { recordInstalled } = await import('@/lib/installRegistry'); await recordInstalled('wakeword-train-rir') }
+    catch { /* ledger is best-effort */ }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
+    onProgress({ completed: 0, total: 0, speedBps: 0, etaSeconds: 0, status: `Room-impulse pack skipped (${err instanceof Error ? err.message.split('\n')[0] : String(err)}) — procedural reverb will be used` })
+  }
 }
 
 /** Download a single detector model file (used by the wakeword browser). */

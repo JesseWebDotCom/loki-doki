@@ -110,6 +110,7 @@ export const wakeWordCatalog = sqliteTable('wake_word_catalog', {
   kind: text('kind', { enum: ['pretrained', 'trained'] }).notNull().default('trained'),
   assetPath: text('asset_path'),         // path under data/voices/wakewords/<id>.onnx
   defaultThreshold: real('default_threshold'),
+  accuracy: real('accuracy'),            // held-out validation accuracy (0–1) captured at train time; null for pretrained/older models
   characterId: text('character_id').references(() => characters.id, { onDelete: 'cascade' }),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -131,7 +132,19 @@ export const devices = sqliteTable('devices', {
   pairingCode: text('pairing_code'),              // short-lived code; null once redeemed
   pairingExpiresAt: integer('pairing_expires_at', { mode: 'timestamp' }),
   capabilities: text('capabilities'),             // JSON: { screen, camera, sampleRate }
+  groupId: text('group_id'),                       // device_groups.id; null → built-in Default
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// Device setting groups. The built-in 'default' row (isDefault=1) holds the baseline
+// settings; admin groups override specific keys. A device's effective settings =
+// Default merged with its group's overrides; pushed to the device over the gateway.
+export const deviceGroups = sqliteTable('device_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  settings: text('settings').notNull().default('{}'),  // JSON: partial for groups, full for Default
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 

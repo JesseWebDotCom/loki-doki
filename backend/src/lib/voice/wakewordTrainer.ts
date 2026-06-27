@@ -14,9 +14,11 @@ import { existsSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
-import { wakewordDir, wakewordTrainPython, isWakewordTrainInstalled } from '@/lib/download'
+import { wakewordDir, wakewordTrainPython, isWakewordTrainInstalled, wakewordRirDir, isWakewordRirInstalled } from '@/lib/download'
 import { kokoroUrl } from '@/lib/voice/config'
 import { listKokoroVoices, type KokoroVoice } from '@/lib/voice/engines/kokoroEngine'
+import { ollamaUrl } from '@/llm/ollama'
+import { getModel } from '@/lib/models'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const TRAIN_SCRIPT = resolve(__dirname, '../../../scripts/train_wakeword.py')
@@ -32,14 +34,19 @@ const EMBED_SCRIPT = resolve(__dirname, '../../../scripts/wake_embed_ortweb.mjs'
 // Base clip counts are modest because the Python trainer augments each clip
 // (reverb/noise/gain) into many effective samples — voice diversity matters
 // more than raw count, so we keep many voices but few speeds.
-const N_POSITIVE_PER_VOICE = 5    // speed variations per voice (all SPEED_VARIANTS)
-const N_NEGATIVE_PHRASES   = 8    // unrelated phrases per voice
+const N_POSITIVE_PER_VOICE = 6    // speed variations per voice (all SPEED_VARIANTS)
+const N_NEGATIVE_PHRASES   = 12   // unrelated phrases per voice
 const MAX_POS_VOICES       = 28   // use every available voice for phonetic diversity
-const MAX_NEG_VOICES       = 8    // generic negatives need phrase variety > voice variety
+// Negative VOLUME is the top lever for a low false-accept rate, so cast a wider
+// net than positives — more voices × more phrases. The Python trainer caps the
+// final negative:positive ratio (NEG_PER_POS), so over-generating here is safe.
+const MAX_NEG_VOICES       = 12
 
-// Slower speeds produce longer audio → more frames per clip → more windows.
-// Speeds above 1.0 can make short phrases sub-threshold for frame count.
-const SPEED_VARIANTS = [0.7, 0.8, 0.9, 1.0, 1.1]
+// Slower speeds produce longer audio → more frames per clip → more windows, so we
+// weight toward them. Speeds above 1.0 can make short phrases sub-threshold for
+// frame count, so the fastest stays at 1.1. (Per-clip pitch/formant jitter in the
+// Python trainer adds the timbre variety that extra fast speeds would not.)
+const SPEED_VARIANTS = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
 
 // Other assistant triggers, generated across the SAME voices as the positives so
 // the model learns the WORD difference ("loki" vs "alexa"), not a voice cue. This
@@ -123,6 +130,59 @@ const NEGATIVE_PHRASES = [
   'Hey Bixby.',
 ]
 
+// Adversarial near-miss negatives. openWakeWord deliberately trains against
+// phonetically-overlapping phrases (e.g. "hey jealous" for "hey jarvis") so the
+// detector requires the WHOLE phrase, not an approximate match — these are its
+// most discriminative negatives. We ask the local LLM for phrase-specific
+// near-misses (rhymes / one-sound-off variants of THIS wake phrase) rather than a
+// fixed list, because what's confusable depends entirely on the phrase. Kept to a
+// modest count so they sharpen the boundary without dominating the negative set
+// (which would teach "reject things near the phrase" too aggressively and hurt
+// recall). Returns [] when Ollama is offline — discrimination then rests on the
+// diverse generic + contrastive negatives, exactly as before.
+async function genNearMissPhrases(phrase: string, signal?: AbortSignal): Promise<string[]> {
+  try {
+    const model = await getModel()
+    const res = await fetch(`${ollamaUrl()}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: `You generate adversarial "near-miss" phrases for training a wake-word detector NOT to fire on them.
+Given a wake phrase, output short phrases that sound ACOUSTICALLY SIMILAR but are clearly DIFFERENT words — rhymes, one-syllable-off variants, or similar-onset phrases.
+Respond ONLY with valid JSON: {"phrases":["...","..."]}
+Rules:
+- 6 to 8 phrases, each 1-4 words, real English words
+- Must NOT be the wake phrase itself or a trivial capitalization/punctuation change
+- Examples for "hey jarvis": "hey jealous", "hey harvest", "hey marcus", "hey service"`,
+          },
+          { role: 'user', content: phrase.trim() },
+        ],
+        format: 'json',
+        stream: false,
+        keep_alive: -1,
+        options: { temperature: 0.7, num_predict: 160 },
+        think: false,
+      }),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
+    })
+    if (!res.ok) return []
+    const data = (await res.json()) as { message?: { content?: string } }
+    const parsed = JSON.parse(data.message?.content ?? '{}') as { phrases?: unknown[] }
+    const want = phrase.trim().toLowerCase()
+    return (parsed.phrases ?? [])
+      .filter((p): p is string => typeof p === 'string')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0 && p.toLowerCase() !== want)
+      .slice(0, 8)
+  } catch {
+    return []
+  }
+}
+
 // Encode mono float32 PCM as a 16-bit WAV (16 kHz) — for synthesizing noise/
 // silence negatives locally without a TTS round-trip.
 function pcmToWav(samples: Float32Array, sampleRate = 16_000): Buffer {
@@ -198,7 +258,7 @@ export async function trainWakeword(
   emit: (p: TrainProgress) => void,
   signal?: AbortSignal,
   trainingVoice?: string | null,
-): Promise<{ onnxPath: string; threshold?: number }> {
+): Promise<{ onnxPath: string; threshold?: number; accuracy?: number }> {
   const tmpDir = join(wakewordDir(), `.train_${outputId}_tmp`)
   const posDir = join(tmpDir, 'positives')
   const negDir = join(tmpDir, 'negatives')
@@ -290,6 +350,24 @@ export async function trainWakeword(
       }
     }
 
+    // Adversarial near-miss negatives (phrase-specific, LLM-generated). Synthesized
+    // across a subset of the positive voices so the model learns the WORD boundary,
+    // not a voice cue — same rationale as the contrastive triggers above. Skipped
+    // silently if the LLM is offline.
+    const nearMiss = await genNearMissPhrases(phrase, signal)
+    if (nearMiss.length) {
+      const nmVoices = voices.slice(0, 6)
+      emit({ step: 'generating', msg: `Adding ${nearMiss.length} near-miss negatives ("${nearMiss.slice(0, 3).join('", "')}"…)…` })
+      let nmi = 0
+      for (const voice of nmVoices) {
+        for (let mi = 0; mi < nearMiss.length; mi++) {
+          await synthesize(nearMiss[mi]!, voice, 1.0, join(negDir, `nearmiss_${voice}_${String(mi).padStart(2, '0')}.wav`))
+          nmi++
+        }
+      }
+      emit({ step: 'generating', msg: `Added ${nmi} near-miss negatives`, pct: 50 })
+    }
+
     // Noise + silence negatives so the detector doesn't fire on ambient sound.
     const noiseCount = await writeNoiseNegatives(negDir)
     emit({ step: 'generating', msg: `Added ${noiseCount} noise/silence negatives`, pct: 50 })
@@ -320,7 +398,12 @@ export async function trainWakeword(
     // discrimination comes from the diverse synthesized negatives, which share the
     // ort-web feature space.
     const python = wakewordTrainPython()
+    // Real room-impulse-response pack (bundled with the Wake Word Training install).
+    // Passed only when present on disk — the trainer falls back to procedural reverb
+    // otherwise, and nothing is ever fetched from the network at train time.
+    const rirArgs = isWakewordRirInstalled() ? ['--rir-dir', wakewordRirDir()] : []
     let calibratedThreshold: number | undefined
+    let valAccuracy: number | undefined
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(python, [
         TRAIN_SCRIPT,
@@ -332,6 +415,7 @@ export async function trainWakeword(
         '--embed-runtime', 'ortweb',
         '--node-bin',      process.execPath, // run the embed server under this Bun
         '--embed-script',  EMBED_SCRIPT,
+        ...rirArgs,
       ])
 
       signal?.addEventListener('abort', () => proc.kill())
@@ -345,10 +429,11 @@ export async function trainWakeword(
           const trimmed = line.trim()
           if (!trimmed) continue
           try {
-            const parsed = JSON.parse(trimmed) as { msg?: string; done?: boolean; error?: boolean; threshold?: number }
+            const parsed = JSON.parse(trimmed) as { msg?: string; done?: boolean; error?: boolean; threshold?: number; accuracy?: number }
             const pct = parsed.done ? 99 : 50 + Math.min(48, (parsed.msg?.length ?? 0))
             emit({ step: 'training', msg: parsed.msg ?? trimmed, pct })
             if (typeof parsed.threshold === 'number') calibratedThreshold = parsed.threshold
+            if (typeof parsed.accuracy === 'number') valAccuracy = parsed.accuracy
             if (parsed.done) resolve()
           } catch {
             emit({ step: 'training', msg: trimmed, pct: 75 })
@@ -374,7 +459,7 @@ export async function trainWakeword(
       proc.on('error', reject)
     })
 
-    return { onnxPath: outOnnx, threshold: calibratedThreshold }
+    return { onnxPath: outOnnx, threshold: calibratedThreshold, accuracy: valAccuracy }
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => null)
   }

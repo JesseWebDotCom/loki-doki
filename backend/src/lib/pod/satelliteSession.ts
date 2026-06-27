@@ -40,10 +40,12 @@ import {
   audioStart,
   audioStop,
   faceState,
+  deviceConfig,
   transcript,
   type FaceState,
   type WyomingEvent,
 } from '@/lib/pod/wyoming'
+import { effectiveSettings } from '@/lib/pod/deviceSettings'
 
 type Send = (ev: WyomingEvent) => void
 
@@ -61,6 +63,7 @@ export class SatelliteSession implements PodFireTarget {
   private characterId: string | null = null
   private wakeWord: string | null = null
   private resolvedWakeId: string | null = null // device override → companion model → app default
+  private replyStyleOverride = 'inherit'        // device-group reply-length override (server-side)
   private wakeResolved = false // don't load a detector until we know which model (post-auth)
   private wakeSuppressedUntil = 0 // ignore wake until this time (post-TTS self-barge guard)
   private _deviceId: string | null = null
@@ -186,6 +189,15 @@ export class SatelliteSession implements PodFireTarget {
     this.turnAbort = ac
     await this.speak(text, ac.signal)
     if (!ac.signal.aborted) this.setState('idle')
+  }
+
+  /** Push effective settings to the device (registry → on group change / connect).
+   *  `responseLength` is applied SERVER-SIDE (it overrides the companion's reply
+   *  style for this device's conversations); the device ignores it. */
+  applyConfig(config: Record<string, unknown>): void {
+    if (this.closed) return
+    if (typeof config.responseLength === 'string') this.replyStyleOverride = config.responseLength
+    this.send(deviceConfig(config))
   }
 
   /** Push an unprompted alarm/timer event. The Pod shows its ring screen + tone. */
@@ -361,7 +373,7 @@ export class SatelliteSession implements PodFireTarget {
     // "wait for the whole reply" down to "wait for the first sentence".
     try {
       await this.speakStreaming(
-        runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, signal: ac.signal }),
+        runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, replyStyleOverride: this.replyStyleOverride, signal: ac.signal }),
         ac.signal,
       )
     } catch (e) {
@@ -488,6 +500,9 @@ export class SatelliteSession implements PodFireTarget {
     // Now that the model is known, release the detector load (held back above).
     this.wakeResolved = true
     if (this.wakeEnabled && !this.closed) this.ensureWake()
+    // Push this device's effective settings (group overrides + Default) now that we
+    // know its group — this is how an offline-then-online device auto-syncs the latest.
+    effectiveSettings(device.groupId).then((s) => this.applyConfig(s as unknown as Record<string, unknown>)).catch(() => {})
     // Audibly confirm the device reached the server — a screenless satellite has no
     // other way to show it's online and working. Fire-and-forget so auth never blocks.
     void this.announceConnected()

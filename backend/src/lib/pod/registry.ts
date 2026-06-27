@@ -21,6 +21,8 @@ export interface PodFireTarget {
   fire(event: PodFireEvent): void
   /** Speak a phrase on the device on demand (admin "Test" button). */
   testSpeak(text: string): Promise<void>
+  /** Push effective settings (dimming, …) to the device over the live socket. */
+  applyConfig(config: Record<string, unknown>): void
   /** Tear down this session (used to evict a stale duplicate when the device reconnects). */
   close(): void
 }
@@ -71,6 +73,18 @@ export function speakToDevice(deviceId: string, text: string): boolean {
   if (!target) return false
   void target.testSpeak(text)
   return true
+}
+
+/** Push settings to a device's live session. Returns true if it was online and
+ *  actually received it; false if offline (it'll pull on reconnect instead). */
+export function configToDevice(deviceId: string, config: Record<string, unknown>): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.applyConfig(config); reached = true } catch { /* dead socket; ignore */ }
+    }
+  }
+  return reached
 }
 
 /** A device only has one real connection — when it (re)authenticates, drop any

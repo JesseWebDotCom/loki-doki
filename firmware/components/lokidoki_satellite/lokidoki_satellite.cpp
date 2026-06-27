@@ -71,6 +71,7 @@ void LokiDokiSatellite::dump_config() {
 
 void LokiDokiSatellite::loop() {
   this->tick_led_();  // keep pulsing states animating in every connection state
+  this->tick_dim_();  // idle screen dimming (screen pods with a backlight)
 
   if (!network::is_connected()) {
     if (this->connected_) this->disconnect_("network down");
@@ -379,10 +380,15 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
   }
   if (type == "user-event") {
     std::string name, state, token;
+    bool dim_enabled = false;
+    int dim_percent = 30, dim_after_s = 60;
     json::parse_json(data_json, [&](JsonObject root) -> bool {
       name = root["name"].as<std::string>();
       state = root["state"].as<std::string>();
       token = root["token"].as<std::string>();
+      if (root["dimEnabled"].is<bool>()) dim_enabled = root["dimEnabled"].as<bool>();
+      if (root["dimPercent"].is<int>()) dim_percent = root["dimPercent"].as<int>();
+      if (root["dimAfterS"].is<int>()) dim_after_s = root["dimAfterS"].as<int>();
       return true;
     });
     if (name == "face.state") {
@@ -393,6 +399,13 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       this->token_ = token;
       this->save_token_(token);
       ESP_LOGI(TAG, "claimed — token stored");
+    } else if (name == "config") {
+      // Central settings pushed from the server (on connect + on group change).
+      this->dim_enabled_ = dim_enabled;
+      this->dim_percent_ = (uint8_t) std::max(0, std::min(100, dim_percent));
+      this->dim_after_ms_ = (uint32_t) std::max(1, dim_after_s) * 1000UL;
+      this->last_active_ms_ = millis();  // re-evaluate the dim timer from now
+      ESP_LOGI(TAG, "config: dim=%d %d%% after %ds", dim_enabled, dim_percent, dim_after_s);
     }
     return;
   }
@@ -441,6 +454,16 @@ void LokiDokiSatellite::save_token_(const std::string &token) {
 //   blue, breathing  → thinking
 //   cyan, steady     → speaking
 void LokiDokiSatellite::update_led_() {
+  // Mirror the conversation state to the optional screen text sensor (Tab5 LVGL).
+  // De-duped so we only publish on a real change. Screen shows "connecting" until
+  // the gateway is up, then idle/listening/thinking/talking.
+  if (this->face_sensor_ != nullptr) {
+    const std::string face = !this->connected_ ? "connecting" : this->face_;
+    if (face != this->published_face_) {
+      this->published_face_ = face;
+      this->face_sensor_->publish_state(face);
+    }
+  }
   if (this->light_ == nullptr) return;
   float r = 1, g = 1, b = 1, base = 0.10f;
   bool pulse = false;
@@ -476,6 +499,38 @@ void LokiDokiSatellite::tick_led_() {
   call.set_rgb(this->led_r_, this->led_g_, this->led_b_);
   call.set_brightness(this->led_base_ * (0.25f + 0.75f * tri));
   call.set_transition_length(0);
+  call.perform();
+}
+
+// Idle screen dimming. Any conversation activity (or a fresh config push) resets the
+// idle timer; after dim_after_ms_ of nothing, fade the backlight to dim_percent_, and
+// snap back to full on the next activity. No-op without a backlight (screenless pods).
+void LokiDokiSatellite::tick_dim_() {
+  if (this->backlight_ == nullptr) return;
+  const uint32_t now = millis();
+  // Conversation activity keeps the screen awake.
+  if (this->face_ == "listening" || this->face_ == "thinking" || this->face_ == "talking")
+    this->last_active_ms_ = now;
+
+  if (!this->dim_enabled_) {
+    if (this->dimmed_) { this->apply_backlight_(1.0f); this->dimmed_ = false; }
+    return;
+  }
+  const bool should_dim = (now - this->last_active_ms_) > this->dim_after_ms_;
+  if (should_dim && !this->dimmed_) {
+    this->apply_backlight_(this->dim_percent_ / 100.0f);
+    this->dimmed_ = true;
+  } else if (!should_dim && this->dimmed_) {
+    this->apply_backlight_(1.0f);
+    this->dimmed_ = false;
+  }
+}
+
+void LokiDokiSatellite::apply_backlight_(float brightness) {
+  if (this->backlight_ == nullptr) return;
+  auto call = this->backlight_->turn_on();
+  call.set_brightness(brightness < 0.02f ? 0.02f : brightness);  // never fully black
+  call.set_transition_length(600);
   call.perform();
 }
 

@@ -602,6 +602,8 @@ export function runMigrations() {
       FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
     );
   `)
+  // Held-out validation accuracy captured at train time (quality signal shown in the UI).
+  addColumn('wake_word_catalog', 'accuracy', 'REAL')
 
   // Maps subsystem (migration 0015 — belt-and-suspenders for DBs created via inline SQL)
   sqlite.exec(`
@@ -1624,6 +1626,28 @@ export function runMigrations() {
   addColumn('devices', 'hwid', 'TEXT')
   // model: the device-catalog id (e.g. 'atom-echo') used to show make/model + art.
   addColumn('devices', 'model', 'TEXT')
+
+  // Device setting groups: a built-in "Default" profile holds the baseline settings;
+  // admin-created groups override specific keys (inheriting the rest from Default).
+  // Each device belongs to exactly one group (group_id null → Default). Settings are
+  // pushed to devices over the gateway, so changing one re-deploys live.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS device_groups (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      settings TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL
+    );
+  `)
+  // group_id: which device_groups row a device belongs to (null → built-in Default).
+  addColumn('devices', 'group_id', 'TEXT')
+  // Seed the built-in Default group with the baseline settings (idempotent).
+  sqlite.exec(`
+    INSERT OR IGNORE INTO device_groups (id, name, is_default, settings, created_at)
+    VALUES ('default', 'Default', 1, '{"dimEnabled":false,"dimPercent":30,"dimAfterS":60,"responseLength":"inherit"}',
+            CAST(strftime('%s','now') AS INTEGER) * 1000);
+  `)
 
   // Generic read-through lookup cache (property/people scrapers and future tools).
   // data holds the JSON result ("null" = cached negative); expires_at is epoch ms.

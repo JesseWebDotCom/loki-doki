@@ -17,8 +17,11 @@ import { ensureCompanionWakeword } from '@/lib/pod/companionWake'
 import { listPending, getPending, removePending } from '@/lib/pod/pending'
 import {
   getFirmwareStatus, detectSerialPorts, getPodWifi, setPodWifi, setServerHost,
-  buildAndFlash, isFlashBusy,
+  buildAndFlash, isFlashBusy, detectDevice,
 } from '@/lib/pod/firmware'
+import {
+  listGroups, createGroup, updateGroup, deleteGroup, assignDeviceGroup,
+} from '@/lib/pod/deviceSettings'
 
 const pod = new Hono<AppEnv>()
 
@@ -148,6 +151,14 @@ pod.get('/firmware/status', requireAdmin, async (c) => c.json(await getFirmwareS
 
 pod.get('/firmware/ports', requireAdmin, (c) => c.json({ ports: detectSerialPorts() }))
 
+// Identify the plugged-in board (reads its ESP chip family) → the catalog model to
+// flash, so the wizard auto-selects the right firmware. `model` is null if we can't
+// map the chip (the UI then asks the installer to choose).
+pod.get('/firmware/detect', requireAdmin, async (c) => {
+  const detected = await detectDevice()
+  return c.json(detected ?? { port: '', chip: 'unknown', model: null })
+})
+
 pod.get('/firmware/wifi', requireAdmin, async (c) => {
   const { ssid } = await getPodWifi()
   return c.json({ ssid, configured: !!ssid }) // never return the stored password
@@ -164,18 +175,48 @@ pod.put('/firmware/wifi', requireAdmin, async (c) => {
 // Compile + flash over USB, streaming the ESPHome CLI output line-by-line as SSE.
 pod.post('/firmware/flash', requireAdmin, async (c) => {
   if (isFlashBusy()) return c.json({ error: 'a flash is already in progress' }, 409)
-  const body = (await c.req.json().catch(() => ({}))) as { port?: string; name?: string }
+  const body = (await c.req.json().catch(() => ({}))) as { port?: string; name?: string; model?: string }
   return streamSSE(c, async (stream) => {
     const ctrl = new AbortController()
     stream.onAbort(() => ctrl.abort())
     const log = (line: string) => { void stream.writeSSE({ event: 'log', data: JSON.stringify({ line }) }) }
     try {
-      await buildAndFlash({ port: body.port, name: body.name, onLine: log, signal: ctrl.signal })
+      await buildAndFlash({ port: body.port, name: body.name, model: body.model, onLine: log, signal: ctrl.signal })
       await stream.writeSSE({ event: 'done', data: JSON.stringify({ ok: true }) })
     } catch (err) {
       await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }) })
     }
   })
+})
+
+// ── Device setting groups ───────────────────────────────────────────────────
+// Central settings: a built-in Default group + admin groups that override it. A
+// device belongs to one group; saving a group re-deploys to its online devices.
+
+pod.get('/groups', requireAdmin, async (c) => c.json(await listGroups()))
+
+pod.post('/groups', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string }
+  if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400)
+  return c.json(await createGroup(body.name))
+})
+
+pod.put('/groups/:id', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string; settings?: Record<string, unknown> }
+  const g = await updateGroup(c.req.param('id'), body)  // re-deploys to affected devices
+  return g ? c.json(g) : c.json({ error: 'unknown group' }, 404)
+})
+
+pod.delete('/groups/:id', requireAdmin, async (c) => {
+  const ok = await deleteGroup(c.req.param('id'))
+  return ok ? c.json({ ok: true }) : c.json({ error: 'cannot delete this group' }, 400)
+})
+
+// Assign a device to a group (null/'default' → built-in Default). Re-deploys it.
+pod.put('/devices/:id/group', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { groupId?: string | null }
+  await assignDeviceGroup(c.req.param('id'), body.groupId ?? null)
+  return c.json({ ok: true })
 })
 
 export { pod }

@@ -552,7 +552,6 @@ export function WakePhraseField({ value, onChange }: { value: string; onChange: 
         </div>
       )}
       {error && <p className="text-[11px] text-rose-300">{error}</p>}
-      <p className="text-[10px] text-muted-foreground">No training needed. Whisper matches your words, so similar wake-words (e.g. "hey alexa") won't trigger it.</p>
     </div>
   )
 }

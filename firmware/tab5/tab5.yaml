@@ -1,0 +1,461 @@
+# Loki Doki — M5Stack Tab5 voice satellite (ESPHome)
+#
+# A 5" ESP32-P4 tablet (1280×720 MIPI-DSI, GT911 touch, ES7210 mic array + ES8388
+# speaker codec, ESP32-C6 co-processor for Wi-Fi over SDIO) turned into a Loki Doki
+# voice satellite. Like the Atom Echo it streams 16 kHz mic PCM to the Wyoming
+# gateway and plays the companion's spoken reply; wake word runs SERVER-SIDE.
+#
+# IMPORTANT — the hardware half of this file (board, esp32_hosted, psram, i2c,
+# esp_ldo, pi4ioe5v6408 expanders, i2s_audio pins, es7210/es8388 audio, mipi_dsi
+# display, gt911 touch, backlight, rtc, power switches/sensors) is copied VERBATIM
+# from the official ESPHome device config so the pin map is known-good:
+#   https://devices.esphome.io/devices/m5stack-tab5/
+#   https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-Tab5/config.yaml
+# Do NOT "tune" those values. What we change vs. upstream is only the PIPELINE: we
+# drop Home Assistant's voice_assistant/micro_wake_word/media_player and use our own
+# `lokidoki_satellite` component (server-side wake, our Wyoming framing) — exactly
+# how firmware/atom-echo/atom-echo.yaml does it.
+#
+# Onboarding is no-typing: flash once over USB (home Wi-Fi + server address are baked
+# in at build time by Admin → Devices → "Add a device"), power on, then Claim the
+# device when it announces itself.
+
+substitutions:
+  name: lokidoki-tab5
+  friendly_name: LokiDoki Tab5
+  lokidoki_host: "192.168.1.50"   # ← your Loki Doki server's LAN IP (injected at build)
+  lokidoki_port: "10700"          # POD_GATEWAY_PORT (default 10700)
+  # Home Wi-Fi is injected at build time by the app, so a flashed device auto-joins
+  # on power-up — no per-device Wi-Fi step. Left blank here, it falls back to the
+  # setup AP + Improv (serial) provisioning.
+  wifi_ssid: ""
+  wifi_password: ""
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: true
+  min_version: "2026.6.0"          # Tab5 needs recent esp32_hosted / mipi_dsi support
+  on_boot:
+    then:
+      # Read the RTC time once when the system boots (upstream).
+      - rx8130.read_time:
+      # Route the ES8388 DAC to LINE1 — the onboard speaker amp. Upstream exposes
+      # this as a manual select; we set it automatically so audio works out of the box.
+      - select.set:
+          id: dac_output_select
+          option: "LINE1"
+      # Force the display backlight fully on at boot (don't rely on restore state).
+      - light.turn_on:
+          id: backlight
+          brightness: 100%
+
+esp32:
+  variant: esp32p4
+  flash_size: 16MB
+  # This unit is a pre-rev3 (ECO2) P4 engineering sample — its ROM reports
+  # `esp32p4-eco2`. ESPHome's own build guidance for a pre-rev3 board is to set
+  # this; it targets the correct silicon revision (a rev3-built image throws
+  # "Illegal instruction" at boot on ECO silicon) and caps the CPU at 360 MHz
+  # (400 MHz is engineering-sample-unsafe). Drop it for production (rev3+) Tab5s.
+  engineering_sample: true
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+# Wi-Fi lives on the ESP32-C6 co-processor, reached over SDIO (esp32_hosted).
+esp32_hosted:
+  variant: esp32c6
+  active_high: true
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  slot: 1
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  # Audio is high-rate; keep the log level modest so it doesn't starve the loop.
+  level: INFO
+
+# Over-the-air updates after the first USB flash.
+ota:
+  - platform: esphome
+
+# ── Wi-Fi: home network baked in at build time (auto-joins anywhere); the setup AP +
+# Improv below are the fallback when no credentials were injected (wifi_ssid=""). ──
+wifi:
+  ssid: "${wifi_ssid}"
+  password: "${wifi_password}"
+  # Keep the radio fully awake for steady real-time audio streaming + reconnects.
+  power_save_mode: none
+  fast_connect: true
+  ap:
+    ssid: "${friendly_name} Setup"
+
+captive_portal:
+
+# Wi-Fi provisioning over USB serial when credentials weren't baked in.
+improv_serial:
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+# On-board GPIO expanders (everything power/reset-related hangs off these).
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+    # 0: O - wifi_antenna_int_ext
+    # 1: O - speaker_enable
+    # 2: O - external_5v_power
+    # 3: NC
+    # 4: O - lcd reset
+    # 5: O - touch panel reset
+    # 6: O - camera reset
+    # 7: I - headphone detect
+  - id: pi4ioe2
+    address: 0x44
+    # 0: O - wifi_power
+    # 1: NC
+    # 2: NC
+    # 3: O - usb_5v_power
+    # 4: O - poweroff pulse
+    # 5: O - quick charge enable (inverted)
+    # 6: I - charging status
+    # 7: O - charge enable
+
+# ── Audio: ES7210 ADC (mic array) + ES8388 DAC (speaker), one shared I2S bus.
+# Mic is 16 kHz (what the gateway expects); the speaker runs at 16 kHz too because
+# our satellite streams raw 16 kHz mono int16 PCM down (it does not resample). ──
+i2s_audio:
+  - id: mic_bus
+    i2s_lrclk_pin: GPIO29
+    i2s_bclk_pin: GPIO27
+    i2s_mclk_pin: GPIO30
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    bits_per_sample: 16bit
+    sample_rate: 16000
+
+audio_dac:
+  - platform: es8388
+    id: es8388_dac
+
+microphone:
+  - platform: i2s_audio
+    id: tab5_microphone
+    i2s_din_pin: GPIO28
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    adc_type: external
+
+speaker:
+  - platform: i2s_audio
+    id: tab5_speaker
+    i2s_dout_pin: GPIO26
+    audio_dac: es8388_dac
+    dac_type: external
+    channel: mono
+    bits_per_sample: 16bit
+    # 16 kHz to match the raw PCM our satellite plays back (see note above).
+    sample_rate: 16000
+    # Big buffer so playback rides through the gaps between streamed TTS sentences
+    # (the server synthesizes sentence-by-sentence; a small buffer underruns → the
+    # reply "cuts out"). The Tab5 has PSRAM to spare. ~2 s of 16 kHz mono = ~64 KB.
+    buffer_duration: 2000ms
+
+# DAC/ADC routing selects (LINE1 = onboard speaker; set on boot above).
+select:
+  - platform: es8388
+    dac_output:
+      id: dac_output_select
+      name: DAC Output
+    adc_input_mic:
+      name: ADC Input Mic
+
+# ── Display + touch. The panel is driven by LVGL (see the `lvgl:` block) which
+# renders the ambient clock dashboard + conversation-state faces. With LVGL present
+# ESPHome skips the test card automatically. ──
+display:
+  - platform: mipi_dsi
+    id: tab5_display
+    dimensions:
+      height: 1280
+      width: 720
+    # This unit's panel is the V2 (the V1 init sequence leaves it lit-but-blank).
+    model: M5Stack-Tab5-V2
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+
+touchscreen:
+  - platform: gt911
+    interrupt_pin: GPIO23
+    update_interval: never
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 5
+    calibration:
+      x_min: 0
+      x_max: 720
+      y_min: 0
+      y_max: 1280
+    id: touch
+
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: backlight
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+time:
+  - platform: rx8130
+    id: rtc_time
+    i2c_id: bsp_bus
+    update_interval: never
+    timezone: UTC
+  # Network time for the on-screen clock (timezone auto-detected from the build host).
+  - platform: sntp
+    id: tab5_time
+
+# ── Power / charging plumbing (all via the I/O expanders). speaker_enable must be
+# ON for any audio to come out, so it restores ALWAYS_ON. ──
+switch:
+  - platform: gpio
+    id: wifi_power
+    name: "WiFi Power"
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON
+  - platform: gpio
+    id: usb_5v_power
+    name: "USB Power"
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 3
+  - platform: gpio
+    id: quick_charge
+    name: "Quick Charge"
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 5
+      inverted: true
+  - platform: gpio
+    id: charge_enable
+    name: "Charge Enable"
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 7
+    restore_mode: ALWAYS_ON
+  - platform: gpio
+    id: wifi_antenna_int_ext
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 0
+  - platform: gpio
+    id: speaker_enable
+    name: "Speaker Enable"
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 1
+    restore_mode: ALWAYS_ON
+  - platform: gpio
+    id: external_5v_power
+    name: "External 5V Power"
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 2
+
+binary_sensor:
+  - platform: gpio
+    id: charging
+    name: "Charging Status"
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 6
+      mode: INPUT_PULLDOWN
+  - platform: gpio
+    id: headphone_detect
+    name: "Headphone Detect"
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 7
+
+sensor:
+  - platform: ina226
+    address: 0x41
+    adc_averaging: 16
+    max_current: 8.192A
+    shunt_resistance: 0.005ohm
+    bus_voltage:
+      id: battery_voltage
+      name: "Battery Voltage"
+    current:
+      id: battery_current
+      name: "Battery Current"
+      # Positive means discharging; negative means charging.
+
+# Big clock font (downloaded from Google Fonts at build time). The time glyph set
+# is limited to what a clock needs so the large size stays small in flash.
+font:
+  - file: "gfonts://Roboto@medium"
+    id: font_time
+    size: 300
+    glyphs: "-0123456789: "
+  - file: "gfonts://Roboto"
+    id: font_date
+    size: 64
+  - file: "gfonts://Roboto@medium"
+    id: font_footer
+    size: 38
+
+# ── Ambient dashboard (LVGL) ──────────────────────────────────────────────────
+# Google-Hub style: when idle the screen shows a big clock; conversation states
+# (driven by the satellite's face.state in Phase 2) swap the visuals. LVGL renders
+# locally on the MIPI-DSI panel — the Host only sends lightweight state, not pixels.
+lvgl:
+  displays:
+    - tab5_display
+  rotation: 90                  # landscape (Google-Hub orientation)
+  byte_order: little_endian     # required for the Tab5 V2 panel
+  bg_color: 0x05080C            # near-black ambient background
+  pages:
+    - id: page_clock
+      bg_color: 0x05080C
+      bg_opa: COVER
+      widgets:
+        - label:
+            id: lbl_time
+            align: CENTER
+            y: -45
+            text: "--:--"
+            text_font: font_time
+            text_color: 0xFFFFFF
+        - label:
+            id: lbl_date
+            align: CENTER
+            y: 190
+            text: ""
+            text_font: font_date
+            text_color: 0x8DA2B5
+        # Subtle conversation-state footer: a small colored pill at the bottom that
+        # appears on wake/think/speak and hides when idle (clock stays visible the
+        # whole time). Driven by the face_state text sensor below.
+        - obj:
+            id: state_footer
+            align: BOTTOM_MID
+            y: -34
+            width: 340
+            height: 76
+            radius: 38
+            bg_color: 0x16A34A
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            hidden: true
+            widgets:
+              - label:
+                  id: state_label
+                  align: CENTER
+                  text: ""
+                  text_font: font_footer
+                  text_color: 0xFFFFFF
+
+# Tick the clock once a second from network time. Skipped while the companion is
+# speaking — re-rendering the 300 px time mid-reply blocks the loop long enough to
+# stutter the audio (the clock just resumes a beat later, which is imperceptible).
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(face_state).state != "talking";'
+          then:
+            - lvgl.label.update:
+                id: lbl_time
+                text: !lambda |-
+                  auto t = id(tab5_time).now();
+                  if (!t.is_valid()) return std::string("--:--");
+                  int h = t.hour % 12; if (h == 0) h = 12;
+                  char buf[8];
+                  snprintf(buf, sizeof(buf), "%d:%02d", h, t.minute);
+                  return std::string(buf);
+            - lvgl.label.update:
+                id: lbl_date
+                text: !lambda |-
+                  auto t = id(tab5_time).now();
+                  if (!t.is_valid()) return std::string("");
+                  return t.strftime("%A, %b %e");
+
+# Conversation state from the satellite (idle/connecting/listening/thinking/talking).
+# On each change we either hide the overlay (back to the clock) or show a bold,
+# color-coded full-screen state so wake + thinking are instantly obvious.
+text_sensor:
+  - platform: template
+    id: face_state
+    on_value:
+      then:
+        - lambda: |-
+            const std::string &s = x;
+            if (s == "listening") {
+              lv_label_set_text(id(state_label), "Listening");
+              lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x16A34A), 0);  // green
+              lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+            } else if (s == "thinking") {
+              lv_label_set_text(id(state_label), "Thinking");
+              lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x2563EB), 0);  // blue
+              lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+            } else if (s == "talking") {
+              lv_label_set_text(id(state_label), "Speaking");
+              lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x0891B2), 0);  // cyan
+              lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              // idle / connecting → footer hidden, just the clock
+              lv_obj_add_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+            }
+
+external_components:
+  # The shared Wyoming/Loki-Doki satellite runtime (firmware/components/).
+  - source:
+      type: local
+      path: ../components
+
+# ── The Loki Doki satellite link — replaces HA's voice_assistant pipeline ──────
+# Streams the mic up and plays the reply down over our Wyoming gateway; wake word
+# runs server-side. No RGB LED on the Tab5 — instead the conversation state is
+# mirrored to the `face_state` text sensor, which drives the LVGL overlay above.
+lokidoki_satellite:
+  id: satellite
+  host: ${lokidoki_host}
+  port: ${lokidoki_port}
+  model: tab5
+  microphone: tab5_microphone
+  speaker: tab5_speaker
+  face_sensor: face_state
+  backlight: backlight       # idle dimming, configured centrally via device settings

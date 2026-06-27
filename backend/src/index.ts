@@ -56,6 +56,7 @@ import { adminContent } from '@/routes/adminContent'
 import { content } from '@/routes/content'
 import { consent } from '@/routes/consent'
 import { adminLocale } from '@/routes/adminLocale'
+import { adminSpeedtest } from '@/routes/adminSpeedtest'
 import { notificationsRoute } from '@/routes/notifications'
 import { appStore } from '@/routes/appStore'
 import { homeLayout } from '@/routes/homeLayout'
@@ -367,6 +368,7 @@ app.route('/api/admin/content', adminContent)
 app.route('/api/content', content)
 app.route('/api/consent', consent)
 app.route('/api/admin/locale', adminLocale)
+app.route('/api/admin/speedtest', adminSpeedtest)
 app.route('/api/notifications', notificationsRoute)
 app.route('/api/app-store', appStore)
 app.route('/api/home-layout', homeLayout)

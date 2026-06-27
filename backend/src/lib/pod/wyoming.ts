@@ -128,4 +128,13 @@ export function faceState(state: FaceState): WyomingEvent {
   return { type: 'user-event', data: { name: 'face.state', state } }
 }
 
+/**
+ * Loki Doki config extension (Wyoming `user-event`): pushes a device's effective
+ * settings (dimming, …) so the Pod applies them live. Sent on (re)connect and again
+ * whenever the device's group settings change — central settings, no re-flash.
+ */
+export function deviceConfig(settings: Record<string, unknown>): WyomingEvent {
+  return { type: 'user-event', data: { name: 'config', ...settings } }
+}
+
 export type FaceState = 'idle' | 'listening' | 'thinking' | 'talking' | 'sleeping'

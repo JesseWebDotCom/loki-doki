@@ -1,10 +1,13 @@
 // Continuous wake-word inference loop. Ported from v2 (zustand telemetry removed).
 //
 // Accumulates mic frames into 1280-sample (80 ms) wake-word frames; each flows
-// through the mel/embedding/detector pipeline → per-frame score. Hysteresis: 2
-// consecutive frames above threshold to fire. Post-wake suppression: 1 s lockout
-// after a fire (prevents the same syllable retriggering). When disabled, the loop
-// short-circuits before any inference — no CPU spent while hands-free is off.
+// through the mel/embedding/detector pipeline → per-frame score. The raw score is
+// passed through a short moving average (ESPHome/microWakeWord do the same) so a
+// single spurious spike can't fire — only a sustained run of high frames does.
+// Hysteresis: 2 consecutive smoothed frames above threshold to fire. Post-wake
+// suppression: 1 s lockout after a fire (prevents the same syllable retriggering).
+// When disabled, the loop short-circuits before any inference — no CPU spent while
+// hands-free is off.
 
 import { emitWakeDetected, type WakeDetectedEvent } from "./wake-word-events"
 import { getWakeWordModel, type WakeWordModelEntry } from "./wake-word-models"
@@ -23,6 +26,11 @@ import { evictSession, tensorFor } from "./wake-word-runtime"
 
 const HYSTERESIS_FRAMES_ABOVE = 2
 const POST_WAKE_SUPPRESS_MS = 1000
+// Moving-average window (in 80 ms frames) applied to the detector score before the
+// threshold test. A short window (≈0.3 s) kills single-frame spikes — the dominant
+// source of ambient false fires — while staying well within the ~4-frame run of
+// high scores a completed wake phrase produces, so true detections still cross.
+const SCORE_SMOOTHING_FRAMES = 4
 
 // Verbose scores when localStorage['voice.debug'] === 'on' (reload after setting).
 // Key events (model loaded, detection, errors) always log so the path is visible.
@@ -45,6 +53,8 @@ export class WakeWordLoop {
   private accumulatorOffset = 0
   private detectorFrameIndex = 0
   private consecutiveAboveThreshold = 0
+  /** Recent raw scores for the moving-average smoother (newest pushed at the end). */
+  private scoreWindow: number[] = []
   private lastFireAt: number | null = null
   private inferring: Promise<void> | null = null
   private pipeline: WakeWordPipelineState | null = null
@@ -69,7 +79,7 @@ export class WakeWordLoop {
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled
-    if (!enabled) this.consecutiveAboveThreshold = 0
+    if (!enabled) { this.consecutiveAboveThreshold = 0; this.scoreWindow = [] }
   }
 
   setModel(modelId: string): void {
@@ -85,6 +95,7 @@ export class WakeWordLoop {
     this.pipeline = null
     this.detectorFrameIndex = 0
     this.consecutiveAboveThreshold = 0
+    this.scoreWindow = []
     this.rawBuffer = new Float32Array(RAW_AUDIO_BUFFER_SAMPLES)
     this.rawFilled = 0
     this.embeddingBuffer = seedEmbeddingBuffer(0xa17c0001)
@@ -156,15 +167,18 @@ export class WakeWordLoop {
     const score = await this.inferOnce(frame)
     const idx = this.detectorFrameIndex++
     const shaped = idx < WARMUP_ZERO_FRAMES ? 0 : score
-    if (shaped > this.peakScore) this.peakScore = shaped
-    this.onScore?.(shaped, this.threshold())
+    // Smooth before any thresholding so the tester, heartbeat and fire logic all
+    // see the same value that actually drives detection.
+    const smoothed = this.smoothScore(shaped)
+    if (smoothed > this.peakScore) this.peakScore = smoothed
+    this.onScore?.(smoothed, this.threshold())
     // Heartbeat every ~50 frames (~4s) so you can confirm the loop is alive and
     // watch the score climb as you speak.
     if (wakeDebug() && idx > 0 && idx % 50 === 0) {
       console.debug(`[wakeword] alive — peak score last 4s: ${this.peakScore.toFixed(3)} (fires at ≥ ${this.threshold().toFixed(2)})`)
       this.peakScore = 0
     }
-    this.handleScore(shaped, idx)
+    this.handleScore(smoothed, idx)
   }
 
   private async inferOnce(frame: Float32Array): Promise<number> {
@@ -205,6 +219,15 @@ export class WakeWordLoop {
     const data = firstFloat32(detOut)
     const last = data[data.length - 1] ?? 0
     return clampScore(last)
+  }
+
+  /** Trailing moving average over the last SCORE_SMOOTHING_FRAMES raw scores. */
+  private smoothScore(score: number): number {
+    this.scoreWindow.push(score)
+    if (this.scoreWindow.length > SCORE_SMOOTHING_FRAMES) this.scoreWindow.shift()
+    let sum = 0
+    for (const s of this.scoreWindow) sum += s
+    return sum / this.scoreWindow.length
   }
 
   private handleScore(score: number, frameIndex: number): void {

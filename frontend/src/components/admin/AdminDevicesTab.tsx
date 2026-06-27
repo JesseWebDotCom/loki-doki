@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { FlashDeviceWizard } from '@/components/admin/FlashDeviceWizard'
+import { DeviceGroupsPanel } from '@/components/admin/DeviceGroupsPanel'
 import { DeviceHelpDialog } from '@/components/admin/DeviceHelpDialog'
 import { DeviceManageSheet } from '@/components/admin/DeviceManageSheet'
 import { DeviceArt } from '@/components/admin/DeviceArt'
@@ -24,6 +25,7 @@ interface DeviceRow {
   kind: string
   model: string | null
   wakeWord: string | null
+  groupId: string | null
   pairingCode: string | null
   pairingExpiresAt: string | null
   lastSeenAt: string | null
@@ -57,6 +59,9 @@ export function AdminDevicesTab() {
   const { data: discovered = [] } = useQuery({ queryKey: ['pod-discovered'], queryFn: () => getJSON<DiscoveredDevice[]>('/api/pod/discovered'), refetchInterval: 4000 })
 
   const [flashOpen, setFlashOpen] = useState(false)
+  // When set, the wizard runs in streamlined "reinstall" mode for this existing
+  // device (skips detection / Wi-Fi / naming — it's already known and configured).
+  const [reflashDevice, setReflashDevice] = useState<DeviceRow | null>(null)
   const [del, setDel] = useState<DeviceRow | null>(null)
   const [help, setHelp] = useState<DeviceRow | null>(null)
   const [manage, setManage] = useState<DeviceRow | null>(null)
@@ -116,10 +121,15 @@ export function AdminDevicesTab() {
             Your voice devices around the home. Add a new one and it’ll show up here, ready in a couple of minutes.
           </p>
         </div>
-        <Button onClick={() => setFlashOpen(true)}><Plus className="size-4" /> Add a device</Button>
+        <Button onClick={() => { setReflashDevice(null); setFlashOpen(true) }}><Plus className="size-4" /> Add a device</Button>
       </div>
 
-      <FlashDeviceWizard open={flashOpen} onOpenChange={setFlashOpen} />
+      <FlashDeviceWizard
+        open={flashOpen}
+        onOpenChange={(o) => { setFlashOpen(o); if (!o) setReflashDevice(null) }}
+        onFlashed={invalidate}
+        reflash={reflashDevice ? { name: reflashDevice.name, model: reflashDevice.model } : null}
+      />
 
       {/* Unclaimed devices — powered-on satellites not bound to anyone yet */}
       {discovered.length > 0 && (
@@ -144,7 +154,7 @@ export function AdminDevicesTab() {
           <div className="py-10 text-center"><Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" /></div>
         ) : devices.length === 0 ? (
           <button
-            onClick={() => setFlashOpen(true)}
+            onClick={() => { setReflashDevice(null); setFlashOpen(true) }}
             className="flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/60 bg-card/40 p-10 text-center text-muted-foreground transition-colors hover:border-brand/40 hover:text-foreground"
           >
             <Usb className="size-6" />
@@ -158,6 +168,9 @@ export function AdminDevicesTab() {
           </div>
         )}
       </section>
+
+      {/* Central settings, grouped (dimming, …) — deployed live over the gateway */}
+      <DeviceGroupsPanel />
 
       {/* Advanced: manual create with a pairing code (for screened devices like the Tab5) */}
       <details className="max-w-2xl rounded-2xl border border-border/40 bg-card/40">
@@ -199,7 +212,7 @@ export function AdminDevicesTab() {
         wakewords={wakewords?.detectors ?? []}
         onOpenChange={(o) => { if (!o) setManage(null) }}
         onChanged={invalidate}
-        onReflash={() => { setManage(null); setFlashOpen(true) }}
+        onReflash={() => { setReflashDevice(managed); setManage(null); setFlashOpen(true) }}
         onHelp={() => { if (managed) setHelp(managed) }}
         onDelete={() => { if (managed) setDel(managed); setManage(null) }}
       />
@@ -237,38 +250,37 @@ function DeviceCard({ d, userName, onManage, onTest }: { d: DeviceRow; userName:
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') onManage() }}
-      className="group flex cursor-pointer flex-col gap-3 rounded-2xl border border-border/50 bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex cursor-pointer flex-col gap-4 rounded-3xl border border-border/40 bg-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="flex items-start justify-between">
-        <div className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-b from-muted/60 to-muted/20 ring-1 ring-border/40">
-          <DeviceArt resolved={art} className="size-11" />
+      <div className="flex items-center gap-3.5">
+        {/* Color-coded by device type, App-Store style. */}
+        <DeviceArt resolved={art} solid className="size-12 rounded-2xl" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold leading-tight">{d.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{deviceModelName(d.model, d.kind)}</p>
         </div>
         <StatusBadge d={d} />
       </div>
 
-      <div className="flex-1">
-        <p className="text-sm font-bold leading-snug">{d.name}</p>
-        <p className="text-[11px] font-medium text-muted-foreground/70">{deviceModelName(d.model, d.kind)}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {userName}
-          {!d.online && d.lastSeenAt ? ` · seen ${new Date(d.lastSeenAt).toLocaleDateString()}` : ''}
-        </p>
+      <div className="-mt-1 text-xs text-muted-foreground">
+        {userName}
+        {!d.online && d.lastSeenAt ? ` · seen ${new Date(d.lastSeenAt).toLocaleDateString()}` : ''}
       </div>
 
       {/* Pairing code (only for manually-created devices that show/enter a code) */}
       {!d.paired && d.pairingCode && (
-        <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2" onClick={(e) => e.stopPropagation()}>
           <code className="font-mono text-base font-semibold tracking-widest">{d.pairingCode}</code>
           <CopyButton value={d.pairingCode} />
           <span className="ml-auto text-[10px] text-muted-foreground">{expired ? 'expired' : 'enter on device'}</span>
         </div>
       )}
 
-      <div className="mt-auto flex items-center gap-2 pt-0.5">
-        <Button size="sm" variant="secondary" className="h-8 flex-1 gap-1.5 text-xs" onClick={stop(onTest)} disabled={!d.online}>
+      <div className="mt-auto flex items-center gap-2">
+        <Button size="sm" variant="secondary" className="h-9 flex-1 gap-1.5 rounded-xl text-xs" onClick={stop(onTest)} disabled={!d.online}>
           <Volume2 className="size-3.5" /> Test
         </Button>
-        <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground" onClick={stop(onManage)}>
+        <Button size="sm" variant="ghost" className="h-9 gap-1.5 rounded-xl px-3 text-xs text-muted-foreground hover:text-foreground" onClick={stop(onManage)}>
           <Settings2 className="size-3.5" /> Manage
         </Button>
       </div>
@@ -301,16 +313,16 @@ function UnclaimedCard({ d, users, companions, onClaimed }: { d: DiscoveredDevic
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
-      <div className="flex items-start justify-between">
-        <DeviceArt resolved={art} className="size-14" />
+    <div className="flex flex-col gap-4 rounded-3xl border border-amber-500/30 bg-amber-500/5 p-5">
+      <div className="flex items-center gap-3.5">
+        <DeviceArt resolved={art} solid className="size-12 rounded-2xl" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold leading-tight">{deviceModelName(d.model, null)}</p>
+          <p className="text-xs text-muted-foreground">Ready to set up</p>
+        </div>
         <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
           <span className="size-1.5 animate-pulse rounded-full bg-amber-500" /> New
         </span>
-      </div>
-      <div className="flex-1">
-        <p className="text-sm font-bold leading-snug">{deviceModelName(d.model, null)}</p>
-        <p className="text-[11px] text-muted-foreground/70">Ready to set up</p>
       </div>
 
       {!expanded ? (

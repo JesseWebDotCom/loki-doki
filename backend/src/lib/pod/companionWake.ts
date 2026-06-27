@@ -38,17 +38,41 @@ export async function ensureCompanionWakeword(characterId: string): Promise<stri
   if (training.has(characterId)) return null // already in flight
 
   training.add(characterId)
-  void trainInBackground(characterId, ch.name, phrase)
+  void trainCompanion(characterId, ch.name, phrase).finally(() => training.delete(characterId))
   return null
 }
 
-async function trainInBackground(characterId: string, name: string, phrase: string): Promise<void> {
+/**
+ * Force-retrain EVERY companion that has a wake phrase (e.g. after a trainer
+ * improvement). Runs sequentially in the background — training is CPU-heavy — and
+ * each updates its own catalog row + accuracy as it finishes, so the UI reflects
+ * progress. Returns how many were queued.
+ */
+export async function retrainAllCompanions(): Promise<{ total: number }> {
+  if (!isWakewordTrainInstalled()) {
+    logger.warn('[pod] retrain-all: training tools not installed')
+    return { total: 0 }
+  }
+  const rows = await db.select().from(characters)
+  const targets = rows.filter((c) => (c.wakeWordPhrase ?? '').trim() && !training.has(c.id))
+  logger.info(`[pod] retrain-all: ${targets.length} companion wake word(s)`)
+  void (async () => {
+    for (const c of targets) {
+      training.add(c.id)
+      await trainCompanion(c.id, c.name, (c.wakeWordPhrase ?? '').trim()).finally(() => training.delete(c.id))
+    }
+    logger.info('[pod] retrain-all: complete')
+  })()
+  return { total: targets.length }
+}
+
+async function trainCompanion(characterId: string, name: string, phrase: string): Promise<void> {
   const slug = phrase.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
   const id = `trained_${slug}_${Date.now().toString(36)}`
   let lastStep = ''
   try {
     logger.info(`[pod] auto-training wake word "${phrase}" for companion "${name}"…`)
-    const { threshold } = await trainWakeword(
+    const { threshold, accuracy } = await trainWakeword(
       phrase,
       id,
       (p) => { if (p.step !== lastStep) { lastStep = p.step; logger.info(`[pod] wake-train "${phrase}": ${p.step}`) } },
@@ -58,8 +82,8 @@ async function trainInBackground(characterId: string, name: string, phrase: stri
     const now = new Date()
     await db.insert(wakeWordCatalog).values({
       id, label: phrase, kind: 'trained', assetPath: `${id}.onnx`,
-      defaultThreshold: threshold ?? 0.6, characterId, enabled: true, createdAt: now, updatedAt: now,
-    }).onConflictDoUpdate({ target: wakeWordCatalog.id, set: { assetPath: `${id}.onnx`, updatedAt: now } })
+      defaultThreshold: threshold ?? 0.6, accuracy: accuracy ?? null, characterId, enabled: true, createdAt: now, updatedAt: now,
+    }).onConflictDoUpdate({ target: wakeWordCatalog.id, set: { assetPath: `${id}.onnx`, accuracy: accuracy ?? null, updatedAt: now } })
     // Attach to the character so every device with this companion uses it. Keep the
     // phrase (the in-app companion still Whisper-matches it); the model just takes
     // precedence for devices.
@@ -67,7 +91,6 @@ async function trainInBackground(characterId: string, name: string, phrase: stri
     logger.info(`[pod] ✅ auto-trained wake word for "${name}" → say "${phrase}" (model ${id})`)
   } catch (e) {
     logger.warn(`[pod] wake auto-train failed for "${name}": ${(e as Error).message}`)
-  } finally {
-    training.delete(characterId)
   }
+  // NB: the `training` Set is added+removed by the caller (so retrain-all can sequence).
 }

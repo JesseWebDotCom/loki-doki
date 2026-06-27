@@ -23,6 +23,7 @@ import {
   OLLAMA_BIN_DEST,
   findSystemOllama,
   isWakewordCoreInstalled,
+  isWakewordTrainInstalled,
 } from '@/lib/download'
 import { killByCommandLine } from '@/lib/platform'
 import { isVoiceServerInstalled, maybeSpawnVoiceServer, getVoiceServerState } from '@/lib/voiceServer'
@@ -38,7 +39,7 @@ import {
 } from '@/lib/comfyui'
 import { CATALOG } from '@/lib/catalog'
 import { getAppSetting } from '@/lib/settings'
-import { INSTALL_COMPONENTS, getInstalledLedger, recordInstalled, IMAGE_ROLES } from '@/lib/installRegistry'
+import { INSTALL_COMPONENTS, getInstallComponent, getInstalledLedger, recordInstalled, IMAGE_ROLES } from '@/lib/installRegistry'
 import { enqueueBackground } from '@/lib/downloadJobs'
 import type { AppEnv } from '@/types'
 
@@ -135,6 +136,17 @@ async function reconcileInstalls(_broadcast: BroadcastFn): Promise<void> {
       }
       if (!ledgerSet.has(comp.id)) continue // never chosen — leave alone
       bgComponentIds.push(comp.id)
+    }
+
+    // The real-RIR pack ships bundled with Wake Word Training but was added later,
+    // so installs that predate it have the trainer but not the pack — and never
+    // explicitly "chose" the pack, so the loop above leaves it alone. Bridge that:
+    // if the training feature is present, heal the pack too (idempotent; the pack's
+    // own download early-returns once complete).
+    const rir = getInstallComponent('wakeword-train-rir')
+    const hasTraining = ledgerSet.has('wakeword-train') || isWakewordTrainInstalled()
+    if (rir && hasTraining && !rir.isInstalled() && !bgComponentIds.includes(rir.id)) {
+      bgComponentIds.push(rir.id)
     }
   } catch { /* ledger unreadable — skip */ }
 

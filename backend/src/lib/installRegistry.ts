@@ -25,6 +25,8 @@ import {
   downloadWakewordCore,
   isWakewordTrainInstalled,
   installWakewordTrainDeps,
+  isWakewordRirInstalled,
+  downloadWakewordRirPack,
   isEsrganInstalled,
   downloadEsrganModel,
   isCodeFormerInstalled,
@@ -164,6 +166,15 @@ const STATIC_COMPONENTS: InstallComponent[] = [
     id: 'wakeword-train', group: 'voice', label: 'onnxruntime + scikit-learn',
     isInstalled: isWakewordTrainInstalled,
     repair: (onP, sig) => installWakewordTrainDeps(onP, sig),
+  },
+  {
+    // Bundled with Wake Word Training (installWakewordTrainDeps fetches it too), but
+    // registered as its own component so boot reconcile can auto-repair it
+    // independently — without re-running the training-deps pip install, and without
+    // gating training itself (the trainer falls back to procedural reverb if absent).
+    id: 'wakeword-train-rir', group: 'voice', label: 'Wake Word Reverb Pack',
+    isInstalled: isWakewordRirInstalled,
+    repair: (onP, sig) => downloadWakewordRirPack(onP, sig),
   },
   {
     id: 'maps-toolchain', group: 'maps', label: 'Maps Runtime',
