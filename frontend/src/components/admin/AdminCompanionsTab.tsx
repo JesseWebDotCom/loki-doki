@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, Trash2, Shuffle, Send, Square, ChevronLeft } from 'lucide-react'
+import { Plus, Trash2, Shuffle, Send, Square, ChevronLeft, Sparkles } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/cn'
@@ -12,6 +12,7 @@ import { AVATAR_STYLES, fieldsForStyle, randomSeed, type RigField } from '@/comp
 import { refreshCompanions } from '@/hooks/useActiveCompanion'
 import { COMPANION_CATEGORIES } from '@/lib/companions/companionCategories'
 import { VoicePicker, WakePhraseField } from '@/components/admin/voiceControls'
+import { WakeTrainingProgress } from '@/components/shared/WakeTrainingProgress'
 import { AdminBriefingTab } from '@/components/admin/AdminBriefingTab'
 import { VoiceDefaults, PronunciationEditor } from '@/components/admin/AdminVoiceTab'
 import { ContentDialGroup, MIN_DIALS } from '@/components/shared/contentDials'
@@ -318,6 +319,20 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState<EditorTab>('identity')
   const [confirmRemove, setConfirmRemove] = useState(false)
+  // Foreground wake-word training, kicked off on Save when the phrase changes.
+  const [trainReq, setTrainReq] = useState<{ phrase: string; characterId: string; nonce: number } | null>(null)
+  const [trainInstalled, setTrainInstalled] = useState(false)
+  // The wake phrase as last loaded/saved — lets Save detect a real change so we
+  // only retrain (and only discard the existing model) when the phrase actually
+  // changed, not on every unrelated edit.
+  const baselineWakeRef = useRef('')
+
+  useEffect(() => {
+    fetch('/api/admin/wakewords/catalog', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : { trainInstalled: false }))
+      .then((d: { trainInstalled?: boolean }) => setTrainInstalled(d.trainInstalled ?? false))
+      .catch(() => {})
+  }, [])
 
   const loadList = useCallback(async () => {
     try {
@@ -331,10 +346,12 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
 
   const selectDraft = (c: AdminCompanion) => {
     setDraft({ ...c, backstory: c.backstory ?? '', phoneticName: c.phoneticName ?? '', voiceId: c.voiceId ?? '', ttsVoice: c.ttsVoice ?? '', wakeWordModelId: c.wakeWordModelId ?? '', wakeWordPhrase: c.wakeWordPhrase ?? '', content: c.content ?? { ...MIN_DIALS, candor: 'balanced' } })
+    baselineWakeRef.current = (c.wakeWordPhrase ?? '').trim()
     setTab('identity')
   }
   const newDraft = () => {
     setDraft({ ...BLANK, seed: randomSeed(), avatarConfig: {} })
+    baselineWakeRef.current = ''
     setTab('identity')
   }
 
@@ -361,10 +378,18 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
   const save = async () => {
     if (!draft || !draft.name.trim()) return
     setSaving(true)
+    const newPhrase = (draft.wakeWordPhrase || '').trim()
+    // Only discard the trained model when the phrase actually changed; an unrelated
+    // edit (e.g. tweaking the avatar) must keep the model so the device keeps
+    // answering without a needless retrain. A changed phrase nulls the model and
+    // triggers a fresh foreground training run below.
+    const phraseChanged = newPhrase !== baselineWakeRef.current
     const body = {
       name: draft.name, personalityPrompt: draft.personalityPrompt, backstory: draft.backstory || null,
       phoneticName: draft.phoneticName || null, replyStyle: draft.replyStyle, voiceId: draft.voiceId || null,
-      ttsVoice: draft.ttsVoice || null, wakeWordModelId: null, wakeWordPhrase: draft.wakeWordPhrase || null, speechRate: draft.speechRate, expressiveness: draft.expressiveness,
+      ttsVoice: draft.ttsVoice || null,
+      wakeWordModelId: phraseChanged ? null : (draft.wakeWordModelId || null),
+      wakeWordPhrase: draft.wakeWordPhrase || null, speechRate: draft.speechRate, expressiveness: draft.expressiveness,
       renderer: draft.renderer, style: draft.style, seed: draft.seed, avatarConfig: draft.avatarConfig,
       category: draft.category, isActive: draft.isActive, published: draft.published, content: draft.content,
     }
@@ -372,7 +397,18 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
       const res = await fetch(draft.id ? `/api/admin/companions/${draft.id}` : '/api/admin/companions', {
         method: draft.id ? 'PATCH' : 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
-      if (res.ok) { const saved = await res.json() as AdminCompanion; await loadList(); refreshCompanions(); selectDraft(saved) }
+      if (res.ok) {
+        const saved = await res.json() as AdminCompanion
+        await loadList(); refreshCompanions(); selectDraft(saved)
+        // Train the device wake word in the foreground with visible progress when
+        // the phrase changed. Needs the training feature installed; otherwise the
+        // backend still auto-trains in the background on first device connect.
+        if (phraseChanged && newPhrase && trainInstalled && saved.id) {
+          setTrainReq({ phrase: newPhrase, characterId: saved.id, nonce: Date.now() })
+        } else {
+          setTrainReq(null)
+        }
+      }
     } finally { setSaving(false) }
   }
 
@@ -543,6 +579,29 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                       no model files, one way to set it up. */}
                   <Field label="Wake word">
                     <WakePhraseField value={draft.wakeWordPhrase ?? ''} onChange={(v) => set('wakeWordPhrase', v)} />
+                    {/* Physical voice devices use a TRAINED detector model for this phrase
+                        (the in-app companion just Whisper-matches it). The model is trained
+                        once on first use and never auto-refreshed, so this retrains it on
+                        demand — it belongs to the companion, so it applies to every device
+                        using it. */}
+                    {draft.id && (draft.wakeWordPhrase ?? '').trim() && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { if (draft.id) setTrainReq({ phrase: (draft.wakeWordPhrase ?? '').trim(), characterId: draft.id, nonce: Date.now() }) }}
+                          disabled={!trainInstalled || (!!trainReq && trainReq.characterId === draft.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-foreground/5 disabled:opacity-50"
+                          title={trainInstalled ? 'Retrain the detector model used by physical voice devices' : 'Install “Wake Word Training” in Admin → Features first'}
+                        >
+                          <Sparkles className="size-3.5" /> Retrain device model
+                        </button>
+                        <span className="text-[11px] text-muted-foreground">
+                          {trainInstalled
+                            ? 'For physical voice devices — applies to every device using this companion.'
+                            : 'Needs “Wake Word Training” (Admin → Features).'}
+                        </span>
+                      </div>
+                    )}
                   </Field>
                   <Field label="Speech rate">
                     <input type="number" step="0.05" min="0.8" max="1.3" value={draft.speechRate ?? ''} onChange={(e) => set('speechRate', e.target.value === '' ? null : Number(e.target.value))} className="ld-input" placeholder="1.0" />
@@ -612,6 +671,19 @@ export function AdminCompanionsTab({ view = 'characters' }: { view?: CompanionVi
                   </button>
                 )}
               </div>
+
+              {/* Wake-word training progress (after Save, when the phrase changed).
+                  Lives in the always-visible right column so it survives editor-tab
+                  switches; keyed by nonce so a fresh Save restarts it cleanly. */}
+              {trainReq && draft.id === trainReq.characterId && (
+                <WakeTrainingProgress
+                  key={trainReq.nonce}
+                  phrase={trainReq.phrase}
+                  characterId={trainReq.characterId}
+                  onComplete={(modelId) => { set('wakeWordModelId', modelId); void loadList(); refreshCompanions() }}
+                  onDismiss={() => setTrainReq(null)}
+                />
+              )}
             </div>
           </div>
         </div>
