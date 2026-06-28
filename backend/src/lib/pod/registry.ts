@@ -23,6 +23,8 @@ export interface PodFireTarget {
   testSpeak(text: string): Promise<void>
   /** Push effective settings (dimming, …) to the device over the live socket. */
   applyConfig(config: Record<string, unknown>): void
+  /** Switch the device's screen mode (normal | camera-test | touch-test). */
+  setDisplayMode(mode: string): void
   /** Tear down this session (used to evict a stale duplicate when the device reconnects). */
   close(): void
 }
@@ -82,6 +84,18 @@ export function configToDevice(deviceId: string, config: Record<string, unknown>
   for (const t of live) {
     if (t.deviceId === deviceId) {
       try { t.applyConfig(config); reached = true } catch { /* dead socket; ignore */ }
+    }
+  }
+  return reached
+}
+
+/** Push a screen mode to a device's live session(s). Returns true if it was online
+ *  and received it; false if offline (it'll pull its mode on reconnect instead). */
+export function setModeToDevice(deviceId: string, mode: string): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.setDisplayMode(mode); reached = true } catch { /* dead socket; ignore */ }
     }
   }
   return reached

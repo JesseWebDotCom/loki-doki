@@ -44,60 +44,119 @@ function flushSocket(socket: any, st: SocketState): void {
   }
 }
 
+// Live count of connected satellites (conns is a WeakMap, so it can't be sized).
+let connCount = 0
+
+// Observable gateway state — surfaced via gatewayStatus() to Admin → Devices so a
+// dropped listener (the classic `bun --hot` reload that silently kills Bun.listen
+// while the HTTP API stays up) is VISIBLE instead of a mystery "device won't connect".
+interface GatewayState { enabled: boolean; listening: boolean; port: number; error: string; since: number }
+const gw: GatewayState = { enabled: true, listening: false, port: 10700, error: '', since: 0 }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let server: any = null
+
+/** Snapshot for the admin UI + health checks. */
+export function gatewayStatus(): GatewayState & { connections: number } {
+  return { ...gw, connections: connCount }
+}
+
+// The socket behaviour, shared by every (re)bind.
+const SOCKET_HANDLERS = {
+  open(socket: object) {
+    const st: SocketState = { decoder: new WyomingDecoder(), session: null as unknown as SatelliteSession, out: [] }
+    // send() = queue the encoded frame, then flush what the socket will take.
+    // Backpressure is held in st.out and resumed on drain — never dropped.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    st.session = new SatelliteSession((ev) => { st.out.push(encodeEvent(ev)); flushSocket(socket as any, st) })
+    conns.set(socket, st)
+    registerPod(st.session) // make it reachable by the scheduler / push producers
+    connCount++
+    logger.info(`[pod] satellite connected (${connCount} online)`)
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  drain(socket: any) {
+    const st = conns.get(socket)
+    if (st) flushSocket(socket, st) // socket writable again — push the backlog
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data(socket: any, data: Uint8Array) {
+    const st = conns.get(socket)
+    if (!st) return
+    for (const ev of st.decoder.push(new Uint8Array(data))) st.session.handle(ev)
+  },
+  close(socket: object) {
+    const st = conns.get(socket)
+    if (st) { unregisterPod(st.session); st.session.close() }
+    conns.delete(socket)
+    connCount = Math.max(0, connCount - 1)
+    logger.info(`[pod] satellite disconnected (${connCount} online)`)
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  error(socket: any, error: Error) {
+    logger.warn(`[pod] socket error: ${error.message}`)
+    const st = conns.get(socket)
+    if (st) { unregisterPod(st.session); st.session.close() }
+    conns.delete(socket)
+    connCount = Math.max(0, connCount - 1)
+  },
+}
+
+/** Bind the listener. Returns true if the gateway is up afterwards. EADDRINUSE is
+ *  treated as UP: it means a prior (hot-reload) instance still holds the port and is
+ *  serving — devices can connect, so it's healthy, not an error to retry forever. */
+function bindGateway(): boolean {
+  try {
+    server = Bun.listen({ hostname: '0.0.0.0', port: gw.port, socket: SOCKET_HANDLERS })
+    gw.listening = true; gw.error = ''; gw.since = Date.now()
+    logger.info(`[pod] Wyoming gateway listening on tcp://0.0.0.0:${gw.port}`)
+    return true
+  } catch (e) {
+    const msg = (e as Error).message
+    if (/EADDRINUSE|address already in use|Failed to listen/i.test(msg)) {
+      gw.listening = true; gw.error = ''
+      logger.info(`[pod] gateway port :${gw.port} already bound (previous instance) — treating as up`)
+      return true
+    }
+    gw.listening = false; gw.error = msg; server = null
+    logger.error(`[pod] gateway bind failed on :${gw.port}: ${msg} — self-heal will retry`)
+    return false
+  }
+}
+
+/** Stop the listener (best-effort) and bind a fresh one. Admin "Restart gateway". */
+export function restartPodGateway(): GatewayState & { connections: number } {
+  logger.info('[pod] gateway restart requested')
+  try { server?.stop?.() } catch { /* already gone */ }
+  server = null
+  gw.listening = false
+  bindGateway()
+  return gatewayStatus()
+}
+
+// Self-heal watchdog: if the listener is ever down (failed bind, dropped on reload),
+// keep retrying so the gateway comes back on its own. Guarded on globalThis so a
+// `--hot` reload doesn't stack duplicate timers.
+function startGatewayHealer(): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = globalThis as any
+  if (g.__podGatewayHealer) return
+  g.__podGatewayHealer = setInterval(() => {
+    if (gw.enabled && !gw.listening) {
+      logger.warn('[pod] gateway not listening — self-heal re-bind attempt')
+      bindGateway()
+    }
+  }, 5000)
+  g.__podGatewayHealer.unref?.()
+}
+
 export function startPodGateway(): void {
   if (process.env.POD_GATEWAY_ENABLED === '0') {
+    gw.enabled = false
     logger.info('[pod] gateway disabled (POD_GATEWAY_ENABLED=0)')
     return
   }
-  const port = parseInt(process.env.POD_GATEWAY_PORT ?? '10700')
-
-  try {
-    Bun.listen({
-      hostname: '0.0.0.0',
-      port,
-      socket: {
-        open(socket) {
-          const st: SocketState = { decoder: new WyomingDecoder(), session: null as unknown as SatelliteSession, out: [] }
-          // send() = queue the encoded frame, then flush what the socket will take.
-          // Backpressure is held in st.out and resumed on drain — never dropped.
-          st.session = new SatelliteSession((ev) => { st.out.push(encodeEvent(ev)); flushSocket(socket, st) })
-          conns.set(socket, st)
-          registerPod(st.session) // make it reachable by the scheduler / push producers
-          logger.info('[pod] satellite connected')
-        },
-        drain(socket) {
-          const st = conns.get(socket)
-          if (st) flushSocket(socket, st) // socket writable again — push the backlog
-        },
-        data(socket, data) {
-          const st = conns.get(socket)
-          if (!st) return
-          for (const ev of st.decoder.push(new Uint8Array(data))) st.session.handle(ev)
-        },
-        close(socket) {
-          const st = conns.get(socket)
-          if (st) { unregisterPod(st.session); st.session.close() }
-          conns.delete(socket)
-          logger.info('[pod] satellite disconnected')
-        },
-        error(socket, error) {
-          logger.warn(`[pod] socket error: ${(error as Error).message}`)
-          const st = conns.get(socket)
-          if (st) { unregisterPod(st.session); st.session.close() }
-          conns.delete(socket)
-        },
-      },
-    })
-    logger.info(`[pod] Wyoming gateway listening on tcp://0.0.0.0:${port}`)
-  } catch (e) {
-    const msg = (e as Error).message
-    // Port already held — almost always a previous backend instance that hasn't
-    // released :${port} yet (common right after a hot-reload or a SIGKILL). The
-    // gateway is optional, so warn and continue instead of logging a scary error.
-    if (/EADDRINUSE|address already in use|Failed to listen/i.test(msg)) {
-      logger.warn(`[pod] gateway port :${port} already in use — skipping (a previous instance may still hold it; set POD_GATEWAY_ENABLED=0 to disable).`)
-    } else {
-      logger.error(`[pod] failed to start gateway on :${port}: ${msg}`)
-    }
-  }
+  gw.enabled = true
+  gw.port = parseInt(process.env.POD_GATEWAY_PORT ?? '10700')
+  bindGateway()
+  startGatewayHealer()
 }

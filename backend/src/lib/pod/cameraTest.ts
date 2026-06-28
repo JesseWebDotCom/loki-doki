@@ -83,6 +83,98 @@ export function startFfmpegSource(inputUrl: string, w = 1280, h = 720, fps = 25,
   logger.info(`[pod-camera] source = ffmpeg(${inputUrl}) → ${w}x${h}@${fps}fps q${q}`)
 }
 
+// ── Public camera test source (no Frigate required) ───────────────────────────
+// The shippable "Camera test" source: we can't assume a user has Frigate, so this
+// streams a PUBLIC feed instead, with automatic fallback. ffmpeg ingests anything
+// (HLS / RTSP / MJPEG), scales to the panel's native size, and emits MJPEG. We try
+// each candidate in turn; if one never delivers frames (offline / geo-blocked) or
+// stalls, we rotate to the next. If the whole list is dead, we fall back to a
+// locally-generated test pattern so the screen ALWAYS shows something.
+//
+// Override the list with POD_CAM_PUBLIC_URLS (comma-separated) — handy because
+// public stream URLs rot over time. Defaults are long-lived public test streams.
+const PUBLIC_CAM_URLS: string[] = (process.env.POD_CAM_PUBLIC_URLS
+  ?.split(',').map((s) => s.trim()).filter(Boolean)) ?? [
+  // Apple's "BipBop" reference HLS stream — extremely stable, always up.
+  'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8',
+  // Mux's public test HLS stream (animated test asset).
+  'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+  // Big Buck Bunny HLS (Bitmovin sample) — large, well-hosted.
+  'https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8',
+]
+
+// How long a source may go without producing a NEW frame before we declare it
+// stalled and rotate. Generous enough to cover HLS segment startup latency.
+const STALL_MS = parseInt(process.env.POD_CAM_STALL_MS ?? '8000')
+
+/** Run one ffmpeg source, draining MJPEG into `latest`, until it exits or stalls
+ *  (no new frame for STALL_MS) or the test is stopped. Resolves true if it produced
+ *  at least one frame (so the caller knows the feed was actually alive). */
+function runSourceUntilStall(args: string[], label: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const proc = spawn('ffmpeg', args)
+    ff = proc
+    let buf: Buffer = Buffer.alloc(0)
+    let produced = false
+    let prev = latest
+    let lastFrameAt = Date.now()
+    let done = false
+    const finish = (): void => {
+      if (done) return
+      done = true
+      clearInterval(watch)
+      try { proc.kill('SIGKILL') } catch { /* already gone */ }
+      if (ff === proc) ff = null
+      resolve(produced)
+    }
+    const watch = setInterval(() => {
+      if (!active) return finish()
+      if (latest !== prev) { prev = latest; produced = true; lastFrameAt = Date.now() }
+      if (Date.now() - lastFrameAt > STALL_MS) {
+        logger.warn(`[pod-camera] public source stalled (${label}) — rotating`)
+        finish()
+      }
+    }, 1000)
+    proc.stdout.on('data', (chunk: Buffer) => { if (active) buf = drain(buf.length ? Buffer.concat([buf, chunk]) : chunk) as Buffer })
+    proc.stderr.on('data', (d: Buffer) => logger.warn(`[pod-camera] ffmpeg: ${d.toString().trim().slice(0, 160)}`))
+    proc.on('exit', () => finish())
+  })
+}
+
+/** Start the PUBLIC camera test source: rotate through public feeds, falling back to
+ *  a generated pattern if they're all unreachable. This is the default for a device
+ *  put into "camera-test" mode (managed by the cameraUdp watchdog). */
+export function startPublicCameraSource(w = 1280, h = 720, fps = 20, q = 12): void {
+  stopTest()
+  active = true
+  manualMode = false // managed default source, not a manual override
+  logger.info('[pod-camera] source = PUBLIC test feed (rotating, generated fallback)')
+  void (async () => {
+    while (active) {
+      let anyAlive = false
+      for (const url of PUBLIC_CAM_URLS) {
+        if (!active) break
+        const ok = await runSourceUntilStall([
+          '-hide_banner', '-loglevel', 'error', '-fflags', 'nobuffer', '-flags', 'low_delay',
+          '-i', url,
+          '-vf', `scale=${w}:${h}:flags=fast_bilinear`, '-r', String(fps),
+          '-c:v', 'mjpeg', '-q:v', String(q), '-f', 'mjpeg', 'pipe:1',
+        ], url)
+        if (ok) anyAlive = true
+      }
+      // Whole list dead → show a generated pattern so the screen is never blank.
+      if (active && !anyAlive) {
+        await runSourceUntilStall([
+          '-hide_banner', '-loglevel', 'error',
+          '-re', '-f', 'lavfi', '-i', `testsrc2=size=${w}x${h}:rate=${fps}`,
+          '-c:v', 'mjpeg', '-q:v', String(q), '-f', 'mjpeg', 'pipe:1',
+        ], 'testsrc2(fallback)')
+      }
+      if (active) await new Promise((z) => setTimeout(z, 500))
+    }
+  })()
+}
+
 /** Rotate through public MJPEG URLs, using the first that yields frames. */
 export function startUrlTest(urls: string[]): void {
   stopTest()

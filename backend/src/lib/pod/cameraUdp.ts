@@ -13,8 +13,8 @@
 // said hello within the last few seconds — NAT/firewall friendly, no device IP config.
 
 import dgram from 'node:dgram'
-import { peekLivingRoomFrame, livingRoomMjpegUrl } from '@/lib/pod/cameraStream'
-import { isTestActive, isManualSource, latestTestFrame, startFfmpegSource } from '@/lib/pod/cameraTest'
+import { isTestActive, isManualSource, latestTestFrame, startPublicCameraSource, stopTest } from '@/lib/pod/cameraTest'
+import { anyDeviceInCameraMode } from '@/lib/pod/displayMode'
 import { logger } from '@/lib/logger'
 
 const PORT = parseInt(process.env.POD_CAM_UDP_PORT ?? '10701')
@@ -118,16 +118,19 @@ export function startCameraUdp(): void {
   sock.on('error', (e) => logger.warn(`[pod-camera] UDP socket error: ${e}`))
   sock.bind(PORT, () => logger.info(`[pod-camera] UDP frame stream listening on :${PORT}`))
 
-  // Default-source watchdog: whenever a device is watching and no MANUAL test source is
-  // set, keep the native-720p Frigate feed (frigate-hd) running — and restart it if its
-  // ffmpeg dies. This makes fullscreen the persistent default across restarts (NOT the
-  // old slow upscale path). A manual test (pattern/urls) overrides until cleared.
+  // Source watchdog: run a camera source ONLY when a screen device is actually in
+  // camera-test mode (Admin → Devices → Testing) — no camera mode ⇒ no ffmpeg, no
+  // wasted bandwidth in normal/touch mode. The source is a PUBLIC test feed (with a
+  // generated fallback) so it works with no Frigate. A MANUAL test (pattern/urls/own
+  // camera) overrides and is left untouched until cleared.
   setInterval(() => {
-    void (async () => {
-      if (subs.size === 0 || isManualSource() || isTestActive()) return
-      const url = await livingRoomMjpegUrl()
-      if (url) startFfmpegSource(url, 1280, 720, 25, 12)
-    })()
+    if (isManualSource()) return
+    const wantCamera = subs.size > 0 && anyDeviceInCameraMode()
+    if (wantCamera) {
+      if (!isTestActive()) startPublicCameraSource()
+    } else if (isTestActive()) {
+      stopTest() // nobody's watching the camera — stop producing frames
+    }
   }, 3000).unref?.()
 
   // Server-side rate instrumentation (read via cameraStats()/GET stats): source-fps =
@@ -154,7 +157,9 @@ export function startCameraUdp(): void {
     for (;;) {
       for (const [k, v] of subs) if (Date.now() - v.last > SUB_TTL_MS) subs.delete(k)
       const targets = [...subs.values()]
-      const frame = targets.length ? (isTestActive() ? latestTestFrame() : peekLivingRoomFrame()) : null
+      // Only stream when a device is in camera-test mode AND a source is producing
+      // frames; otherwise the screen is on the clock/touch page and wants nothing.
+      const frame = (targets.length && isTestActive() && anyDeviceInCameraMode()) ? latestTestFrame() : null
       // DEDUP: only transmit when the source produced a NEW frame. No duplicate sends, so
       // sent-fps == source-fps and loss% (sent vs device-received) is meaningful.
       if (frame && frame !== lastFrameRef) {

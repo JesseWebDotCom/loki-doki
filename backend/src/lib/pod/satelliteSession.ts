@@ -41,11 +41,13 @@ import {
   audioStop,
   faceState,
   deviceConfig,
+  displayMode,
   transcript,
   type FaceState,
   type WyomingEvent,
 } from '@/lib/pod/wyoming'
 import { effectiveSettings } from '@/lib/pod/deviceSettings'
+import { getDeviceMode } from '@/lib/pod/displayMode'
 
 type Send = (ev: WyomingEvent) => void
 
@@ -198,6 +200,13 @@ export class SatelliteSession implements PodFireTarget {
     if (this.closed) return
     if (typeof config.responseLength === 'string') this.replyStyleOverride = config.responseLength
     this.send(deviceConfig(config))
+  }
+
+  /** Switch the device's screen mode (Admin → Devices → Testing). Pushed live and
+   *  re-sent on (re)connect so an offline device restores its mode when it returns. */
+  setDisplayMode(mode: string): void {
+    if (this.closed) return
+    this.send(displayMode(mode))
   }
 
   /** Push an unprompted alarm/timer event. The Pod shows its ring screen + tone. */
@@ -503,6 +512,9 @@ export class SatelliteSession implements PodFireTarget {
     // Push this device's effective settings (group overrides + Default) now that we
     // know its group — this is how an offline-then-online device auto-syncs the latest.
     effectiveSettings(device.groupId).then((s) => this.applyConfig(s as unknown as Record<string, unknown>)).catch(() => {})
+    // Restore this device's screen mode (normal/camera-test/touch-test) — an offline
+    // device that was put in a test mode picks it back up the instant it reconnects.
+    this.setDisplayMode(getDeviceMode(device.id))
     // Audibly confirm the device reached the server — a screenless satellite has no
     // other way to show it's online and working. Fire-and-forget so auth never blocks.
     void this.announceConnected()

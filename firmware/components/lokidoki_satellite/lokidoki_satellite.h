@@ -32,6 +32,10 @@ class LokiDokiSatellite : public Component {
   // "talking") so a screen device (Tab5) can react in LVGL. Screenless pods leave
   // this unset and just use the status LED.
   void set_face_sensor(text_sensor::TextSensor *s) { this->face_sensor_ = s; }
+  // Optional: mirrors the server-pushed screen mode ("normal"/"camera-test"/
+  // "touch-test") so a screen device can switch LVGL pages from the admin Testing
+  // tab. Screenless pods leave this unset.
+  void set_mode_sensor(text_sensor::TextSensor *s) { this->mode_sensor_ = s; }
   // Optional: screen backlight to dim on idle (driven by pushed config). Screenless
   // pods leave this unset.
   void set_backlight(light::LightState *bl) { this->backlight_ = bl; }
@@ -93,6 +97,8 @@ class LokiDokiSatellite : public Component {
   light::LightState *light_{nullptr};
   text_sensor::TextSensor *face_sensor_{nullptr};
   std::string published_face_;  // last value pushed to face_sensor_ (de-dupe)
+  text_sensor::TextSensor *mode_sensor_{nullptr};  // server-pushed screen mode
+  std::string published_mode_;  // last value pushed to mode_sensor_ (de-dupe)
 
   // Idle screen dimming (configured live via the server's `config` event).
   light::LightState *backlight_{nullptr};

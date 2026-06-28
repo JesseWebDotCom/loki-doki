@@ -16,6 +16,14 @@ export type DeviceRow = typeof devices.$inferSelect
 
 const PAIRING_TTL_MS = 15 * 60 * 1000 // a pairing code is valid for 15 minutes
 
+// Form-factor kind per known model id (mirrors the frontend catalog's `kind`). Used
+// so a claimed/created device records the right kind instead of the generic 'dot' —
+// which gates screen-only UI like the Testing tab. Unknown models fall back to 'pod'.
+const MODEL_KIND: Record<string, string> = { 'atom-echo': 'dot', tab5: 'tablet' }
+function kindForModel(model?: string | null): string | undefined {
+  return model ? MODEL_KIND[model] : undefined
+}
+
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
@@ -134,7 +142,9 @@ export async function claimDevice(input: ClaimDeviceInput): Promise<{ device: De
     await db.update(devices).set({
       userId: input.userId,
       name: input.name,
-      kind: input.kind ?? existing.kind,
+      // Prefer an explicit kind; else derive from the model (fixing legacy 'dot' rows);
+      // else keep what's there.
+      kind: input.kind ?? kindForModel(input.model) ?? existing.kind,
       characterId: input.characterId ?? null,
       wakeWord: input.wakeWord ?? null,
       model: input.model ?? existing.model,
@@ -149,7 +159,7 @@ export async function claimDevice(input: ClaimDeviceInput): Promise<{ device: De
       userId: input.userId,
       characterId: input.characterId ?? null,
       name: input.name,
-      kind: input.kind ?? 'dot',
+      kind: input.kind ?? kindForModel(input.model) ?? 'dot',
       wakeWord: input.wakeWord ?? null,
       model: input.model ?? null,
       hwid: input.hwid,

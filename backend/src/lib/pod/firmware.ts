@@ -38,6 +38,11 @@ const SHARED_COMPONENT_FILES = [
   'components/hw_jpeg/__init__.py',
   'components/hw_jpeg/hw_jpeg.cpp',
   'components/hw_jpeg/hw_jpeg.h',
+  // ST7123 integrated touch (Tab5 new/V2 revision — GT911 is absent on that panel).
+  'components/st7123/__init__.py',
+  'components/st7123/touchscreen/__init__.py',
+  'components/st7123/touchscreen/st7123_touchscreen.h',
+  'components/st7123/touchscreen/st7123_touchscreen.cpp',
 ]
 
 // Per-device firmware. `id` matches the device.model in the frontend catalog

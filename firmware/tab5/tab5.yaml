@@ -1,20 +1,31 @@
 # Loki Doki — M5Stack Tab5 voice satellite (ESPHome)
 #
-# A 5" ESP32-P4 tablet (1280×720 MIPI-DSI, GT911 touch, ES7210 mic array + ES8388
-# speaker codec, ESP32-C6 co-processor for Wi-Fi over SDIO) turned into a Loki Doki
-# voice satellite. Like the Atom Echo it streams 16 kHz mic PCM to the Wyoming
-# gateway and plays the companion's spoken reply; wake word runs SERVER-SIDE.
+# A 5" ESP32-P4 tablet (1280×720 MIPI-DSI, ES7210 mic array + ES8388 speaker codec,
+# ESP32-C6 co-processor for Wi-Fi over SDIO) turned into a Loki Doki voice satellite.
+# Like the Atom Echo it streams 16 kHz mic PCM to the Wyoming gateway and plays the
+# companion's spoken reply; wake word runs SERVER-SIDE.
+#
+# ── HARDWARE REVISION: this config targets the NEW / "V2" Tab5 (Oct-2025+) ──────────
+# That revision uses an INTEGRATED ST7123 display+touch controller (display model
+# `M5Stack-Tab5-V2`), NOT the original ILI9881C + GT911 combo. Touch therefore runs on
+# our vendored `st7123` component (firmware/components/st7123) at I²C 0x55 — the GT911
+# is absent on this panel. The catch that cost us: pi4ioe1 P5 is the ST7123 touch
+# ENABLE line (BSP_TOUCH_EN), not a "reset" — it must be strobed low→high to start the
+# touch engine, or the chip ACKs I²C but reports zero coordinates. (An OLDER GT911 Tab5
+# would instead need `display: model: M5Stack-Tab5` + a `touchscreen: platform: gt911`
+# block at 0x5D/0x14. We pin to V2 since that's the hardware on hand.)
 #
 # IMPORTANT — the hardware half of this file (board, esp32_hosted, psram, i2c,
 # esp_ldo, pi4ioe5v6408 expanders, i2s_audio pins, es7210/es8388 audio, mipi_dsi
-# display, gt911 touch, backlight, rtc, power switches/sensors) is copied VERBATIM
-# from the official ESPHome device config so the pin map is known-good:
+# display, backlight, rtc, power switches/sensors) is copied VERBATIM from the official
+# ESPHome device config so the pin map is known-good:
 #   https://devices.esphome.io/devices/m5stack-tab5/
 #   https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-Tab5/config.yaml
-# Do NOT "tune" those values. What we change vs. upstream is only the PIPELINE: we
-# drop Home Assistant's voice_assistant/micro_wake_word/media_player and use our own
-# `lokidoki_satellite` component (server-side wake, our Wyoming framing) — exactly
-# how firmware/atom-echo/atom-echo.yaml does it.
+# Do NOT "tune" those values. What we change vs. upstream: (1) the PIPELINE — we drop
+# Home Assistant's voice_assistant/micro_wake_word/media_player and use our own
+# `lokidoki_satellite` component (server-side wake, our Wyoming framing), like
+# firmware/atom-echo/atom-echo.yaml; and (2) TOUCH — upstream's gt911 block is for the
+# OLD revision; this V2 unit needs the `st7123` driver (see HARDWARE REVISION above).
 #
 # Onboarding is no-typing: flash once over USB (home Wi-Fi + server address are baked
 # in at build time by Admin → Devices → "Add a device"), power on, then Claim the
@@ -213,20 +224,19 @@ display:
       number: 4
 
 touchscreen:
-  - platform: gt911
-    interrupt_pin: GPIO23
-    # Poll actively (not interrupt-only) so LVGL reliably gets touch even when the
-    # main loop is busy — interrupt-only reads were being missed.
-    update_interval: 33ms
+  # M5Stack Tab5 NEW revision: integrated ST7123 display+touch. The touch engine answers
+  # at I²C 0x55 (the GT911 0x5D/0x14 of the OLD revision is absent here — confirmed by bus
+  # scan + M5GFX/espp). `reset_pin` is the touch ENABLE line (BSP_TOUCH_EN, expander 0x43
+  # P5) which the vendored st7123 component pulses low→high to start the touch engine —
+  # without that the chip ACKs I²C but never reports coordinates. Polling (no interrupt_pin)
+  # for reliable reads. (Rotation transform added once raw touches are confirmed.)
+  - platform: st7123
+    id: touch
+    address: 0x55
+    update_interval: 50ms
     reset_pin:
       pi4ioe5v6408: pi4ioe1
       number: 5
-    calibration:
-      x_min: 0
-      x_max: 720
-      y_min: 0
-      y_max: 1280
-    id: touch
 
 output:
   - platform: ledc
@@ -502,6 +512,65 @@ lvgl:
                   text_font: font_footer
                   text_color: 0x00FF66
 
+    # ── Full-screen TOUCH TEST ──────────────────────────────────────────────────
+    # Solid blue screen; wherever you press, a pink dot appears at that exact spot
+    # and removes itself 1 s later. touch_surface fills the page and is the click
+    # target; we read the press point from the active LVGL input device (already
+    # rotation-corrected, so coords line up with the landscape screen). This proves
+    # touch accuracy/latency across the whole panel.
+    - id: page_touch
+      bg_color: 0x1740C0          # blue background
+      bg_opa: COVER
+      widgets:
+        # Full-screen BUTTON = the touch target. LVGL widget press events are the proven
+        # touch path on this panel (the mute/mic buttons use them); the touchscreen
+        # `on_touch` automation does NOT fire here because LVGL consumes the touch. On
+        # press we read the rotation-corrected point from the active input device and
+        # drop a pink dot there for 1 s, plus a running counter.
+        - button:
+            id: touch_btn
+            x: 0
+            y: 0
+            width: 1280
+            height: 720
+            bg_color: 0x1740C0
+            bg_opa: COVER
+            radius: 0
+            border_width: 0
+            shadow_width: 0
+            on_press:
+              then:
+                - lambda: |-
+                    lv_indev_t *indev = lv_indev_get_act();
+                    lv_point_t p = {0, 0};
+                    if (indev) lv_indev_get_point(indev, &p);
+                    const int r = 70;  // dot radius (px)
+                    lv_obj_t *dot = lv_obj_create(lv_screen_active());
+                    lv_obj_remove_style_all(dot);
+                    lv_obj_set_size(dot, r * 2, r * 2);
+                    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+                    lv_obj_set_style_bg_color(dot, lv_color_hex(0xFF3DAE), 0);  // pink
+                    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+                    lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_set_pos(dot, p.x - r, p.y - r);
+                    lv_obj_move_foreground(dot);
+                    lv_timer_t *t = lv_timer_create([](lv_timer_t *tm) {
+                      lv_obj_del((lv_obj_t *) lv_timer_get_user_data(tm));
+                    }, 1000, dot);
+                    lv_timer_set_repeat_count(t, 1);
+                    static int n = 0; n++;
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), "touches: %d   (%d,%d)", n, (int) p.x, (int) p.y);
+                    lv_label_set_text(id(touch_count), buf);
+            widgets:
+              - label:
+                  id: touch_count
+                  align: TOP_MID
+                  y: 18
+                  text: "Touch the screen"
+                  text_font: font_footer
+                  text_color: 0xFFFFFF
+
 # Tick the clock once a second from network time. Skipped while the companion is
 # speaking — re-rendering the 300 px time mid-reply blocks the loop long enough to
 # stutter the audio (the clock just resumes a beat later, which is imperceptible).
@@ -538,10 +607,11 @@ interval:
   - interval: 10ms
     then:
       - lambda: |-
-          // One-time switch to the camera page once LVGL is fully initialised (on_boot
-          // was too early). Runs here so it's guaranteed after setup.
-          static bool shown = false;
-          if (!shown) { lv_screen_load(id(page_camera)->obj); shown = true; }
+          // The active page is driven by the server-pushed mode (see the display_mode
+          // text sensor below); on boot it's the clock (normal). Only blit camera frames
+          // while the camera page is actually showing, so the other modes keep the full
+          // main loop (snappy touch response).
+          if (lv_screen_active() != id(page_camera)->obj) return;
           if (!id(cam)->has_new_frame()) return;
           int w = id(cam)->frame_w();
           int h = id(cam)->frame_h();
@@ -620,6 +690,24 @@ interval:
 # On each change we either hide the overlay (back to the clock) or show a bold,
 # color-coded full-screen state so wake + thinking are instantly obvious.
 text_sensor:
+  # Server-pushed screen mode (Admin → Devices → Testing). Switches the whole UI:
+  #   normal      → the ambient clock dashboard
+  #   camera-test → full-screen camera (public test feed, see backend)
+  #   touch-test  → blue screen, pink dot where you press
+  - platform: template
+    id: display_mode
+    on_value:
+      then:
+        - lambda: |-
+            const std::string &m = x;
+            ESP_LOGI("displaymode", "screen mode → %s", m.c_str());
+            if (m == "camera-test") {
+              lv_screen_load(id(page_camera)->obj);
+            } else if (m == "touch-test") {
+              lv_screen_load(id(page_touch)->obj);
+            } else {  // "normal" (or anything unknown) → ambient clock
+              lv_screen_load(id(page_clock)->obj);
+            }
   - platform: template
     id: face_state
     on_value:
@@ -661,4 +749,5 @@ lokidoki_satellite:
   microphone: tab5_microphone
   speaker: tab5_speaker
   face_sensor: face_state
+  mode_sensor: display_mode   # server-pushed screen mode (Admin → Devices → Testing)
   backlight: backlight       # idle dimming, configured centrally via device settings

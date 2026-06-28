@@ -28,6 +28,8 @@ import { latestLivingRoomFrame } from '@/lib/pod/cameraStream'
 import { startFfmpegTest, startFfmpegSource, startUrlTest, stopTest, isTestActive } from '@/lib/pod/cameraTest'
 import { livingRoomMjpegUrl } from '@/lib/pod/cameraStream'
 import { setPacing, cameraStats, deviceStreamHealth } from '@/lib/pod/cameraUdp'
+import { getDeviceMode, setDeviceMode, isDisplayMode, DISPLAY_MODES } from '@/lib/pod/displayMode'
+import { gatewayStatus, restartPodGateway } from '@/lib/pod/gateway'
 
 const pod = new Hono<AppEnv>()
 
@@ -150,6 +152,26 @@ pod.get('/devices/stream-health', requireAdmin, async (c) => {
     return { ...h, deviceId: dev?.id ?? null, name: dev?.name ?? null, status }
   })
   return c.json({ devices: rows })
+})
+
+// ── Admin: per-device SCREEN MODE (Testing tab) ───────────────────────────────
+// Switches a screen Pod's whole UI over its live Wyoming socket:
+//   normal      → ambient clock dashboard (shipping default)
+//   camera-test → full-screen camera (public test feed + generated fallback)
+//   touch-test  → blue screen, pink dot where you press
+// GET returns the device's current mode + whether it's online. POST sets it (and
+// pushes live; an offline device picks it up on reconnect).
+pod.get('/devices/:id/mode', requireAdmin, (c) => {
+  return c.json({ mode: getDeviceMode(c.req.param('id')) })
+})
+
+pod.post('/devices/:id/mode', requireAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { mode?: string }
+  if (!isDisplayMode(body.mode)) {
+    return c.json({ error: `mode must be one of ${DISPLAY_MODES.join(', ')}` }, 400)
+  }
+  const online = setDeviceMode(c.req.param('id'), body.mode)
+  return c.json({ ok: true, mode: body.mode, online })
 })
 
 // Live-tune UDP fragment pacing (no restart): POST { batch, pace }.
@@ -302,6 +324,13 @@ pod.post('/devices/:id/test', requireAdmin, async (c) => {
 // ── Firmware: build + flash a device plugged into the server's USB ───────────
 // (ESPHome install itself is dispatched via /api/admin/install/repair { componentId: 'esphome' }.)
 pod.get('/firmware/status', requireAdmin, async (c) => c.json(await getFirmwareStatus()))
+
+// ── Wyoming gateway health + control ──────────────────────────────────────────
+// The gateway is the TCP listener (:10700) every Pod connects to. If it's down,
+// devices silently can't connect (and mode pushes/voice all fail), so surface its
+// status and a one-click restart in Admin → Devices.
+pod.get('/gateway/status', requireAdmin, (c) => c.json(gatewayStatus()))
+pod.post('/gateway/restart', requireAdmin, (c) => c.json(restartPodGateway()))
 
 pod.get('/firmware/ports', requireAdmin, (c) => c.json({ ports: detectSerialPorts() }))
 

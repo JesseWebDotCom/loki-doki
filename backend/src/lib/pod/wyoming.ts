@@ -137,4 +137,13 @@ export function deviceConfig(settings: Record<string, unknown>): WyomingEvent {
   return { type: 'user-event', data: { name: 'config', ...settings } }
 }
 
+/**
+ * Loki Doki screen-mode extension (Wyoming `user-event`): switches a screen Pod's
+ * UI between the ambient clock, the camera test, and the touch test. Pushed live
+ * from Admin → Devices → Testing.
+ */
+export function displayMode(mode: string): WyomingEvent {
+  return { type: 'user-event', data: { name: 'display.mode', mode } }
+}
+
 export type FaceState = 'idle' | 'listening' | 'thinking' | 'talking' | 'sleeping'

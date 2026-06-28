@@ -381,13 +381,14 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
     return;
   }
   if (type == "user-event") {
-    std::string name, state, token;
+    std::string name, state, token, mode;
     bool dim_enabled = false;
     int dim_percent = 30, dim_after_s = 60;
     json::parse_json(data_json, [&](JsonObject root) -> bool {
       name = root["name"].as<std::string>();
       state = root["state"].as<std::string>();
       token = root["token"].as<std::string>();
+      mode = root["mode"].as<std::string>();  // "" when absent (face.state/auth events)
       if (root["dimEnabled"].is<bool>()) dim_enabled = root["dimEnabled"].as<bool>();
       if (root["dimPercent"].is<int>()) dim_percent = root["dimPercent"].as<int>();
       if (root["dimAfterS"].is<int>()) dim_after_s = root["dimAfterS"].as<int>();
@@ -408,6 +409,15 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       this->dim_after_ms_ = (uint32_t) std::max(1, dim_after_s) * 1000UL;
       this->last_active_ms_ = millis();  // re-evaluate the dim timer from now
       ESP_LOGI(TAG, "config: dim=%d %d%% after %ds", dim_enabled, dim_percent, dim_after_s);
+    }
+    // Screen mode — carried on `config` (restored on (re)connect) or pushed live as
+    // a `display.mode` event from the admin Testing tab. Mirror it to the mode sensor
+    // so the LVGL layer can switch pages (normal clock / camera test / touch test).
+    if (this->mode_sensor_ != nullptr && !mode.empty() && mode != this->published_mode_ &&
+        (name == "config" || name == "display.mode")) {
+      this->published_mode_ = mode;
+      this->mode_sensor_->publish_state(mode);
+      ESP_LOGI(TAG, "display mode → %s", mode.c_str());
     }
     return;
   }

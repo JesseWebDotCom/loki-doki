@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, Cpu, Copy, Check, Radio, Usb, Volume2, Settings2 } from 'lucide-react'
+import { Loader2, Plus, Cpu, Copy, Check, Radio, Usb, Volume2, Settings2, Antenna, AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -53,6 +53,61 @@ interface StreamHealth {
   mac: string; addr: string; name: string | null; deviceId: string | null
   sourceFps: number; sentFps: number; receivedFps: number; decodedFps: number
   lossPct: number; lastBytes: number; ageMs: number; status: 'ok' | 'warn' | 'bad'
+}
+
+interface GatewayStatus { enabled: boolean; listening: boolean; port: number; error: string; connections: number }
+
+// Wyoming gateway health banner. The gateway is the TCP listener every Pod connects
+// to; if it's down (e.g. a `bun --hot` reload dropped the listener), devices silently
+// can't connect — so make it visible and one-click restartable.
+function GatewayBanner() {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['pod-gateway-status'],
+    queryFn: () => getJSON<GatewayStatus>('/api/pod/gateway/status'),
+    refetchInterval: 4000,
+  })
+  const [restarting, setRestarting] = useState(false)
+  if (!data || !data.enabled) return null
+  const up = data.listening
+
+  async function restart() {
+    setRestarting(true)
+    try {
+      const r = await fetch('/api/pod/gateway/restart', { ...opts, method: 'POST', headers: J, body: '{}' })
+      if (!r.ok) throw new Error()
+      toast.success('Gateway restarted')
+      qc.invalidateQueries({ queryKey: ['pod-gateway-status'] })
+    } catch { toast.error('Couldn’t restart the gateway') } finally { setRestarting(false) }
+  }
+
+  // Healthy: a quiet one-line confirmation. Down: a loud, actionable error.
+  if (up) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-card px-3 py-2 text-xs text-muted-foreground">
+        <Antenna className="size-4 text-green-500" />
+        <span className="font-medium text-foreground">Device gateway online</span>
+        <span>· port {data.port} · {data.connections} connected</span>
+        <button onClick={restart} disabled={restarting} className="ml-auto inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+          {restarting ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />} Restart
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+      <AlertTriangle className="size-5 shrink-0 text-red-500" />
+      <div className="min-w-0 text-sm">
+        <p className="font-semibold text-red-600 dark:text-red-400">Device gateway is down</p>
+        <p className="text-xs text-muted-foreground">
+          Pods can’t connect on port {data.port}{data.error ? ` — ${data.error}` : ''}. Voice, mode switching, and camera all need this. It self-heals, or restart it now.
+        </p>
+      </div>
+      <Button size="sm" variant="destructive" className="ml-auto gap-1.5" onClick={restart} disabled={restarting}>
+        {restarting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Restart gateway
+      </Button>
+    </div>
+  )
 }
 
 const healthTone = (s: string) => s === 'ok'
@@ -179,6 +234,8 @@ export function AdminDevicesTab() {
         </div>
         <Button onClick={() => { setReflashDevice(null); setFlashOpen(true) }}><Plus className="size-4" /> Add a device</Button>
       </div>
+
+      <GatewayBanner />
 
       <FlashDeviceWizard
         open={flashOpen}
