@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { characters } from '@/db/schema'
 import { serializeCharacterContent } from '@/lib/contentPolicy'
+import { seedWakewordsFromManifest } from '@/lib/pod/companionWake'
 import type { DialKey } from '@/lib/contentPolicy'
 import type { Candor } from '@/lib/protections'
 
@@ -514,6 +515,10 @@ export async function ensureDefaultCompanions(createdBy: string): Promise<void> 
         await db.update(characters).set(patch).where(eq(characters.id, row.id))
       }
     }
+
+    // 3) Wire each companion to its committed pre-trained wake-word model (so fresh
+    //    installs answer to "Hey <name>" without retraining). Idempotent.
+    await seedWakewordsFromManifest()
   } catch {
     seedChecked = false // allow a retry on next request if the reconcile failed
   }

@@ -8,15 +8,69 @@
 // with that companion uses it. Training runs in the background and is deduped per
 // character; until it finishes the device falls back to the app default.
 
+import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { characters, wakeWordCatalog } from '@/db/schema'
 import { trainWakeword } from '@/lib/voice/wakewordTrainer'
-import { isWakewordTrainInstalled } from '@/lib/download'
+import { isWakewordTrainInstalled, wakewordDir } from '@/lib/download'
 import { logger } from '@/lib/logger'
 
 // Characters with a training run in flight — never start a second for the same one.
 const training = new Set<string>()
+
+// ── Seed pre-trained wake words from the committed manifest ───────────────────
+// The trained detector .onnx files are committed to git (data/voice/wakewords/),
+// alongside trained-manifest.json mapping each phrase → file + calibrated threshold
+// + accuracy. On a fresh install the DB has the default companions (phrase, no
+// model), so we wire each to its pre-trained model here instead of retraining from
+// scratch. Matched by normalized phrase; idempotent (skips companions that already
+// have a model). Runs once after ensureDefaultCompanions reconciles the roster.
+
+interface ManifestEntry { id: string; phrase: string; file: string; threshold: number | null; accuracy: number | null }
+const normPhrase = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+export async function seedWakewordsFromManifest(): Promise<number> {
+  const dir = wakewordDir()
+  const manifestPath = join(dir, 'trained-manifest.json')
+  if (!existsSync(manifestPath)) return 0
+  let manifest: ManifestEntry[]
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ManifestEntry[]
+  } catch {
+    return 0
+  }
+  // Index by normalized phrase, but only entries whose .onnx is actually present.
+  const byPhrase = new Map<string, ManifestEntry>()
+  for (const m of manifest) {
+    if (m.file && existsSync(join(dir, m.file))) byPhrase.set(normPhrase(m.phrase), m)
+  }
+  if (byPhrase.size === 0) return 0
+
+  const rows = await db.select().from(characters)
+  let seeded = 0
+  const now = new Date()
+  for (const c of rows) {
+    if (c.wakeWordModelId) continue // already has a model (trained or previously seeded)
+    const phrase = (c.wakeWordPhrase ?? '').trim()
+    if (!phrase) continue
+    const m = byPhrase.get(normPhrase(phrase))
+    if (!m) continue
+    try {
+      await db.insert(wakeWordCatalog).values({
+        id: m.id, label: phrase, kind: 'trained', assetPath: m.file,
+        defaultThreshold: m.threshold ?? 0.6, accuracy: m.accuracy ?? null,
+        characterId: c.id, enabled: true, createdAt: now, updatedAt: now,
+      }).onConflictDoUpdate({ target: wakeWordCatalog.id, set: { characterId: c.id, updatedAt: now } })
+      await db.update(characters).set({ wakeWordModelId: m.id, updatedAt: now }).where(eq(characters.id, c.id))
+      seeded++
+    } catch { /* skip a single bad row */ }
+  }
+  if (seeded) logger.info(`[pod] seeded ${seeded} pre-trained companion wake word(s) from manifest`)
+  return seeded
+}
 
 /**
  * Resolve the trained wake-word model id for a character. Returns the id if one
