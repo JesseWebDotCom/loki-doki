@@ -122,6 +122,7 @@ import { maybeSpawnSearXNG, maybeUpdateSearXNG, stopSearXNG } from '@/lib/searxn
 import { maybeSpawnKiwix, stopKiwix } from '@/lib/kiwix'
 import { maybeSpawnVoiceServer, stopVoiceServer } from '@/lib/voiceServer'
 import { reconcileBuiltinPronunciationPacks } from '@/lib/voice/pronunciation'
+import { cleanupStaleTrainingTmp } from '@/lib/voice/wakewordTrainer'
 import { startPodGateway } from '@/lib/pod/gateway'
 import { startPodScheduler } from '@/lib/pod/scheduler'
 import { pod } from '@/routes/pod'
@@ -147,6 +148,9 @@ startBriefingRefresh()
 // unbounded. Expired tokens are already rejected on use; this just reclaims the rows.
 void pruneExpiredSessions().catch(() => {})
 setInterval(() => { void pruneExpiredSessions().catch(() => {}) }, 60 * 60 * 1000)
+// Sweep orphaned wake-word training temp dirs (~25 MB each) left by hard-killed
+// trainings (SIGKILL / run.sh / crash) — their per-run cleanup never got to run.
+void cleanupStaleTrainingTmp().then((n) => { if (n) logger.info(`[wake] cleaned ${n} stale training temp dir(s)`) }).catch(() => {})
 // Warm the model into VRAM at startup — but only once setup has picked one. On a fresh
 // install no model is selected yet, so a warmup would fire a doomed request at an Ollama
 // that may not even be running. setup.ts calls warmupModel() itself once the user chooses.

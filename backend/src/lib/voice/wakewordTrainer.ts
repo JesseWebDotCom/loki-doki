@@ -9,7 +9,7 @@
 // The emit callback receives structured progress objects; the SSE route streams
 // them to the browser.
 
-import { mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdir, writeFile, rm, readdir, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -250,6 +250,32 @@ export interface TrainProgress {
   step: 'generating' | 'training' | 'done' | 'error'
   msg: string
   pct?: number
+}
+
+/**
+ * Remove orphaned `.train_<id>_tmp` working dirs (each holds ~25 MB of synthesized
+ * WAVs). trainWakeword() deletes its own on finish/error, but a HARD kill (SIGKILL,
+ * run.sh's kill -9, a crash) skips that cleanup and leaves the dir behind. Call this
+ * at boot — nothing is training then, so any dir older than `maxAgeMs` is stale.
+ * Returns how many were removed.
+ */
+export async function cleanupStaleTrainingTmp(maxAgeMs = 60 * 60 * 1000): Promise<number> {
+  let removed = 0
+  try {
+    const dir = wakewordDir()
+    const now = Date.now()
+    for (const name of await readdir(dir)) {
+      if (!name.startsWith('.train_') || !name.endsWith('_tmp')) continue
+      const p = join(dir, name)
+      try {
+        const st = await stat(p)
+        if (now - st.mtimeMs < maxAgeMs) continue // recent → may be an active training; leave it
+        await rm(p, { recursive: true, force: true })
+        removed++
+      } catch { /* ignore a single entry */ }
+    }
+  } catch { /* dir missing — nothing to do */ }
+  return removed
 }
 
 export async function trainWakeword(
