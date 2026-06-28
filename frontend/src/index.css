@@ -450,10 +450,13 @@
   50%      { opacity: 0.40; transform: scale(1.12); }
 }
 
+/* Travel along the streak's own (rotated) x-axis so it always falls along its
+   length. The wrapper rotates clockwise, so local +x maps to down-and-right on
+   screen — a meteor falling, never drifting up. */
 @keyframes shooting-star {
-  0%, 70%, 100% { transform: translate(0,0) scaleX(0.05); opacity: 0;    }
-  73%           { transform: translate(0,0) scaleX(1);    opacity: 0.88; }
-  89%           { transform: translate(-150px,68px) scaleX(1); opacity: 0; }
+  0%, 70%, 100% { transform: translate(0,0) scaleX(0.05);    opacity: 0;    }
+  73%           { transform: translate(0,0) scaleX(1);       opacity: 0.88; }
+  89%           { transform: translate(165px,0) scaleX(1);   opacity: 0; }
 }
 
 .weather-sun-orb {
@@ -520,9 +523,12 @@
   position: absolute;
   width: 85px;
   height: 1.5px;
-  background: linear-gradient(to left, transparent 0%, rgba(255,255,255,0.9) 50%, rgba(255,255,255,0.35) 100%);
+  /* bright head at the right (leading) end, fading tail to the left */
+  background: linear-gradient(to right, transparent 0%, rgba(255,255,255,0.35) 45%, rgba(255,255,255,0.9) 100%);
   border-radius: 2px;
-  transform-origin: right center;
+  /* grow from the left (tail) anchor so the streak forms toward the down-right
+     direction it travels — never appearing to flick up-left first */
+  transform-origin: left center;
   pointer-events: none;
   animation: shooting-star ease-in infinite;
 }
