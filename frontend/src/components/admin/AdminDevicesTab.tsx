@@ -6,7 +6,10 @@ import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { FlashDeviceWizard } from '@/components/admin/FlashDeviceWizard'
 import { DeviceGroupsPanel } from '@/components/admin/DeviceGroupsPanel'
-import { AdminHomeScreenCard } from '@/components/admin/AdminHomeScreenCard'
+import { DeviceCameraTestCard } from '@/components/admin/DeviceCameraTestCard'
+import { DeviceLayoutsPanel } from '@/components/admin/DeviceLayoutsPanel'
+import { DeviceSoundsPanel } from '@/components/admin/DeviceSoundsPanel'
+import { DeviceAlarmsPanel } from '@/components/admin/DeviceAlarmsPanel'
 import { DeviceHelpDialog } from '@/components/admin/DeviceHelpDialog'
 import { DeviceManageSheet } from '@/components/admin/DeviceManageSheet'
 import { DeviceArt } from '@/components/admin/DeviceArt'
@@ -282,8 +285,14 @@ export function AdminDevicesTab() {
         )}
       </section>
 
-      {/* Home screen — customize the ambient /display screen (clock, date, weather) */}
-      <AdminHomeScreenCard />
+      {/* Slot-based dashboard (the unified ambient-display system): named layouts,
+          sound packs/chimes, centralised alarms. */}
+      <DeviceLayoutsPanel id="devices-layouts" />
+      <DeviceSoundsPanel id="devices-sounds" />
+      <DeviceAlarmsPanel id="devices-alarms" />
+
+      {/* Server-drives-the-screen camera test */}
+      <DeviceCameraTestCard />
 
       {/* Central settings, grouped (dimming, …) — deployed live over the gateway */}
       <DeviceGroupsPanel />

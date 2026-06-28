@@ -111,6 +111,11 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
   const [showLog, setShowLog] = useState(false)
   const [error, setError] = useState('')
 
+  // Aborts the in-flight install/flash SSE when the wizard closes — otherwise the fetch
+  // keeps streaming, the backend keeps compiling, and it holds the one-flash lock so the
+  // next open 409s ("a flash is already in progress").
+  const flashAbortRef = useRef<AbortController | null>(null)
+
   const [ssid, setSsid] = useState('')
   const [password, setPassword] = useState('')
   const [host, setHost] = useState('')
@@ -122,6 +127,10 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
   const [detect, setDetect] = useState<{ chip: string; model: string | null } | null>(null)
   const [detecting, setDetecting] = useState(false)
   const [override, setOverride] = useState(false)
+  // Which serial port to flash. Only needed when MORE THAN ONE is present (the backend
+  // auto-picks when there's exactly one); without this, multiple ports were an
+  // unrecoverable "multiple serial ports found" dead-end with no way to choose.
+  const [selectedPort, setSelectedPort] = useState('')
   const detectedPortRef = useRef('')
 
   const logRef = useRef<HTMLDivElement | null>(null)
@@ -146,6 +155,21 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
     } catch { /* ignore */ }
     return null
   }, [])
+
+  // Default the port choice to the first when several are present (so the flash body
+  // always carries a concrete port); clear it when there's 0–1 (backend auto-picks).
+  useEffect(() => {
+    const ports = status?.ports ?? []
+    if (ports.length > 1 && !ports.includes(selectedPort)) setSelectedPort(ports[0]!)
+    else if (ports.length <= 1 && selectedPort) setSelectedPort('')
+  }, [status?.ports, selectedPort])
+
+  // Abort any in-flight install/flash stream when the wizard closes or unmounts, so it
+  // releases the backend's one-flash lock (otherwise the next open 409s).
+  useEffect(() => {
+    if (!open) flashAbortRef.current?.abort()
+  }, [open])
+  useEffect(() => () => flashAbortRef.current?.abort(), [])
 
   // Reset + load when opened.
   useEffect(() => {
@@ -220,6 +244,9 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
   // Run install (if needed) then flash — all under the friendly "setup" screen.
   const runSetup = useCallback(async () => {
     setBusy(true); setError(''); setLog([]); setStatusMsg('Getting your device ready…')
+    flashAbortRef.current?.abort()
+    const ac = new AbortController()
+    flashAbortRef.current = ac
     try {
       const cur = await refetch()
       if (cur && !cur.esphomeInstalled) {
@@ -229,27 +256,57 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
         await streamSSE('/api/admin/install/repair', { componentId: 'esphome' }, (ev, d) => {
           if (ev === 'progress' && typeof d.status === 'string') { appendLog(d.status); const f = friendlyFor(d.status); if (f) setStatusMsg(f) }
           else if (ev === 'error') installErr = String(d.error ?? 'Setup failed')
-        })
+        }, ac.signal)
         if (installErr) { setError('We couldn’t finish the one-time setup. You can try again.'); return }
       }
 
       setStage('download')
       setStatusMsg('Getting your device’s firmware…')
+      // A just-plugged-in (or just-reset) board enumerates its serial port a beat after
+      // it appears, so the first flash can fast-fail with a "no device / port" error even
+      // though the device is fine. Auto-retry those transient cases a few times (waiting
+      // for the port to settle) instead of bouncing the installer to the error screen.
       let flashErr = ''
       let ok = false
-      await streamSSE('/api/pod/firmware/flash', { name: deviceName || undefined, model }, (ev, d) => {
-        if (ev === 'log' && typeof d.line === 'string') {
-          appendLog(d.line)
-          const st = stageFor(d.line); if (st) advanceStage(st)
-          const f = friendlyFor(d.line); if (f) setStatusMsg(f)
+      // Transient = worth a silent retry (port settling, a stuck prior flash, a network
+      // blip fetching firmware). Connect-fail = the board didn't enter the bootloader
+      // (often needs the BOOT button) — retry a couple times, then guide the user.
+      const TRANSIENT = /device|port|plug|in progress|409|resource busy|could not open|firmware|download|network|ENOTFOUND|ETIMEDOUT|timed out/i
+      const CONNECT_FAIL = /failed to connect|wrong boot mode|no serial data received|timed out waiting for packet|chip stopped|md5/i
+      const retryable = (e: string) => TRANSIENT.test(e) || CONNECT_FAIL.test(e)
+      const MAX_TRIES = 4
+      for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+        flashErr = ''
+        try {
+          await streamSSE('/api/pod/firmware/flash', { name: deviceName || undefined, model, port: selectedPort || undefined }, (ev, d) => {
+            if (ev === 'log' && typeof d.line === 'string') {
+              appendLog(d.line)
+              const st = stageFor(d.line); if (st) advanceStage(st)
+              const f = friendlyFor(d.line); if (f) setStatusMsg(f)
+            }
+            else if (ev === 'error') flashErr = String(d.error ?? 'Setup failed')
+            else if (ev === 'done') ok = true
+          }, ac.signal)
+        } catch (e) {
+          if (ac.signal.aborted) return            // wizard closed mid-flash — stop quietly
+          flashErr = e instanceof Error ? e.message : String(e)
         }
-        else if (ev === 'error') flashErr = String(d.error ?? 'Setup failed')
-        else if (ev === 'done') ok = true
-      })
+        if (ok || !flashErr || !retryable(flashErr) || attempt === MAX_TRIES) break
+        appendLog(`[retry ${attempt}/${MAX_TRIES - 1}] ${flashErr}`)
+        setStatusMsg('Waiting for your device to connect…')
+        await new Promise((r) => setTimeout(r, 2500))
+        await refetch()
+      }
       if (flashErr) {
-        setError(/device|port|plug/i.test(flashErr)
-          ? 'We lost track of your device. Make sure it’s plugged in, then try again.'
-          : 'Something went wrong while setting up your device. You can try again.')
+        setError(
+          CONNECT_FAIL.test(flashErr)
+            ? 'Couldn’t talk to your device. Unplug it, hold its BOOT button, plug it back in (keep holding for a second), then Try again.'
+            : /permission denied|resource busy|could not open/i.test(flashErr)
+              ? 'The USB port is busy. Unplug the device, wait a few seconds, plug it back in, then Try again.'
+              : /device|port|plug/i.test(flashErr)
+                ? 'We lost track of your device. Make sure it’s plugged in, then try again.'
+                : `Setup failed: ${flashErr}`, // show the REAL error, not a vague sentence
+        )
         return
       }
       if (ok) {
@@ -261,7 +318,7 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
-  }, [appendLog, advanceStage, deviceName, model, onFlashed, refetch])
+  }, [appendLog, advanceStage, deviceName, model, selectedPort, onFlashed, refetch])
 
   // Kick off setup automatically when we reach that screen — exactly once
   // (a ref guard survives React StrictMode's double-effect in dev).
@@ -328,6 +385,21 @@ export function FlashDeviceWizard({ open, onOpenChange, onFlashed, reflash }: {
                       ? <><CheckCircle2 className="size-4" /> {`Found your ${flashableName(detect.model)}!`}</>
                       : <><CheckCircle2 className="size-4" /> Found your device!</>}
             </div>
+
+            {/* More than one USB serial device → let the installer pick which to flash
+                (otherwise it's an unrecoverable "multiple serial ports" error). */}
+            {(status?.ports.length ?? 0) > 1 && (
+              <div className="w-full text-left">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">Multiple devices are plugged in — pick the one to flash:</p>
+                <select
+                  value={selectedPort}
+                  onChange={(e) => setSelectedPort(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {(status?.ports ?? []).map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            )}
 
             {/* Auto-detected → show what we'll flash + a quiet override. Couldn't map
                 the chip → fall back to a manual picker. (New device only.) */}

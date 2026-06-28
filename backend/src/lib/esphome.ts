@@ -53,18 +53,30 @@ export function run(cmd: string, args: string[], opts: RunOpts = {}): Promise<vo
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env },
+      // PYTHONUNBUFFERED so esphome/esptool/PlatformIO flush their output line-by-line
+      // instead of block-buffering it — without it a ~1 GB first-run toolchain download
+      // emits NOTHING for minutes and the wizard looks frozen.
+      env: { ...process.env, PYTHONUNBUFFERED: '1', ...opts.env },
+      // detached → the child is its own process-group leader, so we can kill the WHOLE
+      // tree (PlatformIO + esptool grandchildren) on abort/timeout. Killing just the
+      // top python pid leaves esptool orphaned holding the serial port, which makes the
+      // very next flash fail with "Resource busy" (a top cause of the retry loop).
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    // SIGTERM, then SIGKILL if it doesn't die. ESPHome/PlatformIO can ignore SIGTERM
-    // (and keep child compilers alive), so without escalation an aborted/timed-out
-    // build never fires 'exit' → this promise never settles → the caller's flash
-    // stays "busy" forever (the wizard then 409s on every retry). SIGKILL guarantees
-    // the process exits so the promise rejects and the busy flag clears.
+    // SIGTERM the group, then SIGKILL if it doesn't die. Without escalation an aborted/
+    // timed-out build never fires 'exit' → this promise never settles → the flash stays
+    // "busy" forever. SIGKILL of the group guarantees no orphan holds the port.
     let killTimer: ReturnType<typeof setTimeout> | null = null
+    const signalTree = (sig: NodeJS.Signals) => {
+      try {
+        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, sig) // negative pid → whole group
+        else child.kill(sig)
+      } catch { /* already dead */ }
+    }
     const terminate = () => {
-      try { child.kill('SIGTERM') } catch { /* dead */ }
-      if (!killTimer) killTimer = setTimeout(() => { try { child.kill('SIGKILL') } catch { /* dead */ } }, 4000)
+      signalTree('SIGTERM')
+      if (!killTimer) killTimer = setTimeout(() => signalTree('SIGKILL'), 4000)
     }
     const onAbort = () => terminate()
     opts.signal?.addEventListener('abort', onAbort, { once: true })
@@ -72,13 +84,25 @@ export function run(cmd: string, args: string[], opts: RunOpts = {}): Promise<vo
     let timer: ReturnType<typeof setTimeout> | null = null
     if (opts.timeoutMs) timer = setTimeout(terminate, opts.timeoutMs)
 
-    let lastErr = ''
+    // Heartbeat: a long, quiet phase (toolchain download, linking) emits no lines, so
+    // surface a "(still working…)" tick after silence so the UI doesn't look hung.
+    let lastOut = Date.now()
+    const heartbeat = setInterval(() => {
+      if (Date.now() - lastOut >= 20_000) { lastOut = Date.now(); try { opts.onLine?.('(still working… large downloads can take several minutes)') } catch { /* ignore */ } }
+    }, 5000)
+
+    // Keep the last several non-empty lines; the actionable failure (Failed to connect,
+    // Permission denied, a compile error) is usually a few lines above the final
+    // generic "*** [upload] Error 1", so we prefer an error-looking line for the message.
+    const tail: string[] = []
     const onData = (b: Buffer) => {
       const text = b.toString()
       for (const line of text.split('\n')) {
         const s = line.trimEnd()
         if (!s) continue
-        lastErr = s
+        lastOut = Date.now()
+        tail.push(s)
+        if (tail.length > 20) tail.shift()
         opts.onLine?.(s)
       }
     }
@@ -87,6 +111,7 @@ export function run(cmd: string, args: string[], opts: RunOpts = {}): Promise<vo
     const cleanup = () => {
       if (timer) clearTimeout(timer)
       if (killTimer) clearTimeout(killTimer)
+      clearInterval(heartbeat)
       opts.signal?.removeEventListener('abort', onAbort)
     }
     child.on('error', (err) => {
@@ -96,7 +121,9 @@ export function run(cmd: string, args: string[], opts: RunOpts = {}): Promise<vo
     child.on('exit', (code) => {
       cleanup()
       if (opts.signal?.aborted) return reject(new Error('aborted'))
-      code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}: ${lastErr}`))
+      if (code === 0) return resolve()
+      const meaningful = [...tail].reverse().find((l) => /error|fatal|fail|traceback|permission denied|could not open|resource busy/i.test(l))
+      reject(new Error(meaningful || tail[tail.length - 1] || `${cmd} exited ${code}`))
     })
   })
 }

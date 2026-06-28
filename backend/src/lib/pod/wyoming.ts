@@ -146,4 +146,47 @@ export function displayMode(mode: string): WyomingEvent {
   return { type: 'user-event', data: { name: 'display.mode', mode } }
 }
 
+/**
+ * Loki Doki layout extension (Wyoming `user-event`): the full slot-based dashboard
+ * descriptor — which pre-built widget sits in which 3×3 slot at what size, the theme
+ * tokens, and the resolved sound-pack event→URL map. Pushed on (re)connect and on any
+ * template/assignment edit; the device places/themes its widgets and caches the sounds
+ * (see plans/hardware-devices/tab5-slot-ui.md). `descriptor` is the resolveDeviceDescriptor() object.
+ */
+export function layout(descriptor: Record<string, unknown>): WyomingEvent {
+  return { type: 'user-event', data: { name: 'layout', ...descriptor } }
+}
+
+/**
+ * Loki Doki earcon extension (Wyoming `user-event`): asks the device to play the
+ * sound mapped to a UI event in its active pack (it already cached the URL from the
+ * layout descriptor). `wake` is normally played locally on-device for zero latency;
+ * this is for the server-owned events (success/error/notification/…).
+ */
+export function soundTrigger(event: string): WyomingEvent {
+  return { type: 'user-event', data: { name: 'sound', event } }
+}
+
+/**
+ * Loki Doki asset-sync extension (Wyoming `user-event`): tells the device to fetch
+ * the listed custom WAVs (url + sha256) to its SD card once, before a custom pack/
+ * alarm tone can play. Built-in tones ship in flash and never appear here.
+ */
+export function assetSync(packId: string | null, files: Array<{ path: string; url: string; sha256: string }>): WyomingEvent {
+  return { type: 'user-event', data: { name: 'asset_sync', pack_id: packId, files } }
+}
+
+/**
+ * Loki Doki centralised-alarm extensions. `alarmFire` rings a device (label + resolved
+ * tone URL + snooze minutes); `alarmStop` is the coordinated dismiss sent to the OTHER
+ * targets when one device snoozes/cancels. The server owns alarm state — the device is
+ * only a renderer (see §8 of the slot-UI doc).
+ */
+export function alarmFire(a: { alarm_id: string; label: string; tone_url: string | null; snooze_minutes: number }): WyomingEvent {
+  return { type: 'user-event', data: { name: 'alarm_fire', ...a } }
+}
+export function alarmStop(alarmId: string): WyomingEvent {
+  return { type: 'user-event', data: { name: 'alarm_stop', alarm_id: alarmId } }
+}
+
 export type FaceState = 'idle' | 'listening' | 'thinking' | 'talking' | 'sleeping'

@@ -103,7 +103,7 @@ async function mintSession(userId: string): Promise<string> {
   return token
 }
 
-async function createDisplay(userId: string): Promise<DeviceDisplay | null> {
+async function createDisplay(userId: string, deviceId: string): Promise<DeviceDisplay | null> {
   const browser = await getBrowser()
   if (!browser) return null
   const token = await mintSession(userId)
@@ -122,7 +122,8 @@ async function createDisplay(userId: string): Promise<DeviceDisplay | null> {
   // so the React app + weather settle over the next polls regardless.
   // device=1 → the page hides its own (non-interactive) control buttons; the device
   // draws native LVGL buttons instead (a server-rendered image can't take touch).
-  await page.goto(`${ORIGIN}/display?device=1`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
+  // deviceId → the page renders THIS device's assigned slot layout (Layouts system).
+  await page.goto(`${ORIGIN}/display?device=1&deviceId=${encodeURIComponent(deviceId)}`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
   return { ctx, page, token, lastUsed: Date.now() }
 }
 
@@ -157,7 +158,7 @@ async function captureFrameInner(deviceId: string, userId: string): Promise<Buff
   if (!d) {
     let p = building.get(deviceId)
     if (!p) {
-      p = createDisplay(userId).finally(() => building.delete(deviceId))
+      p = createDisplay(userId, deviceId).finally(() => building.delete(deviceId))
       building.set(deviceId, p)
     }
     d = (await p) ?? undefined
@@ -170,7 +171,7 @@ async function captureFrameInner(deviceId: string, userId: string): Promise<Buff
     // transient redirect to "/" or /login), pull it back so the device never gets
     // stuck showing the full site instead of the ambient display.
     if (!d.page.url().includes('/display')) {
-      await d.page.goto(`${ORIGIN}/display?device=1`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
+      await d.page.goto(`${ORIGIN}/display?device=1&deviceId=${encodeURIComponent(deviceId)}`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
     }
     const buf = await d.page.screenshot({ type: 'jpeg', quality: JPEG_QUALITY, timeout: 10_000 })
     return Buffer.from(buf)

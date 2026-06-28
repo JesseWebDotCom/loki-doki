@@ -17,7 +17,7 @@ import { ensureCompanionWakeword } from '@/lib/pod/companionWake'
 import { listPending, getPending, removePending } from '@/lib/pod/pending'
 import {
   getFirmwareStatus, detectSerialPorts, getPodWifi, setPodWifi, setServerHost,
-  buildAndFlash, isFlashBusy, detectDevice,
+  buildAndFlash, isFlashBusy, resetFlashState, detectDevice,
 } from '@/lib/pod/firmware'
 import {
   listGroups, createGroup, updateGroup, deleteGroup, assignDeviceGroup,
@@ -32,6 +32,10 @@ import { getDeviceMode, setDeviceMode, isDisplayMode, DISPLAY_MODES } from '@/li
 import { gatewayStatus, restartPodGateway } from '@/lib/pod/gateway'
 
 const pod = new Hono<AppEnv>()
+
+// The AbortController of the in-flight firmware flash (one at a time), so a new flash
+// request can take over a stale/abandoned one (see /firmware/flash).
+let podFlashAbort: AbortController | null = null
 
 // ── Pod-facing: redeem a pairing code for a long-lived device token ──────────
 // Unauthenticated by design — the code IS the credential. Rate-limiting/IP
@@ -357,10 +361,19 @@ pod.put('/firmware/wifi', requireAdmin, async (c) => {
 
 // Compile + flash over USB, streaming the ESPHome CLI output line-by-line as SSE.
 pod.post('/firmware/flash', requireAdmin, async (c) => {
-  if (isFlashBusy()) return c.json({ error: 'a flash is already in progress' }, 409)
+  // If a flash is still "in progress" it's almost always a stale lock — a wizard that
+  // was closed mid-flash, leaving the SSE/process abandoned. There's one operator and
+  // one device, so the operator explicitly starting a new flash takes over: abort the
+  // old one and reset, rather than 409-ing every retry forever.
+  if (isFlashBusy()) {
+    podFlashAbort?.abort()
+    resetFlashState()
+    await new Promise((r) => setTimeout(r, 400))
+  }
   const body = (await c.req.json().catch(() => ({}))) as { port?: string; name?: string; model?: string }
   return streamSSE(c, async (stream) => {
     const ctrl = new AbortController()
+    podFlashAbort = ctrl
     stream.onAbort(() => ctrl.abort())
     const log = (line: string) => { void stream.writeSSE({ event: 'log', data: JSON.stringify({ line }) }) }
     try {
@@ -368,6 +381,8 @@ pod.post('/firmware/flash', requireAdmin, async (c) => {
       await stream.writeSSE({ event: 'done', data: JSON.stringify({ ok: true }) })
     } catch (err) {
       await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }) })
+    } finally {
+      if (podFlashAbort === ctrl) podFlashAbort = null
     }
   })
 })

@@ -419,6 +419,14 @@ void LokiDokiSatellite::process_event_(const std::string &type, const std::strin
       this->mode_sensor_->publish_state(mode);
       ESP_LOGI(TAG, "display mode → %s", mode.c_str());
     }
+    // TODO(tab5-slot-ui): the server now also pushes these user-events (see
+    // plans/hardware-devices/tab5-slot-ui.md for the full payloads):
+    //   name == "layout"      → place/size/theme the 3×3 widgets + cache the sound map
+    //   name == "sound"       → play the cached earcon for data["event"] (off-LVGL task)
+    //   name == "asset_sync"  → fetch data["files"][].url to SD (verify sha256)
+    //   name == "alarm_fire"  → alarm screen + loop data["tone_url"] at alarm volume
+    //   name == "alarm_stop"  → coordinated dismiss (stop the loop)
+    // And device → server: { name:"alarm_action", alarm_id, action:"snooze"|"cancel" }.
     return;
   }
   // transcript / detection / info: nothing to do on a screenless Pod.

@@ -113,9 +113,24 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     description: 'Set up and manage your voice devices around the home',
     subsections: [
       {
-        id: 'home-screen', label: 'Home screen', kind: 'anchor', anchorId: 'devices-home-screen',
-        keywords: ['home', 'screen', 'display', 'clock', 'flip clock', 'date', 'weather', 'background', 'ambient', 'kiosk', 'wallpaper'],
-        description: 'Customize the ambient clock / weather display on screen devices',
+        id: 'layouts', label: 'Layouts', kind: 'anchor', anchorId: 'devices-layouts',
+        keywords: ['layout', 'layouts', 'grid', 'slot', 'widgets', 'template', 'profile', 'theme', 'dashboard', 'tab5', 'clock', 'weather', 'home', 'screen', 'display', 'ambient', 'kiosk', 'wallpaper', 'flip clock', 'date', 'background'],
+        description: 'Arrange the ambient screen — widgets in a slot grid, themed, assigned to devices',
+      },
+      {
+        id: 'sounds', label: 'Sounds', kind: 'anchor', anchorId: 'devices-sounds',
+        keywords: ['sound', 'sounds', 'earcon', 'chime', 'chimes', 'tone', 'pack', 'wake sound', 'beep', 'audio'],
+        description: 'Sound packs, UI earcons, and the chime / alarm-tone designer',
+      },
+      {
+        id: 'alarms', label: 'Alarms', kind: 'anchor', anchorId: 'devices-alarms',
+        keywords: ['alarm', 'alarms', 'wake up', 'ring', 'snooze', 'schedule', 'tone'],
+        description: 'Centralised alarms that ring on screen devices',
+      },
+      {
+        id: 'camera-test', label: 'Camera test', kind: 'anchor', anchorId: 'devices-camera-test',
+        keywords: ['camera', 'test', 'push', 'screen', 'feed', 'mjpeg', 'snapshot'],
+        description: 'Push a live camera feed to a screen device',
       },
     ],
   },

@@ -42,12 +42,19 @@ import {
   faceState,
   deviceConfig,
   displayMode,
+  layout as layoutEvent,
+  soundTrigger,
+  alarmFire as alarmFireEvent,
+  alarmStop as alarmStopEvent,
+  assetSync as assetSyncEvent,
   transcript,
   type FaceState,
   type WyomingEvent,
 } from '@/lib/pod/wyoming'
 import { effectiveSettings } from '@/lib/pod/deviceSettings'
 import { getDeviceMode } from '@/lib/pod/displayMode'
+import { resolveDeviceDescriptor } from '@/lib/pod/deviceStudio'
+import { handleAlarmAction } from '@/lib/pod/scheduler'
 
 type Send = (ev: WyomingEvent) => void
 
@@ -119,6 +126,11 @@ export class SatelliteSession implements PodFireTarget {
           void this.authenticate(d.token)
         } else if (d && d.name === 'hello' && typeof d.hwid === 'string') {
           this.onHello(d.hwid, typeof d.model === 'string' ? d.model : null, d.caps ?? null)
+        } else if (d && d.name === 'alarm_action' && typeof d.alarm_id === 'string' && this._deviceId) {
+          // A snooze/cancel tapped on this device → let the server reschedule/silence
+          // and coordinate the dismiss across any other devices ringing the same alarm.
+          const action = d.action === 'snooze' ? 'snooze' : 'cancel'
+          void handleAlarmAction(String(d.alarm_id), action, this._deviceId)
         }
         break
       }
@@ -207,6 +219,38 @@ export class SatelliteSession implements PodFireTarget {
   setDisplayMode(mode: string): void {
     if (this.closed) return
     this.send(displayMode(mode))
+  }
+
+  /** Push the slot-based dashboard descriptor (Admin → Devices → Layouts). Sent on
+   *  (re)connect and whenever the device's template/assignment changes — no re-flash. */
+  applyLayout(descriptor: Record<string, unknown>): void {
+    if (this.closed) return
+    this.send(layoutEvent(descriptor))
+  }
+
+  /** Play a UI earcon for an event in the device's active sound pack. */
+  playSound(event: string): void {
+    if (this.closed) return
+    this.send(soundTrigger(event))
+  }
+
+  /** Ring a centralised alarm on this device (server owns the schedule + tone). */
+  fireAlarm(a: { alarm_id: string; label: string; tone_url: string | null; snooze_minutes: number }): void {
+    if (this.closed) return
+    this.send(alarmFireEvent(a))
+    logger.info(`[pod] alarm_fire "${a.label}" → device`)
+  }
+
+  /** Coordinated dismiss — stop a ringing alarm on this device. */
+  stopAlarm(alarmId: string): void {
+    if (this.closed) return
+    this.send(alarmStopEvent(alarmId))
+  }
+
+  /** Tell the device to fetch custom WAVs to its SD card (before a custom pack plays). */
+  syncAssets(packId: string | null, files: Array<{ path: string; url: string; sha256: string }>): void {
+    if (this.closed || !files.length) return
+    this.send(assetSyncEvent(packId, files))
   }
 
   /** Push an unprompted alarm/timer event. The Pod shows its ring screen + tone. */
@@ -515,6 +559,12 @@ export class SatelliteSession implements PodFireTarget {
     // Restore this device's screen mode (normal/camera-test/touch-test) — an offline
     // device that was put in a test mode picks it back up the instant it reconnects.
     this.setDisplayMode(getDeviceMode(device.id))
+    // Push the device's slot-based dashboard descriptor (assigned template or the
+    // built-in default) + resolved sound map — this is how a layout/colour/sound edit
+    // reaches a device that was offline when it was changed. Fire-and-forget.
+    resolveDeviceDescriptor(device.id)
+      .then((desc) => { if (desc && !this.closed) this.applyLayout(desc as unknown as Record<string, unknown>) })
+      .catch(() => {})
     // Audibly confirm the device reached the server — a screenless satellite has no
     // other way to show it's online and working. Fire-and-forget so auth never blocks.
     void this.announceConnected()

@@ -402,6 +402,17 @@ lvgl:
             text: ""
             text_font: font_date
             text_color: 0x8DA2B5
+        # Server-rendered ambient LAYOUT (theme + widgets from Admin → Devices → Layouts),
+        # hardware-decoded from the UDP frame stream (hw_jpeg `cam`, the same path the
+        # camera test uses). Shown full-screen on TOP of the native clock once frames
+        # arrive (see the page_clock blit interval); if the server isn't streaming, the
+        # native clock/date above stay visible as a fallback. The touch buttons below are
+        # created after this image, so they stay tappable on top of it.
+        - image:
+            id: ambient_img
+            src: cam_placeholder
+            align: CENTER
+            hidden: true
         # Subtle conversation-state footer: a small colored pill at the bottom that
         # appears on wake/think/speak and hides when idle (clock stays visible the
         # whole time). Driven by the face_state text sensor below.
@@ -626,6 +637,31 @@ interval:
           dsc.data_size = (uint32_t) w * h * 2;
           lv_image_set_src(id(cam_img), &dsc);
           lv_obj_invalidate(id(cam_img));
+          id(cam)->clear_new_frame();
+
+  # ── Ambient: blit the latest server-rendered LAYOUT frame on the clock page ──────
+  # In normal mode the server pushes this device its own rendered layout (theme +
+  # widgets) over the same UDP/hw_jpeg path. Same decode path as the camera; we just
+  # blit it on page_clock into ambient_img (on top of the native clock) instead.
+  - interval: 100ms
+    then:
+      - lambda: |-
+          if (lv_screen_active() != id(page_clock)->obj) return;
+          if (!id(cam)->has_new_frame()) return;
+          int w = id(cam)->frame_w();
+          int h = id(cam)->frame_h();
+          if (w <= 0 || h <= 0) { id(cam)->clear_new_frame(); return; }
+          static lv_image_dsc_t dsc;
+          dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+          dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+          dsc.header.w = w;
+          dsc.header.h = h;
+          dsc.header.stride = w * 2;
+          dsc.data = id(cam)->front_buffer();
+          dsc.data_size = (uint32_t) w * h * 2;
+          lv_image_set_src(id(ambient_img), &dsc);
+          lv_obj_clear_flag(id(ambient_img), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_invalidate(id(ambient_img));
           id(cam)->clear_new_frame();
 
   # ── Camera: FPS + bytes/frame readout (from the decoder's running counters) ────

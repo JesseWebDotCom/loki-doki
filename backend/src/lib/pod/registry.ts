@@ -25,6 +25,16 @@ export interface PodFireTarget {
   applyConfig(config: Record<string, unknown>): void
   /** Switch the device's screen mode (normal | camera-test | touch-test). */
   setDisplayMode(mode: string): void
+  /** Push the slot-based dashboard descriptor (layout + theme + sound map). */
+  applyLayout(descriptor: Record<string, unknown>): void
+  /** Play a UI earcon for an event in the device's active sound pack. */
+  playSound(event: string): void
+  /** Ring a centralised alarm on this device (label + resolved tone url + snooze). */
+  fireAlarm(a: { alarm_id: string; label: string; tone_url: string | null; snooze_minutes: number }): void
+  /** Coordinated dismiss: stop a ringing alarm (sent to the OTHER targets). */
+  stopAlarm(alarmId: string): void
+  /** Tell the device to fetch custom WAVs (url + sha256) to its SD card once. */
+  syncAssets(packId: string | null, files: Array<{ path: string; url: string; sha256: string }>): void
   /** Tear down this session (used to evict a stale duplicate when the device reconnects). */
   close(): void
 }
@@ -99,6 +109,52 @@ export function setModeToDevice(deviceId: string, mode: string): boolean {
     }
   }
   return reached
+}
+
+/** Push a freshly-resolved layout descriptor to a device's live session(s). Returns
+ *  true if it reached an online socket (else the device pulls it on reconnect). */
+export function layoutToDevice(deviceId: string, descriptor: Record<string, unknown>): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.applyLayout(descriptor); reached = true } catch { /* dead socket */ }
+    }
+  }
+  return reached
+}
+
+/** Trigger a UI earcon on a device's live session(s). */
+export function soundToDevice(deviceId: string, event: string): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.playSound(event); reached = true } catch { /* dead socket */ }
+    }
+  }
+  return reached
+}
+
+/** Coordinated dismiss: tell every live session for a device to stop a ringing alarm. */
+export function stopAlarmOnDevice(deviceId: string, alarmId: string): void {
+  for (const t of live) if (t.deviceId === deviceId) { try { t.stopAlarm(alarmId) } catch { /* dead socket */ } }
+}
+
+/** Push a custom-asset sync manifest to a device's live session(s). */
+export function assetSyncToDevice(deviceId: string, packId: string | null, files: Array<{ path: string; url: string; sha256: string }>): boolean {
+  let reached = false
+  for (const t of live) {
+    if (t.deviceId === deviceId) {
+      try { t.syncAssets(packId, files); reached = true } catch { /* dead socket */ }
+    }
+  }
+  return reached
+}
+
+/** Live Pods bound to specific device ids (for targeted centralised alarms). */
+export function podsForDevices(deviceIds: Set<string>): PodFireTarget[] {
+  const out: PodFireTarget[] = []
+  for (const t of live) if (t.deviceId && deviceIds.has(t.deviceId)) out.push(t)
+  return out
 }
 
 /** A device only has one real connection — when it (re)authenticates, drop any

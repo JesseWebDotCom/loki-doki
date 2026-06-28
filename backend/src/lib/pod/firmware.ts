@@ -213,6 +213,12 @@ export function getFlashError(): string { return flash.error }
 export function isFlashBusy(): boolean {
   return flash.state === 'staging' || flash.state === 'compiling' || flash.state === 'flashing'
 }
+/** Force the flash state machine back to idle (used to take over a stuck/abandoned
+ *  flash whose SSE client went away without releasing the lock). */
+export function resetFlashState(): void {
+  flash.state = 'idle'
+  flash.error = ''
+}
 
 function subsArgs(opts: { ssid: string; password: string; host: string; name?: string }): string[] {
   const args = [

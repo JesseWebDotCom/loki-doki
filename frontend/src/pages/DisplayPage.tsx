@@ -1,99 +1,75 @@
 import { useEffect, useState } from 'react'
-import { Volume2, VolumeX, Mic, MicOff } from 'lucide-react'
-import { useAuth } from '@/context/AuthContext'
 import { useCompanionState } from '@/lib/companionState'
 import { CompanionOverlay } from '@/components/shell/CompanionOverlay'
-import { HomeDisplayCanvas } from '@/components/display/HomeDisplayCanvas'
-import { loadHomeDisplay, DEFAULT_HOME_DISPLAY, type HomeDisplayConfig } from '@/lib/homeDisplay'
-import { cn } from '@/lib/cn'
+import { DeviceLayoutDisplay, type Descriptor } from '@/components/display/DeviceLayoutDisplay'
 
-// Full-screen ambient "home screen" for a screen device (Tab5 / Show / tablet
-// Pod): point the device's browser at /display. Chrome-less by design (no sidebar,
-// no boot UI) — just the clock/date/weather canvas plus on-display mute + wake-word
-// controls. The CompanionOverlay is mounted here so the wake-word toggle actually
-// engages the mic and the companion can speak/listen on the device itself.
-
-function ControlButton({
-  active,
-  ActiveIcon,
-  InactiveIcon,
-  label,
-  pulse,
-  onClick,
-}: {
-  active: boolean
-  ActiveIcon: React.ElementType
-  InactiveIcon: React.ElementType
-  label: string
-  pulse?: boolean
-  onClick: () => void
-}) {
-  const Icon = active ? ActiveIcon : InactiveIcon
-  return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      aria-pressed={active}
-      title={label}
-      className={cn(
-        'relative flex size-14 items-center justify-center rounded-2xl border backdrop-blur-md transition-all sm:size-16',
-        active
-          ? 'border-white/30 bg-white/20 text-white shadow-lg'
-          : 'border-white/10 bg-black/30 text-white/55 hover:bg-black/45 hover:text-white',
-      )}
-    >
-      {active && pulse && <span className="absolute inset-0 animate-ping rounded-2xl border border-white/40" />}
-      <Icon className="size-6 sm:size-7" />
-    </button>
-  )
-}
+// Full-screen ambient "home screen" for a screen device (Tab5 / Show / tablet Pod):
+// point the device's browser at /display. Chrome-less by design — it renders the
+// device's assigned SLOT LAYOUT (the unified Layouts system: clock/weather/mic/mute
+// widgets in a themed grid) with live clock + weather. The server screenshots this
+// exact page into the JPEG it streams to the firmware. The CompanionOverlay is mounted
+// for browser viewers so the wake-word toggle engages the mic.
 
 export function DisplayPage() {
-  const { user } = useAuth()
-  const [config, setConfig] = useState<HomeDisplayConfig>(DEFAULT_HOME_DISPLAY)
   const { voiceOn, handsFreeOn, setVoice, setHandsFree } = useCompanionState()
-  // Server-rendered device frames pass ?device=1: hide the web control buttons, since
-  // the device can't tap a rendered image — it draws native LVGL buttons instead.
-  const isDeviceRender = new URLSearchParams(window.location.search).get('device') === '1'
+  const params = new URLSearchParams(window.location.search)
+  // Server-rendered device frames pass ?device=1 (mic/mute become non-interactive — the
+  // device can't tap a rendered image; the firmware draws native LVGL buttons instead)
+  // and ?deviceId=<id> to select that device's assigned layout.
+  const isDeviceRender = params.get('device') === '1'
+  const deviceId = params.get('deviceId') ?? ''
+  const [descriptor, setDescriptor] = useState<Descriptor | null>(null)
 
+  // The screenshotted display must never show a scrollbar (it'd flash on the device
+  // edge each render). Lock the document to no-scroll while /display is mounted.
   useEffect(() => {
-    if (user?.id) loadHomeDisplay(user.id).then(setConfig)
-  }, [user?.id])
+    const prevHtml = document.documentElement.style.overflow
+    const prevBody = document.body.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
+    return () => { document.documentElement.style.overflow = prevHtml; document.body.style.overflow = prevBody }
+  }, [])
+
+  // Poll the assigned layout so an admin edit/assignment shows up on the device without
+  // a reload — the server screenshots this very page for the Tab5, and the parked
+  // headless tab never reloads on its own, so we re-fetch and swap the descriptor in
+  // place when it changes. Only updates state when the payload actually differs (so the
+  // live clock/weather keep ticking smoothly between layout changes).
+  useEffect(() => {
+    const url = deviceId ? `/api/pod/display-layout?deviceId=${encodeURIComponent(deviceId)}` : '/api/pod/display-layout'
+    let last = ''
+    let alive = true
+    const tick = async () => {
+      try {
+        const r = await fetch(url, { credentials: 'include' })
+        if (!r.ok || !alive) return
+        const d = await r.json()
+        if (d?.theme && Array.isArray(d.widgets)) {
+          const sig = JSON.stringify(d)
+          if (sig !== last) { last = sig; setDescriptor(d) }
+        }
+      } catch { /* offline — keep showing the last layout */ }
+    }
+    void tick()
+    const t = setInterval(tick, 5000)
+    return () => { alive = false; clearInterval(t) }
+  }, [deviceId])
 
   return (
-    <div className="fixed inset-0 z-0 select-none bg-[#05080c]">
-      <HomeDisplayCanvas config={config} className="h-full w-full" />
-
-      {/* On-display controls, top-center (bottom is reserved for the companion message
-          area). On a real browser these drive the shared companion state; the device
-          render hides them (?device=1) and draws native firmware buttons that work. */}
-      {!isDeviceRender && (
-        <div className="absolute top-0 left-0 z-20 flex flex-col items-start gap-3 p-6 sm:p-8">
-          <ControlButton
-            active={voiceOn}
-            ActiveIcon={Volume2}
-            InactiveIcon={VolumeX}
-            label={voiceOn ? 'Mute companion audio' : 'Unmute companion audio'}
-            onClick={() => setVoice(!voiceOn)}
-          />
-          <ControlButton
-            active={handsFreeOn}
-            ActiveIcon={Mic}
-            InactiveIcon={MicOff}
-            label={handsFreeOn ? 'Wake word on — listening' : 'Wake word off'}
-            pulse
-            onClick={() => {
-              const next = !handsFreeOn
-              setHandsFree(next)
-              if (next) setVoice(true)
-            }}
-          />
-        </div>
+    <div className="fixed inset-0 z-0 select-none overflow-hidden bg-[#05080c]">
+      {descriptor && (
+        <DeviceLayoutDisplay
+          descriptor={descriptor}
+          isDeviceRender={isDeviceRender}
+          voiceOn={voiceOn}
+          handsFreeOn={handsFreeOn}
+          onToggleVoice={() => setVoice(!voiceOn)}
+          onToggleHandsFree={() => { const next = !handsFreeOn; setHandsFree(next); if (next) setVoice(true) }}
+        />
       )}
 
       {/* The companion's floating chat UI is for browser viewers; on the device the
-          screen is an ambient display (and the companion talks via the satellite), so
-          drop it from the device render. */}
+          screen is an ambient display (the companion talks via the satellite). */}
       {!isDeviceRender && <CompanionOverlay />}
     </div>
   )

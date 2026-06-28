@@ -133,8 +133,60 @@ export const devices = sqliteTable('devices', {
   pairingExpiresAt: integer('pairing_expires_at', { mode: 'timestamp' }),
   capabilities: text('capabilities'),             // JSON: { screen, camera, sampleRate }
   groupId: text('group_id'),                       // device_groups.id; null → built-in Default
+  layoutTemplateId: text('layout_template_id'),    // device_layout_templates.id; null → built-in default layout
+  layoutOverrides: text('layout_overrides'),       // JSON: per-device tweak { theme?, volume?, alarmVolume? }
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+})
+
+// ── Tab5 modular slot-based dashboard ────────────────────────────────────────
+// A "template" is a named, reusable layout descriptor: which widget sits in which
+// 3×3 slot at what size, plus a small theme-token set and a chosen sound pack /
+// default alarm tone. Edited in Admin → Devices → Layouts and pushed to assigned
+// screen devices over the gateway (a server-side edit, never a re-flash). The
+// device ships every widget pre-built and just shows/places per this descriptor.
+export const deviceLayoutTemplates = sqliteTable('device_layout_templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  grid: text('grid').notNull().default('3x3'),
+  theme: text('theme').notNull().default('{}'),        // JSON: { bg, accent, text, secondary?, font_scale }
+  widgets: text('widgets').notNull().default('[]'),    // JSON: [{ type, size, anchor:[r,c], orient? }]
+  soundPackId: text('sound_pack_id'),                  // device_sound_packs.id; null → silent
+  volume: real('volume').notNull().default(0.7),       // earcon volume (0–1)
+  alarmVolume: real('alarm_volume').notNull().default(1), // alarms bypass earcon vol/mute
+  soundOverrides: text('sound_overrides').notNull().default('{}'), // JSON: event→recipeId|null layered on the pack
+  alarmToneId: text('alarm_tone_id'),                  // default alarm tone (device_chimes.id, category 'alarm')
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// A "sound pack" maps the small earcon event vocabulary (wake/endpoint/thinking/
+// success/error/alarm/notification) to chime recipes (or null = silent). Selecting
+// a pack on a template is pure config; the device caches the resolved event→file map.
+export const deviceSoundPacks = sqliteTable('device_sound_packs', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+  events: text('events').notNull().default('{}'),      // JSON: { wake: recipeId|null, ... }
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// A "chime" is a fully-described synthesis recipe (waveform + notes + envelope +
+// optional reverb). The server renders it to a 16 kHz mono WAV (data/pod/audio/<id>.wav)
+// the device plays on trigger — earcons (category 'earcon') and looping alarm tones
+// (category 'alarm', loop=1) share this one model + the same chime designer.
+export const deviceChimes = sqliteTable('device_chimes', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  category: text('category', { enum: ['earcon', 'alarm'] }).notNull().default('earcon'),
+  loop: integer('loop', { mode: 'boolean' }).notNull().default(false),
+  recipe: text('recipe').notNull().default('{}'),      // JSON: { waveform, notes[], envelope, effects? }
+  wavSha: text('wav_sha'),                             // sha256 of the rendered WAV (asset_sync + cache-bust)
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
 // Device setting groups. The built-in 'default' row (isDefault=1) holds the baseline
@@ -1116,8 +1168,10 @@ export const clockAlarms = sqliteTable('clock_alarms', {
   minute: integer('minute').notNull(),         // 0–59
   repeatDays: text('repeat_days').notNull().default('[]'),  // JSON int[] 0=Sun..6=Sat; [] = one-time
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-  tone: text('tone').notNull().default('builtin:radar'),    // builtin:<key> | track:<id>
+  tone: text('tone').notNull().default('builtin:radar'),    // builtin:<key> | track:<id> (browser playback)
   toneName: text('tone_name'),                 // display name of the chosen tone
+  toneId: text('tone_id'),                      // per-alarm device tone override (device_chimes.id); null → template default
+  targets: text('targets'),                     // JSON device id[] that should ring; null → all the user's pods
   announce: integer('announce', { mode: 'boolean' }).notNull().default(true),
   snoozeMinutes: integer('snooze_minutes').notNull().default(9),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),

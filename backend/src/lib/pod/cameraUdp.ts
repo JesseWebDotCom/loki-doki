@@ -14,8 +14,13 @@
 
 import dgram from 'node:dgram'
 import { isTestActive, isManualSource, latestTestFrame, startPublicCameraSource, stopTest } from '@/lib/pod/cameraTest'
-import { anyDeviceInCameraMode } from '@/lib/pod/displayMode'
+import { anyDeviceInCameraMode, getDeviceMode } from '@/lib/pod/displayMode'
+import { deviceByHwid, captureDeviceFrame } from '@/lib/pod/displayRenderer'
 import { logger } from '@/lib/logger'
+
+// How often we render+push each device its ambient layout frame (normal mode). A clock
+// only needs ~1 fps; rendering is a headless screenshot, so keep the cadence modest.
+const DISPLAY_MS = parseInt(process.env.POD_DISPLAY_UDP_MS ?? '750')
 
 const PORT = parseInt(process.env.POD_CAM_UDP_PORT ?? '10701')
 const FRAG = 1400 // payload bytes/datagram — under typical 1500 MTU to avoid IP fragmentation
@@ -44,7 +49,7 @@ export function setPacing(batch?: number, paceMs?: number): { batch: number; pac
   return { batch: BATCH, paceMs: PACE_MS }
 }
 
-interface Sub { addr: string; port: number; last: number }
+interface Sub { addr: string; port: number; last: number; mac?: string }
 
 // Per-device stream health, parsed from the "LDC2" hello stats (keyed by device MAC).
 interface DevStat {
@@ -98,9 +103,13 @@ export function startCameraUdp(): void {
   // carries the device's MAC + received/decoded/last_bytes counters → per-device health.
   sock.on('message', (msg, rinfo) => {
     const now = Date.now()
-    subs.set(`${rinfo.address}:${rinfo.port}`, { addr: rinfo.address, port: rinfo.port, last: now })
+    const key = `${rinfo.address}:${rinfo.port}`
+    const sub = subs.get(key) ?? { addr: rinfo.address, port: rinfo.port, last: now }
+    sub.last = now
+    subs.set(key, sub)
     if (msg.length >= 22 && msg[0] === 0x4c && msg[1] === 0x44 && msg[2] === 0x43 && msg[3] === 0x32) {
       const mac = msg.subarray(4, 10).toString('hex')
+      sub.mac = mac // remember which device this addr is, so we can stream IT its layout
       const recv = msg.readUInt32LE(10)
       const dec = msg.readUInt32LE(14)
       const lastBytes = msg.readUInt32LE(18)
@@ -184,6 +193,45 @@ export function startCameraUdp(): void {
         }
       }
       await sleep(POLL_MS) // poll faster than the source so each new frame goes out promptly
+    }
+  })()
+
+  // ── Ambient DISPLAY sender ─────────────────────────────────────────────────────
+  // In NORMAL mode (not camera-test), push each subscribed device its OWN server-
+  // rendered layout frame over this same UDP path, so the Tab5 hardware-decodes it
+  // (hw_jpeg) and blits it on the clock page — this is how layout/theme edits actually
+  // reach the device. Paced like the camera sender to avoid the C6 fragment-bomb.
+  const sendFrame = async (frame: Buffer, target: Sub): Promise<void> => {
+    const cnt = Math.ceil(frame.length / FRAG)
+    if (cnt > 255) return
+    frameId = (frameId + 1) & 0xffff
+    for (let i = 0; i < cnt; i++) {
+      const start = i * FRAG
+      const end = Math.min(start + FRAG, frame.length)
+      const pkt = Buffer.allocUnsafe(4 + (end - start))
+      pkt[0] = frameId & 0xff
+      pkt[1] = (frameId >> 8) & 0xff
+      pkt[2] = i
+      pkt[3] = cnt
+      frame.copy(pkt, 4, start, end)
+      sock.send(pkt, target.port, target.addr)
+      if (PACE_MS > 0 && i % BATCH === BATCH - 1) await sleep(PACE_MS)
+    }
+  }
+  void (async () => {
+    for (;;) {
+      await sleep(DISPLAY_MS)
+      const now = Date.now()
+      for (const v of subs.values()) {
+        if (now - v.last > SUB_TTL_MS || !v.mac) continue
+        try {
+          const dev = await deviceByHwid(v.mac)
+          if (!dev) continue
+          if (getDeviceMode(dev.id) === 'camera-test') continue // camera sender owns this device
+          const frame = await captureDeviceFrame(dev.id, dev.userId)
+          if (frame) await sendFrame(frame, v)
+        } catch { /* a bad render shouldn't kill the loop */ }
+      }
     }
   })()
 }

@@ -1649,6 +1649,54 @@ export function runMigrations() {
             CAST(strftime('%s','now') AS INTEGER) * 1000);
   `)
 
+  // ── Tab5 modular slot-based dashboard (Admin → Devices → Layouts/Sounds) ──────
+  // Named layout templates (3×3 slot grid + theme tokens + sound pack), swappable
+  // sound packs, and synthesised chime recipes. Built-in rows are seeded by
+  // lib/pod/deviceStudio.ensureBuiltins() at boot (and their WAVs rendered there).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS device_layout_templates (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      grid TEXT NOT NULL DEFAULT '3x3',
+      theme TEXT NOT NULL DEFAULT '{}',
+      widgets TEXT NOT NULL DEFAULT '[]',
+      sound_pack_id TEXT,
+      volume REAL NOT NULL DEFAULT 0.7,
+      alarm_volume REAL NOT NULL DEFAULT 1,
+      sound_overrides TEXT NOT NULL DEFAULT '{}',
+      alarm_tone_id TEXT,
+      builtin INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS device_sound_packs (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      builtin INTEGER NOT NULL DEFAULT 0,
+      events TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS device_chimes (
+      id TEXT NOT NULL PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'earcon',
+      loop INTEGER NOT NULL DEFAULT 0,
+      recipe TEXT NOT NULL DEFAULT '{}',
+      wav_sha TEXT,
+      builtin INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `)
+  // A screen device's assigned layout template + optional per-device theme/volume tweak.
+  addColumn('devices', 'layout_template_id', 'TEXT')
+  addColumn('devices', 'layout_overrides', 'TEXT')
+  // Centralised alarms can target specific devices and pick a device tone from the
+  // shared chime library (distinct from the existing browser `tone`).
+  addColumn('clock_alarms', 'tone_id', 'TEXT')
+  addColumn('clock_alarms', 'targets', 'TEXT')
+
   // Generic read-through lookup cache (property/people scrapers and future tools).
   // data holds the JSON result ("null" = cached negative); expires_at is epoch ms.
   sqlite.exec(`
