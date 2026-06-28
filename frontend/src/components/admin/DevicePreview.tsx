@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import { FlipClock } from '@/components/display/FlipClock'
 import {
-  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, WEATHER_CATALOG, safeTheme,
+  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, centerOffset, WEATHER_CATALOG, safeTheme,
   type WidgetPlacement, type ThemeTokens, type WeatherCondition,
 } from '@/lib/pod/layout'
 
@@ -61,11 +61,11 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
           )
         })}
 
-        {widgets.map((w, i) => {
+        {(() => { const off = onSlotClick ? { x: 0, y: 0 } : centerOffset(widgets); return widgets.map((w, i) => {
           const span = spanOf(w)
           const [r, c] = w.anchor
-          const left = c * CELL_W + GUTTER
-          const top = r * CELL_H + GUTTER
+          const left = c * CELL_W + GUTTER + off.x
+          const top = r * CELL_H + GUTTER + off.y
           const wpx = span.cols * CELL_W - GUTTER * 2
           const hpx = span.rows * CELL_H - GUTTER * 2
           const selected = selectedIndex === i
@@ -83,7 +83,7 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
               <WidgetContent w={w} theme={theme} fs={fs} weather={weather} isNight={isNight} />
             </div>
           )
-        })}
+        }) })()}
 
         {/* Reserved bottom-center voice pill overlay (Option A) — floats over the grid */}
         <div className="absolute left-1/2 -translate-x-1/2 rounded-full px-8 py-3 text-[28px] font-medium opacity-80"
@@ -146,14 +146,26 @@ function ClockWidget({ size, fs, text, accent }: { size: WidgetPlacement['size']
 function WeatherWidget({ size, fs, text, weather, isNight }: { size: WidgetPlacement['size']; fs: number; text: string; weather: WeatherCondition; isNight: boolean }) {
   const v = WEATHER_CATALOG[weather]
   const temp = '41°'
-  if (size === 'small') return <div className="flex flex-col items-center" style={{ color: text }}><span style={{ fontSize: 64 }}>⛅</span><span style={{ fontSize: 40 * fs }}>{temp}</span></div>
-  const big = size === 'full'
+  const glyph = isNight ? '🌙' : '☀️'
+  if (size === 'small') return <div className="flex flex-col items-center" style={{ color: text }}><span style={{ fontSize: 64 }}>{glyph}</span><span style={{ fontSize: 40 * fs }}>{temp}</span></div>
+  // Full = big sun/icon to the LEFT of a big temperature, condition below.
+  if (size === 'full') {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center" style={{ color: text }}>
+        <div className="flex items-center justify-center" style={{ gap: 16 }}>
+          <span style={{ fontSize: 220 }}>{glyph}</span>
+          <span className="font-black tabular-nums" style={{ fontSize: 200 * fs, lineHeight: 1 }}>{temp}</span>
+        </div>
+        <span style={{ fontSize: 52 * fs, opacity: 0.9, marginTop: 8 }}>{v.label}</span>
+      </div>
+    )
+  }
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2" style={{ color: text }}>
-      <span style={{ fontSize: big ? 200 : size === 'large' ? 110 : 72 }}>{isNight ? '🌙' : '⛅'}</span>
-      <span className="font-semibold" style={{ fontSize: (big ? 130 : size === 'large' ? 80 : 56) * fs }}>{temp}</span>
-      <span style={{ fontSize: (big ? 44 : 30) * fs, opacity: 0.85 }}>{v.label}</span>
-      {(size === 'large' || big) && <span style={{ fontSize: (big ? 34 : 26) * fs, opacity: 0.7 }}>H:47°  L:38°</span>}
+    <div className="flex h-full w-full flex-col items-center justify-center gap-1" style={{ color: text }}>
+      <span style={{ fontSize: size === 'large' ? 150 : 130 }}>{glyph}</span>
+      <span className="font-semibold" style={{ fontSize: (size === 'large' ? 96 : 84) * fs, lineHeight: 1.05 }}>{temp}</span>
+      <span style={{ fontSize: (size === 'large' ? 36 : 34) * fs, opacity: 0.85 }}>{v.label}</span>
+      {size === 'large' && <span style={{ fontSize: 26 * fs, opacity: 0.7 }}>H:47°  L:38°</span>}
     </div>
   )
 }

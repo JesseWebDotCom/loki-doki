@@ -88,6 +88,19 @@ export function validateWidgets(widgets: WidgetPlacement[]): string | null {
   return null
 }
 
+/** Centre the bounding box of the occupied cells within the 1280×720 frame, so a
+ *  layout that doesn't fill all 9 cells reads as intentional (no blank bottom row). */
+export function centerOffset(widgets: WidgetPlacement[]): { x: number; y: number } {
+  if (!widgets.length) return { x: 0, y: 0 }
+  let minR = GRID_ROWS, maxR = -1, minC = GRID_COLS, maxC = -1
+  for (const w of widgets) for (const [r, c] of footprint(w)) {
+    if (r < minR) minR = r; if (r > maxR) maxR = r; if (c < minC) minC = c; if (c > maxC) maxC = c
+  }
+  if (maxR < 0) return { x: 0, y: 0 }
+  const blockW = (maxC - minC + 1) * CELL_W, blockH = (maxR - minR + 1) * CELL_H
+  return { x: (FRAME_W - blockW) / 2 - minC * CELL_W, y: (FRAME_H - blockH) / 2 - minR * CELL_H }
+}
+
 /** First free anchor where a widget of the given span fits, or null. */
 export function firstFreeAnchor(widgets: WidgetPlacement[], size: WidgetSize, orient: WidgetOrient = 'horizontal'): [number, number] | null {
   for (let r = 0; r < GRID_ROWS; r++) {

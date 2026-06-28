@@ -435,63 +435,22 @@ lvgl:
                   text: ""
                   text_font: font_footer
                   text_color: 0xFFFFFF
-        # Native touch controls (top-left). Speaker = mute TTS; Mic = wake/listen
-        # (boots OFF/red). Native LVGL widgets → touch works directly.
+        # Whole-screen tap = start/stop listening. Replaces the old fixed mute+mic
+        # buttons that sat top-left over every layout/theme — the ambient screen is now
+        # clean and the server-rendered layout owns the whole display. A transparent
+        # full-screen button keeps tap-to-talk with no visible chrome; the state footer
+        # below still shows listening/thinking/speaking feedback.
         - button:
-            id: btn_mute
-            align: TOP_LEFT
-            x: 16
-            y: 16
-            width: 84
-            height: 84
-            radius: 42
+            id: btn_tap
+            align: CENTER
+            width: 1280
+            height: 720
+            bg_opa: 0%
             border_width: 0
             shadow_width: 0
-            bg_color: 0x000000
-            bg_opa: 45%
-            widgets:
-              - label:
-                  id: lbl_mute
-                  align: CENTER
-                  text: "\uF028"
-                  text_font: montserrat_40
-                  text_color: 0xFFFFFF
             on_click:
               then:
-                - lambda: |-
-                    id(satellite)->toggle_muted();
-                    bool m = id(satellite)->is_muted();
-                    lv_label_set_text(id(lbl_mute), m ? "\uF026" : "\uF028");
-                    lv_obj_set_style_text_color(id(lbl_mute), lv_color_hex(0xFFFFFF), 0);
-                    lv_obj_set_style_bg_color(id(btn_mute), lv_color_hex(m ? 0xDC2626 : 0x000000), 0);
-                    lv_obj_set_style_bg_opa(id(btn_mute), m ? 230 : 115, 0);
-        - button:
-            id: btn_mic
-            align: TOP_LEFT
-            x: 16
-            y: 112
-            width: 84
-            height: 84
-            radius: 42
-            border_width: 0
-            shadow_width: 0
-            bg_color: 0xDC2626    # boots red = mic off
-            bg_opa: 90%
-            widgets:
-              - label:
-                  id: lbl_mic
-                  align: CENTER
-                  text: "\uF001"
-                  text_font: montserrat_40
-                  text_color: 0xFFFFFF
-            on_click:
-              then:
-                - lambda: |-
-                    id(satellite)->toggle_mic_enabled();
-                    bool on = id(satellite)->is_mic_enabled();
-                    lv_obj_set_style_text_color(id(lbl_mic), lv_color_hex(0xFFFFFF), 0);
-                    lv_obj_set_style_bg_color(id(btn_mic), lv_color_hex(on ? 0x16A34A : 0xDC2626), 0);
-                    lv_obj_set_style_bg_opa(id(btn_mic), 230, 0);
+                - lambda: 'id(satellite)->toggle_mic_enabled();'
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
     # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer

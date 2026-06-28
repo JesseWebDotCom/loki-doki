@@ -18,9 +18,10 @@ import { anyDeviceInCameraMode, getDeviceMode } from '@/lib/pod/displayMode'
 import { deviceByHwid, captureDeviceFrame } from '@/lib/pod/displayRenderer'
 import { logger } from '@/lib/logger'
 
-// How often we render+push each device its ambient layout frame (normal mode). A clock
-// only needs ~1 fps; rendering is a headless screenshot, so keep the cadence modest.
-const DISPLAY_MS = parseInt(process.env.POD_DISPLAY_UDP_MS ?? '750')
+// Min gap between ambient layout frames per device (normal mode). The loop renders the
+// next frame as soon as the previous send finishes, so this is a floor, not a fixed
+// cadence — keeps it as smooth as the headless render allows without pegging the CPU.
+const DISPLAY_MS = parseInt(process.env.POD_DISPLAY_UDP_MS ?? '120')
 
 const PORT = parseInt(process.env.POD_CAM_UDP_PORT ?? '10701')
 const FRAG = 1400 // payload bytes/datagram — under typical 1500 MTU to avoid IP fragmentation

@@ -7,7 +7,7 @@ import { FlipClock } from '@/components/display/FlipClock'
 import { heroBackground, weatherIconSrc, getAdvisoryEffect, type HeroGradient } from '@/lib/weather'
 import { clockParts, type HomeDisplayConfig } from '@/lib/homeDisplay'
 import {
-  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, safeTheme,
+  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, centerOffset, safeTheme,
   type WidgetPlacement, type ThemeTokens,
 } from '@/lib/pod/layout'
 
@@ -47,14 +47,18 @@ export function DeviceLayoutDisplay({ descriptor, isDeviceRender, voiceOn, hands
 
   return (
     <div ref={ref} className="absolute inset-0 flex items-center justify-center overflow-hidden" style={{ background: theme.bg }}>
-      {scale > 0 && (
+      {scale > 0 && (() => {
+        // Centre the occupied widgets in the frame so a layout that doesn't fill all 9
+        // cells reads as intentional instead of leaving a blank bottom row / right column.
+        const off = centerOffset(descriptor.widgets)
+        return (
         <div style={{ width: FRAME_W, height: FRAME_H, transform: `scale(${scale})`, transformOrigin: 'center', position: 'relative', color: theme.text }}>
           {descriptor.widgets.map((w, i) => {
             const span = spanOf(w)
             const [r, c] = w.anchor
             return (
               <div key={i} className="absolute overflow-hidden rounded-3xl" style={{
-                left: c * CELL_W + GUTTER, top: r * CELL_H + GUTTER,
+                left: c * CELL_W + GUTTER + off.x, top: r * CELL_H + GUTTER + off.y,
                 width: span.cols * CELL_W - GUTTER * 2, height: span.rows * CELL_H - GUTTER * 2,
               }}>
                 <SlotWidget w={w} theme={theme} isDeviceRender={isDeviceRender}
@@ -63,7 +67,8 @@ export function DeviceLayoutDisplay({ descriptor, isDeviceRender, voiceOn, hands
             )
           })}
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
@@ -134,20 +139,35 @@ function LiveWeather({ size, theme }: { size: WidgetPlacement['size']; theme: Th
   const fs = theme.font_scale
   const big = size === 'full'
   const showBg = (size === 'large' || big) && ready
-  const icon = big ? 240 : size === 'large' ? 150 : size === 'medium' ? 110 : 80
-  return (
+  const wrap = (kids: React.ReactNode) => (
     <div className="relative h-full w-full" style={{ background: showBg ? heroBackground(gradient, isDay) : 'rgba(255,255,255,0.05)' }}>
       {showBg && <WeatherHeroBg gradient={gradient} isDay={isDay} advisory={getAdvisoryEffect(snapshot!.alerts)} />}
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2" style={{ color: theme.text }}>
-        {ready ? (
-          <>
-            <img src={weatherIconSrc(snapshot!.info.icon)} alt="" style={{ width: icon, height: icon }} />
-            <span className="font-black tabular-nums" style={{ fontSize: (big ? 140 : size === 'large' ? 84 : size === 'medium' ? 60 : 40) * fs }}>{snapshot!.temp}°</span>
-            {size !== 'small' && <span style={{ fontSize: (big ? 44 : 28) * fs, opacity: 0.85 }}>{snapshot!.info.desc}</span>}
-            {(size === 'large' || big) && <span style={{ fontSize: (big ? 34 : 24) * fs, opacity: 0.65 }}>{snapshot!.location}</span>}
-          </>
-        ) : <span style={{ opacity: 0.5 }}>—</span>}
-      </div>
+      <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color: theme.text }}>{kids}</div>
     </div>
+  )
+  if (!ready) return wrap(<span style={{ opacity: 0.5 }}>—</span>)
+  const isz = big ? 360 : size === 'large' ? 190 : size === 'medium' ? 170 : 90
+  const icon = <img src={weatherIconSrc(snapshot!.info.icon)} alt="" style={{ width: isz, height: isz }} />
+  // Full-screen weather: big sun/icon to the LEFT of a big temperature, condition below.
+  if (big) {
+    return wrap(
+      <>
+        <div className="flex items-center justify-center" style={{ gap: 24 }}>
+          {icon}
+          <span className="font-black tabular-nums" style={{ fontSize: 220 * fs, lineHeight: 1 }}>{snapshot!.temp}°</span>
+        </div>
+        <span style={{ fontSize: 56 * fs, opacity: 0.9, marginTop: 8 }}>{snapshot!.info.desc}</span>
+        <span style={{ fontSize: 34 * fs, opacity: 0.65, marginTop: 6 }}>{snapshot!.location}</span>
+      </>,
+    )
+  }
+  // Small = compact icon+temp; medium/large = stacked but noticeably larger.
+  return wrap(
+    <>
+      {icon}
+      <span className="font-black tabular-nums" style={{ fontSize: (size === 'large' ? 96 : size === 'medium' ? 84 : 44) * fs, lineHeight: 1.05 }}>{snapshot!.temp}°</span>
+      {size !== 'small' && <span style={{ fontSize: (size === 'large' ? 36 : 34) * fs, opacity: 0.85, marginTop: 4 }}>{snapshot!.info.desc}</span>}
+      {size === 'large' && <span style={{ fontSize: 26 * fs, opacity: 0.65 }}>{snapshot!.location}</span>}
+    </>,
   )
 }
