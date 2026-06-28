@@ -131,6 +131,19 @@ function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: Them
   )
 }
 
+// A small clock tucked into the bottom-left corner of the full weather screen.
+function FullWeatherClock({ theme }: { theme: ThemeTokens }) {
+  const now = useNow(1000)
+  const cfg: HomeDisplayConfig = { clock: true, clockStyle: 'digital', showSeconds: false, hour24: false, date: false, weather: false, weatherBackground: false }
+  const { hh, mm, ampm } = clockParts(new Date(now), cfg)
+  return (
+    <div className="absolute flex items-baseline gap-2 font-semibold tabular-nums" style={{ left: 40, bottom: 32, color: theme.text }}>
+      <span style={{ fontSize: 64 * theme.font_scale, lineHeight: 1 }}>{hh}:{mm}</span>
+      {ampm && <span style={{ fontSize: 26 * theme.font_scale, opacity: 0.7 }}>{ampm}</span>}
+    </div>
+  )
+}
+
 function LiveWeather({ size, theme }: { size: WidgetPlacement['size']; theme: ThemeTokens }) {
   const { snapshot, status } = useWeatherSnapshot()
   const ready = status === 'ready' && !!snapshot
@@ -146,19 +159,24 @@ function LiveWeather({ size, theme }: { size: WidgetPlacement['size']; theme: Th
     </div>
   )
   if (!ready) return wrap(<span style={{ opacity: 0.5 }}>—</span>)
-  const isz = big ? 360 : size === 'large' ? 190 : size === 'medium' ? 170 : 90
+  const isz = big ? 460 : size === 'large' ? 190 : size === 'medium' ? 170 : 90
   const icon = <img src={weatherIconSrc(snapshot!.info.icon)} alt="" style={{ width: isz, height: isz }} />
-  // Full-screen weather: big sun/icon to the LEFT of a big temperature, condition below.
+  // Full-screen weather: the big icon (sun/cloud/…) centered with the temperature to its
+  // RIGHT, the forecast + area underneath, and a little clock in the bottom-left corner.
   if (big) {
-    return wrap(
-      <>
-        <div className="flex items-center justify-center" style={{ gap: 24 }}>
-          {icon}
-          <span className="font-black tabular-nums" style={{ fontSize: 220 * fs, lineHeight: 1 }}>{snapshot!.temp}°</span>
+    return (
+      <div className="relative h-full w-full" style={{ background: showBg ? heroBackground(gradient, isDay) : 'rgba(255,255,255,0.05)' }}>
+        {showBg && <WeatherHeroBg gradient={gradient} isDay={isDay} advisory={getAdvisoryEffect(snapshot!.alerts)} />}
+        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color: theme.text }}>
+          <div className="flex items-center justify-center" style={{ gap: 8 }}>
+            {icon}
+            <span className="font-black tabular-nums" style={{ fontSize: 200 * fs, lineHeight: 1 }}>{snapshot!.temp}°</span>
+          </div>
+          <span style={{ fontSize: 52 * fs, opacity: 0.9, marginTop: 4 }}>{snapshot!.info.desc}</span>
+          <span style={{ fontSize: 32 * fs, opacity: 0.65, marginTop: 6 }}>{snapshot!.location}</span>
         </div>
-        <span style={{ fontSize: 56 * fs, opacity: 0.9, marginTop: 8 }}>{snapshot!.info.desc}</span>
-        <span style={{ fontSize: 34 * fs, opacity: 0.65, marginTop: 6 }}>{snapshot!.location}</span>
-      </>,
+        <FullWeatherClock theme={theme} />
+      </div>
     )
   }
   // Small = compact icon+temp; medium/large = stacked but noticeably larger.

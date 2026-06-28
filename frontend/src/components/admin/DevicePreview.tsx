@@ -148,15 +148,22 @@ function WeatherWidget({ size, fs, text, weather, isNight }: { size: WidgetPlace
   const temp = '41°'
   const glyph = isNight ? '🌙' : '☀️'
   if (size === 'small') return <div className="flex flex-col items-center" style={{ color: text }}><span style={{ fontSize: 64 }}>{glyph}</span><span style={{ fontSize: 40 * fs }}>{temp}</span></div>
-  // Full = big sun/icon to the LEFT of a big temperature, condition below.
+  // Full = big icon centered with the temp to its RIGHT, forecast + area underneath,
+  // and a little clock in the bottom-left corner.
   if (size === 'full') {
+    const now = new Date()
+    const hhmm = `${((now.getHours() % 12) || 12)}:${now.getMinutes().toString().padStart(2, '0')}`
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center" style={{ color: text }}>
-        <div className="flex items-center justify-center" style={{ gap: 16 }}>
-          <span style={{ fontSize: 220 }}>{glyph}</span>
-          <span className="font-black tabular-nums" style={{ fontSize: 200 * fs, lineHeight: 1 }}>{temp}</span>
+      <div className="relative h-full w-full" style={{ color: text }}>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="flex items-center justify-center" style={{ gap: 8 }}>
+            <span style={{ fontSize: 300 }}>{glyph}</span>
+            <span className="font-black tabular-nums" style={{ fontSize: 200 * fs, lineHeight: 1 }}>{temp}</span>
+          </div>
+          <span style={{ fontSize: 52 * fs, opacity: 0.9, marginTop: 4 }}>{v.label}</span>
+          <span style={{ fontSize: 32 * fs, opacity: 0.65, marginTop: 6 }}>Milford, Connecticut</span>
         </div>
-        <span style={{ fontSize: 52 * fs, opacity: 0.9, marginTop: 8 }}>{v.label}</span>
+        <div className="absolute font-semibold tabular-nums" style={{ left: 40, bottom: 32, fontSize: 64 * fs }}>{hhmm}<span style={{ fontSize: 26 * fs, opacity: 0.7, marginLeft: 8 }}>{now.getHours() < 12 ? 'AM' : 'PM'}</span></div>
       </div>
     )
   }
