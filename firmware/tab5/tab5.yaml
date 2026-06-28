@@ -353,6 +353,10 @@ font:
   - file: "gfonts://Roboto@medium"
     id: font_footer
     size: 38
+  # Brand title for the "Connecting" boot / fallback splash.
+  - file: "gfonts://Roboto@medium"
+    id: font_brand
+    size: 120
 
 # Tiny placeholder so the LVGL `image` widget has a valid src at build time; the
 # camera view repoints it at the live hardware-decoded frame buffer at runtime.
@@ -388,20 +392,23 @@ lvgl:
       bg_color: 0x05080C
       bg_opa: COVER
       widgets:
+        # Boot / fallback splash, shown until the server's rendered layout streams in
+        # (and again if it ever stops): a LokiDoki "Connecting" screen, like the boot
+        # look. The ambient_img below covers this the instant layout frames arrive.
         - label:
-            id: lbl_time
+            id: lbl_brand
             align: CENTER
-            y: -45
-            text: "--:--"
-            text_font: font_time
+            y: -60
+            text: "LokiDoki"
+            text_font: font_brand
             text_color: 0xFFFFFF
         - label:
-            id: lbl_date
+            id: lbl_connecting
             align: CENTER
-            y: 190
-            text: ""
+            y: 80
+            text: "Connecting..."
             text_font: font_date
-            text_color: 0x8DA2B5
+            text_color: 0x7C3AED
         # Server-rendered ambient LAYOUT (theme + widgets from Admin → Devices → Layouts),
         # hardware-decoded from the UDP frame stream (hw_jpeg `cam`, the same path the
         # camera test uses). Shown full-screen on TOP of the native clock once frames
@@ -541,36 +548,7 @@ lvgl:
                   text_font: font_footer
                   text_color: 0xFFFFFF
 
-# Tick the clock once a second from network time. Skipped while the companion is
-# speaking — re-rendering the 300 px time mid-reply blocks the loop long enough to
-# stutter the audio (the clock just resumes a beat later, which is imperceptible).
 interval:
-  - interval: 1s
-    then:
-      - if:
-          condition:
-            lambda: 'return id(face_state).state != "talking";'
-          then:
-            - lvgl.label.update:
-                id: lbl_time
-                text: !lambda |-
-                  auto t = id(tab5_time).now();
-                  if (!t.is_valid()) return std::string("--:--");
-                  int h = t.hour % 12; if (h == 0) h = 12;
-                  char buf[8];
-                  snprintf(buf, sizeof(buf), "%d:%02d", h, t.minute);
-                  return std::string(buf);
-            - lvgl.label.update:
-                id: lbl_date
-                text: !lambda |-
-                  auto t = id(tab5_time).now();
-                  if (!t.is_valid()) return std::string("");
-                  return t.strftime("%A, %b %e");
-  # Local animated rain — a NATIVE LVGL layer (no network, no stream). Drops are
-  # created once behind the dashboard, then nudged down each tick and wrapped at the
-  # bottom. Only the small drop rectangles invalidate, so the clock/buttons aren't
-  # re-rendered every frame. The loop is otherwise free, so this stays smooth and touch
-  # responsive.
   # ── Camera: blit the latest hardware-decoded frame into the LVGL image ─────────
   # Runs on the main loop (LVGL is single-threaded); the fetch+decode happen on the
   # hw_jpeg background task. We only touch LVGL when a fresh frame is ready.
@@ -649,37 +627,6 @@ interval:
           last_recv = rcv;
           last_ms = now;
 
-  - interval: 33ms
-    then:
-      - lambda: |-
-          // Rain only animates on the clock page; skip it entirely while the camera
-          // is up so it doesn't steal main-loop time from the frame blit.
-          if (lv_screen_active() != id(page_clock)->obj) return;
-          static std::vector<lv_obj_t *> drops;
-          if (drops.empty()) {
-            lv_obj_t *scr = lv_screen_active();
-            for (int i = 0; i < 36; i++) {
-              lv_obj_t *d = lv_obj_create(scr);
-              lv_obj_remove_style_all(d);
-              lv_obj_set_size(d, 2, 14 + (i * 7) % 26);
-              lv_obj_set_style_bg_color(d, lv_color_hex(0x9FB2C8), 0);
-              lv_obj_set_style_bg_opa(d, 70 + (i * 17) % 110, 0);
-              lv_obj_set_style_radius(d, 1, 0);
-              lv_obj_clear_flag(d, LV_OBJ_FLAG_CLICKABLE);
-              lv_obj_set_pos(d, (i * 137) % 1280, -((i * 53) % 760));
-              lv_obj_move_background(d);
-              drops.push_back(d);
-            }
-            return;
-          }
-          for (size_t i = 0; i < drops.size(); i++) {
-            int y = lv_obj_get_y(drops[i]) + 14 + (int) (i % 4) * 4;
-            if (y > 720) {
-              y = -30;
-              lv_obj_set_x(drops[i], (lv_obj_get_x(drops[i]) + 71) % 1280);
-            }
-            lv_obj_set_y(drops[i], y);
-          }
 
 # Conversation state from the satellite (idle/connecting/listening/thinking/talking).
 # On each change we either hide the overlay (back to the clock) or show a bold,
