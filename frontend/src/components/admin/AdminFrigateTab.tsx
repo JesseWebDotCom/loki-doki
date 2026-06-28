@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { toast } from '@/lib/toast'
 import {
-  getFrigateConfig, saveFrigateConfig, generateShimToken, testFrigate,
+  getFrigateConfig, saveFrigateConfig, testFrigate,
   type FrigateConfig, type FrigateTestResult,
 } from '@/lib/frigate/api'
 
@@ -46,6 +46,7 @@ export function AdminFrigateTab() {
   const [testing, setTesting] = useState(false)
   const [test, setTest] = useState<FrigateTestResult | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedToken, setCopiedToken] = useState(false)
 
   // editable fields
   const [baseUrl, setBaseUrl] = useState('')
@@ -86,12 +87,14 @@ export function AdminFrigateTab() {
     } catch { toast.error('Failed to save') } finally { setSaving(false) }
   }
 
-  async function genToken() {
-    try {
-      const t = await generateShimToken()
-      setShimToken(t); setShimTokenSet(true)
-      toast.success('Token generated — copy it into Frigate')
-    } catch { toast.error('Failed to generate token') }
+  // Generate client-side (crypto.getRandomValues works even on a plain-HTTP LAN,
+  // unlike crypto.randomUUID). It's persisted when you hit Save — same as a pasted one.
+  function genToken() {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    const t = 'fg_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+    setShimToken(t)
+    toast.success('Token generated — click Save to store it')
   }
 
   async function runTest() {
@@ -99,21 +102,37 @@ export function AdminFrigateTab() {
     try { setTest(await testFrigate()) } catch { toast.error('Test failed') } finally { setTesting(false) }
   }
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://this-app:PORT'
-  const yaml = `genai:
-  provider: openai
-  api_key: ${shimToken || (shimTokenSet ? '<your-generated-token>' : '<generate-a-token-first>')}
-  base_url: ${origin}/api/frigate/v1
+  const shimBaseUrl = cfg?.shimBaseUrl || 'http://<this-app-ip>:3000/api/frigate/v1'
+  const tokenForYaml = shimToken || '<paste-or-generate-a-token-above>'
+  const yaml = `# ─────────────────────────────────────────────────────────────
+# Add to your Frigate config.yaml, then restart Frigate.
+# ─────────────────────────────────────────────────────────────
 
+# 1) Point Frigate's GenAI provider at this app (top level):
+genai:
+  provider: openai
+  api_key: ${tokenForYaml}
+  base_url: ${shimBaseUrl}
+  model: gpt-4o          # any value — this app ignores it and uses your local vision model
+
+# 2) Turn descriptions on for each camera you want (repeat per camera):
 cameras:
-  front_door:           # repeat per camera
-    objects:
-      genai:
-        enabled: true
-        objects: [person, car]`
+  front_door:            # ← your camera's name
+    genai:
+      enabled: true
+      objects: [person, car]      # which tracked objects to describe
+      # Optional — customise the prompts the companion gets:
+      # prompt: "Describe the {label} in this scene."
+      # object_prompts:
+      #   person: "Describe the person: clothing, and what they're doing."`
 
   function copyYaml() {
     void navigator.clipboard.writeText(yaml).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  }
+
+  function copyToken() {
+    if (!shimToken) return
+    void navigator.clipboard.writeText(shimToken).then(() => { setCopiedToken(true); setTimeout(() => setCopiedToken(false), 1500) })
   }
 
   function toggleAnnounce(t: string) {
@@ -175,14 +194,34 @@ cameras:
       {/* Shim token */}
       <Card>
         <CardHeader><CardTitle className="text-sm">GenAI shim token</CardTitle>
-          <CardDescription>Frigate must send this as its <code>api_key</code>. Generate one, then paste it into Frigate's config.</CardDescription></CardHeader>
-        <CardContent className="space-y-3">
+          <CardDescription>
+            A password Frigate sends (as its <code>genai.api_key</code>) so only it can use this app's vision model.
+            <span className="font-medium"> Generate</span> a new one, or <span className="font-medium">paste a token you already
+            have in Frigate</span> — handy when you reinstall this app and want to keep your existing Frigate config working.
+            Either way, click <span className="font-medium">Save</span> to store it.
+          </CardDescription></CardHeader>
+        <CardContent className="space-y-2">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={genToken}><KeyRound className="size-4 mr-1.5" />Generate token</Button>
-            {shimTokenSet && !shimToken && <span className="text-xs text-muted-foreground flex items-center gap-1"><Check className="size-3.5 text-green-500" />A token is set</span>}
+            <Input
+              value={shimToken}
+              onChange={(e) => setShimToken(e.target.value)}
+              placeholder={shimTokenSet ? '•••••• — a token is set; paste or generate to replace' : 'fg_…  paste your existing token, or generate →'}
+              className="font-mono text-xs"
+            />
+            <Button variant="outline" size="sm" onClick={genToken} className="shrink-0"><KeyRound className="size-4 mr-1.5" />Generate</Button>
+            <Button variant="outline" size="sm" onClick={copyToken} disabled={!shimToken} className="shrink-0" aria-label="Copy token">
+              {copiedToken ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+            </Button>
           </div>
+          {shimTokenSet && !shimToken && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <Check className="size-3.5 text-green-500" />A token is already set — leave blank to keep it.
+            </p>
+          )}
           {shimToken && (
-            <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs break-all select-all">{shimToken}</div>
+            <p className="text-xs text-amber-600 dark:text-amber-500">
+              Keep a copy (it's also in your Frigate config) — for security it isn't shown again after you leave this page.
+            </p>
           )}
         </CardContent>
       </Card>
@@ -238,11 +277,11 @@ cameras:
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <div><CardTitle className="text-sm">Paste into Frigate</CardTitle>
-            <CardDescription>Add to your Frigate <code>config.yaml</code> (0.18+ supports <code>base_url</code> natively; on 0.17 set <code>OPENAI_BASE_URL</code> env instead).</CardDescription></div>
-          <Button variant="ghost" size="sm" onClick={copyYaml}>{copied ? <Check className="size-4" /> : <Copy className="size-4" />}</Button>
+            <CardDescription>Your token and this app's address are already filled in — copy the whole block into Frigate's <code>config.yaml</code>.</CardDescription></div>
+          <Button variant="ghost" size="sm" onClick={copyYaml} className="shrink-0">{copied ? <Check className="size-4 mr-1.5 text-green-500" /> : <Copy className="size-4 mr-1.5" />}{copied ? 'Copied' : 'Copy all'}</Button>
         </CardHeader>
         <CardContent>
-          <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre">{yaml}</pre>
+          <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre leading-relaxed">{yaml}</pre>
         </CardContent>
       </Card>
     </div>

@@ -193,6 +193,9 @@ startPodGateway()
 // Server-side scheduler: fires alarms/timers to a user's connected Pods over the
 // persistent gateway socket (additive to the browser Time app's own firing).
 startPodScheduler()
+// UDP camera frame streamer for screen Pods (bypasses the esp-hosted TCP-inbound
+// stall, #184) — see lib/pod/cameraUdp.ts.
+import('@/lib/pod/cameraUdp').then((m) => m.startCameraUdp()).catch(() => {})
 // Build the zoomed-out world basemap in the background if the maps toolchain is
 // installed but the overview hasn't been built yet (one-time, then cached).
 void maybeBuildWorldOverview()

@@ -33,6 +33,8 @@ export interface FrigateConfig {
   shimTokenSet: boolean
   mqttPasswordSet: boolean
   allAnnounceTypes: string[]
+  /** Full base_url Frigate should use to reach this app's shim (LAN IP + backend port). */
+  shimBaseUrl: string
 }
 
 export interface FrigateTestResult {

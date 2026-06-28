@@ -111,7 +111,13 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     id: 'devices', label: 'Devices', icon: Cpu,
     keywords: ['devices', 'pod', 'pods', 'esp32', 'satellite', 'hardware', 'pairing', 'pair', 'wake word', 'echo', 'dot', 'show', 'watch', 'wyoming'],
     description: 'Set up and manage your voice devices around the home',
-    subsections: [],
+    subsections: [
+      {
+        id: 'home-screen', label: 'Home screen', kind: 'anchor', anchorId: 'devices-home-screen',
+        keywords: ['home', 'screen', 'display', 'clock', 'flip clock', 'date', 'weather', 'background', 'ambient', 'kiosk', 'wallpaper'],
+        description: 'Customize the ambient clock / weather display on screen devices',
+      },
+    ],
   },
   {
     id: 'frigate', label: 'Frigate', icon: Camera,

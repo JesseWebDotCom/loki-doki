@@ -26,6 +26,7 @@ import { SetupWizard } from '@/pages/SetupWizard'
 import { WelcomeWizard } from '@/pages/WelcomeWizard'
 import { ProfilePickerPage } from '@/pages/ProfilePickerPage'
 import { HomePage } from '@/pages/HomePage'
+import { DisplayPage } from '@/pages/DisplayPage'
 import { WeatherPage } from '@/pages/WeatherPage'
 import { MapsPage } from '@/pages/MapsPage'
 import { ImagingPage } from '@/pages/ImagingPage'
@@ -391,6 +392,9 @@ export default function App() {
                 no boot screen, no welcome wizard, no setup widget. */}
             <Route element={<SaveGuard />}>
               <Route path="/save" element={<SavePage />} />
+              {/* Ambient device display — same chrome-less, auth-only guard so a screen
+                  Pod's render shows the clock/weather straight away (no boot/welcome UI). */}
+              <Route path="/display" element={<DisplayPage />} />
             </Route>
 
             {/* Catch-all */}

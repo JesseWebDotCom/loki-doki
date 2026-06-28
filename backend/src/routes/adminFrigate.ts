@@ -9,11 +9,16 @@ import {
   getFrigateConfig, setFrigateConfigValue, ALL_ANNOUNCE_TYPES, type AnnounceType,
 } from '@/lib/frigate/config'
 import { startFrigateMqtt, isFrigateMqttConnected } from '@/lib/frigate/mqtt'
+import { getServerHost } from '@/lib/pod/firmware'
 
 const adminFrigate = new Hono<AppEnv>()
 
 adminFrigate.get('/config', requireAdmin, async (c) => {
   const cfg = await getFrigateConfig()
+  // The base_url Frigate must use to reach THIS app's shim. Frigate runs on another
+  // box, so it can't use the admin browser's origin (often localhost in dev) — use the
+  // server's LAN IP + backend port, the same address devices are pointed at.
+  const shimBaseUrl = `http://${await getServerHost()}:${process.env.PORT ?? '3000'}/api/frigate/v1`
   return c.json({
     enabled: cfg.enabled,
     baseUrl: cfg.baseUrl ?? '',
@@ -25,6 +30,7 @@ adminFrigate.get('/config', requireAdmin, async (c) => {
     shimTokenSet: !!cfg.shimToken,
     mqttPasswordSet: !!cfg.mqttPassword,
     allAnnounceTypes: ALL_ANNOUNCE_TYPES,
+    shimBaseUrl,
   })
 })
 

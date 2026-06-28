@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { FlashDeviceWizard } from '@/components/admin/FlashDeviceWizard'
 import { DeviceGroupsPanel } from '@/components/admin/DeviceGroupsPanel'
+import { AdminHomeScreenCard } from '@/components/admin/AdminHomeScreenCard'
 import { DeviceHelpDialog } from '@/components/admin/DeviceHelpDialog'
 import { DeviceManageSheet } from '@/components/admin/DeviceManageSheet'
 import { DeviceArt } from '@/components/admin/DeviceArt'
@@ -48,6 +49,54 @@ async function getJSON<T>(url: string): Promise<T> {
   return r.json() as Promise<T>
 }
 
+interface StreamHealth {
+  mac: string; addr: string; name: string | null; deviceId: string | null
+  sourceFps: number; sentFps: number; receivedFps: number; decodedFps: number
+  lossPct: number; lastBytes: number; ageMs: number; status: 'ok' | 'warn' | 'bad'
+}
+
+const healthTone = (s: string) => s === 'ok'
+  ? 'text-green-600 dark:text-green-400 bg-green-500/15'
+  : s === 'warn' ? 'text-amber-600 dark:text-amber-400 bg-amber-500/15'
+    : 'text-red-600 dark:text-red-400 bg-red-500/15'
+const healthLabel = (s: string) => s === 'ok' ? 'Healthy' : s === 'warn' ? 'Lossy' : 'Poor signal'
+
+// Compact per-device camera pipeline (source→sent→received→decoded + loss%), shown inside
+// each device card when that Pod is actively streaming video. loss% is the health signal
+// (it tracks Wi-Fi/RF); frame rate follows the camera's own source rate.
+function StreamHealthInline({ h }: { h: StreamHealth }) {
+  return (
+    <div className="rounded-xl bg-muted/40 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium text-muted-foreground">Camera stream</span>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${healthTone(h.status)}`}>
+          {healthLabel(h.status)} · {h.lossPct}% loss
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-center gap-1">
+        <Stat label="source" v={h.sourceFps} />
+        <Arrow />
+        <Stat label="sent" v={h.sentFps} />
+        <Arrow />
+        <Stat label="recv" v={h.receivedFps} />
+        <Arrow />
+        <Stat label="decoded" v={h.decodedFps} highlight />
+        <span className="ml-auto text-[10px] text-muted-foreground">{Math.round(h.lastBytes / 1024)} KB</span>
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, v, highlight }: { label: string; v: number; highlight?: boolean }) {
+  return (
+    <div className="flex flex-col items-center">
+      <span className={`font-mono text-sm ${highlight ? 'text-foreground font-semibold' : 'text-foreground/80'}`}>{v}</span>
+      <span className="text-[10px]">{label}</span>
+    </div>
+  )
+}
+function Arrow() { return <span className="text-muted-foreground/50">→</span> }
+
 export function AdminDevicesTab() {
   const qc = useQueryClient()
   // Poll briskly so the live activity badge (listening/thinking/speaking) tracks a
@@ -57,6 +106,13 @@ export function AdminDevicesTab() {
   const { data: companions = [] } = useQuery({ queryKey: ['companions-list'], queryFn: () => getJSON<Companion[]>('/api/companions') })
   const { data: wakewords } = useQuery({ queryKey: ['wakewords-list'], queryFn: () => getJSON<{ detectors: Detector[] }>('/api/voice/wakewords') })
   const { data: discovered = [] } = useQuery({ queryKey: ['pod-discovered'], queryFn: () => getJSON<DiscoveredDevice[]>('/api/pod/discovered'), refetchInterval: 4000 })
+  // Live camera stream health, keyed by device id (shown inside each card while streaming).
+  const { data: streamHealth } = useQuery({
+    queryKey: ['pod-stream-health'],
+    queryFn: () => getJSON<{ devices: StreamHealth[] }>('/api/pod/devices/stream-health'),
+    refetchInterval: 2000,
+  })
+  const healthById = new Map((streamHealth?.devices ?? []).filter((h) => h.deviceId).map((h) => [h.deviceId as string, h]))
 
   const [flashOpen, setFlashOpen] = useState(false)
   // When set, the wizard runs in streamlined "reinstall" mode for this existing
@@ -163,11 +219,14 @@ export function AdminDevicesTab() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {devices.map((d) => (
-              <DeviceCard key={d.id} d={d} userName={userName(d.userId)} onManage={() => setManage(d)} onTest={() => testDevice(d)} />
+              <DeviceCard key={d.id} d={d} userName={userName(d.userId)} health={healthById.get(d.id)} onManage={() => setManage(d)} onTest={() => testDevice(d)} />
             ))}
           </div>
         )}
       </section>
+
+      {/* Home screen — customize the ambient /display screen (clock, date, weather) */}
+      <AdminHomeScreenCard />
 
       {/* Central settings, grouped (dimming, …) — deployed live over the gateway */}
       <DeviceGroupsPanel />
@@ -240,7 +299,7 @@ export function AdminDevicesTab() {
 
 // ── Device card (App-Store style) ──────────────────────────────────────────────
 
-function DeviceCard({ d, userName, onManage, onTest }: { d: DeviceRow; userName: string; onManage: () => void; onTest: () => void }) {
+function DeviceCard({ d, userName, health, onManage, onTest }: { d: DeviceRow; userName: string; health?: StreamHealth; onManage: () => void; onTest: () => void }) {
   const art = resolveDeviceModel(d.model, d.kind)
   const expired = !!d.pairingExpiresAt && new Date(d.pairingExpiresAt).getTime() < Date.now()
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn() }
@@ -275,6 +334,9 @@ function DeviceCard({ d, userName, onManage, onTest }: { d: DeviceRow; userName:
           <span className="ml-auto text-[10px] text-muted-foreground">{expired ? 'expired' : 'enter on device'}</span>
         </div>
       )}
+
+      {/* Live camera stream health (only while this Pod is streaming video) */}
+      {health && <StreamHealthInline h={health} />}
 
       <div className="mt-auto flex items-center gap-2">
         <Button size="sm" variant="secondary" className="h-9 flex-1 gap-1.5 rounded-xl text-xs" onClick={stop(onTest)} disabled={!d.online}>

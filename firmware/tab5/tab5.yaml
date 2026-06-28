@@ -25,6 +25,7 @@ substitutions:
   friendly_name: LokiDoki Tab5
   lokidoki_host: "192.168.1.50"   # ← your Loki Doki server's LAN IP (injected at build)
   lokidoki_port: "10700"          # POD_GATEWAY_PORT (default 10700)
+  lokidoki_http_port: "3000"      # HTTP API port — serves the server-rendered display
   # Home Wi-Fi is injected at build time by the app, so a flashed device auto-joins
   # on power-up — no per-device Wi-Fi step. Left blank here, it falls back to the
   # setup AP + Improv (serial) provisioning.
@@ -49,6 +50,12 @@ esphome:
       - light.turn_on:
           id: backlight
           brightness: 100%
+      # Start with the mic OFF so the device doesn't wake on TV/background audio; the
+      # user taps the on-screen MIC button to start listening.
+      - lambda: 'id(satellite)->set_mic_enabled(false);'
+      # NOTE: switching to page_camera happens from the render interval below (a
+      # one-time lv_screen_load once LVGL is fully up) — doing it here in on_boot ran
+      # too early and silently no-op'd (telemetry showed on_cam_page=0).
 
 esp32:
   variant: esp32p4
@@ -208,7 +215,9 @@ display:
 touchscreen:
   - platform: gt911
     interrupt_pin: GPIO23
-    update_interval: never
+    # Poll actively (not interrupt-only) so LVGL reliably gets touch even when the
+    # main loop is busy — interrupt-only reads were being missed.
+    update_interval: 33ms
     reset_pin:
       pi4ioe5v6408: pi4ioe1
       number: 5
@@ -335,6 +344,25 @@ font:
     id: font_footer
     size: 38
 
+# Tiny placeholder so the LVGL `image` widget has a valid src at build time; the
+# camera view repoints it at the live hardware-decoded frame buffer at runtime.
+# Declaring an image widget also guarantees LVGL's image code (LV_USE_IMAGE) is built.
+image:
+  - file: placeholder.png
+    id: cam_placeholder
+    type: RGB565
+
+# ── Hardware JPEG camera source (ESP32-P4) ─────────────────────────────────────
+# Pulls JPEG frames from the server's living-room camera test endpoint and decodes
+# them in the P4's hardware JPEG codec on a background task (see components/hw_jpeg).
+# The LVGL `cam_img` widget is bound to the decoded buffer in the interval below.
+hw_jpeg:
+  id: cam
+  host: "${lokidoki_host}"   # frames stream over UDP (TCP inbound stalls on esp-hosted #184)
+  udp_port: 10701
+  width: 1280
+  height: 720
+
 # ── Ambient dashboard (LVGL) ──────────────────────────────────────────────────
 # Google-Hub style: when idle the screen shows a big clock; conversation states
 # (driven by the satellite's face.state in Phase 2) swap the visuals. LVGL renders
@@ -386,6 +414,93 @@ lvgl:
                   text: ""
                   text_font: font_footer
                   text_color: 0xFFFFFF
+        # Native touch controls (top-left). Speaker = mute TTS; Mic = wake/listen
+        # (boots OFF/red). Native LVGL widgets → touch works directly.
+        - button:
+            id: btn_mute
+            align: TOP_LEFT
+            x: 16
+            y: 16
+            width: 84
+            height: 84
+            radius: 42
+            border_width: 0
+            shadow_width: 0
+            bg_color: 0x000000
+            bg_opa: 45%
+            widgets:
+              - label:
+                  id: lbl_mute
+                  align: CENTER
+                  text: "\uF028"
+                  text_font: montserrat_40
+                  text_color: 0xFFFFFF
+            on_click:
+              then:
+                - lambda: |-
+                    id(satellite)->toggle_muted();
+                    bool m = id(satellite)->is_muted();
+                    lv_label_set_text(id(lbl_mute), m ? "\uF026" : "\uF028");
+                    lv_obj_set_style_text_color(id(lbl_mute), lv_color_hex(0xFFFFFF), 0);
+                    lv_obj_set_style_bg_color(id(btn_mute), lv_color_hex(m ? 0xDC2626 : 0x000000), 0);
+                    lv_obj_set_style_bg_opa(id(btn_mute), m ? 230 : 115, 0);
+        - button:
+            id: btn_mic
+            align: TOP_LEFT
+            x: 16
+            y: 112
+            width: 84
+            height: 84
+            radius: 42
+            border_width: 0
+            shadow_width: 0
+            bg_color: 0xDC2626    # boots red = mic off
+            bg_opa: 90%
+            widgets:
+              - label:
+                  id: lbl_mic
+                  align: CENTER
+                  text: "\uF001"
+                  text_font: montserrat_40
+                  text_color: 0xFFFFFF
+            on_click:
+              then:
+                - lambda: |-
+                    id(satellite)->toggle_mic_enabled();
+                    bool on = id(satellite)->is_mic_enabled();
+                    lv_obj_set_style_text_color(id(lbl_mic), lv_color_hex(0xFFFFFF), 0);
+                    lv_obj_set_style_bg_color(id(btn_mic), lv_color_hex(on ? 0x16A34A : 0xDC2626), 0);
+                    lv_obj_set_style_bg_opa(id(btn_mic), 230, 0);
+
+    # ── Full-screen camera (perf test) ─────────────────────────────────────────
+    # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer
+    # (see the 10 ms interval). lbl_fps shows the measured frame rate + bytes/frame.
+    - id: page_camera
+      bg_color: 0x000000
+      bg_opa: COVER
+      widgets:
+        - image:
+            id: cam_img
+            src: cam_placeholder
+            align: CENTER
+        - obj:
+            align: TOP_RIGHT
+            x: -12
+            y: 12
+            width: 230
+            height: 56
+            radius: 12
+            bg_color: 0x000000
+            bg_opa: 65%
+            border_width: 0
+            pad_all: 0
+            widgets:
+              - label:
+                  id: lbl_fps
+                  align: CENTER
+                  text: "-- fps"
+                  text_font: font_footer
+                  text_color: 0x00FF66
 
 # Tick the clock once a second from network time. Skipped while the companion is
 # speaking — re-rendering the 300 px time mid-reply blocks the loop long enough to
@@ -412,6 +527,94 @@ interval:
                   auto t = id(tab5_time).now();
                   if (!t.is_valid()) return std::string("");
                   return t.strftime("%A, %b %e");
+  # Local animated rain — a NATIVE LVGL layer (no network, no stream). Drops are
+  # created once behind the dashboard, then nudged down each tick and wrapped at the
+  # bottom. Only the small drop rectangles invalidate, so the clock/buttons aren't
+  # re-rendered every frame. The loop is otherwise free, so this stays smooth and touch
+  # responsive.
+  # ── Camera: blit the latest hardware-decoded frame into the LVGL image ─────────
+  # Runs on the main loop (LVGL is single-threaded); the fetch+decode happen on the
+  # hw_jpeg background task. We only touch LVGL when a fresh frame is ready.
+  - interval: 10ms
+    then:
+      - lambda: |-
+          // One-time switch to the camera page once LVGL is fully initialised (on_boot
+          // was too early). Runs here so it's guaranteed after setup.
+          static bool shown = false;
+          if (!shown) { lv_screen_load(id(page_camera)->obj); shown = true; }
+          if (!id(cam)->has_new_frame()) return;
+          int w = id(cam)->frame_w();
+          int h = id(cam)->frame_h();
+          if (w <= 0 || h <= 0) { id(cam)->clear_new_frame(); return; }
+          static lv_image_dsc_t dsc;
+          dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+          dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+          dsc.header.w = w;
+          dsc.header.h = h;
+          dsc.header.stride = w * 2;
+          dsc.data = id(cam)->front_buffer();
+          dsc.data_size = (uint32_t) w * h * 2;
+          lv_image_set_src(id(cam_img), &dsc);
+          lv_obj_invalidate(id(cam_img));
+          id(cam)->clear_new_frame();
+
+  # ── Camera: FPS + bytes/frame readout (from the decoder's running counters) ────
+  - interval: 500ms
+    then:
+      - lambda: |-
+          static uint32_t last_frames = 0;
+          static uint32_t last_recv = 0;
+          static uint32_t last_ms = 0;
+          uint32_t now = millis();
+          uint32_t f = id(cam)->frames();
+          uint32_t rcv = id(cam)->received();
+          float fps = 0, rfps = 0;
+          if (last_ms != 0 && now > last_ms) {
+            fps = (f - last_frames) * 1000.0f / (now - last_ms);
+            rfps = (rcv - last_recv) * 1000.0f / (now - last_ms);
+          }
+          char buf[48];
+          snprintf(buf, sizeof(buf), "%.0f fps  %ukB", fps, id(cam)->last_bytes() / 1024);
+          lv_label_set_text(id(lbl_fps), buf);
+          // received_fps vs decoded_fps: received≈decoded → decode-limited (good);
+          // received≫decoded → still drop/starve-limited.
+          ESP_LOGI("tab5cam", "decoded=%.1ffps received=%.1ffps last_bytes=%u dims=%dx%d",
+                   fps, rfps, id(cam)->last_bytes(), id(cam)->frame_w(), id(cam)->frame_h());
+          last_frames = f;
+          last_recv = rcv;
+          last_ms = now;
+
+  - interval: 33ms
+    then:
+      - lambda: |-
+          // Rain only animates on the clock page; skip it entirely while the camera
+          // is up so it doesn't steal main-loop time from the frame blit.
+          if (lv_screen_active() != id(page_clock)->obj) return;
+          static std::vector<lv_obj_t *> drops;
+          if (drops.empty()) {
+            lv_obj_t *scr = lv_screen_active();
+            for (int i = 0; i < 36; i++) {
+              lv_obj_t *d = lv_obj_create(scr);
+              lv_obj_remove_style_all(d);
+              lv_obj_set_size(d, 2, 14 + (i * 7) % 26);
+              lv_obj_set_style_bg_color(d, lv_color_hex(0x9FB2C8), 0);
+              lv_obj_set_style_bg_opa(d, 70 + (i * 17) % 110, 0);
+              lv_obj_set_style_radius(d, 1, 0);
+              lv_obj_clear_flag(d, LV_OBJ_FLAG_CLICKABLE);
+              lv_obj_set_pos(d, (i * 137) % 1280, -((i * 53) % 760));
+              lv_obj_move_background(d);
+              drops.push_back(d);
+            }
+            return;
+          }
+          for (size_t i = 0; i < drops.size(); i++) {
+            int y = lv_obj_get_y(drops[i]) + 14 + (int) (i % 4) * 4;
+            if (y > 720) {
+              y = -30;
+              lv_obj_set_x(drops[i], (lv_obj_get_x(drops[i]) + 71) % 1280);
+            }
+            lv_obj_set_y(drops[i], y);
+          }
 
 # Conversation state from the satellite (idle/connecting/listening/thinking/talking).
 # On each change we either hide the overlay (back to the clock) or show a bold,

@@ -112,11 +112,13 @@ void LokiDokiSatellite::loop() {
       if (this->speaker_ != nullptr && this->speaker_->is_stopped() &&
           (this->mic_ == nullptr || this->mic_->is_stopped())) {
         this->speaker_->start();
-        this->speaker_->set_volume(1.0f);  // ensure full software volume
+        this->speaker_->set_volume(this->muted_ ? 0.0f : 1.0f);
       }
       // Feed the speaker EXACTLY like HA's write_speaker_(): play up to 4 KB from the
       // front of the fixed buffer, then memmove the remainder down. No allocation.
       if (this->speaker_ != nullptr && this->speaker_->is_running() && this->speaker_buffer_size_ > 0) {
+        // Track mute live so a toggle mid-reply takes effect (0 volume = silent drain).
+        this->speaker_->set_volume(this->muted_ ? 0.0f : 1.0f);
         size_t write_chunk = std::min<size_t>(this->speaker_buffer_size_, 4 * 1024);
         size_t written = this->speaker_->play(this->speaker_buffer_, write_chunk);
         if (written > 0) {
@@ -548,7 +550,8 @@ void LokiDokiSatellite::button_up() {
 }
 
 void LokiDokiSatellite::on_mic_data_(const std::vector<uint8_t> &data) {
-  if (!this->connected_ || this->playing_ || data.empty()) return;
+  // mic_enabled_ false → drop mic audio so nothing reaches the server (wake word off).
+  if (!this->connected_ || this->playing_ || data.empty() || !this->mic_enabled_) return;
   std::lock_guard<std::mutex> lk(this->mic_mtx_);
   // Cap the backlog small — heap is precious on this chip. ~0.25 s; older audio is
   // dropped if the uplink stalls.

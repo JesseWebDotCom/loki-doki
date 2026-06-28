@@ -34,6 +34,10 @@ const SHARED_COMPONENT_FILES = [
   'components/lokidoki_satellite/__init__.py',
   'components/lokidoki_satellite/lokidoki_satellite.cpp',
   'components/lokidoki_satellite/lokidoki_satellite.h',
+  // Hardware-JPEG display source (Tab5 / P4 screen devices).
+  'components/hw_jpeg/__init__.py',
+  'components/hw_jpeg/hw_jpeg.cpp',
+  'components/hw_jpeg/hw_jpeg.h',
 ]
 
 // Per-device firmware. `id` matches the device.model in the frontend catalog
@@ -44,11 +48,16 @@ interface FirmwareModel {
   configRel: string
   /** ESP chip family esptool reports (e.g. 'ESP32', 'ESP32-P4'). */
   chip: string
+  /** Extra non-component files the YAML references (images, etc.), relative to
+   *  firmware/, that must be synced into the build dir alongside the config. */
+  assets?: string[]
 }
 
 const FIRMWARE_MODELS: Record<string, FirmwareModel> = {
   'atom-echo': { configRel: 'atom-echo/atom-echo.yaml', chip: 'ESP32' },
-  tab5: { configRel: 'tab5/tab5.yaml', chip: 'ESP32-P4' },
+  // placeholder.png backs the LVGL camera image widget (repointed at the live HW-JPEG
+  // buffer at runtime); it must be present in the build dir for ESPHome to bake it in.
+  tab5: { configRel: 'tab5/tab5.yaml', chip: 'ESP32-P4', assets: ['tab5/placeholder.png'] },
 }
 
 const DEFAULT_MODEL = 'atom-echo'
@@ -83,7 +92,7 @@ async function fetchFirmwareFile(rel: string, onLine: (l: string) => void, signa
 
 /** Ensure a model's YAML + the shared component are present under BUILD_ROOT. */
 async function ensureFirmwareFiles(fw: FirmwareModel, onLine: (l: string) => void, signal?: AbortSignal): Promise<void> {
-  for (const rel of [fw.configRel, ...SHARED_COMPONENT_FILES]) {
+  for (const rel of [fw.configRel, ...(fw.assets ?? []), ...SHARED_COMPONENT_FILES]) {
     await fetchFirmwareFile(rel, onLine, signal)
   }
 }

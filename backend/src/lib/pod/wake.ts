@@ -35,7 +35,10 @@ const RAW_BUF = 35_200        // MUST match RAW_AUDIO_BUFFER_SAMPLES / train_wak
 const EMB_BUF_FRAMES = 50     // round(4s * 16000 / 1280)
 const DET_FRAMES = 16
 const WARMUP_ZERO_FRAMES = 5
-const HYSTERESIS_FRAMES = 2
+// Consecutive frames (80 ms each) above threshold required to fire. Raised from 2 to
+// 4 (~320 ms sustained) to reject brief false matches from background audio like a TV
+// — a real wake phrase easily sustains it; a coincidental phoneme burst doesn't.
+const HYSTERESIS_FRAMES = 4
 const POST_WAKE_SUPPRESS_MS = 1000
 const WAKE_SAMPLE_RATE = 16_000
 

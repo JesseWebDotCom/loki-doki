@@ -6,7 +6,7 @@
 //   DELETE /api/pod/devices/:id        (admin) remove a device
 
 import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
+import { streamSSE, stream } from 'hono/streaming'
 import { requireAdmin } from '@/middleware/auth'
 import type { AppEnv } from '@/types'
 import {
@@ -22,6 +22,12 @@ import {
 import {
   listGroups, createGroup, updateGroup, deleteGroup, assignDeviceGroup,
 } from '@/lib/pod/deviceSettings'
+import { captureDeviceFrame, deviceByHwid } from '@/lib/pod/displayRenderer'
+import { deviceDisplayMode, setDeviceCamera, setDeviceAuto, fetchCameraFrame } from '@/lib/pod/displayController'
+import { latestLivingRoomFrame } from '@/lib/pod/cameraStream'
+import { startFfmpegTest, startFfmpegSource, startUrlTest, stopTest, isTestActive } from '@/lib/pod/cameraTest'
+import { livingRoomMjpegUrl } from '@/lib/pod/cameraStream'
+import { setPacing, cameraStats, deviceStreamHealth } from '@/lib/pod/cameraUdp'
 
 const pod = new Hono<AppEnv>()
 
@@ -37,6 +43,154 @@ pod.post('/pair', async (c) => {
   if (!result) return c.json({ error: 'invalid or expired pairing code' }, 404)
   // The token is returned exactly once; the server only keeps its hash.
   return c.json(result)
+})
+
+// ── Pod-facing: server-rendered ambient display ──────────────────────────────
+// The firmware's `online_image` GETs this a few times a second and blits it to the
+// screen. Identified by hwid (the device knows its own MAC); unauthenticated by the
+// same LAN-appliance trust model as claim-by-hwid — the device must already exist
+// and be bound to a user. Returns a JPEG of that user's /display page.
+pod.get('/display/:hwid', async (c) => {
+  const dev = await deviceByHwid(c.req.param('hwid'))
+  if (!dev) return c.json({ error: 'unknown device' }, 404)
+
+  // Server decides the content: a manually-set camera, else the ambient web page.
+  const mode = deviceDisplayMode(dev.id)
+  let frame: Buffer | null = null
+  if (mode.mode === 'camera' && mode.cameraUrl) {
+    frame = await fetchCameraFrame(mode.cameraUrl)
+  }
+  if (!frame) frame = await captureDeviceFrame(dev.id, dev.userId) // fallback to clock/weather
+
+  if (!frame) return c.json({ error: 'display rendering unavailable' }, 503)
+  return new Response(new Uint8Array(frame), {
+    status: 200,
+    headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
+  })
+})
+
+// Continuous frame STREAM over one connection — the hw_jpeg firmware reads
+// [uint32 LE length][jpeg bytes] repeatedly and hardware-decodes each. Avoids the
+// per-frame HTTP connection overhead that capped the poll path at a few fps.
+pod.get('/display/:hwid/stream', async (c) => {
+  const dev = await deviceByHwid(c.req.param('hwid'))
+  if (!dev) return c.json({ error: 'unknown device' }, 404)
+  c.header('Content-Type', 'application/octet-stream')
+  c.header('Cache-Control', 'no-store')
+  return stream(c, async (s) => {
+    let alive = true
+    s.onAbort(() => { alive = false })
+    const header = new Uint8Array(4)
+    const view = new DataView(header.buffer)
+    while (alive) {
+      const mode = deviceDisplayMode(dev.id)
+      let frame: Buffer | null = null
+      if (mode.mode === 'camera' && mode.cameraUrl) frame = await fetchCameraFrame(mode.cameraUrl)
+      if (!frame) frame = await captureDeviceFrame(dev.id, dev.userId)
+      if (frame) {
+        view.setUint32(0, frame.length, true)
+        await s.write(header)
+        await s.write(new Uint8Array(frame))
+      }
+      await s.sleep(55)  // ~caps the rate; real limit is render + device decode/transfer
+    }
+  })
+})
+
+// ── Pod-facing: living-room camera perf test ─────────────────────────────────
+// Returns the freshest living-room frame straight from the persistent Frigate MJPEG
+// cache (no per-request upstream fetch), so the device's hw_jpeg loop can hammer this
+// flat-out and the on-screen FPS counter reflects the device's real ceiling. LAN-trust
+// like /display (no MAC needed — it's a single shared test feed).
+pod.get('/camera-test', async (c) => {
+  const frame = await latestLivingRoomFrame()
+  if (!frame) return c.json({ error: 'camera unavailable' }, 503)
+  return new Response(new Uint8Array(frame), {
+    status: 200,
+    headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
+  })
+})
+
+// Continuous PUSH stream of living-room frames over ONE connection: [uint32 LE
+// length][jpeg bytes] repeated. The device opens this once and reads frame after
+// frame — no per-request round-trip (which over the C6/SDIO bridge was the ~2 fps
+// wall). Backpressure paces it to whatever the device can decode.
+pod.get('/camera-test/stream', async (c) => {
+  c.header('Content-Type', 'application/octet-stream')
+  c.header('Cache-Control', 'no-store')
+  return stream(c, async (s) => {
+    let alive = true
+    s.onAbort(() => { alive = false })
+    const header = new Uint8Array(4)
+    const view = new DataView(header.buffer)
+    while (alive) {
+      const frame = await latestLivingRoomFrame()
+      if (frame) {
+        view.setUint32(0, frame.length, true)
+        await s.write(header)
+        await s.write(new Uint8Array(frame))
+      }
+      await s.sleep(20) // ~50fps ceiling; TCP backpressure throttles to device speed
+    }
+  })
+})
+
+// Server-side camera rate stats (source-fps it's receiving, sent-fps it's pushing).
+pod.get('/camera-test/stats', (c) => c.json(cameraStats()))
+
+// Per-device camera stream health for Admin → Devices: the full source→sent→received→
+// decoded chain + loss% per Pod. loss% is the health signal; <35 ok, <60 warn, else bad.
+pod.get('/devices/stream-health', requireAdmin, async (c) => {
+  const health = deviceStreamHealth()
+  const devs = await listDevices()
+  const norm = (s: string) => s.replace(/[^a-f0-9]/gi, '').toLowerCase()
+  const rows = health.map((h) => {
+    const dev = devs.find((d) => d.hwid && norm(d.hwid) === norm(h.mac))
+    const status = h.lossPct < 35 ? 'ok' : h.lossPct < 60 ? 'warn' : 'bad'
+    return { ...h, deviceId: dev?.id ?? null, name: dev?.name ?? null, status }
+  })
+  return c.json({ devices: rows })
+})
+
+// Live-tune UDP fragment pacing (no restart): POST { batch, pace }.
+pod.post('/camera-test/pacing', async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as { batch?: number; pace?: number }
+  return c.json(setPacing(b.batch, b.pace))
+})
+
+// ── Pod camera TEST source switch (perf testing only) ─────────────────────────
+// POST { mode: 'ffmpeg', fps?, w?, h?, q? }  → generated moving pattern at N fps
+// POST { mode: 'urls', urls: [..] }          → rotate through public MJPEG URLs
+// POST { mode: 'frigate' }                   → back to the living-room camera
+// LAN-trust like the other /camera-test endpoints so it can be driven without a session.
+pod.post('/camera-test/source', async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as
+    { mode?: string; fps?: number; w?: number; h?: number; q?: number; urls?: string[] }
+  if (b.mode === 'ffmpeg') startFfmpegTest(b.fps ?? 30, b.w ?? 640, b.h ?? 360, b.q ?? 6)
+  else if (b.mode === 'urls' && Array.isArray(b.urls) && b.urls.length) startUrlTest(b.urls)
+  else {
+    // 'frigate' | 'frigate-hd' | default → the real camera scaled to native panel size on
+    // the server, so the device decodes fullscreen with no upscale (decoded≈received).
+    const url = await livingRoomMjpegUrl()
+    if (url) startFfmpegSource(url, b.w ?? 1280, b.h ?? 720, b.fps ?? 25, b.q ?? 12)
+    else stopTest()
+  }
+  return c.json({ ok: true, mode: b.mode ?? 'frigate-hd' })
+})
+
+// ── Admin: drive a device's screen (manual camera test) ───────────────────────
+// POST { mode: 'auto' } → back to the clock/weather page.
+// POST { mode: 'camera', url } → show that camera's live frames full-screen.
+pod.post('/devices/:id/display', requireAdmin, async (c) => {
+  const id = c.req.param('id')
+  const body = (await c.req.json().catch(() => ({}))) as { mode?: string; url?: string; holdMs?: number }
+  if (body.mode === 'camera') {
+    if (!body.url?.trim()) return c.json({ error: 'url is required for camera mode' }, 400)
+    setDeviceCamera(id, body.url.trim(), body.holdMs)
+  } else {
+    setDeviceAuto(id)
+  }
+  return c.json({ ok: true, mode: deviceDisplayMode(id) })
 })
 
 // ── Admin: device CRUD ───────────────────────────────────────────────────────

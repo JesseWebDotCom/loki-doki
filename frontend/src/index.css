@@ -649,3 +649,107 @@
   animation: admin-flash 1.5s ease-out;
   border-radius: 0.75rem;
 }
+
+/* ── Ambient device display (/display) ─────────────────────────────────────── */
+/* Container-query sizing: everything inside is measured in cqmin units so the same
+   canvas scales identically from a full wall display to a tiny settings preview. */
+.home-display-canvas {
+  container-type: size;
+}
+
+/* ── Split-flap "flip clock" ───────────────────────────────────────────────── */
+/* Sized entirely in em, so the inherited font-size sets the scale. */
+.flip-clock {
+  display: flex;
+  align-items: center;
+  gap: 0.14em;
+  font-weight: 700;
+  line-height: 1;
+}
+/* Chunky near-black tiles like a physical split-flap clock: the card is noticeably
+   bigger than the numeral, so there's generous black around each digit. */
+.flip-digit {
+  position: relative;
+  width: 1em;
+  height: 1.5em;
+  margin: 0 0.03em;
+  perspective: 1200px;
+  font-variant-numeric: tabular-nums;
+}
+.flip-half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0.75em;
+  overflow: hidden;
+  background: linear-gradient(180deg, #1b1c1f 0%, #0a0a0c 100%);
+}
+.flip-top {
+  top: 0;
+  border-radius: 0.12em 0.12em 0 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 0.02em 0.04em rgba(255, 255, 255, 0.06);
+}
+.flip-bottom {
+  bottom: 0;
+  border-radius: 0 0 0.12em 0.12em;
+  box-shadow: inset 0 -0.025em 0.05em rgba(0, 0, 0, 0.5);
+}
+/* Numeral is smaller than the card and centered across the seam, leaving the black
+   margin around it. height = full digit height so the two halves line up. */
+.flip-half span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1.5em;
+  line-height: 1.5em;
+  text-align: center;
+  color: #f7f8fb;
+}
+.flip-top span { top: 0; }
+.flip-bottom span { bottom: 0; }
+.flip-anim {
+  position: absolute;
+  inset: 0;
+}
+.flip-fold-top {
+  transform-origin: center bottom;
+  backface-visibility: hidden;
+  animation: flip-fold-top 0.28s ease-in forwards;
+}
+.flip-fold-bottom {
+  transform-origin: center top;
+  transform: rotateX(90deg);
+  backface-visibility: hidden;
+  animation: flip-fold-bottom 0.28s ease-out 0.28s forwards;
+}
+@keyframes flip-fold-top {
+  to { transform: rotateX(-90deg); }
+}
+@keyframes flip-fold-bottom {
+  to { transform: rotateX(0deg); }
+}
+.flip-colon {
+  color: #f5f7fb;
+  font-weight: 700;
+  opacity: 0.85;
+  padding: 0 0.04em;
+  margin-bottom: 0.04em;
+}
+.flip-ampm {
+  align-self: flex-start;
+  margin-top: 0.35em;
+  margin-left: 0.12em;
+  font-size: 0.3em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #f5f7fb;
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flip-fold-top,
+  .flip-fold-bottom {
+    animation-duration: 0.001s;
+  }
+}

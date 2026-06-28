@@ -47,6 +47,15 @@ class LokiDokiSatellite : public Component {
   void button_down();
   void button_up();
 
+  // On-screen (touch) controls for screened pods. Mute suppresses TTS playback;
+  // disabling the mic stops the uplink so the server-side wake word can't trigger.
+  void set_muted(bool m) { this->muted_ = m; }
+  bool is_muted() const { return this->muted_; }
+  void toggle_muted() { this->muted_ = !this->muted_; }
+  void set_mic_enabled(bool e) { this->mic_enabled_ = e; }
+  bool is_mic_enabled() const { return this->mic_enabled_; }
+  void toggle_mic_enabled() { this->mic_enabled_ = !this->mic_enabled_; }
+
  protected:
   // ── connection lifecycle ──
   bool connect_();
@@ -97,6 +106,12 @@ class LokiDokiSatellite : public Component {
   bool connected_{false};
   bool audio_started_{false};        // sent the single audio-start yet?
   uint32_t last_connect_attempt_{0};
+
+  // Touch-control state (screened pods): mute TTS output, and stop streaming mic up.
+  // Defaults on (screenless pods rely on it); screen devices that have a MIC button
+  // disable it at boot via set_mic_enabled(false) so they don't wake on TV audio.
+  bool muted_{false};
+  bool mic_enabled_{true};
 
   // Half-duplex playback: while a reply plays we own the I2S bus with the speaker
   // and pause the mic; once the audio drains we hand the bus back to the mic.

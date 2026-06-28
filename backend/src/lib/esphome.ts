@@ -56,11 +56,21 @@ export function run(cmd: string, args: string[], opts: RunOpts = {}): Promise<vo
       env: { ...process.env, ...opts.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const onAbort = () => { try { child.kill('SIGTERM') } catch { /* dead */ } }
+    // SIGTERM, then SIGKILL if it doesn't die. ESPHome/PlatformIO can ignore SIGTERM
+    // (and keep child compilers alive), so without escalation an aborted/timed-out
+    // build never fires 'exit' → this promise never settles → the caller's flash
+    // stays "busy" forever (the wizard then 409s on every retry). SIGKILL guarantees
+    // the process exits so the promise rejects and the busy flag clears.
+    let killTimer: ReturnType<typeof setTimeout> | null = null
+    const terminate = () => {
+      try { child.kill('SIGTERM') } catch { /* dead */ }
+      if (!killTimer) killTimer = setTimeout(() => { try { child.kill('SIGKILL') } catch { /* dead */ } }, 4000)
+    }
+    const onAbort = () => terminate()
     opts.signal?.addEventListener('abort', onAbort, { once: true })
 
     let timer: ReturnType<typeof setTimeout> | null = null
-    if (opts.timeoutMs) timer = setTimeout(() => { try { child.kill('SIGTERM') } catch { /* dead */ } }, opts.timeoutMs)
+    if (opts.timeoutMs) timer = setTimeout(terminate, opts.timeoutMs)
 
     let lastErr = ''
     const onData = (b: Buffer) => {
@@ -74,14 +84,17 @@ export function run(cmd: string, args: string[], opts: RunOpts = {}): Promise<vo
     }
     child.stdout?.on('data', onData)
     child.stderr?.on('data', onData)
-    child.on('error', (err) => {
+    const cleanup = () => {
       if (timer) clearTimeout(timer)
+      if (killTimer) clearTimeout(killTimer)
       opts.signal?.removeEventListener('abort', onAbort)
+    }
+    child.on('error', (err) => {
+      cleanup()
       reject(err)
     })
     child.on('exit', (code) => {
-      if (timer) clearTimeout(timer)
-      opts.signal?.removeEventListener('abort', onAbort)
+      cleanup()
       if (opts.signal?.aborted) return reject(new Error('aborted'))
       code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}: ${lastErr}`))
     })
