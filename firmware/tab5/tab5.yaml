@@ -482,6 +482,35 @@ lvgl:
             src: cam_placeholder
             align: CENTER
             hidden: true
+        # Invisible touch grid over the rendered CONTROLLER image: 2 rows × 5 cols across
+        # the TOP TWO rows only (the bottom row is the mic/sound/status band). Hidden in the
+        # display view; revealed on swipe. Each cell turns a tap on the rendered button into
+        # a button_press(row,col) the server resolves against the controller layout. It sits
+        # below the reply panel + controls (declared later) so those stay tappable on top.
+        - obj:
+            id: touch_grid
+            x: 0
+            y: 0
+            width: 1280
+            height: 480
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            radius: 0
+            scrollbar_mode: "OFF"
+            scrollable: false   # so a drag over the grid becomes a swipe gesture, not a scroll
+            hidden: true
+            widgets:
+              - button: { x: 0,    y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 0, 0);' ] } }
+              - button: { x: 256,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 0, 1);' ] } }
+              - button: { x: 512,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 0, 2);' ] } }
+              - button: { x: 768,  y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 0, 3);' ] } }
+              - button: { x: 1024, y: 0,   width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 0, 4);' ] } }
+              - button: { x: 0,    y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 1, 0);' ] } }
+              - button: { x: 256,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 1, 1);' ] } }
+              - button: { x: 512,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 1, 2);' ] } }
+              - button: { x: 768,  y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 1, 3);' ] } }
+              - button: { x: 1024, y: 240, width: 256, height: 240, bg_opa: TRANSP, border_width: 0, shadow_width: 0, scrollable: false, on_click: { then: [ lambda: 'id(satellite)->send_button_press_("dashboard", 1, 4);' ] } }
         # MAIN-CONTENT reply panel: when a reply is delivered we clear the content band
         # (over the clock/weather image) and show the text here — the top status row and
         # the bottom controls stay visible the whole time. Driven by the reply_text sensor.
@@ -505,10 +534,10 @@ lvgl:
         # (shown/hidden in lock-step with lbl_reply). Top-right corner of the panel.
         - button:
             id: btn_dismiss_reply
-            align: TOP_RIGHT
-            x: -26
-            y: 22
-            width: 150
+            align: TOP_MID
+            x: 0
+            y: 446
+            width: 180
             height: 58
             radius: 29
             bg_color: 0x3A3450
@@ -934,13 +963,12 @@ interval:
           last_recv = rcv;
           last_ms = now;
 
-  # ── Swipe left/right to switch between Display and Controller modes ───────────
-  # TEMPORARILY DISABLED (Claude): re-enabling this swipe block reliably boot-loops the
-  # device (assert esp_task_stack_is_sane_cache_disabled — a PSRAM-stacked WiFi/NVS task
-  # hits a cache-disabling flash op at init; adding ANY code tips it onto that path). The
-  # two standard sdkconfig fixes (force stacks internal; flash AUTO_SUSPEND) did NOT clear
-  # it. Needs a deeper diagnosis (decode the faulting task + its stack origin) before this
-  # — and the audio-stop discard — can ship. Left commented so the device boots.
+  # ── Swipe left/right to toggle between the Display and Controller views ──────────
+  # Single content page: the blit (ambient_img) shows whichever view the SERVER renders.
+  # Swiping just tells the server which view to stream (set_view) and reveals/hides the
+  # invisible touch grid that turns taps on the rendered controller image into button
+  # presses. The bottom mic/sound controls + status + reply stay put, so the controller
+  # behaves exactly like the display.
   - interval: 50ms
     then:
       - lambda: |-
@@ -948,13 +976,16 @@ interval:
           if (!indev) return;
           lv_dir_t dir = lv_indev_get_gesture_dir(indev);
           if (dir == LV_DIR_NONE) return;
-          lv_obj_t *cur = lv_screen_active();
-          if (dir == LV_DIR_LEFT && cur == id(page_clock)->obj) {
-            lv_screen_load_anim(id(page_stream_deck)->obj,
-              LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, false);
-          } else if (dir == LV_DIR_RIGHT && cur == id(page_stream_deck)->obj) {
-            lv_screen_load_anim(id(page_clock)->obj,
-              LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, false);
+          // Only the ambient clock page is swipeable (not the camera/touch test pages).
+          if (lv_screen_active() != id(page_clock)->obj) return;
+          if (dir == LV_DIR_LEFT && !id(controller_view)) {
+            id(controller_view) = true;
+            id(satellite)->set_view("controller");
+            lv_obj_clear_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);  // taps now hit the grid
+          } else if (dir == LV_DIR_RIGHT && id(controller_view)) {
+            id(controller_view) = false;
+            id(satellite)->set_view("display");
+            lv_obj_add_flag(id(touch_grid), LV_OBJ_FLAG_HIDDEN);
           }
 
 
@@ -1063,6 +1094,11 @@ globals:
   # True once a reply has STARTED speaking, so when we return to idle we know it was a
   # spoken reply and can auto-dismiss its on-screen text 1 s after the speech ends.
   - id: was_speaking
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # True while the controller (button-grid) view is showing instead of the ambient display.
+  - id: controller_view
     type: bool
     restore_value: no
     initial_value: 'false'

@@ -18,6 +18,7 @@ import { db } from '@/db'
 import { devices, sessions } from '@/db/schema'
 import { ensureChromium } from '@/lib/bookmarks/render'
 import { generateSessionToken, hashSessionToken, sessionExpiresAt } from '@/lib/session'
+import { deviceView } from '@/lib/pod/displayController'
 import { logger } from '@/lib/logger'
 
 // Where the /display SPA is actually served: the backend serves the built frontend
@@ -87,6 +88,14 @@ interface DeviceDisplay {
   page: Page
   token: string
   lastUsed: number
+  view: 'display' | 'controller'  // which /display view the parked tab is currently on
+}
+
+// The parked-tab URL for a device's CURRENT view (ambient layout vs button-grid controller).
+function viewUrl(deviceId: string): string {
+  const v = deviceView(deviceId)
+  const base = `${ORIGIN}/display?device=1&deviceId=${encodeURIComponent(deviceId)}`
+  return v === 'controller' ? `${base}&view=controller` : base
 }
 
 const live = new Map<string, DeviceDisplay>()
@@ -123,8 +132,8 @@ async function createDisplay(userId: string, deviceId: string): Promise<DeviceDi
   // device=1 → the page hides its own (non-interactive) control buttons; the device
   // draws native LVGL buttons instead (a server-rendered image can't take touch).
   // deviceId → the page renders THIS device's assigned slot layout (Layouts system).
-  await page.goto(`${ORIGIN}/display?device=1&deviceId=${encodeURIComponent(deviceId)}`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
-  return { ctx, page, token, lastUsed: Date.now() }
+  await page.goto(viewUrl(deviceId), { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
+  return { ctx, page, token, lastUsed: Date.now(), view: deviceView(deviceId) }
 }
 
 async function evict(deviceId: string): Promise<void> {
@@ -167,11 +176,13 @@ async function captureFrameInner(deviceId: string, userId: string): Promise<Buff
   }
   d.lastUsed = Date.now()
   try {
-    // Self-heal: if the SPA navigated the parked tab off /display (session expiry, a
-    // transient redirect to "/" or /login), pull it back so the device never gets
-    // stuck showing the full site instead of the ambient display.
-    if (!d.page.url().includes('/display')) {
-      await d.page.goto(`${ORIGIN}/display?device=1&deviceId=${encodeURIComponent(deviceId)}`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
+    // Re-navigate when the device swiped to a different view (display ↔ controller), and
+    // self-heal if the SPA navigated the parked tab off /display (session expiry, a
+    // transient redirect to "/" or /login) so the device never gets stuck on the full site.
+    const wantView = deviceView(deviceId)
+    if (!d.page.url().includes('/display') || d.view !== wantView) {
+      await d.page.goto(viewUrl(deviceId), { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {})
+      d.view = wantView
     }
     const buf = await d.page.screenshot({ type: 'jpeg', quality: JPEG_QUALITY, timeout: 10_000 })
     return Buffer.from(buf)

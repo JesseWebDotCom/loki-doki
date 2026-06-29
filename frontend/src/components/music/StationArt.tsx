@@ -5,7 +5,7 @@ import {
   IconMoonFilled, IconBarbellFilled, IconGhostFilled, IconMugFilled, IconSparklesFilled,
   IconSunFilled, IconWorldFilled, IconGlobeFilled, IconFlameFilled, IconBoltFilled,
   IconStarFilled, IconConfettiFilled, IconMicrophoneFilled, IconCloudFilled, IconCarFilled,
-  IconChristmasTreeFilled, IconGiftFilled, IconTrophyFilled, IconAwardFilled, IconCrownFilled,
+  IconChristmasTreeFilled, IconGiftFilled, IconAwardFilled, IconCrownFilled,
   IconDiamondFilled, IconSpeedboatFilled, IconFlowerFilled, IconCampfireFilled,
   IconFeatherFilled, IconGlassFullFilled, IconBeerFilled, IconUfoFilled, IconAlienFilled,
   IconChefHatFilled, IconMountainFilled,
@@ -207,10 +207,11 @@ function glyphFor(name: string, category: string | null): Glyph {
  * gradient scrim so the name stays legible.
  * showName=false for hero contexts where an h1 already carries the name.
  */
-export function StationArt({ station, className, showName = true }: {
+export function StationArt({ station, className, showName = true, vivid = false }: {
   station: Pick<Station, 'name' | 'accent' | 'category' | 'iconUrl'>
   className?: string
   showName?: boolean
+  vivid?: boolean   // bolder watermark (used on the controller where tiles read at a distance)
 }) {
   const Icon = glyphFor(station.name, station.category)
 
@@ -232,7 +233,7 @@ export function StationArt({ station, className, showName = true }: {
 
       {/* Large watermark icon — oversized, anchored bottom-right, bleeds off card edges */}
       {!station.iconUrl && (
-        <Icon className="pointer-events-none absolute -bottom-[14%] -right-[8%] h-[130%] w-auto text-white/[0.13]" />
+        <Icon className={cn('pointer-events-none absolute -bottom-[14%] -right-[8%] h-[130%] w-auto', vivid ? 'text-white/30' : 'text-white/[0.13]')} />
       )}
 
       {/* Bottom scrim — always present for legibility */}

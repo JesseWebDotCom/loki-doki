@@ -51,6 +51,7 @@ import {
 } from '@/lib/pod/wyoming'
 import { effectiveSettings } from '@/lib/pod/deviceSettings'
 import { getDeviceMode } from '@/lib/pod/displayMode'
+import { setDeviceView } from '@/lib/pod/displayController'
 import { resolveDeviceDescriptor } from '@/lib/pod/deviceStudio'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 import { handleAlarmAction } from '@/lib/pod/scheduler'
@@ -141,6 +142,10 @@ export class SatelliteSession implements PodFireTarget {
           void handleAlarmAction(String(d.alarm_id), action, this._deviceId)
         } else if (d && d.name === 'button_press' && this.userId && this._deviceId && typeof d.page_id === 'string') {
           void handleButtonPress(this._deviceId, String(d.page_id), Number(d.row), Number(d.col), this.userId)
+        } else if (d && d.name === 'view' && this._deviceId && typeof d.view === 'string') {
+          // Device swiped between the ambient display and the button-grid controller; the
+          // render/stream loop will start sending the matching server-rendered view.
+          setDeviceView(this._deviceId, d.view === 'controller' ? 'controller' : 'display')
         } else if (d && d.name === 'reply_mode' && typeof d.mode === 'string') {
           // Device toggled voice ↔ text reply (the bottom-right control). Text mode →
           // we type the reply on its screen instead of speaking it.
@@ -526,7 +531,11 @@ export class SatelliteSession implements PodFireTarget {
         // Emit complete sentences; keep the trailing (possibly partial) one buffered.
         const segs = segmentSentences(buf)
         if (segs.length > 1) {
-          buf = segs[segs.length - 1] ?? ''
+          // Keep the trailing partial — but re-attach buf's trailing whitespace, which
+          // segmentSentences trims off. Otherwise a token ending in a space ("its ") loses
+          // it and the next token ("already") squishes into "itsalready".
+          const trailingWs = /\s$/.test(buf) ? ' ' : ''
+          buf = (segs[segs.length - 1] ?? '') + trailingWs
           for (const s of segs.slice(0, -1)) { if (signal.aborted) return; await deliver(s) }
         }
       }

@@ -4,14 +4,14 @@
 // StreamDeckConfigPayload ready to push over the Wyoming socket. Built-in templates
 // populate dynamic rows from the bound user's account at resolve time (not stored).
 
-import { eq, or, isNull } from 'drizzle-orm'
+import { eq, or, isNull, isNotNull, and, desc, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { devices, controllerLayoutTemplates, ytSubscriptions, musicStations } from '@/db/schema'
+import { devices, controllerLayoutTemplates, ytSubscriptions, ytVideos, musicStations, musicHistory } from '@/db/schema'
 import { logger } from '@/lib/logger'
 import type { StreamDeckConfigPayload } from '@/lib/pod/wyoming'
 
 // ── Built-in template IDs (synthetic — no DB row needed) ──────────────────────
-export const BUILTIN_CONTROLLER_TEMPLATES = ['builtin:blank', 'builtin:youtube-channels', 'builtin:music'] as const
+export const BUILTIN_CONTROLLER_TEMPLATES = ['builtin:default', 'builtin:blank', 'builtin:youtube-channels', 'builtin:music'] as const
 export type BuiltinControllerTemplateId = (typeof BUILTIN_CONTROLLER_TEMPLATES)[number]
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ interface ButtonOverride {
  *  populated from the bound user's account at resolve time, not stored. */
 export async function resolveControllerDescriptor(deviceId: string, userId: string): Promise<StreamDeckConfigPayload> {
   const [device] = await db.select().from(devices).where(eq(devices.id, deviceId))
-  const templateId = device?.controllerLayoutTemplateId ?? 'builtin:blank'
+  const templateId = device?.controllerLayoutTemplateId ?? 'builtin:default'
 
   let pages = await resolveTemplate(templateId, userId)
 
@@ -50,6 +50,7 @@ export async function resolveControllerDescriptor(deviceId: string, userId: stri
 // ── Template resolution ────────────────────────────────────────────────────────
 
 async function resolveTemplate(templateId: string, userId: string): Promise<Page[]> {
+  if (templateId === 'builtin:default') return await defaultDashboardPage(userId)
   if (templateId === 'builtin:blank') return [blankPage()]
   if (templateId === 'builtin:youtube-channels') return await ytChannelsPage(userId)
   if (templateId === 'builtin:music') return await musicPage(userId)
@@ -71,6 +72,91 @@ async function resolveTemplate(templateId: string, userId: string): Promise<Page
 
 function blankPage(): Page {
   return { id: 'page-1', name: 'Main', gridRows: 3, gridCols: 5, sortOrder: 0, buttons: [] }
+}
+
+// ── helpers ──
+const trunc = (s: string, n = 14) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
+const accentHex = (slug: string | null | undefined, fallback: string) =>
+  slug ? (slug.startsWith('#') ? slug : `#${slug.replace(/^#/, '')}`) : fallback
+function tile(id: string, row: number, col: number, icon: string, label: string, bgColor: string,
+             action: Record<string, unknown>, image?: string): Button {
+  return { id, row, col, icon, label, bgColor, textColor: '#ffffff', action, ...(image ? { image } : {}) }
+}
+
+// The default dashboard: 10 tiles in the TOP TWO rows (the bottom row is reserved on the
+// device for the global mic/sound controls + status). Content is pulled live from the
+// bound user's account; playback controls sit on the right.
+//
+//   row 0:  station · station · station · ⏮ prev   · ⏯ play/pause
+//   row 1:  video   · video   · video   · video    · ⏭ next
+async function defaultDashboardPage(userId: string): Promise<Page[]> {
+  const buttons: Button[] = []
+  try {
+    // 3 MOST-PLAYED stations (by history), padded with recent ones if fewer than 3.
+    const played = await db
+      .select({ stationId: musicHistory.stationId, n: sql<number>`count(*)` })
+      .from(musicHistory)
+      .where(and(eq(musicHistory.userId, userId), isNotNull(musicHistory.stationId)))
+      .groupBy(musicHistory.stationId)
+      .orderBy(desc(sql`count(*)`)).limit(8)
+    const ids = played.map((p) => p.stationId).filter((x): x is string => !!x)
+    const recent = await db
+      .select({ id: musicStations.id, name: musicStations.name, iconPath: musicStations.iconPath, accent: musicStations.accent, category: musicStations.category })
+      .from(musicStations)
+      .where(or(eq(musicStations.userId, userId), isNull(musicStations.userId)))
+      .orderBy(desc(musicStations.updatedAt)).limit(12)
+    // Order: most-played first (resolved against the visible set), then recent fill.
+    const byId = new Map(recent.map((s) => [s.id, s]))
+    const ordered = [...ids.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => !!s), ...recent]
+    const seen = new Set<string>()
+    const stations = ordered.filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true))).slice(0, 3)
+    for (let i = 0; i < 3; i++) {
+      const st = stations[i]
+      if (st) {
+        // Stations render with the app's StationArt look (accent gradient + thematic
+        // watermark). Only a REAL photo icon (non-svg) fills the tile; svg/placeholder
+        // stations fall back to the watermark, matching the music app exactly.
+        buttons.push({
+          ...tile(`station-${st.id}`, 0, i, '📻', trunc(st.name), accentHex(st.accent, '#7c3aed'),
+            { type: 'play_station', stationId: st.id },
+            st.iconPath && !st.iconPath.endsWith('.svg') ? `/api/music/stations/${st.id}/art/icon` : undefined),
+          accent: st.accent ?? undefined,
+          category: st.category ?? undefined,
+        })
+      } else {
+        buttons.push(tile(`station-empty-${i}`, 0, i, '📻', 'Stations', '#2d1458', { type: 'navigate', app: 'music' }))
+      }
+    }
+
+    // 4 newest videos from the user's SUBSCRIPTIONS (the subscription feed), with real
+    // titles + thumbnails.
+    const vids = await db
+      .select({ videoId: ytVideos.videoId, title: ytVideos.title, thumb: ytVideos.thumbnailUrl })
+      .from(ytVideos)
+      .innerJoin(ytSubscriptions, eq(ytVideos.subscriptionId, ytSubscriptions.id))
+      .where(eq(ytSubscriptions.userId, userId))
+      .orderBy(desc(ytVideos.publishedAt)).limit(4)
+    for (let i = 0; i < 4; i++) {
+      const v = vids[i]
+      if (v) {
+        // Open the video in the YouTube watch page (which plays it) — NOT the music radio.
+        buttons.push(tile(`yt-${v.videoId}`, 1, i, '▶', trunc(v.title || 'YouTube'), '#7f1d1d',
+          { type: 'navigate', app: 'youtube', videoId: v.videoId }, v.thumb || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`))
+      } else {
+        buttons.push(tile(`yt-empty-${i}`, 1, i, '▶', 'YouTube', '#7f1d1d', { type: 'navigate', app: 'youtube' }))
+      }
+    }
+  } catch (e) {
+    logger.warn(`[controller] default dashboard resolve failed: ${(e as Error).message}`)
+  }
+
+  // Playback controls, grouped on the right edge.
+  buttons.push(
+    tile('pb-prev', 0, 3, '⏮', 'Previous', '#27272a', { type: 'app_action', action: 'prev_track' }),
+    tile('pb-play', 0, 4, '⏯', 'Play / Pause', '#16a34a', { type: 'app_action', action: 'play_pause' }),
+    tile('pb-next', 1, 4, '⏭', 'Next', '#27272a', { type: 'app_action', action: 'next_track' }),
+  )
+  return [{ id: 'dashboard', name: 'Dashboard', gridRows: 3, gridCols: 5, sortOrder: 0, buttons }]
 }
 
 async function ytChannelsPage(userId: string): Promise<Page[]> {

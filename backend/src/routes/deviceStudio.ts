@@ -19,6 +19,7 @@ import { db } from '@/db'
 import { devices, deviceChimes, deviceSoundPacks, deviceLayoutTemplates, controllerLayoutTemplates, clockAlarms, users } from '@/db/schema'
 import { layoutToDevice, soundToDevice, assetSyncToDevice, streamDeckToDevice } from '@/lib/pod/registry'
 import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
+import { setNowPlaying, getNowPlaying, type NowPlaying } from '@/lib/pod/nowPlaying'
 import { getServerHost } from '@/lib/pod/firmware'
 import {
   AUDIO_DIR, DEFAULT_TEMPLATE_ID, safeId, validateWidgets, renderChimeToDisk,
@@ -273,6 +274,59 @@ studio.get('/display-layout', requireAuth, async (c) => {
   const tpl = await getTemplate(DEFAULT_TEMPLATE_ID)
   if (!tpl) return c.json({ error: 'no default layout' }, 404)
   return c.json(await descriptorFromTemplate(tpl))
+})
+
+// Resolved controller (button-grid) layout for the server-rendered controller page —
+// the parallel of /display-layout. /display renders this when ?view=controller. Returns
+// the active page's buttons (with live artwork) plus the device's theme for consistency.
+studio.get('/controller-layout', requireAuth, async (c) => {
+  const user = c.get('user')
+  const deviceId = c.req.query('deviceId')
+  let dev: typeof devices.$inferSelect | null = null
+  if (deviceId) {
+    const [d] = await db.select().from(devices).where(eq(devices.id, deviceId))
+    if (d && (d.userId === user.id || user.role === 'admin')) dev = d
+  } else {
+    const mine = await db.select().from(devices).where(eq(devices.userId, user.id))
+    const isScreen = (d: typeof devices.$inferSelect) =>
+      ['tablet', 'show'].includes(d.kind) || /tab5|show|tablet/i.test(d.model ?? '')
+    dev = mine.find(isScreen) ?? mine[0] ?? null
+  }
+  const uid = dev?.userId ?? user.id
+  const payload = await resolveControllerDescriptor(dev?.id ?? '', uid)
+  let theme: unknown = undefined
+  if (dev) theme = (await resolveDeviceDescriptor(dev.id))?.theme
+  return c.json({ pages: payload.pages, theme })
+})
+
+// Now-playing: the browser's radio player POSTs its state here; the controller surface
+// (and the device, rendered in a separate tab) GETs it to show the active station,
+// play/pause state, and progress.
+studio.post('/now-playing', requireAuth, async (c) => {
+  const user = c.get('user')
+  const b = (await c.req.json().catch(() => ({}))) as Partial<NowPlaying>
+  setNowPlaying(user.id, {
+    stationId: typeof b.stationId === 'string' ? b.stationId : null,
+    videoId: typeof b.videoId === 'string' ? b.videoId : null,
+    title: typeof b.title === 'string' ? b.title : '',
+    artist: typeof b.artist === 'string' ? b.artist : null,
+    cover: typeof b.cover === 'string' ? b.cover : '',
+    positionSec: Number(b.positionSec) || 0,
+    durationSec: Number(b.durationSec) || 0,
+    playing: !!b.playing,
+  })
+  return c.json({ ok: true })
+})
+
+studio.get('/now-playing', requireAuth, async (c) => {
+  const user = c.get('user')
+  const deviceId = c.req.query('deviceId')
+  let uid = user.id
+  if (deviceId) {
+    const [dev] = await db.select().from(devices).where(eq(devices.id, deviceId))
+    if (dev && (dev.userId === user.id || user.role === 'admin')) uid = dev.userId
+  }
+  return c.json(getNowPlaying(uid) ?? { stationId: null, videoId: null, title: '', artist: null, cover: '', positionSec: 0, durationSec: 0, playing: false })
 })
 
 // Play an earcon on a device now (admin test of the sound path).

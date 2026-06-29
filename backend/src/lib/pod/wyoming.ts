@@ -222,6 +222,9 @@ export interface StreamDeckConfigPayload {
       label: string
       bgColor: string
       textColor: string
+      image?: string    // artwork URL (station/podcast/video thumbnail); icon is the fallback
+      accent?: string   // station accent slug → drives the station gradient + watermark
+      category?: string // station category → picks the thematic watermark glyph
       action: Record<string, unknown>
     }>
   }>

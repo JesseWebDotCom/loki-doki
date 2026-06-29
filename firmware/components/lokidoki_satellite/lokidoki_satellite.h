@@ -106,6 +106,12 @@ class LokiDokiSatellite : public Component {
   // the blank LVGL page we dynamically populate with button cells.
   void set_stream_deck_page(void *page_obj) { this->sd_page_ = page_obj; }
 
+  // Tell the server which view the screen is showing ("display" or "controller") so it
+  // streams the matching server-rendered frame. Sent on a swipe (see tab5.yaml).
+  void set_view(const std::string &view) {
+    this->send_event_("user-event", std::string("{\"name\":\"view\",\"view\":\"") + view + "\"}", nullptr, 0);
+  }
+
  protected:
   // ── connection lifecycle ──
   bool connect_();

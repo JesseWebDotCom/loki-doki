@@ -28,14 +28,15 @@ export function registerBrowserSession(userId: string, send: (cmd: BrowserComman
   }
 }
 
-/** Push a command to all active browser sessions for this user. */
+/** Push a command to the MOST RECENT browser session for this user (the latest tab the
+ *  user opened) — not every tab, so a controller tap drives one player, not all of them.
+ *  (The Set preserves insertion order, so the last entry is the most recently connected.) */
 export function pushToBrowserSession(userId: string, cmd: BrowserCommand): void {
   const set = sessions.get(userId)
   if (!set || set.size === 0) {
     logger.info(`[browser-session] no active sessions for userId=${userId}`)
     return
   }
-  for (const send of set) {
-    try { send(cmd) } catch { /* tab closed mid-push */ }
-  }
+  const recent = Array.from(set).pop()
+  if (recent) { try { recent(cmd) } catch { /* tab closed mid-push */ } }
 }

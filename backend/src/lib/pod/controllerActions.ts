@@ -10,7 +10,7 @@ import { resolveControllerDescriptor } from '@/lib/pod/controllerStudio'
 
 /** The action shapes produced by controllerStudio's built-in/custom templates. */
 type ControllerAction =
-  | { type: 'navigate'; app?: string; view?: string; channelId?: string; path?: string }
+  | { type: 'navigate'; app?: string; view?: string; channelId?: string; videoId?: string; path?: string }
   | { type: 'open_url'; url: string }
   | { type: 'app_action'; action: string; payload?: Record<string, unknown> }
   | { type: 'play_station'; stationId: string }
@@ -18,11 +18,12 @@ type ControllerAction =
   | { type: 'none' }
   | Record<string, unknown>
 
-/** Build a frontend route from a structured navigate action (app + optional view/channel). */
-function navPath(a: { app?: string; view?: string; channelId?: string; path?: string }): string {
+/** Build a frontend route from a structured navigate action (app + optional view/channel/video). */
+function navPath(a: { app?: string; view?: string; channelId?: string; videoId?: string; path?: string }): string {
   if (a.path) return a.path
   const app = (a.app ?? '').replace(/^\/+/, '')
   if (!app) return '/'
+  if (app === 'youtube' && a.videoId) return `/youtube/watch/${a.videoId}`
   if (a.channelId) return `/${app}/channel/${a.channelId}`
   if (a.view) return `/${app}/${a.view}`
   return `/${app}`

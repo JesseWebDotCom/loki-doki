@@ -612,6 +612,11 @@ void LokiDokiSatellite::tick_dim_() {
   // Conversation activity keeps the screen awake.
   if (this->face_ == "listening" || this->face_ == "thinking" || this->face_ == "talking")
     this->last_active_ms_ = now;
+  // ANY touch (a tap on a controller button, a swipe, etc.) also keeps it awake — LVGL
+  // tracks input idle time and resets it on every touch, so a tap undims + restarts the timer.
+#ifdef USE_LVGL
+  if (lv_display_get_inactive_time(NULL) < 500) this->last_active_ms_ = now;
+#endif
 
   if (!this->dim_enabled_) {
     if (this->dimmed_) { this->apply_backlight_(1.0f); this->dimmed_ = false; }

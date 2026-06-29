@@ -255,6 +255,15 @@ const HEX: Record<string, [string, string]> = {
   emerald: ['#047857', '#34d399'], amber: ['#b45309', '#fbbf24'], rose: ['#be123c', '#fb7185'],
   fuchsia: ['#a21caf', '#e879f9'], slate: ['#334155', '#94a3b8'],
 }
+// Resolve a station id to a ready-to-play DjStation (used by the controller surface and
+// device button presses). Returns null if the id isn't among the user's visible stations.
+export async function djStationById(id: string): Promise<DjStation | null> {
+  const b = await listStations().catch(() => null)
+  if (!b) return null
+  const st = [...b.builtin, ...b.mine, ...b.shared].find((s) => s.id === id)
+  return st ? stationToDj(st) : null
+}
+
 export function stationToDj(s: Station): DjStation {
   const accent = s.accent ?? 'violet'
   const [color, colorDark] = HEX[accent] ?? HEX.violet!

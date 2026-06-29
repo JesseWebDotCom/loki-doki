@@ -58,6 +58,28 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     }
   }, [state.currentTrack, state.station])
 
+  // Report now-playing to the server so the controller surface + screen devices reflect the
+  // active station, play/pause, and progress. Fires immediately on track/pause/station
+  // changes and every ~5 s while playing (the positionSec bucket) to advance the progress.
+  useEffect(() => {
+    // Only the tab that actually has a track reports, so idle/background tabs don't clobber
+    // the shared now-playing snapshot the controller reads.
+    if (!state.currentTrack && !state.active) return
+    void fetch('/api/pod/now-playing', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stationId: state.station?.id ?? null,
+        videoId: state.currentTrack?.videoId ?? null,
+        title: state.currentTrack?.title ?? '',
+        artist: state.currentTrack?.author ?? null,
+        cover: state.currentTrack?.thumbnail ?? (state.currentTrack?.videoId ? `https://i.ytimg.com/vi/${state.currentTrack.videoId}/mqdefault.jpg` : ''),
+        positionSec: Math.round(state.positionSec),
+        durationSec: Math.round(state.durationSec),
+        playing: state.active && !state.paused,
+      }),
+    }).catch(() => {})
+  }, [state.currentTrack, state.paused, state.station, state.active, Math.floor(state.positionSec / 5)])
+
   const e = engineRef.current
   const value = useMemo<RadioCtx>(() => ({
     ...state,

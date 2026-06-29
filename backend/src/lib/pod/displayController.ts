@@ -42,6 +42,21 @@ export function setDeviceAuto(deviceId: string): void {
   state.delete(deviceId)
 }
 
+// ── Controller view ──────────────────────────────────────────────────────────────
+// Which server-rendered view the device currently shows: the ambient layout ('display')
+// or the button-grid controller ('controller'). The device reports this on a swipe; the
+// render/stream loop renders the matching /display?view= URL. Independent of camera mode.
+const viewState = new Map<string, 'display' | 'controller'>() // deviceId → view
+
+export function deviceView(deviceId: string): 'display' | 'controller' {
+  return viewState.get(deviceId) ?? 'display'
+}
+
+export function setDeviceView(deviceId: string, view: 'display' | 'controller'): void {
+  if (view === 'controller') viewState.set(deviceId, view)
+  else viewState.delete(deviceId)
+}
+
 const SOI = Buffer.from([0xff, 0xd8]) // JPEG start-of-image
 const EOI = Buffer.from([0xff, 0xd9]) // JPEG end-of-image
 const MJPEG_MAX_BYTES = 3_000_000
