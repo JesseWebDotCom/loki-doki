@@ -77,6 +77,8 @@ class LokiDokiSatellite : public Component {
     std::string m = this->voice_reply_ ? "voice" : "text";
     this->send_event_("detection", std::string("{\"name\":\"tap\",\"reply\":\"") + m + "\"}", nullptr, 0);
   }
+  // Stop button: abort the in-flight turn (listening / thinking / speaking) on the server.
+  void request_stop() { this->send_event_("user-event", "{\"name\":\"stop\"}", nullptr, 0); }
   bool voice_reply() const { return this->voice_reply_; }
   // Audio output mute (the right control). Mutes ALL speaker output (replies, chimes,
   // alarms) by holding the speaker at volume 0, AND tells the server not to synthesize

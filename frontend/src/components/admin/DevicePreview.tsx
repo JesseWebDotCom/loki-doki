@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Ear, Volume2 } from 'lucide-react'
+import { Mic, Volume2 } from 'lucide-react'
 import { FlipClock } from '@/components/display/FlipClock'
 import {
-  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, centerOffset, WEATHER_CATALOG, safeTheme,
+  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, TOP_RESERVE, spanOf, centerOffset, WEATHER_CATALOG, safeTheme,
   type WidgetPlacement, type ThemeTokens, type WeatherCondition,
 } from '@/lib/pod/layout'
 
@@ -85,10 +85,18 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
           )
         }) })()}
 
-        {/* Global voice controls: wake/listen (ear) bottom-left, mute the companion's
-            voice (speaker) bottom-right — shown on every layout, like the device. */}
-        <PreviewControl side="left" Icon={Ear} label="Tap to talk" accent={theme.accent} text={theme.text} fs={fs} />
-        <PreviewControl side="right" Icon={Volume2} label="Voice reply" accent={theme.accent} text={theme.text} fs={fs} />
+        {/* Standard layout = top status row, main content (centred above), bottom controls. */}
+        <div className="absolute inset-x-0 top-0 flex items-center justify-center"
+          style={{ height: TOP_RESERVE, background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+          <span style={{ fontSize: 30 * fs, opacity: 0.35, color: theme.text }}>status row</span>
+        </div>
+        {/* Bottom controls: mic (left), audio (right), and a centre status pill + Stop. */}
+        <PreviewControl side="left" Icon={Mic} label="Listening" accent={theme.accent} text={theme.text} fs={fs} />
+        <PreviewControl side="right" Icon={Volume2} label="Sound on" accent={theme.accent} text={theme.text} fs={fs} />
+        <div className="absolute flex items-center" style={{ left: '50%', transform: 'translateX(-50%)', bottom: 34, gap: 16 }}>
+          <span className="flex items-center justify-center rounded-full text-white" style={{ height: 76, padding: '0 28px', background: '#16A34A', fontSize: 26 * fs }}>Listening</span>
+          <span className="flex items-center justify-center rounded-full text-white" style={{ height: 76, padding: '0 24px', background: '#DC2626', fontSize: 26 * fs }}>Stop</span>
+        </div>
       </div>
     </div>
   )
@@ -103,7 +111,7 @@ function WidgetContent({ w, theme, fs, weather, isNight }: { w: WidgetPlacement;
 
 // Static representation of a corner voice control in the preview (ear = wake-word,
 // speaker = mute the companion's voice).
-function PreviewControl({ side, Icon, label, accent, text, fs }: { side: 'left' | 'right'; Icon: typeof Ear; label: string; accent: string; text: string; fs: number }) {
+function PreviewControl({ side, Icon, label, accent, text, fs }: { side: 'left' | 'right'; Icon: typeof Mic; label: string; accent: string; text: string; fs: number }) {
   return (
     <div className="absolute flex flex-col items-center gap-2" style={{ [side]: 48, bottom: 28, color: text } as React.CSSProperties}>
       <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: accent }}>

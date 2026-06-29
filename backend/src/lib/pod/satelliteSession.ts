@@ -144,6 +144,14 @@ export class SatelliteSession implements PodFireTarget {
           // we type the reply on its screen instead of speaking it.
           this.replyMode = d.mode === 'text' ? 'text' : 'voice'
           logger.info(`[pod] reply mode → ${this.replyMode}`)
+        } else if (d && d.name === 'stop') {
+          // The on-screen Stop button — abort the in-flight turn (capture / brain / TTS /
+          // typing) and go idle immediately.
+          logger.info('[pod] stop pressed — aborting turn')
+          this.turnAbort?.abort()
+          this.capturing = false
+          this.stt?.close(); this.stt = null
+          this.setState('idle')
         }
         break
       }

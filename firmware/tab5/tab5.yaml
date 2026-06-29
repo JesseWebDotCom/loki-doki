@@ -461,14 +461,33 @@ lvgl:
             src: cam_placeholder
             align: CENTER
             hidden: true
-        # Subtle conversation-state footer: a small colored pill at the bottom that
-        # appears on wake/think/speak and hides when idle (clock stays visible the
-        # whole time). Driven by the face_state text sensor below.
+        # MAIN-CONTENT reply panel: when a reply is delivered we clear the content band
+        # (over the clock/weather image) and show the text here — the top status row and
+        # the bottom controls stay visible the whole time. Driven by the reply_text sensor.
+        - label:
+            id: lbl_reply
+            align: TOP_MID
+            y: 104
+            width: 1180
+            height: 396
+            text: ""
+            text_font: font_date
+            text_color: 0xFFFFFF
+            bg_color: 0x0E0B1A
+            bg_opa: COVER
+            radius: 24
+            pad_all: 28
+            long_mode: wrap
+            text_align: CENTER
+            hidden: true
+        # Bottom-CENTER conversation status pill (Listening / Thinking / Speaking),
+        # shown whenever a turn is active. Driven by the face_state text sensor below.
         - obj:
             id: state_footer
             align: BOTTOM_MID
+            x: -95
             y: -34
-            width: 340
+            width: 300
             height: 76
             radius: 38
             bg_color: 0x16A34A
@@ -483,19 +502,30 @@ lvgl:
                   text: ""
                   text_font: font_footer
                   text_color: 0xFFFFFF
-        # The companion's typed reply (text-only mode), centered above the controls.
-        # Driven by the reply_text sensor below; hidden until a reply arrives.
-        - label:
-            id: lbl_reply
+        # Stop button next to the status pill — aborts the active turn (listening /
+        # thinking / speaking). Shown only while a turn is active.
+        - button:
+            id: btn_stop
             align: BOTTOM_MID
-            y: -26
-            width: 860
-            text: ""
-            text_font: font_date
-            text_color: 0xFFFFFF
-            long_mode: wrap
-            text_align: CENTER
+            x: 170
+            y: -34
+            width: 150
+            height: 76
+            radius: 38
+            bg_color: 0xDC2626
+            bg_opa: COVER
+            border_width: 0
+            shadow_width: 0
             hidden: true
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Stop"
+                  text_font: font_footer
+                  text_color: 0xFFFFFF
+            on_click:
+              then:
+                - lambda: 'id(satellite)->request_stop();'
         # Native voice controls (bottom corners) — drawn by the firmware so the icon +
         # label flip INSTANTLY on tap. Hidden until the first layout frame arrives (never
         # on the "Connecting" splash). LEFT (ear) = tap to talk. RIGHT = Voice <-> Text.
@@ -869,48 +899,28 @@ text_sensor:
               lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(0x0891B2), 0);  // cyan
               lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
             } else {
-              // idle / connecting → footer hidden, just the clock
+              // idle / connecting → status pill hidden, just the clock
               lv_obj_add_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
             }
-            // While the companion is busy (listening/thinking/speaking) the corner
-            // controls must be inert — grey them out and make them non-clickable so a
-            // tap can't interrupt the turn. Restore on idle (btn_voice's colour depends
-            // on the live voice/text mode).
-            const bool busy = (s == "listening" || s == "thinking" || s == "talking");
-            if (busy) {
-              lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_CLICKABLE);
-              lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_CLICKABLE);
-              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0x4B5563), 0);   // grey
-              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(0x4B5563), 0);
-            } else {
-              lv_obj_add_flag(id(btn_wake), LV_OBJ_FLAG_CLICKABLE);
-              lv_obj_add_flag(id(btn_voice), LV_OBJ_FLAG_CLICKABLE);
-              // On idle, restore each button's colour — but keep a muted one greyed
-              // (off), so a turn doesn't un-grey a control the user muted.
-              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(id(satellite)->is_mic_muted() ? 0x4B5563 : 0x7C3AED), 0);
-              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(id(satellite)->is_audio_muted() ? 0x4B5563 : 0x2563EB), 0);
-            }
+            // The Stop button rides with the status pill — visible only while a turn is
+            // active (something to stop). The mic/audio controls stay fully ACCESSIBLE
+            // throughout (you can mute mid-reply); Stop is how you abort a turn.
+            const bool active = (s == "listening" || s == "thinking" || s == "talking");
+            if (active) lv_obj_clear_flag(id(btn_stop), LV_OBJ_FLAG_HIDDEN);
+            else        lv_obj_add_flag(id(btn_stop), LV_OBJ_FLAG_HIDDEN);
   # The companion's typed reply (text-only reply mode) — show it bottom-middle.
   - platform: template
     id: reply_text
     on_value:
       then:
         - lambda: |-
+            // Show the reply in the MAIN content band (covers the clock/weather); the
+            // top status row + bottom controls stay visible. Buttons are never hidden.
             if (x.empty()) {
               lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
-              // Reply gone → bring the corner controls back.
-              lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
             } else {
               lv_label_set_text(id(lbl_reply), x.c_str());
               lv_obj_clear_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
-              // Reading the reply → hide the corner controls so they don't crowd it.
-              lv_obj_add_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
-              lv_obj_add_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
             }
         # (Re)start the auto-hide countdown on every update so the reply clears a while
         # after the LAST chunk arrives, instead of lingering on screen forever.
@@ -932,12 +942,8 @@ script:
     then:
       - delay: 22s
       - lambda: |-
+          // Reply done → clear the content panel; the clock/weather shows through again.
           lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
-          // Reply done → restore the corner controls.
-          lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_HIDDEN);
-          lv_obj_clear_flag(id(lbl_wake), LV_OBJ_FLAG_HIDDEN);
-          lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_HIDDEN);
-          lv_obj_clear_flag(id(lbl_voice), LV_OBJ_FLAG_HIDDEN);
 
 external_components:
   # The shared Wyoming/Loki-Doki satellite runtime (firmware/components/).

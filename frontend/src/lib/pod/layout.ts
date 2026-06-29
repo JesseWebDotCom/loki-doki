@@ -88,12 +88,17 @@ export function validateWidgets(widgets: WidgetPlacement[]): string | null {
   return null
 }
 
-// The global wake/mute controls live in the bottom ~160px; centre widgets ABOVE that
-// band so they don't collide with the controls (tall/full layouts pin to the top).
-export const BOTTOM_RESERVE = 160
+// Standard device frame = THREE zones (every template conforms to this):
+//   • top status band    — connectivity / status row (e.g. "Server unreachable")
+//   • main content band  — the template's widgets (and the typed reply, on-device)
+//   • bottom controls band — mic / audio / state+Stop, drawn natively by the firmware
+// Widgets are centred in the MAIN band so they never collide with either overlay.
+export const TOP_RESERVE = 96
+export const BOTTOM_RESERVE = 200
 
-/** Centre the bounding box of the occupied cells within the 1280×720 frame (above the
- *  controls band), so a layout that doesn't fill all 9 cells reads as intentional. */
+/** Centre the occupied cells within the MAIN content band (between the top status row
+ *  and the bottom controls row), so a layout that doesn't fill all 9 cells reads as
+ *  intentional and never sits under the native overlays. */
 export function centerOffset(widgets: WidgetPlacement[]): { x: number; y: number } {
   if (!widgets.length) return { x: 0, y: 0 }
   let minR = GRID_ROWS, maxR = -1, minC = GRID_COLS, maxC = -1
@@ -102,8 +107,8 @@ export function centerOffset(widgets: WidgetPlacement[]): { x: number; y: number
   }
   if (maxR < 0) return { x: 0, y: 0 }
   const blockW = (maxC - minC + 1) * CELL_W, blockH = (maxR - minR + 1) * CELL_H
-  const availH = FRAME_H - BOTTOM_RESERVE
-  const y = Math.max(0, (availH - blockH) / 2 - minR * CELL_H) // pin tall layouts to the top
+  const bandH = FRAME_H - TOP_RESERVE - BOTTOM_RESERVE
+  const y = TOP_RESERVE + Math.max(0, (bandH - blockH) / 2) - minR * CELL_H // pin tall layouts to the top of the band
   return { x: (FRAME_W - blockW) / 2 - minC * CELL_W, y }
 }
 
