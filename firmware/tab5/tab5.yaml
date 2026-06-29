@@ -589,7 +589,7 @@ lvgl:
             widgets:
               - label:
                   align: CENTER
-                  text: "Server offline - reconnecting..."
+                  text: "Server unreachable - reconnecting..."
                   text_font: font_date
                   text_color: 0x1A1205
 
@@ -838,6 +838,23 @@ text_sensor:
             } else {
               // idle / connecting → footer hidden, just the clock
               lv_obj_add_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
+            }
+            // While the companion is busy (listening/thinking/speaking) the corner
+            // controls must be inert — grey them out and make them non-clickable so a
+            // tap can't interrupt the turn. Restore on idle (btn_voice's colour depends
+            // on the live voice/text mode).
+            const bool busy = (s == "listening" || s == "thinking" || s == "talking");
+            if (busy) {
+              lv_obj_clear_flag(id(btn_wake), LV_OBJ_FLAG_CLICKABLE);
+              lv_obj_clear_flag(id(btn_voice), LV_OBJ_FLAG_CLICKABLE);
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0x4B5563), 0);   // grey
+              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(0x4B5563), 0);
+            } else {
+              lv_obj_add_flag(id(btn_wake), LV_OBJ_FLAG_CLICKABLE);
+              lv_obj_add_flag(id(btn_voice), LV_OBJ_FLAG_CLICKABLE);
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0x7C3AED), 0);   // accent
+              bool voice = id(satellite)->voice_reply();
+              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(voice ? 0x2563EB : 0xD97706), 0);
             }
   # The companion's typed reply (text-only reply mode) — show it bottom-middle.
   - platform: template

@@ -22,7 +22,7 @@ export function ServerHealthBanner() {
       }`}
     >
       <ServerOff className={onDisplay ? 'size-9 shrink-0' : 'size-4 shrink-0'} />
-      <span>{onDisplay ? 'Server offline' : "Can't reach the server. Make sure the backend is running."}</span>
+      <span>{onDisplay ? 'Server unreachable' : "Can't reach the server. Make sure the backend is running."}</span>
       <Loader2 className={`${onDisplay ? 'size-8' : 'size-3.5'} shrink-0 animate-spin opacity-80`} />
       {!onDisplay && <span className="opacity-70">reconnecting…</span>}
     </div>
