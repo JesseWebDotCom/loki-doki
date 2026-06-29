@@ -88,8 +88,12 @@ export function validateWidgets(widgets: WidgetPlacement[]): string | null {
   return null
 }
 
-/** Centre the bounding box of the occupied cells within the 1280×720 frame, so a
- *  layout that doesn't fill all 9 cells reads as intentional (no blank bottom row). */
+// The global wake/mute controls live in the bottom ~160px; centre widgets ABOVE that
+// band so they don't collide with the controls (tall/full layouts pin to the top).
+export const BOTTOM_RESERVE = 160
+
+/** Centre the bounding box of the occupied cells within the 1280×720 frame (above the
+ *  controls band), so a layout that doesn't fill all 9 cells reads as intentional. */
 export function centerOffset(widgets: WidgetPlacement[]): { x: number; y: number } {
   if (!widgets.length) return { x: 0, y: 0 }
   let minR = GRID_ROWS, maxR = -1, minC = GRID_COLS, maxC = -1
@@ -98,7 +102,9 @@ export function centerOffset(widgets: WidgetPlacement[]): { x: number; y: number
   }
   if (maxR < 0) return { x: 0, y: 0 }
   const blockW = (maxC - minC + 1) * CELL_W, blockH = (maxR - minR + 1) * CELL_H
-  return { x: (FRAME_W - blockW) / 2 - minC * CELL_W, y: (FRAME_H - blockH) / 2 - minR * CELL_H }
+  const availH = FRAME_H - BOTTOM_RESERVE
+  const y = Math.max(0, (availH - blockH) / 2 - minR * CELL_H) // pin tall layouts to the top
+  return { x: (FRAME_W - blockW) / 2 - minC * CELL_W, y }
 }
 
 /** First free anchor where a widget of the given span fits, or null. */

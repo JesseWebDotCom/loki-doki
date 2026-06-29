@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
+import { Ear, Volume2, VolumeX } from 'lucide-react'
 import { useNow } from '@/hooks/useNow'
 import { useWeatherSnapshot } from '@/hooks/useWeatherSnapshot'
 import { WeatherHeroBg } from '@/components/weather/WeatherHeroBg'
@@ -61,11 +61,14 @@ export function DeviceLayoutDisplay({ descriptor, isDeviceRender, voiceOn, hands
                 left: c * CELL_W + GUTTER + off.x, top: r * CELL_H + GUTTER + off.y,
                 width: span.cols * CELL_W - GUTTER * 2, height: span.rows * CELL_H - GUTTER * 2,
               }}>
-                <SlotWidget w={w} theme={theme} isDeviceRender={isDeviceRender}
-                  voiceOn={voiceOn} handsFreeOn={handsFreeOn} onToggleVoice={onToggleVoice} onToggleHandsFree={onToggleHandsFree} />
+                <SlotWidget w={w} theme={theme} />
               </div>
             )
           })}
+          {/* Global voice controls on every layout: wake/listen (ear) bottom-left,
+              mute the companion's voice (speaker) bottom-right. */}
+          <VoiceControls theme={theme} isDeviceRender={isDeviceRender}
+            voiceOn={voiceOn} handsFreeOn={handsFreeOn} onToggleVoice={onToggleVoice} onToggleHandsFree={onToggleHandsFree} />
         </div>
         )
       })()}
@@ -73,28 +76,42 @@ export function DeviceLayoutDisplay({ descriptor, isDeviceRender, voiceOn, hands
   )
 }
 
-function SlotWidget({ w, theme, isDeviceRender, voiceOn, handsFreeOn, onToggleVoice, onToggleHandsFree }: {
-  w: WidgetPlacement; theme: ThemeTokens; isDeviceRender: boolean
-  voiceOn: boolean; handsFreeOn: boolean; onToggleVoice: () => void; onToggleHandsFree: () => void
-}) {
+function SlotWidget({ w, theme }: { w: WidgetPlacement; theme: ThemeTokens }) {
   if (w.type === 'clock') return <LiveClock size={w.size} theme={theme} />
   if (w.type === 'weather') return <LiveWeather size={w.size} theme={theme} />
-  // mic / mute — interactive for browser viewers; static on the device render (the
-  // firmware draws its own native, touchable buttons over the JPEG).
-  const isMic = w.type === 'mic'
-  const active = isMic ? handsFreeOn : voiceOn
-  const ActiveIcon = isMic ? Mic : Volume2
-  const InactiveIcon = isMic ? MicOff : VolumeX
-  const Icon = active ? ActiveIcon : InactiveIcon
-  const onClick = isDeviceRender ? undefined : (isMic ? onToggleHandsFree : onToggleVoice)
-  return (
-    <button onClick={onClick} disabled={isDeviceRender} className="flex h-full w-full flex-col items-center justify-center gap-3"
-      style={{ color: theme.text, cursor: isDeviceRender ? 'default' : 'pointer' }}>
-      <span className="flex items-center justify-center rounded-full" style={{ width: 110, height: 110, background: active ? theme.accent : 'rgba(255,255,255,0.12)' }}>
-        <Icon style={{ width: 54, height: 54 }} className="text-white" />
+  // mic/mute are no longer slot widgets — they're global corner controls (VoiceControls).
+  return null
+}
+
+// Wake-word (ear, bottom-left) + companion-voice mute (speaker, bottom-right) controls,
+// drawn on every layout. On a browser they toggle the shared companion state; on the
+// device render they're visual (the firmware's corner taps drive the real toggles).
+function VoiceControls({ theme, isDeviceRender, voiceOn, handsFreeOn, onToggleVoice, onToggleHandsFree }: {
+  theme: ThemeTokens; isDeviceRender: boolean
+  voiceOn: boolean; handsFreeOn: boolean; onToggleVoice: () => void; onToggleHandsFree: () => void
+}) {
+  const fs = theme.font_scale
+  // On the device render the firmware owns the live state, so show neutral affordances.
+  const hf = isDeviceRender ? false : handsFreeOn
+  const vo = isDeviceRender ? true : voiceOn
+  const Btn = ({ side, Icon, active, label, onClick }: { side: 'left' | 'right'; Icon: typeof Ear; active: boolean; label: string; onClick: () => void }) => (
+    <button
+      onClick={isDeviceRender ? undefined : onClick}
+      disabled={isDeviceRender}
+      className="absolute flex flex-col items-center gap-2"
+      style={{ [side]: 48, bottom: 28, color: theme.text, cursor: isDeviceRender ? 'default' : 'pointer' } as React.CSSProperties}
+    >
+      <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: active ? theme.accent : 'rgba(255,255,255,0.14)' }}>
+        <Icon style={{ width: 56, height: 56 }} className="text-white" />
       </span>
-      <span style={{ fontSize: 26 * theme.font_scale, opacity: 0.8 }}>{isMic ? (handsFreeOn ? 'Listening' : 'Tap to talk') : (voiceOn ? 'Sound on' : 'Muted')}</span>
+      <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>{label}</span>
     </button>
+  )
+  return (
+    <>
+      <Btn side="left" Icon={Ear} active={hf} label={hf ? 'Listening' : 'Tap to talk'} onClick={onToggleHandsFree} />
+      <Btn side="right" Icon={vo ? Volume2 : VolumeX} active={!vo} label={vo ? 'Sound on' : 'Muted'} onClick={onToggleVoice} />
+    </>
   )
 }
 
@@ -108,8 +125,7 @@ function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: Them
   const date = d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })
   // 'full' → a big, dead-centre flip clock filling the screen.
   if (size === 'full') {
-    // The flip clock is ~6em wide (4 digits + colon + AM/PM); at the old 230px it ran
-    // ~1380px and clipped the 1280px panel. 170px keeps it ~1020px — fully on screen.
+    // ~6em wide (4 digits + colon + AM/PM); 170px keeps it on the 1280px panel.
     return (
       <div className="flex h-full w-full flex-col items-center justify-center overflow-hidden" style={{ color: theme.text }}>
         <FlipClock hh={hh} mm={mm} ampm={ampm || undefined} style={{ fontSize: 170 * fs }} />
@@ -131,13 +147,14 @@ function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: Them
   )
 }
 
-// A small clock tucked into the bottom-left corner of the full weather screen.
+// Small clock in the TOP-left of the full weather screen (the bottom corners are
+// reserved for the global wake/mute controls).
 function FullWeatherClock({ theme }: { theme: ThemeTokens }) {
   const now = useNow(1000)
   const cfg: HomeDisplayConfig = { clock: true, clockStyle: 'digital', showSeconds: false, hour24: false, date: false, weather: false, weatherBackground: false }
   const { hh, mm, ampm } = clockParts(new Date(now), cfg)
   return (
-    <div className="absolute flex items-baseline gap-2 font-semibold tabular-nums" style={{ left: 40, bottom: 32, color: theme.text }}>
+    <div className="absolute flex items-baseline gap-2 font-semibold tabular-nums" style={{ left: 40, top: 28, color: theme.text }}>
       <span style={{ fontSize: 64 * theme.font_scale, lineHeight: 1 }}>{hh}:{mm}</span>
       {ampm && <span style={{ fontSize: 26 * theme.font_scale, opacity: 0.7 }}>{ampm}</span>}
     </div>
@@ -159,10 +176,10 @@ function LiveWeather({ size, theme }: { size: WidgetPlacement['size']; theme: Th
     </div>
   )
   if (!ready) return wrap(<span style={{ opacity: 0.5 }}>—</span>)
-  const isz = big ? 460 : size === 'large' ? 190 : size === 'medium' ? 170 : 90
+  const isz = big ? 460 : size === 'large' ? 230 : size === 'medium' ? 230 : 90
   const icon = <img src={weatherIconSrc(snapshot!.info.icon)} alt="" style={{ width: isz, height: isz }} />
   // Full-screen weather: the big icon (sun/cloud/…) centered with the temperature to its
-  // RIGHT, the forecast + area underneath, and a little clock in the bottom-left corner.
+  // RIGHT, the forecast + area underneath, and a little clock in the top-left corner.
   if (big) {
     return (
       <div className="relative h-full w-full" style={{ background: showBg ? heroBackground(gradient, isDay) : 'rgba(255,255,255,0.05)' }}>
@@ -183,8 +200,8 @@ function LiveWeather({ size, theme }: { size: WidgetPlacement['size']; theme: Th
   return wrap(
     <>
       {icon}
-      <span className="font-black tabular-nums" style={{ fontSize: (size === 'large' ? 96 : size === 'medium' ? 84 : 44) * fs, lineHeight: 1.05 }}>{snapshot!.temp}°</span>
-      {size !== 'small' && <span style={{ fontSize: (size === 'large' ? 36 : 34) * fs, opacity: 0.85, marginTop: 4 }}>{snapshot!.info.desc}</span>}
+      <span className="font-black tabular-nums" style={{ fontSize: (size === 'large' ? 118 : size === 'medium' ? 116 : 44) * fs, lineHeight: 1.05 }}>{snapshot!.temp}°</span>
+      {size !== 'small' && <span style={{ fontSize: (size === 'large' ? 40 : 38) * fs, opacity: 0.85, marginTop: 4 }}>{snapshot!.info.desc}</span>}
       {size === 'large' && <span style={{ fontSize: 26 * fs, opacity: 0.65 }}>{snapshot!.location}</span>}
     </>,
   )

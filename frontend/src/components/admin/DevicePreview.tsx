@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
+import { Ear, Volume2 } from 'lucide-react'
 import { FlipClock } from '@/components/display/FlipClock'
 import {
   FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, centerOffset, WEATHER_CATALOG, safeTheme,
@@ -85,11 +85,10 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
           )
         }) })()}
 
-        {/* Reserved bottom-center voice pill overlay (Option A) — floats over the grid */}
-        <div className="absolute left-1/2 -translate-x-1/2 rounded-full px-8 py-3 text-[28px] font-medium opacity-80"
-          style={{ bottom: 28, background: 'rgba(0,0,0,0.35)', color: theme.text, border: `2px solid ${theme.accent}` }}>
-          ● Listening…
-        </div>
+        {/* Global voice controls: wake/listen (ear) bottom-left, mute the companion's
+            voice (speaker) bottom-right — shown on every layout, like the device. */}
+        <PreviewControl side="left" Icon={Ear} label="Tap to talk" accent={theme.accent} text={theme.text} fs={fs} />
+        <PreviewControl side="right" Icon={Volume2} label="Sound on" accent={theme.accent} text={theme.text} fs={fs} />
       </div>
     </div>
   )
@@ -98,15 +97,19 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
 function WidgetContent({ w, theme, fs, weather, isNight }: { w: WidgetPlacement; theme: ThemeTokens; fs: number; weather: WeatherCondition; isNight: boolean }) {
   if (w.type === 'clock') return <ClockWidget size={w.size} fs={fs} text={theme.text} accent={theme.accent} />
   if (w.type === 'weather') return <WeatherWidget size={w.size} fs={fs} text={theme.text} weather={weather} isNight={isNight} />
-  const muted = w.type === 'mute'
-  const Icon = w.type === 'mic' ? Mic : muted ? VolumeX : Volume2
-  void MicOff
+  // mic/mute are global corner controls now (PreviewControl), not slot widgets.
+  return null
+}
+
+// Static representation of a corner voice control in the preview (ear = wake-word,
+// speaker = mute the companion's voice).
+function PreviewControl({ side, Icon, label, accent, text, fs }: { side: 'left' | 'right'; Icon: typeof Ear; label: string; accent: string; text: string; fs: number }) {
   return (
-    <div className="flex flex-col items-center gap-3" style={{ color: theme.text }}>
-      <div className="flex items-center justify-center rounded-full" style={{ width: 96, height: 96, background: theme.accent }}>
-        <Icon className="text-white" style={{ width: 48, height: 48 }} />
-      </div>
-      <span style={{ fontSize: 26 * fs, opacity: 0.8 }}>{w.type === 'mic' ? 'Mic' : 'Speaker'}</span>
+    <div className="absolute flex flex-col items-center gap-2" style={{ [side]: 48, bottom: 28, color: text } as React.CSSProperties}>
+      <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: side === 'left' ? accent : 'rgba(255,255,255,0.14)' }}>
+        <Icon className="text-white" style={{ width: 56, height: 56 }} />
+      </span>
+      <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>{label}</span>
     </div>
   )
 }
@@ -163,15 +166,15 @@ function WeatherWidget({ size, fs, text, weather, isNight }: { size: WidgetPlace
           <span style={{ fontSize: 52 * fs, opacity: 0.9, marginTop: 4 }}>{v.label}</span>
           <span style={{ fontSize: 32 * fs, opacity: 0.65, marginTop: 6 }}>Milford, Connecticut</span>
         </div>
-        <div className="absolute font-semibold tabular-nums" style={{ left: 40, bottom: 32, fontSize: 64 * fs }}>{hhmm}<span style={{ fontSize: 26 * fs, opacity: 0.7, marginLeft: 8 }}>{now.getHours() < 12 ? 'AM' : 'PM'}</span></div>
+        <div className="absolute font-semibold tabular-nums" style={{ left: 40, top: 24, fontSize: 64 * fs }}>{hhmm}<span style={{ fontSize: 26 * fs, opacity: 0.7, marginLeft: 8 }}>{now.getHours() < 12 ? 'AM' : 'PM'}</span></div>
       </div>
     )
   }
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-1" style={{ color: text }}>
-      <span style={{ fontSize: size === 'large' ? 150 : 130 }}>{glyph}</span>
-      <span className="font-semibold" style={{ fontSize: (size === 'large' ? 96 : 84) * fs, lineHeight: 1.05 }}>{temp}</span>
-      <span style={{ fontSize: (size === 'large' ? 36 : 34) * fs, opacity: 0.85 }}>{v.label}</span>
+      <span style={{ fontSize: size === 'large' ? 220 : 210 }}>{glyph}</span>
+      <span className="font-semibold" style={{ fontSize: (size === 'large' ? 118 : 116) * fs, lineHeight: 1.05 }}>{temp}</span>
+      <span style={{ fontSize: (size === 'large' ? 40 : 38) * fs, opacity: 0.85 }}>{v.label}</span>
       {size === 'large' && <span style={{ fontSize: 26 * fs, opacity: 0.7 }}>H:47°  L:38°</span>}
     </div>
   )
