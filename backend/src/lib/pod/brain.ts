@@ -110,8 +110,8 @@ async function buildTurnParams(
   }
   const options: Record<string, unknown> = {
     temperature: (prefs['temperature'] as number | undefined) ?? 0.7,
-    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 4096,
-    num_predict: (prefs['max_tokens'] as number | undefined) ?? 2048,
+    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 8192,
+    num_predict: (prefs['max_tokens'] as number | undefined) ?? 4096,
   }
   if (prefs['seed']) options['seed'] = prefs['seed']
 

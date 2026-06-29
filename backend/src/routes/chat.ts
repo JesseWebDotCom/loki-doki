@@ -236,14 +236,14 @@ chat.post('/stream', requireAuth, async (c) => {
   }
   const options: Record<string, unknown> = {
     temperature: (prefs['temperature'] as number | undefined) ?? 0.7,
-    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 4096,
+    num_ctx: (prefs['ctx_limit'] as number | undefined) ?? 8192,
     // NOTE: num_kv_cache_type and flash_attn are load-time model parameters, not
     // per-inference parameters. Setting them here would let Ollama trigger a full
     // model reload on any options mismatch. They belong only in warmupModel().
   }
   // num_predict is a ceiling, not a target — the model stops at natural completion or
   // the cap, whichever comes first. A high default does not slow down short answers.
-  options['num_predict'] = (prefs['max_tokens'] as number | undefined) ?? 2048
+  options['num_predict'] = (prefs['max_tokens'] as number | undefined) ?? 4096
   if (prefs['seed']) options['seed'] = prefs['seed']
 
   const characterSystemPrompt = charRow
