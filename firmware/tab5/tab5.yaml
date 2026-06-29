@@ -467,9 +467,9 @@ lvgl:
         - label:
             id: lbl_reply
             align: TOP_MID
-            y: 104
-            width: 1180
-            height: 396
+            y: 28
+            width: 1200
+            height: 472
             text: ""
             text_font: font_date
             text_color: 0xFFFFFF
@@ -485,9 +485,9 @@ lvgl:
         - obj:
             id: state_footer
             align: BOTTOM_MID
-            x: -95
+            x: 0
             y: -34
-            width: 300
+            width: 320
             height: 76
             radius: 38
             bg_color: 0x16A34A
@@ -502,30 +502,6 @@ lvgl:
                   text: ""
                   text_font: font_footer
                   text_color: 0xFFFFFF
-        # Stop button next to the status pill — aborts the active turn (listening /
-        # thinking / speaking). Shown only while a turn is active.
-        - button:
-            id: btn_stop
-            align: BOTTOM_MID
-            x: 170
-            y: -34
-            width: 150
-            height: 76
-            radius: 38
-            bg_color: 0xDC2626
-            bg_opa: COVER
-            border_width: 0
-            shadow_width: 0
-            hidden: true
-            widgets:
-              - label:
-                  align: CENTER
-                  text: "Stop"
-                  text_font: font_footer
-                  text_color: 0xFFFFFF
-            on_click:
-              then:
-                - lambda: 'id(satellite)->request_stop();'
         # Native voice controls (bottom corners) — drawn by the firmware so the icon +
         # label flip INSTANTLY on tap. Hidden until the first layout frame arrives (never
         # on the "Connecting" splash). LEFT (ear) = tap to talk. RIGHT = Voice <-> Text.
@@ -554,12 +530,21 @@ lvgl:
                   src: img_micoff
                   align: CENTER
                   hidden: true
+              - label:
+                  id: ic_stop
+                  align: CENTER
+                  text: ""
+                  text_font: montserrat_40
+                  text_color: 0xFFFFFF
+                  hidden: true
             # TAP = complete mute / unmute (Echo-style): swaps the icon (mic ⇄ mic-off).
             # HOLD = push-to-talk (skip the wake word), only while live. on_long_press
             # sets ptt_was_hold so the release-click doesn't also toggle mute.
             on_click:
               then:
                 - lambda: |-
+                    // During a turn this button is a STOP button → abort the turn.
+                    if (id(ui_active)) { id(ptt_was_hold) = false; id(satellite)->request_stop(); return; }
                     if (id(ptt_was_hold)) { id(ptt_was_hold) = false; return; }
                     id(satellite)->toggle_mic_mute();
                     bool muted = id(satellite)->is_mic_muted();
@@ -577,6 +562,7 @@ lvgl:
               then:
                 - lambda: |-
                     id(ptt_was_hold) = true;
+                    if (id(ui_active)) { id(satellite)->request_stop(); return; }  // in a turn → stop
                     if (!id(satellite)->is_mic_muted()) {
                       id(satellite)->request_listen();
                       lv_label_set_text(id(state_label), "Listening");
@@ -639,11 +625,12 @@ lvgl:
         # interval's staleness check below.
         - obj:
             id: offline_banner
-            align: TOP_MID
-            y: 0
-            width: 1280
-            height: 92
-            radius: 0
+            align: BOTTOM_MID
+            x: 0
+            y: -34
+            width: 480
+            height: 76
+            radius: 38
             bg_color: 0xF59E0B
             bg_opa: COVER
             border_width: 0
@@ -652,8 +639,8 @@ lvgl:
             widgets:
               - label:
                   align: CENTER
-                  text: "Server unreachable - reconnecting..."
-                  text_font: font_date
+                  text: "Server unreachable"
+                  text_font: font_footer
                   text_color: 0x1A1205
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
@@ -912,12 +899,24 @@ text_sensor:
               // idle / connecting → status pill hidden, just the clock
               lv_obj_add_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
             }
-            // The Stop button rides with the status pill — visible only while a turn is
-            // active (something to stop). The mic/audio controls stay fully ACCESSIBLE
-            // throughout (you can mute mid-reply); Stop is how you abort a turn.
+            // The LEFT (mic) button becomes a STOP button while a turn is active — a tap
+            // aborts it. Idle → it goes back to the mic mute/talk control.
             const bool active = (s == "listening" || s == "thinking" || s == "talking");
-            if (active) lv_obj_clear_flag(id(btn_stop), LV_OBJ_FLAG_HIDDEN);
-            else        lv_obj_add_flag(id(btn_stop), LV_OBJ_FLAG_HIDDEN);
+            id(ui_active) = active;
+            if (active) {
+              lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_clear_flag(id(ic_stop), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0xDC2626), 0);  // red = stop
+              lv_label_set_text(id(lbl_wake), (s == "thinking") ? "Stop thinking" : (s == "talking") ? "Stop speaking" : "Stop listening");
+            } else {
+              lv_obj_add_flag(id(ic_stop), LV_OBJ_FLAG_HIDDEN);
+              const bool muted = id(satellite)->is_mic_muted();
+              if (muted) { lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+              else { lv_obj_clear_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN); }
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(muted ? 0x4B5563 : 0x7C3AED), 0);
+              lv_label_set_text(id(lbl_wake), muted ? "Muted" : "Listening");
+            }
   # The companion's typed reply (text-only reply mode) — show it bottom-middle.
   - platform: template
     id: reply_text
@@ -940,6 +939,12 @@ text_sensor:
 # and the on_click that fires on release checks it so a HOLD doesn't also toggle mute.
 globals:
   - id: ptt_was_hold
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # True while a turn is active (listening/thinking/speaking). The mic button becomes a
+  # Stop button during this window, so a tap aborts the turn instead of toggling mute.
+  - id: ui_active
     type: bool
     restore_value: no
     initial_value: 'false'

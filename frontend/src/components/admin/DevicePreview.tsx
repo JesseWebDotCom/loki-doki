@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Mic, Volume2 } from 'lucide-react'
 import { FlipClock } from '@/components/display/FlipClock'
 import {
-  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, TOP_RESERVE, spanOf, contentFit, WEATHER_CATALOG, safeTheme,
+  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, contentFit, WEATHER_CATALOG, safeTheme,
   type WidgetPlacement, type ThemeTokens, type WeatherCondition,
 } from '@/lib/pod/layout'
 
@@ -90,17 +90,13 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
           return <div style={{ position: 'absolute', inset: 0, transform: `translate(${fit.tx}px, ${fit.ty}px) scale(${fit.scale})`, transformOrigin: `${fit.ox}px ${fit.oy}px` }}>{els}</div>
         })()}
 
-        {/* Standard layout = top status row, main content (centred above), bottom controls. */}
-        <div className="absolute inset-x-0 top-0 flex items-center justify-center"
-          style={{ height: TOP_RESERVE, background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-          <span style={{ fontSize: 30 * fs, opacity: 0.35, color: theme.text }}>status row</span>
-        </div>
-        {/* Bottom controls: mic (left), audio (right), and a centre status pill + Stop. */}
+        {/* Bottom controls: mic (left), audio (right), and a centre status pill. The
+            mic button itself becomes the Stop button while a turn is active. */}
         <PreviewControl side="left" Icon={Mic} label="Listening" accent={theme.accent} text={theme.text} fs={fs} />
         <PreviewControl side="right" Icon={Volume2} label="Sound on" accent={theme.accent} text={theme.text} fs={fs} />
-        <div className="absolute flex items-center" style={{ left: '50%', transform: 'translateX(-50%)', bottom: 34, gap: 16 }}>
-          <span className="flex items-center justify-center rounded-full text-white" style={{ height: 76, padding: '0 28px', background: '#16A34A', fontSize: 26 * fs }}>Listening</span>
-          <span className="flex items-center justify-center rounded-full text-white" style={{ height: 76, padding: '0 24px', background: '#DC2626', fontSize: 26 * fs }}>Stop</span>
+        <div className="absolute flex items-center justify-center text-white rounded-full"
+          style={{ left: '50%', transform: 'translateX(-50%)', bottom: 34, height: 76, padding: '0 28px', background: '#16A34A', fontSize: 26 * fs }}>
+          Listening
         </div>
       </div>
     </div>

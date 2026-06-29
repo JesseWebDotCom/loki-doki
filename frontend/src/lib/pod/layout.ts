@@ -93,7 +93,7 @@ export function validateWidgets(widgets: WidgetPlacement[]): string | null {
 //   • main content band  — the template's widgets (and the typed reply, on-device)
 //   • bottom controls band — mic / audio / state+Stop, drawn natively by the firmware
 // Widgets are centred in the MAIN band so they never collide with either overlay.
-export const TOP_RESERVE = 96
+export const TOP_RESERVE = 24
 export const BOTTOM_RESERVE = 200
 
 /** Centre the occupied cells within the MAIN content band (between the top status row
