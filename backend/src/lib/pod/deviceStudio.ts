@@ -35,6 +35,7 @@ export interface WidgetPlacement {
   size: WidgetSize
   anchor: [number, number]     // [row, col]
   orient?: WidgetOrient        // medium only; default 'horizontal'
+  bg?: boolean                 // weather only: full-height weather background behind its column(s)
 }
 
 export interface ThemeTokens {
@@ -153,47 +154,39 @@ export const BUILTIN_PACKS: BuiltinPack[] = [
 export const DEFAULT_TEMPLATE_ID = 'builtin:cozy_dark'
 const BUILTIN_TEMPLATES = [
   {
-    // A big, dead-centre flip-style clock filling the whole screen (like an ambient
-    // flip clock). 'full' spans the entire grid so the element is centred.
+    // Just the clock — big and dead-centre. 'full' spans the whole grid.
     id: 'builtin:clock', name: 'Clock',
     theme: { bg: '#05080C', accent: '#38BDF8', text: '#F1F5F9', font_scale: 1.0 } as ThemeTokens,
     widgets: [{ type: 'clock', size: 'full', anchor: [0, 0] }] as WidgetPlacement[],
     soundPackId: 'builtin:minimal', volume: 0.7, alarmVolume: 1, alarmToneId: 'builtin:alarm_gentle',
   },
   {
-    // A full-screen, dead-centre weather panel (animated sky + big icon/temp).
+    // Just the weather — the live weather sky fills the whole screen (behind everything).
     id: 'builtin:weather', name: 'Weather',
     theme: { bg: '#081018', accent: '#60A5FA', text: '#F1F5F9', font_scale: 1.0 } as ThemeTokens,
-    widgets: [{ type: 'weather', size: 'full', anchor: [0, 0] }] as WidgetPlacement[], // native mic/mute buttons overlay on the device
+    widgets: [{ type: 'weather', size: 'full', anchor: [0, 0], bg: true }] as WidgetPlacement[],
     soundPackId: 'builtin:chimes', volume: 0.7, alarmVolume: 1, alarmToneId: 'builtin:alarm_birdsong',
   },
   {
-    // Balanced split: clock on the left, weather panel on the right.
-    id: 'builtin:clock_weather', name: 'Clock & Weather',
+    // Clock on the left, weather on the right — the weather column carries the live
+    // weather background full-height behind it.
+    id: 'builtin:clock_weather', name: 'Clock and Weather',
     theme: { bg: '#0B1020', accent: '#818CF8', text: '#EEF2FF', font_scale: 1.0 } as ThemeTokens,
     widgets: [
       { type: 'clock', size: 'large', anchor: [0, 0] },
-      { type: 'weather', size: 'medium', anchor: [0, 2], orient: 'vertical' },
+      { type: 'weather', size: 'medium', anchor: [0, 2], orient: 'vertical', bg: true },
     ] as WidgetPlacement[],
     soundPackId: 'builtin:chimes', volume: 0.7, alarmVolume: 1, alarmToneId: 'builtin:alarm_gentle',
   },
   {
-    id: DEFAULT_TEMPLATE_ID, name: 'Cozy Dark',
+    // Same split, all on a calm dark theme (no weather background).
+    id: DEFAULT_TEMPLATE_ID, name: 'Clock and Weather Dark',
     theme: { bg: '#0E0B1A', accent: '#7C3AED', text: '#EAEAF2', font_scale: 1.0 } as ThemeTokens,
     widgets: [
       { type: 'clock', size: 'large', anchor: [0, 0] },
       { type: 'weather', size: 'medium', anchor: [0, 2], orient: 'vertical' },
     ] as WidgetPlacement[],
     soundPackId: 'builtin:chimes', volume: 0.7, alarmVolume: 1, alarmToneId: 'builtin:alarm_gentle',
-  },
-  {
-    id: 'builtin:bubblegum_day', name: 'Bubblegum Day',
-    theme: { bg: '#1A0E18', accent: '#FF5FA2', text: '#FFF0F6', font_scale: 1.0 } as ThemeTokens,
-    widgets: [
-      { type: 'clock', size: 'medium', anchor: [0, 0], orient: 'horizontal' },
-      { type: 'weather', size: 'large', anchor: [1, 0] },
-    ] as WidgetPlacement[],
-    soundPackId: 'builtin:minimal', volume: 0.8, alarmVolume: 1, alarmToneId: 'builtin:alarm_birdsong',
   },
 ]
 

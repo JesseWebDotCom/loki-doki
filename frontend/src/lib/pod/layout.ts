@@ -25,6 +25,9 @@ export interface WidgetPlacement {
   size: WidgetSize
   anchor: [number, number] // [row, col]
   orient?: WidgetOrient
+  // weather only: paint the weather background full-HEIGHT behind this widget's
+  // column(s) — i.e. behind the whole screen incl. the bottom controls.
+  bg?: boolean
 }
 
 export interface ThemeTokens {

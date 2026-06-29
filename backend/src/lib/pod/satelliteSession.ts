@@ -72,6 +72,7 @@ export class SatelliteSession implements PodFireTarget {
   private wakeWord: string | null = null
   private resolvedWakeId: string | null = null // device override → companion model → app default
   private replyStyleOverride = 'inherit'        // device-group reply-length override (server-side)
+  private showReplyText = true                  // per-device: type the reply on screen?
   private replyMode: 'voice' | 'text' = 'voice' // device tells us: speak the reply, or show it as text
   private wakeResolved = false // don't load a detector until we know which model (post-auth)
   private wakeSuppressedUntil = 0 // ignore wake until this time (post-TTS self-barge guard)
@@ -232,6 +233,7 @@ export class SatelliteSession implements PodFireTarget {
   applyConfig(config: Record<string, unknown>): void {
     if (this.closed) return
     if (typeof config.responseLength === 'string') this.replyStyleOverride = config.responseLength
+    if (typeof config.showReplyText === 'boolean') this.showReplyText = config.showReplyText
     this.send(deviceConfig(config))
   }
 
@@ -472,10 +474,18 @@ export class SatelliteSession implements PodFireTarget {
     let started = false   // sent audio-start yet?
 
     const typeSentence = (sentence: string): void => {
+      if (!this.showReplyText) return  // this display is configured voice-only
       const clean = stripForSpeech(sentence)
       if (!clean.trim() || signal.aborted) return
-      shown = (shown ? shown + ' ' : '') + clean.trim()
-      this.send(replyText(shown))
+      if (speak) {
+        // Spoken: PAGINATE — show only the sentence currently being read aloud (the
+        // device replaces the previous one), so long replies don't overflow the panel.
+        this.send(replyText(clean.trim()))
+      } else {
+        // Text-only: build up the whole reply so it can be read top-to-bottom.
+        shown = (shown ? shown + ' ' : '') + clean.trim()
+        this.send(replyText(shown))
+      }
     }
     const speakSentence = async (sentence: string): Promise<void> => {
       const clean = stripForSpeech(sentence)

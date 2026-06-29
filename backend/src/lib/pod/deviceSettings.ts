@@ -29,9 +29,11 @@ export interface DeviceSettings {
   /** Reply length for conversations on this device — overrides the companion's own
    *  reply style ('inherit' = leave the companion's choice). */
   responseLength: ResponseLength
+  /** Show the companion's reply as text on this screen device (false = voice only). */
+  showReplyText: boolean
 }
 
-export const DEFAULT_SETTINGS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit' }
+export const DEFAULT_SETTINGS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true }
 
 const DEFAULT_GROUP_ID = 'default'
 
@@ -43,6 +45,7 @@ export function sanitizeSettings(p: Record<string, unknown>): Partial<DeviceSett
   if (typeof p.dimAfterS === 'number') out.dimAfterS = Math.max(5, Math.min(3600, Math.round(p.dimAfterS)))
   if (typeof p.responseLength === 'string' && RESPONSE_LENGTHS.includes(p.responseLength as ResponseLength))
     out.responseLength = p.responseLength as ResponseLength
+  if (typeof p.showReplyText === 'boolean') out.showReplyText = p.showReplyText
   return out
 }
 

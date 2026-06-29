@@ -6,7 +6,7 @@ import { FlipClock } from '@/components/display/FlipClock'
 import { heroBackground, weatherIconSrc, getAdvisoryEffect, type HeroGradient } from '@/lib/weather'
 import { clockParts, type HomeDisplayConfig } from '@/lib/homeDisplay'
 import {
-  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, contentFit, safeTheme,
+  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, footprint, contentFit, safeTheme,
   type WidgetPlacement, type ThemeTokens,
 } from '@/lib/pod/layout'
 
@@ -51,7 +51,10 @@ export function DeviceLayoutDisplay({ descriptor }: Props) {
         // content never overlaps the top status row or the bottom controls row.
         const fit = contentFit(descriptor.widgets)
         return (
-        <div style={{ width: FRAME_W, height: FRAME_H, transform: `scale(${scale})`, transformOrigin: 'center', position: 'relative', color: theme.text }}>
+        <div style={{ width: FRAME_W, height: FRAME_H, transform: `scale(${scale})`, transformOrigin: 'center', position: 'relative', color: theme.text, background: theme.bg }}>
+          {/* Full-HEIGHT weather background behind its column(s) — fills the whole screen
+              (incl. behind the native bottom controls), independent of the content fit. */}
+          <WeatherBackdrop widgets={descriptor.widgets} />
           <div style={{ position: 'absolute', inset: 0, transform: `translate(${fit.tx}px, ${fit.ty}px) scale(${fit.scale})`, transformOrigin: `${fit.ox}px ${fit.oy}px` }}>
             {descriptor.widgets.map((w, i) => {
               const span = spanOf(w)
@@ -77,9 +80,40 @@ export function DeviceLayoutDisplay({ descriptor }: Props) {
 
 function SlotWidget({ w, theme }: { w: WidgetPlacement; theme: ThemeTokens }) {
   if (w.type === 'clock') return <LiveClock size={w.size} theme={theme} />
-  if (w.type === 'weather') return <LiveWeather size={w.size} theme={theme} />
+  if (w.type === 'weather') return <LiveWeather size={w.size} theme={theme} bg={!!w.bg} />
   // mic/mute are no longer slot widgets — they're global corner controls (VoiceControls).
   return null
+}
+
+// Recommended apparel for the conditions — shown (instead of the icon) when the live
+// weather sky is the background, since the sky already conveys the condition.
+function apparelFor(gradient: HeroGradient, temp: number, isDay: boolean): string[] {
+  const out: string[] = []
+  if (gradient === 'rain' || gradient === 'drizzle' || gradient === 'storm') out.push('☂️')
+  if (gradient === 'snow') out.push('🧣')
+  if (temp <= 50) out.push('🧥')                                   // coat — cold
+  if ((gradient === 'clear-day' || gradient === 'partly-cloudy') && isDay && temp >= 62) out.push('🕶️')
+  if (!out.length) out.push('👕')                                   // mild & dry → just a tee
+  return [...new Set(out)]
+}
+
+// Live weather sky painted FULL-HEIGHT behind the column(s) of a weather widget that
+// opted in (bg: true) — so it reaches top-to-bottom incl. behind the bottom controls,
+// not just the scaled content band. Weather widgets themselves render transparent.
+function WeatherBackdrop({ widgets }: { widgets: WidgetPlacement[] }) {
+  const { snapshot, status } = useWeatherSnapshot()
+  const bgW = widgets.find((w) => w.type === 'weather' && w.bg)
+  if (!bgW || status !== 'ready' || !snapshot) return null
+  const cols = footprint(bgW).map(([, c]) => c)
+  const minC = Math.min(...cols), maxC = Math.max(...cols)
+  const left = minC * CELL_W, width = (maxC - minC + 1) * CELL_W
+  const gradient: HeroGradient = snapshot.info.gradient ?? 'clear-night'
+  const isDay = snapshot.isDay ?? false
+  return (
+    <div style={{ position: 'absolute', left, top: 0, width, height: FRAME_H, overflow: 'hidden', background: heroBackground(gradient, isDay) }}>
+      <WeatherHeroBg gradient={gradient} isDay={isDay} advisory={getAdvisoryEffect(snapshot.alerts)} />
+    </div>
+  )
 }
 
 function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: ThemeTokens }) {
@@ -95,8 +129,8 @@ function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: Them
     // ~6em wide (4 digits + colon + AM/PM); 170px keeps it on the 1280px panel.
     return (
       <div className="flex h-full w-full flex-col items-center justify-center overflow-hidden" style={{ color: theme.text }}>
-        <FlipClock hh={hh} mm={mm} ampm={ampm || undefined} style={{ fontSize: 170 * fs }} />
-        <div style={{ fontSize: 44 * fs, opacity: 0.85, marginTop: 24 }}>{day}, {date}</div>
+        <FlipClock hh={hh} mm={mm} ampm={ampm || undefined} style={{ fontSize: 300 * fs }} />
+        <div style={{ fontSize: 60 * fs, opacity: 0.85, marginTop: 24 }}>{day}, {date}</div>
       </div>
     )
   }
@@ -135,48 +169,41 @@ function FullWeatherClock({ theme }: { theme: ThemeTokens }) {
   )
 }
 
-function LiveWeather({ size, theme }: { size: WidgetPlacement['size']; theme: ThemeTokens }) {
+function LiveWeather({ size, theme, bg }: { size: WidgetPlacement['size']; theme: ThemeTokens; bg?: boolean }) {
   const { snapshot, status } = useWeatherSnapshot()
   const ready = status === 'ready' && !!snapshot
-  const gradient: HeroGradient = snapshot?.info.gradient ?? 'clear-night'
-  const isDay = snapshot?.isDay ?? false
   const fs = theme.font_scale
   const big = size === 'full'
-  const showBg = (size === 'large' || big) && ready
-  const wrap = (kids: React.ReactNode) => (
-    <div className="relative h-full w-full" style={{ background: showBg ? heroBackground(gradient, isDay) : 'rgba(255,255,255,0.05)' }}>
-      {showBg && <WeatherHeroBg gradient={gradient} isDay={isDay} advisory={getAdvisoryEffect(snapshot!.alerts)} />}
-      <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color: theme.text }}>{kids}</div>
-    </div>
-  )
-  if (!ready) return wrap(<span style={{ opacity: 0.5 }}>—</span>)
-  const isz = big ? 460 : size === 'large' ? 230 : size === 'medium' ? 230 : 90
+  // Content only — any weather background is painted full-height by <WeatherBackdrop/>.
+  if (!ready) return <div className="flex h-full w-full items-center justify-center" style={{ color: theme.text, opacity: 0.5 }}>—</div>
+  // When the sky background is showing we drop the icon (the sky conveys the condition)
+  // and show recommended apparel under the description instead.
+  const apparel = bg ? apparelFor(snapshot!.info.gradient, snapshot!.temp, snapshot!.isDay) : []
+  const isz = big ? 470 : size === 'large' ? 240 : size === 'medium' ? 230 : 90
   const icon = <img src={weatherIconSrc(snapshot!.info.icon)} alt="" style={{ width: isz, height: isz }} />
-  // Full-screen weather: the big icon (sun/cloud/…) centered with the temperature to its
-  // RIGHT, the forecast + area underneath, and a little clock in the top-left corner.
   if (big) {
     return (
-      <div className="relative h-full w-full" style={{ background: showBg ? heroBackground(gradient, isDay) : 'rgba(255,255,255,0.05)' }}>
-        {showBg && <WeatherHeroBg gradient={gradient} isDay={isDay} advisory={getAdvisoryEffect(snapshot!.alerts)} />}
-        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color: theme.text }}>
+      <div className="relative h-full w-full" style={{ color: theme.text }}>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div className="flex items-center justify-center" style={{ gap: 8 }}>
-            {icon}
-            <span className="font-black tabular-nums" style={{ fontSize: 200 * fs, lineHeight: 1 }}>{snapshot!.temp}°</span>
+            {!bg && icon}
+            <span className="font-black tabular-nums" style={{ fontSize: 260 * fs, lineHeight: 1 }}>{snapshot!.temp}°</span>
           </div>
-          <span style={{ fontSize: 52 * fs, opacity: 0.9, marginTop: 4 }}>{snapshot!.info.desc}</span>
-          <span style={{ fontSize: 32 * fs, opacity: 0.65, marginTop: 6 }}>{snapshot!.location}</span>
+          <span style={{ fontSize: 60 * fs, opacity: 0.92, marginTop: 4 }}>{snapshot!.info.desc}</span>
+          {bg && <div className="flex items-center justify-center" style={{ gap: 18, fontSize: 76 * fs, marginTop: 10 }}>{apparel.map((a, i) => <span key={i}>{a}</span>)}</div>}
+          <span style={{ fontSize: 36 * fs, opacity: 0.7, marginTop: 10 }}>{snapshot!.location}</span>
         </div>
         <FullWeatherClock theme={theme} />
       </div>
     )
   }
-  // Small = compact icon+temp; medium/large = stacked but noticeably larger.
-  return wrap(
-    <>
-      {icon}
-      <span className="font-black tabular-nums" style={{ fontSize: (size === 'large' ? 118 : size === 'medium' ? 116 : 44) * fs, lineHeight: 1.05 }}>{snapshot!.temp}°</span>
-      {size !== 'small' && <span style={{ fontSize: (size === 'large' ? 40 : 38) * fs, opacity: 0.85, marginTop: 4 }}>{snapshot!.info.desc}</span>}
-      {size === 'large' && <span style={{ fontSize: 26 * fs, opacity: 0.65 }}>{snapshot!.location}</span>}
-    </>,
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center" style={{ color: theme.text }}>
+      {!bg && icon}
+      <span className="font-black tabular-nums" style={{ fontSize: (size === 'large' ? 132 : size === 'medium' ? 128 : 44) * fs, lineHeight: 1.05 }}>{snapshot!.temp}°</span>
+      {size !== 'small' && <span style={{ fontSize: (size === 'large' ? 44 : 40) * fs, opacity: 0.88, marginTop: 4 }}>{snapshot!.info.desc}</span>}
+      {bg && <div className="flex items-center justify-center" style={{ gap: 14, fontSize: 58 * fs, marginTop: 8 }}>{apparel.map((a, i) => <span key={i}>{a}</span>)}</div>}
+      {size === 'large' && !bg && <span style={{ fontSize: 28 * fs, opacity: 0.65 }}>{snapshot!.location}</span>}
+    </div>
   )
 }

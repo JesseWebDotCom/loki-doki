@@ -77,8 +77,14 @@ class LokiDokiSatellite : public Component {
     std::string m = this->voice_reply_ ? "voice" : "text";
     this->send_event_("detection", std::string("{\"name\":\"tap\",\"reply\":\"") + m + "\"}", nullptr, 0);
   }
-  // Stop button: abort the in-flight turn (listening / thinking / speaking) on the server.
-  void request_stop() { this->send_event_("user-event", "{\"name\":\"stop\"}", nullptr, 0); }
+  // Stop button: abort the in-flight turn on the server AND silence local playback
+  // immediately — without this the already-buffered TTS keeps playing after Stop.
+  void request_stop() {
+    this->send_event_("user-event", "{\"name\":\"stop\"}", nullptr, 0);
+    this->speaker_buffer_size_ = 0;     // drop buffered TTS
+    this->speaker_buffer_index_ = 0;
+    this->got_stop_ = true;             // let loop() end playback + hand the bus back to the mic
+  }
   bool voice_reply() const { return this->voice_reply_; }
   // Audio output mute (the right control). Mutes ALL speaker output (replies, chimes,
   // alarms) by holding the speaker at volume 0, AND tells the server not to synthesize

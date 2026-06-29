@@ -11,10 +11,10 @@ import { toast } from '@/lib/toast'
 // settings; admin groups override them. Saving a group deploys to its online devices
 // immediately (and an offline device pulls its group's settings when it reconnects).
 
-export interface DeviceSettings { dimEnabled: boolean; dimPercent: number; dimAfterS: number; responseLength: string }
+export interface DeviceSettings { dimEnabled: boolean; dimPercent: number; dimAfterS: number; responseLength: string; showReplyText: boolean }
 export interface DeviceGroup { id: string; name: string; isDefault: boolean; settings: Partial<DeviceSettings>; createdAt: number }
 
-const DEFAULTS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit' }
+const DEFAULTS: DeviceSettings = { dimEnabled: false, dimPercent: 30, dimAfterS: 60, responseLength: 'inherit', showReplyText: true }
 
 const RESPONSE_OPTIONS: { value: string; label: string }[] = [
   { value: 'inherit', label: 'Use companion’s setting' },
@@ -130,17 +130,18 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
   const [dimPercent, setDimPercent] = useState(eff.dimPercent)
   const [dimAfterS, setDimAfterS] = useState(eff.dimAfterS)
   const [responseLength, setResponseLength] = useState(eff.responseLength)
+  const [showReplyText, setShowReplyText] = useState(eff.showReplyText ?? true)
   const [busy, setBusy] = useState(false)
 
   const dirty = name !== group.name || dimEnabled !== eff.dimEnabled || dimPercent !== eff.dimPercent
-    || dimAfterS !== eff.dimAfterS || responseLength !== eff.responseLength
+    || dimAfterS !== eff.dimAfterS || responseLength !== eff.responseLength || showReplyText !== (eff.showReplyText ?? true)
 
   async function save() {
     setBusy(true)
     try {
       const r = await fetch(`/api/pod/groups/${group.id}`, {
         ...opts, method: 'PUT', headers: J,
-        body: JSON.stringify({ name, settings: { dimEnabled, dimPercent, dimAfterS, responseLength } }),
+        body: JSON.stringify({ name, settings: { dimEnabled, dimPercent, dimAfterS, responseLength, showReplyText } }),
       })
       if (!r.ok) throw new Error()
       const { deploy } = (await r.json()) as { deploy?: { online: number; total: number } }
@@ -178,6 +179,13 @@ function GroupCard({ group, baseline, onChanged, onDelete }: {
         >
           {RESPONSE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+      </div>
+
+      {/* Show the reply as text on screen (screen devices) */}
+      <div className="flex items-center gap-2 rounded-xl bg-muted/40 p-3">
+        <MessageSquare className="size-4 text-indigo-500" />
+        <span className="text-sm font-medium">Show reply text on screen</span>
+        <Switch className="ml-auto" checked={showReplyText} onCheckedChange={setShowReplyText} />
       </div>
 
       {/* Screen dimming */}
