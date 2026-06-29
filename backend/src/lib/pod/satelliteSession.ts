@@ -442,49 +442,34 @@ export class SatelliteSession implements PodFireTarget {
 
     const tokens = runPodBrain(text, { userId, characterId: this.characterId, convId: `pod:${userId}`, replyStyleOverride: this.replyStyleOverride, signal: ac.signal })
     try {
-      if (this.replyMode === 'text') {
-        // Text-only: type the reply onto the device screen, no TTS.
-        await this.typeReply(tokens, ac.signal)
-      } else {
-        // Voice: speak each sentence as soon as the LLM finishes it (low latency).
-        await this.speakStreaming(tokens, ac.signal)
-      }
+      // The reply is ALWAYS typed onto the device screen; it's ALSO spoken aloud when
+      // the device's audio output is on (replyMode 'voice'). Audio off ('text') → typed
+      // only, no TTS.
+      await this.deliverReply(tokens, this.replyMode === 'voice', ac.signal)
     } catch (e) {
       logger.warn(`[pod] brain/reply error: ${(e as Error).message}`)
     }
     if (!ac.signal.aborted) this.setState('idle')
   }
 
-  /** Stream the reply to the device as TEXT (typewriter), updating its on-screen panel
-   *  as sentences complete. Used when the device is in "text only" reply mode. */
-  private async typeReply(tokens: AsyncIterable<string>, signal: AbortSignal): Promise<void> {
-    let buf = ''
-    let lastLen = 0
-    // IMPORTANT: send SPARINGLY. Each reply_text event makes the device parse JSON +
-    // allocate strings; a per-N-chars stream floods its tiny internal heap and it
-    // OOM-crashes (std::bad_alloc → abort → reboot). Emit only on sentence boundaries
-    // (or every ~140 chars within a very long sentence) — a handful of events per reply.
-    for await (const tok of tokens) {
-      if (signal.aborted) return
-      buf += tok
-      const atSentence = /[.!?…]["'”’)\]]?\s$/.test(buf)
-      if ((atSentence && buf.length - lastLen >= 12) || buf.length - lastLen >= 140) {
-        lastLen = buf.length
-        this.send(replyText(stripForSpeech(buf)))
-      }
+  /** Deliver the reply sentence-by-sentence as the LLM streams it. ALWAYS types each
+   *  completed sentence onto the device's screen (one reply_text per sentence — sparse
+   *  enough that the device's tiny heap doesn't OOM); ADDITIONALLY speaks it via TTS when
+   *  `speak` (device audio output on). One audio-start before the first spoken sentence,
+   *  one audio-stop after the last. */
+  private async deliverReply(tokens: AsyncIterable<string>, speak: boolean, signal: AbortSignal): Promise<void> {
+    const { voiceId } = speak ? parseVoiceId(await voiceConfig.appDefaultVoice()) : { voiceId: '' }
+    let buf = ''          // trailing (incomplete) sentence
+    let shown = ''        // full text typed to screen so far
+    let started = false   // sent audio-start yet?
+
+    const typeSentence = (sentence: string): void => {
+      const clean = stripForSpeech(sentence)
+      if (!clean.trim() || signal.aborted) return
+      shown = (shown ? shown + ' ' : '') + clean.trim()
+      this.send(replyText(shown))
     }
-    if (!signal.aborted && buf.trim() && buf.length !== lastLen) this.send(replyText(stripForSpeech(buf)))
-  }
-
-  /** Consume the LLM token stream and speak it sentence-by-sentence as it arrives:
-   *  buffer tokens, flush each complete sentence to TTS immediately, then the tail.
-   *  One audio-start before the first sentence, one audio-stop after the last. */
-  private async speakStreaming(tokens: AsyncIterable<string>, signal: AbortSignal): Promise<void> {
-    const { voiceId } = parseVoiceId(await voiceConfig.appDefaultVoice())
-    let buf = ''
-    let started = false
-
-    const flush = async (sentence: string): Promise<void> => {
+    const speakSentence = async (sentence: string): Promise<void> => {
       const clean = stripForSpeech(sentence)
       if (!clean.trim() || signal.aborted) return
       let payload
@@ -503,6 +488,10 @@ export class SatelliteSession implements PodFireTarget {
         this.send(audioChunk(pcm.subarray(off, Math.min(off + CHUNK, pcm.length)).slice(), POD_TTS_RATE))
       }
     }
+    const deliver = async (sentence: string): Promise<void> => {
+      typeSentence(sentence)            // always show on screen
+      if (speak) await speakSentence(sentence)
+    }
 
     try {
       for await (const tok of tokens) {
@@ -512,10 +501,10 @@ export class SatelliteSession implements PodFireTarget {
         const segs = segmentSentences(buf)
         if (segs.length > 1) {
           buf = segs[segs.length - 1] ?? ''
-          for (const s of segs.slice(0, -1)) { if (signal.aborted) return; await flush(s) }
+          for (const s of segs.slice(0, -1)) { if (signal.aborted) return; await deliver(s) }
         }
       }
-      if (!signal.aborted && buf.trim()) await flush(buf)
+      if (!signal.aborted && buf.trim()) await deliver(buf)
     } finally {
       if (started && !signal.aborted) this.send(audioStop())
     }

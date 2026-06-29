@@ -381,8 +381,13 @@ image:
     transparency: alpha_channel
     resize: 200x200
   # White ear glyph for the native "tap to talk" control (rasterized lucide).
-  - file: ic_ear.png
-    id: img_ear
+  - file: ic_mic.png
+    id: img_mic
+    type: RGB565
+    transparency: alpha_channel
+    resize: 60x60
+  - file: ic_micoff.png
+    id: img_micoff
     type: RGB565
     transparency: alpha_channel
     resize: 60x60
@@ -507,27 +512,34 @@ lvgl:
             border_width: 0
             shadow_width: 0
             hidden: true
+            # Two stacked mic icons; we just toggle which one is visible (no runtime
+            # image-src swap). mic = live, mic-with-slash = muted.
             widgets:
               - image:
-                  src: img_ear
+                  id: ic_mic_on
+                  src: img_mic
                   align: CENTER
-            # TAP = complete mute / unmute (Echo-style). HOLD = push-to-talk (skip the
-            # wake word), only while live. on_long_press sets ptt_was_hold so the click
-            # that fires on release doesn't also toggle mute.
+              - image:
+                  id: ic_mic_off
+                  src: img_micoff
+                  align: CENTER
+                  hidden: true
+            # TAP = complete mute / unmute (Echo-style): swaps the icon (mic ⇄ mic-off).
+            # HOLD = push-to-talk (skip the wake word), only while live. on_long_press
+            # sets ptt_was_hold so the release-click doesn't also toggle mute.
             on_click:
               then:
                 - lambda: |-
                     if (id(ptt_was_hold)) { id(ptt_was_hold) = false; return; }
                     id(satellite)->toggle_mic_mute();
                     bool muted = id(satellite)->is_mic_muted();
+                    lv_label_set_text(id(lbl_wake), muted ? "Muted" : "Listening");
                     if (muted) {
-                      lv_label_set_text(id(lbl_wake), "Muted");
-                      lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0xDC2626), 0);  // red
-                      lv_obj_clear_flag(id(mute_banner), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_clear_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN);
                     } else {
-                      lv_label_set_text(id(lbl_wake), "Listening");
-                      lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0x7C3AED), 0);  // accent
-                      lv_obj_add_flag(id(mute_banner), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_clear_flag(id(ic_mic_on), LV_OBJ_FLAG_HIDDEN);
+                      lv_obj_add_flag(id(ic_mic_off), LV_OBJ_FLAG_HIDDEN);
                     }
             on_long_press:
               then:
@@ -574,19 +586,17 @@ lvgl:
             on_click:
               then:
                 - lambda: |-
-                    id(satellite)->toggle_voice_reply();
-                    bool voice = id(satellite)->voice_reply();
-                    lv_label_set_text(id(lbl_voice_icon), voice ? "" : "");
-                    lv_label_set_text(id(lbl_voice), voice ? "Voice reply" : "Text only");
-                    lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(voice ? 0x2563EB : 0xD97706), 0);
-                    if (voice) lv_obj_add_flag(id(lbl_reply), LV_OBJ_FLAG_HIDDEN);
+                    id(satellite)->toggle_audio_mute();
+                    bool muted = id(satellite)->is_audio_muted();
+                    lv_label_set_text(id(lbl_voice_icon), muted ? "" : "");
+                    lv_label_set_text(id(lbl_voice), muted ? "Sound off" : "Sound on");
         - label:
             id: lbl_voice
             align: BOTTOM_RIGHT
             x: -8
             y: -16
             width: 200
-            text: "Voice reply"
+            text: "Sound on"
             text_font: font_sd_label
             text_color: 0xEAEAF2
             text_align: CENTER
@@ -612,25 +622,6 @@ lvgl:
                   text: "Server unreachable - reconnecting..."
                   text_font: font_date
                   text_color: 0x1A1205
-        # Privacy mute banner (Echo-style red bar) — shown while the mic is muted.
-        - obj:
-            id: mute_banner
-            align: TOP_MID
-            y: 0
-            width: 1280
-            height: 92
-            radius: 0
-            bg_color: 0xDC2626
-            bg_opa: COVER
-            border_width: 0
-            pad_all: 0
-            hidden: true
-            widgets:
-              - label:
-                  align: CENTER
-                  text: "Microphone off"
-                  text_font: font_date
-                  text_color: 0xFFFFFF
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
     # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer
@@ -891,10 +882,10 @@ text_sensor:
             } else {
               lv_obj_add_flag(id(btn_wake), LV_OBJ_FLAG_CLICKABLE);
               lv_obj_add_flag(id(btn_voice), LV_OBJ_FLAG_CLICKABLE);
-              // A muted mic stays red even when idle; otherwise accent.
-              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(id(satellite)->is_mic_muted() ? 0xDC2626 : 0x7C3AED), 0);
-              bool voice = id(satellite)->voice_reply();
-              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(voice ? 0x2563EB : 0xD97706), 0);
+              // Mute state is shown by the icons (mic/mic-off, speaker/speaker-off),
+              // not colour — restore both to their normal accents on idle.
+              lv_obj_set_style_bg_color(id(btn_wake), lv_color_hex(0x7C3AED), 0);
+              lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(0x2563EB), 0);
             }
   # The companion's typed reply (text-only reply mode) — show it bottom-middle.
   - platform: template

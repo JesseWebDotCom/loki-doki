@@ -77,10 +77,16 @@ class LokiDokiSatellite : public Component {
     std::string m = this->voice_reply_ ? "voice" : "text";
     this->send_event_("detection", std::string("{\"name\":\"tap\",\"reply\":\"") + m + "\"}", nullptr, 0);
   }
-  // Voice ↔ text reply toggle. Text mode = the companion's reply is typed on screen
-  // (reply_sensor) instead of spoken; mute the local speaker too so it stays silent.
   bool voice_reply() const { return this->voice_reply_; }
-  void toggle_voice_reply() { this->voice_reply_ = !this->voice_reply_; this->muted_ = !this->voice_reply_; this->send_reply_mode_(); }
+  // Audio output mute (the right control). Mutes ALL speaker output (replies, chimes,
+  // alarms) by holding the speaker at volume 0, AND tells the server not to synthesize
+  // the reply (it's still typed on screen either way). is_audio_muted() == muted speaker.
+  bool is_audio_muted() const { return this->muted_; }
+  void toggle_audio_mute() {
+    this->muted_ = !this->muted_;          // speaker volume 0 = all output silenced
+    this->voice_reply_ = !this->muted_;    // audio on → speak the reply; off → type only
+    this->send_reply_mode_();
+  }
 
   // Stream Deck controller mode. Called from the YAML on_boot lambda to hand us
   // the blank LVGL page we dynamically populate with button cells.
