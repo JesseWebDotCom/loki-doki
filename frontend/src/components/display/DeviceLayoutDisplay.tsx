@@ -6,7 +6,7 @@ import { FlipClock } from '@/components/display/FlipClock'
 import { heroBackground, weatherIconSrc, getAdvisoryEffect, type HeroGradient } from '@/lib/weather'
 import { clockParts, type HomeDisplayConfig } from '@/lib/homeDisplay'
 import {
-  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, centerOffset, safeTheme,
+  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, spanOf, contentFit, safeTheme,
   type WidgetPlacement, type ThemeTokens,
 } from '@/lib/pod/layout'
 
@@ -47,25 +47,27 @@ export function DeviceLayoutDisplay({ descriptor }: Props) {
   return (
     <div ref={ref} className="absolute inset-0 flex items-center justify-center overflow-hidden" style={{ background: theme.bg }}>
       {scale > 0 && (() => {
-        // Centre the occupied widgets in the frame so a layout that doesn't fill all 9
-        // cells reads as intentional instead of leaving a blank bottom row / right column.
-        const off = centerOffset(descriptor.widgets)
+        // Fit + centre the occupied widgets ENTIRELY within the main content band, so
+        // content never overlaps the top status row or the bottom controls row.
+        const fit = contentFit(descriptor.widgets)
         return (
         <div style={{ width: FRAME_W, height: FRAME_H, transform: `scale(${scale})`, transformOrigin: 'center', position: 'relative', color: theme.text }}>
-          {descriptor.widgets.map((w, i) => {
-            const span = spanOf(w)
-            const [r, c] = w.anchor
-            return (
-              <div key={i} className="absolute overflow-hidden rounded-3xl" style={{
-                left: c * CELL_W + GUTTER + off.x, top: r * CELL_H + GUTTER + off.y,
-                width: span.cols * CELL_W - GUTTER * 2, height: span.rows * CELL_H - GUTTER * 2,
-              }}>
-                <SlotWidget w={w} theme={theme} />
-              </div>
-            )
-          })}
-          {/* Voice controls are drawn NATIVELY by the firmware (bottom corners) so they
-              own their toggle state — not part of the server image. */}
+          <div style={{ position: 'absolute', inset: 0, transform: `translate(${fit.tx}px, ${fit.ty}px) scale(${fit.scale})`, transformOrigin: `${fit.ox}px ${fit.oy}px` }}>
+            {descriptor.widgets.map((w, i) => {
+              const span = spanOf(w)
+              const [r, c] = w.anchor
+              return (
+                <div key={i} className="absolute overflow-hidden rounded-3xl" style={{
+                  left: c * CELL_W + GUTTER, top: r * CELL_H + GUTTER,
+                  width: span.cols * CELL_W - GUTTER * 2, height: span.rows * CELL_H - GUTTER * 2,
+                }}>
+                  <SlotWidget w={w} theme={theme} />
+                </div>
+              )
+            })}
+          </div>
+          {/* Voice controls + status/Stop are drawn NATIVELY by the firmware (bottom row);
+              the status banner is the top row — neither is part of this server image. */}
         </div>
         )
       })()}

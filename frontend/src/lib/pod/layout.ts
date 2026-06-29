@@ -112,6 +112,27 @@ export function centerOffset(widgets: WidgetPlacement[]): { x: number; y: number
   return { x: (FRAME_W - blockW) / 2 - minC * CELL_W, y }
 }
 
+/** How to fit the occupied widget block ENTIRELY inside the main content band (between
+ *  the top status row and the bottom controls) — scaling it down if it's taller/wider
+ *  than the band, and centring it there. Returns a CSS transform + origin so content can
+ *  never overlap either reserved zone (the cause of widgets crossing into the buttons). */
+export function contentFit(widgets: WidgetPlacement[]): { scale: number; tx: number; ty: number; ox: number; oy: number } {
+  const none = { scale: 1, tx: 0, ty: 0, ox: 0, oy: 0 }
+  if (!widgets.length) return none
+  let minR = GRID_ROWS, maxR = -1, minC = GRID_COLS, maxC = -1
+  for (const w of widgets) for (const [r, c] of footprint(w)) {
+    if (r < minR) minR = r; if (r > maxR) maxR = r; if (c < minC) minC = c; if (c > maxC) maxC = c
+  }
+  if (maxR < 0) return none
+  const ox = minC * CELL_W, oy = minR * CELL_H              // block origin (grid px)
+  const blockW = (maxC - minC + 1) * CELL_W, blockH = (maxR - minR + 1) * CELL_H
+  const bandH = FRAME_H - TOP_RESERVE - BOTTOM_RESERVE
+  const scale = Math.min(1, FRAME_W / blockW, bandH / blockH)  // shrink to fit; never enlarge
+  const bcx = ox + blockW / 2, bcy = oy + blockH / 2          // block centre
+  const tcx = FRAME_W / 2, tcy = TOP_RESERVE + bandH / 2      // band centre
+  return { scale, tx: tcx - bcx, ty: tcy - bcy, ox: bcx, oy: bcy }
+}
+
 /** First free anchor where a widget of the given span fits, or null. */
 export function firstFreeAnchor(widgets: WidgetPlacement[], size: WidgetSize, orient: WidgetOrient = 'horizontal'): [number, number] | null {
   for (let r = 0; r < GRID_ROWS; r++) {

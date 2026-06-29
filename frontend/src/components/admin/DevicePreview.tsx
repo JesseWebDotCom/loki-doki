@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Mic, Volume2 } from 'lucide-react'
 import { FlipClock } from '@/components/display/FlipClock'
 import {
-  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, TOP_RESERVE, spanOf, centerOffset, WEATHER_CATALOG, safeTheme,
+  FRAME_W, FRAME_H, CELL_W, CELL_H, GUTTER, TOP_RESERVE, spanOf, contentFit, WEATHER_CATALOG, safeTheme,
   type WidgetPlacement, type ThemeTokens, type WeatherCondition,
 } from '@/lib/pod/layout'
 
@@ -61,29 +61,34 @@ function PreviewInner({ theme: rawTheme, widgets, width = 448, weather = 'partly
           )
         })}
 
-        {(() => { const off = onSlotClick ? { x: 0, y: 0 } : centerOffset(widgets); return widgets.map((w, i) => {
-          const span = spanOf(w)
-          const [r, c] = w.anchor
-          const left = c * CELL_W + GUTTER + off.x
-          const top = r * CELL_H + GUTTER + off.y
-          const wpx = span.cols * CELL_W - GUTTER * 2
-          const hpx = span.rows * CELL_H - GUTTER * 2
-          const selected = selectedIndex === i
-          return (
-            <div
-              key={i}
-              onClick={(e) => { e.stopPropagation(); onSelect?.(i) }}
-              className={`absolute flex items-center justify-center overflow-hidden rounded-2xl ${onSelect ? 'cursor-pointer' : ''}`}
-              style={{
-                left, top, width: wpx, height: hpx,
-                background: w.type === 'weather' && (w.size === 'large' || w.size === 'full') ? (isNight ? WEATHER_CATALOG[weather].night : WEATHER_CATALOG[weather].day) : 'rgba(255,255,255,0.05)',
-                outline: selected ? `3px solid ${theme.accent}` : '1px solid rgba(255,255,255,0.08)',
-              }}
-            >
-              <WidgetContent w={w} theme={theme} fs={fs} weather={weather} isNight={isNight} />
-            </div>
-          )
-        }) })()}
+        {(() => {
+          const els = widgets.map((w, i) => {
+            const span = spanOf(w)
+            const [r, c] = w.anchor
+            const wpx = span.cols * CELL_W - GUTTER * 2
+            const hpx = span.rows * CELL_H - GUTTER * 2
+            const selected = selectedIndex === i
+            return (
+              <div
+                key={i}
+                onClick={(e) => { e.stopPropagation(); onSelect?.(i) }}
+                className={`absolute flex items-center justify-center overflow-hidden rounded-2xl ${onSelect ? 'cursor-pointer' : ''}`}
+                style={{
+                  left: c * CELL_W + GUTTER, top: r * CELL_H + GUTTER, width: wpx, height: hpx,
+                  background: w.type === 'weather' && (w.size === 'large' || w.size === 'full') ? (isNight ? WEATHER_CATALOG[weather].night : WEATHER_CATALOG[weather].day) : 'rgba(255,255,255,0.05)',
+                  outline: selected ? `3px solid ${theme.accent}` : '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                <WidgetContent w={w} theme={theme} fs={fs} weather={weather} isNight={isNight} />
+              </div>
+            )
+          })
+          // Editor (slot mode) shows the raw 3×3 grid aligned with the click targets;
+          // the preview fits the content into the main band like the device does.
+          if (onSlotClick) return els
+          const fit = contentFit(widgets)
+          return <div style={{ position: 'absolute', inset: 0, transform: `translate(${fit.tx}px, ${fit.ty}px) scale(${fit.scale})`, transformOrigin: `${fit.ox}px ${fit.oy}px` }}>{els}</div>
+        })()}
 
         {/* Standard layout = top status row, main content (centred above), bottom controls. */}
         <div className="absolute inset-x-0 top-0 flex items-center justify-center"
