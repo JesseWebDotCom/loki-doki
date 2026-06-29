@@ -391,6 +391,16 @@ image:
     type: RGB565
     transparency: alpha_channel
     resize: 60x60
+  - file: ic_speaker.png
+    id: img_speaker
+    type: RGB565
+    transparency: alpha_channel
+    resize: 60x60
+  - file: ic_speakeroff.png
+    id: img_speakeroff
+    type: RGB565
+    transparency: alpha_channel
+    resize: 60x60
 
 # ── Hardware JPEG camera source (ESP32-P4) ─────────────────────────────────────
 # Pulls JPEG frames from the server's living-room camera test endpoint and decodes
@@ -595,20 +605,24 @@ lvgl:
             shadow_width: 0
             hidden: true
             widgets:
-              - label:
-                  id: lbl_voice_icon
+              - image:
+                  id: ic_spk_on
+                  src: img_speaker
                   align: CENTER
-                  text: ""
-                  text_font: montserrat_40
-                  text_color: 0xFFFFFF
+              - image:
+                  id: ic_spk_off
+                  src: img_speakeroff
+                  align: CENTER
+                  hidden: true
             on_click:
               then:
                 - lambda: |-
                     id(satellite)->toggle_audio_mute();
                     bool muted = id(satellite)->is_audio_muted();
-                    lv_label_set_text(id(lbl_voice_icon), muted ? "" : "");
                     lv_label_set_text(id(lbl_voice), muted ? "Sound off" : "Sound on");
                     lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(muted ? 0x4B5563 : 0x2563EB), 0);
+                    if (muted) { lv_obj_add_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
+                    else { lv_obj_clear_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
         - label:
             id: lbl_voice
             align: BOTTOM_RIGHT
@@ -816,7 +830,8 @@ interval:
               bool audMuted = id(satellite)->is_audio_muted();
               lv_label_set_text(id(lbl_voice), audMuted ? "Sound off" : "Sound on");
               lv_obj_set_style_bg_color(id(btn_voice), lv_color_hex(audMuted ? 0x4B5563 : 0x2563EB), 0);
-              lv_label_set_text(id(lbl_voice_icon), audMuted ? "" : "");
+              if (audMuted) { lv_obj_add_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
+              else { lv_obj_clear_flag(id(ic_spk_on), LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(id(ic_spk_off), LV_OBJ_FLAG_HIDDEN); }
             }
           }
           // Staleness watchdog: the server pushes layout frames continuously, so a gap
