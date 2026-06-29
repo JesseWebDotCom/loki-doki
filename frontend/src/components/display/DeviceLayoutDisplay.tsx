@@ -46,34 +46,40 @@ export function DeviceLayoutDisplay({ descriptor }: Props) {
 
   return (
     <div ref={ref} className="absolute inset-0 flex items-center justify-center overflow-hidden" style={{ background: theme.bg }}>
-      {scale > 0 && (() => {
-        // Fit + centre the occupied widgets ENTIRELY within the main content band, so
-        // content never overlaps the top status row or the bottom controls row.
-        const fit = contentFit(descriptor.widgets)
-        return (
-        <div style={{ width: FRAME_W, height: FRAME_H, transform: `scale(${scale})`, transformOrigin: 'center', position: 'relative', color: theme.text, background: theme.bg }}>
-          {/* Full-HEIGHT weather background behind its column(s) — fills the whole screen
-              (incl. behind the native bottom controls), independent of the content fit. */}
-          <WeatherBackdrop widgets={descriptor.widgets} />
-          <div style={{ position: 'absolute', inset: 0, transform: `translate(${fit.tx}px, ${fit.ty}px) scale(${fit.scale})`, transformOrigin: `${fit.ox}px ${fit.oy}px` }}>
-            {descriptor.widgets.map((w, i) => {
-              const span = spanOf(w)
-              const [r, c] = w.anchor
-              return (
-                <div key={i} className="absolute overflow-hidden rounded-3xl" style={{
-                  left: c * CELL_W + GUTTER, top: r * CELL_H + GUTTER,
-                  width: span.cols * CELL_W - GUTTER * 2, height: span.rows * CELL_H - GUTTER * 2,
-                }}>
-                  <SlotWidget w={w} theme={theme} />
-                </div>
-              )
-            })}
-          </div>
-          {/* Voice controls + status/Stop are drawn NATIVELY by the firmware (bottom row);
-              the status banner is the top row — neither is part of this server image. */}
+      {/* Voice controls + status/Stop are drawn NATIVELY by the firmware (bottom row) —
+          not part of this server image. */}
+      {scale > 0 && (
+        <div style={{ transform: `scale(${scale})`, transformOrigin: 'center' }}>
+          <LayoutContent descriptor={descriptor} />
         </div>
-        )
-      })()}
+      )}
+    </div>
+  )
+}
+
+// The EXACT 1280×720 content the device renders (theme background + full-height weather
+// backdrop + fitted widgets). Exported so the admin preview renders through the SAME
+// code — the preview and the device can never drift apart.
+export function LayoutContent({ descriptor }: { descriptor: Descriptor }) {
+  const theme = safeTheme(descriptor.theme)
+  const fit = contentFit(descriptor.widgets)
+  return (
+    <div style={{ width: FRAME_W, height: FRAME_H, position: 'relative', color: theme.text, background: theme.bg }}>
+      <WeatherBackdrop widgets={descriptor.widgets} />
+      <div style={{ position: 'absolute', inset: 0, transform: `translate(${fit.tx}px, ${fit.ty}px) scale(${fit.scale})`, transformOrigin: `${fit.ox}px ${fit.oy}px` }}>
+        {descriptor.widgets.map((w, i) => {
+          const span = spanOf(w)
+          const [r, c] = w.anchor
+          return (
+            <div key={i} className="absolute overflow-hidden rounded-3xl" style={{
+              left: c * CELL_W + GUTTER, top: r * CELL_H + GUTTER,
+              width: span.cols * CELL_W - GUTTER * 2, height: span.rows * CELL_H - GUTTER * 2,
+            }}>
+              <SlotWidget w={w} theme={theme} />
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -135,22 +141,24 @@ function LiveClock({ size, theme }: { size: WidgetPlacement['size']; theme: Them
     )
   }
   const big = (size === 'large' ? 188 : size === 'medium' ? 96 : 60) * fs
+  // The TIME is centred on the cell midline (the date floats below) so it lines up
+  // vertically with the weather temp, which is centred the same way.
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center" style={{ color: theme.text }}>
-      <div className="flex items-end leading-none" style={{ fontSize: big }}>
-        <span className="font-black tabular-nums">{hh}:{mm}</span>
-        {size === 'large' ? (
-          // Seconds stacked ABOVE the AM/PM, to the right of the time.
-          <div className="flex flex-col items-start leading-none" style={{ marginLeft: 16, marginBottom: big * 0.05 }}>
-            <span className="font-black tabular-nums" style={{ fontSize: big * 0.34, color: theme.accent }}>:{ss}</span>
-            {ampm && <span style={{ fontSize: big * 0.3, opacity: 0.7, marginTop: 6 }}>{ampm}</span>}
-          </div>
-        ) : (
-          size === 'medium' && ampm && <span style={{ fontSize: big * 0.28, opacity: 0.7, marginLeft: 12, marginBottom: big * 0.08 }}>{ampm}</span>
-        )}
+    <div className="relative h-full w-full" style={{ color: theme.text }}>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="flex items-end leading-none" style={{ fontSize: big }}>
+          <span className="font-black tabular-nums">{hh}:{mm}</span>
+          {size === 'large' ? (
+            <div className="flex flex-col items-start leading-none" style={{ marginLeft: 16, marginBottom: big * 0.05 }}>
+              <span className="font-black tabular-nums" style={{ fontSize: big * 0.34, color: theme.accent }}>:{ss}</span>
+              {ampm && <span style={{ fontSize: big * 0.3, opacity: 0.7, marginTop: 6 }}>{ampm}</span>}
+            </div>
+          ) : (
+            size === 'medium' && ampm && <span style={{ fontSize: big * 0.28, opacity: 0.7, marginLeft: 12, marginBottom: big * 0.08 }}>{ampm}</span>
+          )}
+        </div>
       </div>
-      {size === 'large' && <div style={{ fontSize: 40 * fs, opacity: 0.85, marginTop: 14 }}>{day}, {date}</div>}
-      {size === 'medium' && <div style={{ fontSize: 30 * fs, opacity: 0.8, marginTop: 8 }}>{date}</div>}
+      <div className="absolute inset-x-0 flex justify-center" style={{ bottom: '13%', fontSize: (size === 'medium' ? 30 : 40) * fs, opacity: 0.82 }}>{day}, {date}</div>
     </div>
   )
 }
@@ -197,13 +205,28 @@ function LiveWeather({ size, theme, bg }: { size: WidgetPlacement['size']; theme
       </div>
     )
   }
+  const tempFont = (size === 'large' ? 132 : size === 'medium' ? 128 : 44) * fs
+  // With the sky background (Clock and Weather): centre the TEMP on the cell midline so
+  // it lines up with the clock time; description + apparel float below.
+  if (bg) {
+    return (
+      <div className="relative h-full w-full" style={{ color: theme.text }}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="font-black tabular-nums" style={{ fontSize: tempFont, lineHeight: 1 }}>{snapshot!.temp}°</span>
+        </div>
+        <div className="absolute inset-x-0 flex flex-col items-center" style={{ bottom: '12%', gap: 8 }}>
+          <span style={{ fontSize: 40 * fs, opacity: 0.88 }}>{snapshot!.info.desc}</span>
+          <div className="flex items-center justify-center" style={{ gap: 14, fontSize: 58 * fs }}>{apparel.map((a, i) => <span key={i}>{a}</span>)}</div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="flex h-full w-full flex-col items-center justify-center" style={{ color: theme.text }}>
-      {!bg && icon}
-      <span className="font-black tabular-nums" style={{ fontSize: (size === 'large' ? 132 : size === 'medium' ? 128 : 44) * fs, lineHeight: 1.05 }}>{snapshot!.temp}°</span>
+      {icon}
+      <span className="font-black tabular-nums" style={{ fontSize: tempFont, lineHeight: 1.05 }}>{snapshot!.temp}°</span>
       {size !== 'small' && <span style={{ fontSize: (size === 'large' ? 44 : 40) * fs, opacity: 0.88, marginTop: 4 }}>{snapshot!.info.desc}</span>}
-      {bg && <div className="flex items-center justify-center" style={{ gap: 14, fontSize: 58 * fs, marginTop: 8 }}>{apparel.map((a, i) => <span key={i}>{a}</span>)}</div>}
-      {size === 'large' && !bg && <span style={{ fontSize: 28 * fs, opacity: 0.65 }}>{snapshot!.location}</span>}
+      {size === 'large' && <span style={{ fontSize: 28 * fs, opacity: 0.65 }}>{snapshot!.location}</span>}
     </div>
   )
 }
