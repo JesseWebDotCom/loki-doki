@@ -464,17 +464,21 @@ export class SatelliteSession implements PodFireTarget {
    *  as sentences complete. Used when the device is in "text only" reply mode. */
   private async typeReply(tokens: AsyncIterable<string>, signal: AbortSignal): Promise<void> {
     let buf = ''
-    let lastSent = 0
+    let lastLen = 0
+    // IMPORTANT: send SPARINGLY. Each reply_text event makes the device parse JSON +
+    // allocate strings; a per-N-chars stream floods its tiny internal heap and it
+    // OOM-crashes (std::bad_alloc → abort → reboot). Emit only on sentence boundaries
+    // (or every ~140 chars within a very long sentence) — a handful of events per reply.
     for await (const tok of tokens) {
       if (signal.aborted) return
       buf += tok
-      // Push updates on sentence/length boundaries so it "types" without flooding the socket.
-      if (buf.length - lastSent >= 24 || /[.!?…]\s*$/.test(buf)) {
-        lastSent = buf.length
+      const atSentence = /[.!?…]["'”’)\]]?\s$/.test(buf)
+      if ((atSentence && buf.length - lastLen >= 12) || buf.length - lastLen >= 140) {
+        lastLen = buf.length
         this.send(replyText(stripForSpeech(buf)))
       }
     }
-    if (!signal.aborted && buf.trim()) this.send(replyText(stripForSpeech(buf)))
+    if (!signal.aborted && buf.trim() && buf.length !== lastLen) this.send(replyText(stripForSpeech(buf)))
   }
 
   /** Consume the LLM token stream and speak it sentence-by-sentence as it arrives:
