@@ -101,7 +101,7 @@ function VoiceControls({ theme, isDeviceRender, voiceOn, handsFreeOn, onToggleVo
       className="absolute flex flex-col items-center gap-2"
       style={{ [side]: 48, bottom: 28, color: theme.text, cursor: isDeviceRender ? 'default' : 'pointer' } as React.CSSProperties}
     >
-      <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: active ? theme.accent : 'rgba(255,255,255,0.14)' }}>
+      <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: theme.accent, opacity: active ? 1 : 0.72 }}>
         <Icon style={{ width: 56, height: 56 }} className="text-white" />
       </span>
       <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>{label}</span>

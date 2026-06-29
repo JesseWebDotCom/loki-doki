@@ -483,7 +483,14 @@ lvgl:
             shadow_width: 0
             on_click:
               then:
-                - lambda: 'id(satellite)->toggle_mic_enabled();'
+                # Toggle listening + flash a native confirmation pill so the tap is
+                # obviously registered (the icon itself is part of the server image).
+                - lambda: |-
+                    id(satellite)->toggle_mic_enabled();
+                    bool on = id(satellite)->is_mic_enabled();
+                    lv_label_set_text(id(state_label), on ? "Listening" : "Mic off");
+                    lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(on ? 0x16A34A : 0x475569), 0);
+                    lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
         - button:
             id: btn_mute
             align: BOTTOM_RIGHT
@@ -494,7 +501,12 @@ lvgl:
             shadow_width: 0
             on_click:
               then:
-                - lambda: 'id(satellite)->toggle_muted();'
+                - lambda: |-
+                    id(satellite)->toggle_muted();
+                    bool m = id(satellite)->is_muted();
+                    lv_label_set_text(id(state_label), m ? "Text only" : "Voice reply");
+                    lv_obj_set_style_bg_color(id(state_footer), lv_color_hex(m ? 0xD97706 : 0x2563EB), 0);
+                    lv_obj_clear_flag(id(state_footer), LV_OBJ_FLAG_HIDDEN);
 
     # ── Full-screen camera (perf test) ─────────────────────────────────────────
     # cam_img is repointed every new frame at the hardware-decoded RGB565 buffer

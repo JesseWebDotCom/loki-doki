@@ -106,7 +106,7 @@ function WidgetContent({ w, theme, fs, weather, isNight }: { w: WidgetPlacement;
 function PreviewControl({ side, Icon, label, accent, text, fs }: { side: 'left' | 'right'; Icon: typeof Ear; label: string; accent: string; text: string; fs: number }) {
   return (
     <div className="absolute flex flex-col items-center gap-2" style={{ [side]: 48, bottom: 28, color: text } as React.CSSProperties}>
-      <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: side === 'left' ? accent : 'rgba(255,255,255,0.14)' }}>
+      <span className="flex items-center justify-center rounded-full" style={{ width: 112, height: 112, background: accent }}>
         <Icon className="text-white" style={{ width: 56, height: 56 }} />
       </span>
       <span style={{ fontSize: 24 * fs, opacity: 0.85 }}>{label}</span>
